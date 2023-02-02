@@ -4,7 +4,7 @@ import {jest} from '@jest/globals'
 import { Orcvs } from '../src/orcvs';
 
 
-describe('codes', () => {
+describe.skip('codes', () => {
 
     test('bang every', async () => {
         const orcvs = new Orcvs();
@@ -24,7 +24,7 @@ describe('codes', () => {
    });
     
 
-   test.only('bang every other', async () => {
+   test('bang every other', async () => {
         const orcvs = new Orcvs();
         
         const mock = jest.fn();

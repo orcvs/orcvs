@@ -16,13 +16,16 @@ export class Clock {
     callback: Tick;
 
     constructor(callback: Tick) {
-        this.bpm = DEFAULT_BPM;
+        console.info('Clock', 'new');
+        console.info('Clock', 'new', callback);
         this.callback = callback;
     }
 
     tick() {
+        // console.info('Clock', 'tick');
+        // console.log('Clock', 'tick', this)
+        // console.log('Clock', 'tick', this.callback)
         this.frame++ 
-        this.callback();
     }
 
     reset() {
@@ -43,17 +46,47 @@ export class Clock {
       }
     }
 
-    setTimer() {
-        this.timer = new Worker(WORKER_SCRIPT, { eval: true });
-        this.timer.on('message', this.tick);
+    async setTimer() {
+        console.info('Clock', 'setTimer');
+        // return (async () => {
+        //     this.timer = new Worker(WORKER_SCRIPT, { eval: true });     
+        //     this.timer.on('message', () => {
+        //         this.tick();           
+        //         this.callback();
+        //     });    
+        //     const ms = this.ms_per_beat();
+        //     this.timer.postMessage(ms);
+            
+        // })().catch(console.error);
+
+        return new Promise((resolve, reject) => { 
+            this.timer = new Worker(WORKER_SCRIPT, { eval: true });     
+            this.timer.on('message', () => {
+                this.tick();           
+                this.callback();
+            });    
+
+            this.timer.on("error", () => {
+                console.error('Clock', 'timer');
+            });
+        
+            this.timer.on("exit", () => {
+                // threads.delete(worker);
+                console.info('Clock', 'timer/exit');
+                return resolve;
+            });
+
+            const ms = this.ms_per_beat();
+            this.timer.postMessage(ms);
+        });
     }
 
-    start() {
-        this.stop();
-        this.setTimer();
+    async start() {
+        console.info('Clock', 'start');
+        this.stop();        
         this.running = true;
-        const ms = this.ms_per_beat();
-        this.timer.postMessage(ms);
+        await this.setTimer();
+        // console.info('Clock', 'running', true);
     }
 
     ms_per_beat() {
@@ -61,11 +94,12 @@ export class Clock {
     }
 
     stop() {
-        if (this.timer) {
-            // console.log('TERMINATE');
-            this.timer.terminate();
-            // delete this.timer;
-        }
+      if (this.timer) {
+        // console.log('TERMINATE');
+        this.timer.terminate();        
+        this.running = false;
+        // delete this.timer;
+      }
     }
 }
 

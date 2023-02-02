@@ -28,6 +28,7 @@
     "typescript": "^4.9.4"
   },
   "dependencies": {
+    "module-from-string": "^3.3.0",
     "vscode": "^1.1.34",
     "webmidi": "^3.1.2"
   }

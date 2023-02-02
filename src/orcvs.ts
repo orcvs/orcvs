@@ -5,13 +5,18 @@ const BANG = '!'
 
 type Callback = () => void
 
-export class Orcvs {
+export interface IOrcvs {
+  bang: (pattern: Pattern | string, fn: Callback) => void;
+}
+
+export class Orcvs implements IOrcvs {
   clock: Clock;
   midi: Midi;
   patterns: Pattern[] = [];
 
   constructor() { 
-    this.clock = new Clock(this.tick);
+    this.clock = new Clock( () => this.tick() )
+    console.log( this.clock )
     this.midi = new Midi();
   }
 
@@ -36,16 +41,21 @@ export class Orcvs {
   }
 
   tick() {
-    this.run_patterns();
+    // console.info('Orcvs', 'tick');
+    // console.info('Orcvs', 'tick', this);
+    this.runPatterns();
     this.midi.tick();
   }
 
-  run_patterns() {
+  async run() {
+    await this.clock.start()
+  }
+
+  runPatterns() {
     const frame = this.clock.frame;
     for (const pattern of this.patterns) {
       // console.log('run_patterns', { frame });
       pattern.bang(frame);
-  
     }
   }
 }
