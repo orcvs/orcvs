@@ -1,0 +1,26 @@
+{
+	"compilerOptions": {
+		"allowJs": true,
+		"module": "NodeNext",
+        "moduleResolution": "Node",
+        "esModuleInterop": true,
+		"target": "ES2021",
+		"lib": ["ES2021","DOM", "DOM.Iterable"],
+		"outDir": "dist",
+		"sourceMap": true,
+		"declaration": true,
+		"strict": true,
+		"rootDir": ".",
+		"baseUrl": ".",
+		"rootDirs": ["src", "tests"]
+	},
+    "ts-node": {
+        "esm": true
+    },
+    "include": [
+        "src/**/*.ts", 
+        "tests/**/*.ts"
+    ],
+	"exclude": ["node_modules/**"],
+
+}
