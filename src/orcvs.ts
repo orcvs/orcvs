@@ -6,7 +6,7 @@ const BANG = '!'
 type Callback = () => void
 
 export interface IOrcvs {
-  bang: (pattern: Pattern | string, fn: Callback) => void;
+  bang: (pattern: string, fn: Callback) => void;
 }
 
 export class Orcvs implements IOrcvs {
@@ -29,11 +29,9 @@ export class Orcvs implements IOrcvs {
     await this.midi.stop();
   }
 
-  bang(pattern: Pattern | string, fn: Callback) {
-    if (typeof pattern === 'string'){
-      pattern = ptn(pattern, fn);
-    }
-    this.patterns.push(pattern);
+  bang(pattern: string, fn: Callback) {
+    const ptn = new Pattern(pattern, fn);
+    this.patterns.push(ptn);
   }
 
   play(channel: number, octave: number, note: string, attack: number, duration: number) {    
@@ -84,9 +82,4 @@ export class Pattern {
       }      
     // }    
   }
-
-}
-
-export function ptn(str: string, fn: Callback): Pattern {         
-    return new Pattern(str, fn);
 }
