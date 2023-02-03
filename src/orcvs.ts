@@ -58,13 +58,28 @@ export class Orcvs implements IOrcvs {
   }
 }
 
+type Context = { [name: string]: any };
+
+const Context: Context = {
+  lerp: (value: number) => {
+    console.log(this);
+  }
+}
+
+// Object.getOwnPropertyNames(this.context).forEach((key) => {
+//   if (key !== 'constructor') {
+//     this[key] = this[key].bind(this);
+//   }
+// });
+
 export class Pattern {
   ptn: string[]
   fn: Callback;
-  
+  context: Context = Object.assign({}, Context);
+
   constructor(str: string, fn: Callback) {
       this.ptn = [...str]
-      this.fn = fn;
+      this.fn = fn; //.bind(Context);
   }
 
   shouldBang(f: number) {     
@@ -77,8 +92,15 @@ export class Pattern {
     // console.log('patterns.bang', this.fn);
     // console.log('patterns.bang', this.shouldBang(f));
     // if (this.fn) {  
-      if (this.shouldBang(f)) {          
-        this.fn();
+      console.log('Pattern.bang', this.fn)
+      if (this.shouldBang(f)) {  
+        // (() => {
+          var lerp = this.context.lerp
+          this.fn.call(this);
+        // })()
+
+                    
+        // this.fn.call(Context);
       }      
     // }    
   }

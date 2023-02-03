@@ -120,7 +120,7 @@ describe.skip('clock', () => {
         const clock = new Clock(tick);
         
         clock.setBpm(bpm)
-        clock.setTimer = () => timer
+        clock.setTimer = () => new Promise(() => {});
 
         clock.start();
         jest.advanceTimersByTime(1000);

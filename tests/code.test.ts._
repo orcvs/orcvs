@@ -31,7 +31,6 @@ describe('code', () => {
       const source = `
         bang();
       `
-
       const code = await codify(source)
 
       const result = code();

@@ -3,17 +3,17 @@ import { importFromString } from 'module-from-string'
 import { IOrcvs } from '../src/orcvs';
 
 
-declare global {
-  var orcvs: IOrcvs;
-  var bang: any
-}
+// declare global {
+//   var orcvs: IOrcvs;
+//   var bang: any
+// }
 
-export function registerGlobal(orcvs: IOrcvs) {
-  globalThis.orcvs = orcvs;
-  globalThis.bang = (pattern: string, fn: any) => { 
-    orcvs.bang(pattern, fn);
-  }
-}
+// export function registerGlobal(orcvs: IOrcvs) {
+//   globalThis.orcvs = orcvs;
+//   globalThis.bang = (pattern: string, fn: any) => { 
+//     orcvs.bang(pattern, fn);
+//   }
+// }
 
 export async function codify(source: string) {
   const module = `
