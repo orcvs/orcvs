@@ -40,7 +40,7 @@ export class Midi {
   }
   
   tick() {    
-    console.info('MIDI', 'tick');
+    // console.info('MIDI', 'tick');
     for (let i in this.buffer) {
       const { id, note } = this.buffer[i];
 

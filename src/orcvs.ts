@@ -3,58 +3,95 @@ import { Midi } from './midi'
 
 const BANG = '!'
 
-export interface IOrcvs {
-  // bang: (pattern: string, fn: Callback) => void;
-}
+// class _Orcvs {
+//   clock: typeof Clock;
+//   midi: Midi;
+//   // pattern: Pattern;
+//   // patterns: Pattern[] = [];
 
-export class Orcvs implements IOrcvs {
-  clock: Clock;
-  midi: Midi;
-  // pattern: Pattern;
-  // patterns: Pattern[] = [];
+//   constructor() { 
+//     this.clock = Clock( () => this.tick() )
+//     console.log( this.clock )
+//     this.midi = new Midi();
+//   }
 
-  constructor() { 
-    this.clock = new Clock( () => this.tick() )
-    console.log( this.clock )
-    this.midi = new Midi();
+//   async init() {
+//     await this.midi.setup();
+//     this.midi.selectOutput('LoopMidi');
+//   }
+
+//   async stop() {
+//     await this.midi.stop();
+//   }
+
+//   // bang(pattern: string, fn: Callback) {
+//   //   const ptn = PatternImpl(pattern, fn);
+//   //   this.patterns.push(ptn);
+//   // }
+
+//   play(channel: number, octave: number, note: string, attack: number, duration: number) {    
+//     this.midi.push(channel, octave, note, attack, duration);
+//   }
+
+//   tick() {
+//     // console.info('Orcvs', 'tick');
+//     // console.info('Orcvs', 'tick', this);
+//     // this.runPatterns();
+//     this.midi.tick();
+//   }
+
+//   async run() {
+//     await this.clock.start()
+//   }
+
+//   // runPatterns() {
+//   //   const frame = this.clock.frame;
+//   //   for (const pattern of this.patterns) {
+//   //     // console.log('run_patterns', { frame });
+//   //     pattern.bang(frame);
+//   //   }
+//   // }
+// }
+
+
+//o̶͎͓̜̮͘r̶̼̀̿͗c̵̡̮̮̀v̶̼͂s̵̞͙̅̒̋ͅ
+
+export function Orcvs() {
+  var clock = Clock(tick)
+  var midi = new Midi();
+
+  async function init() {
+    console.info('Orcvs', 'init');
+    await midi.setup();  
+    midi.selectOutput('LoopMidi');
   }
 
-  async init() {
-    await this.midi.setup();
-    this.midi.selectOutput('LoopMidi');
+  function tick() {
+    midi.tick();
   }
 
-  async stop() {
-    await this.midi.stop();
+  function setBpm(bpm: number) {
+    clock.setBpm(bpm);
   }
 
-  // bang(pattern: string, fn: Callback) {
-  //   const ptn = PatternImpl(pattern, fn);
-  //   this.patterns.push(ptn);
-  // }
-
-  play(channel: number, octave: number, note: string, attack: number, duration: number) {    
-    this.midi.push(channel, octave, note, attack, duration);
+  async function start() {
+    console.info('Orcvs', 'start');
+    clock.start();   
   }
 
-  tick() {
-    // console.info('Orcvs', 'tick');
-    // console.info('Orcvs', 'tick', this);
-    // this.runPatterns();
-    this.midi.tick();
+  async function stop() {
+    console.info('Orcvs', 'stop');
+    await clock.stop();
+    await midi.stop();
   }
 
-  async run() {
-    await this.clock.start()
+  return {
+    init,
+    setBpm,
+    start,
+    stop,
+    tick
   }
-
-  // runPatterns() {
-  //   const frame = this.clock.frame;
-  //   for (const pattern of this.patterns) {
-  //     // console.log('run_patterns', { frame });
-  //     pattern.bang(frame);
-  //   }
-  // }
 }
 
 

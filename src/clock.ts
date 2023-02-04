@@ -8,98 +8,89 @@ const DEFAULT_BPM = 120;
 
 type Tick = () => void;
 
-export class Clock {
-    bpm = DEFAULT_BPM;
-    frame = 0;
-    running = false;
-    timer!: Worker;
-    callback: Tick;
+export function Clock(callback: Tick) {
+    var bpm = DEFAULT_BPM;
+    var _frame = 0;
+    var running = false;
+    var timer!: Worker;
 
-    constructor(callback: Tick) {
-        console.info('Clock', 'new');
-        console.info('Clock', 'new', callback);
-        this.callback = callback;
+    function tick() {
+      _frame++;
     }
 
-    tick() {
-        // console.info('Clock', 'tick');
-        // console.log('Clock', 'tick', this)
-        // console.log('Clock', 'tick', this.callback)
-        this.frame++ 
+    function reset() {
+      _frame = 0;
     }
 
-    reset() {
-        this.frame = 0;
+    function touch() {
+      console.info('Clock', 'touch');
+      stop();
+      tick();
     }
 
-    touch() {
-        this.stop();
-        this.tick();
-    }
-
-    setBpm(bpm: number) {
-      if (this.bpm != bpm) {
-        this.bpm = bpm;
-        if (this.running) {
-            this.start();
+    async function setBpm(n: number) {
+      if (bpm != n) {
+        bpm = n;
+        if (running) {
+          await start();
         }        
       }
     }
 
-    async setTimer() {
-        console.info('Clock', 'setTimer');
-        // return (async () => {
-        //     this.timer = new Worker(WORKER_SCRIPT, { eval: true });     
-        //     this.timer.on('message', () => {
-        //         this.tick();           
-        //         this.callback();
-        //     });    
-        //     const ms = this.ms_per_beat();
-        //     this.timer.postMessage(ms);
-            
-        // })().catch(console.error);
-
-        return new Promise((resolve, reject) => { 
-            this.timer = new Worker(WORKER_SCRIPT, { eval: true });     
-            this.timer.on('message', () => {
-                this.tick();           
-                this.callback();
-            });    
-
-            this.timer.on("error", () => {
-                console.error('Clock', 'timer');
-            });
-        
-            this.timer.on("exit", () => {
-                // threads.delete(worker);
-                console.info('Clock', 'timer/exit');
-                return resolve;
-            });
-
-            const ms = this.ms_per_beat();
-            this.timer.postMessage(ms);
-        });
+    function frame() {
+      return _frame;
     }
 
-    async start() {
-        console.info('Clock', 'start');
-        this.stop();        
-        this.running = true;
-        await this.setTimer();
-        // console.info('Clock', 'running', true);
+    async function start() {
+      console.info('Clock', 'start');
+      await stop();        
+      running = true;
+      setTimer();
     }
 
-    ms_per_beat() {
-       return ( MINUTE  / this.bpm) / FRAMES_PER_BEAT;
-    }
-
-    stop() {
-      if (this.timer) {
-        // console.log('TERMINATE');
-        this.timer.terminate();        
-        this.running = false;
-        // delete this.timer;
+    async function stop() {
+      console.info('Clock', 'stop');
+      if (timer !== undefined) {
+        await timer.terminate();        
+        running = false;
       }
+    }
+
+    function ms_per_beat() {
+      return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
+    }
+
+    async function setTimer() {
+      console.info('Clock', 'setTimer');
+
+      return new Promise((resolve, reject) => { 
+          timer = new Worker(WORKER_SCRIPT, { eval: true });     
+          timer.on('message', () => {           
+            tick();           
+            callback();
+          });    
+
+          const ms = ms_per_beat();
+          timer.postMessage(ms);
+          // timer.on("error", () => {
+          //     console.error('Clock', 'timer');
+          // });
+      
+          // timer.on("exit", () => {
+          //     // threads.delete(worker);
+          //     console.info('Clock', 'timer/exit');
+          //     return resolve;
+          // });
+      });
+    }
+
+    return {
+      frame,
+      setBpm,
+      start,
+      stop,
+      touch,
+      tick
     }
 }
 

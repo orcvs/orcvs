@@ -1,8 +1,5 @@
 import { importFromString } from 'module-from-string'
 
-import { IOrcvs } from '../src/orcvs';
-
-
 // declare global {
 //   var orcvs: IOrcvs;
 //   var bang: any

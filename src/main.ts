@@ -1,34 +1,21 @@
-
-import vm from 'node:vm';
-
-
-const code = `
-    console.log('hello');
-`;
+import { Orcvs } from './orcvs'
 
 
 async function main(): Promise<void> {
-    console.log("main");
+    const orcvs = Orcvs();
 
-    // const orcvs = new Orcvs();
-    // await orcvs.init();
+    console.info('Welcome to Orcvs');
+
+    await orcvs.init();
+    await orcvs.start();
 
 
-    // const context = { midi: orcvs.midi };
-    // vm.createContext(context); 
-
-    // // clock.tick( () => {  
-    //     vm.runInContext(code, context);
-    // // });
-
-    // await new Promise((r) => setTimeout(r, 1000));
-    // await orcvs.stop();
-    // Promise.resolve();
+    console.log("HERE");
 }
   
 if (require.main === module) {
     main()
-        .then( () => console.info("End") )
+        .then( () => console.info("Terminated") )
         .catch( (err) => console.error(err) );
 }
 
