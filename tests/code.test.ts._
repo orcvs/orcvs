@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { codify, registerGlobal } from '../src/code';
+import { codify, registerGlobal } from './code';
 import { Orcvs } from './orcvs';
 
 

@@ -3,16 +3,15 @@ import { Midi } from './midi'
 
 const BANG = '!'
 
-type Callback = () => void
-
 export interface IOrcvs {
-  bang: (pattern: string, fn: Callback) => void;
+  // bang: (pattern: string, fn: Callback) => void;
 }
 
 export class Orcvs implements IOrcvs {
   clock: Clock;
   midi: Midi;
-  patterns: Pattern[] = [];
+  // pattern: Pattern;
+  // patterns: Pattern[] = [];
 
   constructor() { 
     this.clock = new Clock( () => this.tick() )
@@ -29,10 +28,10 @@ export class Orcvs implements IOrcvs {
     await this.midi.stop();
   }
 
-  bang(pattern: string, fn: Callback) {
-    const ptn = new Pattern(pattern, fn);
-    this.patterns.push(ptn);
-  }
+  // bang(pattern: string, fn: Callback) {
+  //   const ptn = PatternImpl(pattern, fn);
+  //   this.patterns.push(ptn);
+  // }
 
   play(channel: number, octave: number, note: string, attack: number, duration: number) {    
     this.midi.push(channel, octave, note, attack, duration);
@@ -41,7 +40,7 @@ export class Orcvs implements IOrcvs {
   tick() {
     // console.info('Orcvs', 'tick');
     // console.info('Orcvs', 'tick', this);
-    this.runPatterns();
+    // this.runPatterns();
     this.midi.tick();
   }
 
@@ -49,59 +48,192 @@ export class Orcvs implements IOrcvs {
     await this.clock.start()
   }
 
-  runPatterns() {
-    const frame = this.clock.frame;
-    for (const pattern of this.patterns) {
-      // console.log('run_patterns', { frame });
-      pattern.bang(frame);
+  // runPatterns() {
+  //   const frame = this.clock.frame;
+  //   for (const pattern of this.patterns) {
+  //     // console.log('run_patterns', { frame });
+  //     pattern.bang(frame);
+  //   }
+  // }
+}
+
+
+function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
+
+const varToString = (v: any) => Object.keys(v)[0]
+
+export type Callback = (o: Pattern) => void;
+
+export type Pattern = {
+  bang: (str: string, callback: any) => void;
+  tick: (f?: number) => void;
+  lerp(to: number): Computer;
+  lerp(from: number, to?: number): Computer;
+  cycle(to: number): Computer
+  cycle(from: number, to: number): Computer
+  wave(to: number): Computer
+  wave(from: number, to: number): Computer
+}
+
+// o̶͎͓̜̮͘r̶̼̀̿͗c̵̡̮̮̀v̶̼͂s̵̞͙̅̒̋ͅ
+
+export function PatternImpl(str: string, callback: Callback): Pattern {
+  var pattern: string[] = [...str]
+
+  var patterns: { [name: string]: Pattern } = {}
+
+  const self: Pattern = {
+    tick,
+    bang,
+    lerp,
+    cycle,
+    wave,
+  }
+
+  function tick(f: number = 0) {
+    if (shouldBang(f)) {
+      // ts-expect-error 
+      callback(self);   
+
+      for (const pattern of Object.values(patterns)) {
+        pattern.tick(f);
+      }
     }
   }
+
+  function bang(str: string, callback: Callback) {
+    if (!patterns[str]) {
+      const ptn = PatternImpl(str, callback);
+      patterns[str] = ptn;
+    }
+  }
+
+  function shouldBang(f: number) {     
+    const idx = f % pattern.length;
+    return pattern[idx] === '!'
+  }
+
+  return self;
 }
 
-type Context = { [name: string]: any };
 
-const Context: Context = {
-  lerp: (value: number) => {
-    console.log(this);
-  }
-}
+export function lerp(to: number): Computer
+export function lerp(from: number, to?: number): Computer
 
-// Object.getOwnPropertyNames(this.context).forEach((key) => {
-//   if (key !== 'constructor') {
-//     this[key] = this[key].bind(this);
-//   }
-// });
+export function lerp(tofrom: number, to?: number): Computer {
 
-export class Pattern {
-  ptn: string[]
-  fn: Callback;
-  context: Context = Object.assign({}, Context);
+  const start = to === undefined ? 0 : tofrom;
+  const target = to === undefined ? tofrom : to;
 
-  constructor(str: string, fn: Callback) {
-      this.ptn = [...str]
-      this.fn = fn; //.bind(Context);
-  }
-
-  shouldBang(f: number) {     
-    const idx = f % this.ptn.length;
-    return this.ptn[idx] === BANG
-  }
-
-  bang(f: number) {   
-    // console.log('patterns.bang', { f });
-    // console.log('patterns.bang', this.fn);
-    // console.log('patterns.bang', this.shouldBang(f));
-    // if (this.fn) {  
-      console.log('Pattern.bang', this.fn)
-      if (this.shouldBang(f)) {  
-        // (() => {
-          var lerp = this.context.lerp
-          this.fn.call(this);
-        // })()
-
-                    
-        // this.fn.call(Context);
+  return (function(start: number, target: number) {
+    var value: number;
+    
+    return function() {
+      if (value === undefined ) {
+        value = start
+        return value;
+      }
+      
+      if (value > target) {
+        value = clamp(value - 1, target, start);   
       }      
-    // }    
-  }
+      
+      if (value < target) {
+        value = clamp(value + 1, start, target);   
+      }
+     
+      return value;
+    }
+  }(start, target));
 }
+
+export function cycle(to: number): Computer
+export function cycle(from: number, to: number): Computer
+
+export function cycle(tofrom: number, to?: number): Computer {
+
+  const start = to === undefined ? 0 : tofrom;
+  const target = to === undefined ? tofrom : to;
+
+  return (function(start: number, target: number) {
+    var value: number;
+    
+    return function() {
+      if (value === undefined ) {
+        value = start
+        return value;
+      }
+      
+      // At limit, start the cycle
+      if (value === target) {
+        value = start;
+        return value;
+      }
+
+      if (value > target) {
+        value = clamp(value - 1, target, start);   
+      }      
+      
+      if (value < target) {
+        value = clamp(value + 1, start, target);   
+      }
+     
+      return value;
+    }
+  }(start, target));
+}
+
+export function wave(to: number): Computer
+export function wave(from: number, to: number): Computer
+
+export function wave(tofrom: number, to?: number): Computer {
+
+  const start = to === undefined ? 0 : tofrom;
+  const target = to === undefined ? tofrom : to;
+
+  return (function(start: number, target: number) {
+    var value: number;
+    
+    return function() {
+      if (value === undefined ) {
+        value = start
+        return value;
+      }
+      
+      // At limit, flip start/target
+      if (value === target) {
+        [start, target] = [target, start];
+      }
+
+      if (value > target) {
+        value = clamp(value - 1, target, start);   
+      }      
+      
+      if (value < target) {
+        value = clamp(value + 1, start, target);   
+      }
+     
+      return value;
+    }
+  }(start, target));
+}
+
+export type Computer = (() => number);
+
+export type Numputer = number | (() => number);
+
+export function compute(n: Numputer) {
+  if (typeof n === "function") {
+    return n();
+  }
+  return n;
+}
+
+function play(channel: number, octave: Numputer, note: string, attack: Numputer, duration: Numputer) {    
+  octave = compute(octave);
+  attack = compute(attack);
+  duration = compute(duration);
+
+  // this.midi.push(channel, octave, note, attack, duration);
+}
+
