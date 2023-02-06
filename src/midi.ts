@@ -1,6 +1,12 @@
 import { WebMidi, Output, Note as MidiNote} from 'webmidi';
 
+import { Logger } from "./logger";
+
 // type Note = { channel: number, octave: number, note: string, attack: number, duration: number }
+
+const logger = Logger.child({
+  source: 'Midi'
+});
 
 class Note extends MidiNote {
     played = false;
@@ -29,14 +35,14 @@ export class Midi {
   }
 
   async setup() {
-    console.log('WebMidi setup');
+    logger.info('Midi.setup');
     try {
       await WebMidi.enable();
     } catch(error) {
       // console.error('ERROR');
-      console.error(error);
+      logger.error(error);
     }
-    console.info('MIDI', 'WebMidi enabled');
+    logger.info('WebMidi enabled');
   }
   
   tick() {    
@@ -60,7 +66,7 @@ export class Midi {
   
   on(id: number, note: Note) {
     if (this.output) {
-      console.info('MIDI', 'on', note);
+      logger.debug('on');
       let channel = this.output.channels[id];
       // channel.playNote(note, { duration: note.duration });
       channel.sendNoteOn(note);
@@ -69,10 +75,9 @@ export class Midi {
   
   off(id: number, note: Note) {
     if (this.output) {
-      console.info('MIDI', 'off', note);
+      logger.debug('off');
       let channel = this.output.channels[id];
       // channel.sendNoteOff(note);      
-      console.info('MIDI', 'off', note);
     }
   }
 
@@ -90,27 +95,28 @@ export class Midi {
     //   // const channels = this.buffer.map( ({id, _}) => id);
     //   // this.output.sendAllSoundOff({ channels });
     // }
+    logger.info('stop');
     await WebMidi.disable();
-    console.info('MIDI', 'WebMidi disabled');
+    logger.info('WebMidi disabled');
   }
 
   selectOutput(output: number | string) {
     if (typeof output === "number") {
       this.output = WebMidi.outputs[output];
       if (!this.output) {
-        console.warn('MIDI', `Unknown device with index: ${output}`);
+        logger.warn(`Unknown device with index: ${output}`);
       }
     }
 
     if (typeof output === "string") {
       this.output = WebMidi.getOutputByName(output);
       if (!this.output) {
-        console.warn('MIDI', `Unknown device with name: ${output}`);
+        logger.warn(`Unknown device with name: ${output}`);
       }
     }
 
     if (this.output) {
-      console.info('MIDI', `Output Device: ${this.output?.name}`);
+      logger.info(`Output Device: ${this.output?.name}`);
     }
   }
 }

@@ -1,4 +1,6 @@
+import { readFileSync } from 'fs';
 import { importFromString } from 'module-from-string'
+
 
 // declare global {
 //   var orcvs: IOrcvs;
@@ -12,7 +14,16 @@ import { importFromString } from 'module-from-string'
 //   }
 // }
 
+function sourceFromFile(filename: string) {
+  const code = readFileSync(filename, { encoding: 'utf8' });
+  return code;
+}
+
+
 export async function codify(source: string) {
+  if (source.includes('.orcvs.')) {
+    source = sourceFromFile(source);
+  }
   const module = `
     export const code = () => {
       ${source}

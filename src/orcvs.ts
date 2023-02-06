@@ -1,99 +1,74 @@
 import { Clock } from './clock';
 import { Midi } from './midi'
 
+import { Logger } from "./logger";
+
 const BANG = '!'
 
-// class _Orcvs {
-//   clock: typeof Clock;
-//   midi: Midi;
-//   // pattern: Pattern;
-//   // patterns: Pattern[] = [];
+export const ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';
 
-//   constructor() { 
-//     this.clock = Clock( () => this.tick() )
-//     console.log( this.clock )
-//     this.midi = new Midi();
-//   }
+const logger = Logger.child({
+  source: 'Orcvs'
+});
 
-//   async init() {
-//     await this.midi.setup();
-//     this.midi.selectOutput('LoopMidi');
-//   }
-
-//   async stop() {
-//     await this.midi.stop();
-//   }
-
-//   // bang(pattern: string, fn: Callback) {
-//   //   const ptn = PatternImpl(pattern, fn);
-//   //   this.patterns.push(ptn);
-//   // }
-
-//   play(channel: number, octave: number, note: string, attack: number, duration: number) {    
-//     this.midi.push(channel, octave, note, attack, duration);
-//   }
-
-//   tick() {
-//     // console.info('Orcvs', 'tick');
-//     // console.info('Orcvs', 'tick', this);
-//     // this.runPatterns();
-//     this.midi.tick();
-//   }
-
-//   async run() {
-//     await this.clock.start()
-//   }
-
-//   // runPatterns() {
-//   //   const frame = this.clock.frame;
-//   //   for (const pattern of this.patterns) {
-//   //     // console.log('run_patterns', { frame });
-//   //     pattern.bang(frame);
-//   //   }
-//   // }
+// declare global {
+//   var orcvs: IOrcvs;
+//   var bang: any
 // }
-
-
-//o̶͎͓̜̮͘r̶̼̀̿͗c̵̡̮̮̀v̶̼͂s̵̞͙̅̒̋ͅ
 
 export function Orcvs() {
   var clock = Clock(tick)
   var midi = new Midi();
 
   async function init() {
-    console.info('Orcvs', 'init');
+    // logger.debug('init');
     await midi.setup();  
-    midi.selectOutput('LoopMidi');
+    // midi.selectOutput('LoopMidi');
+    midi.selectOutput(0);
+  }
+
+  async function load(filename: string) {
+    
+  }
+
+  function reset() {
+    clock.reset();
+  }
+
+  async function setBPM(bpm: number) {
+    await clock.setBPM(bpm);
+  }  
+
+  async function start() {
+    logger.info('start');
+    clock.start();   
+  }
+  
+  async function stop() {
+    logger.info('stop');
+    await clock.stop();
+    await midi.stop();
   }
 
   function tick() {
     midi.tick();
   }
-
-  function setBpm(bpm: number) {
-    clock.setBpm(bpm);
-  }
-
-  async function start() {
-    console.info('Orcvs', 'start');
-    clock.start();   
-  }
-
-  async function stop() {
-    console.info('Orcvs', 'stop');
-    await clock.stop();
-    await midi.stop();
+  
+  async function touch() {
+    logger.info('touch');
+    clock.touch();   
   }
 
   return {
     init,
-    setBpm,
+    reset,
+    setBPM,
     start,
     stop,
-    tick
+    tick,
+    touch
   }
 }
-
 
 function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
 
@@ -120,10 +95,10 @@ export function PatternImpl(str: string, callback: Callback): Pattern {
   var patterns: { [name: string]: Pattern } = {}
 
   const self: Pattern = {
-    tick,
     bang,
-    lerp,
     cycle,
+    lerp,
+    tick,
     wave,
   }
 
@@ -147,12 +122,11 @@ export function PatternImpl(str: string, callback: Callback): Pattern {
 
   function shouldBang(f: number) {     
     const idx = f % pattern.length;
-    return pattern[idx] === '!'
+    return pattern[idx] === BANG;
   }
 
   return self;
 }
-
 
 export function lerp(to: number): Computer
 export function lerp(from: number, to?: number): Computer
@@ -273,4 +247,3 @@ function play(channel: number, octave: Numputer, note: string, attack: Numputer,
 
   // this.midi.push(channel, octave, note, attack, duration);
 }
-
