@@ -11,7 +11,10 @@ const formatters = {
 
 const level = process.env.LOG_LEVEL === undefined ? 'info' : process.env.LOG_LEVEL.trim();
 
+const sync = level === 'debug'; 
+
 export const Logger = pino({
   level,
   formatters,
+  sync,
 });
