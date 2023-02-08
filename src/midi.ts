@@ -14,8 +14,7 @@ class Note extends MidiNote {
     tick() {
       if (this.duration !== 0) {
         this.duration--;
-      }
-     
+      }     
     }
 
     play() {
@@ -27,14 +26,59 @@ class Note extends MidiNote {
     }
 }
 
-export class Midi {
-  output: Output | null = null;
-  buffer: { id: number, note: Note }[] = []
+export type Buffer = { channel: number, note: Note }[] 
+
+export function Midi(buffer: Buffer = []) {
+  var output: Output | null = null;
   
-  constructor() {
+  function off(id: number, note: Note) {
+    if (output) {
+      logger.debug('off');
+      let channel = output.channels[id];
+      // channel.sendNoteOff(note);      
+    }
+  }  
+  
+  function on(id: number, note: Note) {
+    if (output) {
+      logger.debug('on');
+      let channel = output.channels[id];
+      // channel.playNote(note, { duration: note.duration });
+      channel.sendNoteOn(note);
+    }
+  }
+    
+
+  function push(channel: number, octave: number, note: string, attack: number, duration: number) {          
+    const value = note + octave
+    buffer.push({ channel,  note: new Note(value, { attack, duration }) });
   }
 
-  async setup() {
+  function pull(idx: number) {
+    buffer.splice(idx, 1);
+  }
+
+  function selectOutput(selected: number | string) {
+    if (typeof selected === "number") {
+      output = WebMidi.outputs[selected];
+      if (!output) {
+        logger.warn(`Unknown device with index: ${selected}`);
+      }
+    }
+
+    if (typeof selected === "string") {
+      output = WebMidi.getOutputByName(selected);
+      if (!output) {
+        logger.warn(`Unknown device with name: ${selected}`);
+      }
+    }
+
+    if (output) {
+      logger.info(`Output Device: ${output.name}`);
+    }
+  }
+
+  async function setup() {
     logger.info('Midi.setup');
     try {
       await WebMidi.enable();
@@ -43,54 +87,9 @@ export class Midi {
       logger.error(error);
     }
     logger.info('WebMidi enabled');
-  }
-  
-  tick() {    
-    // console.info('MIDI', 'tick');
-    for (let i in this.buffer) {
-      const { id, note } = this.buffer[i];
+  }  
 
-      if (!note.isPlayed()) {
-        this.on(id, note);
-        note.play();
-      }      
-   
-      if(note.duration === 0) {
-        this.off(id, note)
-        this.pull(id)
-      }
-
-      note.tick();
-    }
-  }
-  
-  on(id: number, note: Note) {
-    if (this.output) {
-      logger.debug('on');
-      let channel = this.output.channels[id];
-      // channel.playNote(note, { duration: note.duration });
-      channel.sendNoteOn(note);
-    }
-  }
-  
-  off(id: number, note: Note) {
-    if (this.output) {
-      logger.debug('off');
-      let channel = this.output.channels[id];
-      // channel.sendNoteOff(note);      
-    }
-  }
-
-  push(channel: number, octave: number, note: string, attack: number, duration: number) {          
-    const value = note + octave
-    this.buffer.push({ id: channel,  note: new Note(value, { attack, duration }) });
-  }
-
-  pull(id: number) {
-    delete this.buffer[id]
-  }
-
-  async stop() {
+  async function stop() {
     // if (this.output) {
     //   // const channels = this.buffer.map( ({id, _}) => id);
     //   // this.output.sendAllSoundOff({ channels });
@@ -100,23 +99,34 @@ export class Midi {
     logger.info('WebMidi disabled');
   }
 
-  selectOutput(output: number | string) {
-    if (typeof output === "number") {
-      this.output = WebMidi.outputs[output];
-      if (!this.output) {
-        logger.warn(`Unknown device with index: ${output}`);
-      }
-    }
+  async function tick() {    
+    // console.info('MIDI', 'tick');
+    for (let idx = 0; idx < buffer.length; idx++) {
+      const { channel, note } = buffer[idx];
 
-    if (typeof output === "string") {
-      this.output = WebMidi.getOutputByName(output);
-      if (!this.output) {
-        logger.warn(`Unknown device with name: ${output}`);
+      if (!note.isPlayed()) {
+        on(channel, note);
+        note.play();
+      }      
+   
+      if(note.duration === 0) {
+        off(channel, note)
+        pull(idx);
       }
-    }
 
-    if (this.output) {
-      logger.info(`Output Device: ${this.output?.name}`);
+      note.tick();
     }
   }
+
+  return {
+    off,
+    on,
+    push,
+    pull,
+    selectOutput,
+    setup,
+    stop,
+    tick,
+  }
+
 }
