@@ -3,6 +3,8 @@ import { Midi } from './midi'
 import { codify } from './code'
 
 import { Logger } from "./logger";
+import { BANG, pattern } from './library';
+
 
 export const ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';
 
@@ -18,6 +20,7 @@ const logger = Logger.child({
 export function Orcvs() {
   var clock = Clock(tick)
   var midi = Midi();
+  var code: (() => {});
 
   async function init() {
     // logger.debug('init');
@@ -26,9 +29,10 @@ export function Orcvs() {
     midi.selectOutput(0);
   }
 
-  async function load(filename: string) {
-    
-    codify(filename);
+  async function load(filename: string) {   
+    logger.info(`loading ${filename}`);   
+    code = await codify(filename);
+    code();
   }
 
   function reset() {

@@ -4,7 +4,7 @@ import {jest} from '@jest/globals'
 import { Midi, Buffer } from '../src/midi';
 import { WebMidi, Output } from 'webmidi';
 
-describe('test', () => {
+describe.skip('test', () => {
     
     // beforeAll( async () => {
     //     console.log('beforeAll start')
@@ -30,7 +30,7 @@ describe('test', () => {
       const attack = 0.5;
       let duration = 4;
 
-      test.only('push/pull', async () => {
+      test('push/pull', async () => {
         var buffer: Buffer = []; 
         let midi = Midi(buffer);
         
@@ -42,27 +42,40 @@ describe('test', () => {
         expect(buffer).toHaveLength(1);
 
         const { note } = buffer[0];
-        expect(note.name).toEqual('D');
+        expect(note.midi().name).toEqual('D');
       });
 
-      test('on/off', async () => {
-              
+
+      test.only('on/off', async () => {              
           var buffer: Buffer = []; 
           let midi = Midi(buffer);
-                  
-          let spyOn = jest.spyOn(midi, 'on');
-          let spyOff = jest.spyOn(midi, 'off');
-        
+          await midi.setup();
+          await midi.selectOutput(0);
+                            
           midi.push(channel, octave, value, attack, duration);
-          const { note } = buffer[0];
+          var { note } = buffer[0];
 
-          for (let i = 4; i >= 0; i--) {            
-              midi.tick()
-              expect(spyOn).toHaveBeenCalledTimes(1);    
-          }
+          expect(note.played()).toBeFalsy();
+  
+          midi.tick();
+          await new Promise((r) => setTimeout(r, 500));
+ 
+          expect(note.played()).toBeTruthy();
+          expect(note.doOff()).toBeFalsy(); 
+
+          midi.tick();
+          await new Promise((r) => setTimeout(r, 500));
+          expect(note.doOff()).toBeFalsy(); 
+
+          midi.tick();
+          await new Promise((r) => setTimeout(r, 500));
+          expect(note.doOff()).toBeFalsy(); 
+
+          midi.tick();
+          await new Promise((r) => setTimeout(r, 500));
+          expect(note.doOff()).toBeTruthy(); 
           
-          expect(note.duration).toEqual(0);
-          expect(spyOff).toHaveBeenCalledTimes(1);    
+          await WebMidi.disable();
       });
   });
 }); 

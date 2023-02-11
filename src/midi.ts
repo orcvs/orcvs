@@ -1,4 +1,5 @@
 import { WebMidi, Output, Note as MidiNote} from 'webmidi';
+import { P } from './library';
 
 import { Logger } from "./logger";
 
@@ -8,22 +9,49 @@ const logger = Logger.child({
   source: 'Midi'
 });
 
-class Note extends MidiNote {
-    played = false;
+interface Note {
+  midi: () => MidiNote;
+  doOff: () => boolean;
+  play: () => void;
+  played: () => boolean;
+  tick: () => void;
+}
 
-    tick() {
-      if (this.duration !== 0) {
-        this.duration--;
+export function note(value: string, attack: number, duration: number):Note {
+    var _played = false;
+    // let midi = midi();
+
+    const self = {
+      midi,
+      doOff,
+      play,
+      played,
+      tick
+    };
+
+    function tick() {
+      if (duration !== 0) {
+        duration--;
       }     
     }
 
-    play() {
-      this.played = true;
+    function play() {
+      _played = true;
+    }
+    
+    function played() {
+      return _played;
     }
 
-    isPlayed() {
-      return this.played;
+    function midi() {
+      return new MidiNote(value, { attack, duration });
     }
+
+    function doOff() {
+      return duration === 0
+    }
+
+    return self;
 }
 
 export type Buffer = { channel: number, note: Note }[] 
@@ -31,27 +59,35 @@ export type Buffer = { channel: number, note: Note }[]
 export function Midi(buffer: Buffer = []) {
   var output: Output | null = null;
   
+  const self = {
+    off,
+    on,
+    push,
+    pull,
+    selectOutput,
+    setup,
+    stop,
+    tick,
+  };
+
   function off(id: number, note: Note) {
     if (output) {
-      logger.debug('off');
       let channel = output.channels[id];
-      // channel.sendNoteOff(note);      
+      channel.sendNoteOff(note.midi());      
     }
   }  
   
-  function on(id: number, note: Note) {
+  function on(channelId: number, note: Note) {
     if (output) {
-      logger.debug('on');
-      let channel = output.channels[id];
+      let channel = output.channels[channelId];
       // channel.playNote(note, { duration: note.duration });
-      channel.sendNoteOn(note);
+      channel.sendNoteOn(note.midi());
     }
   }
     
-
-  function push(channel: number, octave: number, note: string, attack: number, duration: number) {          
-    const value = note + octave
-    buffer.push({ channel,  note: new Note(value, { attack, duration }) });
+  function push(channel: number, octave: number, value: string, attack: number, duration: number) {          
+    value = value + octave
+    buffer.push({ channel,  note: note(value, attack, duration) });
   }
 
   function pull(idx: number) {
@@ -84,7 +120,7 @@ export function Midi(buffer: Buffer = []) {
       await WebMidi.enable();
     } catch(error) {
       // console.error('ERROR');
-      logger.error(error);
+      logger.error(error);      
     }
     logger.info('WebMidi enabled');
   }  
@@ -94,22 +130,20 @@ export function Midi(buffer: Buffer = []) {
     //   // const channels = this.buffer.map( ({id, _}) => id);
     //   // this.output.sendAllSoundOff({ channels });
     // }
-    logger.info('stop');
     await WebMidi.disable();
-    logger.info('WebMidi disabled');
   }
 
-  async function tick() {    
-    // console.info('MIDI', 'tick');
+  function tick() {    
+    // logger.debug('MIDI', 'tick');
     for (let idx = 0; idx < buffer.length; idx++) {
       const { channel, note } = buffer[idx];
 
-      if (!note.isPlayed()) {
+      if (!note.played()) {
         on(channel, note);
         note.play();
       }      
-   
-      if(note.duration === 0) {
+
+      if(note.doOff()) {
         off(channel, note)
         pull(idx);
       }
@@ -118,15 +152,5 @@ export function Midi(buffer: Buffer = []) {
     }
   }
 
-  return {
-    off,
-    on,
-    push,
-    pull,
-    selectOutput,
-    setup,
-    stop,
-    tick,
-  }
-
+  return self
 }

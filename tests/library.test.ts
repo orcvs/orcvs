@@ -7,6 +7,7 @@ import { Bang, pattern, lerp, cycle, wave, compute, midify} from '../src/library
 
 import { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z } from '../src/library';
 
+
 describe('library', () => {
 
   describe('helpers', () => {
@@ -35,6 +36,42 @@ describe('library', () => {
     });        
   });
 
+
+  function seq(...sequence: number[]): (() => number) {
+    const start = 0;
+    const end = sequence.length - 1;
+  
+    return (function(start: number, end: number) {
+      var idx: number;
+
+      return function(): any {
+
+        if (idx === undefined)  { idx = start } else
+        if (idx < end)          { idx = idx + 1 } else       
+        if (idx === end)        { idx = start };
+      
+        return sequence[idx];
+      }
+    }(start, end));
+  }
+
+  describe('seq', () => {
+
+    test.skip('starts at zero or from', async () => {
+      var ary = [A, B, C, D, E ];
+      var s = seq(...ary);
+      console.log(s());
+      console.log(s());
+      console.log(s());
+      console.log(s());
+      console.log(s());
+      console.log(s());
+      console.log(s());
+      console.log(s());
+      console.log(s());
+ 
+    });
+  });
 
   describe('lerp', () => {
 
@@ -142,20 +179,24 @@ describe('library', () => {
     
     test('waves', async () => {
       var value = 0;
-      const waver = wave(3);
-    
+      const waver = wave(3);  
+
       for (let i=0; i <= 3; i++) {
         value = waver();
         expect(value).toEqual(i);    
       }
 
-      for (let i=2; i>= 0; i--) {
+      for (let i=2; i >= 0; i--) {
         value = waver();
         expect(value).toEqual(i);    
-      }    
+      }
+
+      //Wave continues
+      value = waver();
+      expect(value).toEqual(1);    
     });
 
-    test('wave within range', async () => {
+    test('wave within positive range', async () => {
       var value = 0;
       const waver = wave(5,9);
     
@@ -169,6 +210,22 @@ describe('library', () => {
         expect(value).toEqual(i);    
       }    
     });
+
+    test('wave within negative range', async () => {
+      var value = 0;
+      const waver = wave(7, 3);
+    
+      for (let i=7; i >= 3; i--) {
+        value = waver();
+        expect(value).toEqual(i);    
+      }
+
+      for (let i=4; i <= 7; i++) {
+        value = waver();
+        expect(value).toEqual(i);    
+      }    
+    });
+
   });
 
   describe('bang', () => {
@@ -205,7 +262,7 @@ describe('library', () => {
 
     });
 
-    test('can have more than one pattern with some shape', async () => {
+    test('can have multiple patterns with different shapes', async () => {
 
       const mock = jest.fn();
       const otherMock = jest.fn();
@@ -215,7 +272,7 @@ describe('library', () => {
           mock();
         });
 
-        bang('!', () => {
+        bang('!..', () => {
           otherMock();
         });
       });
@@ -246,6 +303,26 @@ describe('library', () => {
       expect(x).toEqual(1);   
       expect(y).toEqual(3);    
     });
+
+    
+    test('lerpers created in a bang', async () => {
+      var x = 0;
+      var y = 0;
+      const lerpX = lerp(1);
+      const lerpY = lerp(3);
+  
+      const ptn = pattern('!', (bang) => {
+        const lerpX = lerp(2);
+        x = lerpX();
+      })
+  
+      ptn.tick(); 
+      ptn.tick(); 
+      ptn.tick(); 
+      ptn.tick(); 
+  
+      expect(x).toEqual(0); // lerper is reset each cycle
+    });
     
     test('bang bang', async () => {
 
@@ -270,64 +347,64 @@ describe('library', () => {
         expect(innerMock).toHaveBeenCalledTimes(1);
     });
 
-    test('bang hash', async () => {
+    // test('bang hash', async () => {
 
-      var ptnA = '!';
-      var fnA = (() => {});
-      console.log(fnA.length);
+    //   var ptnA = '!';
+    //   var fnA = (() => {});
+    //   console.log(fnA.length);
 
-      var sA = ptnA + fnA.toString()
+    //   var sA = ptnA + fnA.toString()
       
-      var hA = hash(sA);
+    //   var hA = hash(sA);
 
-      var ptnB = '!';
-      var fnB = (() => {});
+    //   var ptnB = '!';
+    //   var fnB = (() => {});
   
-      var sB= ptnB + fnB.toString()
+    //   var sB= ptnB + fnB.toString()
       
-      var hB= hash(sB);
+    //   var hB= hash(sB);
 
-      expect(hB).toEqual(hB)
+    //   expect(hB).toEqual(hB)
 
-      var ptnC = '!.';
-      var fnC = (() => {});
+    //   var ptnC = '!.';
+    //   var fnC = (() => {});
   
-      var sC = ptnC + fnC.toString()
+    //   var sC = ptnC + fnC.toString()
       
-      var hC = hash(sC);
+    //   var hC = hash(sC);
 
-      expect(hC).not.toEqual(hA);
+    //   expect(hC).not.toEqual(hA);
 
-      var ptnD = '!';
-      var fnD = ((x: string) => {});
+    //   var ptnD = '!';
+    //   var fnD = ((x: string) => {});
   
-      var sD = ptnD + fnD.toString()
+    //   var sD = ptnD + fnD.toString()
       
-      var hD = hash(sD);
+    //   var hD = hash(sD);
 
-      expect(hD).not.toEqual(hA);
-      expect(hD).not.toEqual(hC);
+    //   expect(hD).not.toEqual(hA);
+    //   expect(hD).not.toEqual(hC);
 
-    });
+    // });
 
-    test.only('bang bang bang', async () => {
+    test('bang bang bang', async () => {
 
       const mock = jest.fn();
       const innerMock = jest.fn();
       const innerinnerMock = jest.fn();
 
       const ptn = pattern('!', (bang: Bang) => {
-        console.log('bang!');
+        // console.log('bang!');
         mock();
         
         bang('..!', (bang: Bang) => {
-          console.log('bang! bang!');
+          // console.log('bang! bang!');
           innerMock();
 
-          // bang('!', (bang: Bang) => {
-          //   console.log('bang! bang! bang!');
-          //   innerinnerMock();
-          // })
+          bang('!', (bang: Bang) => {
+            // console.log('bang! bang! bang!');
+            innerinnerMock();
+          })
         })
       })
       

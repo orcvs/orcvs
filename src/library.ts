@@ -34,7 +34,7 @@ export const Y = 35;
 export const Z = 36;
 
 export type Bang = (str: string, callback: any) => void;
-export type Callback = (bang: Bang) => void;
+export type Bangable = (bang: any) => void;
 
 export interface Pattern {
   bang: (str: string, callback: any) => void;
@@ -42,7 +42,7 @@ export interface Pattern {
   tick: (f?: number) => void;
 }
 
-export function pattern(str: string, callback: Callback): Pattern {
+export function pattern(str: string, callback: Bangable): Pattern {
   var _pattern: string[] = [...str]
 
   var _patterns: { [name: string]: Pattern } = {}
@@ -53,6 +53,7 @@ export function pattern(str: string, callback: Callback): Pattern {
   const self = {
     bang,
     shouldBang,
+    lerp,
     tick,
   }
 
@@ -72,7 +73,7 @@ export function pattern(str: string, callback: Callback): Pattern {
     }
   }
 
-  function bang(str: string, callback: Callback) {
+  function bang(str: string, callback: Bangable) {
     if (!_patterns[str]) {
       const ptn = pattern(str, callback);
       _patterns[str] = ptn;
@@ -106,29 +107,21 @@ export function lerp(from: number, to?: number): Computer
 
 export function lerp(tofrom: number, to?: number): Computer {
 
-  const start = to === undefined ? 0 : tofrom;
-  const target = to === undefined ? tofrom : to;
+  const min = to === undefined ? 0 : tofrom;
+  const max = to === undefined ? tofrom : to;
 
-  return (function(start: number, target: number) {
+  return (function(min: number, max: number) {
     var value: number;
     
     return function() {
-      if (value === undefined ) {
-        value = start
-        return value;
-      }
-      
-      if (value > target) {
-        value = clamp(value - 1, target, start);   
-      }      
-      
-      if (value < target) {
-        value = clamp(value + 1, start, target);   
-      }
+
+      if (value === undefined)  { value = min } else
+      if (value < max)          { value = clamp(value + 1, min, max) } else 
+      if (value > max)          { value = clamp(value - 1, max, min) };
      
       return value;
     }
-  }(start, target));
+  }(min, max));
 }
 
 export function cycle(to: number): Computer
@@ -143,25 +136,11 @@ export function cycle(tofrom: number, to?: number): Computer {
     var value: number;
     
     return function() {
-      if (value === undefined ) {
-        value = start
-        return value;
-      }
       
-      // At limit, start the cycle
-      if (value === target) {
-        value = start;
-        return value;
-      }
-
-      if (value > target) {
-        value = clamp(value - 1, target, start);   
-      }      
-      
-      if (value < target) {
-        value = clamp(value + 1, start, target);   
-      }
-     
+      if (value === undefined)  { value = start } else    
+      if (value === target)     { value = start } else
+      if (value < target)       { value = value + 1 };
+       
       return value;
     }
   }(start, target));
@@ -172,34 +151,23 @@ export function wave(from: number, to: number): Computer
 
 export function wave(tofrom: number, to?: number): Computer {
 
-  const start = to === undefined ? 0 : tofrom;
-  const target = to === undefined ? tofrom : to;
+  const min = to === undefined ? 0 : tofrom;
+  const max = to === undefined ? tofrom : to;
 
-  return (function(start: number, target: number) {
+  return (function(min: number, max: number) {
     var value: number;
     
     return function() {
-      if (value === undefined ) {
-        value = start
-        return value;
-      }
-      
-      // At limit, flip start/target
-      if (value === target) {
-        [start, target] = [target, start];
-      }
+      // At limit, flip min/max      
+      if (value === max)        { [min, max] = [max, min] };      
 
-      if (value > target) {
-        value = clamp(value - 1, target, start);   
-      }      
-      
-      if (value < target) {
-        value = clamp(value + 1, start, target);   
-      }
-     
+      if (value === undefined)  { value = min } else
+      if (value < max)          { value = clamp(value + 1, min, max) } else 
+      if (value > max)          { value = clamp(value - 1, max, min) };
+
       return value;
     }
-  }(start, target));
+  }(min, max));
 }
 
 const MIDI_MAX = 127

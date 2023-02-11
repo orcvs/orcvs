@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { importFromString } from 'module-from-string'
+import { Bangable } from './library'
 
 
 // declare global {
@@ -14,13 +15,13 @@ import { importFromString } from 'module-from-string'
 //   }
 // }
 
-function sourceFromFile(filename: string) {
+export function sourceFromFile(filename: string) {
   const code = readFileSync(filename, { encoding: 'utf8' });
   return code;
 }
 
 
-export async function codify(source: string) {
+export async function codify(source: string): Promise<(() => {})> {
   if (source.includes('.orcvs.')) {
     source = sourceFromFile(source);
   }
