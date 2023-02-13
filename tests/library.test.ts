@@ -1,12 +1,12 @@
 import {jest} from '@jest/globals'
 
+import { lerp, cycle, wave, seq, compute, midify} from '../src/library';
 
-import { hash } from '../src/hash';
+require('../src/globals');
 
-import { Bang, pattern, lerp, cycle, wave, compute, midify} from '../src/library';
-
-import { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z } from '../src/library';
-
+declare global {
+  var bpm: () => number;
+}
 
 describe('library', () => {
 
@@ -36,39 +36,32 @@ describe('library', () => {
     });        
   });
 
-
-  function seq(...sequence: number[]): (() => number) {
-    const start = 0;
-    const end = sequence.length - 1;
-  
-    return (function(start: number, end: number) {
-      var idx: number;
-
-      return function(): any {
-
-        if (idx === undefined)  { idx = start } else
-        if (idx < end)          { idx = idx + 1 } else       
-        if (idx === end)        { idx = start };
-      
-        return sequence[idx];
-      }
-    }(start, end));
-  }
-
   describe('seq', () => {
 
-    test.skip('starts at zero or from', async () => {
-      var ary = [A, B, C, D, E ];
-      var s = seq(...ary);
-      console.log(s());
-      console.log(s());
-      console.log(s());
-      console.log(s());
-      console.log(s());
-      console.log(s());
-      console.log(s());
-      console.log(s());
-      console.log(s());
+    test.only('starts at zero or from', async () => {
+      const _p = ['!', '.', '.', '.'];
+
+      // var f = 0;
+      // var idx = (_p.length & f);
+
+      for (var i = 1; i<= 9; i++) {
+        var f = i - 1; 
+        var idx = f % _p.length;
+        // console.log({i, f, idx});
+        // console.log(_p[idx]);
+      }
+
+      // var ary = [A, B, C, D, E ];
+      // var s = seq(...ary);
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
+      // console.log(s());
  
     });
   });
@@ -228,197 +221,7 @@ describe('library', () => {
 
   });
 
-  describe('bang', () => {
-    
-    test('shouldBang', async () => {
-      var ptn = pattern('!', (bang) => {})
-      expect(ptn.shouldBang(0)).toBeTruthy();
-      expect(ptn.shouldBang(1)).toBeTruthy();
-      
-      var ptn = pattern('!...', (bang) => {})
-      expect(ptn.shouldBang(0)).toBeTruthy();
-      
-      expect(ptn.shouldBang(1)).toBeFalsy();
-      expect(ptn.shouldBang(2)).toBeFalsy();
-
-      expect(ptn.shouldBang(3)).toBeFalsy();
-      
-    });
-  
-    test('bang', async () => {
-
-      const mock = jest.fn();
-      const innerMock = jest.fn();
-
-      const ptn = pattern('!', (bang) => {        
-        bang('!', () => {
-          mock();
-        });
-      });
-
-      ptn.tick();
-
-      expect(mock).toHaveBeenCalled();
-
-    });
-
-    test('can have multiple patterns with different shapes', async () => {
-
-      const mock = jest.fn();
-      const otherMock = jest.fn();
-
-      const ptn = pattern('!', (bang) => {        
-        bang('!', () => {
-          mock();
-        });
-
-        bang('!..', () => {
-          otherMock();
-        });
-      });
-
-      ptn.tick();
-
-      expect(mock).toHaveBeenCalled();
-      expect(otherMock).toHaveBeenCalled();
-
-    });
-
-    test('lerpers lerp in a bang', async () => {
-      var x = 0;
-      var y = 0;
-      const lerpX = lerp(1);
-      const lerpY = lerp(3);
-  
-      const ptn = pattern('!', () => {
-        x = lerpX();
-        y = lerpY()
-      })
-  
-      ptn.tick(); 
-      ptn.tick(); 
-      ptn.tick(); 
-      ptn.tick(); 
-  
-      expect(x).toEqual(1);   
-      expect(y).toEqual(3);    
-    });
-
-    
-    test('lerpers created in a bang', async () => {
-      var x = 0;
-      var y = 0;
-      const lerpX = lerp(1);
-      const lerpY = lerp(3);
-  
-      const ptn = pattern('!', (bang) => {
-        const lerpX = lerp(2);
-        x = lerpX();
-      })
-  
-      ptn.tick(); 
-      ptn.tick(); 
-      ptn.tick(); 
-      ptn.tick(); 
-  
-      expect(x).toEqual(0); // lerper is reset each cycle
-    });
-    
-    test('bang bang', async () => {
-
-        const mock = jest.fn();
-        const innerMock = jest.fn();
-
-        const ptn = pattern('!', (bang) => {
-          mock();
-          
-          bang('!...', () => {
-            innerMock();
-          })
-        })
-        
-        // bang every 1st and 4th
-        ptn.tick(0);
-        ptn.tick(1);
-        ptn.tick(2);
-        ptn.tick(3);
-
-        expect(mock).toHaveBeenCalledTimes(4);
-        expect(innerMock).toHaveBeenCalledTimes(1);
-    });
-
-    // test('bang hash', async () => {
-
-    //   var ptnA = '!';
-    //   var fnA = (() => {});
-    //   console.log(fnA.length);
-
-    //   var sA = ptnA + fnA.toString()
-      
-    //   var hA = hash(sA);
-
-    //   var ptnB = '!';
-    //   var fnB = (() => {});
-  
-    //   var sB= ptnB + fnB.toString()
-      
-    //   var hB= hash(sB);
-
-    //   expect(hB).toEqual(hB)
-
-    //   var ptnC = '!.';
-    //   var fnC = (() => {});
-  
-    //   var sC = ptnC + fnC.toString()
-      
-    //   var hC = hash(sC);
-
-    //   expect(hC).not.toEqual(hA);
-
-    //   var ptnD = '!';
-    //   var fnD = ((x: string) => {});
-  
-    //   var sD = ptnD + fnD.toString()
-      
-    //   var hD = hash(sD);
-
-    //   expect(hD).not.toEqual(hA);
-    //   expect(hD).not.toEqual(hC);
-
-    // });
-
-    test('bang bang bang', async () => {
-
-      const mock = jest.fn();
-      const innerMock = jest.fn();
-      const innerinnerMock = jest.fn();
-
-      const ptn = pattern('!', (bang: Bang) => {
-        // console.log('bang!');
-        mock();
-        
-        bang('..!', (bang: Bang) => {
-          // console.log('bang! bang!');
-          innerMock();
-
-          bang('!', (bang: Bang) => {
-            // console.log('bang! bang! bang!');
-            innerinnerMock();
-          })
-        })
-      })
-      
-      ptn.tick(0); 
-      ptn.tick(1);
-      ptn.tick(2);
-      ptn.tick(3);
-      expect(mock).toHaveBeenCalled();
-      expect(mock).toHaveBeenCalledTimes(4);
-      expect(innerMock).toHaveBeenCalledTimes(1);
-      expect(innerinnerMock).toHaveBeenCalledTimes(1);
-  });
-});
-
+ 
 }); 
 
 
