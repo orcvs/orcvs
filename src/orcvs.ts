@@ -3,35 +3,44 @@ import { Midi } from './midi'
 import { codify } from './code'
 
 import { Logger } from "./logger";
-import { BANG, pattern } from './library';
+import { Bangable, Pattern, pattern } from './pattern';
+import { compute, Computer, Numputer, midify} from './library';
 
-
-export const ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';
 
 const logger = Logger.child({
   source: 'Orcvs'
 });
 
-// declare global {
-//   var orcvs: IOrcvs;
-//   var bang: any
-// }
 
 export function Orcvs() {
   var clock = Clock(tick)
   var midi = Midi();
-  var code: (() => {});
+  var ptn = pattern(BANG, () => {});  
+  // var _patterns: { [name: string]: Pattern } = {}
 
-  async function init() {
-    // logger.debug('init');
-    await midi.setup();  
-    // midi.selectOutput('LoopMidi');
-    midi.selectOutput(0);
+
+  function bang(str: string, callback: Bangable) {
+    // logger.debug('BANG!');
+    ptn.bang(str, callback);
+  }
+
+  async function setup() {
+    logger.debug('setup');
+    registerGlobals();
+    await midi.setup();      
+    // midi.selectOutput(0); // Default Channel
+  }
+
+  function registerGlobals() {    
+    globalThis.bang = bang;    
+    globalThis.bpm = clock.bpm;
+    globalThis.output = setOutput;
+    globalThis.play = play;
   }
 
   async function load(filename: string) {   
     logger.info(`loading ${filename}`);   
-    code = await codify(filename);
+    const code = await codify(filename);
     code();
   }
 
@@ -43,9 +52,15 @@ export function Orcvs() {
     await clock.setBPM(bpm);
   }  
 
+  async function setOutput(out: number | string) {
+    logger.info({ setOutput: out });
+    midi.selectOutput(out); 
+  }  
+
   async function start() {
     logger.info('start');
-    clock.start();   
+    await clock.start();   
+    logger.info('after start');
   }
   
   async function stop() {
@@ -54,8 +69,10 @@ export function Orcvs() {
     await midi.stop();
   }
 
-  function tick() {
-    midi.tick();
+  function tick(frame: number) {   
+    logger.info({ tick: frame });
+    ptn.tick(frame);
+    midi.tick(frame);    
   }
   
   async function touch() {
@@ -63,10 +80,22 @@ export function Orcvs() {
     clock.touch();   
   }
 
-  return {
-    init,
+  function play(channel: number, octave: Numputer, note: string, attack: Numputer, duration: Numputer) {   
+    logger.info('play'); 
+    octave = compute(octave);
+    attack = midify(compute(attack));
+    duration = compute(duration);
+
+    midi.push(channel, octave, note, attack, duration);
+  }
+
+  return {    
+    load,
+    play,
     reset,
     setBPM,
+    setOutput,
+    setup,
     start,
     stop,
     tick,

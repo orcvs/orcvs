@@ -2,7 +2,9 @@ import {jest} from '@jest/globals'
 
 import { readFileSync } from 'fs';
 import { codify, sourceFromFile } from '../src/code';
-import { BANG, pattern } from '../src/library';
+import { pattern } from '../src/pattern';
+
+import { Orcvs } from '../src/orcvs';
 
 
 describe('code', () => {
@@ -16,9 +18,6 @@ describe('code', () => {
       `
       const code = await codify(source)
       
-      const root = pattern(BANG, code);
-    
-      root.tick(0)
       const result = code();
 
       expect(result).toEqual('vtha!');

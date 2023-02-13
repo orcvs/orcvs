@@ -30,7 +30,7 @@ describe.skip('test', () => {
       const attack = 0.5;
       let duration = 4;
 
-      test('push/pull', async () => {
+      test('push', async () => {
         var buffer: Buffer = []; 
         let midi = Midi(buffer);
         
@@ -38,15 +38,34 @@ describe.skip('test', () => {
         midi.push(channel, octave, 'D', attack, duration);
         expect(buffer).toHaveLength(2);
 
-        midi.pull(0);
-        expect(buffer).toHaveLength(1);
-
-        const { note } = buffer[0];
+        const { note } = buffer[1];
         expect(note.midi().name).toEqual('D');
       });
 
+      test('clear', async () => {
+        var buffer: Buffer = []; 
+        let midi = Midi(buffer);
+        
+        midi.push(channel, octave, value, attack, duration);
+        midi.push(channel, octave, 'D', attack, duration);
+        expect(buffer).toHaveLength(2);
+        
+        var { note } = buffer[0];
+        note.play();
+        note.stop();
 
-      test.only('on/off', async () => {              
+        midi.clear();
+        expect(buffer).toHaveLength(1);
+
+        var { note } = buffer[0];
+        note.play();
+        note.stop();
+
+        midi.clear();
+        expect(buffer).toHaveLength(0);
+      });
+
+      test('on/off', async () => {              
           var buffer: Buffer = []; 
           let midi = Midi(buffer);
           await midi.setup();
@@ -55,25 +74,35 @@ describe.skip('test', () => {
           midi.push(channel, octave, value, attack, duration);
           var { note } = buffer[0];
 
-          expect(note.played()).toBeFalsy();
+          expect(note.played()).toBeTruthy();
+          expect(note.playing()).toBeTruthy();
+          expect(note.shouldOff()).toBeFalsy(); 
   
           midi.tick();
           await new Promise((r) => setTimeout(r, 500));
  
           expect(note.played()).toBeTruthy();
-          expect(note.doOff()).toBeFalsy(); 
+          expect(note.playing()).toBeTruthy();
+          expect(note.shouldOff()).toBeFalsy(); 
 
           midi.tick();
           await new Promise((r) => setTimeout(r, 500));
-          expect(note.doOff()).toBeFalsy(); 
+          
+          expect(note.played()).toBeTruthy();
+          expect(note.playing()).toBeTruthy();
+          expect(note.shouldOff()).toBeFalsy(); 
 
           midi.tick();
           await new Promise((r) => setTimeout(r, 500));
-          expect(note.doOff()).toBeFalsy(); 
+      
+          expect(note.played()).toBeTruthy();
+          expect(note.playing()).toBeTruthy();
+          expect(note.shouldOff()).toBeFalsy(); 
 
           midi.tick();
           await new Promise((r) => setTimeout(r, 500));
-          expect(note.doOff()).toBeTruthy(); 
+          expect(note.shouldOff()).toBeTruthy(); 
+          expect(note.playing()).toBeFalsy();
           
           await WebMidi.disable();
       });
