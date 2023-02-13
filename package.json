@@ -7,8 +7,8 @@
   "scripts": {
     "build": "ts-node -P tsconfig.json",
     "start": "npm run build && node --experimental-vm-modules dist/src/main.js",
-    "test": "set LOG_LEVEL=debug && node --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:watch": "set LOG_LEVEL=debug && node --experimental-vm-modules node_modules/jest/bin/jest.js --watch"
+    "test": "set LOG_LEVEL=debug && node --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles",
+    "test:watch": "set LOG_LEVEL=debug && node --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles --watch "
   },
   "ts-standard": {
     "env": [
