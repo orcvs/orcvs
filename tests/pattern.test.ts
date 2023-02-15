@@ -1,20 +1,65 @@
 import {jest} from '@jest/globals'
 
-import { Bang, pattern, timeToFrame} from '../src/pattern';
+import { Bang, pattern, timeMatcher, timeToFrame} from '../src/pattern';
 
 import { lerp } from '../src/library';
 
 require('../src/globals');
 
+const bpm = 120;
+
 
 describe('pattern', () => {
 
-  
-  describe.only('at', () => {
+  describe('timeMatcher', () => {
+
+    test('timeMatcher from', async () => {      
+      var matcher = timeMatcher('60'); // 60s at 60bpm
+
+      var result = matcher(120, 60)
+      expect(result).toEqual(false);
+
+      var result = matcher(240, 60)
+      expect(result).toEqual(true);
+    
+      var result = matcher(480, 60)
+      expect(result).toEqual(true);
+    });
+
+    test('timeMatcher from to', async () => {      
+      var matcher = timeMatcher('60:120'); // 60-120s at 60bpm
+
+      var result = matcher(120, 60)
+      expect(result).toEqual(false);
+
+      var result = matcher(240, 60)
+      expect(result).toEqual(true);
+    
+      var result = matcher(480, 60)
+      expect(result).toEqual(false);
+      
+      var result = matcher(666, 60)
+      expect(result).toEqual(false);
+    });
+
+    test.only('timeMatcher with bad from to', async () => {      
+      var matcher = timeMatcher('120:60'); // 60-120s at 60bpm
+
+      var result = matcher(120, 60)
+      expect(result).toEqual(false);
+
+      var result = matcher(240, 60)
+      expect(result).toEqual(false);
+    
+      var result = matcher(480, 60)
+      expect(result).toEqual(false);
+      
+      var result = matcher(666, 60)
+      expect(result).toEqual(false);
+    });
+
 
     test('timeToFrame', async () => {      
-     
-
       var result = timeToFrame(60, 60); // 60s at 60bpm
       expect(result).toEqual(240);
 
@@ -26,22 +71,9 @@ describe('pattern', () => {
       
       var result = timeToFrame(1, 60); // 90s at 120bpm
       expect(result).toEqual(4);
-
     });
-
-    test('at', async () => {      
-      const mock = jest.fn();    
-      orcvs.at(60, mock);
-      orcvs.tick(120);
-      expect(mock).not.toBeCalled();
-      orcvs.tick(240);
-      expect(mock).toBeCalled();
-    });
-    
 
   });
-
-
 
   describe('bang', () => {
 
@@ -52,11 +84,11 @@ describe('pattern', () => {
 
         const ptn = pattern(str, () => {})
 
-        expect(ptn.shouldBang(1)).toBeTruthy();
-        expect(ptn.shouldBang(2)).toBeFalsy();
-        expect(ptn.shouldBang(3)).toBeFalsy();
-        expect(ptn.shouldBang(4)).toBeFalsy();
-        expect(ptn.shouldBang(5)).toBeTruthy();
+        expect(ptn.match(1, bpm)).toBeTruthy();
+        expect(ptn.match(2, bpm)).toBeFalsy();
+        expect(ptn.match(3, bpm)).toBeFalsy();
+        expect(ptn.match(4, bpm)).toBeFalsy();
+        expect(ptn.match(5, bpm)).toBeTruthy();
       });
 
       test('covers complex patterns', async () => {
@@ -64,32 +96,32 @@ describe('pattern', () => {
 
         const ptn = pattern(str, () => {})
 
-        expect(ptn.shouldBang(1)).toBeTruthy();
-        expect(ptn.shouldBang(2)).toBeFalsy();
-        expect(ptn.shouldBang(3)).toBeFalsy();
-        expect(ptn.shouldBang(4)).toBeFalsy();
-        expect(ptn.shouldBang(5)).toBeTruthy();
-        expect(ptn.shouldBang(6)).toBeTruthy();
-        expect(ptn.shouldBang(7)).toBeFalsy();
+        expect(ptn.match(1, bpm)).toBeTruthy();
+        expect(ptn.match(2, bpm)).toBeFalsy();
+        expect(ptn.match(3, bpm)).toBeFalsy();
+        expect(ptn.match(4, bpm)).toBeFalsy();
+        expect(ptn.match(5, bpm)).toBeTruthy();
+        expect(ptn.match(6, bpm)).toBeTruthy();
+        expect(ptn.match(7, bpm)).toBeFalsy();
       });      
 
       test('always', async () => {
         var ptn = pattern('▮', ({ bang }) => {})
-        expect(ptn.shouldBang(1)).toBeTruthy();
-        expect(ptn.shouldBang(2)).toBeTruthy();
-        expect(ptn.shouldBang(42)).toBeTruthy();
+        expect(ptn.match(1, bpm)).toBeTruthy();
+        expect(ptn.match(2, bpm)).toBeTruthy();
+        expect(ptn.match(4, bpm)).toBeTruthy();
       });
           
       test('always', async () => {
         var ptn = pattern('▯', ({ bang }) => {})
-        expect(ptn.shouldBang(1)).toBeFalsy();
-        expect(ptn.shouldBang(2)).toBeFalsy();
-        expect(ptn.shouldBang(42)).toBeFalsy();
+        expect(ptn.match(1, bpm)).toBeFalsy();
+        expect(ptn.match(2, bpm)).toBeFalsy();
+        expect(ptn.match(4, bpm)).toBeFalsy();
       });      
     });
 
     describe('cycle and frame', () => {
-
+  
       test('passes', async () => {
         const str = '▮▯';
 
@@ -98,7 +130,7 @@ describe('pattern', () => {
           expect(cycle).toEqual(3)
         })
 
-        ptn.tick(7);
+        ptn.tick(7, bpm);
         
       });
 
@@ -107,27 +139,27 @@ describe('pattern', () => {
 
         const ptn = pattern(str, () => {})
 
-        expect(ptn.shouldBang(1)).toBeTruthy();
-        expect(ptn.shouldBang(2)).toBeFalsy();
-        expect(ptn.shouldBang(3)).toBeFalsy();
-        expect(ptn.shouldBang(4)).toBeFalsy();
-        expect(ptn.shouldBang(5)).toBeTruthy();
-        expect(ptn.shouldBang(6)).toBeTruthy();
-        expect(ptn.shouldBang(7)).toBeFalsy();
+        expect(ptn.match(1, bpm)).toBeTruthy();
+        expect(ptn.match(2, bpm)).toBeFalsy();
+        expect(ptn.match(3, bpm)).toBeFalsy();
+        expect(ptn.match(4, bpm)).toBeFalsy();
+        expect(ptn.match(5, bpm)).toBeTruthy();
+        expect(ptn.match(6, bpm)).toBeTruthy();
+        expect(ptn.match(7, bpm)).toBeFalsy();
       });      
 
       test('always', async () => {
         var ptn = pattern('▮', ({ bang }) => {})
-        expect(ptn.shouldBang(1)).toBeTruthy();
-        expect(ptn.shouldBang(2)).toBeTruthy();
-        expect(ptn.shouldBang(42)).toBeTruthy();
+        expect(ptn.match(1, bpm)).toBeTruthy();
+        expect(ptn.match(2, bpm)).toBeTruthy();
+        expect(ptn.match(42, bpm)).toBeTruthy();
       });
           
       test('always', async () => {
         var ptn = pattern('▯', ({ bang }) => {})
-        expect(ptn.shouldBang(1)).toBeFalsy();
-        expect(ptn.shouldBang(2)).toBeFalsy();
-        expect(ptn.shouldBang(42)).toBeFalsy();
+        expect(ptn.match(1, bpm)).toBeFalsy();
+        expect(ptn.match(2, bpm)).toBeFalsy();
+        expect(ptn.match(42, bpm)).toBeFalsy();
       });      
     });
 
@@ -142,7 +174,7 @@ describe('pattern', () => {
         });
       });
 
-      ptn.tick(1);
+      ptn.tick(1, bpm);
 
       expect(mock).toHaveBeenCalled();
 
@@ -163,7 +195,7 @@ describe('pattern', () => {
         });
       });
 
-      ptn.tick(1);
+      ptn.tick(1, bpm);
 
       expect(mock).toHaveBeenCalled();
       expect(otherMock).toHaveBeenCalled();
@@ -181,10 +213,10 @@ describe('pattern', () => {
         y = lerpY()
       })
   
-      ptn.tick(1); 
-      ptn.tick(2); 
-      ptn.tick(3); 
-      ptn.tick(4); 
+      ptn.tick(1, bpm); 
+      ptn.tick(2, bpm); 
+      ptn.tick(3, bpm); 
+      ptn.tick(4, bpm); 
   
       expect(x).toEqual(1);   
       expect(y).toEqual(3);    
@@ -202,10 +234,10 @@ describe('pattern', () => {
         x = lerpX();
       })
   
-      ptn.tick(1); 
-      ptn.tick(2); 
-      ptn.tick(3); 
-      ptn.tick(4); 
+      ptn.tick(1, bpm); 
+      ptn.tick(2, bpm); 
+      ptn.tick(3, bpm); 
+      ptn.tick(4, bpm); 
   
       expect(x).toEqual(0); // lerper is reset each cycle
     });
@@ -224,10 +256,10 @@ describe('pattern', () => {
         })
         
         // bang every 1st and 4th
-        ptn.tick(1);
-        ptn.tick(2);
-        ptn.tick(3);
-        ptn.tick(4);
+        ptn.tick(1, bpm);
+        ptn.tick(2, bpm);
+        ptn.tick(3, bpm);
+        ptn.tick(4, bpm);
 
         expect(mock).toHaveBeenCalledTimes(4);
         expect(innerMock).toHaveBeenCalledTimes(1);
@@ -254,10 +286,10 @@ describe('pattern', () => {
         })
       })
       
-      ptn.tick(1); 
-      ptn.tick(2);
-      ptn.tick(3);
-      ptn.tick(4);
+      ptn.tick(1, bpm); 
+      ptn.tick(2, bpm);
+      ptn.tick(3, bpm);
+      ptn.tick(4, bpm);
       expect(mock).toHaveBeenCalled();
       expect(mock).toHaveBeenCalledTimes(4);
       expect(innerMock).toHaveBeenCalledTimes(1);

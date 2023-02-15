@@ -4,10 +4,6 @@ import { lerp, cycle, wave, seq, compute, midify} from '../src/library';
 
 require('../src/globals');
 
-declare global {
-  var bpm: () => number;
-}
-
 describe('library', () => {
 
   describe('helpers', () => {

@@ -33,7 +33,7 @@ export function Orcvs() {
 
   function registerGlobals() {    
     globalThis.bang = bang;    
-    globalThis.bpm = clock.bpm;
+    // globalThis.bpm = clock.bpm;
     globalThis.output = setOutput;
     globalThis.play = play;
   }
@@ -71,7 +71,7 @@ export function Orcvs() {
 
   function tick(frame: number) {   
     logger.info({ tick: frame });
-    ptn.tick(frame);
+    ptn.tick(frame, clock.bpm());
     midi.tick(frame);    
   }
   
