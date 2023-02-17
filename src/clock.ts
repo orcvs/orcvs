@@ -22,12 +22,12 @@ export function Clock(callback: TickCallback) {
 
     function tick() {
       _frame = _frame + 1;    
-      logger.debug({ tick: _frame });            
+      // logger.debug({ tick: _frame });            
       callback(_frame);
     }
 
     function touch() {
-      logger.debug('touch');
+      // logger.debug('touch');
       stop();
       tick();
     }
@@ -49,6 +49,9 @@ export function Clock(callback: TickCallback) {
       return _frame;
     }
 
+    function running() {
+      return _running;
+    }
     async function start() {
       logger.debug('start');
       await stop();        
@@ -56,10 +59,10 @@ export function Clock(callback: TickCallback) {
       await setTimer();
       
       const ms = ms_per_beat();
-      logger.debug('postmessage');
+      // logger.debug('postmessage');
       _timer.postMessage(ms);
 
-      logger.debug('after start');
+      // logger.debug('after start');
     }
 
     async function stop() {
@@ -102,6 +105,7 @@ export function Clock(callback: TickCallback) {
       bpm,
       frame,
       reset,
+      running,
       setBPM,
       start,
       stop,

@@ -37,9 +37,7 @@ export function note(value: string, attack: number, duration: number):Note {
       tick,
       value,
     };
-
-
-
+    
     function play() {
       _played = true;
     }
@@ -98,7 +96,7 @@ export function Midi(buffer: Buffer = []) {
   };
 
   function off(id: number, note: Note) {
-    logger.debug('off');
+    // logger.debug('off');
     if (output) {
       let channel = output.channels[id];
       channel.sendNoteOff(note.midi());    
@@ -107,7 +105,7 @@ export function Midi(buffer: Buffer = []) {
   }  
   
   function on(channelId: number, note: Note) {
-    logger.debug('on');
+    // logger.debug('on');
     if (output) {
       let channel = output.channels[channelId];
       // channel.playNote(note, { duration: note.duration });
@@ -117,7 +115,7 @@ export function Midi(buffer: Buffer = []) {
   }
     
   function push(channel: number, octave: number, value: string, attack: number, duration: number) {    
-    logger.debug('push');      
+    // logger.debug('push');      
     value = value + octave
     buffer.push({ channel,  note: note(value, attack, duration) });
   }
@@ -176,15 +174,15 @@ export function Midi(buffer: Buffer = []) {
   }
 
   function tick(f?: number) {       
-    logger.debug({ tick: f });
-    logger.debug({ buffer });
+    // logger.debug({ tick: f });
+    // logger.debug({ buffer });
     for (let idx = 0; idx < buffer.length; idx++) {
       const { channel, note } = buffer[idx];
-      logger.debug({ idx, note, played: note.played() });
+      // logger.debug({ idx, note, played: note.played() });
 
       if (note.shouldPlay()) {
         on(channel, note);
-        logger.debug('played');        
+        // logger.debug('played');        
       }      
 
       if(note.shouldOff()) {        
