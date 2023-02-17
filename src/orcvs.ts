@@ -3,7 +3,7 @@ import { Midi } from './midi'
 import { codify } from './code'
 
 import { Logger } from "./logger";
-import { Bangable, Pattern, pattern } from './pattern';
+import { Callback, Pattern, pattern } from './pattern';
 import { compute, Computer, Numputer, midify} from './library';
 
 
@@ -11,15 +11,16 @@ const logger = Logger.child({
   source: 'Orcvs'
 });
 
-
 export function Orcvs() {
   var clock = Clock(tick)
   var midi = Midi();
   var ptn = pattern(BANG, () => {});  
-  // var _patterns: { [name: string]: Pattern } = {}
 
+  var _running
+  var _code = () => {};
+  var _run: boolean = false;
 
-  function bang(str: string, callback: Bangable) {
+  function bang(str: string, callback: Callback): void {
     // logger.debug('BANG!');
     ptn.bang(str, callback);
   }
@@ -28,7 +29,6 @@ export function Orcvs() {
     logger.debug('setup');
     registerGlobals();
     await midi.setup();      
-    // midi.selectOutput(0); // Default Channel
   }
 
   function registerGlobals() {    
@@ -40,12 +40,29 @@ export function Orcvs() {
 
   async function load(filename: string) {   
     logger.info(`loading ${filename}`);   
-    const code = await codify(filename);
-    code();
+    _code = await codify(filename);    
+    _run = false;
+    if (!clock.running()) {
+      run();
+    }
   }
 
   function reset() {
     clock.reset();
+  }
+
+  function run() {  
+    logger.info('run');
+    
+    ptn = pattern(BANG, () => {});  
+    _code();
+    _run = true;
+    
+    logger.info('ran');
+  }
+  
+  function shouldRun(frame: number) {
+      return !clock.running() || !_run && frame % 8 === 0
   }
 
   async function setBPM(bpm: number) {
@@ -70,7 +87,11 @@ export function Orcvs() {
   }
 
   function tick(frame: number) {   
-    logger.info({ tick: frame });
+    if (shouldRun(frame)) {
+      run();
+    }
+
+    // logger.info({ tick: frame });
     ptn.tick(frame, clock.bpm());
     midi.tick(frame);    
   }
@@ -81,7 +102,7 @@ export function Orcvs() {
   }
 
   function play(channel: number, octave: Numputer, note: string, attack: Numputer, duration: Numputer) {   
-    logger.info('play'); 
+    // logger.debug('play'); 
     octave = compute(octave);
     attack = midify(compute(attack));
     duration = compute(duration);
