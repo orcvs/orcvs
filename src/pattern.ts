@@ -1,8 +1,8 @@
 import { Logger } from "./logger";
 
-export type Bang = (str: string, callback: Bangable) => void;
+export type Bang = (str: string, callback: Callback) => void;
 
-export type Bangable = (options: {bang: Bang, frame: number, cycle?: number}) => void;
+export type Callback = (pattern: Pattern) => void;
 
 export type Match = (frame : number, bpm: number) => boolean;
 
@@ -11,29 +11,70 @@ const logger = Logger.child({
 });
 
 export interface Pattern {
-  bang: (str: string, callback: any) => void;
-  // shouldBang:  (f: number) => boolean;
+  bang: (str: string, callback: Callback) => void;
+  at: (str: string, callback: Callback) => void;
   match: (frame : number, bpm: number) => boolean;
   tick: (frame : number, bpm: number) => void;
+  when: (condition: boolean, callback: Callback) => void; 
+  cycle: number;
+  frame: number;
 }
 
-export function pattern(str: string, callback: Bangable): Pattern {
-  // var _pattern: string[] = [...ptn]
+export function pattern(str: string, callback: Callback): Pattern {
+  var _pattern: string[] = [];
+  var _frame = 0;
   var _patterns: { [name: string]: Pattern } = {}
 
   const match = matcher(str);
 
   const self = {
+    at,
     bang,
     match,
     tick,
+    when,
+    get frame() {
+      return _frame;
+    },
+    get cycle() {
+      return !_pattern.length ? 0 : Math.floor(_frame/_pattern.length);
+    },
   }
 
-  function tick(frame: number, bpm: number) {
-    if (match(frame, bpm)) {
-      // const cycle = Math.floor(frame/_pattern.length); 
+  
+  function matcher(match: string): Match {
+    return isTime(match) ? timeMatcher(match) : patternMatcher(match)
+  }
 
-      callback({bang, frame});   
+  function patternMatcher(match: string): Match {
+
+    _pattern = [...match];
+
+    return function(frame: number) {
+      const idx = (frame - 1) % _pattern.length
+      return _pattern[idx] === BANG;
+    }
+  }
+
+  function timeMatcher(match: string): Match {
+  
+    const [ from = 0, to = 999 ] = match.split(':').map( s => parseInt(s) || 0);
+    
+    return function(frame: number, bpm: number) {
+      const f = timeToFrame(from, bpm);
+      const t = timeToFrame(to, bpm);
+      // if (f >= t) {
+      //   logger.info({msg: 'Invalid time', match});
+      //   return false
+      // }
+      return f <= frame && frame <= t;
+    }
+  }
+
+  function tick(frame: number, bpm: number) {   
+    if (match(frame, bpm)) {
+     
+      callback(self);   
 
       for (const ptn of Object.values(_patterns)) {
         ptn.tick(frame, bpm);
@@ -41,47 +82,34 @@ export function pattern(str: string, callback: Bangable): Pattern {
     }
   }
 
-  function bang(str: string, callback: Bangable) {
+  function bang(str: string, callback: Callback) {
     if (!_patterns[str]) {
       const ptn = pattern(str, callback);
       _patterns[str] = ptn;
     }
   }
 
+  function at(str: string, callback: Callback) {
+    bang(str, callback);
+  }
+  
+  function when(condition: boolean, callback: Callback) {
+    if (condition) {
+      callback(self);   
+    }
+  }
+
+  function on(frame: number, callback: Callback) {
+    // if (condition) {
+    //   callback(self);   
+    // }
+  }
+
   return self;
 }
 
-function isTime(str: string) {
-  return /^\d+:?\d+$/.test(str);
-}
-
-export function matcher(match: string): Match {
-  return isTime(match) ? timeMatcher(match) : patternMatcher(match)
-}
-
-export function patternMatcher(match: string): Match {
-
-  const _pattern = [...match];
-
-  return function(frame: number, bpm: number) {
-    const idx = (frame - 1) % _pattern.length
-    return _pattern[idx] === BANG;
-  }
-}
-
-export function timeMatcher(match: string): Match {
-
-  const [ from, to = 999 ] = match.split(':').map( s => parseInt(s)) ;
-  
-  return function(frame: number, bpm: number) {
-    const f = timeToFrame(from, bpm);
-    const t = timeToFrame(to, bpm);
-    // if (f >= t) {
-    //   logger.info({msg: 'Invalid time', match});
-    //   return false
-    // }
-    return f <= frame && frame <= t;
-  }
+export function isTime(str: string) {
+  return /^(\d+)?(:\d+)?$/.test(str);
 }
 
 export function timeToFrame(time: number, bpm: number): number {
@@ -89,8 +117,6 @@ export function timeToFrame(time: number, bpm: number): number {
   const frames_per_second = beats_per_second / 4;
   return Math.floor(time/frames_per_second);
 }
-
-
 
   // function at(time: number, callback: () => void) {
   //   // const frames = timeToFrame(time, bpm());
