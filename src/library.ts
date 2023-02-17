@@ -10,23 +10,43 @@ export function compute(n: Numputer) {
   return n;
 }
 
-export function seq(...sequence: readonly (string | number)[]): (() => (string | number)) {
+
+
+export function seq<T>(...sequence: readonly T[]): (() => T) {
   const start = 0;
   const end = sequence.length - 1;
 
   return (function(start: number, end: number) {
     var idx: number;
 
-    return function()  {
+    return function(): T {
 
       if (idx === undefined)  { idx = start } else
       if (idx < end)          { idx = idx + 1 } else       
       if (idx === end)        { idx = start };
-    
+      
       return sequence[idx];
     }
   }(start, end));
 }
+
+// export function seq(...sequence: readonly (string | number)[]): (() => (string | number)) {
+//   const start = 0;
+//   const end = sequence.length - 1;
+
+//   return (function(start: number, end: number) {
+//     var idx: number;
+
+//     return function()  {
+
+//       if (idx === undefined)  { idx = start } else
+//       if (idx < end)          { idx = idx + 1 } else       
+//       if (idx === end)        { idx = start };
+    
+//       return sequence[idx];
+//     }
+//   }(start, end));
+// }
 
 export function lerp(to: number): Computer
 export function lerp(from: number, to?: number): Computer

@@ -34,32 +34,37 @@ describe('library', () => {
 
   describe('seq', () => {
 
-    test.only('starts at zero or from', async () => {
-      const _p = ['!', '.', '.', '.'];
+    test.only('numbers', async () => {
 
-      // var f = 0;
-      // var idx = (_p.length & f);
+      var ary = [A, B, C, D, E ];
+      var s = seq(...ary);
 
-      for (var i = 1; i<= 9; i++) {
-        var f = i - 1; 
-        var idx = f % _p.length;
-        // console.log({i, f, idx});
-        // console.log(_p[idx]);
+      for (var i = 0; i < 5; i++) {
+        var result = s();
+        expect(result).toEqual(ary[i]);
       }
-
-      // var ary = [A, B, C, D, E ];
-      // var s = seq(...ary);
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
-      // console.log(s());
- 
+      for (var i = 0; i < 5; i++) {
+        var result = s();
+        expect(result).toEqual(ary[i]);
+      }
+  
     });
+
+    test('str at zero or from', async () => {
+      var ary = ['!', '.', '.', '.'];
+      var s = seq(...ary);
+
+      for (var i = 0; i < 5; i++) {
+        var result = s();
+        expect(result).toEqual(ary[i]);
+      }
+      for (var i = 0; i < 5; i++) {
+        var result = s();
+        expect(result).toEqual(ary[i]);
+      }
+  
+    });
+    
   });
 
   describe('lerp', () => {
