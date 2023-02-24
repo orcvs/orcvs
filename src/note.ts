@@ -8,9 +8,6 @@ export type NoteOpts = {
   r?: number;
 }
 
-// export type Chord = {
-//   notes: Note[];
-// }
 export class Chord extends Note {
   notes: Note[] = [this];
 
@@ -49,10 +46,39 @@ export function note(value: string | number): Computer<Note> {
     const {d: duration, a: attack, r: release} = opts;
     return new Note(value, {duration, attack, release} )
   }
-  
 }
 
-const ChordTable: { [key: string]: string[] } = {
+export const ChordIntervalsTable: { [key: string]: number[] }  = {
+  '7': [ 4, 7, 10 ],
+  '9': [ 4, 7, 10, 14 ],
+  '13': [ 4, 7, 10, 14, 21 ],
+  'M': [ 4, 7 ],
+  'M7': [ 4, 7, 11 ],
+  'M9': [ 4, 7, 11, 14 ],
+  'M13': [ 4, 7, 11, 14, 21 ],
+  'M6': [ 4, 7, 9 ],
+  'M69': [ 4, 7, 9, 14 ],
+  'M7b6': [ 4, 8, 11 ],
+  'm': [ 3, 7 ],
+  'm7': [ 3, 7, 10 ],
+  'mM7': [ 3, 7, 11 ],
+  'm6': [ 3, 7, 9 ],
+  'm9': [ 3, 7, 10, 14 ],
+  'm11': [ 3, 7, 10, 14, 17 ],
+  'm13': [ 3, 7, 10, 14, 21 ],
+  'o': [ 3, 6 ],
+  'o7': [ 3, 6, 9 ],
+  'm7b5': [ 3, 6, 10 ],
+  '7b9': [ 4, 7, 10, 13 ]
+}
+
+function toChord(str: string): {root:string, intervals:number[]} {
+  const [ root, quality] = str.split(':');
+  const intervals = ChordIntervalsTable[quality];
+  return {root, intervals};
+}
+
+export const ChordTable: { [key: string]: string[] } = {
   'M':    ['P1', 'M3', 'm3'],
   'M7':   ['P1', 'M3', 'm3', 'M3'],
   'M9':   ['P1', 'M3', 'm3', 'M3', 'm3'],
@@ -76,7 +102,7 @@ const ChordTable: { [key: string]: string[] } = {
   '7b9':  ['P1', 'M3', 'm3', 'm3', 'm3'],
 }
 
-const IntervalTable: { [key: string]: number } = {
+export const IntervalTable: { [key: string]: number } = {
   'P1': 0,
   'm2': 1,
   'M2': 2,
@@ -86,7 +112,18 @@ const IntervalTable: { [key: string]: number } = {
   'P5': 7,
 }
 
-function getIntervals(chord: string){
+export function writeIntervals(chord: string){
+  const results: { [key: string]: number[] } = {};
+  for (let chord in ChordTable) {
+
+    const result = getIntervals(chord)
+    // const intervals = ChordTable[chord];
+    results[chord] = result;
+  }
+  return results;
+}
+
+export function getIntervals(chord: string){
   const intervals = ChordTable[chord] || ['P1']
 
   let fromRoot = 0
@@ -99,26 +136,4 @@ function getIntervals(chord: string){
     }    
   }
   return result
-}
-
-function toChord(str: string): {root:string, intervals:number[]} {
-  // const octave = s[0]
-  // const tonic = s[0]
-  // const chord = s.slice(1)
-  // const intervals = mapChordIntervals(chord)
-
-  // const r = /^[a-g]#?/i
-  // ^([CDEFGAB])(#{0,2}|b{0,2})(-?\d+)$
-  
-  const [ root, quality] = str.split(':');
-
-  // const matches = str.match(/^([CDEFGAB])(#{0,2}|b{0,2})(-?\d+)$/i);
-  // if (!matches) throw new TypeError("Invalid note identifier");
-
-  // const matches = str.match(r);
-  // const root = matches ? matches[0] : '';
-  // const quality = str.replace(root, '');
-  const intervals = getIntervals(quality);
-  
-  return {root, intervals};
 }
