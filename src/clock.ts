@@ -58,8 +58,8 @@ export function Clock(callback: TickCallback) {
       _running = true;
       await setTimer();
       
-      const ms = ms_per_beat();
       // logger.debug('postmessage');
+      const ms = msPerBeat();
       _timer.postMessage(ms);
 
       // logger.debug('after start');
@@ -73,13 +73,13 @@ export function Clock(callback: TickCallback) {
       }
     }
 
-    function ms_per_beat() {
+    function msPerBeat() {
       return ( MINUTE  / _bpm) / FRAMES_PER_BEAT;
     }
 
-    function bpm() {
-      return _bpm;
-    }
+    // function bpm() {
+    //   return _bpm;
+    // }
 
     async function setTimer() {
       logger.debug('setTimer');
@@ -101,16 +101,20 @@ export function Clock(callback: TickCallback) {
       // });
     }
 
+
     return {
-      bpm,
       frame,
+      msPerBeat,
       reset,
       running,
       setBPM,
       start,
       stop,
       touch,
-      tick
+      tick,
+      get bpm() {
+        return _bpm;
+      }
     }
 }
 

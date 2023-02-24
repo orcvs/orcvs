@@ -1,11 +1,14 @@
+import { Note } from 'webmidi';
+import { Logger } from "./logger";
+
 import { Clock } from './clock';
 import { Midi } from './midi'
 import { codify } from './code'
 
-import { Logger } from "./logger";
 import { Callback, Pattern, pattern } from './pattern';
-import { compute, Computer, Numputer, midify} from './library';
+import { compute, Computer, Computable, midify} from './library';
 
+import { Chord } from './note';
 
 const logger = Logger.child({
   source: 'Orcvs'
@@ -33,9 +36,9 @@ export function Orcvs() {
 
   function registerGlobals() {    
     globalThis.bang = bang;    
-    // globalThis.bpm = clock.bpm;
+    globalThis.bpm = clock.bpm;
     globalThis.output = setOutput;
-    globalThis.play = play;
+    globalThis.play = midi.play;
   }
 
   async function load(filename: string) {   
@@ -66,7 +69,8 @@ export function Orcvs() {
   }
 
   async function setBPM(bpm: number) {
-    await clock.setBPM(bpm);
+    await clock.setBPM(bpm);    
+    globalThis.bpm = clock.bpm;
   }  
 
   async function setOutput(out: number | string) {
@@ -90,9 +94,8 @@ export function Orcvs() {
     if (shouldRun(frame)) {
       run();
     }
-
     // logger.info({ tick: frame });
-    ptn.tick(frame, clock.bpm());
+    ptn.tick(frame);
     midi.tick(frame);    
   }
   
@@ -101,18 +104,21 @@ export function Orcvs() {
     clock.touch();   
   }
 
-  function play(channel: number, octave: Numputer, note: string, attack: Numputer, duration: Numputer) {   
-    // logger.debug('play'); 
-    octave = compute(octave);
-    attack = midify(compute(attack));
-    duration = compute(duration);
-
-    midi.push(channel, octave, note, attack, duration);
-  }
+  // function play(channel: number, octave: Computable<number>, note: Computable<string>, attack: Computable<number>, duration: Computable<number>) {   
+  // // function play(channel: number, note: Computable<string>, attack: Computable<number>, duration: Computable<number>) {   
+  //   // logger.debug('play'); 
+  //   octave = compute(octave);
+  //   attack = midify(compute(attack));
+  //   duration = compute(duration);
+  //   note = compute(note)
+    
+  //   const ms = duration * clock.msPerBeat();
+  //   logger.debug({ms});
+  //   midi.push(channel, 1, note, attack, ms);
+  // }  
 
   return {    
     load,
-    play,
     reset,
     setBPM,
     setOutput,

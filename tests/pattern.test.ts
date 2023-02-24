@@ -6,23 +6,26 @@ import { lerp } from '../src/library';
 
 require('../src/globals');
 
-const bpm = 120;
+globalThis.bpm = 120;
 
 describe('pattern', () => {
 
   describe('timeMatcher', () => {
 
-    test('timeMatcher from', async () => {     
+    test('timeMatcher from', async () => {   
+      
+      globalThis.bpm = 60;
+
       var ptn = pattern('60', () => {}); // 60s at 60bpm 
       var matcher = ptn.match; 
 
-      var result = matcher(120, 60)
+      var result = matcher(120)
       expect(result).toEqual(false);
 
-      var result = matcher(240, 60)
+      var result = matcher(240)
       expect(result).toEqual(true);
     
-      var result = matcher(480, 60)
+      var result = matcher(480)
       expect(result).toEqual(true);
     });
 
@@ -45,36 +48,41 @@ describe('pattern', () => {
 
     test('timeMatcher from to', async () => {      
       
+      globalThis.bpm = 60;
+
       var ptn = pattern('60:120', () => {}); // 60-120s at 60bpm
       var matcher = ptn.match; 
 
-      var result = matcher(120, 60)
+      var result = matcher(120)
       expect(result).toEqual(false);
 
-      var result = matcher(240, 60)
+      var result = matcher(240)
       expect(result).toEqual(true);
     
-      var result = matcher(480, 60)
+      var result = matcher(480)
       expect(result).toEqual(true);
       
-      var result = matcher(666, 60)
+      var result = matcher(666)
       expect(result).toEqual(false);
     });
 
     test('timeMatcher with bad from to', async () => {      
+      
+      globalThis.bpm = 60;
+      
       var ptn = pattern('120:60', () => {}); // 60-120s at 60bpm
       var matcher = ptn.match;       
 
-      var result = matcher(120, 60)
+      var result = matcher(120)
       expect(result).toEqual(false);
 
-      var result = matcher(240, 60)
+      var result = matcher(240)
       expect(result).toEqual(false);
     
-      var result = matcher(480, 60)
+      var result = matcher(480)
       expect(result).toEqual(false);
       
-      var result = matcher(666, 60)
+      var result = matcher(666)
       expect(result).toEqual(false);
     });
 
@@ -104,11 +112,11 @@ describe('pattern', () => {
 
         const ptn = pattern(str, () => {})
 
-        expect(ptn.match(1, bpm)).toBeTruthy();
-        expect(ptn.match(2, bpm)).toBeFalsy();
-        expect(ptn.match(3, bpm)).toBeFalsy();
-        expect(ptn.match(4, bpm)).toBeFalsy();
-        expect(ptn.match(5, bpm)).toBeTruthy();
+        expect(ptn.match(1)).toBeTruthy();
+        expect(ptn.match(2)).toBeFalsy();
+        expect(ptn.match(3)).toBeFalsy();
+        expect(ptn.match(4)).toBeFalsy();
+        expect(ptn.match(5)).toBeTruthy();
       });
 
       test('covers complex patterns', async () => {
@@ -116,27 +124,27 @@ describe('pattern', () => {
 
         const ptn = pattern(str, () => {})
 
-        expect(ptn.match(1, bpm)).toBeTruthy();
-        expect(ptn.match(2, bpm)).toBeFalsy();
-        expect(ptn.match(3, bpm)).toBeFalsy();
-        expect(ptn.match(4, bpm)).toBeFalsy();
-        expect(ptn.match(5, bpm)).toBeTruthy();
-        expect(ptn.match(6, bpm)).toBeTruthy();
-        expect(ptn.match(7, bpm)).toBeFalsy();
+        expect(ptn.match(1)).toBeTruthy();
+        expect(ptn.match(2)).toBeFalsy();
+        expect(ptn.match(3)).toBeFalsy();
+        expect(ptn.match(4)).toBeFalsy();
+        expect(ptn.match(5)).toBeTruthy();
+        expect(ptn.match(6)).toBeTruthy();
+        expect(ptn.match(7)).toBeFalsy();
       });      
 
       test('always', async () => {
         var ptn = pattern('▮', (bang) => {})
-        expect(ptn.match(1, bpm)).toBeTruthy();
-        expect(ptn.match(2, bpm)).toBeTruthy();
-        expect(ptn.match(4, bpm)).toBeTruthy();
+        expect(ptn.match(1)).toBeTruthy();
+        expect(ptn.match(2)).toBeTruthy();
+        expect(ptn.match(4)).toBeTruthy();
       });
           
       test('always', async () => {
         var ptn = pattern('▯', (bang) => {})
-        expect(ptn.match(1, bpm)).toBeFalsy();
-        expect(ptn.match(2, bpm)).toBeFalsy();
-        expect(ptn.match(4, bpm)).toBeFalsy();
+        expect(ptn.match(1)).toBeFalsy();
+        expect(ptn.match(2)).toBeFalsy();
+        expect(ptn.match(4)).toBeFalsy();
       });      
     });
 
@@ -150,7 +158,7 @@ describe('pattern', () => {
           // expect(cycle).toEqual(3)
         })
 
-        ptn.tick(7, bpm);
+        ptn.tick(7);
         
       });
 
@@ -159,27 +167,27 @@ describe('pattern', () => {
 
         const ptn = pattern(str, () => {})
 
-        expect(ptn.match(1, bpm)).toBeTruthy();
-        expect(ptn.match(2, bpm)).toBeFalsy();
-        expect(ptn.match(3, bpm)).toBeFalsy();
-        expect(ptn.match(4, bpm)).toBeFalsy();
-        expect(ptn.match(5, bpm)).toBeTruthy();
-        expect(ptn.match(6, bpm)).toBeTruthy();
-        expect(ptn.match(7, bpm)).toBeFalsy();
+        expect(ptn.match(1)).toBeTruthy();
+        expect(ptn.match(2)).toBeFalsy();
+        expect(ptn.match(3)).toBeFalsy();
+        expect(ptn.match(4)).toBeFalsy();
+        expect(ptn.match(5)).toBeTruthy();
+        expect(ptn.match(6)).toBeTruthy();
+        expect(ptn.match(7)).toBeFalsy();
       });      
 
       test('always', async () => {
         var ptn = pattern('▮', (bang) => {})
-        expect(ptn.match(1, bpm)).toBeTruthy();
-        expect(ptn.match(2, bpm)).toBeTruthy();
-        expect(ptn.match(42, bpm)).toBeTruthy();
+        expect(ptn.match(1)).toBeTruthy();
+        expect(ptn.match(2)).toBeTruthy();
+        expect(ptn.match(42)).toBeTruthy();
       });
           
       test('always', async () => {
         var ptn = pattern('▯', (bang) => {})
-        expect(ptn.match(1, bpm)).toBeFalsy();
-        expect(ptn.match(2, bpm)).toBeFalsy();
-        expect(ptn.match(42, bpm)).toBeFalsy();
+        expect(ptn.match(1)).toBeFalsy();
+        expect(ptn.match(2)).toBeFalsy();
+        expect(ptn.match(42)).toBeFalsy();
       });      
     });
 
@@ -194,7 +202,7 @@ describe('pattern', () => {
         });
       });
 
-      ptn.tick(1, bpm);
+      ptn.tick(1);
 
       expect(mock).toHaveBeenCalled();
 
@@ -215,7 +223,7 @@ describe('pattern', () => {
         });
       });
 
-      ptn.tick(1, bpm);
+      ptn.tick(1);
 
       expect(mock).toHaveBeenCalled();
       expect(otherMock).toHaveBeenCalled();
@@ -233,10 +241,10 @@ describe('pattern', () => {
         y = lerpY()
       })
   
-      ptn.tick(1, bpm); 
-      ptn.tick(2, bpm); 
-      ptn.tick(3, bpm); 
-      ptn.tick(4, bpm); 
+      ptn.tick(1); 
+      ptn.tick(2); 
+      ptn.tick(3); 
+      ptn.tick(4); 
   
       expect(x).toEqual(1);   
       expect(y).toEqual(3);    
@@ -254,10 +262,10 @@ describe('pattern', () => {
         x = lerpX();
       })
   
-      ptn.tick(1, bpm); 
-      ptn.tick(2, bpm); 
-      ptn.tick(3, bpm); 
-      ptn.tick(4, bpm); 
+      ptn.tick(1); 
+      ptn.tick(2); 
+      ptn.tick(3); 
+      ptn.tick(4); 
   
       expect(x).toEqual(0); // lerper is reset each cycle
     });
@@ -276,10 +284,10 @@ describe('pattern', () => {
         })
         
         // bang every 1st and 4th
-        ptn.tick(1, bpm);
-        ptn.tick(2, bpm);
-        ptn.tick(3, bpm);
-        ptn.tick(4, bpm);
+        ptn.tick(1);
+        ptn.tick(2);
+        ptn.tick(3);
+        ptn.tick(4);
 
         expect(mock).toHaveBeenCalledTimes(4);
         expect(innerMock).toHaveBeenCalledTimes(1);
@@ -306,10 +314,10 @@ describe('pattern', () => {
         })
       })
 
-      ptn.tick(1, bpm); 
-      ptn.tick(2, bpm);
-      ptn.tick(3, bpm);
-      ptn.tick(4, bpm);
+      ptn.tick(1); 
+      ptn.tick(2);
+      ptn.tick(3);
+      ptn.tick(4);
       expect(mock).toHaveBeenCalled();
       expect(mock).toHaveBeenCalledTimes(4);
       expect(innerMock).toHaveBeenCalledTimes(1);
@@ -320,6 +328,8 @@ describe('pattern', () => {
     describe('at', () => {
 
       test('at bang at', async () => {
+               
+        globalThis.bpm = 120;
 
         const mock = jest.fn();
         const innerMock = jest.fn();
@@ -332,11 +342,11 @@ describe('pattern', () => {
           })
         })
         
-        ptn.tick(8, bpm); // 8 frames a second
-        ptn.tick(16, bpm);
-        ptn.tick(24, bpm);
-        ptn.tick(32, bpm);
-        ptn.tick(40, bpm);
+        ptn.tick(8); // 8 frames a second
+        ptn.tick(16);
+        ptn.tick(24);
+        ptn.tick(32);
+        ptn.tick(40);
         expect(mock).toHaveBeenCalled();
         expect(mock).toHaveBeenCalledTimes(5);
         expect(innerMock).toHaveBeenCalledTimes(2);

@@ -1,10 +1,13 @@
 
 import {jest} from '@jest/globals'
 
-import { Midi, Buffer } from '../src/midi';
-import { WebMidi, Output } from 'webmidi';
+import { Midi } from '../src/midi';
+import { Chord, chord } from '../src/note';
+import { WebMidi, Output, Note } from 'webmidi';
 
-describe.skip('test', () => {
+require('../src/globals');
+
+describe('test', () => {
     
     // beforeAll( async () => {
     //     console.log('beforeAll start')
@@ -30,81 +33,109 @@ describe.skip('test', () => {
       const attack = 0.5;
       let duration = 4;
 
-      test('push', async () => {
-        var buffer: Buffer = []; 
-        let midi = Midi(buffer);
+      test('play', async () => {
+        let midi = Midi();
         
-        midi.push(channel, octave, value, attack, duration);
-        midi.push(channel, octave, 'D', attack, duration);
-        expect(buffer).toHaveLength(2);
+        midi.play(channel, D);
+        midi.play(channel, C);
+        
+        midi.play(10, E);
 
-        const { note } = buffer[1];
-        expect(note.midi().name).toEqual('D');
+        
+        expect(midi.buffer).toHaveProperty('1')
+        expect(midi.buffer).toHaveProperty('10')
+        
+        const notes = midi.buffer[1];
+
+        expect(notes).toHaveLength(2);
+        expect(notes[0].name).toEqual('D');
+      });
+
+      test('play chord', async () => {
+        let midi = Midi();
+            
+        var c = chord('C4:M');
+        midi.play(channel, c);
+  
+        expect(midi.buffer).toHaveProperty('1')
+        
+        const notes = midi.buffer[1];
+
+        expect(notes).toHaveLength(3);
+        expect(notes[0].name).toEqual('C');
       });
 
       test('clear', async () => {
-        var buffer: Buffer = []; 
-        let midi = Midi(buffer);
+        let midi = Midi();
         
-        midi.push(channel, octave, value, attack, duration);
-        midi.push(channel, octave, 'D', attack, duration);
-        expect(buffer).toHaveLength(2);
+        midi.play(channel, D);
+        midi.play(channel, C);
         
-        var { note } = buffer[0];
-        note.play();
-        note.stop();
+        const notes = midi.buffer[1];
 
+        expect(midi.buffer).toHaveProperty('1')
+        expect(notes).toHaveLength(2);
+        
         midi.clear();
-        expect(buffer).toHaveLength(1);
-
-        var { note } = buffer[0];
-        note.play();
-        note.stop();
-
-        midi.clear();
-        expect(buffer).toHaveLength(0);
+        expect(midi.buffer).not.toHaveProperty('1')
       });
 
-      test('on/off', async () => {              
-          var buffer: Buffer = []; 
-          let midi = Midi(buffer);
-          await midi.setup();
-          await midi.selectOutput(0);
-                            
-          midi.push(channel, octave, value, attack, duration);
-          var { note } = buffer[0];
 
-          expect(note.played()).toBeTruthy();
-          expect(note.playing()).toBeTruthy();
-          expect(note.shouldOff()).toBeFalsy(); 
-  
-          midi.tick();
-          await new Promise((r) => setTimeout(r, 500));
- 
-          expect(note.played()).toBeTruthy();
-          expect(note.playing()).toBeTruthy();
-          expect(note.shouldOff()).toBeFalsy(); 
 
-          midi.tick();
-          await new Promise((r) => setTimeout(r, 500));
-          
-          expect(note.played()).toBeTruthy();
-          expect(note.playing()).toBeTruthy();
-          expect(note.shouldOff()).toBeFalsy(); 
-
-          midi.tick();
-          await new Promise((r) => setTimeout(r, 500));
+      // test.only('group', async () => {
+      //   var buffer = [{channel: 1, note: A},{channel: 2, note:A}, {channel: 1, note: B }]; 
+        
+      //   var result = buffer.reduce( (acc: any, obj) => {
+      //     const key = obj.channel          
+      //     const curGroup = acc[key] ?? [];
       
-          expect(note.played()).toBeTruthy();
-          expect(note.playing()).toBeTruthy();
-          expect(note.shouldOff()).toBeFalsy(); 
+      //     return { ...acc, [key]: [...curGroup, obj] };
+      //   }, {}  )
 
-          midi.tick();
-          await new Promise((r) => setTimeout(r, 500));
-          expect(note.shouldOff()).toBeTruthy(); 
-          expect(note.playing()).toBeFalsy();
+      //   console.log(result);
+      // }); 
+
+
+      // test('on/off', async () => {              
+      //     var buffer: Buffer = []; 
+      //     let midi = Midi(buffer);
+      //     await midi.setup();
+      //     await midi.selectOutput(0);
+                            
+      //     midi.push(channel, octave, value, attack, duration);
+      //     var { note } = buffer[0];
+
+      //     expect(note.played()).toBeTruthy();
+      //     expect(note.playing()).toBeTruthy();
+      //     expect(note.shouldOff()).toBeFalsy(); 
+  
+      //     midi.tick();
+      //     await new Promise((r) => setTimeout(r, 500));
+ 
+      //     expect(note.played()).toBeTruthy();
+      //     expect(note.playing()).toBeTruthy();
+      //     expect(note.shouldOff()).toBeFalsy(); 
+
+      //     midi.tick();
+      //     await new Promise((r) => setTimeout(r, 500));
           
-          await WebMidi.disable();
-      });
+      //     expect(note.played()).toBeTruthy();
+      //     expect(note.playing()).toBeTruthy();
+      //     expect(note.shouldOff()).toBeFalsy(); 
+
+      //     midi.tick();
+      //     await new Promise((r) => setTimeout(r, 500));
+      
+      //     expect(note.played()).toBeTruthy();
+      //     expect(note.playing()).toBeTruthy();
+      //     expect(note.shouldOff()).toBeFalsy(); 
+
+      //     midi.tick();
+      //     await new Promise((r) => setTimeout(r, 500));
+      //     expect(note.shouldOff()).toBeTruthy(); 
+      //     expect(note.playing()).toBeFalsy();
+          
+      //     await WebMidi.disable();
+      // });
   });
 }); 

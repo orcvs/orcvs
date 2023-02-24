@@ -1,4 +1,6 @@
-import { WebMidi, Output, Note as MidiNote} from 'webmidi';
+import { WebMidi, Output, Note} from 'webmidi';
+import { Computable, compute } from './library';
+import { Chord } from './note';
 import { Logger } from "./logger";
 
 // type Note = { channel: number, octave: number, note: string, attack: number, duration: number }
@@ -7,123 +9,81 @@ const logger = Logger.child({
   source: 'Midi'
 });
 
-interface Note {
-  midi: () => MidiNote;
-  play: () => void;
-  played: () => boolean;
-  playing: () => boolean;
-  shouldOff: () => boolean;
-  shouldPlay: () => boolean;
-  stop: () => void;
-  stopped: () => boolean;
-  tick: () => void;
-  value: string;
-}
+// export type Buffer = { channel: number, note: Note[] }
+// export type Buffer = { channel: number, note: MidiNote }[] 
 
-export function note(value: string, attack: number, duration: number):Note {
-    var _played = false;
-    var _stopped = false;
-    // let midi = midi();
+export type Buffer = { [channel: number] : Note[] };
 
-    const self = {
-      midi,
-      shouldOff,
-      play,
-      played,
-      playing,
-      shouldPlay,
-      stop,
-      stopped,
-      tick,
-      value,
-    };
-    
-    function play() {
-      _played = true;
-    }
-    
-    function shouldPlay() {
-      return !_played;
-    }
-    
-    function played() {
-      return _played;
-    }
-    
-    function playing() {
-      return _played && !_stopped;
-    }
+export function Midi() {
+  let output: Output | null = null;
+  var _buffer: Buffer = {};
 
-    function midi() {
-      return new MidiNote(value, { rawAttack: attack });
-    }
-
-    function shouldOff() {
-      return duration === 0
-    }
-
-    function stop() {
-      _stopped = true;
-    }
-    
-    function stopped() {
-      return _stopped;
-    }
-
-    function tick() {
-      if (duration !== 0) {
-        duration--;
-      }     
-    }
-
-    return self;
-}
-
-export type Buffer = { channel: number, note: Note }[] 
-
-export function Midi(buffer: Buffer = []) {
-  var output: Output | null = null;
-  
   const self = {
-    off,
-    on,
-    push,
     clear,
+    play,
+    on,
     selectOutput,
     setup,
     stop,
     tick,
+    get buffer() {      
+      return _buffer;    
+    }
   };
 
-  function off(id: number, note: Note) {
-    // logger.debug('off');
-    if (output) {
-      let channel = output.channels[id];
-      channel.sendNoteOff(note.midi());    
-      note.stop();  
-    }
-  }  
+  // function off(id: number, note: Note) {
+  //   // logger.debug('off');
+  //   if (output) {
+  //     let channel = output.channels[id];
+  //     channel.sendNoteOff(note.midi());    
+  //   }
+  // }  
   
-  function on(channelId: number, note: Note) {
+  function on(channelId: number, notes: Note[]) {
     // logger.debug('on');
+    logger.debug({octaveOffset: WebMidi.octaveOffset})    
     if (output) {
-      let channel = output.channels[channelId];
-      // channel.playNote(note, { duration: note.duration });
-      channel.sendNoteOn(note.midi());
-      note.play();
+      // logger.debug({note: typeof note })
+      // logger.debug({note})
+      // const notes = note instanceof Note ? [note] : note.notes;
+      // // if (note instanceof Note) {
+      // //   notes = 
+      // // }
+      // logger.debug({note: typeof note })
+      // console.log({notes})
+      let channel = output.channels[channelId];      
+      channel.playNote(notes);    
+      // channel.sendNoteOn(note.midi());
     }
   }
-    
-  function push(channel: number, octave: number, value: string, attack: number, duration: number) {    
-    // logger.debug('push');      
-    value = value + octave
-    buffer.push({ channel,  note: note(value, attack, duration) });
+  
+  function isChordOrNote(playable: Note | Chord) {
+    return (playable instanceof Chord) || ( playable instanceof Note);
+  }
+
+  function play(channel: number, playable: Computable<Note | Chord>) {   
+
+    logger.debug({channel, playable});
+    playable = compute(playable);
+
+    if (!isChordOrNote(playable)) {
+      const msg = 'Value is not a Note or Chord';
+      logger.error({msg, note: playable});
+      throw new TypeError(msg);
+    }    
+
+    const notes = playable instanceof Chord ? playable.notes : [playable];
+    logger.debug({notes, playable})
+    push(channel, notes );
+  }
+
+  function push(channel: number, note: Note | Note[]) {
+    _buffer[channel] = (_buffer[channel] || []).concat(note);
+    // logger.debug({_buffer})
   }
 
   function clear() {    
-    buffer = buffer.filter( ({ note }) => note.playing() )
-    // let deleted = buffer.splice(idx, 1);
-    // logger.debug({ deleted });   
+    _buffer = {};
   }
 
   function selectOutput(selected: number | string) {
@@ -151,44 +111,21 @@ export function Midi(buffer: Buffer = []) {
     try {
       await WebMidi.enable();
     } catch(error) {
-      // console.error('ERROR');
       logger.error(error);      
     }    
-
-    // WebMidi.outputs.forEach(output => logger.info(output.manufacturer, output.name));
-
     logger.info({Outputs: WebMidi.outputs.map( o => o.name) });
-    // for (let output of WebMidi.outputs) {
-    //   logger.info(output.name);
-    // }
-    
     logger.info('WebMidi enabled');
   }  
 
   async function stop() {
-    // if (this.output) {
-    //   // const channels = this.buffer.map( ({id, _}) => id);
-    //   // this.output.sendAllSoundOff({ channels });
-    // }
     await WebMidi.disable();
   }
 
-  function tick(f?: number) {       
-    // logger.debug({ tick: f });
-    // logger.debug({ buffer });
-    for (let idx = 0; idx < buffer.length; idx++) {
-      const { channel, note } = buffer[idx];
-      // logger.debug({ idx, note, played: note.played() });
-
-      if (note.shouldPlay()) {
-        on(channel, note);
-        // logger.debug('played');        
-      }      
-
-      if(note.shouldOff()) {        
-        off(channel, note)      
-      }
-      note.tick();
+  function tick(f?: number) {
+    for (let idx in _buffer) {
+      const notes = _buffer[idx];
+      const channel = parseInt(idx);    
+      on(channel, notes);
     }
     clear();
   }

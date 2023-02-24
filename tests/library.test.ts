@@ -13,10 +13,10 @@ describe('library', () => {
       var value = midify(0);
       expect(value).toEqual(0);
       
-      var value = midify(A);
+      var value = midify(a);
       expect(value).toEqual(36);
 
-      var value = midify(Z);
+      var value = midify(z);
       expect(value).toEqual(127);
     });
 
@@ -34,7 +34,7 @@ describe('library', () => {
 
   describe('seq', () => {
 
-    test.only('numbers', async () => {
+    test('numbers', async () => {
 
       var ary = [A, B, C, D, E ];
       var s = seq(...ary);
@@ -50,8 +50,8 @@ describe('library', () => {
   
     });
 
-    test('str at zero or from', async () => {
-      var ary = ['!', '.', '.', '.'];
+    test('str', async () => {
+      var ary = ['!', '.', '.', '!', '.'];
       var s = seq(...ary);
 
       for (var i = 0; i < 5; i++) {

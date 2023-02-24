@@ -1,18 +1,15 @@
+export type Computer<T> = ((...opts: any[]) => T);
 
-export type Computer = (() => number);
+export type Computable<T> = (T | (() => T));
 
-export type Numputer = (number | Computer);
-
-export function compute(n: Numputer) {
-  if (typeof n === "function") {
-    return n();
+export function compute<T>(x: Computable<T>): T {
+  if (typeof x === "function") {
+    return (x as Function)();
   }
-  return n;
+  return x;
 }
 
-
-
-export function seq<T>(...sequence: readonly T[]): (() => T) {
+export function seq<T>(...sequence: readonly T[]): Computer<T> {
   const start = 0;
   const end = sequence.length - 1;
 
@@ -30,28 +27,10 @@ export function seq<T>(...sequence: readonly T[]): (() => T) {
   }(start, end));
 }
 
-// export function seq(...sequence: readonly (string | number)[]): (() => (string | number)) {
-//   const start = 0;
-//   const end = sequence.length - 1;
+export function lerp(to: number): Computer<number>
+export function lerp(from: number, to?: number): Computer<number>
 
-//   return (function(start: number, end: number) {
-//     var idx: number;
-
-//     return function()  {
-
-//       if (idx === undefined)  { idx = start } else
-//       if (idx < end)          { idx = idx + 1 } else       
-//       if (idx === end)        { idx = start };
-    
-//       return sequence[idx];
-//     }
-//   }(start, end));
-// }
-
-export function lerp(to: number): Computer
-export function lerp(from: number, to?: number): Computer
-
-export function lerp(tofrom: number, to?: number, diff = 1): Computer {
+export function lerp(tofrom: number, to?: number, diff = 1): Computer<number> {
 
   const min = to === undefined ? 0 : tofrom;
   const max = to === undefined ? tofrom : to;
@@ -70,10 +49,10 @@ export function lerp(tofrom: number, to?: number, diff = 1): Computer {
   }(min, max));
 }
 
-export function cycle(to: number): Computer
-export function cycle(from: number, to: number): Computer
+export function cycle(to: number): Computer<number>
+export function cycle(from: number, to: number): Computer<number>
 
-export function cycle(tofrom: number, to?: number, diff = 1): Computer {
+export function cycle(tofrom: number, to?: number, diff = 1): Computer<number> {
 
   const start = to === undefined ? 0 : tofrom;
   const target = to === undefined ? tofrom : to;
@@ -92,10 +71,10 @@ export function cycle(tofrom: number, to?: number, diff = 1): Computer {
   }(start, target));
 }
 
-export function wave(to: number): Computer
-export function wave(from: number, to: number): Computer
+export function wave(to: number): Computer<number>
+export function wave(from: number, to: number): Computer<number>
 
-export function wave(tofrom: number, to?: number, diff = 1): Computer {
+export function wave(tofrom: number, to?: number, diff = 1): Computer<number> {
 
   const min = to === undefined ? 0 : tofrom;
   const max = to === undefined ? tofrom : to;
@@ -118,7 +97,7 @@ export function wave(tofrom: number, to?: number, diff = 1): Computer {
  
 const MIDI_MAX = 127
 export function midify(value: number) {
-  return Math.ceil(value * MIDI_MAX/Z)
+  return Math.ceil(value * MIDI_MAX/z);
 }
 
 function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }

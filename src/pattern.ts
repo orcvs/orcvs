@@ -4,7 +4,9 @@ export type Bang = (str: string, callback: Callback) => void;
 
 export type Callback = (pattern: Pattern) => void;
 
-export type Match = (frame : number, bpm: number) => boolean;
+export type Match = (frame : number) => boolean;
+
+const _GLOBAL = globalThis; 
 
 const logger = Logger.child({
   source: 'Pattern'
@@ -13,8 +15,8 @@ const logger = Logger.child({
 export interface Pattern {
   bang: (str: string, callback: Callback) => void;
   at: (str: string, callback: Callback) => void;
-  match: (frame : number, bpm: number) => boolean;
-  tick: (frame : number, bpm: number) => void;
+  match: (frame : number) => boolean;
+  tick: (frame : number) => void;
   when: (condition: boolean, callback: Callback) => void; 
   cycle: number;
   frame: number;
@@ -40,7 +42,6 @@ export function pattern(str: string, callback: Callback): Pattern {
       return !_pattern.length ? 0 : Math.floor(_frame/_pattern.length);
     },
   }
-
   
   function matcher(match: string): Match {
     return isTime(match) ? timeMatcher(match) : patternMatcher(match)
@@ -60,9 +61,9 @@ export function pattern(str: string, callback: Callback): Pattern {
   
     const [ from = 0, to = 999 ] = match.split(':').map( s => parseInt(s) || 0);
     
-    return function(frame: number, bpm: number) {
-      const f = timeToFrame(from, bpm);
-      const t = timeToFrame(to, bpm);
+    return function(frame: number) {
+      const f = timeToFrame(from, _GLOBAL.bpm);
+      const t = timeToFrame(to, _GLOBAL.bpm);
       // if (f >= t) {
       //   logger.info({msg: 'Invalid time', match});
       //   return false
@@ -71,13 +72,13 @@ export function pattern(str: string, callback: Callback): Pattern {
     }
   }
 
-  function tick(frame: number, bpm: number) {   
-    if (match(frame, bpm)) {
+  function tick(frame: number) {       
+    if (match(frame)) {
      
       callback(self);   
 
       for (const ptn of Object.values(_patterns)) {
-        ptn.tick(frame, bpm);
+        ptn.tick(frame);
       }
     }
   }
