@@ -34,42 +34,97 @@ describe('library', () => {
 
   describe('seq', () => {
 
-    test('numbers', async () => {
+    test('accepts rest params ', async () => {
+      const ary = ['!', '.', '.', '!', '.'];
+      let s = seq(...ary);
 
-      var ary = [A, B, C, D, E ];
-      var s = seq(...ary);
-
-      for (var i = 0; i < 5; i++) {
-        var result = s();
+      for (let i = 0; i < 5; i++) {
+        let result = s();
         expect(result).toEqual(ary[i]);
       }
-      for (var i = 0; i < 5; i++) {
-        var result = s();
+    });
+
+    test('accepts array ', async () => {
+      const ary = ['!', '.', '.', '!', '.'];
+      let s = seq(ary);
+
+      for (let i = 0; i < 5; i++) {
+        let result = s();
+        expect(result).toEqual(ary[i]);
+      }
+    });    
+
+    test('accepts params', async () => {
+      const ary = [A, B, C, D, E];
+      let s = seq(A, B, C, D, E);
+
+      for (let i = 0; i < 5; i++) {
+        let result = s();
+        expect(result).toEqual(ary[i]);
+      }
+    }); 
+
+    test('numbers', async () => {
+
+      const ary = [A, B, C, D, E];
+      const s = seq(...ary);
+
+      for (let i = 0; i < 5; i++) {
+        const result = s();
+        expect(result).toEqual(ary[i]);
+      }
+      for (let i = 0; i < 5; i++) {
+        const result = s();
         expect(result).toEqual(ary[i]);
       }
   
     });
 
     test('str', async () => {
-      var ary = ['!', '.', '.', '!', '.'];
-      var s = seq(...ary);
+      const ary = ['!', '.', '.', '!', '.'];
+      const s = seq(...ary);
 
-      for (var i = 0; i < 5; i++) {
-        var result = s();
+      for (let i = 0; i < 5; i++) {
+        let result = s();
         expect(result).toEqual(ary[i]);
       }
-      for (var i = 0; i < 5; i++) {
-        var result = s();
+      for (let i = 0; i < 5; i++) {
+        let result = s();
         expect(result).toEqual(ary[i]);
       }
-  
     });
     
+    test('multiple sequences', async () => {
+      const num = [A, B, C, D, E ];
+      const str = ['!', '.', '.', '!', '.'];
+      
+      const numSeq = seq(A, B, C, D, E );
+      const strSeq = seq('!', '.', '.', '!', '.');
+
+      for (let i = 0; i < 5; i++) {
+        let n = numSeq();
+        let s = strSeq();
+        expect(n).toEqual(num[i]);
+        expect(s).toEqual(str[i]);
+      }
+
+      for (let i = 0; i < 5; i++) {
+        let n = numSeq();
+        expect(n).toEqual(num[i]);
+
+        if (i === 3) {
+          let s = strSeq();
+          expect(s).toEqual('!');
+        }
+      }
+    });
+
   });
 
   describe('lerp', () => {
 
     test('starts at zero or from', async () => {
+      
       var lerper = lerp(5);
       var value = lerper();    
       expect(value).toEqual(0);   
@@ -119,6 +174,36 @@ describe('library', () => {
       expect(value).toEqual(3);   
     });
   
+    test('multiple lerps', async () => {
+      let lerpA = lerp(5);
+      let lerpB = lerp(10);
+
+      for (let i=0; i<=5; i++) {
+        const vA = lerpA();
+        expect(vA).toEqual(i);        
+        const vB = lerpB();
+        expect(vB).toEqual(i)
+      }
+
+      lerpA = lerp(5);
+      lerpB = lerp(10);
+
+      for (let i=0; i<=10; i++) {
+        const vA = lerpA();
+
+        if (i <= 5) {
+          expect(vA).toEqual(i);   
+        } else {          
+          expect(vA).toEqual(5);   
+        }
+        
+        const vB = lerpB();
+        expect(vB).toEqual(i)
+      }
+
+
+    });
+
   });
 
   describe('cycle', () => {
