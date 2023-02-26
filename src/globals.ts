@@ -1,5 +1,5 @@
-import { cycle, lerp, wave, seq } from './library';
-import { note } from './note';
+import { cycle, lerp, wave, seq,  } from './library';
+import { note, chord } from './note';
 
  
 globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';

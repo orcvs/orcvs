@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { ChordTable, getIntervals, Options, chord, note } from '../src/note';
+import { arp, chord, note, Note} from '../src/note';
 
 import { lerp } from '../src/library';
 
@@ -147,6 +147,31 @@ describe('notes & chords', () => {
 
   });
 
+  describe.only('arp', () => {
+
+    test('generates correct notes', async () => { 
+      const a = arp('C4:M');
+      const c = chord('C4:M');
+      const notes = c.notes;
+
+      for(let note of notes) {
+        const next = a();
+        expect(next).toEqual(note);      
+      }            
+    });
+
+    test('applies options', async () => { 
+      const a = arp('C4:M', {d: 1, a: 2, r: 3});
+
+      for(let i = 0; i < 3; i++) {
+        const next = a() as Note;
+        expect(next.duration).toEqual(1);
+        expect(next.attack).toEqual(2);
+        expect(next.release).toEqual(3);      
+      }            
+    });
+
+  });
 
 });
 

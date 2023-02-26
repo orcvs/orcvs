@@ -25,6 +25,18 @@ export interface Options {
   r?: Computable<number>;
 }
 
+export function arp(value: string, ...options: Options[]): Computer<Playable> {  
+  // if (typeof x === 'string') {    
+  // }
+
+  const crd = chord(value, ...options);
+  const notes = seq(...crd.notes);
+
+  return function(): Note {
+    return notes();
+  }
+}
+
 export function chord(chord: string, ...options: Options[]): Chord {  
   const {name, intervals} = toChord(chord);
 

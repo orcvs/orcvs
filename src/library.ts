@@ -14,17 +14,6 @@ export function compute<T>(x: Computable<T>): T {
   return x;
 }
 
-
-
-export function arp(chord: Chord) {
-  const s = seq(chord.notes);
-
-  // return (function() {
-
-
-  // }
-}
-
 export function seq<T>(...sequence: readonly T[]): Computer<T> {
   return sequencer(cycle, ...sequence);
 }
