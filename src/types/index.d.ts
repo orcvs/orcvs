@@ -1,6 +1,7 @@
 import { Callback } from '../pattern';
 import { Computable, Computer } from '../library';
-import { Note } from 'webmidi';
+import { Chord, Note, chord, note, Options } from '../note';
+
 
 declare global {
   var bang: (str: string, callback: Callback) => void;
@@ -9,10 +10,26 @@ declare global {
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
-  // var play: (channel: number, octave: Computable<number>, note: Computable<string>, attack: Computable<number>, duration: Computable<number>) => void;  
+  var chord: (chord: string, ...options: Options[]) => Chord;
+  var note: (name: string) => Computer<Note>
+  
+  // Defined in Orcvs and attached at runtime
   var play: (channel: number, note: Computable<Note>) => void;
   var output: (output: number | string) => void;
+
   
+  // Aliases
+  var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+
+  var crd: (chord: string, ...options: Options[]) => Chord;
+  var nte: (name: string) => Computer<Note>
+
+  var ply: (channel: number, note: Computable<Note>) => void;
+  var out: (output: number | string) => void;
+
+
   var ORCVS: string;
   var BANG: string;
 
@@ -46,6 +63,7 @@ declare global {
   var z: number;
 
 
+  var C2:   Computer<Note>;
   var C$2:  Computer<Note>;
   var Cb2:  Computer<Note>;
   var D2:   Computer<Note>;

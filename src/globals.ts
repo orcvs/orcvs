@@ -9,6 +9,16 @@ globalThis.cycle = cycle;
 globalThis.wave = wave;
 globalThis.seq = seq;
 
+globalThis.chord = chord;
+globalThis.note = note;
+
+globalThis.cyc = cycle;
+globalThis.wav = wave;
+globalThis.seq = seq;
+
+globalThis.crd = chord;
+globalThis.nte = note;
+
 globalThis.ORCVS = ORCVS;
 globalThis.BANG = '▮';
 
