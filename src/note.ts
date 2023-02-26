@@ -1,81 +1,114 @@
-import { Note } from 'webmidi';
-import { Computer, Computable} from './library';
+import { Utilities as BaseUtilities } from 'webmidi';
+import { Computable, Computer, seq, seqLerp } from './library';
 
 
-export type NoteOpts = {
-  d?: number;
-  a?: number;
-  r?: number;
+export interface Playable {
+  notes: Note[];
 }
 
-export class Chord extends Note {
-  notes: Note[] = [this];
-
-  constructor(value: string | number, options?: {
-    duration?: number,
-    attack?: number,
-    release?: number,
-    rawAttack?: number,
-    rawRelease?: number,
-  }) {
-    super(value, options);
-  }
-
+export interface Note extends Playable{
+  value: number; 
+  duration?: Computable<number>;
+  attack?: Computable<number>;
+  release?: Computable<number>;
 }
 
-export function chord(value: string, opts: NoteOpts = {}): Chord {
-  let _root: Chord;
-
-  const {d: duration, a: attack, r: release} = opts;
-
-  const {root, intervals} = toChord(value);
-  _root = new Chord(root);
-
-  for (const i of intervals) {      
-    const value = _root.getOffsetNumber(0, i);
-    const note = new Note(value, {duration, attack, release});
-    _root.notes.push(note);
-  }
-
-  return _root;
+export interface Chord extends Playable {
+  name: string;
+  root: Note; 
+  intervals: number[];  
 }
 
-export function note(value: string | number): Computer<Note> {  
+export interface Options {
+  d?: Computable<number>;
+  a?: Computable<number>;
+  r?: Computable<number>;
+}
 
-  return function(opts: NoteOpts = {}) {
-    const {d: duration, a: attack, r: release} = opts;
-    return new Note(value, {duration, attack, release} )
+export function chord(chord: string, ...options: Options[]): Chord {  
+  const {name, intervals} = toChord(chord);
+
+  const opts = seqLerp(...options);
+
+  const notes: Note[] = [];
+
+  const value = Utilities.toNoteNumber(name);
+  const root = createNote(value, opts());
+  notes.push(root);
+
+  for (const int of intervals) {   
+    const v = Utilities.getOffsetNumber(value, int);
+    const note = createNote(v, opts());
+    notes.push(note);
+  }  
+
+  return {
+    name: chord,
+    intervals, 
+    notes,
+    get root() {
+      return notes[0];
+    }
+  };
+}
+
+function createNote(value: number, options: Options = {}) {
+  const {d: duration, a: attack, r: release} = options;
+  return {
+    value,
+    duration,
+    attack, 
+    release,
+    get notes() {
+      return [this];
+    }
   }
+}
+
+export function note(name: string): Computer<Note> {  
+  const value = Utilities.toNoteNumber(name);
+  return function(options: Options = {}) {
+    return createNote(value, options);
+  }
+}
+
+class Utilities extends BaseUtilities {
+  static getOffsetNumber(number: number, semitoneOffset = 0) {
+    return Math.min(Math.max(number + semitoneOffset, 0), 127);
+  }  
+  // static getOffsetNumber(value: number, octaveOffset = 0, semitoneOffset = 0) {
+  //   return Math.min(Math.max(value + octaveOffset * 12 + semitoneOffset, 0), 127);
+  // }  
 }
 
 export const ChordIntervalsTable: { [key: string]: number[] }  = {
-  '7': [ 4, 7, 10 ],
-  '9': [ 4, 7, 10, 14 ],
-  '13': [ 4, 7, 10, 14, 21 ],
-  'M': [ 4, 7 ],
-  'M7': [ 4, 7, 11 ],
-  'M9': [ 4, 7, 11, 14 ],
-  'M13': [ 4, 7, 11, 14, 21 ],
-  'M6': [ 4, 7, 9 ],
-  'M69': [ 4, 7, 9, 14 ],
+  'M':    [ 4, 7 ],
+  'M7':   [ 4, 7, 11 ],
+  'M9':   [ 4, 7, 11, 14 ],
+  'M13':  [ 4, 7, 11, 14, 21 ],
+  'M6':   [ 4, 7, 9 ],
+  'M69':  [ 4, 7, 9, 14 ],
   'M7b6': [ 4, 8, 11 ],
-  'm': [ 3, 7 ],
-  'm7': [ 3, 7, 10 ],
-  'mM7': [ 3, 7, 11 ],
-  'm6': [ 3, 7, 9 ],
-  'm9': [ 3, 7, 10, 14 ],
-  'm11': [ 3, 7, 10, 14, 17 ],
-  'm13': [ 3, 7, 10, 14, 21 ],
-  'o': [ 3, 6 ],
-  'o7': [ 3, 6, 9 ],
+  'm':    [ 3, 7 ],
+  'm7':   [ 3, 7, 10 ],
+  'mM7':  [ 3, 7, 11 ],
+  'm6':   [ 3, 7, 9 ],
+  'm9':   [ 3, 7, 10, 14 ],
+  'm11':  [ 3, 7, 10, 14, 17 ],
+  'm13':  [ 3, 7, 10, 14, 21 ],
+  'o':    [ 3, 6 ],
+  'o7':   [ 3, 6, 9 ],
   'm7b5': [ 3, 6, 10 ],
-  '7b9': [ 4, 7, 10, 13 ]
+  '7b9':  [ 4, 7, 10, 13 ],
+  '7':    [ 4, 7, 10 ],
+  '9':    [ 4, 7, 10, 14 ],
+  '13':   [ 4, 7, 10, 14, 21 ],
 }
 
-function toChord(str: string): {root:string, intervals:number[]} {
-  const [ root, quality] = str.split(':');
+function toChord(value: string): {name:string, intervals:number[]} {
+  const [ name, quality] = value.split(':');
   const intervals = ChordIntervalsTable[quality];
-  return {root, intervals};
+  return {name, intervals};
 }
 
 export const ChordTable: { [key: string]: string[] } = {

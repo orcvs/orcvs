@@ -41,7 +41,7 @@ globalThis.x = 34;
 globalThis.y = 35;
 globalThis.z = 36;
 
-
+globalThis.C2 = note('C2');
 globalThis.C$2 = note('C#2');
 globalThis.Cb2 = note('Cb2');
 globalThis.D2  = note('D2');

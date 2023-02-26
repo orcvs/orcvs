@@ -1,8 +1,11 @@
 import { Chord } from './note';
+import { MINUTE, FRAMES_PER_BEAT } from './clock';
 
 export type Computer<T> = ((...opts: any[]) => T);
 
 export type Computable<T> = (T | (() => T));
+
+export type Indexer = (tofrom: number, to?: number, diff?: number) => Computer<number>;
 
 export function compute<T>(x: Computable<T>): T {
   if (typeof x === 'function') {
@@ -23,18 +26,30 @@ export function arp(chord: Chord) {
 }
 
 export function seq<T>(...sequence: readonly T[]): Computer<T> {
+  return sequencer(cycle, ...sequence);
+}
+
+export function seqLerp<T>(...sequence: readonly T[]): Computer<T> {
+  return sequencer(lerp, ...sequence);
+}
+
+export function seqWave<T>(...sequence: readonly T[]): Computer<T> {
+  return sequencer(lerp, ...sequence);
+}
+
+export function sequencer<T>(indexer: Indexer, ...sequence: readonly T[]): Computer<T> {
   if (Array.isArray(sequence[0])){
     sequence = sequence[0];
   }
-  
+
   const start = 0;
   const end = sequence.length - 1;
 
-  const indexer = cycle(start, end);
+  const idx = indexer(start, end);
 
   return function(): T {
-    const idx = indexer();
-    return sequence[idx];
+    const i = idx();
+    return sequence[i];
   }
 }
 
@@ -99,10 +114,18 @@ export function wave(tofrom: number, to?: number, diff = 1): Computer<number> {
     return value;
   }
 }
- 
-const MIDI_MAX = 127
-export function midify(value: number) {
-  return Math.ceil(value * MIDI_MAX/z);
+
+export function midify(value?: number) {
+  if (!value) return value;
+  return Math.ceil(value * 127/z);
+}
+
+export function msPerBeat() {
+  return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
 }
 
 function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
+
+function wrap<T>(item: T): T[] {
+  return Array.isArray(item) ? item : [item];
+}

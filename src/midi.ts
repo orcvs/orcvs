@@ -1,44 +1,21 @@
 import { WebMidi, Output, Note} from 'webmidi';
-import { Computable, compute } from './library';
-import { Chord } from './note';
+import { Computable, compute, midify, msPerBeat } from './library';
+import { Playable } from './note';
 import { Logger } from "./logger";
-
-// type Note = { channel: number, octave: number, note: string, attack: number, duration: number }
 
 const logger = Logger.child({
   source: 'Midi'
 });
 
-// export type Buffer = { channel: number, note: Note[] }
-// export type Buffer = { channel: number, note: MidiNote }[] 
+const MINUTE = 60000;
+const FRAMES_PER_BEAT = 4;
 
 export type Buffer = { [channel: number] : Note[] };
 
 export function Midi() {
   let output: Output | null = null;
-  var _buffer: Buffer = {};
+  let buffer: Buffer = {};
 
-  const self = {
-    clear,
-    play,
-    on,
-    selectOutput,
-    setup,
-    stop,
-    tick,
-    get buffer() {      
-      return _buffer;    
-    }
-  };
-
-  // function off(id: number, note: Note) {
-  //   // logger.debug('off');
-  //   if (output) {
-  //     let channel = output.channels[id];
-  //     channel.sendNoteOff(note.midi());    
-  //   }
-  // }  
-  
   function on(channelId: number, notes: Note[]) {
     // logger.debug('on');
     logger.debug({octaveOffset: WebMidi.octaveOffset})    
@@ -57,33 +34,35 @@ export function Midi() {
     }
   }
   
-  function isChordOrNote(playable: Note | Chord) {
-    return (playable instanceof Chord) || ( playable instanceof Note);
-  }
-
-  function play(channel: number, playable: Computable<Note | Chord>) {   
+  function play(channel: number, playable: Computable<Playable>) {   
 
     logger.debug({channel, playable});
     playable = compute(playable);
 
-    if (!isChordOrNote(playable)) {
-      const msg = 'Value is not a Note or Chord';
-      logger.error({msg, note: playable});
-      throw new TypeError(msg);
-    }    
+    // if (!isChordOrNote(playable)) {
+    //   const msg = 'Value is not a Note or Chord';
+    //   logger.error({msg, note: playable});
+    //   throw new TypeError(msg);
+    // }    
+    // const notes = playable.notes;
 
-    const notes = playable instanceof Chord ? playable.notes : [playable];
-    logger.debug({notes, playable})
-    push(channel, notes );
+    const notes: Note[] = [];
+    for(let note of playable.notes) {      
+      const {value, duration, attack, release} = note;
+      const opts = {duration: toMs(duration), rawAttack: toMidiValue(attack), rawRelease: toMidiValue(release)}
+      notes.push( new Note(value, opts) ) 
+    }
+    
+    push(channel, notes);
   }
 
   function push(channel: number, note: Note | Note[]) {
-    _buffer[channel] = (_buffer[channel] || []).concat(note);
-    // logger.debug({_buffer})
+    buffer[channel] = (buffer[channel] || []).concat(note);
+    // logger.debug({buffer})
   }
 
   function clear() {    
-    _buffer = {};
+    buffer = {};
   }
 
   function selectOutput(selected: number | string) {
@@ -122,13 +101,37 @@ export function Midi() {
   }
 
   function tick(f?: number) {
-    for (let idx in _buffer) {
-      const notes = _buffer[idx];
+    for (let idx in buffer) {
+      const notes = buffer[idx];
       const channel = parseInt(idx);    
       on(channel, notes);
     }
     clear();
   }
-  // pull(idx);
-  return self
+
+
+  return {
+    clear,
+    play,
+    on,
+    selectOutput,
+    setup,
+    stop,
+    tick,
+    get buffer() {      
+      return buffer;    
+    }
+  };
+}
+
+function toMs(duration: Computable<number> | undefined) {
+  if (duration) {
+    return compute(duration) * msPerBeat();
+  }
+}
+
+function toMidiValue(value: Computable<number> | undefined) {
+  if (value) {
+    return midify(compute(value));
+  }
 }

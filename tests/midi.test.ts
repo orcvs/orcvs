@@ -46,9 +46,9 @@ describe('test', () => {
         expect(midi.buffer).toHaveProperty('10')
         
         const notes = midi.buffer[1];
-
+        const note = notes[0];
         expect(notes).toHaveLength(2);
-        expect(notes[0].name).toEqual('D');
+        expect(note.name).toEqual('D');
       });
 
       test('play chord', async () => {
@@ -60,9 +60,9 @@ describe('test', () => {
         expect(midi.buffer).toHaveProperty('1')
         
         const notes = midi.buffer[1];
-
+        const note = notes[0];
         expect(notes).toHaveLength(3);
-        expect(notes[0].name).toEqual('C');
+        expect(note.name).toEqual('C');
       });
 
       test('clear', async () => {
@@ -79,21 +79,29 @@ describe('test', () => {
         midi.clear();
         expect(midi.buffer).not.toHaveProperty('1')
       });
-
-
-
-      // test.only('group', async () => {
-      //   var buffer = [{channel: 1, note: A},{channel: 2, note:A}, {channel: 1, note: B }]; 
-        
-      //   var result = buffer.reduce( (acc: any, obj) => {
-      //     const key = obj.channel          
-      //     const curGroup = acc[key] ?? [];
       
-      //     return { ...acc, [key]: [...curGroup, obj] };
-      //   }, {}  )
+      describe('options', () => {
+        test('converts duration to ms', async () => {
+            
+          let midi = Midi();
+        
+          midi.play(channel, C({d: 1}));
+          const notes = midi.buffer[1];
+          const note = notes[0];
+          expect(note.duration).toEqual(125);
+        });
 
-      //   console.log(result);
-      // }); 
+        test.only('converts attack and release to midified values', async () => {
+            
+          let midi = Midi();
+        
+          midi.play(channel, C({a: 1, r: z}));
+          const notes = midi.buffer[1];
+          const note = notes[0];
+          expect(note.rawRelease).toEqual(127);
+          expect(note.rawAttack).toEqual(4);
+        });        
+      });
 
 
       // test('on/off', async () => {              
