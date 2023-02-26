@@ -15,14 +15,13 @@ const logger = Logger.child({
 });
 
 export function Orcvs() {
-  var clock = Clock(tick)
-  var midi = Midi();
-  var ptn = pattern(BANG, () => {});  
+  let clock = Clock(tick)
+  let midi = Midi();
+  let ptn = pattern(BANG, () => {});  
+  let code = () => {};
+  let hasRun: boolean = false;
 
-  var _running
-  var _code = () => {};
-  var _run: boolean = false;
-
+  
   function bang(str: string, callback: Callback): void {
     // logger.debug('BANG!');
     ptn.bang(str, callback);
@@ -39,13 +38,15 @@ export function Orcvs() {
     globalThis.bpm = clock.bpm;
     globalThis.output = setOutput;
     globalThis.play = midi.play;
+    globalThis.out = setOutput;
+    globalThis.ply = midi.play;
   }
 
   async function load(filename: string) {   
     logger.info(`loading ${filename}`);   
-    _code = await codify(filename);    
-    _run = false;
-    if (!clock.running()) {
+    code = await codify(filename);    
+    hasRun = false;
+    if (!clock.running) {
       run();
     }
   }
@@ -58,14 +59,14 @@ export function Orcvs() {
     logger.info('run');
     
     ptn = pattern(BANG, () => {});  
-    _code();
-    _run = true;
+    code();
+    hasRun = true;
     
     logger.info('ran');
   }
   
   function shouldRun(frame: number) {
-      return !clock.running() || !_run && frame % 8 === 0
+    return !clock.running || !hasRun && frame % 8 === 0
   }
 
   async function setBPM(bpm: number) {
@@ -103,19 +104,6 @@ export function Orcvs() {
     logger.info('touch');
     clock.touch();   
   }
-
-  // function play(channel: number, octave: Computable<number>, note: Computable<string>, attack: Computable<number>, duration: Computable<number>) {   
-  // // function play(channel: number, note: Computable<string>, attack: Computable<number>, duration: Computable<number>) {   
-  //   // logger.debug('play'); 
-  //   octave = compute(octave);
-  //   attack = midify(compute(attack));
-  //   duration = compute(duration);
-  //   note = compute(note)
-    
-  //   const ms = duration * clock.msPerBeat();
-  //   logger.debug({ms});
-  //   midi.push(channel, 1, note, attack, ms);
-  // }  
 
   return {    
     load,

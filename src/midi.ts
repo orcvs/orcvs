@@ -35,16 +35,8 @@ export function Midi() {
   }
   
   function play(channel: number, playable: Computable<Playable>) {   
-
-    logger.debug({channel, playable});
+    // logger.debug({channel, playable});
     playable = compute(playable);
-
-    // if (!isChordOrNote(playable)) {
-    //   const msg = 'Value is not a Note or Chord';
-    //   logger.error({msg, note: playable});
-    //   throw new TypeError(msg);
-    // }    
-    // const notes = playable.notes;
 
     const notes: Note[] = [];
     for(let note of playable.notes) {      
@@ -58,7 +50,6 @@ export function Midi() {
 
   function push(channel: number, note: Note | Note[]) {
     buffer[channel] = (buffer[channel] || []).concat(note);
-    // logger.debug({buffer})
   }
 
   function clear() {    

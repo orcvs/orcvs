@@ -91,7 +91,7 @@ describe('test', () => {
           expect(note.duration).toEqual(125);
         });
 
-        test.only('converts attack and release to midified values', async () => {
+        test('converts attack and release to midified values', async () => {
             
           let midi = Midi();
         

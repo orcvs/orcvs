@@ -15,15 +15,15 @@ const logger = Logger.child({
 });
 
 export function Clock(callback: TickCallback) {
-    var _bpm = DEFAULT_BPM;
-    var _frame = 0;
-    var _running = false;
-    var _timer!: Worker;
+    var bpm = DEFAULT_BPM;
+    var frame = 0;
+    var running = false;
+    var timer!: Worker;
 
     function tick() {
-      _frame = _frame + 1;    
-      // logger.debug({ tick: _frame });            
-      callback(_frame);
+      frame = frame + 1;    
+      // logger.debug({ tick: frame });            
+      callback(frame);
     }
 
     function touch() {
@@ -33,60 +33,53 @@ export function Clock(callback: TickCallback) {
     }
 
     async function setBPM(n: number) {
-      if (_bpm != n) {  
-        _bpm = n;
-        if (!_running) {
+      if (bpm != n) {  
+        bpm = n;
+        if (!running) {
           await start();
         }        
       }
     }
     
     function reset() {
-      _frame = 0;
+      frame = 0;
     }
 
-    function frame() {
-      return _frame;
-    }
-
-    function running() {
-      return _running;
-    }
     async function start() {
       logger.debug('start');
       await stop();        
-      _running = true;
+      running = true;
       await setTimer();
       
       // logger.debug('postmessage');
       const ms = msPerBeat();
-      _timer.postMessage(ms);
+      timer.postMessage(ms);
 
       // logger.debug('after start');
     }
 
     async function stop() {
       logger.debug('stop');
-      if (_timer !== undefined) {
-        await _timer.terminate();        
-        _running = false;
+      if (timer !== undefined) {
+        await timer.terminate();        
+        running = false;
       }
     }
 
     function msPerBeat() {
-      return ( MINUTE  / _bpm) / FRAMES_PER_BEAT;
+      return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
     }
 
     // function bpm() {
-    //   return _bpm;
+    //   return bpm;
     // }
 
     async function setTimer() {
       logger.debug('setTimer');
 
       // return new Promise((resolve, reject) => { 
-          _timer = new Worker(WORKER_SCRIPT, { eval: true });     
-          _timer.on('message', () => {           
+          timer = new Worker(WORKER_SCRIPT, { eval: true });     
+          timer.on('message', () => {           
             tick(); 
           });    
           // timer.on("error", () => {
@@ -103,16 +96,20 @@ export function Clock(callback: TickCallback) {
 
 
     return {
-      frame,
       reset,
-      running,
       setBPM,
       start,
       stop,
       touch,
       tick,
       get bpm() {
-        return _bpm;
+        return bpm;
+      },
+      get frame() {
+        return frame;
+      },
+      get running() {
+        return running;
       }
     }
 }

@@ -10,7 +10,7 @@ import { Clock} from '../src/clock';
 // 150 bpm - 100ms
 // 200 bpm - 75ms
 
-describe.skip('clock', () => {
+describe('clock', () => {
 
     afterEach( () => {
         jest.restoreAllMocks();
@@ -20,11 +20,11 @@ describe.skip('clock', () => {
         const mockCallback = jest.fn();
         const clock = Clock(mockCallback);
 
-        expect(clock.frame()).toEqual(0);
+        expect(clock.frame).toEqual(0);
 
         for (let i=1; i < 10; i++) {
             clock.touch();
-            expect(clock.frame()).toEqual(i);           
+            expect(clock.frame).toEqual(i);           
             expect(mockCallback).toHaveBeenCalledTimes(i);
         }
 
@@ -64,7 +64,7 @@ describe.skip('clock', () => {
         mockCallback.mockClear();
 
         await clock.setBPM(150);
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, 300));
         expect(mockCallback).toHaveBeenCalled();
         expect(mockCallback).toHaveBeenCalledTimes(2);
         
