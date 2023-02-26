@@ -7,35 +7,26 @@ const logger = Logger.child({
   source: 'Midi'
 });
 
-const MINUTE = 60000;
-const FRAMES_PER_BEAT = 4;
-
+export type ControlChange = { controller: string | number, value: number};
 export type Buffer = { [channel: number] : Note[] };
+export type ControlBuffer = { [channel: number] : ControlChange[] };
 
 export function Midi() {
   let output: Output | null = null;
   let buffer: Buffer = {};
+  let controlBuffer: ControlBuffer = [];
 
-  function on(channelId: number, notes: Note[]) {
-    // logger.debug('on');
-    logger.debug({octaveOffset: WebMidi.octaveOffset})    
-    if (output) {
-      // logger.debug({note: typeof note })
-      // logger.debug({note})
-      // const notes = note instanceof Note ? [note] : note.notes;
-      // // if (note instanceof Note) {
-      // //   notes = 
-      // // }
-      // logger.debug({note: typeof note })
-      // console.log({notes})
-      let channel = output.channels[channelId];      
-      channel.playNote(notes);    
-      // channel.sendNoteOn(note.midi());
-    }
+  function clear() {    
+    buffer = {};
+    controlBuffer = [];
   }
-  
+
+  function control(channel: number, controller: string | number, value: Computable<number>) {   
+    value = toMidiValue(value) as number;
+    pushControl(channel, { controller, value})
+  }
+
   function play(channel: number, playable: Computable<Playable>) {   
-    // logger.debug({channel, playable});
     playable = compute(playable);
 
     const notes: Note[] = [];
@@ -52,8 +43,8 @@ export function Midi() {
     buffer[channel] = (buffer[channel] || []).concat(note);
   }
 
-  function clear() {    
-    buffer = {};
+  function pushControl(channel: number, control: ControlChange) {
+    controlBuffer[channel] = (controlBuffer[channel] || []).concat(control);
   }
 
   function selectOutput(selected: number | string) {
@@ -76,6 +67,25 @@ export function Midi() {
     }
   }
 
+  function send(channelId: number, notes: Note[]) {
+    // logger.debug('send');
+    logger.debug({octaveOffset: WebMidi.octaveOffset})    
+    if (output) {
+      let channel = output.channels[channelId];      
+      channel.playNote(notes);
+    }
+  }
+
+  function sendControl(channelId: number, controls: ControlChange[]) {
+    // logger.debug({source: 'sendControl', controller, value});
+    if (output) {      
+      let channel = output.channels[channelId];
+      for (let { controller, value } of controls) {
+        channel.sendControlChange(controller, value);
+      }
+    }
+  }
+  
   async function setup() {
     logger.info('Midi.setup');
     try {
@@ -92,25 +102,36 @@ export function Midi() {
   }
 
   function tick(f?: number) {
+    for (let idx in controlBuffer) {
+      const control = controlBuffer[idx];
+      const channel = parseInt(idx);    
+      sendControl(channel, control);
+    }
+
     for (let idx in buffer) {
       const notes = buffer[idx];
       const channel = parseInt(idx);    
-      on(channel, notes);
+      send(channel, notes);
     }
+
     clear();
   }
 
-
   return {
     clear,
+    control,
     play,
-    on,
+    send,
+    sendControl,
     selectOutput,
     setup,
     stop,
     tick,
     get buffer() {      
       return buffer;    
+    },
+    get controlBuffer() {      
+      return controlBuffer;    
     }
   };
 }

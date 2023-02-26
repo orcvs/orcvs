@@ -103,6 +103,25 @@ describe('test', () => {
         });        
       });
 
+      describe('control change', () => {
+        test('adds control to buffer', async () => {
+            
+          let midi = Midi();
+        
+          midi.control(1, 10, z);
+
+          expect(midi.controlBuffer).toHaveProperty('1');
+
+          const controls = midi.controlBuffer[1];
+          const control = controls[0]; 
+          console.log(control);
+          expect(control.value).toEqual(127);
+
+          
+          midi.clear();
+          expect(midi.controlBuffer).not.toHaveProperty('1');
+        });
+      });
 
       // test('on/off', async () => {              
       //     var buffer: Buffer = []; 
