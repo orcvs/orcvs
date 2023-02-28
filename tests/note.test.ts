@@ -50,17 +50,12 @@ describe('notes & chords', () => {
       expect(note.attack).toEqual(1);
     });
 
-    test('accessible wrapped in array', async () => { 
-      const note = C2({d: 8, a: 1});
-      expect(note.notes).toContainEqual(note);      
-    });    
   });
 
   describe('chord', () => {
 
     test('generates correct notes', async () => { 
-      const c = chord('C4:M');
-      const notes = c.notes;
+      const notes = chord('C4:M');
 
       expect(notes).toHaveLength(3);
 
@@ -70,8 +65,7 @@ describe('notes & chords', () => {
     });
 
     test('complex chord', async () => { 
-      const c = chord('C4:m13');
-      const notes = c.notes;
+      const notes = chord('C4:m13');
       
       expect(notes).toHaveLength(6);
       expect(notes).toContainEqual(C());
@@ -84,8 +78,7 @@ describe('notes & chords', () => {
 
 
     test('can be created with options', async () => { 
-      const c = chord('C4:M', {d: 1, a: 2, r: 3});
-      const notes = c.notes;
+      const notes = chord('C4:M', {d: 1, a: 2, r: 3});      
       const root = notes[0];
 
       expect(notes).toHaveLength(3);
@@ -97,8 +90,7 @@ describe('notes & chords', () => {
 
 
     test('options apply to all notes', async () => { 
-      const c = chord('C4:M', {d: 1, a: 2, r: 3});
-      const notes = c.notes;
+      const notes = chord('C4:M', {d: 1, a: 2, r: 3});
 
       expect(notes).toHaveLength(3);
       for(let note of notes) {
@@ -110,9 +102,8 @@ describe('notes & chords', () => {
 
 
     test('each note can have options', async () => { 
-      const c = chord('C4:M', {d: 1, a: 1, r: 1}, {d: 2, a: 2, r: 2}, {d: 3, a: 3, r: 3});
-      const notes = c.notes;
-
+      const notes = chord('C4:M', {d: 1, a: 1, r: 1}, {d: 2, a: 2, r: 2}, {d: 3, a: 3, r: 3});
+      
       expect(notes).toHaveLength(3);
       for(let idx = 0; idx < notes.length; idx++) {
         let expected = idx + 1;
@@ -124,8 +115,7 @@ describe('notes & chords', () => {
     });
 
     test('last option applies for all remaining', async () => { 
-      const c = chord('C4:M', {d: 1, a: 2, r: 3}, {d: 2, a: 2, r: 2});
-      const notes = c.notes;
+      const notes = chord('C4:M', {d: 1, a: 2, r: 3}, {d: 2, a: 2, r: 2});
 
       const root = notes[0];
 
@@ -147,12 +137,11 @@ describe('notes & chords', () => {
 
   });
 
-  describe.only('arp', () => {
+  describe('arp', () => {
 
     test('generates correct notes', async () => { 
       const a = arp('C4:M');
-      const c = chord('C4:M');
-      const notes = c.notes;
+      const notes = chord('C4:M');
 
       for(let note of notes) {
         const next = a();

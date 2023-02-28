@@ -28,7 +28,7 @@ describe('orcvs', () => {
 
     await orcvs.load(source);
     await new Promise((r) => setTimeout(r, 500));
-
+    await orcvs.load(source);
     orcvs.start();
 
     // orcvs.tick(0);

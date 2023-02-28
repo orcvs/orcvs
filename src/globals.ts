@@ -3,6 +3,7 @@ import { note, chord } from './note';
 
  
 globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';
+globalThis.BANG = '▮';
 
 globalThis.lerp = lerp;
 globalThis.cycle = cycle;
@@ -19,8 +20,6 @@ globalThis.seq = seq;
 globalThis.crd = chord;
 globalThis.nte = note;
 
-globalThis.ORCVS = ORCVS;
-globalThis.BANG = '▮';
 
 globalThis.bpm = 120;
 

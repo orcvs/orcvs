@@ -1,6 +1,6 @@
 import { Callback } from '../pattern';
 import { Computable, Computer } from '../library';
-import { Chord, Note, chord, note, Options } from '../note';
+import { Note, chord, note, Options } from '../note';
 
 
 declare global {
@@ -10,7 +10,7 @@ declare global {
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
-  var chord: (chord: string, ...options: Options[]) => Chord;
+  var chord: (chord: string, ...options: Options[]) => Note[];
   var note: (name: string) => Computer<Note>
   
   // Defined in Orcvs and attached at runtime
@@ -23,7 +23,7 @@ declare global {
   var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
 
-  var crd: (chord: string, ...options: Options[]) => Chord;
+  var crd: (chord: string, ...options: Options[]) => Note[];
   var nte: (name: string) => Computer<Note>
 
   var ply: (channel: number, note: Computable<Note>) => void;

@@ -1,4 +1,3 @@
-import { Chord } from './note';
 import { MINUTE, FRAMES_PER_BEAT } from './clock';
 
 export type Computer<T> = ((...opts: any[]) => T);
@@ -113,8 +112,8 @@ export function msPerBeat() {
   return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
 }
 
-function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
+export function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
 
-function wrap<T>(item: T): T[] {
+export function wrap<T>(item: T | T[]): T[] {
   return Array.isArray(item) ? item : [item];
 }

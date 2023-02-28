@@ -2,7 +2,7 @@
 import {jest} from '@jest/globals'
 
 import { Midi } from '../src/midi';
-import { Chord, chord } from '../src/note';
+import { chord } from '../src/note';
 import { WebMidi, Output, Note } from 'webmidi';
 
 require('../src/globals');

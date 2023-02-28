@@ -1,6 +1,6 @@
-import { WebMidi, Output, Note} from 'webmidi';
-import { Computable, compute, midify, msPerBeat } from './library';
-import { Playable } from './note';
+import { WebMidi, Output, Note as MidiNote } from 'webmidi';
+import { Computable, compute, midify, msPerBeat, wrap } from './library';
+import { Note } from './note';
 import { Logger } from "./logger";
 
 const logger = Logger.child({
@@ -8,7 +8,7 @@ const logger = Logger.child({
 });
 
 export type ControlChange = { controller: string | number, value: number};
-export type Buffer = { [channel: number] : Note[] };
+export type Buffer = { [channel: number] : MidiNote[] };
 export type ControlBuffer = { [channel: number] : ControlChange[] };
 
 export function Midi() {
@@ -26,20 +26,20 @@ export function Midi() {
     pushControl(channel, { controller, value})
   }
 
-  function play(channel: number, playable: Computable<Playable>) {   
-    playable = compute(playable);
+  function play(channel: number, playable: Computable<Note> | Note[]) {   
+    playable = wrap(compute(playable));
 
-    const notes: Note[] = [];
-    for(let note of playable.notes) {      
-      const {value, duration, attack, release} = note;
+    const notes: MidiNote[] = [];
+    for(let note of playable) {      
+      const { value, duration, attack, release } = note;
       const opts = {duration: toMs(duration), rawAttack: toMidiValue(attack), rawRelease: toMidiValue(release)}
-      notes.push( new Note(value, opts) ) 
+      notes.push( new MidiNote(value, opts) ) 
     }
     
     push(channel, notes);
   }
 
-  function push(channel: number, note: Note | Note[]) {
+  function push(channel: number, note: MidiNote | MidiNote[]) {
     buffer[channel] = (buffer[channel] || []).concat(note);
   }
 
@@ -67,9 +67,7 @@ export function Midi() {
     }
   }
 
-  function send(channelId: number, notes: Note[]) {
-    // logger.debug('send');
-    logger.debug({octaveOffset: WebMidi.octaveOffset})    
+  function send(channelId: number, notes: MidiNote[]) {
     if (output) {
       let channel = output.channels[channelId];      
       channel.playNote(notes);

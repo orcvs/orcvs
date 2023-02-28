@@ -1,22 +1,11 @@
 import { Utilities as BaseUtilities } from 'webmidi';
 import { Computable, Computer, seq, seqLerp } from './library';
 
-
-export interface Playable {
-  notes: Note[];
-}
-
-export interface Note extends Playable{
+export interface Note {
   value: number; 
   duration?: Computable<number>;
   attack?: Computable<number>;
   release?: Computable<number>;
-}
-
-export interface Chord extends Playable {
-  name: string;
-  root: Note; 
-  intervals: number[];  
 }
 
 export interface Options {
@@ -25,19 +14,19 @@ export interface Options {
   r?: Computable<number>;
 }
 
-export function arp(value: string, ...options: Options[]): Computer<Playable> {  
+export function arp(value: string, ...options: Options[]): Computer<Note> {  
   // if (typeof x === 'string') {    
   // }
 
   const crd = chord(value, ...options);
-  const notes = seq(...crd.notes);
+  const notes = seq(...crd);
 
   return function(): Note {
     return notes();
   }
 }
 
-export function chord(chord: string, ...options: Options[]): Chord {  
+export function chord(chord: string, ...options: Options[]): Note[] {  
   const {name, intervals} = toChord(chord);
 
   const opts = seqLerp(...options);
@@ -54,14 +43,7 @@ export function chord(chord: string, ...options: Options[]): Chord {
     notes.push(note);
   }  
 
-  return {
-    name: chord,
-    intervals, 
-    notes,
-    get root() {
-      return notes[0];
-    }
-  };
+  return notes;
 }
 
 function createNote(value: number, options: Options = {}) {

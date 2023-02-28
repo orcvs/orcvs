@@ -6,9 +6,6 @@ import { Midi } from './midi'
 import { codify } from './code'
 
 import { Callback, Pattern, pattern } from './pattern';
-import { compute, Computer, Computable, midify} from './library';
-
-import { Chord } from './note';
 
 const logger = Logger.child({
   source: 'Orcvs'
@@ -28,6 +25,7 @@ export function Orcvs() {
   }
 
   async function setup() {
+    console.log(`Welcome to ${ORCVS}`);
     logger.debug('setup');
     registerGlobals();
     await midi.setup();      
@@ -82,7 +80,6 @@ export function Orcvs() {
   async function start() {
     logger.info('start');
     await clock.start();   
-    logger.info('after start');
   }
   
   async function stop() {
@@ -95,7 +92,6 @@ export function Orcvs() {
     if (shouldRun(frame)) {
       run();
     }
-    // logger.info({ tick: frame });
     ptn.tick(frame);
     midi.tick(frame);    
   }
