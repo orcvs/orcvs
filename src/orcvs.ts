@@ -5,7 +5,7 @@ import { Clock } from './clock';
 import { Midi } from './midi'
 import { codify } from './code'
 
-import { Callback, Pattern, pattern } from './pattern';
+import { Callback, pulsar } from './pulsar';
 
 const logger = Logger.child({
   source: 'Orcvs'
@@ -14,14 +14,14 @@ const logger = Logger.child({
 export function Orcvs() {
   let clock = Clock(tick)
   let midi = Midi();
-  let ptn = pattern(BANG, () => {});  
+  let pulse = pulsar(BANG, () => {});  
   let code = () => {};
   let hasRun: boolean = false;
 
   
-  function bang(str: string, callback: Callback): void {
+  function ptn(str: string, callback: Callback): void {
     // logger.debug('BANG!');
-    ptn.bang(str, callback);
+    pulse.ptn(str, callback);
   }
 
   async function setup() {
@@ -32,7 +32,8 @@ export function Orcvs() {
   }
 
   function registerGlobals() {    
-    globalThis.bang = bang;    
+    globalThis.pattern = ptn;    
+    globalThis.ptn = ptn;    
     globalThis.bpm = clock.bpm;
     globalThis.output = setOutput;
     globalThis.play = midi.play;
@@ -55,12 +56,11 @@ export function Orcvs() {
 
   function run() {  
     logger.info('run');
-    
-    ptn = pattern(BANG, () => {});  
+
+    // Clear the current pulsar
+    pulse = pulsar(BANG, () => {});  
     code();
-    hasRun = true;
-    
-    logger.info('ran');
+    hasRun = true;    
   }
   
   function shouldRun(frame: number) {
@@ -92,7 +92,7 @@ export function Orcvs() {
     if (shouldRun(frame)) {
       run();
     }
-    ptn.tick(frame);
+    pulse.tick(frame);
     midi.tick(frame);    
   }
   

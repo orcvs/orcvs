@@ -2,16 +2,16 @@ import { Logger } from "./logger";
 
 export type Bang = (str: string, callback: Callback) => void;
 
-export type Callback = (pattern: Pattern) => void;
+export type Callback = (pattern: Pulsar) => void;
 
 export type Match = (frame : number) => boolean;
 
 const logger = Logger.child({
-  source: 'Pattern'
+  source: 'Pulsar'
 });
 
-export interface Pattern {
-  bang: (str: string, callback: Callback) => void;
+export interface Pulsar {
+  ptn: (str: string, callback: Callback) => void;
   at: (str: string, callback: Callback) => void;
   match: (frame : number) => boolean;
   tick: (frame : number) => void;
@@ -20,16 +20,16 @@ export interface Pattern {
   // frame: number;
 }
 
-export function pattern(str: string, callback: Callback): Pattern {
+export function pulsar(str: string, callback: Callback): Pulsar {
   let _pattern: string[] = [];
   // let _frame = 0;
-  let patterns: { [name: string]: Pattern } = {}
+  let patterns: { [name: string]: Pulsar } = {}
 
   const match = matcher(str);
 
   const self = {
     at,
-    bang,
+    ptn,
     match,
     tick,
     when,
@@ -81,15 +81,15 @@ export function pattern(str: string, callback: Callback): Pattern {
     }
   }
 
-  function bang(str: string, callback: Callback) {
+  function ptn(str: string, callback: Callback) {
     if (!patterns[str]) {
-      const ptn = pattern(str, callback);
+      const ptn = pulsar(str, callback);
       patterns[str] = ptn;
     }
   }
 
   function at(str: string, callback: Callback) {
-    bang(str, callback);
+    ptn(str, callback);
   }
   
   function when(condition: boolean, callback: Callback) {

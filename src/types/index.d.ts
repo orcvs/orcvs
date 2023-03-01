@@ -1,10 +1,10 @@
-import { Callback } from '../pattern';
+import { Callback } from '../pulsar';
 import { Computable, Computer } from '../library';
 import { Note, chord, note, Options } from '../note';
 
 
 declare global {
-  var bang: (str: string, callback: Callback) => void;
+  var pattern: (str: string, callback: Callback) => void;
   var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cycle: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
@@ -19,6 +19,7 @@ declare global {
 
   
   // Aliases
+  var ptn: (str: string, callback: Callback) => void;
   var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;

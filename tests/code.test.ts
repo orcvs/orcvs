@@ -2,7 +2,6 @@ import {jest} from '@jest/globals'
 
 import { readFileSync } from 'fs';
 import { codify, sourceFromFile } from '../src/code';
-import { pattern } from '../src/pattern';
 
 import { Orcvs } from '../src/orcvs';
 
