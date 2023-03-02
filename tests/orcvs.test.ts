@@ -7,7 +7,10 @@ const Midi = jest.createMockFromModule('../src/midi');
 
 require('../src/globals');
 
-const source = `${__dirname}\\code.orcvs.test`;
+// const source = `${__dirname}\\code.orcvs.test`;
+const source = `${__dirname}\\code.orcvs.js`;
+// const source = 'c:\\Users\\Toby\\Source\\OrcvsWork\\play.js';
+
 const sourceB = `${__dirname}\\code_b.orcvs.test`;
 
 describe('orcvs', () => {
