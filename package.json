@@ -5,8 +5,8 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "scripts": {
-    "build": "tsc --build",
-    "clean": "tsc --build --clean",
+    "build": "tsc --project tsconfig.build.json",
+    "clean": "tsc --clean --project tsconfig.build.json",
     "_start_": "npm run build && node --experimental-vm-modules dist/src/main.js",
     "test": "set LOG_LEVEL=debug && node --trace-warnings --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles -i orcvs.test.ts",
     "_test_": "set LOG_LEVEL=debug && node --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles",
