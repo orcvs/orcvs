@@ -12,8 +12,7 @@
 		"strict": true,
 		"rootDir": ".",
 		"baseUrl": ".",
-		"rootDirs": ["src", "tests"],
-    "typeRoots": ["./node_modules/@types", "./src/types"]
+		"rootDirs": ["src", "tests"]
 	},
     "ts-node": {
         "esm": true
@@ -22,5 +21,8 @@
         "src/**/*.ts", 
         "tests/**/*.ts"
     ],
-	"exclude": ["node_modules/**"]
+	"exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

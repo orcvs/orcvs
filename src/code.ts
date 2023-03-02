@@ -1,15 +1,10 @@
 import { readFileSync } from 'fs';
 import { importFromString } from 'module-from-string'
-// import { Bangable } from './library'
-
-
-
 
 export function sourceFromFile(filename: string) {
   const code = readFileSync(filename, { encoding: 'utf8' });
   return code;
 }
-
 
 export async function codify(source: string): Promise<(() => {})> {
   let filename = 'code.orcvs'

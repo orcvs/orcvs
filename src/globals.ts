@@ -1,6 +1,15 @@
 import { cycle, lerp, wave, seq,  } from './library';
 import { note, chord } from './note';
 
+// Globals defined at runtime by Orcvs 
+// globalThis.pattern;    
+// globalThis.ptn;    
+// globalThis.bpm;
+// globalThis.output;
+// globalThis.play;
+// globalThis.out;
+// globalThis.ply;
+
  
 globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';
 globalThis.BANG = '▮';
