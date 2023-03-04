@@ -1,29 +1,38 @@
-export { 
-  Orcvs, 
-} from './orcvs'
+export { Orcvs } from './orcvs'
 
-import { Callback } from './pulsar';
 import { Computable, Computer } from './library';
+// import { Context } from './orcvs'
+import { OnPulse, Pulsar } from './pulsar';
 import { Note, Options } from './note';
 
+
+declare var Pulsar: Pulsar;
+declare var OnPulse: OnPulse;
+
+
 declare global {
-  var pattern: (str: string, callback: Callback) => void;
+
+  var pattern: (str: string, on: OnPulse) => void;
   var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cycle: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
   var bpm: (set?: number) => number;
+
+  var memoize: (key: string, ...args: any[]) => any;
+
   var chord: (chord: string, ...options: Options[]) => Note[];
   var note: (name: string) => Computer<Note>
-  
+
   // Defined in Orcvs and attached at runtime
   var play: (channel: number, note: Computable<Note>) => void;
   var output: (output: number | string) => void;
 
-  
   // Aliases
-  var ptn: (str: string, callback: Callback) => void;
+  var ptn: (str: string, on: OnPulse) => void;
+  var at: (str: string, on: OnPulse) => void;
+  var at: (str: string, on: OnPulse) => void;
   var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
@@ -37,7 +46,7 @@ declare global {
   var ORCVS: string;
   var BANG: string;
 
-  var bpm: number;
+  // var bpm: number;
 
   var a: number;
   var b: number;
@@ -65,7 +74,6 @@ declare global {
   var x: number;
   var y: number;
   var z: number;
-
 
   var C2:   Computer<Note>;
   var C$2:  Computer<Note>;

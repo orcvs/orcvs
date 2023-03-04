@@ -5,7 +5,7 @@ import { Clock } from './clock';
 import { Midi } from './midi'
 import { codify } from './code'
 
-import { Callback, pulsar } from './pulsar';
+import { OnPulse, pulsar } from './pulsar';
 
 const logger = Logger.child({
   source: 'Orcvs'
@@ -14,36 +14,36 @@ const logger = Logger.child({
 export function Orcvs() {
   let clock = Clock(tick)
   let midi = Midi();
-  let pulse = pulsar(BANG, () => {});  
-  let code = () => {};
+  let pulse = pulsar(BANG, () => {});
+  let code: OnPulse;
   let hasRun: boolean = false;
 
-  
-  function ptn(str: string, callback: Callback): void {
+
+  function ptn(str: string, onPulse: OnPulse): void {
     // logger.debug('BANG!');
-    pulse.ptn(str, callback);
+    pulse.ptn(str, onPulse);
   }
 
   async function setup() {
     console.log(`Welcome to ${ORCVS}`);
     logger.debug('setup');
     registerGlobals();
-    await midi.setup();      
+    await midi.setup();
   }
 
-  function registerGlobals() {    
+  function registerGlobals() {
     // globalThis.pattern = ptn;
-    globalThis.ptn = ptn;    
-    globalThis.bpm = clock.bpm;
+    // globalThis.ptn = ptn;
+    globalThis.bpm = bpm;
     globalThis.output = setOutput;
-    globalThis.play = midi.play;
     globalThis.out = setOutput;
+    globalThis.play = midi.play;
     globalThis.ply = midi.play;
   }
 
-  async function load(filename: string) {   
-    logger.info(`loading ${filename}`);   
-    code = await codify(filename);    
+  async function load(filename: string) {
+    logger.info(`loading ${filename}`);
+    code = await codify(filename);
     hasRun = false;
     if (!clock.running) {
       run();
@@ -54,55 +54,60 @@ export function Orcvs() {
     clock.reset();
   }
 
-  function run() {  
+  function run() {
     logger.info('run');
 
     // Clear the current pulsar
-    pulse = pulsar(BANG, () => {});  
-    code();
-    hasRun = true;    
+    pulse = pulsar(BANG, () => {});
+    code(pulse);
+    hasRun = true;
   }
-  
+
   function shouldRun(frame: number) {
     return !clock.running || !hasRun && frame % 8 === 0
   }
 
   function bpm(bpm?: number) {
-  }  
+    if (bpm) {
+      logger.info(`Set BPM: ${bpm}`);
+      clock.setBPM(bpm);
+    }
+    return clock.bpm;
+  }
 
   async function setOutput(out: number | string) {
     logger.info({ setOutput: out });
-    midi.selectOutput(out); 
-  }  
+    midi.selectOutput(out);
+  }
 
   async function start() {
     logger.info('start');
-    await clock.start();   
+    await clock.start();
   }
-  
+
   async function stop() {
     logger.info('stop');
     await clock.stop();
     await midi.stop();
   }
 
-  function tick(frame: number) {   
+  function tick(frame: number) {
     if (shouldRun(frame)) {
       run();
     }
     pulse.tick(frame);
-    midi.tick(frame);    
-  }
-  
-  async function touch() {
-    logger.info('touch');
-    clock.touch();   
+    midi.tick(frame);
   }
 
-  return {    
+  async function touch() {
+    logger.info('touch');
+    clock.touch();
+  }
+
+  return {
     load,
     reset,
-    setBPM,
+    bpm,
     setOutput,
     setup,
     start,

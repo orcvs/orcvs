@@ -12,6 +12,58 @@ export function compute<T>(x: Computable<T>): T {
   return x;
 }
 
+const memozizable = ['lerp','cycle','wave', 'seq'];
+
+export  function isMemoizable(text: string) {
+  return memozizable.some( s => text === s);
+}
+
+export function key() {
+  return Math.random().toString(36).slice(2);
+}
+
+export function memoize(key: string, ...args: any[]) {
+  if (cache.has(key)) {
+    return cache.get(key);
+  }
+  const fn = args[0] as Function;
+  const a = args.slice(1);
+
+  const value = fn.apply(null, a);
+  cache.set(key, value);
+  return value;
+}
+
+let cache = Cache();
+let _cache:{ [name: string]: any }  = {};
+
+export function Cache() {
+
+  function has(key: string) {
+    return (key in _cache);
+  }
+
+  function set(key: string, value: any) {
+    _cache[key] = value;
+  }
+
+  function get(key: string) {
+   return _cache[key];
+  }
+
+  function clear() {
+    _cache = {};
+  }
+
+  return {
+    has,
+    set,
+    get,
+    clear,
+  }
+}
+
+
 export function seq<T>(...sequence: readonly T[]): Computer<T> {
   return sequencer(cycle, ...sequence);
 }
@@ -49,13 +101,13 @@ export function lerp(tofrom: number, to?: number, diff = 1): Computer<number> {
   const max = to === undefined ? tofrom : to;
 
   let value: number;
-  
+
   return function() {
 
     if (value === undefined)  { value = min } else
-    if (value < max)          { value = clamp(value + diff, min, max) } else 
+    if (value < max)          { value = clamp(value + diff, min, max) } else
     if (value > max)          { value = clamp(value - diff, max, min) };
-    
+
     return value;
   }
 }
@@ -69,13 +121,13 @@ export function cycle(tofrom: number, to?: number, diff = 1): Computer<number> {
   const target = to === undefined ? tofrom : to;
 
   let value: number;
-    
+
   return function() {
-    
-    if (value === undefined)  { value = start } else    
+
+    if (value === undefined)  { value = start } else
     if (value === target)     { value = start } else
     if (value < target)       { value = value + diff};
-      
+
     return value;
   }
 }
@@ -89,13 +141,13 @@ export function wave(tofrom: number, to?: number, diff = 1): Computer<number> {
   let max = to === undefined ? tofrom : to;
 
   let value: number;
-    
+
   return function() {
-    // At limit, flip min/max      
-    if (value === max)        { [min, max] = [max, min] };      
+    // At limit, flip min/max
+    if (value === max)        { [min, max] = [max, min] };
 
     if (value === undefined)  { value = min } else
-    if (value < max)          { value = clamp(value + diff, min, max) } else 
+    if (value < max)          { value = clamp(value + diff, min, max) } else
     if (value > max)          { value = clamp(value - diff, max, min) };
 
     return value;

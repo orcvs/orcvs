@@ -1,18 +1,20 @@
-import { cycle, lerp, wave, seq,  } from './library';
+import { cycle, lerp, wave, seq, memoize  } from './library';
 import { note, chord } from './note';
 
-// Globals defined at runtime by Orcvs 
-// globalThis.pattern;    
-// globalThis.ptn;    
+// Globals defined at runtime by Orcvs
+// globalThis.pattern;
+// globalThis.ptn;
 // globalThis.bpm;
 // globalThis.output;
 // globalThis.play;
 // globalThis.out;
 // globalThis.ply;
 
- 
+
 globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';
 globalThis.BANG = '▮';
+
+globalThis.memoize = memoize;
 
 globalThis.lerp = lerp;
 globalThis.cycle = cycle;
@@ -162,19 +164,19 @@ globalThis.B6  = note('B6');
 globalThis.B$6 = note('B#6');
 globalThis.Bb6 = note('Bb6');
 
-globalThis.C   = note('C4'); 
+globalThis.C   = note('C4');
 globalThis.C$  = note('C#4');
-globalThis.D   = note('D4'); 
+globalThis.D   = note('D4');
 globalThis.D$  = note('D#4');
-globalThis.E   = note('E4'); 
+globalThis.E   = note('E4');
 globalThis.E$  = note('E#4');
-globalThis.F   = note('F4'); 
+globalThis.F   = note('F4');
 globalThis.F$  = note('F#4');
-globalThis.G   = note('G4'); 
+globalThis.G   = note('G4');
 globalThis.G$  = note('G#4');
-globalThis.A   = note('A4'); 
+globalThis.A   = note('A4');
 globalThis.A$  = note('A#4');
-globalThis.B   = note('B4'); 
+globalThis.B   = note('B4');
 globalThis.B$  = note('B#4');
 
 // globalThis.a = 10;
