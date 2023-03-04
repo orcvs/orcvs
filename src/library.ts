@@ -14,12 +14,19 @@ export function compute<T>(x: Computable<T>): T {
 
 const memozizable = ['lerp','cycle','wave', 'seq'];
 
+const cache = Cache();
+let _cache:{ [name: string]: any }  = {};
+
 export  function isMemoizable(text: string) {
   return memozizable.some( s => text === s);
 }
 
 export function key() {
   return Math.random().toString(36).slice(2);
+}
+
+export function dememoize() {
+  cache.clear();
 }
 
 export function memoize(key: string, ...args: any[]) {
@@ -33,9 +40,6 @@ export function memoize(key: string, ...args: any[]) {
   cache.set(key, value);
   return value;
 }
-
-let cache = Cache();
-let _cache:{ [name: string]: any }  = {};
 
 export function Cache() {
 
@@ -62,7 +66,6 @@ export function Cache() {
     clear,
   }
 }
-
 
 export function seq<T>(...sequence: readonly T[]): Computer<T> {
   return sequencer(cycle, ...sequence);

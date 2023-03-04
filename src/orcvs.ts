@@ -1,9 +1,9 @@
-import { Note } from 'webmidi';
-import { Logger } from "./logger";
 
 import { Clock } from './clock';
-import { Midi } from './midi'
 import { codify } from './code'
+import { dememoize } from './library'
+import { Logger } from "./logger";
+import { Midi } from './midi'
 
 import { OnPulse, pulsar } from './pulsar';
 
@@ -17,7 +17,6 @@ export function Orcvs() {
   let pulse = pulsar(BANG, () => {});
   let code: OnPulse;
   let hasRun: boolean = false;
-
 
   function ptn(str: string, onPulse: OnPulse): void {
     // logger.debug('BANG!');
@@ -48,6 +47,7 @@ export function Orcvs() {
     if (!clock.running) {
       run();
     }
+
   }
 
   function reset() {
@@ -56,7 +56,7 @@ export function Orcvs() {
 
   function run() {
     logger.info('run');
-
+    dememoize();
     // Clear the current pulsar
     pulse = pulsar(BANG, () => {});
     code(pulse);
