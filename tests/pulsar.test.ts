@@ -6,7 +6,14 @@ import { lerp } from '../src/library';
 
 require('../src/globals');
 
-globalThis.bpm(120);
+let _bpm = 120;
+
+globalThis.bpm = (set?: number) => {
+  if (set) {
+    _bpm = set;
+  }
+  return _bpm;
+}
 
 describe('pattern', () => {
 

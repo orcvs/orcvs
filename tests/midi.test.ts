@@ -6,6 +6,16 @@ import { chord } from '../src/note';
 
 require('../src/globals');
 
+let _bpm = 120;
+
+globalThis.bpm = (set?: number) => {
+  if (set) {
+    _bpm = set;
+  }
+  return _bpm;
+}
+
+
 describe('test', () => {
 
     // beforeAll( async () => {
@@ -39,7 +49,6 @@ describe('test', () => {
         midi.play(channel, C);
 
         midi.play(10, E);
-
 
         expect(midi.buffer).toHaveProperty('1')
         expect(midi.buffer).toHaveProperty('10')
