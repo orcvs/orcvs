@@ -2,13 +2,15 @@ bpm(110);
 
 const lerper = lerp(1, 10);
 
-on.ptn('▮▯▯▯▯▯▯', on => {
+ptn('▮▯▯▯▯▯▯', () => {
   const cycler = cycle(1, 10);
   console.log({ cycler: cycler() });
-  on.ptn('▮▯', on => {
-    on.ptn('▮▯▮▯', on => { });
+  ptn('▮▯', () => {
+    ptn('▮▯▮▯', () => { });
   });
 })
+
+
 
 // const lerper = lerp(1, 10);
 
