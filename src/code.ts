@@ -17,18 +17,11 @@ export async function transform(source: string) {
   const sourceFile = project.createSourceFile('.//file.ts', source);
 
   sourceFile.transform(traversal => {
-    const node = traversal.visitChildren();
+    let node = traversal.visitChildren();
+    const factory = traversal.factory;
 
-    if (ts.isCallExpression(node)) {
-      if (isMemoizable(node.expression.getText())) {
-        const k = key();
-        const id = traversal.factory.createIdentifier('memoize');
-        const typeArgs = undefined;
-        const args = [traversal.factory.createStringLiteral(k), node.expression, ...node.arguments];
-
-        return traversal.factory.createCallExpression(id, typeArgs, args);
-      }
-    }
+    node = addContextToPulsars(factory, node);
+    node = memoizeFunctionCalls(factory, node);
 
     return node;
   });
@@ -39,6 +32,85 @@ export async function transform(source: string) {
   return sourceFile.getFullText();
 }
 
+function shouldMemoizeFunctionCalls(node: ts.Node) {
+  return ts.isCallExpression(node) && isMemoizable(node.expression.getText());
+}
+
+function memoizeFunctionCalls(factory: ts.NodeFactory, node: ts.Node) {
+  if (ts.isCallExpression(node)) {
+    if (ts.isIdentifier(node.expression)) {
+      if (isMemoizable(node.expression.getText())) {
+        const k = key();
+        const id = factory.createIdentifier('memoize');
+        const typeArgs = undefined;
+        const args = [factory.createStringLiteral(k), node.expression, ...node.arguments];
+
+        return factory.createCallExpression(id, typeArgs, args);
+      }
+
+    }
+  }
+  return node;
+}
+
+function shouldAddContextToPulsars(node: ts.Node) {
+  return ts.isCallExpression(node) && isPulsar(node);
+}
+
+function addContextToPulsars(factory: ts.NodeFactory, node: ts.Node) {
+  if (ts.isCallExpression(node)) {
+    if (isPulsar(node)) {
+      const propAccess = createPropertyAccessExpression(factory, node);
+
+      let arrow = node.arguments[1] as ts.ArrowFunction;
+
+      if (arrow.parameters.length === 0) {
+        const parameters = [factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            factory.createIdentifier('on'),
+            undefined,
+            undefined,
+            undefined
+          )];
+
+        const token =  factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken)
+        const body = arrow.body;
+        arrow = factory.createArrowFunction(undefined, undefined, parameters, undefined, token, body);
+      }
+
+      return factory.createCallExpression(
+        propAccess,
+        undefined,
+        [node.arguments[0], arrow]
+      )
+    }
+  }
+  return node;
+}
+
+function isPulsar(node: ts.CallExpression) {
+  const fns = ['ptn', 'at'];
+  let text = '';
+
+  if (ts.isPropertyAccessExpression(node.expression)) {
+    text = node.expression.name.getText();
+  } else {
+      text = node.expression.getText();
+  }
+
+  return fns.some( s => text === s);
+}
+
+function createPropertyAccessExpression(factory: ts.NodeFactory, node: ts.CallExpression) {
+  if (ts.isPropertyAccessExpression(node.expression)) {
+    return node.expression
+  }
+  return factory.createPropertyAccessExpression(
+    factory.createIdentifier('on'),
+    factory.createIdentifier(node.expression.getText())
+  )
+}
 
 export function sourceFromFile(filename: string) {
   const code = readFileSync(filename, { encoding: 'utf8' });
