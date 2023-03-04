@@ -1,26 +1,24 @@
 import { Logger } from "./logger";
 
-export type Bang = (str: string, callback: Callback) => void;
-
-export type Callback = (pattern: Pulsar) => void;
+export type OnPulse = (pulsar: Pulsar) => void;
 
 export type Match = (frame : number) => boolean;
+
+export interface Pulsar {
+  ptn: (str: string, on: OnPulse) => void;
+  at: (str: string, on: OnPulse) => void;
+  match: (frame : number) => boolean;
+  tick: (frame : number) => void;
+  when: (condition: boolean, on: OnPulse) => void;
+  // cycle: number;
+  // frame: number;
+}
 
 const logger = Logger.child({
   source: 'Pulsar'
 });
 
-export interface Pulsar {
-  ptn: (str: string, callback: Callback) => void;
-  at: (str: string, callback: Callback) => void;
-  match: (frame : number) => boolean;
-  tick: (frame : number) => void;
-  when: (condition: boolean, callback: Callback) => void; 
-  // cycle: number;
-  // frame: number;
-}
-
-export function pulsar(str: string, callback: Callback): Pulsar {
+export function pulsar(str: string, on: OnPulse): Pulsar {
   let _pattern: string[] = [];
   // let _frame = 0;
   let patterns: { [name: string]: Pulsar } = {}
@@ -40,7 +38,7 @@ export function pulsar(str: string, callback: Callback): Pulsar {
     //   return !_pattern.length ? 0 : Math.floor(_frame/_pattern.length);
     // },
   }
-  
+
   function matcher(match: string): Match {
     return isTime(match) ? timeMatcher(match) : patternMatcher(match)
   }
@@ -56,12 +54,12 @@ export function pulsar(str: string, callback: Callback): Pulsar {
   }
 
   function timeMatcher(match: string): Match {
-  
+
     const [ from = 0, to = 999 ] = match.split(':').map( s => parseInt(s) || 0);
-    
+
     return function(frame: number) {
-      const f = timeToFrame(from, globalThis.bpm);
-      const t = timeToFrame(to, globalThis.bpm);
+      const f = timeToFrame(from, globalThis.bpm());
+      const t = timeToFrame(to, globalThis.bpm());
       // if (f >= t) {
       //   logger.info({msg: 'Invalid time', match});
       //   return false
@@ -70,10 +68,10 @@ export function pulsar(str: string, callback: Callback): Pulsar {
     }
   }
 
-  function tick(frame: number) {       
+  function tick(frame: number) {
     if (match(frame)) {
-     
-      callback(self);   
+
+      on(self);
 
       for (const ptn of Object.values(patterns)) {
         ptn.tick(frame);
@@ -81,28 +79,28 @@ export function pulsar(str: string, callback: Callback): Pulsar {
     }
   }
 
-  function ptn(str: string, callback: Callback) {
+  function ptn(str: string, on: OnPulse) {
     if (!patterns[str]) {
-      const ptn = pulsar(str, callback);
+      const ptn = pulsar(str, on);
       patterns[str] = ptn;
     }
   }
 
-  function at(str: string, callback: Callback) {
-    ptn(str, callback);
+  function at(str: string, on: OnPulse) {
+    ptn(str, on);
   }
-  
-  function when(condition: boolean, callback: Callback) {
+
+  function when(condition: boolean, on: OnPulse) {
     if (condition) {
-      callback(self);   
+      on(self);
     }
   }
 
-  function on(frame: number, callback: Callback) {
-    // if (condition) {
-    //   callback(self);   
-    // }
-  }
+  // function on(frame: number, callback: OnPulse) {
+  //   // if (condition) {
+  //   //   callback(self);
+  //   // }
+  // }
 
   return self;
 }

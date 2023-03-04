@@ -2,12 +2,11 @@ import {jest} from '@jest/globals'
 
 import { Orcvs } from '../src/orcvs';
 
-const Midi = jest.createMockFromModule('../src/midi');
+// const Midi = jest.createMockFromModule('../src/midi');
 // import { Midi } from '../src/midi';
 
 require('../src/globals');
 
-// const source = `${__dirname}\\code.orcvs.test`;
 const source = `${__dirname}\\code.orcvs.js`;
 // const source = 'c:\\Users\\Toby\\Source\\OrcvsWork\\play.js';
 
@@ -19,15 +18,14 @@ describe('orcvs', () => {
   afterAll( async () => {
     jest.restoreAllMocks();
     await orcvs.stop();
-    
+
     await new Promise((r) => setTimeout(r, 1000));
   })
 
-
   test.only('load & exec', async () => {
-
+    console.log(lerp(1));
     await orcvs.setup();
-    await orcvs.setOutput('LoopMidi');  
+    await orcvs.setOutput('LoopMidi');
 
     await orcvs.load(source);
     await new Promise((r) => setTimeout(r, 500));
@@ -40,7 +38,7 @@ describe('orcvs', () => {
     // orcvs.tick(1);
     // await new Promise((r) => setTimeout(r, 500));
 
-    
+
     // orcvs.tick(2);
     // await new Promise((r) => setTimeout(r, 500));
 
@@ -49,6 +47,7 @@ describe('orcvs', () => {
     // await orcvs.load(sourceB);
 
     await new Promise((r) => setTimeout(r, 500));
+    // await new Promise((r) => setTimeout(r, 25000));
 
     // await orcvs.load(source);
 
@@ -56,4 +55,4 @@ describe('orcvs', () => {
 
   });
 
-}); 
+});

@@ -32,7 +32,7 @@ export function Orcvs() {
   }
 
   function registerGlobals() {    
-    globalThis.pattern = ptn;    
+    // globalThis.pattern = ptn;
     globalThis.ptn = ptn;    
     globalThis.bpm = clock.bpm;
     globalThis.output = setOutput;
@@ -67,9 +67,7 @@ export function Orcvs() {
     return !clock.running || !hasRun && frame % 8 === 0
   }
 
-  async function setBPM(bpm: number) {
-    await clock.setBPM(bpm);    
-    globalThis.bpm = clock.bpm;
+  function bpm(bpm?: number) {
   }  
 
   async function setOutput(out: number | string) {

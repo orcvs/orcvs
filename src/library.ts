@@ -109,8 +109,9 @@ export function midify(value?: number) {
 
 export const MINUTE = 60000;
 export const FRAMES_PER_BEAT = 4;
+
 export function msPerBeat() {
-  return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
+  return ( MINUTE  / bpm()) / FRAMES_PER_BEAT;
 }
 
 export function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }

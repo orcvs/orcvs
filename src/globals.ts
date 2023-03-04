@@ -29,9 +29,6 @@ globalThis.seq = seq;
 globalThis.crd = chord;
 globalThis.nte = note;
 
-
-globalThis.bpm = 120;
-
 globalThis.a = 10;
 globalThis.b = 11;
 globalThis.c = 12;

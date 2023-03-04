@@ -13,6 +13,7 @@ declare global {
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
+  var bpm: (set?: number) => number;
   var chord: (chord: string, ...options: Options[]) => Note[];
   var note: (name: string) => Computer<Note>
   

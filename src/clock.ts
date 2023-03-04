@@ -21,8 +21,8 @@ export function Clock(callback: TickCallback) {
     var timer!: Worker;
 
     function tick() {
-      frame = frame + 1;    
-      // logger.debug({ tick: frame });            
+      frame = frame + 1;
+      // logger.debug({ tick: frame });
       callback(frame);
     }
 
@@ -33,24 +33,24 @@ export function Clock(callback: TickCallback) {
     }
 
     async function setBPM(n: number) {
-      if (bpm != n) {  
+      if (bpm != n) {
         bpm = n;
         if (!running) {
           await start();
-        }        
+        }
       }
     }
-    
+
     function reset() {
       frame = 0;
     }
 
     async function start() {
       logger.debug('start');
-      await stop();        
+      await stop();
       running = true;
       await setTimer();
-      
+
       // logger.debug('postmessage');
       const ms = msPerBeat();
       timer.postMessage(ms);
@@ -61,7 +61,7 @@ export function Clock(callback: TickCallback) {
     async function stop() {
       logger.debug('stop');
       if (timer !== undefined) {
-        await timer.terminate();        
+        await timer.terminate();
         running = false;
       }
     }
@@ -77,15 +77,15 @@ export function Clock(callback: TickCallback) {
     async function setTimer() {
       logger.debug('setTimer');
 
-      // return new Promise((resolve, reject) => { 
-          timer = new Worker(WORKER_SCRIPT, { eval: true });     
-          timer.on('message', () => {           
-            tick(); 
-          });    
-          // timer.on("error", () => {
-          //     logger.error('timer');
-          // });
-      
+      // return new Promise((resolve, reject) => {
+          timer = new Worker(WORKER_SCRIPT, { eval: true });
+          timer.on('message', () => {
+            tick();
+          });
+          timer.on("error", (error: Error) => {
+            logger.error(error);
+          });
+
           // timer.on("exit", () => {
           //     // threads.delete(worker);
           //     logger.info('timer/exit');
@@ -116,7 +116,7 @@ export function Clock(callback: TickCallback) {
 
 
 function msPerBeat() {
-  return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
+  return ( MINUTE  / bpm()) / FRAMES_PER_BEAT;
 }
 
 // Dedicated Worker Thread for more accurate timing
