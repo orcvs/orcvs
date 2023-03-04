@@ -1,4 +1,3 @@
-import { MINUTE, FRAMES_PER_BEAT } from './clock';
 
 export type Computer<T> = ((...opts: any[]) => T);
 
@@ -46,7 +45,7 @@ export function lerp(from: number, to?: number): Computer<number>
 
 export function lerp(tofrom: number, to?: number, diff = 1): Computer<number> {
 
-  const min = to === undefined ? 0 : tofrom;
+  const min = to === undefined ? 1 : tofrom;
   const max = to === undefined ? tofrom : to;
 
   let value: number;
@@ -108,6 +107,8 @@ export function midify(value?: number) {
   return Math.ceil(value * 127/z);
 }
 
+export const MINUTE = 60000;
+export const FRAMES_PER_BEAT = 4;
 export function msPerBeat() {
   return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
 }
