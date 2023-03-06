@@ -8,9 +8,7 @@ import { Orcvs } from '../src/orcvs';
 require('../src/globals');
 
 const source = `${__dirname}\\code.orcvs.js`;
-// const source = 'c:\\Users\\Toby\\Source\\OrcvsWork\\play.js';
-
-const sourceB = `${__dirname}\\code_b.orcvs.test`;
+// const sourceB = `${__dirname}\\code_b.orcvs.test`;
 
 describe('orcvs', () => {
   const orcvs = Orcvs();
@@ -27,9 +25,9 @@ describe('orcvs', () => {
     await orcvs.setup();
     await orcvs.setOutput('LoopMidi');
 
-    await orcvs.load(source);
-    await new Promise((r) => setTimeout(r, 500));
-    await orcvs.load(source);
+    // await orcvs.load(source);
+    // await new Promise((r) => setTimeout(r, 500));
+    // await orcvs.load(source);
     orcvs.start();
 
     // orcvs.tick(0);

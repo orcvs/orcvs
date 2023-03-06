@@ -32,10 +32,6 @@ export async function transform(source: string) {
   return sourceFile.getFullText();
 }
 
-function shouldMemoizeFunctionCalls(node: ts.Node) {
-  return ts.isCallExpression(node) && isMemoizable(node.expression.getText());
-}
-
 function memoizeFunctionCalls(factory: ts.NodeFactory, node: ts.Node) {
   if (ts.isCallExpression(node)) {
     if (ts.isIdentifier(node.expression)) {
@@ -51,10 +47,6 @@ function memoizeFunctionCalls(factory: ts.NodeFactory, node: ts.Node) {
     }
   }
   return node;
-}
-
-function shouldAddContextToPulsars(node: ts.Node) {
-  return ts.isCallExpression(node) && isPulsar(node);
 }
 
 function addContextToPulsars(factory: ts.NodeFactory, node: ts.Node) {
@@ -133,8 +125,9 @@ export async function codify(source: string): Promise<(() => {})> {
       ${source}
     }
   `
-
   const { code } = await importFromString(module, { useCurrentGlobal: true, transformOptions: { loader: 'ts' },  filename });
+
+  console.log(code.toString());
   return code;
 }
 

@@ -124,12 +124,16 @@ describe('code', () => {
       expect(clean(result)).toContain(clean(expected));
     });
 
-    test.only('correctly handles complex nesting', async () => {
+    test('correctly handles complex nesting', async () => {
 
       let code = `
         blah.at('▮▯', () => {
           ptn('▮▯', (vtha) => {
-            vtha.ptn('▮▯', (on) => {});
+            vtha.ptn('▮▯', (on) => {
+              if (true) {
+                play(10, D2({d: 4}));
+              }
+            });
             at('▮▯', () => {});
           });
         });
@@ -140,7 +144,11 @@ describe('code', () => {
       let expected = `
         blah.at('▮▯', on => {
           on.ptn('▮▯', (vtha) => {
-            vtha.ptn('▮▯', (on) => { });
+            vtha.ptn('▮▯', (on) => {
+              if (true) {
+                play(10, D2({d: 4}));
+              }
+            });
             on.at('▮▯', on => { });
           });
         });

@@ -278,25 +278,24 @@ describe('pattern', () => {
     });
 
     test('bang bang', async () => {
-
         const mock = jest.fn();
         const innerMock = jest.fn();
 
-        const pulse = pulsar('▮', (o) => {
+        const pulse = pulsar('▮▯▮▯', (o) => {
           mock();
 
-          o.ptn('▮▯▯▯', () => {
+          o.ptn('▯▮▯', () => {
             innerMock();
           })
         })
 
-        // bang every 1st and 4th
         pulse.tick(1);
         pulse.tick(2);
         pulse.tick(3);
         pulse.tick(4);
+        pulse.tick(5);
 
-        expect(mock).toHaveBeenCalledTimes(4);
+        expect(mock).toHaveBeenCalledTimes(3);
         expect(innerMock).toHaveBeenCalledTimes(1);
     });
 
