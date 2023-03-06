@@ -307,7 +307,7 @@ describe('library', () => {
 
   });
 
-  describe.only('random', () => {
+  describe('random', () => {
 
     test('starts at 1 by default', async () => {
 
