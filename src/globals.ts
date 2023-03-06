@@ -1,4 +1,4 @@
-import { cycle, lerp, wave, seq, memoize  } from './library';
+import { cycle, lerp, wave, seq, memoize, framesPerBeat  } from './library';
 import { arp, note, chord } from './note';
 
 // Globals defined at runtime by Orcvs
@@ -24,6 +24,7 @@ globalThis.seq = seq;
 globalThis.chord = chord;
 globalThis.note = note;
 
+globalThis.framesPerBeat = framesPerBeat;
 globalThis.cyc = cycle;
 globalThis.wav = wave;
 globalThis.seq = seq;

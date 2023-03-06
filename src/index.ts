@@ -19,6 +19,7 @@ declare global {
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
   var bpm: (set?: number) => number;
+  var framesPerBeat: (set?: number) => number;
 
   var memoize: (key: string, ...args: any[]) => any;
 

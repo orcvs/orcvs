@@ -163,10 +163,17 @@ export function midify(value?: number) {
 }
 
 export const MINUTE = 60000;
-export const FRAMES_PER_BEAT = 4;
+let _framesPerBeat = 4;
 
 export function msPerBeat() {
-  return ( MINUTE  / bpm()) / FRAMES_PER_BEAT;
+  return ( MINUTE  / bpm()) / framesPerBeat();
+}
+
+export function framesPerBeat(set?: number) {
+  if (set) {
+    _framesPerBeat = set;
+  }
+  return _framesPerBeat;
 }
 
 export function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
