@@ -14,7 +14,7 @@ const logger = Logger.child({
 export function Orcvs() {
   let clock = Clock(tick)
   let midi = Midi();
-  let pulse = pulsar(BANG, () => {});
+  let pulse = pulsar(BANG, (on) => {});
   let code: OnPulse;
   let hasRun: boolean = false;
 
@@ -25,7 +25,6 @@ export function Orcvs() {
 
   async function setup() {
     console.log(`Welcome to ${ORCVS}`);
-    logger.debug('setup');
     registerGlobals();
     await midi.setup();
   }
@@ -40,6 +39,14 @@ export function Orcvs() {
     globalThis.ply = midi.play;
   }
 
+  async function play(filename: string) {
+    await load(filename);
+
+    if (!clock.running) {
+      start();
+    }
+  }
+
   async function load(filename: string) {
     logger.info(`loading ${filename}`);
     code = await codify(filename);
@@ -47,7 +54,6 @@ export function Orcvs() {
     if (!clock.running) {
       run();
     }
-
   }
 
   function reset() {
@@ -58,7 +64,7 @@ export function Orcvs() {
     logger.info('run');
     dememoize();
     // Clear the current pulsar
-    pulse = pulsar(BANG, () => {});
+    pulse = pulsar(BANG, (on) => {});
     code(pulse);
     hasRun = true;
   }
@@ -105,9 +111,10 @@ export function Orcvs() {
   }
 
   return {
-    load,
-    reset,
     bpm,
+    load,
+    play,
+    reset,
     setOutput,
     setup,
     start,

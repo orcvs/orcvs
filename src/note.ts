@@ -2,7 +2,7 @@ import { Utilities as BaseUtilities } from 'webmidi';
 import { Computable, Computer, seq, seqLerp } from './library';
 
 export interface Note {
-  value: number; 
+  value: number;
   duration?: Computable<number>;
   attack?: Computable<number>;
   release?: Computable<number>;
@@ -14,9 +14,7 @@ export interface Options {
   r?: Computable<number>;
 }
 
-export function arp(value: string, ...options: Options[]): Computer<Note> {  
-  // if (typeof x === 'string') {    
-  // }
+export function arp(value: string, ...options: Options[]): Computer<Note> {
 
   const crd = chord(value, ...options);
   const notes = seq(...crd);
@@ -26,7 +24,7 @@ export function arp(value: string, ...options: Options[]): Computer<Note> {
   }
 }
 
-export function chord(chord: string, ...options: Options[]): Note[] {  
+export function chord(chord: string, ...options: Options[]): Note[] {
   const {name, intervals} = toChord(chord);
 
   const opts = seqLerp(...options);
@@ -37,11 +35,11 @@ export function chord(chord: string, ...options: Options[]): Note[] {
   const root = createNote(value, opts());
   notes.push(root);
 
-  for (const int of intervals) {   
+  for (const int of intervals) {
     const v = Utilities.getOffsetNumber(value, int);
     const note = createNote(v, opts());
     notes.push(note);
-  }  
+  }
 
   return notes;
 }
@@ -51,7 +49,7 @@ function createNote(value: number, options: Options = {}) {
   return {
     value,
     duration,
-    attack, 
+    attack,
     release,
     get notes() {
       return [this];
@@ -59,7 +57,7 @@ function createNote(value: number, options: Options = {}) {
   }
 }
 
-export function note(name: string): Computer<Note> {  
+export function note(name: string): Computer<Note> {
   const value = Utilities.toNoteNumber(name);
   return function(options: Options = {}) {
     return createNote(value, options);
@@ -69,10 +67,10 @@ export function note(name: string): Computer<Note> {
 class Utilities extends BaseUtilities {
   static getOffsetNumber(number: number, semitoneOffset = 0) {
     return Math.min(Math.max(number + semitoneOffset, 0), 127);
-  }  
+  }
   // static getOffsetNumber(value: number, octaveOffset = 0, semitoneOffset = 0) {
   //   return Math.min(Math.max(value + octaveOffset * 12 + semitoneOffset, 0), 127);
-  // }  
+  // }
 }
 
 export const ChordIntervalsTable: { [key: string]: number[] }  = {
@@ -160,7 +158,7 @@ export function getIntervals(chord: string){
     if (interval !== 0) {
       fromRoot += interval
       result.push(fromRoot)
-    }    
+    }
   }
   return result
 }

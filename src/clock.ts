@@ -1,12 +1,10 @@
 
 import { Worker } from 'node:worker_threads';
 
+import { msPerBeat } from "./library";
 import { Logger } from "./logger";
 
-export const MINUTE = 60000;
-export const FRAMES_PER_BEAT = 4;
-
-const DEFAULT_BPM = 110;
+const DEFAULT_BPM = 120;
 
 type TickCallback = (frame: number) => void;
 
@@ -66,14 +64,6 @@ export function Clock(callback: TickCallback) {
       }
     }
 
-    function msPerBeat() {
-      return ( MINUTE  / bpm) / FRAMES_PER_BEAT;
-    }
-
-    // function bpm() {
-    //   return bpm;
-    // }
-
     async function setTimer() {
       logger.debug('setTimer');
 
@@ -112,11 +102,6 @@ export function Clock(callback: TickCallback) {
         return running;
       }
     }
-}
-
-
-function msPerBeat() {
-  return ( MINUTE  / bpm()) / FRAMES_PER_BEAT;
 }
 
 // Dedicated Worker Thread for more accurate timing

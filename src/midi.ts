@@ -16,26 +16,26 @@ export function Midi() {
   let buffer: Buffer = {};
   let controlBuffer: ControlBuffer = [];
 
-  function clear() {    
+  function clear() {
     buffer = {};
     controlBuffer = [];
   }
 
-  function control(channel: number, controller: string | number, value: Computable<number>) {   
+  function control(channel: number, controller: string | number, value: Computable<number>) {
     value = toMidiValue(value) as number;
     pushControl(channel, { controller, value})
   }
 
-  function play(channel: number, playable: Computable<Note> | Note[]) {   
+  function play(channel: number, playable: Computable<Note> | Note[]) {
     playable = wrap(compute(playable));
 
     const notes: MidiNote[] = [];
-    for(let note of playable) {      
+    for(let note of playable) {
       const { value, duration, attack, release } = note;
       const opts = {duration: toMs(duration), rawAttack: toMidiValue(attack), rawRelease: toMidiValue(release)}
-      notes.push( new MidiNote(value, opts) ) 
+      notes.push( new MidiNote(value, opts) )
     }
-    
+
     push(channel, notes);
   }
 
@@ -69,31 +69,32 @@ export function Midi() {
 
   function send(channelId: number, notes: MidiNote[]) {
     if (output) {
-      let channel = output.channels[channelId];      
+      let channel = output.channels[channelId];
+      // console.log({notes});
       channel.playNote(notes);
     }
   }
 
   function sendControl(channelId: number, controls: ControlChange[]) {
     // logger.debug({source: 'sendControl', controller, value});
-    if (output) {      
+    if (output) {
       let channel = output.channels[channelId];
       for (let { controller, value } of controls) {
         channel.sendControlChange(controller, value);
       }
     }
   }
-  
+
   async function setup() {
     logger.info('Midi.setup');
     try {
       await WebMidi.enable();
     } catch(error) {
-      logger.error(error);      
-    }    
+      logger.error(error);
+    }
     logger.info({Outputs: WebMidi.outputs.map( o => o.name) });
     logger.info('WebMidi enabled');
-  }  
+  }
 
   async function stop() {
     await WebMidi.disable();
@@ -102,13 +103,13 @@ export function Midi() {
   function tick(f?: number) {
     for (let idx in controlBuffer) {
       const control = controlBuffer[idx];
-      const channel = parseInt(idx);    
+      const channel = parseInt(idx);
       sendControl(channel, control);
     }
 
     for (let idx in buffer) {
       const notes = buffer[idx];
-      const channel = parseInt(idx);    
+      const channel = parseInt(idx);
       send(channel, notes);
     }
 
@@ -125,11 +126,11 @@ export function Midi() {
     setup,
     stop,
     tick,
-    get buffer() {      
-      return buffer;    
+    get buffer() {
+      return buffer;
     },
-    get controlBuffer() {      
-      return controlBuffer;    
+    get controlBuffer() {
+      return controlBuffer;
     }
   };
 }
