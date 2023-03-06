@@ -24,6 +24,7 @@ declare global {
 
   var chord: (chord: string, ...options: Options[]) => Note[];
   var note: (name: string) => Computer<Note>
+  var arp: (value: string, ...options: Options[]) => Computer<Note>;
 
   // Defined in Orcvs and attached at runtime
   var play: (channel: number, note: Computable<Note>) => void;

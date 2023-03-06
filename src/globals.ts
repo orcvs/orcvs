@@ -1,5 +1,5 @@
 import { cycle, lerp, wave, seq, memoize  } from './library';
-import { note, chord } from './note';
+import { arp, note, chord } from './note';
 
 // Globals defined at runtime by Orcvs
 // globalThis.pattern;
@@ -30,6 +30,7 @@ globalThis.seq = seq;
 
 globalThis.crd = chord;
 globalThis.nte = note;
+globalThis.arp = arp;
 
 globalThis.a = 10;
 globalThis.b = 11;
