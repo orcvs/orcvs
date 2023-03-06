@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { lerp, cycle, wave, seq, compute, midify} from '../src/library';
+import { lerp, cycle, wave, seq, compute, midify, random } from '../src/library';
 
 require('../src/globals');
 
@@ -307,6 +307,47 @@ describe('library', () => {
 
   });
 
+  describe.only('random', () => {
+
+    test('starts at 1 by default', async () => {
+
+      var r = random(10);
+
+      var last = 0
+      for (let i = 1; i <= 1000; i++) {
+        var value = r();
+        expect(value).toBeGreaterThanOrEqual(1);
+        expect(value).toBeLessThanOrEqual(10);
+      }
+    });
+
+    test('between min and max', async () => {
+
+      var r = random(10, 15);
+
+      for (let i = 1; i <= 1000; i++) {
+        var value = r();
+        expect(value).toBeGreaterThanOrEqual(10);
+        expect(value).toBeLessThanOrEqual(15);
+      }
+    });
+
+    test('well distributed', async () => {
+
+      var r = random(1000);
+
+      var s = new Set();
+
+      for (let i = 1; i <= 100; i++) {
+        var value = r();
+        s.add(value);
+      }
+      expect(s.size).toBeGreaterThanOrEqual(90);
+    });
+
+
+
+  });
 
 });
 

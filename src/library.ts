@@ -157,6 +157,17 @@ export function wave(tofrom: number, to?: number, diff = 1): Computer<number> {
   }
 }
 
+// export function random(to: number): Computer<number>
+export function random(tofrom: number, to?: number): Computer<number> {
+
+  const min = to === undefined ? 1 : tofrom;
+  const max = to === undefined ? tofrom : to;
+
+  return function() {
+    return Math.floor(min + Math.random()*(max - min + 1))
+  }
+}
+
 export function midify(value?: number) {
   if (!value) return value;
   return Math.ceil(value * 127/z);

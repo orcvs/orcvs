@@ -1,4 +1,4 @@
-import { cycle, lerp, wave, seq, memoize, framesPerBeat  } from './library';
+import { cycle, lerp, wave, seq, memoize, random, framesPerBeat  } from './library';
 import { arp, note, chord } from './note';
 
 // Globals defined at runtime by Orcvs
@@ -15,19 +15,22 @@ globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝s̷�
 globalThis.BANG = '▮';
 
 globalThis.memoize = memoize;
+globalThis.framesPerBeat = framesPerBeat;
 
 globalThis.lerp = lerp;
 globalThis.cycle = cycle;
 globalThis.wave = wave;
 globalThis.seq = seq;
+globalThis.random = random
 
 globalThis.chord = chord;
 globalThis.note = note;
 
-globalThis.framesPerBeat = framesPerBeat;
+globalThis.fpb = framesPerBeat;
 globalThis.cyc = cycle;
 globalThis.wav = wave;
 globalThis.seq = seq;
+globalThis.rnd = random
 
 globalThis.crd = chord;
 globalThis.nte = note;

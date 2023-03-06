@@ -16,10 +16,12 @@ declare global {
   var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cycle: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var random: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
-  var bpm: (set?: number) => number;
   var framesPerBeat: (set?: number) => number;
+  var bpm: (set?: number) => number;
+  var fpb: (set?: number) => number;
 
   var memoize: (key: string, ...args: any[]) => any;
 
@@ -38,6 +40,7 @@ declare global {
   var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var rnd: (tofrom: number, to?: number, diff?: number) => Computer<number>;
 
   var crd: (chord: string, ...options: Options[]) => Note[];
   var nte: (name: string) => Computer<Note>
