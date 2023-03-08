@@ -126,8 +126,6 @@ export async function codify(source: string): Promise<(() => {})> {
     }
   `
   const { code } = await importFromString(module, { useCurrentGlobal: true, transformOptions: { loader: 'ts' },  filename });
-
-  console.log(code.toString());
   return code;
 }
 

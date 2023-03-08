@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { pulsar, isTime, timeToFrame} from '../src/pulsar';
+import { pulsar, isTime, timeToFrame, isFrameTime} from '../src/pulsar';
 
 import { lerp } from '../src/library';
 
@@ -93,7 +93,6 @@ describe('pattern', () => {
       expect(result).toEqual(false);
     });
 
-
     test('timeToFrame', async () => {
       var result = timeToFrame(60, 60); // 60s at 60bpm
       expect(result).toEqual(240);
@@ -106,6 +105,78 @@ describe('pattern', () => {
 
       var result = timeToFrame(1, 60); // 90s at 120bpm
       expect(result).toEqual(4);
+    });
+
+  });
+
+  describe('Frame Matcher', () => {
+
+    test('frameMatcher from', async () => {
+      var pulse = pulsar('f:100', () => {});
+      var matcher = pulse.match;
+
+      var result = matcher(99)
+      expect(result).toEqual(false);
+
+      var result = matcher(100)
+      expect(result).toEqual(true);
+    });
+
+    test('isFrameTime', async () => {
+      var result = isFrameTime('f:1');
+      expect(result).toEqual(true);
+
+      var result = isFrameTime('f:1:1');
+      expect(result).toEqual(true);
+
+      var result = isFrameTime('f:1');
+      expect(result).toEqual(true);
+
+      var result = isFrameTime('f:');
+      expect(result).toEqual(true);
+
+      var result = isFrameTime('f');
+      expect(result).toEqual(false);
+
+      var result = isFrameTime(':a');
+      expect(result).toEqual(false);
+
+      var result = isFrameTime('vtha:99');
+      expect(result).toEqual(false);
+    });
+
+    test('frameMatcher from to', async () => {
+      var pulse = pulsar('f:100:200', () => {});
+      var matcher = pulse.match;
+
+      var result = matcher(99)
+      expect(result).toEqual(false);
+
+      var result = matcher(101)
+      expect(result).toEqual(true);
+
+      var result = matcher(199)
+      expect(result).toEqual(true);
+
+      var result = matcher(201)
+      expect(result).toEqual(false);
+    });
+
+    test('frameMatcher with bad from to', async () => {
+      var pulse = pulsar('f:100:60', () => {});
+      var matcher = pulse.match;
+
+      var result = matcher(99)
+      expect(result).toEqual(false);
+
+      var result = matcher(240)
+      expect(result).toEqual(false);
+
+      var result = matcher(480)
+      expect(result).toEqual(false);
+
+      var result = matcher(666)
+      expect(result).toEqual(false);
     });
 
   });
