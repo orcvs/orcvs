@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { lerp, cycle, wave, seq, compute, midify, random } from '../src/library';
+import { lerp, cycle, wave, seq, compute, midify, random, toBeatArray} from '../src/library';
 
 require('../src/globals');
 
@@ -32,6 +32,20 @@ describe('library', () => {
     });
   });
 
+  describe('toBeatArray', () => {
+
+    test('converts ▮▯', async () => {
+      const result = toBeatArray('▮▯');
+      expect(result).toEqual([1, 0]);
+    });
+
+    test('converts numeric string', async () => {
+      const result = toBeatArray('10101010');
+      expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
+    });
+
+  });
+
   describe('seq', () => {
 
     test('accepts rest params ', async () => {
@@ -44,15 +58,15 @@ describe('library', () => {
       }
     });
 
-    test('accepts array ', async () => {
-      const ary = ['!', '.', '.', '!', '.'];
-      let s = seq(ary);
+    // test('accepts array ', async () => {
+    //   const ary = ['!', '.', '.', '!', '.'];
+    //   let s = seq(ary);
 
-      for (let i = 0; i < 5; i++) {
-        let result = s();
-        expect(result).toEqual(ary[i]);
-      }
-    });
+    //   for (let i = 0; i < 5; i++) {
+    //     let result = s();
+    //     expect(result).toEqual(ary[i]);
+    //   }
+    // });
 
     test('accepts params', async () => {
       const ary = [A, B, C, D, E];

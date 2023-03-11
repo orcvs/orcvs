@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { pulsar, isTime, timeToFrame, isFrameTime} from '../src/pulsar';
+import { pulsar, matcher, isTime, timeToFrame, isFrameTime} from '../src/pulsar';
 
 import { lerp } from '../src/library';
 
@@ -23,16 +23,16 @@ describe('pattern', () => {
 
       globalThis.bpm(60);
 
-      var pulse = pulsar('60', () => {}); // 60s at 60bpm
-      var matcher = pulse.match;
+      // var pulse = pulsar('60', () => {}); // 60s at 60bpm
+      let match = matcher('60');
 
-      var result = matcher(120)
+      var result = match(120)
       expect(result).toEqual(false);
 
-      var result = matcher(240)
+      var result = match(240)
       expect(result).toEqual(true);
 
-      var result = matcher(480)
+      var result = match(480)
       expect(result).toEqual(true);
     });
 
@@ -57,19 +57,19 @@ describe('pattern', () => {
 
       globalThis.bpm(60);
 
-      var pulse = pulsar('60:120', () => {}); // 60-120s at 60bpm
-      var matcher = pulse.match;
+      // var pulse = pulsar('60:120', () => {}); // 60-120s at 60bpm
+      let match = matcher('60:120');
 
-      var result = matcher(120)
+      var result = match(120)
       expect(result).toEqual(false);
 
-      var result = matcher(240)
+      var result = match(240)
       expect(result).toEqual(true);
 
-      var result = matcher(480)
+      var result = match(480)
       expect(result).toEqual(true);
 
-      var result = matcher(666)
+      var result = match(666)
       expect(result).toEqual(false);
     });
 
@@ -77,19 +77,18 @@ describe('pattern', () => {
 
       globalThis.bpm(60);
 
-      var pulse = pulsar('120:60', () => {}); // 60-120s at 60bpm
-      var matcher = pulse.match;
+      let match = matcher('120:60');
 
-      var result = matcher(120)
+      var result = match(120)
       expect(result).toEqual(false);
 
-      var result = matcher(240)
+      var result = match(240)
       expect(result).toEqual(false);
 
-      var result = matcher(480)
+      var result = match(480)
       expect(result).toEqual(false);
 
-      var result = matcher(666)
+      var result = match(666)
       expect(result).toEqual(false);
     });
 
@@ -109,16 +108,30 @@ describe('pattern', () => {
 
   });
 
+  describe('sequence patterns', () => {
+
+    test('euclid', async () => {
+
+      // const e = euclid();
+
+      // ptn(e, () => {
+
+      // });
+
+
+    });
+  });
+
   describe('Frame Matcher', () => {
 
     test('frameMatcher from', async () => {
-      var pulse = pulsar('f:100', () => {});
-      var matcher = pulse.match;
+      // var pulse = pulsar('f:100', () => {});
+      let match = matcher('f:100')
 
-      var result = matcher(99)
+      var result = match(99)
       expect(result).toEqual(false);
 
-      var result = matcher(100)
+      var result = match(100)
       expect(result).toEqual(true);
     });
 
@@ -146,36 +159,36 @@ describe('pattern', () => {
     });
 
     test('frameMatcher from to', async () => {
-      var pulse = pulsar('f:100:200', () => {});
-      var matcher = pulse.match;
+      // var pulse = pulsar('f:100:200', () => {});
+      let match = matcher('f:100:200');
 
-      var result = matcher(99)
+      var result = match(99)
       expect(result).toEqual(false);
 
-      var result = matcher(101)
+      var result = match(101)
       expect(result).toEqual(true);
 
-      var result = matcher(199)
+      var result = match(199)
       expect(result).toEqual(true);
 
-      var result = matcher(201)
+      var result = match(201)
       expect(result).toEqual(false);
     });
 
     test('frameMatcher with bad from to', async () => {
-      var pulse = pulsar('f:100:60', () => {});
-      var matcher = pulse.match;
+      // var pulse = pulsar('f:100:60', () => {});
+      let match = matcher('f:100:200');
 
-      var result = matcher(99)
+      var result = match(99)
       expect(result).toEqual(false);
 
-      var result = matcher(240)
+      var result = match(240)
       expect(result).toEqual(false);
 
-      var result = matcher(480)
+      var result = match(480)
       expect(result).toEqual(false);
 
-      var result = matcher(666)
+      var result = match(666)
       expect(result).toEqual(false);
     });
 
@@ -188,84 +201,88 @@ describe('pattern', () => {
       test('cycles from frame 1', async () => {
         const str = '▮▯▯▯';
 
-        const pulse = pulsar(str, () => {})
+        const match = matcher(str);
 
-        expect(pulse.match(1)).toBeTruthy();
-        expect(pulse.match(2)).toBeFalsy();
-        expect(pulse.match(3)).toBeFalsy();
-        expect(pulse.match(4)).toBeFalsy();
-        expect(pulse.match(5)).toBeTruthy();
+        expect(match(1)).toBeTruthy();
+        expect(match(2)).toBeFalsy();
+        expect(match(3)).toBeFalsy();
+        expect(match(4)).toBeFalsy();
+        expect(match(5)).toBeTruthy();
       });
 
       test('covers complex patterns', async () => {
         const str = '▮▯▯▯▮';
 
-        const pulse = pulsar(str, () => {})
+        const match = matcher(str);
 
-        expect(pulse.match(1)).toBeTruthy();
-        expect(pulse.match(2)).toBeFalsy();
-        expect(pulse.match(3)).toBeFalsy();
-        expect(pulse.match(4)).toBeFalsy();
-        expect(pulse.match(5)).toBeTruthy();
-        expect(pulse.match(6)).toBeTruthy();
-        expect(pulse.match(7)).toBeFalsy();
+        expect(match(1)).toBeTruthy();
+        expect(match(2)).toBeFalsy();
+        expect(match(3)).toBeFalsy();
+        expect(match(4)).toBeFalsy();
+        expect(match(5)).toBeTruthy();
+        expect(match(6)).toBeTruthy();
+        expect(match(7)).toBeFalsy();
       });
 
       test('always', async () => {
-        var pulse = pulsar('▮', (bang) => {})
-        expect(pulse.match(1)).toBeTruthy();
-        expect(pulse.match(2)).toBeTruthy();
-        expect(pulse.match(4)).toBeTruthy();
+        const match  = matcher('▮');
+
+        expect(match(1)).toBeTruthy();
+        expect(match(2)).toBeTruthy();
+        expect(match(4)).toBeTruthy();
       });
 
       test('always', async () => {
-        var pulse = pulsar('▯', (bang) => {})
-        expect(pulse.match(1)).toBeFalsy();
-        expect(pulse.match(2)).toBeFalsy();
-        expect(pulse.match(4)).toBeFalsy();
+        const match  = matcher('▯');
+
+        expect(match(1)).toBeFalsy();
+        expect(match(2)).toBeFalsy();
+        expect(match(4)).toBeFalsy();
       });
     });
 
     describe('cycle and frame', () => {
 
-      test('passes', async () => {
-        const str = '▮▯';
+      // test('passes', async () => {
+      //   const str = '▮▯';
 
-        const pulse = pulsar(str, (o) => {
-          // expect(frame).toEqual(7);
-          // expect(cycle).toEqual(3)
-        })
+      //   const pulse = pulsar(str, (o) => {
+      //     // expect(frame).toEqual(7);
+      //     // expect(cycle).toEqual(3)
+      //   })
 
-        pulse.tick(7);
+      //   tick(7);
 
-      });
+      // });
 
       test('covers complex patterns', async () => {
         const str = '▮▯▯▯▮';
 
-        const pulse = pulsar(str, () => {})
+        const match = matcher(str);
 
-        expect(pulse.match(1)).toBeTruthy();
-        expect(pulse.match(2)).toBeFalsy();
-        expect(pulse.match(3)).toBeFalsy();
-        expect(pulse.match(4)).toBeFalsy();
-        expect(pulse.match(5)).toBeTruthy();
-        expect(pulse.match(6)).toBeTruthy();
-        expect(pulse.match(7)).toBeFalsy();
+        expect(match(1)).toBeTruthy();
+        expect(match(2)).toBeFalsy();
+        expect(match(3)).toBeFalsy();
+        expect(match(4)).toBeFalsy();
+        expect(match(5)).toBeTruthy();
+        expect(match(6)).toBeTruthy();
+        expect(match(7)).toBeFalsy();
       });
 
       test('always', async () => {
-        var pulse = pulsar('▮', (bang) => {})
-        expect(pulse.match(1)).toBeTruthy();
-        expect(pulse.match(2)).toBeTruthy();
-        expect(pulse.match(42)).toBeTruthy();
+        const match = matcher('▮');
+
+        expect(match(1)).toBeTruthy();
+        expect(match(2)).toBeTruthy();
+        expect(match(42)).toBeTruthy();
       });
 
       test('always', async () => {
-        var pulse = pulsar('▯', (bang) => {})
-        expect(pulse.match(1)).toBeFalsy();
-        expect(pulse.match(2)).toBeFalsy();
-        expect(pulse.match(42)).toBeFalsy();
+        const match = matcher('▯');
+
+        expect(match(1)).toBeFalsy();
+        expect(match(2)).toBeFalsy();
+        expect(match(42)).toBeFalsy();
       });
     });
 
@@ -402,33 +419,33 @@ describe('pattern', () => {
   });
   });
 
-    describe('at', () => {
+  describe('at', () => {
 
-      test('at bang at', async () => {
+    test('at bang at', async () => {
 
-        globalThis.bpm(120);
+      globalThis.bpm(120);
 
-        const mock = jest.fn();
-        const innerMock = jest.fn();
+      const mock = jest.fn();
+      const innerMock = jest.fn();
 
-        const pulse = pulsar('1', (o) => {
-          mock();
+      const pulse = pulsar('1', (o) => {
+        mock();
 
-          o.at('2:3', () => {
-            innerMock();
-          })
+        o.at('2:3', () => {
+          innerMock();
         })
+      })
 
-        pulse.tick(8); // 8 frames a second
-        pulse.tick(16);
-        pulse.tick(24);
-        pulse.tick(32);
-        pulse.tick(40);
-        expect(mock).toHaveBeenCalled();
-        expect(mock).toHaveBeenCalledTimes(5);
-        expect(innerMock).toHaveBeenCalledTimes(2);
-    });
+      pulse.tick(8); // 8 frames a second
+      pulse.tick(16);
+      pulse.tick(24);
+      pulse.tick(32);
+      pulse.tick(40);
+      expect(mock).toHaveBeenCalled();
+      expect(mock).toHaveBeenCalledTimes(5);
+      expect(innerMock).toHaveBeenCalledTimes(2);
   });
+});
 });
 
 

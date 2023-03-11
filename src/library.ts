@@ -1,9 +1,14 @@
+import { P } from "pino";
+
+// import { euclid as generateEuclid } from "./algo";
 
 export type Computer<T> = ((...opts: any[]) => T);
 
 export type Computable<T> = (T | (() => T));
 
 export type Indexer = (tofrom: number, to?: number, diff?: number) => Computer<number>;
+
+export type Seq<T> = Computer<T>;
 
 export function compute<T>(x: Computable<T>): T {
   if (typeof x === 'function') {
@@ -12,77 +17,25 @@ export function compute<T>(x: Computable<T>): T {
   return x;
 }
 
-const memozizable = ['lerp','cycle','wave', 'seq'];
+// export function euclid(steps = 8, beats = 4, rotateSteps = 0): string[] {
+//   return generateEuclid(steps, beats, rotateSteps));
+// }
 
-const cache = Cache();
-let _cache:{ [name: string]: any }  = {};
-
-export  function isMemoizable(text: string) {
-  return memozizable.some( s => text === s);
-}
-
-export function key() {
-  return Math.random().toString(36).slice(2);
-}
-
-export function dememoize() {
-  cache.clear();
-}
-
-export function memoize(key: string, ...args: any[]) {
-  if (cache.has(key)) {
-    return cache.get(key);
-  }
-  const fn = args[0] as Function;
-  const a = args.slice(1);
-
-  const value = fn.apply(null, a);
-  cache.set(key, value);
-  return value;
-}
-
-export function Cache() {
-
-  function has(key: string) {
-    return (key in _cache);
-  }
-
-  function set(key: string, value: any) {
-    _cache[key] = value;
-  }
-
-  function get(key: string) {
-   return _cache[key];
-  }
-
-  function clear() {
-    _cache = {};
-  }
-
-  return {
-    has,
-    set,
-    get,
-    clear,
-  }
-}
-
-export function seq<T>(...sequence: readonly T[]): Computer<T> {
+export function seq<T>(...sequence: T[]): Computer<T> {
   return sequencer(cycle, ...sequence);
 }
 
-export function seqLerp<T>(...sequence: readonly T[]): Computer<T> {
+export function seqLerp<T>(...sequence: T[]): Computer<T> {
   return sequencer(lerp, ...sequence);
 }
 
-export function seqWave<T>(...sequence: readonly T[]): Computer<T> {
+export function seqWave<T>(...sequence: T[]): Computer<T> {
   return sequencer(lerp, ...sequence);
 }
 
-export function sequencer<T>(indexer: Indexer, ...sequence: readonly T[]): Computer<T> {
-  if (Array.isArray(sequence[0])){
-    sequence = sequence[0];
-  }
+export function sequencer<T>(indexer: Indexer, ...sequence: T[]): Computer<T> {
+
+  // sequence = toSequence(sequence);
 
   const start = 0;
   const end = sequence.length - 1;
@@ -91,7 +44,7 @@ export function sequencer<T>(indexer: Indexer, ...sequence: readonly T[]): Compu
 
   return function(): T {
     const i = idx();
-    return sequence[i];
+    return sequence[i] as T;
   }
 }
 
@@ -187,8 +140,89 @@ export function framesPerBeat(set?: number) {
   return _framesPerBeat;
 }
 
+// function toSequence<T>(sequence: T[]): T[] {
+//   if (sequence.length === 1) {
+//     const item = sequence[0];
+
+//     if (Array.isArray(item)){
+//       return item;
+//     }
+
+//     if (typeof item === 'string') {
+//       return item.split('') as T[]
+//     }
+//   }
+
+//   return sequence as T[];
+// }
+
+
+const memozizable = ['lerp','cycle','wave', 'seq'];
+
+const cache = Cache();
+let _cache:{ [name: string]: any }  = {};
+
+export  function isMemoizable(text: string) {
+  return memozizable.some( s => text === s);
+}
+
+export function key() {
+  return Math.random().toString(36).slice(2);
+}
+
+export function dememoize() {
+  cache.clear();
+}
+
+export function memoize(key: string, ...args: any[]) {
+  if (cache.has(key)) {
+    return cache.get(key);
+  }
+  const fn = args[0] as Function;
+  const a = args.slice(1);
+
+  const value = fn.apply(null, a);
+  cache.set(key, value);
+  return value;
+}
+
+export function Cache() {
+
+  function has(key: string) {
+    return (key in _cache);
+  }
+
+  function set(key: string, value: any) {
+    _cache[key] = value;
+  }
+
+  function get(key: string) {
+   return _cache[key];
+  }
+
+  function clear() {
+    _cache = {};
+  }
+
+  return {
+    has,
+    set,
+    get,
+    clear,
+  }
+}
+
 export function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
 
 export function wrap<T>(item: T | T[]): T[] {
   return Array.isArray(item) ? item : [item];
+}
+
+export function toBeatArray<T>(pattern: string): number[] {
+  const ary = [];
+  for(let char of pattern) {
+    const a = (char === BANG || char === '1') ? 1 : 0;
+    ary.push(a);
+  }
+  return ary;
 }

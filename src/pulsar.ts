@@ -1,3 +1,5 @@
+import { seq, toBeatArray } from "./library";
+
 import { Logger } from "./logger";
 
 export type OnPulse = (pulsar: Pulsar) => void;
@@ -7,9 +9,7 @@ export type Match = (frame : number) => boolean;
 export interface Pulsar {
   ptn: (str: string, on: OnPulse) => void;
   at: (str: string, on: OnPulse) => void;
-  match: (frame : number) => boolean;
   tick: (frame : number) => void;
-  when: (condition: boolean, on: OnPulse) => void;
   // cycle: number;
   // frame: number;
 }
@@ -18,27 +18,24 @@ const logger = Logger.child({
   source: 'Pulsar'
 });
 
-
 enum Matcher {
   Pattern,
   Time,
   Frame,
 }
 
+// export type Pattern = string | string[];
 
-export function pulsar(str: string, on: OnPulse): Pulsar {
-  let _pattern: string[] = [];
-  // let _frame = 0;
+export function pulsar(pattern: string  | number[], on: OnPulse): Pulsar {
+
   let patterns: { [name: string]: Pulsar } = {}
 
-  const match = matcher(str);
+  const match = matcher(pattern);
 
   const self = {
     at,
     ptn,
-    match,
     tick,
-    when,
     // get frame() {
     //   return _frame;
     // },
@@ -47,57 +44,8 @@ export function pulsar(str: string, on: OnPulse): Pulsar {
     // },
   }
 
-  function matcher(match: string): Match {
-    const type =  matchType(match);
-    switch(type) {
-      case Matcher.Time:
-        return timeMatcher(match);
-      case Matcher.Frame:
-        return frameMatcher(match);
-      default:
-        return patternMatcher(match)
-    }
-  }
-
-  function matchType(match: string): Matcher {
-    if (isTime(match)) return Matcher.Time;
-    if (isFrameTime(match)) return Matcher.Frame;
-
-    return Matcher.Pattern;
-  }
-
-  function patternMatcher(match: string): Match {
-
-    _pattern = [...match];
-
-    return function(frame: number) {
-      const idx = (frame - 1) % _pattern.length
-      return _pattern[idx] === BANG;
-    }
-  }
-
-  function timeMatcher(match: string): Match {
-
-    const [ from = 0, to = 9999 ] = match.split(':').map( s => parseInt(s) || 0);
-
-    return function(frame: number) {
-      const f = timeToFrame(from, globalThis.bpm());
-      const t = timeToFrame(to, globalThis.bpm());
-      return f <= frame && frame <= t;
-    }
-  }
-
-  function frameMatcher(match: string): Match {
-    const [ from = 0, to = 9999 ] = match.slice(2).split(':').map( s => parseInt(s) || 0);
-
-    return function(frame: number) {
-      return from <= frame && frame <= to;
-    }
-  }
-
   function tick(frame: number) {
     if (match(frame)) {
-
       on(self);
 
       for (const ptn of Object.values(patterns)) {
@@ -117,21 +65,57 @@ export function pulsar(str: string, on: OnPulse): Pulsar {
     ptn(str, on);
   }
 
-  function when(condition: boolean, on: OnPulse) {
-    if (condition) {
-      on(self);
-    }
-  }
-
-  // function on(frame: number, callback: OnPulse) {
-  //   // if (condition) {
-  //   //   callback(self);
-  //   // }
-  // }
-
   return self;
 }
 
+export function matcher(pattern: string  | number[]): Match {
+
+  if (Array.isArray(pattern)) {
+    return patternMatcher(pattern);
+  }
+
+  if (isTime(pattern)) {
+    return timeMatcher(pattern);
+  }
+
+  if (isFrameTime(pattern)) {
+    return frameMatcher(pattern);
+  }
+
+  return patternMatcher(pattern);
+}
+
+function patternMatcher(pattern: string | number[]): Match {
+  if (typeof pattern === 'string') {
+    pattern = toBeatArray(pattern)
+  }
+
+  let _pattern = seq(...pattern);
+
+  return function() {
+    return _pattern() === 1;
+  }
+}
+
+function timeMatcher(match: string): Match {
+
+  const [ from = 0, to = 9999 ] = match.split(':').map( s => parseInt(s) || 0);
+
+  return function(frame: number) {
+    const f = timeToFrame(from, globalThis.bpm());
+    const t = timeToFrame(to, globalThis.bpm());
+
+    return f <= frame && frame <= t;
+  }
+}
+
+function frameMatcher(match: string): Match {
+  const [ from = 0, to = 9999 ] = match.slice(2).split(':').map( s => parseInt(s) || 0);
+
+  return function(frame: number) {
+    return from <= frame && frame <= to;
+  }
+}
 
 
 // Time format string is {start}?:{stop}?
