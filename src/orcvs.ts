@@ -114,8 +114,14 @@ export function Orcvs() {
   }
 
   async function telemetry() {
-    logger.info({ tick: `${queue.average()}ms Average` });
-    logger.info({ tick: `${queue.percentile()}ms 90th percentile` } );
+    const average = queue.average();
+    const percentile = queue.percentile();
+    logger.info({ tick: `${average}ms Average` });
+    logger.info({ tick: `${percentile}ms 90th percentile` } );
+    return {
+      average,
+      percentile
+    }
   }
 
   async function touch() {
