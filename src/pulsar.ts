@@ -7,8 +7,8 @@ export type OnPulse = (pulsar: Pulsar) => void;
 export type Match = (frame : number) => boolean;
 
 export interface Pulsar {
-  ptn: (str: string, on: OnPulse) => void;
-  at: (str: string, on: OnPulse) => void;
+  ptn: (pattern: string  | number[], on: OnPulse) => void;
+  at: (pattern: string  | number[], on: OnPulse) => void;
   tick: (frame : number) => void;
   // cycle: number;
   // frame: number;
@@ -54,15 +54,16 @@ export function pulsar(pattern: string  | number[], on: OnPulse): Pulsar {
     }
   }
 
-  function ptn(str: string, on: OnPulse) {
-    if (!patterns[str]) {
-      const ptn = pulsar(str, on);
-      patterns[str] = ptn;
+  function ptn(pattern: string  | number[], on: OnPulse) {
+    const key = pattern.toString();
+    if (!patterns[key]) {
+      const ptn = pulsar(pattern, on);
+      patterns[key] = ptn;
     }
   }
 
-  function at(str: string, on: OnPulse) {
-    ptn(str, on);
+  function at(pattern: string  | number[], on: OnPulse) {
+    ptn(pattern, on);
   }
 
   return self;

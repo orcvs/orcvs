@@ -15,9 +15,9 @@ globalThis.bpm = (set?: number) => {
   return _bpm;
 }
 
-describe('pattern', () => {
+describe('pulsar', () => {
 
-  describe('timeMatcher', () => {
+  describe('Time Matcher', () => {
 
     test('timeMatcher from', async () => {
 
@@ -108,20 +108,6 @@ describe('pattern', () => {
 
   });
 
-  describe('sequence patterns', () => {
-
-    test('euclid', async () => {
-
-      // const e = euclid();
-
-      // ptn(e, () => {
-
-      // });
-
-
-    });
-  });
-
   describe('Frame Matcher', () => {
 
     test('frameMatcher from', async () => {
@@ -194,97 +180,52 @@ describe('pattern', () => {
 
   });
 
+  describe('Pattern matcher', () => {
+
+    test('cycles from frame 1', async () => {
+      const str = '▮▯▯▯';
+
+      const match = matcher(str);
+
+      expect(match(1)).toBeTruthy();
+      expect(match(2)).toBeFalsy();
+      expect(match(3)).toBeFalsy();
+      expect(match(4)).toBeFalsy();
+      expect(match(5)).toBeTruthy();
+    });
+
+    test('covers complex patterns', async () => {
+      const str = '▮▯▯▯▮';
+
+      const match = matcher(str);
+
+      expect(match(1)).toBeTruthy();
+      expect(match(2)).toBeFalsy();
+      expect(match(3)).toBeFalsy();
+      expect(match(4)).toBeFalsy();
+      expect(match(5)).toBeTruthy();
+      expect(match(6)).toBeTruthy();
+      expect(match(7)).toBeFalsy();
+    });
+
+    test('always', async () => {
+      const match  = matcher('▮');
+
+      expect(match(1)).toBeTruthy();
+      expect(match(2)).toBeTruthy();
+      expect(match(4)).toBeTruthy();
+    });
+
+    test('always', async () => {
+      const match  = matcher('▯');
+
+      expect(match(1)).toBeFalsy();
+      expect(match(2)).toBeFalsy();
+      expect(match(4)).toBeFalsy();
+    });
+  });
+
   describe('bang', () => {
-
-    describe('matcher', () => {
-
-      test('cycles from frame 1', async () => {
-        const str = '▮▯▯▯';
-
-        const match = matcher(str);
-
-        expect(match(1)).toBeTruthy();
-        expect(match(2)).toBeFalsy();
-        expect(match(3)).toBeFalsy();
-        expect(match(4)).toBeFalsy();
-        expect(match(5)).toBeTruthy();
-      });
-
-      test('covers complex patterns', async () => {
-        const str = '▮▯▯▯▮';
-
-        const match = matcher(str);
-
-        expect(match(1)).toBeTruthy();
-        expect(match(2)).toBeFalsy();
-        expect(match(3)).toBeFalsy();
-        expect(match(4)).toBeFalsy();
-        expect(match(5)).toBeTruthy();
-        expect(match(6)).toBeTruthy();
-        expect(match(7)).toBeFalsy();
-      });
-
-      test('always', async () => {
-        const match  = matcher('▮');
-
-        expect(match(1)).toBeTruthy();
-        expect(match(2)).toBeTruthy();
-        expect(match(4)).toBeTruthy();
-      });
-
-      test('always', async () => {
-        const match  = matcher('▯');
-
-        expect(match(1)).toBeFalsy();
-        expect(match(2)).toBeFalsy();
-        expect(match(4)).toBeFalsy();
-      });
-    });
-
-    describe('cycle and frame', () => {
-
-      // test('passes', async () => {
-      //   const str = '▮▯';
-
-      //   const pulse = pulsar(str, (o) => {
-      //     // expect(frame).toEqual(7);
-      //     // expect(cycle).toEqual(3)
-      //   })
-
-      //   tick(7);
-
-      // });
-
-      test('covers complex patterns', async () => {
-        const str = '▮▯▯▯▮';
-
-        const match = matcher(str);
-
-        expect(match(1)).toBeTruthy();
-        expect(match(2)).toBeFalsy();
-        expect(match(3)).toBeFalsy();
-        expect(match(4)).toBeFalsy();
-        expect(match(5)).toBeTruthy();
-        expect(match(6)).toBeTruthy();
-        expect(match(7)).toBeFalsy();
-      });
-
-      test('always', async () => {
-        const match = matcher('▮');
-
-        expect(match(1)).toBeTruthy();
-        expect(match(2)).toBeTruthy();
-        expect(match(42)).toBeTruthy();
-      });
-
-      test('always', async () => {
-        const match = matcher('▯');
-
-        expect(match(1)).toBeFalsy();
-        expect(match(2)).toBeFalsy();
-        expect(match(42)).toBeFalsy();
-      });
-    });
 
     test('bang', async () => {
 
@@ -323,6 +264,31 @@ describe('pattern', () => {
       expect(mock).toHaveBeenCalled();
       expect(otherMock).toHaveBeenCalled();
 
+    });
+
+    test('generate pattern in ', async () => {
+
+      const mock = jest.fn();
+      const otherMock = jest.fn();
+
+      const pulse = pulsar('▮', (o) => {
+        const e = euclid(); //[1, 0, 1, 0, 1, 0, 1, 0])
+        o.ptn(e, () => {
+          mock();
+        });
+
+        o.ptn('▮▯▯', () => {
+          otherMock();
+        });
+      });
+
+      pulse.tick(1);
+      pulse.tick(2);
+      pulse.tick(3);
+      pulse.tick(4);
+
+      expect(mock).toBeCalledTimes(2);
+      expect(otherMock).toBeCalledTimes(2);
     });
 
     test('lerpers lerp in a bang', async () => {
@@ -445,7 +411,22 @@ describe('pattern', () => {
       expect(mock).toHaveBeenCalledTimes(5);
       expect(innerMock).toHaveBeenCalledTimes(2);
   });
-});
+  });
+
+  describe('sequence patterns', () => {
+
+    test('euclid', async () => {
+
+      // const e = euclid();
+
+      // ptn(e, () => {
+
+      // });
+
+
+    });
+  });
+
 });
 
 
