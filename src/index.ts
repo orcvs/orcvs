@@ -86,7 +86,6 @@ declare global {
 
   var C2:   Computer<Note>;
   var C$2:  Computer<Note>;
-  var Cb2:  Computer<Note>;
   var D2:   Computer<Note>;
   var D$2:  Computer<Note>;
   var Db2:  Computer<Note>;
@@ -95,7 +94,6 @@ declare global {
   var Eb2:  Computer<Note>;
   var F2:   Computer<Note>;
   var F$2:  Computer<Note>;
-  var Fb2:  Computer<Note>;
   var G2:   Computer<Note>;
   var G$2:  Computer<Note>;
   var Gb2:  Computer<Note>;
@@ -103,7 +101,6 @@ declare global {
   var A$2:  Computer<Note>;
   var Ab2:  Computer<Note>;
   var B2:   Computer<Note>;
-  var B$2:  Computer<Note>;
   var Bb2:  Computer<Note>;
   var C3:   Computer<Note>;
   var C$3:  Computer<Note>;
@@ -116,7 +113,6 @@ declare global {
   var Eb3:  Computer<Note>;
   var F3:   Computer<Note>;
   var F$3:  Computer<Note>;
-  var Fb3:  Computer<Note>;
   var G3:   Computer<Note>;
   var G$3:  Computer<Note>;
   var Gb3:  Computer<Note>;
@@ -124,7 +120,6 @@ declare global {
   var A$3:  Computer<Note>;
   var Ab3:  Computer<Note>;
   var B3:   Computer<Note>;
-  var B$3:  Computer<Note>;
   var Bb3:  Computer<Note>;
   var C4:   Computer<Note>;
   var C$4:  Computer<Note>;
@@ -137,7 +132,6 @@ declare global {
   var Eb4:  Computer<Note>;
   var F4:   Computer<Note>;
   var F$4:  Computer<Note>;
-  var Fb4:  Computer<Note>;
   var G4:   Computer<Note>;
   var G$4:  Computer<Note>;
   var Gb4:  Computer<Note>;
@@ -145,7 +139,6 @@ declare global {
   var A$4:  Computer<Note>;
   var Ab4:  Computer<Note>;
   var B4:   Computer<Note>;
-  var B$4:  Computer<Note>;
   var Bb4:  Computer<Note>;
   var C5:   Computer<Note>;
   var C$5:  Computer<Note>;
@@ -158,7 +151,6 @@ declare global {
   var Eb5:  Computer<Note>;
   var F5:   Computer<Note>;
   var F$5:  Computer<Note>;
-  var Fb5:  Computer<Note>;
   var G5:   Computer<Note>;
   var G$5:  Computer<Note>;
   var Gb5:  Computer<Note>;
@@ -166,7 +158,6 @@ declare global {
   var A$5:  Computer<Note>;
   var Ab5:  Computer<Note>;
   var B5:   Computer<Note>;
-  var B$5:  Computer<Note>;
   var Bb5:  Computer<Note>;
   var C6:   Computer<Note>;
   var C$6:  Computer<Note>;
@@ -179,7 +170,6 @@ declare global {
   var Eb6:  Computer<Note>;
   var F6:   Computer<Note>;
   var F$6:  Computer<Note>;
-  var Fb6:  Computer<Note>;
   var G6:   Computer<Note>;
   var G$6:  Computer<Note>;
   var Gb6:  Computer<Note>;
@@ -187,24 +177,26 @@ declare global {
   var A$6:  Computer<Note>;
   var Ab6:  Computer<Note>;
   var B6:   Computer<Note>;
-  var B$6:  Computer<Note>;
   var Bb6:  Computer<Note>;
 
   var C:    Computer<Note>;
   var C$:   Computer<Note>;
+  var Db:    Computer<Note>;
   var D:    Computer<Note>;
   var D$:   Computer<Note>;
+  var Eb:    Computer<Note>;
   var E:    Computer<Note>;
   var E$:   Computer<Note>;
   var F:    Computer<Note>;
   var F$:   Computer<Note>;
+  var Gb:    Computer<Note>;
   var G:    Computer<Note>;
   var G$:   Computer<Note>;
+  var Ab:    Computer<Note>;
   var A:    Computer<Note>;
   var A$:   Computer<Note>;
+  var Bb:    Computer<Note>;
   var B:    Computer<Note>;
-  var B$:   Computer<Note>;
-
 }
 
 require('./globals');
