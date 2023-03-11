@@ -4,6 +4,7 @@ import { Computable, Computer } from './library';
 // import { Context } from './orcvs'
 import { OnPulse, Pulsar } from './pulsar';
 import { Note, Options } from './note';
+import { euclid } from './algo';
 
 
 declare var Pulsar: Pulsar;
@@ -29,6 +30,8 @@ declare global {
   var note: (name: string) => Computer<Note>
   var arp: (value: string, ...options: Options[]) => Computer<Note>;
 
+  var euclid: (steps?: number, beats?: number, rotateSteps?: number) => number[];
+
   // Defined in Orcvs and attached at runtime
   var play: (channel: number, note: Computable<Note>) => void;
   var output: (output: number | string) => void;
@@ -45,13 +48,14 @@ declare global {
   var crd: (chord: string, ...options: Options[]) => Note[];
   var nte: (name: string) => Computer<Note>
 
+  var euc: (steps?: number, beats?: number, rotateSteps?: number) => number[];
+
   var ply: (channel: number, note: Computable<Note>) => void;
   var out: (output: number | string) => void;
 
   var ORCVS: string;
   var BANG: string;
-
-  // var bpm: number;
+  var UNBANG: string;
 
   var a: number;
   var b: number;
