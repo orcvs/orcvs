@@ -17,6 +17,7 @@ export function Orcvs() {
   let pulse = pulsar(BANG, (on) => {});
   let code: OnPulse;
   let hasRun: boolean = false;
+  let queue = Queue();
 
   function ptn(str: string, onPulse: OnPulse): void {
     // logger.debug('BANG!');
@@ -24,7 +25,7 @@ export function Orcvs() {
   }
 
   async function setup() {
-    console.log(`Welcome to ${ORCVS}`);
+    logger.info(`Welcome to ${ORCVS}`);
     registerGlobals();
     await midi.setup();
   }
@@ -63,6 +64,7 @@ export function Orcvs() {
   function run() {
     logger.info('run');
     dememoize();
+
     // Clear the current pulsar
     pulse = pulsar(BANG, (on) => {});
     code(pulse);
@@ -98,11 +100,22 @@ export function Orcvs() {
   }
 
   function tick(frame: number) {
+    let startTime = performance.now();
+    // logger.info(`tick ${frame}`);
     if (shouldRun(frame)) {
       run();
     }
     pulse.tick(frame);
     midi.tick(frame);
+
+    let endTime = performance.now();
+    let elapsed = endTime - startTime
+    queue.push(elapsed);
+  }
+
+  async function telemetry() {
+    logger.info({ tick: `${queue.average()}ms Average` });
+    logger.info({ tick: `${queue.percentile()}ms 90th percentile` } );
   }
 
   async function touch() {
@@ -119,7 +132,40 @@ export function Orcvs() {
     setup,
     start,
     stop,
+    telemetry,
     tick,
-    touch
+    touch,
+  }
+}
+
+export function Queue(length = 100) {
+  let _queue: number[] = [];
+
+  function push(t: number) {
+    _queue.push(t);
+    if (_queue.length > length) {
+      _queue.shift()
+    }
+  }
+
+  function get(t: number) {
+    return _queue;
+  }
+
+  function percentile() {
+    const sorted = _queue.sort((a, b) => a - b);
+    const index = Math.ceil(0.90 * sorted.length);
+    return sorted[index].toFixed(4);
+  }
+
+  function average() {
+    return _queue.reduce( (a,e,i) => (a*i+e)/(i+1)).toFixed(4);
+  }
+
+  return {
+    push,
+    get,
+    percentile,
+    average
   }
 }
