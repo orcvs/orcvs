@@ -20,13 +20,13 @@ describe('orcvs', () => {
     await new Promise((r) => setTimeout(r, 1000));
   })
 
-  test.only('load & exec', async () => {
+  test.skip('load & exec', async () => {
     console.log(lerp(1));
     await orcvs.setup();
     await orcvs.setOutput('LoopMidi');
 
-    // await orcvs.load(source);
-    // await new Promise((r) => setTimeout(r, 500));
+    await orcvs.load(source);
+    await new Promise((r) => setTimeout(r, 500));
     // await orcvs.load(source);
     orcvs.start();
 
@@ -37,7 +37,7 @@ describe('orcvs', () => {
     // await new Promise((r) => setTimeout(r, 500));
 
 
-    // orcvs.tick(2);
+    // orcvs.tick(2);p
     // await new Promise((r) => setTimeout(r, 500));
 
     // await new Promise((r) => setTimeout(r, 300));
@@ -45,11 +45,11 @@ describe('orcvs', () => {
     // await orcvs.load(sourceB);
 
     await new Promise((r) => setTimeout(r, 500));
-    // await new Promise((r) => setTimeout(r, 25000));
+    // await new Promise((r) => setTimeout(r, 10000));
+    // orcvs.telemetry()
+    // await new Promise((r) => setTimeout(r, 15000));
 
     // await orcvs.load(source);
-
-    // await new Promise((r) => setTimeout(r, 200));
 
   });
 

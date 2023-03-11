@@ -122,7 +122,6 @@ describe('test', () => {
 
           const controls = midi.controlBuffer[1];
           const control = controls[0];
-          console.log(control);
           expect(control.value).toEqual(127);
 
 

@@ -10,6 +10,15 @@ import { Clock} from '../src/clock';
 // 150 bpm - 100ms
 // 200 bpm - 75ms
 
+let _bpm = 120;
+
+globalThis.bpm = (set?: number) => {
+  if (set) {
+    _bpm = set;
+  }
+  return _bpm;
+}
+
 describe('clock', () => {
 
     afterEach( () => {
@@ -24,7 +33,7 @@ describe('clock', () => {
 
         for (let i=1; i < 10; i++) {
             clock.touch();
-            expect(clock.frame).toEqual(i);           
+            expect(clock.frame).toEqual(i);
             expect(mockCallback).toHaveBeenCalledTimes(i);
         }
 
@@ -39,7 +48,7 @@ describe('clock', () => {
 
     await new Promise((r) => setTimeout(r, 250));
     expect(mockCallback).toHaveBeenCalledTimes(1);
-    
+
     // console.log('stop')
     clock.stop();
     await new Promise((r) => setTimeout(r, 100));
@@ -48,7 +57,7 @@ describe('clock', () => {
     clock.start();
     await new Promise((r) => setTimeout(r, 200));
     expect(mockCallback).toHaveBeenCalledTimes(2);
-    
+
     clock.stop();
     });
 
@@ -60,15 +69,15 @@ describe('clock', () => {
         await new Promise((r) => setTimeout(r, 200));
         expect(mockCallback).toHaveBeenCalled();
         expect(mockCallback).toHaveBeenCalledTimes(1);
-       
+
         mockCallback.mockClear();
 
         await clock.setBPM(150);
         await new Promise((r) => setTimeout(r, 300));
         expect(mockCallback).toHaveBeenCalled();
         expect(mockCallback).toHaveBeenCalledTimes(2);
-        
+
         await clock.stop();
     });
- 
-}); 
+
+});
