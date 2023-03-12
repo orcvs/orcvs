@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
-import { importFromString } from 'module-from-string'
 import { Logger } from './logger';
-import { isMemoizable, key  } from './library';
+import { isMemoizable, key  } from './memoize';
+import { importFromString } from 'module-from-string'
 
 import { ts, Project } from "ts-morph";
 

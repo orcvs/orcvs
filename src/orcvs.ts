@@ -1,11 +1,11 @@
 
+import { codify } from './code';
 import { Clock } from './clock';
-import { codify } from './code'
-import { dememoize } from './library'
+import { Queue } from './library';
 import { Logger } from "./logger";
-import { Midi } from './midi'
-
 import { OnPulse, pulsar } from './pulsar';
+import { Midi } from './midi';
+import { dememoize } from './memoize';
 
 const logger = Logger.child({
   source: 'Orcvs'
@@ -20,7 +20,6 @@ export function Orcvs() {
   let queue = Queue();
 
   function ptn(str: string, onPulse: OnPulse): void {
-    // logger.debug('BANG!');
     pulse.ptn(str, onPulse);
   }
 
@@ -99,9 +98,12 @@ export function Orcvs() {
     await midi.stop();
   }
 
+  function frame() {
+    return clock.frame;
+  }
+
   function tick(frame: number) {
     let startTime = performance.now();
-    // logger.info(`tick ${frame}`);
     if (shouldRun(frame)) {
       run();
     }
@@ -131,6 +133,7 @@ export function Orcvs() {
 
   return {
     bpm,
+    frame,
     load,
     play,
     reset,
@@ -141,37 +144,5 @@ export function Orcvs() {
     telemetry,
     tick,
     touch,
-  }
-}
-
-export function Queue(length = 100) {
-  let _queue: number[] = [];
-
-  function push(t: number) {
-    _queue.push(t);
-    if (_queue.length > length) {
-      _queue.shift()
-    }
-  }
-
-  function get(t: number) {
-    return _queue;
-  }
-
-  function percentile() {
-    const sorted = _queue.sort((a, b) => a - b);
-    const index = Math.ceil(0.90 * sorted.length);
-    return sorted[index].toFixed(4);
-  }
-
-  function average() {
-    return _queue.reduce( (a,e,i) => (a*i+e)/(i+1)).toFixed(4);
-  }
-
-  return {
-    push,
-    get,
-    percentile,
-    average
   }
 }

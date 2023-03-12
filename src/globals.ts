@@ -1,6 +1,7 @@
-import { cycle, lerp, wave, seq, memoize, random, framesPerBeat  } from './library';
-import { arp, note, chord } from './note';
 import { euclid } from './algo';
+import { cycle, lerp, wave, seq, random, framesPerBeat  } from './library';
+import { memoize  } from './memoize';
+import { arp, note, chord } from './note';
 
 // Globals defined at runtime by Orcvs
 // globalThis.pattern;

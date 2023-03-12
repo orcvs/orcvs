@@ -1,5 +1,5 @@
 import { Utilities as BaseUtilities } from 'webmidi';
-import { Computable, Computer, seq, seqLerp } from './library';
+import { Computable, Computer, seq, seqL } from './library';
 
 export interface Note {
   value: number;
@@ -27,7 +27,7 @@ export function arp(value: string, ...options: Options[]): Computer<Note> {
 export function chord(chord: string, ...options: Options[]): Note[] {
   const {name, intervals} = toChord(chord);
 
-  const opts = seqLerp(...options);
+  const opts = seqL(...options);
 
   const notes: Note[] = [];
 

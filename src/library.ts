@@ -1,6 +1,3 @@
-import { P } from "pino";
-
-// import { euclid as generateEuclid } from "./algo";
 
 export type Computer<T> = ((...opts: any[]) => T);
 
@@ -25,12 +22,16 @@ export function seq<T>(...sequence: T[]): Computer<T> {
   return sequencer(cycle, ...sequence);
 }
 
-export function seqLerp<T>(...sequence: T[]): Computer<T> {
+export function seqL<T>(...sequence: T[]): Computer<T> {
   return sequencer(lerp, ...sequence);
 }
 
-export function seqWave<T>(...sequence: T[]): Computer<T> {
+export function seqW<T>(...sequence: T[]): Computer<T> {
   return sequencer(lerp, ...sequence);
+}
+
+export function seqR<T>(...sequence: T[]): Computer<T> {
+  return sequencer(random, ...sequence);
 }
 
 export function sequencer<T>(indexer: Indexer, ...sequence: T[]): Computer<T> {
@@ -156,59 +157,35 @@ export function framesPerBeat(set?: number) {
 //   return sequence as T[];
 // }
 
+export function Queue(length = 100) {
+  let _queue: number[] = [];
 
-const memozizable = ['lerp','cycle','wave', 'seq'];
-
-const cache = Cache();
-let _cache:{ [name: string]: any }  = {};
-
-export  function isMemoizable(text: string) {
-  return memozizable.some( s => text === s);
-}
-
-export function key() {
-  return Math.random().toString(36).slice(2);
-}
-
-export function dememoize() {
-  cache.clear();
-}
-
-export function memoize(key: string, ...args: any[]) {
-  if (cache.has(key)) {
-    return cache.get(key);
-  }
-  const fn = args[0] as Function;
-  const a = args.slice(1);
-
-  const value = fn.apply(null, a);
-  cache.set(key, value);
-  return value;
-}
-
-export function Cache() {
-
-  function has(key: string) {
-    return (key in _cache);
+  function push(t: number) {
+    _queue.push(t);
+    if (_queue.length > length) {
+      _queue.shift()
+    }
   }
 
-  function set(key: string, value: any) {
-    _cache[key] = value;
+  function get(t: number) {
+    return _queue;
   }
 
-  function get(key: string) {
-   return _cache[key];
+  function percentile() {
+    const sorted = _queue.sort((a, b) => a - b);
+    const index = Math.ceil(0.90 * sorted.length);
+    return sorted[index].toFixed(4);
   }
 
-  function clear() {
-    _cache = {};
+  function average() {
+    return _queue.reduce( (a,e,i) => (a*i+e)/(i+1)).toFixed(4);
   }
 
   return {
-    has,
-    set,
+    push,
     get,
-    clear,
+    percentile,
+    average
   }
 }
 
