@@ -44,6 +44,20 @@ describe('library', () => {
       expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
     });
 
+    test('strips whitespace', async () => {
+      const result = toBeatArray('1 0 1 0 1 0 1 0');
+      expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
+    });
+
+    test('strips punctuation', async () => {
+      const result = toBeatArray('1.0.1.0.1.0.1.0');
+      expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
+    });
+
+    test('allows mixing, even though it makes no sense', async () => {
+      const result = toBeatArray(' ▮, ▯ 1,0. ▮▯');
+      expect(result).toEqual([1, 0, 1, 0, 1, 0]);
+    });
   });
 
   describe('seq', () => {

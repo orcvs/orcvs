@@ -219,6 +219,7 @@ export function wrap<T>(item: T | T[]): T[] {
 }
 
 export function toBeatArray<T>(pattern: string): number[] {
+  pattern = pattern.replaceAll(/[,.\s]/g, '');
   const ary = [];
   for(let char of pattern) {
     const a = (char === BANG || char === '1') ? 1 : 0;
