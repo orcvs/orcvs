@@ -8,9 +8,9 @@
     "build": "tsc --project tsconfig.build.json",
     "clean": "tsc --clean --project tsconfig.build.json",
     "_start_": "npm run build && node --experimental-vm-modules dist/src/main.js",
-    "test": "set LOG_LEVEL=debug && node --trace-warnings --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles -i orcvs.test.ts",
+    "test": "set LOG_LEVEL=debug && node --trace-warnings --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles",
     "_test_": "set LOG_LEVEL=debug && node --force-node-api-uncaught-exceptions-policy=true --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles",
-    "test:watch": "set LOG_LEVEL=debug && node --no-deprecation --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles --watch "
+    "test:watch": "set LOG_LEVEL=debug && node --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles --watch "
   },
   "ts-standard": {
     "env": [
@@ -35,6 +35,6 @@
   "dependencies": {
     "module-from-string": "^3.3.0",
     "pino": "^8.8.0",
-    "webmidi": "^3.1.4"
+    "webmidi": "^3.1.5"
   }
 }

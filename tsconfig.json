@@ -2,7 +2,7 @@
 	"compilerOptions": {
 		"allowJs": true,
 		"target": "ES2021",
-		"lib": ["ES2021","DOM", "DOM.Iterable"],		
+		"lib": ["ES2021","DOM", "DOM.Iterable"],
 		"module": "commonjs",
 		"moduleResolution": "node",
 		"esModuleInterop": true,
@@ -15,10 +15,10 @@
 		"rootDirs": ["src", "tests"]
 	},
     "ts-node": {
-        "esm": true
+       "esm": true
     },
     "include": [
-        "src/**/*.ts", 
+        "src/**/*.ts",
         "tests/**/*.ts"
     ],
 	"exclude": [
