@@ -20,3 +20,23 @@ export function rotate<T>(ary: T[], steps = 0): T[] {
   const offset = ((steps % len) + len) % len;
   return ary.slice(offset).concat(ary.slice(0,offset));
 }
+
+export function zip<T>(...arrays: T[][]): T[] {
+  if (!arrays.length){ return [0] as T[]; }
+
+  const ary = [] as T[];
+  let len = 0;
+
+  for (let a of arrays) {
+    len = Math.max(a.length, len);
+  }
+
+  for (let i = 0; i < len; i++) {
+    for (var j = 0; j < arrays.length; j++){
+      let v = arrays[j][i];
+			if (v !== undefined){ ary.push(v); }
+    }
+  }
+
+  return ary;
+}
