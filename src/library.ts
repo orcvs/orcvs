@@ -14,10 +14,6 @@ export function compute<T>(x: Computable<T>): T {
   return x;
 }
 
-// export function euclid(steps = 8, beats = 4, rotateSteps = 0): string[] {
-//   return generateEuclid(steps, beats, rotateSteps));
-// }
-
 export function seq<T>(...sequence: T[]): Computer<T> {
   return sequencer(cycle, ...sequence);
 }
@@ -157,37 +153,6 @@ export function framesPerBeat(set?: number) {
 //   return sequence as T[];
 // }
 
-export function Queue(length = 100) {
-  let _queue: number[] = [];
-
-  function push(t: number) {
-    _queue.push(t);
-    if (_queue.length > length) {
-      _queue.shift()
-    }
-  }
-
-  function get(t: number) {
-    return _queue;
-  }
-
-  function percentile() {
-    const sorted = _queue.sort((a, b) => a - b);
-    const index = Math.ceil(0.90 * sorted.length);
-    return sorted[index].toFixed(4);
-  }
-
-  function average() {
-    return _queue.reduce( (a,e,i) => (a*i+e)/(i+1)).toFixed(4);
-  }
-
-  return {
-    push,
-    get,
-    percentile,
-    average
-  }
-}
 
 export function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
 
@@ -200,6 +165,18 @@ export function toBeatArray<T>(pattern: string): number[] {
   const ary = [];
   for(let char of pattern) {
     const a = (char === BANG || char === '1') ? 1 : 0;
+    ary.push(a);
+  }
+  return ary;
+}
+
+export function flipBeatArray<T>(pattern: string | number[]): number[] {
+  if (typeof pattern === 'string') {
+    pattern = toBeatArray(pattern);
+  }
+  const ary = [];
+  for(let n of pattern) {
+    const a = n ? 0 : 1;
     ary.push(a);
   }
   return ary;

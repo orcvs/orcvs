@@ -1,7 +1,7 @@
 
 import { codify } from './code';
 import { Clock } from './clock';
-import { Queue } from './library';
+import { Queue } from './queue';
 import { Logger } from "./logger";
 import { OnPulse, pulsar } from './pulsar';
 import { Midi } from './midi';
