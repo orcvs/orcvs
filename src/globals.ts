@@ -1,5 +1,7 @@
 import { euclid } from './algo';
-import { cycle, lerp, wave, seq, random, framesPerBeat  } from './library';
+import { cycle, lerp, wave, seq, random  } from './sequence';
+import { framesPerBeat  } from './library';
+
 import { memoize  } from './memoize';
 import { arp, note, chord } from './note';
 

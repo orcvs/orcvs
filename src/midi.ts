@@ -1,5 +1,6 @@
 import { WebMidi, Output, Note as MidiNote } from 'webmidi';
-import { Computable, compute, midify, msPerBeat, wrap } from './library';
+import { Computable, compute } from './sequence';
+import { midify, msPerBeat, wrap } from './library';
 import { Note } from './note';
 import { Logger } from "./logger";
 

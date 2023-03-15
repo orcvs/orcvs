@@ -1,5 +1,5 @@
 import { Utilities as BaseUtilities } from 'webmidi';
-import { Computable, Computer, seq, seqL } from './library';
+import { Computable, Computer, seq, seqL } from './sequence';
 
 export interface Note {
   value: number;

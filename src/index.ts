@@ -1,6 +1,6 @@
 export { Orcvs } from './orcvs'
 
-import { Computable, Computer } from './library';
+import { Computable, Computer } from './sequence';
 // import { Context } from './orcvs'
 import { OnPulse, Pulsar } from './pulsar';
 import { Note, Options } from './note';

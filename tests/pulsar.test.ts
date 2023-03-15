@@ -1,8 +1,8 @@
 import {jest} from '@jest/globals'
 
-import { pulsar, matcher, isTime, timeToFrame, isFrameTime} from '../src/pulsar';
+import { pulsar, matcher, isTime, timeToFrame, isFrameTime } from '../src/pulsar';
 
-import { lerp } from '../src/library';
+import { lerp } from '../src/sequence';
 
 require('../src/globals');
 

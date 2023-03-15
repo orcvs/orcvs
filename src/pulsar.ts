@@ -1,4 +1,6 @@
-import { seq, toBeatArray } from "./library";
+import { seq } from "./sequence";
+
+import { toPulse } from "./library";
 
 import { Logger } from "./logger";
 
@@ -88,7 +90,7 @@ export function matcher(pattern: string  | number[]): Match {
 
 function patternMatcher(pattern: string | number[]): Match {
   if (typeof pattern === 'string') {
-    pattern = toBeatArray(pattern)
+    pattern = toPulse(pattern)
   }
 
   let _pattern = seq(...pattern);
@@ -117,7 +119,6 @@ function frameMatcher(match: string): Match {
     return from <= frame && frame <= to;
   }
 }
-
 
 // Time format string is {start}?:{stop}?
 // Both start and stop are optional

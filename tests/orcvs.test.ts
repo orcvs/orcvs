@@ -20,7 +20,7 @@ describe('orcvs', () => {
     await new Promise((r) => setTimeout(r, 1000));
   })
 
-  test.skip('load & exec', async () => {
+  test('load & exec', async () => {
     console.log(lerp(1));
     await orcvs.setup();
     await orcvs.setOutput('LoopMidi');
