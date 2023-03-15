@@ -10,7 +10,7 @@ export function framesPerBeat(set?: number) {
   return _framesPerBeat;
 }
 
-export function flipPulse<T>(pattern: string | number[]): number[] {
+export function flipPulse(pattern: string | number[]): number[] {
   if (typeof pattern === 'string') {
     pattern = toPulse(pattern);
   }
@@ -31,7 +31,7 @@ export function msPerBeat() {
   return ( MINUTE  / bpm()) / framesPerBeat();
 }
 
-export function toPulse<T>(pattern: string): number[] {
+export function toPulse(pattern: string): number[] {
   pattern = pattern.replaceAll(/[,.\s]/g, '');
   const ary = [];
   for(let char of pattern) {
@@ -40,6 +40,16 @@ export function toPulse<T>(pattern: string): number[] {
   }
   return ary;
 }
+
+export function pulseOn(beat = 1): number[] {
+  const len = beat * framesPerBeat();
+
+  const ary = Array(len).fill(0);
+  ary[0] = 1;
+
+  return ary;
+}
+
 
 export function wrap<T>(item: T | T[]): T[] {
   return Array.isArray(item) ? item : [item];

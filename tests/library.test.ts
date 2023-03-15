@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { midify, toPulse, flipPulse } from '../src/library';
+import { midify, toPulse, flipPulse, pulseOn } from '../src/library';
 
 require('../src/globals');
 
@@ -51,6 +51,22 @@ describe('library', () => {
       const result = flipPulse([0, 1, 0, 1, 0, 1, 0, 1]);
       expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
     });
+  });
+
+  describe('pulseOn', () => {
+
+    test('beat ', async () => {
+      const result = pulseOn();
+      expect(result.length).toBe(4);
+      expect(result).toEqual([1, 0, 0, 0]);
+    });
+
+    test('every 4th beat', async () => {
+      const result = pulseOn(4);
+      expect(result.length).toBe(16);
+      expect(result).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    });
+
   });
 
   test('midify', async () => {
