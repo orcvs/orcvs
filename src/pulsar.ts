@@ -108,6 +108,11 @@ export function matcher(pattern: string  | number[]): Match {
 }
 
 function patternMatcher(pattern: string  | number[]): Match {
+
+  if (Array.isArray(pattern) && pattern.length === 1) {
+    pattern = toPulse(pattern[0])
+  }
+
   if (typeof pattern === 'string') {
     pattern = toPulse(pattern)
   }

@@ -267,7 +267,22 @@ describe('pulsar', () => {
       pulse.tick(1);
 
       expect(mock).toHaveBeenCalled();
+    });
 
+    test('beat as integer', async () => {
+
+      const mock = jest.fn();
+      const innerMock = jest.fn();
+
+      const pulse = pulsar(1000, (o) => {
+        o.ptn(1, () => {
+          mock();
+        });
+      });
+
+      pulse.tick(1);
+
+      expect(mock).toHaveBeenCalled();
     });
 
 

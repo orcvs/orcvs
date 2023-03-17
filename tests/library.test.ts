@@ -6,7 +6,7 @@ require('../src/globals');
 
 describe('library', () => {
 
-  describe('toBeatArray', () => {
+  describe('toPulse', () => {
 
     test('converts ▮▯', async () => {
       const result = toPulse('▮▯');
@@ -15,6 +15,11 @@ describe('library', () => {
 
     test('converts numeric string', async () => {
       const result = toPulse('10101010');
+      expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
+    });
+
+    test('converts number', async () => {
+      const result = toPulse(10101010);
       expect(result).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
     });
 
@@ -46,6 +51,10 @@ describe('library', () => {
       expect(result).toEqual([0, 1, 0, 1, 0, 1, 0, 1]);
     });
 
+    test('flips number', async () => {
+      const result = flipPulse(10101010);
+      expect(result).toEqual([0, 1, 0, 1, 0, 1, 0, 1]);
+    });
 
     test('flips array', async () => {
       const result = flipPulse([0, 1, 0, 1, 0, 1, 0, 1]);
