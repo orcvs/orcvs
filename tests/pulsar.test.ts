@@ -33,7 +33,7 @@ describe('pulsar', () => {
       globalThis.bpm(60);
 
       // var pulse = pulsar('60', () => {}); // 60s at 60bpm
-      let match = matcher('60');
+      let match = matcher('t:60');
 
       var result = match(120)
       expect(result).toEqual(false);
@@ -46,16 +46,16 @@ describe('pulsar', () => {
     });
 
     test('isTime', async () => {
-      var result = isTime('1');
+      var result = isTime('t:1');
       expect(result).toEqual(true);
 
-      var result = isTime('1:1');
+      var result = isTime('t:1:1');
       expect(result).toEqual(true);
 
-      var result = isTime(':1');
+      var result = isTime('t::1');
       expect(result).toEqual(true);
 
-      var result = isTime(':a');
+      var result = isTime('t::a');
       expect(result).toEqual(false);
 
       var result = isTime('vtha:99');
@@ -67,7 +67,7 @@ describe('pulsar', () => {
       globalThis.bpm(60);
 
       // var pulse = pulsar('60:120', () => {}); // 60-120s at 60bpm
-      let match = matcher('60:120');
+      let match = matcher('t:60:120');
 
       var result = match(120)
       expect(result).toEqual(false);
@@ -86,7 +86,7 @@ describe('pulsar', () => {
 
       globalThis.bpm(60);
 
-      let match = matcher('120:60');
+      let match = matcher('t:120:60');
 
       var result = match(120)
       expect(result).toEqual(false);
@@ -192,7 +192,7 @@ describe('pulsar', () => {
   describe('Pattern matcher', () => {
 
     test('cycles from frame 1', async () => {
-      const str = '▮▯▯▯';
+      const str = [1,0,0,0];
 
       const match = matcher(str);
 
@@ -204,7 +204,7 @@ describe('pulsar', () => {
     });
 
     test('covers complex patterns', async () => {
-      const str = '▮▯▯▯▮';
+      const str = [1,0,0,0,1];
 
       const match = matcher(str);
 
@@ -218,7 +218,7 @@ describe('pulsar', () => {
     });
 
     test('always', async () => {
-      const match  = matcher('▮');
+      const match  = matcher([1]);
 
       expect(match(1)).toBeTruthy();
       expect(match(2)).toBeTruthy();
@@ -226,7 +226,7 @@ describe('pulsar', () => {
     });
 
     test('always', async () => {
-      const match  = matcher('▯');
+      const match  = matcher([0]);
 
       expect(match(1)).toBeFalsy();
       expect(match(2)).toBeFalsy();
@@ -252,6 +252,24 @@ describe('pulsar', () => {
       expect(mock).toHaveBeenCalled();
 
     });
+
+    test('beat as arguments', async () => {
+
+      const mock = jest.fn();
+      const innerMock = jest.fn();
+
+      const pulse = pulsar(1, 0, 0, 0, (o) => {
+        o.ptn(1, () => {
+          mock();
+        });
+      });
+
+      pulse.tick(1);
+
+      expect(mock).toHaveBeenCalled();
+
+    });
+
 
     test('can have multiple patterns with different shapes', async () => {
 
@@ -403,10 +421,10 @@ describe('pulsar', () => {
       const mock = jest.fn();
       const innerMock = jest.fn();
 
-      const pulse = pulsar('1', (o) => {
+      const pulse = pulsar('t:1', (o) => {
         mock();
 
-        o.at('2:3', () => {
+        o.at('t:2:3', () => {
           innerMock();
         })
       })

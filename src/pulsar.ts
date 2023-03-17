@@ -1,6 +1,6 @@
 import { seq } from "./sequence";
 
-import { toPulse, unwrap } from "./library";
+import { toPulse, unwrap, wrap } from "./library";
 
 import { Logger } from "./logger";
 
@@ -26,10 +26,17 @@ enum Matcher {
   Frame,
 }
 
-// type n = [...number[], OnPulse];
-// ...args: ['a', boolean, number] | ['b', string, string]
-// export function pulsar(...params: any[] ): Pulsar
-// export function pulsar(...args: [string, OnPulse] | [number[], OnPulse] | [...number[], OnPulse]): Pulsar
+function toPattern(args: string | number[]) {
+  if (args.length === 1) {
+    const first = args[0];
+    if (typeof first === 'string') {
+      return first;
+    } else {
+      return wrap(first);
+    }
+  }
+  return args as number[];
+}
 
 export type PulsarArgs =  [string, OnPulse] | [number[], OnPulse] | [...number[], OnPulse];
 
@@ -40,7 +47,7 @@ export function pulsar(...args: PulsarArgs): Pulsar {
     throw Error('Expected Function as last parameter');
   }
 
-  const pattern = (args.length === 1 ? args[0] : args) as string | number[] ;
+  const pattern = toPattern(args as string | number[])
 
   const patterns: { [name: string]: Pulsar } = {}
 
@@ -100,7 +107,7 @@ export function matcher(pattern: string  | number[]): Match {
   return patternMatcher(pattern);
 }
 
-function patternMatcher(pattern: string | number[]): Match {
+function patternMatcher(pattern: string  | number[]): Match {
   if (typeof pattern === 'string') {
     pattern = toPulse(pattern)
   }
@@ -114,7 +121,7 @@ function patternMatcher(pattern: string | number[]): Match {
 
 function timeMatcher(match: string): Match {
 
-  const [ from = 0, to = 9999 ] = match.split(':').map( s => parseInt(s) || 0);
+  const [ from = 0, to = 9999 ] = match.slice(2).split(':').map( s => parseInt(s) || 0);
 
   return function(frame: number) {
     const f = timeToFrame(from, globalThis.bpm());
@@ -137,7 +144,7 @@ function frameMatcher(match: string): Match {
 export function isTime(str: string) {
   // ^(\d+)?    - start of string, and one or more numbers
   // (:\d+)?$   - ':' followed by one or more numbers
-  return /^(\d+)?(:\d+)?$/.test(str);
+  return /^(t:)(\d+)?(:\d+)?$/.test(str);
 }
 
 export function isFrameTime(str: string) {
