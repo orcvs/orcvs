@@ -1,6 +1,6 @@
 import { seq } from "./sequence";
 
-import { toPulse, unwrap, wrap } from "./library";
+import { toPulse, wrap } from "./library";
 
 import { Logger } from "./logger";
 
