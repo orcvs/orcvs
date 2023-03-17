@@ -1,6 +1,6 @@
 import { seq } from "./sequence";
 
-import { toPulse } from "./library";
+import { toPulse, unwrap } from "./library";
 
 import { Logger } from "./logger";
 
@@ -9,8 +9,8 @@ export type OnPulse = (pulsar: Pulsar) => void;
 export type Match = (frame : number) => boolean;
 
 export interface Pulsar {
-  ptn: (pattern: string  | number[], on: OnPulse) => void;
-  at: (pattern: string  | number[], on: OnPulse) => void;
+  ptn: (...args: PulsarArgs) => void;
+  at: (...args: PulsarArgs) => void;
   tick: (frame : number) => void;
   // cycle: number;
   // frame: number;
@@ -26,11 +26,23 @@ enum Matcher {
   Frame,
 }
 
-// export type Pattern = string | string[];
+// type n = [...number[], OnPulse];
+// ...args: ['a', boolean, number] | ['b', string, string]
+// export function pulsar(...params: any[] ): Pulsar
+// export function pulsar(...args: [string, OnPulse] | [number[], OnPulse] | [...number[], OnPulse]): Pulsar
 
-export function pulsar(pattern: string  | number[], on: OnPulse): Pulsar {
+export type PulsarArgs =  [string, OnPulse] | [number[], OnPulse] | [...number[], OnPulse];
 
-  let patterns: { [name: string]: Pulsar } = {}
+export function pulsar(...args: PulsarArgs): Pulsar {
+  const on: OnPulse = args.pop() as OnPulse;
+
+  if (typeof on != 'function') {
+    throw Error('Expected Function as last parameter');
+  }
+
+  const pattern = (args.length === 1 ? args[0] : args) as string | number[] ;
+
+  const patterns: { [name: string]: Pulsar } = {}
 
   const match = matcher(pattern);
 
@@ -56,16 +68,16 @@ export function pulsar(pattern: string  | number[], on: OnPulse): Pulsar {
     }
   }
 
-  function ptn(pattern: string  | number[], on: OnPulse) {
-    const key = pattern.toString();
+  function ptn(...args: PulsarArgs) {
+    const key = args.slice(0, -1).toString();
     if (!patterns[key]) {
-      const ptn = pulsar(pattern, on);
+      const ptn = pulsar(...args);
       patterns[key] = ptn;
     }
   }
 
-  function at(pattern: string  | number[], on: OnPulse) {
-    ptn(pattern, on);
+  function at(...args: PulsarArgs) {
+    ptn(...args);
   }
 
   return self;

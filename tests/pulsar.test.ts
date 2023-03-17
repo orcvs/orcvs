@@ -17,6 +17,15 @@ globalThis.bpm = (set?: number) => {
 
 describe('pulsar', () => {
 
+  describe('parameters', () => {
+    test('callback is last', async () => {      // @ts-ignore
+      expect(() => pulsar(1, 2, 3)).toThrowError();
+
+      expect(() => pulsar(1, 2, ()=>{})).not.toThrowError();
+    });
+  });
+
+
   describe('Time Matcher', () => {
 
     test('timeMatcher from', async () => {
