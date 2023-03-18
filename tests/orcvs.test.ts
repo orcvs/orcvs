@@ -1,13 +1,13 @@
 import {jest} from '@jest/globals'
 
+const path = require("path");
+
 import { Orcvs } from '../src/orcvs';
 
-// const Midi = jest.createMockFromModule('../src/midi');
-// import { Midi } from '../src/midi';
 
 require('../src/globals');
 
-const source = `${__dirname}\\code.orcvs.js`;
+const source = path.join(__dirname, 'code.orcvs.js');
 // const sourceB = `${__dirname}\\code_b.orcvs.test`;
 
 describe('orcvs', () => {
