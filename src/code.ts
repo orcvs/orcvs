@@ -9,7 +9,6 @@ const logger = Logger.child({
   source: 'Code'
 });
 
-
 export async function transform(source: string) {
   let startTime = performance.now()
 
