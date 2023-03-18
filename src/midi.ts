@@ -71,7 +71,6 @@ export function Midi() {
   function send(channelId: number, notes: MidiNote[]) {
     if (output) {
       let channel = output.channels[channelId];
-      // console.log({notes});
       channel.playNote(notes);
     }
   }

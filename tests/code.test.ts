@@ -46,7 +46,6 @@ describe('code', () => {
           }
       `;
       const result = await transform(code);
-      // console.log(result);
 
       expect(result).toContain('on.ptn');
       expect(result).toContain('memoize');
@@ -68,7 +67,7 @@ describe('code', () => {
       `;
 
       const result = await transform(code);
-      // console.log(result);
+
       expect(result).toContain('memoize');
     });
   });

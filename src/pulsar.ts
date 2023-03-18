@@ -20,12 +20,6 @@ const logger = Logger.child({
   source: 'Pulsar'
 });
 
-enum Matcher {
-  Pattern,
-  Time,
-  Frame,
-}
-
 function toPattern(args: string | number[]) {
   if (args.length === 1) {
     const first = args[0];

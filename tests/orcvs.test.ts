@@ -21,7 +21,6 @@ describe('orcvs', () => {
   })
 
   test('load & exec', async () => {
-    console.log(lerp(1));
     await orcvs.setup();
     await orcvs.setOutput('LoopMidi');
 

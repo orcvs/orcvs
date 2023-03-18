@@ -402,15 +402,12 @@ describe('pulsar', () => {
       const innerinnerMock = jest.fn();
 
       const pulse = pulsar('▮', (o) => {
-        // console.log('bang!');
         mock();
 
         o.ptn('▯▯▮', (o) => {
-          // console.log('bang! bang!');
           innerMock();
 
           o.ptn('▮', () => {
-            // console.log('bang! bang! bang!');
             innerinnerMock();
           })
         })

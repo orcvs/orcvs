@@ -4,9 +4,9 @@ const lerper = lerp(1, 10);
 let count = 0
 
 let p = euclid();
-console.log({ p });
+// console.log({ p });
 ptn(p, () => {
-  console.log('hello');
+  // console.log('hello');
 })
 
 

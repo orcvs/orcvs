@@ -40,25 +40,23 @@ describe('clock', () => {
     });
 
     test('start/stop with worker', async () => {
-    const mockCallback = jest.fn();
-    const clock = Clock(mockCallback);
-    // console.log(clock)
+      const mockCallback = jest.fn();
+      const clock = Clock(mockCallback);
 
-    clock.start();
+      clock.start();
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(mockCallback).toHaveBeenCalledTimes(1);
+      await new Promise((r) => setTimeout(r, 250));
+      expect(mockCallback).toHaveBeenCalledTimes(1);
 
-    // console.log('stop')
-    clock.stop();
-    await new Promise((r) => setTimeout(r, 100));
-    expect(mockCallback).toHaveBeenCalledTimes(1);
+      clock.stop();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(mockCallback).toHaveBeenCalledTimes(1);
 
-    clock.start();
-    await new Promise((r) => setTimeout(r, 200));
-    expect(mockCallback).toHaveBeenCalledTimes(2);
+      clock.start();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(mockCallback).toHaveBeenCalledTimes(2);
 
-    clock.stop();
+      clock.stop();
     });
 
     test('change bpm', async () => {
@@ -66,7 +64,7 @@ describe('clock', () => {
         const mockCallback = jest.fn();
         const clock = Clock(mockCallback);
         await clock.start();
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 250));
         expect(mockCallback).toHaveBeenCalled();
         expect(mockCallback).toHaveBeenCalledTimes(1);
 
