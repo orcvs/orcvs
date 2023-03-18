@@ -5,7 +5,7 @@
   "types": "dist/src/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/orvcs/orcvs.git"
+    "url": "git+https://github.com/orcvs/orcvs.git"
   },
   "bugs": {
     "url": "https://github.com/orvcs/orcvs/issues"
