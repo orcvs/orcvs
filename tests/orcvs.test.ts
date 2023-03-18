@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-const path = require("path");
+const path = require('path');
 
 import { Orcvs } from '../src/orcvs';
 

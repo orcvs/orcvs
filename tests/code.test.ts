@@ -1,8 +1,7 @@
 import {jest} from '@jest/globals'
 
-import { readFileSync } from 'fs';
-import { P } from 'pino';
-import { Project, ts } from 'ts-morph';
+const path = require('path');
+
 import { codify, sourceFromFile, transform } from '../src/code';
 
 require('../src/globals');
@@ -25,7 +24,7 @@ describe('code', () => {
 
     test('loads source from file', async () => {
 
-      const source = `${__dirname}\\code.orcvs.js`;
+      const source = path.join(__dirname, 'code.orcvs.js');
 
       const code = await sourceFromFile(source)
 
