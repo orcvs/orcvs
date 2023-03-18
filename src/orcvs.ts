@@ -3,7 +3,7 @@ import { codify } from './code';
 import { Clock } from './clock';
 import { Queue } from './queue';
 import { Logger } from "./logger";
-import { OnPulse, pulsar } from './pulsar';
+import { OnPulse, pulsar, PulsarArgs} from './pulsar';
 import { Midi } from './midi';
 import { dememoize } from './memoize';
 
@@ -19,10 +19,6 @@ export function Orcvs() {
   let hasRun: boolean = false;
   let queue = Queue();
 
-  function ptn(str: string, onPulse: OnPulse): void {
-    pulse.ptn(str, onPulse);
-  }
-
   async function setup() {
     logger.info(`Welcome to ${ORCVS}`);
     registerGlobals();
@@ -30,8 +26,6 @@ export function Orcvs() {
   }
 
   function registerGlobals() {
-    // globalThis.pattern = ptn;
-    // globalThis.ptn = ptn;
     globalThis.bpm = bpm;
     globalThis.output = setOutput;
     globalThis.out = setOutput;

@@ -2,10 +2,8 @@ export { Orcvs } from './orcvs'
 
 import { Computable, Computer } from './sequence';
 // import { Context } from './orcvs'
-import { OnPulse, Pulsar } from './pulsar';
+import { OnPulse, Pulsar, PulsarArgs } from './pulsar';
 import { Note, Options } from './note';
-import { euclid } from './algo';
-
 
 declare var Pulsar: Pulsar;
 declare var OnPulse: OnPulse;
@@ -13,7 +11,7 @@ declare var OnPulse: OnPulse;
 
 declare global {
 
-  var pattern: (str: string, on: OnPulse) => void;
+  var pattern: (...args: PulsarArgs) => void;
   var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cycle: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
@@ -37,9 +35,9 @@ declare global {
   var output: (output: number | string) => void;
 
   // Aliases
-  var ptn: (str: string, on: OnPulse) => void;
-  var at: (str: string, on: OnPulse) => void;
-  var at: (str: string, on: OnPulse) => void;
+  var ptn: (...args: PulsarArgs) => void;
+  var at: (...args: PulsarArgs) => void;
+  var at: (...args: PulsarArgs) => void;
   var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
   var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
