@@ -1,22 +1,38 @@
+// import { OnPulse } from "./pulsar";
 
-let _observers: { [name: string]: Function[] } = {}
+export function Event() {
+  let _listeners: { [name: string]: Function[] } = {};
+  let _eventBuffer: string[] = [];
 
-export function send(event: string) {
-  const observers = _observers[event];
-
-  for (const observer of observers) {
-    observer.call(undefined);
+  function clear(event?: string) {
+    if (event) {
+      _listeners[event] = [];
+    } else {
+      _listeners = {}
+    }
   }
-}
 
-export function listen(event: string, callback: Function) {
-  _observers[event] = (_observers[event] || []).concat(callback);
-}
+  function listen(event: string, callback: Function) {
+    _listeners[event] = (_listeners[event] || []).concat(callback);
+  }
 
-export function clear(event?: string) {
-  if (event) {
-    _observers[event] = [];
-  } else {
-    _observers = {}
+  function send(event: string) {
+    _eventBuffer.push(event);
+  }
+
+  function tick() {
+    for (const listeners of Object.values(_listeners)) {
+      for(const listener of listeners) {
+        listener.call(undefined);
+      }
+    }
+    _eventBuffer = [];
+  }
+
+  return {
+    clear,
+    listen,
+    send,
+    tick
   }
 }
