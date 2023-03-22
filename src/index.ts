@@ -19,8 +19,13 @@ declare global {
   var seq:  <T>(...sequence: readonly T[]) => Computer<T>
 
   var framesPerBeat: (set?: number) => number;
+  var framesPerPhrase: (set?: number) => number;
   var bpm: (set?: number) => number;
-  var fpb: (set?: number) => number;
+  var beat: (set?: number) => number;
+  var phrase: (set?: number) => number;
+
+  var flipPulse: (pattern: string | number | number[]) => number[];
+  var flip: (pattern: string | number | number[]) => number[];
 
   var memoize: (key: string, ...args: any[]) => any;
 
@@ -50,6 +55,11 @@ declare global {
 
   var ply: (channel: number, note: Computable<Note>) => void;
   var out: (output: number | string) => void;
+
+  var flp: (pattern: string | number | number[]) => number[];
+
+  var fpb: (set?: number) => number;
+  var fpp: (set?: number) => number;
 
   var ORCVS: string;
   var BANG: string;

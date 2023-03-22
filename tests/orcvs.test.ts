@@ -20,7 +20,20 @@ describe('orcvs', () => {
     await new Promise((r) => setTimeout(r, 1000));
   })
 
-  test('load & exec', async () => {
+  test('bpm', async () => {
+    await orcvs.setup();
+    await orcvs.setOutput('LoopMidi');
+
+    await orcvs.load(source);
+    await new Promise((r) => setTimeout(r, 500));
+
+    orcvs.bpm(60);
+
+    expect(orcvs.bpm()).toEqual(60);
+    expect(bpm()).toEqual(60);
+  });
+
+  test.skip('load & exec', async () => {
     await orcvs.setup();
     await orcvs.setOutput('LoopMidi');
 

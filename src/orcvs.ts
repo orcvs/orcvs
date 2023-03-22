@@ -65,7 +65,7 @@ export function Orcvs() {
   }
 
   function shouldRun(frame: number) {
-    return !clock.running || !hasRun && frame % 8 === 0
+    return !clock.running || !hasRun && frame % framesPerPhrase() === 0
   }
 
   function bpm(bpm?: number) {
@@ -97,7 +97,7 @@ export function Orcvs() {
   }
 
   function tick(frame: number) {
-    let startTime = performance.now();
+    let startTime = performance.now();``
     if (shouldRun(frame)) {
       run();
     }
@@ -112,8 +112,8 @@ export function Orcvs() {
   async function telemetry() {
     const average = queue.average();
     const percentile = queue.percentile();
-    logger.info({ tick: `${average}ms Average` });
-    logger.info({ tick: `${percentile}ms 90th percentile` } );
+    logger.debug({ tick: `${average}ms Average` });
+    logger.debug({ tick: `${percentile}ms 90th percentile` } );
     return {
       average,
       percentile

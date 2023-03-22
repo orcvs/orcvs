@@ -1,6 +1,6 @@
 import { euclid } from './algo';
 import { cycle, lerp, wave, seq, random  } from './sequence';
-import { framesPerBeat  } from './library';
+import { framesPerBeat, framesPerPhrase, flipPulse  } from './library';
 
 import { memoize  } from './memoize';
 import { arp, note, chord } from './note';
@@ -22,6 +22,16 @@ globalThis.UNBANG = '▯';
 
 globalThis.memoize = memoize;
 globalThis.framesPerBeat = framesPerBeat;
+globalThis.beat = framesPerBeat;
+globalThis.fpb = framesPerBeat;
+
+globalThis.framesPerPhrase = framesPerPhrase;
+globalThis.phrase = framesPerPhrase;
+globalThis.fpp = framesPerPhrase;
+
+globalThis.flipPulse = flipPulse;
+globalThis.flip = flipPulse;
+globalThis.flp = flipPulse;
 
 globalThis.lerp = lerp;
 globalThis.cycle = cycle;
@@ -32,7 +42,6 @@ globalThis.random = random
 globalThis.chord = chord;
 globalThis.note = note;
 
-globalThis.fpb = framesPerBeat;
 globalThis.cyc = cycle;
 globalThis.wav = wave;
 globalThis.seq = seq;

@@ -1,5 +1,6 @@
 export const MINUTE = 60000;
 let _framesPerBeat = 4;
+let _framesPerPhrase = 4;
 
 export function clamp(v : number, min: number, max: number) { return v < min ? min : v > max ? max : v }
 
@@ -8,6 +9,13 @@ export function framesPerBeat(set?: number) {
     _framesPerBeat = set;
   }
   return _framesPerBeat;
+}
+
+export function framesPerPhrase(set?: number) {
+  if (set) {
+    _framesPerPhrase = set;
+  }
+  return _framesPerPhrase;
 }
 
 export function flipPulse(pattern: string | number | number[]): number[] {
