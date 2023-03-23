@@ -2,7 +2,7 @@ import {jest} from '@jest/globals'
 
 const path = require('path');
 
-import { codify, sourceFromFile, transform } from '../src/code';
+import { Code, toCode, toSource, sourceFromFile, transform } from '../src/code';
 
 require('../src/globals');
 
@@ -15,9 +15,9 @@ describe('code', () => {
       const source = `
         return 'vtha!';
       `
-      const code = await codify(source)
+      const code = await Code(source)
 
-      const result = code();
+      const result = code.run(undefined as any);
 
       expect(result).toEqual('vtha!');
     });

@@ -22,10 +22,6 @@ describe('orcvs', () => {
 
   test('bpm', async () => {
     await orcvs.setup();
-    await orcvs.setOutput('LoopMidi');
-
-    await orcvs.load(source);
-    await new Promise((r) => setTimeout(r, 500));
 
     orcvs.bpm(60);
 
@@ -72,7 +68,7 @@ describe('orcvs', () => {
     // await orcvs.load(sourceB);
 
     await new Promise((r) => setTimeout(r, 500));
-    // await new Promise((r) => setTimeout(r, 10000));
+    await new Promise((r) => setTimeout(r, 10000));
     // orcvs.telemetry()
     // await new Promise((r) => setTimeout(r, 15000));
 

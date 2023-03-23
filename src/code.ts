@@ -4,6 +4,7 @@ import { isMemoizable, key  } from './memoize';
 import { importFromString } from 'module-from-string'
 
 import { ts, Project } from "ts-morph";
+import { OnPulse, Pulsar } from './pulsar';
 
 const logger = Logger.child({
   source: 'Code'
@@ -108,66 +109,57 @@ export function sourceFromFile(filename: string) {
   return code;
 }
 
-export async function codify(source: string): Promise<(() => {})> {
+export async function toCode(filename: string, source: string): Promise<OnPulse> {
+  const transformed = await transform(source);
+
+  const module = `
+  export const code = (on) => {
+    ${transformed}
+  }
+`
+  const { code } = await importFromString(module, { useCurrentGlobal: true, transformOptions: { loader: 'ts' },  filename });
+
+  return code as OnPulse;
+}
+
+export function toSource(sourceOrPath: string) {
   let filename = 'code.orcvs.js'
-  if (['.js', '.orcvs.'].some( s => source.includes(s))) {
-    filename = source;
-    source = sourceFromFile(source);
+  let source = sourceOrPath;
+
+  if (['.js', '.orcvs.'].some( s => sourceOrPath.includes(s))) {
+    filename = sourceOrPath;
+    source = sourceFromFile(sourceOrPath);
   } else {
     logger.info('Loading source as string');
   }
 
-  source = await transform(source);
-
-  const module = `
-    export const code = (on) => {
-      ${source}
-    }
-  `
-  const { code } = await importFromString(module, { useCurrentGlobal: true, transformOptions: { loader: 'ts' },  filename });
-  return code;
+  return { filename, source };
 }
 
+export interface Runnable {
+  run: (pulsar: Pulsar, force?: boolean) => void;
+  pending: boolean
+}
 
+export async function Code(sourceOrPath: string): Promise<Runnable> {
+  const { filename, source } = toSource(sourceOrPath);
 
+  const _code = await toCode(filename, source);
 
+  let _pending = true;
 
-// function visitor(
-//   sourceFile: ts.SourceFile,
-//   context: ts.TransformationContext,
-//   visitNode: (node: ts.Node, context: ts.TransformationContext) => ts.Node,
-// ) {
-//   return visitNodeAndChildren(sourceFile) as ts.SourceFile;
+  function run(pulsar: Pulsar, force = false) {
+    if ( _pending || force) {
+      _pending = false;
+      return _code(pulsar);
+    }
+  }
 
-//   function visitNodeAndChildren(node: ts.Node): ts.Node {
-//     return ts.visitEachChild(visitNode(node, context), visitNodeAndChildren, context);
-//   }
-// }
+  return {
+    run,
+    get pending() {
+      return _pending;
+    }
+  }
 
-// function memoizeLibraryFunctions(node: ts.Node, context: ts.TransformationContext) {
-//   if (ts.isCallExpression(node)) {
-//     if (isMemoizable(node.expression.getText())) {
-//       const k = key();
-//       const id = context.factory.createIdentifier('memoize');
-//       const typeArgs = undefined;
-//       const args = [context.factory.createStringLiteral(k), node.expression, ...node.arguments];
-
-//       return context.factory.createCallExpression(id, typeArgs, args);
-//     }
-//   }
-//   return node;
-// }
-
-
-  // const result = await project.emitToMemory({
-  //   customTransformers: {
-  //     // optional transformers to evaluate before built in .js transformations
-  //     before: [context => sourceFile => visitor(sourceFile, context, memoizeLibraryFunctions)],
-  //     // optional transformers to evaluate after built in .js transformations
-  //     after: [],
-  //     // optional transformers to evaluate after built in .d.ts transformations
-  //     afterDeclarations: [],
-  //   },
-  // });
-  // const files = result.getFiles();
-  // return files[0].text;
+}

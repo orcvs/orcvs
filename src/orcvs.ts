@@ -1,9 +1,9 @@
 
-import { codify } from './code';
+import { Code, Runnable } from './code';
 import { Clock } from './clock';
 import { Queue } from './queue';
 import { Logger } from "./logger";
-import { OnPulse, pulsar, PulsarArgs} from './pulsar';
+import { OnPulse, pulsar } from './pulsar';
 import { Midi } from './midi';
 import { dememoize } from './memoize';
 import { Eventer } from './eventer';
@@ -18,8 +18,11 @@ export function Orcvs() {
   let pulse = pulsar(BANG, (on) => {});
   let queue = Queue();
   let event = Eventer();
+
+  let code: Runnable;
+
   let hasRun: boolean = false;
-  let queue = Queue();
+
 
   async function setup() {
     logger.info(`Welcome to ${ORCVS}`);
@@ -53,29 +56,26 @@ export function Orcvs() {
 
   async function load(filename: string) {
     logger.info(`loading ${filename}`);
-    code = await codify(filename);
-    hasRun = false;
-    if (!clock.running) {
-      run();
-    }
+    code = await Code(filename);
+    run();
   }
 
   function reset() {
     clock.reset();
   }
 
-  function run() {
-    logger.info('run');
-    dememoize();
-
-    // Clear the current pulsar
-    pulse = pulsar(BANG, (on) => {});
-    code(pulse);
-    hasRun = true;
+  function run(frame? :number) {
+    if (code?.pending && shouldRun(frame)) {
+      logger.info('runnning');
+      dememoize();
+      // Clear the current pulsar
+      pulse = pulsar(BANG, (on) => {});
+      code.run(pulse);
+    }
   }
 
-  function shouldRun(frame: number) {
-    return !clock.running || !hasRun && frame % framesPerPhrase() === 0
+  function shouldRun(frame?: number) {
+    return !clock.running || frame && frame % framesPerPhrase() === 0
   }
 
   function bpm(bpm?: number) {
@@ -108,9 +108,9 @@ export function Orcvs() {
 
   function tick(frame: number) {
     let startTime = performance.now();``
-    if (shouldRun(frame)) {
-      run();
-    }
+
+    run(frame);
+
     pulse.tick(frame);
 
     event.tick();

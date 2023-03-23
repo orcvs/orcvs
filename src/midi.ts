@@ -100,7 +100,7 @@ export function Midi() {
     await WebMidi.disable();
   }
 
-  function tick(f?: number) {
+  function tick() {
     for (let idx in controlBuffer) {
       const control = controlBuffer[idx];
       const channel = parseInt(idx);
