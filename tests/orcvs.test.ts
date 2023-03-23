@@ -33,7 +33,22 @@ describe('orcvs', () => {
     expect(bpm()).toEqual(60);
   });
 
-  test.skip('load & exec', async () => {
+
+  test('events', async () => {
+    await orcvs.setup();
+
+    const mock = jest.fn();
+
+    listen('test', mock);
+    send('test');
+
+    orcvs.tick(1);
+
+    expect(mock).toBeCalled();
+  });
+
+
+  test('load & exec', async () => {
     await orcvs.setup();
     await orcvs.setOutput('LoopMidi');
 

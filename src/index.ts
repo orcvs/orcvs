@@ -61,6 +61,12 @@ declare global {
   var fpb: (set?: number) => number;
   var fpp: (set?: number) => number;
 
+  var send: (event: string) => void;
+  var snd: (event: string) => void;
+
+  var listen: (event: string, cb: Function) => void;
+  var lsn: (event: string, cb: Function) => void;
+
   var ORCVS: string;
   var BANG: string;
   var UNBANG: string;

@@ -1,13 +1,13 @@
 import {jest} from '@jest/globals'
 
-import { Event } from '../src/event';
+import { Eventer } from '../src/eventer';
 
 require('../src/globals');
 
 describe('event', () => {
 
-  test('send calls listener', async () => {
-    const event = Event();
+  test('listener is called', async () => {
+    const event = Eventer();
 
     const mock = jest.fn();
 
@@ -19,11 +19,26 @@ describe('event', () => {
     expect(mock).toBeCalled();
   });
 
+  test('listener is only called once', async () => {
+    const event = Eventer();
+
+    const mock = jest.fn();
+
+    event.listen('test', mock);
+    event.send('test');
+
+    event.tick();
+    expect(mock).toBeCalled();
+
+    event.send('test');
+
+    expect(mock).toBeCalledTimes(1);
+  });
 
   test('clear all listeners', async () => {
     const mock = jest.fn();
 
-    const event = Event();
+    const event = Eventer();
 
     event.listen('test', mock);
     event.send('test');
@@ -39,7 +54,7 @@ describe('event', () => {
     const mock = jest.fn();
     const mockII = jest.fn();
 
-    const event = Event();
+    const event = Eventer();
 
     event.listen('test', mock);
     event.listen('testII', mockII);

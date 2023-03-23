@@ -1,6 +1,6 @@
 // import { OnPulse } from "./pulsar";
 
-export function Event() {
+export function Eventer() {
   let _listeners: { [name: string]: Function[] } = {};
   let _eventBuffer: string[] = [];
 

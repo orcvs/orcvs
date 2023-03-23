@@ -6,6 +6,7 @@ import { Logger } from "./logger";
 import { OnPulse, pulsar, PulsarArgs} from './pulsar';
 import { Midi } from './midi';
 import { dememoize } from './memoize';
+import { Eventer } from './eventer';
 
 const logger = Logger.child({
   source: 'Orcvs'
@@ -15,7 +16,8 @@ export function Orcvs() {
   let clock = Clock(tick)
   let midi = Midi();
   let pulse = pulsar(BANG, (on) => {});
-  let code: OnPulse;
+  let queue = Queue();
+  let event = Eventer();
   let hasRun: boolean = false;
   let queue = Queue();
 
@@ -27,10 +29,18 @@ export function Orcvs() {
 
   function registerGlobals() {
     globalThis.bpm = bpm;
+
     globalThis.output = setOutput;
     globalThis.out = setOutput;
+
     globalThis.play = midi.play;
     globalThis.ply = midi.play;
+
+    globalThis.send = event.send;
+    globalThis.snd = event.send;
+
+    globalThis.listen = event.listen;
+    globalThis.lsn = event.listen;
   }
 
   async function play(filename: string) {
@@ -102,7 +112,9 @@ export function Orcvs() {
       run();
     }
     pulse.tick(frame);
-    midi.tick(frame);
+
+    event.tick();
+    midi.tick();
 
     let endTime = performance.now();
     let elapsed = endTime - startTime
