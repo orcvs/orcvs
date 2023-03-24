@@ -21,9 +21,6 @@ export function Orcvs() {
 
   let code: Runnable;
 
-  let hasRun: boolean = false;
-
-
   async function setup() {
     logger.info(`Welcome to ${ORCVS}`);
     registerGlobals();

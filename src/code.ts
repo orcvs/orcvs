@@ -11,7 +11,7 @@ const logger = Logger.child({
 });
 
 export async function transform(source: string) {
-  let startTime = performance.now()
+  const startTime = performance.now()
 
   const project = new Project({ useInMemoryFileSystem: true });
   const sourceFile = project.createSourceFile('.//file.ts', source);
@@ -26,8 +26,9 @@ export async function transform(source: string) {
     return node;
   });
 
-  let endTime = performance.now();
-  logger.info(`Transform in ${endTime - startTime}ms`);
+  const endTime = performance.now();
+  const elapsed = endTime - startTime;
+  logger.info(`Transform in ${elapsed.toFixed(4)}ms`);
 
   return sourceFile.getFullText();
 }
