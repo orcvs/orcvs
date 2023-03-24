@@ -71,7 +71,7 @@ describe('clock', () => {
         mockCallback.mockClear();
 
         await clock.setBPM(150);
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 275));
         expect(mockCallback).toHaveBeenCalled();
         expect(mockCallback).toHaveBeenCalledTimes(2);
 
