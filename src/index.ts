@@ -11,61 +11,72 @@ declare var OnPulse: OnPulse;
 
 declare global {
 
+  // Defined and attached at runtime, see Orcvs and code transform
   var pattern: (...args: PulsarArgs) => void;
-  var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var cycle: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var random: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var seq:  <T>(...sequence: readonly T[]) => Computer<T>
-
-  var framesPerBeat: (set?: number) => number;
-  var framesPerPhrase: (set?: number) => number;
-  var bpm: (set?: number) => number;
-  var beat: (set?: number) => number;
-  var phrase: (set?: number) => number;
-
-  var flipPulse: (pattern: string | number | number[]) => number[];
-  var flip: (pattern: string | number | number[]) => number[];
-
-  var memoize: (key: string, ...args: any[]) => any;
-
-  var chord: (chord: string, ...options: Options[]) => Note[];
-  var note: (name: string) => Computer<Note>
-  var arp: (value: string, ...options: Options[]) => Computer<Note>;
-
-  var euclid: (steps?: number, beats?: number, rotateSteps?: number) => number[];
-
-  // Defined in Orcvs and attached at runtime
-  var play: (channel: number, note: Computable<Note>) => void;
-  var output: (output: number | string) => void;
-
-  // Aliases
   var ptn: (...args: PulsarArgs) => void;
+
   var at: (...args: PulsarArgs) => void;
-  var at: (...args: PulsarArgs) => void;
-  var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
-  var rnd: (tofrom: number, to?: number, diff?: number) => Computer<number>;
 
-  var crd: (chord: string, ...options: Options[]) => Note[];
-  var nte: (name: string) => Computer<Note>
+  var bpm: (set?: number) => number;
 
-  var euc: (steps?: number, beats?: number, rotateSteps?: number) => number[];
-
+  var play: (channel: number, note: Computable<Note>) => void;
   var ply: (channel: number, note: Computable<Note>) => void;
+
+  var output: (output: number | string) => void;
   var out: (output: number | string) => void;
-
-  var flp: (pattern: string | number | number[]) => number[];
-
-  var fpb: (set?: number) => number;
-  var fpp: (set?: number) => number;
 
   var send: (event: string) => void;
   var snd: (event: string) => void;
 
   var listen: (event: string, cb: Function) => void;
   var lsn: (event: string, cb: Function) => void;
+  // --------------------------------------------------
+
+  var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var lrp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+
+  var cycle: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var cyc: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+
+  var wave: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var wav: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+
+  var random: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+  var rnd: (tofrom: number, to?: number, diff?: number) => Computer<number>;
+
+  var seq:  <T>(...sequence: readonly T[]) => Computer<T>
+
+  var framesPerBeat: (set?: number) => number;
+  var beat: (set?: number) => number;
+  var fpb: (set?: number) => number;
+
+  var framesPerPhrase: (set?: number) => number;
+  var phrase: (set?: number) => number;
+  var fpp: (set?: number) => number;
+
+  var pulseOnBeat: (beat?: number) => number[];
+  var pulse: (beat?: number) => number[];
+  var pls: (beat?: number) => number[];
+
+  var flipPulse: (pattern: string | number | number[]) => number[];
+  var flip: (pattern: string | number | number[]) => number[];
+  var flp: (pattern: string | number | number[]) => number[];
+
+  var merge: <T>(opts: T, ...arrays: Partial<T>[]) => T[];
+  var mrg: <T>(opts: T, ...arrays: Partial<T>[]) => T[];
+
+  var chord: (chord: string, ...options: Options[]) => Note[];
+  var crd: (chord: string, ...options: Options[]) => Note[];
+
+  var note: (name: string) => Computer<Note>
+  var nte: (name: string) => Computer<Note>
+
+  var arp: (value: string, ...options: Options[]) => Computer<Note>;
+
+  var euclid: (steps?: number, beats?: number, rotateSteps?: number) => number[];
+  var euc: (steps?: number, beats?: number, rotateSteps?: number) => number[];
+
+  var memoize: (key: string, ...args: any[]) => any;
 
   var ORCVS: string;
   var BANG: string;

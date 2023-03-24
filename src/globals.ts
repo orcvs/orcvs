@@ -1,6 +1,6 @@
 import { euclid } from './algo';
 import { cycle, lerp, wave, seq, random  } from './sequence';
-import { framesPerBeat, framesPerPhrase, flipPulse  } from './library';
+import { framesPerBeat, framesPerPhrase, flipPulse, pulseOnBeat, merge  } from './library';
 
 import { memoize  } from './memoize';
 import { arp, note, chord } from './note';
@@ -20,7 +20,21 @@ globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝s̷�
 globalThis.BANG = '▮';
 globalThis.UNBANG = '▯';
 
-globalThis.memoize = memoize;
+
+globalThis.lerp = lerp;
+globalThis.lrp = lerp;
+
+globalThis.cycle = cycle;
+globalThis.cyc = cycle;
+
+globalThis.wave = wave;
+globalThis.wav = wave;
+
+globalThis.seq = seq;
+
+globalThis.random = random
+globalThis.rnd = random
+
 globalThis.framesPerBeat = framesPerBeat;
 globalThis.beat = framesPerBeat;
 globalThis.fpb = framesPerBeat;
@@ -29,30 +43,29 @@ globalThis.framesPerPhrase = framesPerPhrase;
 globalThis.phrase = framesPerPhrase;
 globalThis.fpp = framesPerPhrase;
 
+globalThis.pulseOnBeat = pulseOnBeat;
+globalThis.pulse = pulseOnBeat;
+globalThis.pls = pulseOnBeat;
+
 globalThis.flipPulse = flipPulse;
 globalThis.flip = flipPulse;
 globalThis.flp = flipPulse;
 
-globalThis.lerp = lerp;
-globalThis.cycle = cycle;
-globalThis.wave = wave;
-globalThis.seq = seq;
-globalThis.random = random
+globalThis.merge = merge;
+globalThis.mrg = merge;
 
 globalThis.chord = chord;
-globalThis.note = note;
-
-globalThis.cyc = cycle;
-globalThis.wav = wave;
-globalThis.seq = seq;
-globalThis.rnd = random
-
 globalThis.crd = chord;
+
+globalThis.note = note;
 globalThis.nte = note;
+
 globalThis.arp = arp;
 
 globalThis.euclid = euclid;
 globalThis.euc = euclid;
+
+globalThis.memoize = memoize;
 
 globalThis.a = 10;
 globalThis.b = 11;
