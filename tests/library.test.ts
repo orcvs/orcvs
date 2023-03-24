@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { midify, toPulse, flipPulse, pulseOn } from '../src/library';
+import { midify, toPulse, flipPulse, pulseOnBeat, merge } from '../src/library';
 
 require('../src/globals');
 
@@ -62,20 +62,37 @@ describe('library', () => {
     });
   });
 
-  describe('pulseOn', () => {
+  describe('pulseOnBeat', () => {
 
     test('beat ', async () => {
-      const result = pulseOn();
+      const result = pulseOnBeat();
       expect(result.length).toBe(4);
       expect(result).toEqual([1, 0, 0, 0]);
     });
 
     test('every 4th beat', async () => {
-      const result = pulseOn(4);
+      const result = pulseOnBeat(4);
       expect(result.length).toBe(16);
       expect(result).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     });
 
+  });
+
+  describe('merge', () => {
+
+    test('parameters with default', async () => {
+      const result = merge({d: 1, a: 2, r: 3}, {r:4});
+      const expected = [{d: 1, a: 2, r: 4}];
+
+      expect(result).toEqual(expected)
+    });
+
+    test('populates empty object with default', async () => {
+      const result = merge({d: 1, a: 2, r: 3}, {}, {r:4});
+      const expected = [{d: 1, a: 2, r: 3}, {d: 1, a: 2, r: 4}];
+
+      expect(result).toEqual(expected)
+    });
   });
 
   test('midify', async () => {

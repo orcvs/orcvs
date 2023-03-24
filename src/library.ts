@@ -49,7 +49,7 @@ export function toPulse(pattern: string | number): number[] {
   return ary;
 }
 
-export function pulseOn(beat = 1): number[] {
+export function pulseOnBeat(beat = 1): number[] {
   const len = beat * framesPerBeat();
 
   const ary = Array(len).fill(0);
@@ -64,4 +64,17 @@ export function unwrap<T>(item: T[]): T | T[] {
 
 export function wrap<T>(item: T | T[]): T[] {
   return Array.isArray(item) ? item : [item];
+}
+
+export function merge<T>(opts: T, ...arrays: Partial<T>[]): T[] {
+
+  const ary = []
+  let len = arrays.length;
+
+  for (let i = 0; i < len; i++) {
+    const o = { ...opts, ...arrays[i] };
+    ary.push(o);
+  }
+
+  return ary;
 }

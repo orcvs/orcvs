@@ -108,7 +108,6 @@ export function wave(tofrom: number, to?: number, diff = 1): Computer<number> {
   }
 }
 
-// export function random(to: number): Computer<number>
 export function random(tofrom: number, to?: number): Computer<number> {
 
   const min = to === undefined ? 1 : tofrom;

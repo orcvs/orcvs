@@ -17,7 +17,6 @@ describe('notes & chords', () => {
     });
   });
 
-
   describe('note', () => {
 
     test('is a global function', async () => {
@@ -88,7 +87,6 @@ describe('notes & chords', () => {
       expect(root.release).toEqual(3);
     });
 
-
     test('options apply to all notes', async () => {
       const notes = chord('C4:M', {d: 1, a: 2, r: 3});
 
@@ -99,7 +97,6 @@ describe('notes & chords', () => {
         expect(note.release).toEqual(3);
       }
     });
-
 
     test('each note can have options', async () => {
       const notes = chord('C4:M', {d: 1, a: 1, r: 1}, {d: 2, a: 2, r: 2}, {d: 3, a: 3, r: 3});
