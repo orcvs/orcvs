@@ -32,9 +32,6 @@ export function seqR<T>(...sequence: T[]): Computer<T> {
 }
 
 export function sequencer<T>(indexer: Indexer, ...sequence: T[]): Computer<T> {
-
-  // sequence = toSequence(sequence);
-
   const start = 0;
   const end = sequence.length - 1;
 

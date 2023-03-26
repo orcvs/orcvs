@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { arp, chord, note, Note} from '../src/note';
+import { arp, chord, notes, Note} from '../src/note';
 
 import { lerp } from '../src/sequence';
 
@@ -50,6 +50,39 @@ describe('notes & chords', () => {
     });
 
   });
+
+  describe('notes', () => {
+
+    test('creates note with options', async () => {
+      const result = notes(A$2, {d:8});
+      const note = result[0];
+      expect(note.duration).toBe(8);
+    });
+
+    test('creates several notes with options', async () => {
+      const result = notes(A$2, C, D3, {d:8});
+      expect(result.length).toEqual(3);
+      for (const note of result) {
+        expect(note.duration).toBe(8);
+      }
+    });
+
+    test('creates notes with correct options', async () => {
+      const result = notes(A$2, C, D3, {d:8}, {a: 1, d: 4});
+      expect(result.length).toEqual(3);
+
+      const note = result[0];
+      expect(note.duration).toBe(8);
+
+      for (const note of result.slice(1)) {
+        expect(note.duration).toBe(4);
+        expect(note.attack).toBe(1);
+      }
+    });
+
+  });
+
+
 
   describe('chord', () => {
 

@@ -41,6 +41,7 @@ export function Orcvs() {
 
     globalThis.listen = event.listen;
     globalThis.lsn = event.listen;
+    globalThis.on = event.listen;
   }
 
   async function play(filename: string) {

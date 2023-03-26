@@ -3,7 +3,7 @@ import { cycle, lerp, wave, seq, random  } from './sequence';
 import { framesPerBeat, framesPerPhrase, flipPulse, pulseOnBeat, merge  } from './library';
 
 import { memoize  } from './memoize';
-import { arp, note, chord } from './note';
+import { arp, note, notes, chord } from './note';
 
 // Globals defined at runtime by Orcvs
 // globalThis.pattern;
@@ -59,6 +59,9 @@ globalThis.crd = chord;
 
 globalThis.note = note;
 globalThis.nte = note;
+
+globalThis.notes = notes;
+globalThis.nts = notes;
 
 globalThis.arp = arp;
 

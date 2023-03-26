@@ -3,7 +3,7 @@ export { Orcvs } from './orcvs'
 import { Computable, Computer } from './sequence';
 // import { Context } from './orcvs'
 import { OnPulse, Pulsar, PulsarArgs } from './pulsar';
-import { Note, Options } from './note';
+import { Note, Option } from './note';
 
 declare var Pulsar: Pulsar;
 declare var OnPulse: OnPulse;
@@ -30,6 +30,7 @@ declare global {
 
   var listen: (event: string, cb: Function) => void;
   var lsn: (event: string, cb: Function) => void;
+  var on: (event: string, cb: Function) => void;
   // --------------------------------------------------
 
   var lerp: (tofrom: number, to?: number, diff?: number) => Computer<number>;
@@ -65,13 +66,16 @@ declare global {
   var merge: <T>(opts: T, ...arrays: Partial<T>[]) => T[];
   var mrg: <T>(opts: T, ...arrays: Partial<T>[]) => T[];
 
-  var chord: (chord: string, ...options: Options[]) => Note[];
-  var crd: (chord: string, ...options: Options[]) => Note[];
+  var chord: (chord: string, ...options: Option[]) => Note[];
+  var crd: (chord: string, ...options: Option[]) => Note[];
 
-  var note: (name: string) => Computer<Note>
-  var nte: (name: string) => Computer<Note>
+  var note: (name: string) => Computer<Note>;
+  var nte: (name: string) => Computer<Note>;
 
-  var arp: (value: string, ...options: Options[]) => Computer<Note>;
+  var notes: (...args: any[]) => Note[];
+  var nts: (...args: any[]) => Note[];
+
+  var arp: (value: string, ...options: Option[]) => Computer<Note>;
 
   var euclid: (steps?: number, beats?: number, rotateSteps?: number) => number[];
   var euc: (steps?: number, beats?: number, rotateSteps?: number) => number[];

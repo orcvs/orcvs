@@ -8,13 +8,17 @@ export interface Note {
   release?: Computable<number>;
 }
 
-export interface Options {
+export interface Option {
   d?: Computable<number>;
   a?: Computable<number>;
   r?: Computable<number>;
 }
 
-export function arp(value: string, ...options: Options[]): Computer<Note> {
+function isOption(obj: any): obj is Option {
+  return 'd' in obj || 'a' in obj || 'r' in obj;
+}
+
+export function arp(value: string, ...options: Option[]): Computer<Note> {
 
   const crd = chord(value, ...options);
   const notes = seq(...crd);
@@ -24,7 +28,7 @@ export function arp(value: string, ...options: Options[]): Computer<Note> {
   }
 }
 
-export function chord(chord: string, ...options: Options[]): Note[] {
+export function chord(chord: string, ...options: Option[]): Note[] {
   const {name, intervals} = toChord(chord);
 
   const opts = seqL(...options);
@@ -44,7 +48,7 @@ export function chord(chord: string, ...options: Options[]): Note[] {
   return notes;
 }
 
-function createNote(value: number, options: Options = {}) {
+function createNote(value: number, options: Option = {}) {
   const {d: duration, a: attack, r: release} = options;
   return {
     value,
@@ -59,9 +63,32 @@ function createNote(value: number, options: Options = {}) {
 
 export function note(name: string): Computer<Note> {
   const value = Utilities.toNoteNumber(name);
-  return function(options: Options = {}) {
+  return function(options: Option = {}) {
     return createNote(value, options);
   }
+}
+
+export function notes(...args: any[]): Note[] {
+
+  const notes = [] as Computer<Note>[];
+  const options = [] as Option[];
+
+  for (const arg of args) {
+    if (isOption(arg)) {
+      options.push(arg);
+    } else {
+      notes.push(arg);
+    }
+  }
+
+  const opts = seqL(...options);
+
+  const ary = [] as Note[];
+  for (const n of notes) {
+    const note = n.call(undefined, opts());
+    ary.push(note);
+  }
+  return ary;
 }
 
 class Utilities extends BaseUtilities {
