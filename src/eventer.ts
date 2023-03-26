@@ -21,9 +21,12 @@ export function Eventer() {
   }
 
   function tick() {
-    for (const listeners of Object.values(_listeners)) {
-      for(const listener of listeners) {
-        listener.call(undefined);
+    for (const event of _eventBuffer) {
+      const listeners = _listeners[event];
+      if (listeners) {
+        for(const listener of listeners) {
+          listener.call(undefined);
+        }
       }
     }
     _eventBuffer = [];

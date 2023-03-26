@@ -35,6 +35,23 @@ describe('event', () => {
     expect(mock).toBeCalledTimes(1);
   });
 
+  test('listener is called for sent event', async () => {
+    const mock = jest.fn();
+    const mockII = jest.fn();
+
+    const event = Eventer();
+
+    event.listen('test', mock);
+    event.listen('testII', mockII);
+
+    event.send('test');
+
+    event.tick();
+
+    expect(mock).toBeCalled();
+    expect(mockII).not.toBeCalled();
+  });
+
   test('clear all listeners', async () => {
     const mock = jest.fn();
 
