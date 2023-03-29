@@ -36,6 +36,9 @@ export function Orcvs() {
     globalThis.play = midi.play;
     globalThis.ply = midi.play;
 
+    globalThis.control = midi.control;
+    globalThis.ctl = midi.control;
+
     globalThis.send = event.send;
     globalThis.snd = event.send;
 

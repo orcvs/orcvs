@@ -8,11 +8,13 @@ import { arp, note, notes, chord } from './note';
 // Globals defined at runtime by Orcvs
 // globalThis.pattern;
 // globalThis.ptn;
-// globalThis.bpm;
-// globalThis.output;
+// globalThis.bpm;;
 // globalThis.play;
-// globalThis.out;
 // globalThis.ply;
+// globalThis.control;
+// globalThis.ctl;
+// globalThis.output
+// globalThis.out;
 
 
 globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝ŝ̷̩͑̾';

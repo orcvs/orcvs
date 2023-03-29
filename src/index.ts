@@ -22,6 +22,9 @@ declare global {
   var play: (channel: number, note: Computable<Note>) => void;
   var ply: (channel: number, note: Computable<Note>) => void;
 
+  var control: (channel: number, controller: string | number, value: Computable<number>) => void;
+  var ctl: (channel: number, controller: string | number, value: Computable<number>) => void;
+
   var output: (output: number | string) => void;
   var out: (output: number | string) => void;
 
