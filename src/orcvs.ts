@@ -97,6 +97,11 @@ export function Orcvs() {
     await clock.start();
   }
 
+  async function pause() {
+    logger.info('stop');
+    await clock.stop();
+  }
+
   async function stop() {
     logger.info('stop');
     await clock.stop();
@@ -108,7 +113,7 @@ export function Orcvs() {
   }
 
   function tick(frame: number) {
-    let startTime = performance.now();``
+    let startTime = performance.now();
 
     run(frame);
 
@@ -141,7 +146,9 @@ export function Orcvs() {
   return {
     bpm,
     frame,
+    framesPerBeat,
     load,
+    pause,
     play,
     reset,
     setOutput,
