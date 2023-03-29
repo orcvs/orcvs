@@ -135,14 +135,12 @@ export function Midi() {
   };
 }
 
-function toMs(duration: Computable<number> | undefined) {
+function toMs(duration?: Computable<number>) {
   if (duration) {
     return compute(duration) * msPerBeat();
   }
 }
 
-function toMidiValue(value: Computable<number> | undefined) {
-  if (value) {
-    return midify(compute(value));
-  }
+function toMidiValue(value?: Computable<number>) {
+  return midify(compute(value));
 }
