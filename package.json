@@ -42,7 +42,7 @@
   "dependencies": {
     "module-from-string": "^3.3.0",
     "pino": "^8.8.0",
-    "webmidi": "^3.1.5"
+    "webmidi": "*"
   },
   "directories": {
     "test": "tests"
