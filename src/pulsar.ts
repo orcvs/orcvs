@@ -75,7 +75,7 @@ export function pulsar(...args: PulsarArgs): Pulsar {
       const ptn = pulsar(...args);
       patterns[key] = ptn;
     } else {
-      logger.warn(`Pattern exists: ${key}`);
+      logger.debug(`Pattern exists: ${key}`);
     }
   }
 
