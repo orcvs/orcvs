@@ -1,9 +1,9 @@
-import { euclid } from './algo';
+import { euclid, rotate } from './algo';
 import { cycle, lerp, wave, seq, random  } from './sequence';
 import { framesPerBeat, framesPerPhrase, flipPulse, pulseOnBeat, merge  } from './library';
 
 import { memoize  } from './memoize';
-import { arp, note, notes, chord } from './note';
+import { arp, note, notes, chord, transpose } from './note';
 
 // Globals defined at runtime by Orcvs
 // globalThis.pattern;
@@ -22,6 +22,11 @@ globalThis.ORCVS = 'O̴̫͉͌r̸̘͉̫̣̐̈́͊c̶̛̪̖̻͔̈́̃̓v̷̨͎̿͝s̷�
 globalThis.BANG = '▮';
 globalThis.UNBANG = '▯';
 
+globalThis.OFF = 0;
+
+globalThis.CC_MOD = 1;
+globalThis.CC_VOL = 7;
+globalThis.CC_BAL = 8;
 
 globalThis.lerp = lerp;
 globalThis.lrp = lerp;
@@ -69,6 +74,13 @@ globalThis.arp = arp;
 
 globalThis.euclid = euclid;
 globalThis.euc = euclid;
+
+globalThis.rotate = rotate;
+globalThis.rot = rotate;
+
+globalThis.transpose = transpose;
+globalThis.trn = transpose;
+
 
 globalThis.memoize = memoize;
 

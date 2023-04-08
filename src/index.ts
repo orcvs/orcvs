@@ -83,11 +83,23 @@ declare global {
   var euclid: (steps?: number, beats?: number, rotateSteps?: number) => number[];
   var euc: (steps?: number, beats?: number, rotateSteps?: number) => number[];
 
+  var rotate: <T>(ary: T[], steps?: number) => T[];
+  var rot: <T>(ary: T[], steps?: number) => T[];
+
+  var transpose: (notes: Note | Note[], semitoneOffset?: number) => Note[];
+  var trn: (notes: Note | Note[], semitoneOffset?: number) => Note[];
+
   var memoize: (key: string, ...args: any[]) => any;
 
   var ORCVS: string;
   var BANG: string;
   var UNBANG: string;
+
+  var OFF: number;
+
+  var CC_MOD: number;
+  var CC_VOL: number;
+  var CC_BAL: number;
 
   var a: number;
   var b: number;

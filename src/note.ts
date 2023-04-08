@@ -1,4 +1,5 @@
-import { Utilities as BaseUtilities } from 'webmidi';
+import { Utilities } from 'webmidi';
+import { wrap } from './library';
 import { Computable, Computer, seq, seqL } from './sequence';
 
 export interface Note {
@@ -40,7 +41,7 @@ export function chord(chord: string, ...options: Option[]): Note[] {
   notes.push(root);
 
   for (const int of intervals) {
-    const v = Utilities.getOffsetNumber(value, int);
+    const v = Utilities.offsetNumber(value, 0, int);
     const note = createNote(v, opts());
     notes.push(note);
   }
@@ -91,13 +92,21 @@ export function notes(...args: any[]): Note[] {
   return ary;
 }
 
-class Utilities extends BaseUtilities {
-  static getOffsetNumber(number: number, semitoneOffset = 0) {
-    return Math.min(Math.max(number + semitoneOffset, 0), 127);
+export function transpose(notes: Note | Note[], semitoneOffset = 12): Note[] {
+  const ary: Note[] = [];
+  notes = wrap(notes);
+  for (const n of notes) {
+    const value = Utilities.offsetNumber(n.value, 0, semitoneOffset);
+    console.log(toOption(n));
+    const note = createNote(value, toOption(n));
+    ary.push(note);
   }
-  // static getOffsetNumber(value: number, octaveOffset = 0, semitoneOffset = 0) {
-  //   return Math.min(Math.max(value + octaveOffset * 12 + semitoneOffset, 0), 127);
-  // }
+  return ary;
+}
+
+function toOption(note: Note): Option {
+  // return {d: note.duration, a: note.attack, r: note.release};
+  return {d: note?.duration, a: note?.attack, r: note?.release};
 }
 
 export const ChordIntervalsTable: { [key: string]: number[] }  = {
@@ -125,7 +134,7 @@ export const ChordIntervalsTable: { [key: string]: number[] }  = {
 }
 
 function toChord(value: string): {name:string, intervals:number[]} {
-  const [ name, quality] = value.split(':');
+  const [ name, quality] = value.replace('$', '#').split(':');
   const intervals = ChordIntervalsTable[quality];
   return {name, intervals};
 }

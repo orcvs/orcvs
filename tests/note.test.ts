@@ -1,8 +1,9 @@
 import {jest} from '@jest/globals'
 
-import { arp, chord, notes, Note} from '../src/note';
+import { arp, chord, notes, Note, transpose} from '../src/note';
 
 import { lerp } from '../src/sequence';
+import { unwrap } from '../src/library';
 
 require('../src/globals');
 
@@ -81,8 +82,6 @@ describe('notes & chords', () => {
     });
 
   });
-
-
 
   describe('chord', () => {
 
@@ -179,6 +178,16 @@ describe('notes & chords', () => {
       }
     });
 
+    test('generates correct notes', async () => {
+      const a = arp('A$2:m');
+      const notes = chord('A$2:m');
+      for(let note of notes) {
+        const next = a();
+        expect(next).toEqual(note);
+      }
+    });
+
+
     test('applies options', async () => {
       const a = arp('C4:M', {d: 1, a: 2, r: 3});
 
@@ -189,6 +198,39 @@ describe('notes & chords', () => {
         expect(next.release).toEqual(3);
       }
     });
+
+  });
+
+
+  describe('transpose', () => {
+
+    test('defaults to octave', async () => {
+      const note = C4();
+      const expected = C5();
+
+      const transposed = unwrap(transpose(note));
+
+      expect(transposed).toEqual(expected);
+    });
+
+    test('transposes a chord', async () => {
+      const notes = chord('C4:M');
+      const expected = chord('C5:M');
+
+      const transposed = transpose(notes);
+
+      expect(transposed).toEqual(expected);
+    });
+
+    test('transposes semitones', async () => {
+      const note = C4();
+      const expected = E4();
+
+      const transposed = unwrap(transpose(note, 4));
+
+      expect(transposed).toEqual(expected);
+    });
+
 
   });
 
