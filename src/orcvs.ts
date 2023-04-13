@@ -98,8 +98,9 @@ export function Orcvs() {
   }
 
   async function pause() {
-    logger.info('stop');
+    logger.info('pause');
     await clock.stop();
+    midi.pause()
   }
 
   async function stop() {

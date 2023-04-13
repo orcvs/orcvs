@@ -31,6 +31,18 @@ export function Midi() {
     pushControl(channel, { controller, value})
   }
 
+  function pause() {
+    if (output) {
+      controlCache.clear();
+      for (const channel of output.channels) {
+        if (channel) {
+          // channel.sendAllNotesOff();
+          channel.sendAllSoundOff();
+        }
+      }
+    }
+  }
+
   function play(channel: number, playable: Computable<Note> | Note[]) {
     playable = wrap(compute(playable));
 
@@ -105,7 +117,6 @@ export function Midi() {
     logger.info({Outputs: WebMidi.outputs.map( o => o.name) });
     logger.info('WebMidi enabled');
   }
-
 
   async function stop() {
     controlCache.clear();
