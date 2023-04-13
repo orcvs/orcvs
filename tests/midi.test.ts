@@ -37,10 +37,6 @@ describe('test', () => {
     describe('play', () => {
 
       const channel = 1;
-      const octave = 2;
-      const value = 'C';
-      const attack = 0.5;
-      let duration = 4;
 
       test('play', async () => {
         let midi = Midi();
@@ -111,65 +107,58 @@ describe('test', () => {
         });
       });
 
-      describe('control change', () => {
-        test('adds control to buffer', async () => {
+  });
 
-          let midi = Midi();
+  describe('control change', () => {
+    test('adds control to buffer', async () => {
 
-          midi.control(1, 10, z);
+      let midi = Midi();
 
-          expect(midi.controlBuffer).toHaveProperty('1');
+      midi.control(1, 10, z);
 
-          const controls = midi.controlBuffer[1];
-          const control = controls[0];
-          expect(control.value).toEqual(127);
+      expect(midi.controlBuffer).toHaveProperty('1');
+
+      const controls = midi.controlBuffer[1];
+      const control = controls[0];
+      expect(control.value).toEqual(127);
+    });
+
+    test('adds many controls to buffer', async () => {
+
+      let midi = Midi();
+
+      midi.control(1, 10, z);
+      midi.control(2, 10, z);
+
+      expect(midi.controlBuffer).toHaveProperty('1');
+      expect(midi.controlBuffer).toHaveProperty('2');
+    });
+
+    test('clears controls from buffer', async () => {
+
+      let midi = Midi();
+
+      midi.control(1, 10, z);
+      midi.control(2, 10, z);
+
+      midi.clear();
+      expect(midi.controlBuffer).not.toHaveProperty('1');
+      expect(midi.controlBuffer).not.toHaveProperty('2');
+    });
+
+    test.only('only adds control to buffer once', async () => {
+
+      let midi = Midi();
+
+      midi.control(1, 10, z);
+      midi.control(1, 10, z);
+
+      expect(midi.controlBuffer).toHaveProperty('1');
+
+      const controls = midi.controlBuffer[1];
+      expect(controls.length).toBe(1);
+    });
 
 
-          midi.clear();
-          expect(midi.controlBuffer).not.toHaveProperty('1');
-        });
-      });
-
-      // test('on/off', async () => {
-      //     var buffer: Buffer = [];
-      //     let midi = Midi(buffer);
-      //     await midi.setup();
-      //     await midi.selectOutput(0);
-
-      //     midi.push(channel, octave, value, attack, duration);
-      //     var { note } = buffer[0];
-
-      //     expect(note.played()).toBeTruthy();
-      //     expect(note.playing()).toBeTruthy();
-      //     expect(note.shouldOff()).toBeFalsy();
-
-      //     midi.tick();
-      //     await new Promise((r) => setTimeout(r, 500));
-
-      //     expect(note.played()).toBeTruthy();
-      //     expect(note.playing()).toBeTruthy();
-      //     expect(note.shouldOff()).toBeFalsy();
-
-      //     midi.tick();
-      //     await new Promise((r) => setTimeout(r, 500));
-
-      //     expect(note.played()).toBeTruthy();
-      //     expect(note.playing()).toBeTruthy();
-      //     expect(note.shouldOff()).toBeFalsy();
-
-      //     midi.tick();
-      //     await new Promise((r) => setTimeout(r, 500));
-
-      //     expect(note.played()).toBeTruthy();
-      //     expect(note.playing()).toBeTruthy();
-      //     expect(note.shouldOff()).toBeFalsy();
-
-      //     midi.tick();
-      //     await new Promise((r) => setTimeout(r, 500));
-      //     expect(note.shouldOff()).toBeTruthy();
-      //     expect(note.playing()).toBeFalsy();
-
-      //     await WebMidi.disable();
-      // });
   });
 });

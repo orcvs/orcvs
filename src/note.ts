@@ -97,7 +97,6 @@ export function transpose(notes: Note | Note[], semitoneOffset = 12): Note[] {
   notes = wrap(notes);
   for (const n of notes) {
     const value = Utilities.offsetNumber(n.value, 0, semitoneOffset);
-    console.log(toOption(n));
     const note = createNote(value, toOption(n));
     ary.push(note);
   }
@@ -105,7 +104,6 @@ export function transpose(notes: Note | Note[], semitoneOffset = 12): Note[] {
 }
 
 function toOption(note: Note): Option {
-  // return {d: note.duration, a: note.attack, r: note.release};
   return {d: note?.duration, a: note?.attack, r: note?.release};
 }
 

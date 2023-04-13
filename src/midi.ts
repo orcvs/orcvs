@@ -1,6 +1,7 @@
 import { WebMidi, Output, Note as MidiNote } from 'webmidi';
 import { Computable, compute } from './sequence';
 import { midify, msPerBeat, wrap } from './library';
+import { Cache } from './memoize';
 import { Note } from './note';
 import { Logger } from "./logger";
 
@@ -12,10 +13,13 @@ export type ControlChange = { controller: string | number, value: number};
 export type Buffer = { [channel: number] : MidiNote[] };
 export type ControlBuffer = { [channel: number] : ControlChange[] };
 
+
 export function Midi() {
   let output: Output | null = null;
   let buffer: Buffer = {};
   let controlBuffer: ControlBuffer = [];
+
+  let controlCache = Cache();
 
   function clear() {
     buffer = {};
@@ -45,7 +49,13 @@ export function Midi() {
   }
 
   function pushControl(channel: number, control: ControlChange) {
-    controlBuffer[channel] = (controlBuffer[channel] || []).concat(control);
+    const { controller, value } = control;
+    const key = `${channel}/${controller}`;
+    const current = controlCache.get(key);
+    if (current !== value) {
+      (controlBuffer[channel] ||= []).push(control);
+      controlCache.set(key, value);
+    }
   }
 
   function selectOutput(selected: number | string) {
@@ -96,7 +106,9 @@ export function Midi() {
     logger.info('WebMidi enabled');
   }
 
+
   async function stop() {
+    controlCache.clear();
     await WebMidi.disable();
   }
 
@@ -120,6 +132,7 @@ export function Midi() {
     clear,
     control,
     play,
+    pause,
     send,
     sendControl,
     selectOutput,

@@ -18,15 +18,15 @@ describe('sequence', () => {
       }
     });
 
-    // test('accepts array ', async () => {
-    //   const ary = ['!', '.', '.', '!', '.'];
-    //   let s = seq(ary);
+    test('accepts array ', async () => {
+      const ary = ['!', '.', '.', '!', '.'];
+      let s = seq(ary);
 
-    //   for (let i = 0; i < 5; i++) {
-    //     let result = s();
-    //     expect(result).toEqual(ary[i]);
-    //   }
-    // });
+      for (let i = 0; i < 5; i++) {
+        let result = s();
+        expect(result).toEqual(ary[i]);
+      }
+    });
 
     test('accepts params', async () => {
       const ary = [A, B, C, D, E];

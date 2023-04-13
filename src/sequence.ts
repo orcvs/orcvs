@@ -33,6 +33,14 @@ export function seqR<T>(...sequence: T[]): Computer<T> {
 
 export function sequencer<T>(indexer: Indexer, ...sequence: T[]): Computer<T> {
   const start = 0;
+
+  if (sequence.length === 1) {
+    const item = sequence[0];
+    if (Array.isArray(item)) {
+      sequence = item;
+    }
+  }
+
   const end = sequence.length - 1;
 
   const idx = indexer(start, end);
