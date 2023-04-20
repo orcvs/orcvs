@@ -1,6 +1,6 @@
 import {jest} from '@jest/globals'
 
-import { pulsar, matcher, isTime, timeToFrame, isFrameTime } from '../src/pulsar';
+import { pulsar, matcher, isTimePattern, timeToFrame } from '../src/pulsar';
 
 import { lerp } from '../src/sequence';
 
@@ -25,81 +25,208 @@ describe('pulsar', () => {
     });
   });
 
+  describe('isTimePattern', () => {
 
-  describe('Time Matcher', () => {
+    test('handles time/second patterns', async () => {
+      var result = isTimePattern('t:1');
+      expect(result).toEqual(true);
 
-    test('timeMatcher from', async () => {
+      var result = isTimePattern('t:1:1');
+      expect(result).toEqual(true);
 
-      globalThis.bpm(60);
+      var result = isTimePattern('t::1');
+      expect(result).toEqual(true);
 
-      // var pulse = pulsar('60', () => {}); // 60s at 60bpm
-      let match = matcher('t:60');
-
-      var result = match(120)
+      var result = isTimePattern('t::a');
       expect(result).toEqual(false);
 
-      var result = match(240)
-      expect(result).toEqual(true);
-
-      var result = match(480)
-      expect(result).toEqual(true);
-    });
-
-    test('isTime', async () => {
-      var result = isTime('t:1');
-      expect(result).toEqual(true);
-
-      var result = isTime('t:1:1');
-      expect(result).toEqual(true);
-
-      var result = isTime('t::1');
-      expect(result).toEqual(true);
-
-      var result = isTime('t::a');
-      expect(result).toEqual(false);
-
-      var result = isTime('vtha:99');
+      var result = isTimePattern('vtha:99');
       expect(result).toEqual(false);
     });
 
-    test('timeMatcher from to', async () => {
+    test('handles frame patterns', async () => {
+      var result = isTimePattern('f:1');
+      expect(result).toEqual(true);
 
-      globalThis.bpm(60);
+      var result = isTimePattern('f:1:1');
+      expect(result).toEqual(true);
 
-      // var pulse = pulsar('60:120', () => {}); // 60-120s at 60bpm
-      let match = matcher('t:60:120');
+      var result = isTimePattern('f:1');
+      expect(result).toEqual(true);
 
-      var result = match(120)
+      var result = isTimePattern('f:');
+      expect(result).toEqual(true);
+
+      var result = isTimePattern('f');
       expect(result).toEqual(false);
 
-      var result = match(240)
-      expect(result).toEqual(true);
+      var result = isTimePattern(':a');
+      expect(result).toEqual(false);
 
-      var result = match(480)
-      expect(result).toEqual(true);
-
-      var result = match(666)
+      var result = isTimePattern('vtha:99');
       expect(result).toEqual(false);
     });
 
-    test('timeMatcher with bad from to', async () => {
+  });
 
-      globalThis.bpm(60);
+  describe('matcher', () => {
 
-      let match = matcher('t:120:60');
+    describe('time', () => {
 
-      var result = match(120)
-      expect(result).toEqual(false);
+      test('matches time from:to', async () => {
 
-      var result = match(240)
-      expect(result).toEqual(false);
+        globalThis.bpm(60);
 
-      var result = match(480)
-      expect(result).toEqual(false);
+        // var pulse = pulsar('60:120', () => {}); // 60-120s at 60bpm
+        let match = matcher('t:60:120');
 
-      var result = match(666)
-      expect(result).toEqual(false);
+        var result = match(120)
+        expect(result).toEqual(false);
+
+        var result = match(240)
+        expect(result).toEqual(true);
+
+        var result = match(480)
+        expect(result).toEqual(true);
+
+        var result = match(666)
+        expect(result).toEqual(false);
+      });
+      
+      test('wildcard matches forever (MAX_FRAME 999999)', async () => {
+        
+        globalThis.bpm(60);
+        let match = matcher('t:60:*')
+
+        var result = match(100)
+        expect(result).toEqual(false);
+
+        var result = match(240)
+        expect(result).toEqual(true);
+        
+        var result = match(575)
+        expect(result).toEqual(true);
+
+        var result = match(240 * 10)
+        expect(result).toEqual(true);
+        
+        var result = match(240 * 99)
+        expect(result).toEqual(true);
+      });
+
+      test('with bad from to', async () => {
+
+        globalThis.bpm(60);
+
+        let match = matcher('t:120:60');
+
+        var result = match(120)
+        expect(result).toEqual(false);
+
+        var result = match(240)
+        expect(result).toEqual(false);
+
+        var result = match(480)
+        expect(result).toEqual(false);
+
+        var result = match(666)
+        expect(result).toEqual(false);
+      });
+    
+      test('matches every time seconds', async () => {
+        // 60s is 240 at 60bpm
+        globalThis.bpm(60);
+
+        let match = matcher('t:60');
+
+        var result = match(120)
+        expect(result).toEqual(false);
+
+        var result = match(200)
+        expect(result).toEqual(false);
+
+        var result = match(240)
+        expect(result).toEqual(true);
+
+        var result = match(480)
+        expect(result).toEqual(true);
+
+        var result = match(575)
+        expect(result).toEqual(false);
+      });
+
     });
+
+    describe('frame', () => {
+
+      test('every 100', async () => {
+        // var pulse = pulsar('f:100', () => {});
+        let match = matcher('f:100')
+
+        var result = match(99)
+        expect(result).toEqual(false);
+
+        var result = match(100)
+        expect(result).toEqual(true);    
+
+        var result = match(199)
+        expect(result).toEqual(false);
+
+        var result = match(200)
+        expect(result).toEqual(true);
+      });
+
+      test('wildcard matches forever (MAX_FRAME 999999)', async () => {
+        let match = matcher('f:100:*')
+
+        var result = match(99)
+        expect(result).toEqual(false);
+
+        var result = match(100)
+        expect(result).toEqual(true);
+
+        var result = match(9999)
+        expect(result).toEqual(true);
+      });
+
+      test('matches from:to', async () => {
+        let match = matcher('f:100:200');
+
+        var result = match(99)
+        expect(result).toEqual(false);
+
+        var result = match(101)
+        expect(result).toEqual(true);
+
+        var result = match(199)
+        expect(result).toEqual(true);
+
+        var result = match(201)
+        expect(result).toEqual(false);
+      });
+
+      test('with bad from:to', async () => {
+        // var pulse = pulsar('f:100:60', () => {});
+        let match = matcher('f:100:200');
+
+        var result = match(99)
+        expect(result).toEqual(false);
+
+        var result = match(240)
+        expect(result).toEqual(false);
+
+        var result = match(480)
+        expect(result).toEqual(false);
+
+        var result = match(666)
+        expect(result).toEqual(false);
+      });
+
+    });
+
+  });
+  
+  describe('timeToFrame', () => {
 
     test('timeToFrame', async () => {
       var result = timeToFrame(60, 60); // 60s at 60bpm
@@ -114,79 +241,6 @@ describe('pulsar', () => {
       var result = timeToFrame(1, 60); // 90s at 120bpm
       expect(result).toEqual(4);
     });
-
-  });
-
-  describe('Frame Matcher', () => {
-
-    test('frameMatcher from', async () => {
-      // var pulse = pulsar('f:100', () => {});
-      let match = matcher('f:100')
-
-      var result = match(99)
-      expect(result).toEqual(false);
-
-      var result = match(100)
-      expect(result).toEqual(true);
-    });
-
-    test('isFrameTime', async () => {
-      var result = isFrameTime('f:1');
-      expect(result).toEqual(true);
-
-      var result = isFrameTime('f:1:1');
-      expect(result).toEqual(true);
-
-      var result = isFrameTime('f:1');
-      expect(result).toEqual(true);
-
-      var result = isFrameTime('f:');
-      expect(result).toEqual(true);
-
-      var result = isFrameTime('f');
-      expect(result).toEqual(false);
-
-      var result = isFrameTime(':a');
-      expect(result).toEqual(false);
-
-      var result = isFrameTime('vtha:99');
-      expect(result).toEqual(false);
-    });
-
-    test('frameMatcher from to', async () => {
-      // var pulse = pulsar('f:100:200', () => {});
-      let match = matcher('f:100:200');
-
-      var result = match(99)
-      expect(result).toEqual(false);
-
-      var result = match(101)
-      expect(result).toEqual(true);
-
-      var result = match(199)
-      expect(result).toEqual(true);
-
-      var result = match(201)
-      expect(result).toEqual(false);
-    });
-
-    test('frameMatcher with bad from to', async () => {
-      // var pulse = pulsar('f:100:60', () => {});
-      let match = matcher('f:100:200');
-
-      var result = match(99)
-      expect(result).toEqual(false);
-
-      var result = match(240)
-      expect(result).toEqual(false);
-
-      var result = match(480)
-      expect(result).toEqual(false);
-
-      var result = match(666)
-      expect(result).toEqual(false);
-    });
-
   });
 
   describe('Pattern matcher', () => {

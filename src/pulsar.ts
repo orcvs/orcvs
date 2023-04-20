@@ -16,6 +16,8 @@ export interface Pulsar {
   // frame: number;
 }
 
+const MAX_FRAME = 999999;
+
 const logger = Logger.child({
   source: 'Pulsar'
 });
@@ -92,12 +94,9 @@ export function matcher(pattern: string  | number[]): Match {
     return patternMatcher(pattern);
   }
 
-  if (isTime(pattern)) {
-    return timeMatcher(pattern);
-  }
-
-  if (isFrameTime(pattern)) {
-    return frameMatcher(pattern);
+  if (isTimePattern(pattern)) {
+    // return frameMatcher(pattern);
+    return toTimeMatcher(pattern);
   }
 
   return patternMatcher(pattern);
@@ -120,36 +119,35 @@ function patternMatcher(pattern: string  | number[]): Match {
   }
 }
 
-function timeMatcher(match: string): Match {
 
-  const [ from = 0, to = 9999 ] = match.slice(2).split(':').map( s => parseInt(s) || 0);
+function toTimeMatcher(match: string): Match {
+  
+  let [ from = 0, to ] = match.slice(2).split(':').map( s => s === '*' ? MAX_FRAME : parseInt(s) );
 
-  return function(frame: number) {
-    const f = timeToFrame(from, globalThis.bpm());
-    const t = timeToFrame(to, globalThis.bpm());
+  if (isTime(match)) {
+    from = timeToFrame(from, globalThis.bpm());  
+    to = timeToFrame(to, globalThis.bpm());
+  }
 
-    return f <= frame && frame <= t;
+  if (to) {
+    
+    return function(frame: number) {
+      return from <= frame && frame <= to;
+    }
+
+  } else {
+    return function(frame: number) {
+      return frame % from === 0;
+    }
   }
 }
 
-function frameMatcher(match: string): Match {
-  const [ from = 0, to = 9999 ] = match.slice(2).split(':').map( s => parseInt(s) || 0);
-
-  return function(frame: number) {
-    return from <= frame && frame <= to;
-  }
+export function isTimePattern(str: string) {
+  return /^(t:|f:)(\d+)?(:(\d|\*)+)?$/.test(str);
 }
 
-// Time format string is {start}?:{stop}?
-// Both start and stop are optional
 export function isTime(str: string) {
-  // ^(\d+)?    - start of string, and one or more numbers
-  // (:\d+)?$   - ':' followed by one or more numbers
-  return /^(t:)(\d+)?(:\d+)?$/.test(str);
-}
-
-export function isFrameTime(str: string) {
-  return /^(f:)(\d+)?(:\d+)?$/.test(str);
+  return str.startsWith('t');
 }
 
 export function timeToFrame(time: number, bpm: number): number {
