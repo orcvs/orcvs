@@ -1,0 +1,387 @@
+use winnow::ascii::alpha1;
+// #![cfg(feature = "alloc")]
+use winnow::ascii::digit1;
+use winnow::ascii::multispace0;
+use winnow::ascii::space1;
+use winnow::combinator::alt;
+use winnow::combinator::delimited;
+use winnow::combinator::eof;
+use winnow::combinator::opt;
+use winnow::combinator::preceded;
+use winnow::combinator::separated;
+
+use winnow::combinator::trace;
+
+use winnow::error::ParserError;
+use winnow::token::literal;
+
+use winnow::PResult;
+use winnow::Parser;
+
+use miette::diagnostic;
+use miette::Diagnostic;
+use thiserror::Error;
+
+#[derive(Error, Diagnostic, Debug)]
+pub enum VthaError {
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    ArgumentError(#[from] ArgumentError),
+
+    #[error("{0:?}")]
+    EvalError(String),
+}
+
+#[derive(Error, Diagnostic, Debug)]
+pub enum ArgumentError {
+    #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
+    #[diagnostic(code(ArgumentError), url("https://my_website.com/error"))]
+    Arity { expected: usize, found: usize },
+
+    #[error("{0:?} should be a number")]
+    NumberExpected(&'static str),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum Expression {
+    Function(Function, Atom),
+    // Function(Function, Vec<Atom>),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum Atom {
+    Char(String),
+    Num(i32),
+    Hex(char),
+    List(Vec<Atom>),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum Function {
+    Play,
+    End,
+}
+
+macro_rules! list {
+    ($($x:expr),*) => {
+        Atom::List(vec![$($x),*])
+    };
+}
+
+macro_rules! empty_list {
+    () => {
+        list![]
+    };
+}
+
+fn parse(i: &mut &'_ str) -> PResult<Expression> {
+    trace("parse", preceded(multispace0, parse_function_expression)).parse_next(i)
+}
+
+fn eval(exp: Expression) {
+    match exp {
+        Expression::Function(f, a) => match f {
+            Function::Play => {
+                play(a);
+                // match a {
+                //     Atom::List(v) => {}
+                // }
+            }
+            Function::End => {
+                println!("End");
+            }
+        },
+    }
+}
+
+// midi(ch oct note velocity*):
+
+//channel, octave, note, velocity
+fn play(a: Atom) -> Result<(), VthaError> {
+    match a {
+        Atom::List(v) => {
+            if v.len() != 4 {
+                return Err(ArgumentError::Arity {
+                    expected: 4,
+                    found: v.len(),
+                }
+                .into());
+            }
+
+            let ch = match v[0] {
+                Atom::Num(n) => n as u8,
+                _ => return Err(ArgumentError::NumberExpected("channel").into()),
+            };
+            let oct = match v[1] {
+                Atom::Num(n) => n as u8,
+                _ => return Err(ArgumentError::NumberExpected("octave").into()),
+            };
+            let note = match v[2] {
+                Atom::Num(n) => n as u8,
+                _ => return Err(ArgumentError::NumberExpected("note").into()),
+            };
+            let vel = match v[3] {
+                Atom::Num(n) => n as u8,
+                _ => return Err(ArgumentError::NumberExpected("velocity").into()),
+            };
+
+            return _play(ch, oct, note, vel);
+        }
+        _ => {
+            return Err(ArgumentError::Arity {
+                expected: 4,
+                found: 1,
+            }
+            .into())
+        }
+    }
+}
+
+fn _play(ch: u8, oct: u8, note: u8, vel: u8) -> Result<(), VthaError> {
+    println!(
+        "play: ch: {}, oct: {}, note: {}, vel: {}",
+        ch, oct, note, vel
+    );
+
+    Ok(())
+}
+
+fn parse_function_expression<'a>(input: &mut &'a str) -> PResult<Expression> {
+    (parse_function, opt(ws(parse_atom_list)))
+        .map(|(f, a)| {
+            let a = match a {
+                Some(a) => flatten(a),
+                None => empty_list![],
+            };
+            Expression::Function(f, a)
+        })
+        .parse_next(input)
+}
+
+fn flatten(a: Atom) -> Atom {
+    match a {
+        Atom::List(mut v) => {
+            if v.len() == 1 {
+                v.pop().unwrap()
+            } else {
+                Atom::List(v)
+            }
+        }
+        _ => a,
+    }
+}
+
+fn parse_atom_list<'a>(input: &mut &'a str) -> PResult<Atom> {
+    trace(
+        "atom_list",
+        separated(0.., parse_atom, space1).map(|a| Atom::List(a)),
+    )
+    .parse_next(input)
+}
+
+fn parse_atom<'a>(input: &mut &'a str) -> PResult<Atom> {
+    alt((parse_atom_value, parse_delimited_atom_list)).parse_next(input)
+}
+
+fn parse_delimited_atom_list<'a>(input: &mut &'a str) -> PResult<Atom> {
+    trace("delimited_atom_list", delimited('(', parse_atom_list, ')')).parse_next(input)
+}
+
+/// A combinator that takes a parser `inner` and produces a parser that also consumes both leading and
+/// trailing whitespace, returning the output of `inner`.
+fn ws<'a, F, O, E: ParserError<&'a str>>(inner: F) -> impl Parser<&'a str, O, E>
+where
+    F: Parser<&'a str, O, E>,
+{
+    delimited(multispace0, inner, multispace0)
+}
+
+fn parse_atom_value<'a>(input: &mut &'a str) -> PResult<Atom> {
+    let parser = alt((parse_char, parse_num));
+    trace("atom_value", parser).parse_next(input)
+}
+
+fn parse_num(i: &mut &'_ str) -> PResult<Atom> {
+    trace(
+        "num",
+        alt((
+            digit1.try_map(|d: &str| d.parse::<i32>().map(Atom::Num)),
+            preceded("-", digit1).map(|d: &str| Atom::Num(-d.parse::<i32>().unwrap())),
+        )),
+    )
+    .parse_next(i)
+}
+
+fn parse_char(i: &mut &'_ str) -> PResult<Atom> {
+    trace("char", alpha1.map(|s: &str| Atom::Char(s.to_string()))).parse_next(i)
+}
+
+///
+/// parses literal function identifier
+///
+fn parse_function(i: &mut &'_ str) -> PResult<Function> {
+    trace(
+        "parse_function",
+        alt((literal("play").map(|_| Function::Play),)),
+    )
+    .parse_next(i)
+}
+
+fn parse_end(i: &mut &'_ str) -> PResult<Function> {
+    eof.map(|_| Function::End).parse_next(i)
+}
+
+/*
+
+    fn a b c
+
+    fn (a b c) (a b c)
+
+    fn a (fn a fn 1) fn 1
+
+    Function Vec<Atom>
+
+    Function Vec<Vec<Atom>>>
+
+    Expression
+    Function(Function, Vec<Atom>)
+
+*/
+use miette::{IntoDiagnostic, Result};
+
+fn main() -> Result<()> {
+    let params = list![Atom::Num(1)];
+    play(params).into_diagnostic()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod test {
+
+    use crate::{
+        eval, parse, parse_atom, parse_atom_list, play, ArgumentError, Atom, Expression, Function,
+        VthaError,
+    };
+
+    #[test]
+    fn test_play_function() {
+        let params = list![Atom::Num(1), Atom::Num(2), Atom::Num(3), Atom::Num(4)];
+        let result = play(params);
+        assert!(result.is_ok());
+
+        let params = list![];
+        let result = play(params);
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(VthaError::ArgumentError(ArgumentError::Arity {
+                expected: 4,
+                found: 0
+            }))
+        ));
+
+        let params = list![Atom::Num(1)];
+        let result = play(params);
+
+        println!("{:?}", result);
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(VthaError::ArgumentError(ArgumentError::Arity {
+                expected: 4,
+                found: 1
+            }))
+        ));
+    }
+
+    #[test]
+    fn test_parse_and_eval_play() {
+        let mut s = "play (1)";
+        let ast = parse(&mut s).unwrap();
+        let expected = Expression::Function(Function::Play, list![Atom::Num(1)]);
+        assert_eq!(ast, expected);
+
+        eval(ast);
+    }
+
+    #[test]
+    fn test_parse_function() {
+        let mut s = "play a";
+        let ast = parse(&mut s).unwrap();
+        let expected = Expression::Function(Function::Play, Atom::Char("a".to_string()));
+        assert_eq!(ast, expected);
+
+        let mut s = "play (1)";
+        let ast = parse(&mut s).unwrap();
+        let expected = Expression::Function(Function::Play, list![Atom::Num(1)]);
+        assert_eq!(ast, expected);
+
+        let mut s = "play 1 (2)";
+        let ast = parse(&mut s).unwrap();
+        let expected =
+            Expression::Function(Function::Play, list![Atom::Num(1), list![Atom::Num(2)]]);
+        assert_eq!(ast, expected);
+
+        let mut s = "play (1 2 3)";
+        let ast = parse(&mut s).unwrap();
+        let expected = Expression::Function(
+            Function::Play,
+            list![Atom::Num(1), Atom::Num(2), Atom::Num(3)],
+        );
+        assert_eq!(ast, expected);
+
+        let mut s = "play (1 (2) 3)";
+        let ast = parse(&mut s).unwrap();
+        let expected = Expression::Function(
+            Function::Play,
+            list![Atom::Num(1), list![Atom::Num(2)], Atom::Num(3)],
+        );
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_atom_list() {
+        let mut s: &str = "1 2 3";
+        let expected = list![Atom::Num(1), Atom::Num(2), Atom::Num(3)];
+        let ast = parse_atom_list(&mut s).unwrap();
+        assert_eq!(ast, expected);
+
+        let mut s: &str = "(1 2 3)";
+        let expected = list![list![Atom::Num(1), Atom::Num(2), Atom::Num(3)]];
+        let ast = parse_atom_list(&mut s).unwrap();
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_nested_atom_lists() {
+        let mut s: &str = "1 (2) 3";
+        let expected = list![Atom::Num(1), list![Atom::Num(2)], Atom::Num(3)];
+        let ast = parse_atom_list(&mut s).unwrap();
+        assert_eq!(ast, expected);
+
+        let mut s: &str = "(1 (2) 3)";
+        let expected = list![list![Atom::Num(1), list![Atom::Num(2)], Atom::Num(3)]];
+        let ast = parse_atom_list(&mut s).unwrap();
+        assert_eq!(ast, expected);
+
+        let mut s: &str = "(1 (2 3 (4)) 5)";
+        let expected = list![list![
+            Atom::Num(1),
+            list![Atom::Num(2), Atom::Num(3), list![Atom::Num(4)]],
+            Atom::Num(5)
+        ]];
+        let ast = parse_atom_list(&mut s).unwrap();
+        assert_eq!(ast, expected);
+    }
+    #[test]
+    fn test_parse_atom() {
+        let mut s = "1";
+        let r = parse_atom(&mut s).unwrap();
+        assert_eq!(r, Atom::Num(1));
+
+        let mut s = "42";
+        let r = parse_atom(&mut s).unwrap();
+        assert_eq!(r, Atom::Num(42));
+    }
+}
