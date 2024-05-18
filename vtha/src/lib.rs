@@ -1,12 +1,11 @@
 mod ast;
 mod parser;
 
-use std::fmt;
+// use std::fmt;
 
-use miette::diagnostic;
-use miette::Diagnostic;
+// use miette::diagnostic;
+// use miette::Diagnostic;
 use thiserror::Error;
-use tinyvec::ArrayVec;
 
 ///
 /// play channel octave note velocity
@@ -19,13 +18,17 @@ use tinyvec::ArrayVec;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Play {
-    pub channel: i32,
-    pub velocity: i32,
+    pub channel: u8,
+    pub velocity: u8,
     pub note: String,
 }
 
 impl Play {
-    pub fn new(channel: i32, note: String, velocity: i32) -> Play {
+    pub fn new(
+        channel: u8,
+        note: String,
+        velocity: u8,
+    ) -> Play {
         Play {
             channel,
             note,
@@ -42,62 +45,77 @@ pub enum Expression {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Atom {
-    Function(Function),
+    Function(Box<Function>),
     Char(char),
     Hex(char),
-    Num(i32),
+    Num(u8),
     List(Vec<Atom>),
     String(String),
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Function {
-    Play,
+    Play(Atom, Atom, Atom),
     Take,
     End,
+    Ident(Atom),
     X,
     Y,
 }
 
-impl fmt::Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Function::Play => write!(f, "Play"),
-            Function::Take => write!(f, "Take"),
-            Function::End => write!(f, "End"),
-            Function::X => write!(f, "X"),
-            Function::Y => write!(f, "Y"),
-        }
-    }
-}
+// impl fmt::Display for Function {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match *self {
+//             Function::Play(a, b, c) => {
+//                 write!(f, "Play {} {} {}", a, b, c)
+//             }
+//             Function::Take => write!(f, "Take"),
+//             Function::End => write!(f, "End"),
+//             Function::Ident(x) => write!(f, "Ident {}", x),
+//             Function::X => write!(f, "X"),
+//             Function::Y => write!(f, "Y"),
+//         }
+//     }
+// }
+
+// impl fmt::Display for Atom {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match *self {
+//             Atom::Num() => {
+//                 write!(f, "Play {} {} {}", a, b, c)
+//             }
+
+//         }
+//     }
+// }
 
 // fn _play(ch: u8, oct: u8, note: &String, vel: u8) -> Result<(), VthaError> {
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum VthaError {
     #[error(transparent)]
-    #[diagnostic(transparent)]
+    // #[diagnostic(transparent)]
     ArgumentError(#[from] ArgumentError),
 
     #[error(transparent)]
-    #[diagnostic(transparent)]
+    // #[diagnostic(transparent)]
     SyntaxError(#[from] SyntaxError),
 
     #[error("{0:?}")]
     EvalError(String),
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum SyntaxError {
     #[error("unknown function {f:?}")]
-    #[diagnostic(code(SyntaxError))]
+    // #[diagnostic(code(SyntaxError))]
     UnknownFunction { f: String },
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum ArgumentError {
     #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
-    #[diagnostic(code(ArgumentError))]
+    // #[diagnostic(code(ArgumentError))]
     Arity { expected: usize, found: usize },
 
     #[error("{0:?} should be a number")]

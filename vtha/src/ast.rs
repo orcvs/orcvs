@@ -21,17 +21,16 @@ use crate::Function;
 use crate::Play;
 use crate::SyntaxError;
 use crate::VthaError;
-use miette::Result;
 
-pub fn to_expression(f: Function, a: Option<Atom>) -> Result<Expression, VthaError> {
-    match f {
-        Function::Play => {
-            let play = play(a)?;
-            Ok(Expression::Play(play))
-        }
-        _ => Err(SyntaxError::UnknownFunction { f: f.to_string() }.into()),
-    }
-}
+// pub fn to_expression(f: Function, a: Option<Atom>) -> Result<Expression, VthaError> {
+//     match f {
+//         Function::Play => {
+//             let play = play(a)?;
+//             Ok(Expression::Play(play))
+//         }
+//         _ => Err(SyntaxError::UnknownFunction { f: f.to_string() }.into()),
+//     }
+// }
 
 // midi(ch oct note velocity*):
 //channel, octave, note, velocity
@@ -63,15 +62,36 @@ fn play(a: Option<Atom>) -> Result<Play, VthaError> {
             }
             let ch = match v[INDEX_CHANNEL] {
                 Atom::Num(n) => n,
-                _ => return Err(ArgumentError::NumberExpected("channel").into()),
+                _ => {
+                    return Err(
+                        ArgumentError::NumberExpected(
+                            "channel",
+                        )
+                        .into(),
+                    )
+                }
             };
             let note = match &v[INDEX_NOTE] {
                 Atom::String(s) => s.to_owned(),
-                _ => return Err(ArgumentError::StringExpected("note").into()),
+                _ => {
+                    return Err(
+                        ArgumentError::StringExpected(
+                            "note",
+                        )
+                        .into(),
+                    )
+                }
             };
             let vel = match v[INDEX_VELOCITY] {
                 Atom::Num(n) => n,
-                _ => return Err(ArgumentError::NumberExpected("velocity").into()),
+                _ => {
+                    return Err(
+                        ArgumentError::NumberExpected(
+                            "velocity",
+                        )
+                        .into(),
+                    )
+                }
             };
 
             let play = Play::new(ch, note, vel);
@@ -89,7 +109,10 @@ fn play(a: Option<Atom>) -> Result<Play, VthaError> {
 
 #[cfg(test)]
 mod test {
-    use crate::{ast::play, list, ArgumentError, Atom, Play, VthaError};
+    use crate::{
+        ast::play, list, ArgumentError, Atom, Play,
+        VthaError,
+    };
 
     #[test]
     fn test_play_function() {
@@ -109,10 +132,12 @@ mod test {
 
         assert!(matches!(
             result,
-            Err(VthaError::ArgumentError(ArgumentError::Arity {
-                expected: 3,
-                found: 0
-            }))
+            Err(VthaError::ArgumentError(
+                ArgumentError::Arity {
+                    expected: 3,
+                    found: 0
+                }
+            ))
         ));
 
         let params = Some(list![Atom::Num(1)]);
@@ -121,10 +146,12 @@ mod test {
         assert!(result.is_err());
         assert!(matches!(
             result,
-            Err(VthaError::ArgumentError(ArgumentError::Arity {
-                expected: 3,
-                found: 1
-            }))
+            Err(VthaError::ArgumentError(
+                ArgumentError::Arity {
+                    expected: 3,
+                    found: 1
+                }
+            ))
         ));
     }
 }
