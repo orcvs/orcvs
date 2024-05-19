@@ -68,7 +68,7 @@ const FUNCTIONS: [&str; 2] = ["pl", "id"];
 /// e.g.
 ///
 fn function(s: &mut &str) -> Result<Atom, VthaError> {
-    let token = s.next_token();
+    let token = s.take();
 
     let f: fn(&mut &str) -> Result<Atom, VthaError> =
         match token {
@@ -87,10 +87,10 @@ fn function(s: &mut &str) -> Result<Atom, VthaError> {
     f(s)
 }
 
-enum Either {
-    Atom(Atom),
-    Token(&str),
-}
+// enum Either {
+//     Atom(Atom),
+//     Token(&str),
+// }
 
 pub trait Token {
     // fn next_token(&mut self) -> Option<&str>;
@@ -99,23 +99,79 @@ pub trait Token {
 
     fn is_function(self) -> bool;
 
-    fn take(
+    fn take_count(&mut self, count: usize) -> Option<&str>;
+
+    fn take(&mut self) -> Option<&str>;
+
+    fn to_atom(
         &mut self,
-        count: u8,
+        atomizer: fn(&str) -> Atom,
     ) -> Result<Atom, VthaError>;
 
-    fn take_atom_string(
+    fn as_string(&mut self) -> Result<Atom, VthaError>;
+
+    fn as_num(&mut self) -> Result<Atom, VthaError>;
+
+    fn as_note(&mut self) -> Result<Atom, VthaError>;
+}
+
+impl Token for &str {
+    fn is_function(self) -> bool {
+        match self {
+            "pl" | "id" => true,
+            _ => false,
+        }
+    }
+
+    fn take_count(&mut self, count: usize) -> Option<&str> {
+        let token = peek_next(self);
+
+        if token.filter(|t| t.is_function()).is_some() {
+            next_token(self, 2)
+        } else {
+            next_token(self, count)
+        }
+    }
+
+    fn take(&mut self) -> Option<&str> {
+        self.take_count(2)
+    }
+
+    fn to_atom(
         &mut self,
-    ) -> Result<Atom, VthaError>;
+        atomizer: fn(&str) -> Atom,
+    ) -> Result<Atom, VthaError> {
+        if self.is_function() {
+            function(self)
+        } else {
+            Ok(atomizer(self))
+        }
+    }
 
-    fn take_atom_num(&mut self) -> Result<Atom, VthaError>;
+    fn as_string(&mut self) -> Result<Atom, VthaError> {
+        self.to_atom(|s| Atom::String(s.to_string()))
+    }
 
-    fn take_atom_note(&mut self)
-        -> Result<Atom, VthaError>;
+    fn as_num(&mut self) -> Result<Atom, VthaError> {
+        self.to_atom(|s| {
+            let n = u8::from_str_radix(s, 16).unwrap();
+            Atom::Num(n)
+        })
+    }
+
+    fn as_note(&mut self) -> Result<Atom, VthaError> {
+        self.to_atom(|s| {
+            let n = MIDI_NOTES.get(s).unwrap_or(&0).clone();
+            Atom::Note(n)
+        })
+    }
 }
 
 #[inline(always)]
-fn next_token(s: &mut &str, count: u8) -> Option<&str> {
+fn next_token<'a>(
+    s: &'a mut &'a str,
+    count: usize,
+) -> Option<&str> {
     match s.len() {
         0 | 1 => None,
         _ => {
@@ -127,7 +183,7 @@ fn next_token(s: &mut &str, count: u8) -> Option<&str> {
 }
 
 #[inline(always)]
-fn peek_next(s: &mut &str) -> Option<&str> {
+fn peek_next<'a>(s: &'a mut &'a str) -> Option<&str> {
     match s.len() {
         0 | 1 => None,
         _ => {
@@ -137,86 +193,23 @@ fn peek_next(s: &mut &str) -> Option<&str> {
     }
 }
 
-impl Token for &str {
-    fn is_function(self) -> bool {
-        match self {
-            "pl" | "id" => true,
-            _ => false,
-        }
-    }
-
-    fn take(&mut self, count: u8) -> Option<&str> {
-        let token = peek_next(self);
-
-        if token.filter(|t| t.is_function()).is_some() {
-            function(s)
-        } else {
-            let token = next_token(self, count);
-
-            match token {
-                Some(token) => Ok(to_atom(token)),
-                None => {
-                    return Err(VthaError::SyntaxError(
-                        SyntaxError::ExpectedToken {},
-                    ));
-                }
-            }
-        }
-    }
-
-    fn take_atom_string(
-        &mut self,
-    ) -> Result<Atom, VthaError> {
-        Ok(Atom::String(self.to_string()))
-    }
-
-    fn take_atom_num(&mut self) -> Result<Atom, VthaError> {
-        take(self, |s| {
-            let n = u8::from_str_radix(s, 16).unwrap();
-            Atom::Num(n)
-        })
-    }
-
-    fn take_atom_note(
-        &mut self,
-    ) -> Result<Atom, VthaError> {
-        take(self, |s| {
-            let n = MIDI_NOTES.get(s).unwrap_or(&0).clone();
-            Atom::Note(n)
-        })
-    }
-}
-
-fn take(
-    s: &mut &str,
-    to_atom: fn(&str) -> Atom,
-) -> Result<Atom, VthaError> {
-    let token = s.peek_next();
-
-    if token.filter(|t| t.is_function()).is_some() {
-        function(s)
-    } else {
-        let token = s.next_token();
-
-        match token {
-            Some(token) => Ok(to_atom(token)),
-            None => {
-                return Err(VthaError::SyntaxError(
-                    SyntaxError::ExpectedToken {},
-                ));
-            }
-        }
-    }
-}
-
 fn ident<'a>(s: &mut &str) -> Result<Atom, VthaError> {
-    let param = s.take_atom_string()?;
+    let param = s.take().map(|s| s.as_string())?;
     Ok(Atom::Function(Box::new(Function::Ident(param))))
 }
 
+// match self {
+//     Some(token) => Ok(atomizer(self)),
+//     None => {
+//         return Err(VthaError::SyntaxError(
+//             SyntaxError::ExpectedToken {},
+//         ));
+//     }
+// }
+
 // channel, velocity, note
 fn play(s: &mut &str) -> Result<Atom, VthaError> {
-    let ch = s.take(1).to_atom_num()?;
+    let ch = s.take_count(1).to_atom_num()?;
 
     let ch = s.take_atom_num()?;
     let vel = s.take_atom_num()?;
