@@ -1,16 +1,18 @@
 #![allow(unused_imports)]
 
+use tracing::error;
 use tracing::info;
 
 use crate::empty_list;
 use crate::Atom;
 use crate::Expression;
 use crate::Function;
+use crate::Glyph;
 use crate::SyntaxError;
 use crate::VthaError;
+use crate::MIDI_NOTES;
 
-const OPEN_LIST: [char; 4] = ['(', '{', '[', '<'];
-const CLOSE_LIST: [char; 4] = [')', '}', ']', '>'];
+const FUNCTIONS: [&str; 2] = ["pl", "id"];
 
 // ///
 // ///
@@ -66,253 +68,159 @@ const CLOSE_LIST: [char; 4] = [')', '}', ']', '>'];
 /// e.g.
 ///
 fn function(s: &mut &str) -> Result<Atom, VthaError> {
-    if s.len() < 2 {
-        return Err(VthaError::SyntaxError(
-            SyntaxError::UnknownFunction {
-                f: s.to_string(),
-            },
-        ));
-    }
-
-    let (first_two, rest) = s.split_at(2);
-    *s = rest;
+    let token = s.next_token();
 
     let f: fn(&mut &str) -> Result<Atom, VthaError> =
-        match first_two {
-            "pl" => play,
-            "id" => ident,
-            _ => {
+        match token {
+            Some("pl") => play,
+            Some("id") => ident,
+            Some(&_) => todo!(),
+            None => {
                 return Err(VthaError::SyntaxError(
                     SyntaxError::UnknownFunction {
-                        f: first_two.to_string(),
+                        f: s.to_string(),
                     },
                 ))
             }
         };
 
     f(s)
-    // Now you can use first_two and call the next function with s
-    // For example:
-    // let result = next_function(s);
+}
 
-    // OK
+enum Either {
+    Atom(Atom),
+    Token(&str),
+}
 
-    // "pl" => play,
-    // "id" => ident,
+pub trait Token {
+    // fn next_token(&mut self) -> Option<&str>;
 
-    // OK
+    // fn peek_next(&mut self) -> Option<&str>;
+
+    fn is_function(self) -> bool;
+
+    fn take(
+        &mut self,
+        count: u8,
+    ) -> Result<Atom, VthaError>;
+
+    fn take_atom_string(
+        &mut self,
+    ) -> Result<Atom, VthaError>;
+
+    fn take_atom_num(&mut self) -> Result<Atom, VthaError>;
+
+    fn take_atom_note(&mut self)
+        -> Result<Atom, VthaError>;
+}
+
+#[inline(always)]
+fn next_token(s: &mut &str, count: u8) -> Option<&str> {
+    match s.len() {
+        0 | 1 => None,
+        _ => {
+            let (next_token, rest) = s.split_at(count);
+            *s = rest;
+            Some(next_token)
+        }
+    }
+}
+
+#[inline(always)]
+fn peek_next(s: &mut &str) -> Option<&str> {
+    match s.len() {
+        0 | 1 => None,
+        _ => {
+            let (next_token, _) = s.split_at(2);
+            Some(next_token)
+        }
+    }
+}
+
+impl Token for &str {
+    fn is_function(self) -> bool {
+        match self {
+            "pl" | "id" => true,
+            _ => false,
+        }
+    }
+
+    fn take(&mut self, count: u8) -> Option<&str> {
+        let token = peek_next(self);
+
+        if token.filter(|t| t.is_function()).is_some() {
+            function(s)
+        } else {
+            let token = next_token(self, count);
+
+            match token {
+                Some(token) => Ok(to_atom(token)),
+                None => {
+                    return Err(VthaError::SyntaxError(
+                        SyntaxError::ExpectedToken {},
+                    ));
+                }
+            }
+        }
+    }
+
+    fn take_atom_string(
+        &mut self,
+    ) -> Result<Atom, VthaError> {
+        Ok(Atom::String(self.to_string()))
+    }
+
+    fn take_atom_num(&mut self) -> Result<Atom, VthaError> {
+        take(self, |s| {
+            let n = u8::from_str_radix(s, 16).unwrap();
+            Atom::Num(n)
+        })
+    }
+
+    fn take_atom_note(
+        &mut self,
+    ) -> Result<Atom, VthaError> {
+        take(self, |s| {
+            let n = MIDI_NOTES.get(s).unwrap_or(&0).clone();
+            Atom::Note(n)
+        })
+    }
+}
+
+fn take(
+    s: &mut &str,
+    to_atom: fn(&str) -> Atom,
+) -> Result<Atom, VthaError> {
+    let token = s.peek_next();
+
+    if token.filter(|t| t.is_function()).is_some() {
+        function(s)
+    } else {
+        let token = s.next_token();
+
+        match token {
+            Some(token) => Ok(to_atom(token)),
+            None => {
+                return Err(VthaError::SyntaxError(
+                    SyntaxError::ExpectedToken {},
+                ));
+            }
+        }
+    }
 }
 
 fn ident<'a>(s: &mut &str) -> Result<Atom, VthaError> {
-    // Get the next two characters
-    let (next_two, _) = s.split_at(2);
-
-    // If the next two characters are a function, parse function
-    // else parse the parameter
-    let param: Atom = if is_function(next_two) {
-        info!("next {:?}", next_two);
-        function(s)?
-    } else {
-        let (next, rest) = s.split_at(1);
-        info!("next {:?}", next);
-        *s = rest;
-
-        Atom::String(next.to_string())
-    };
-
+    let param = s.take_atom_string()?;
     Ok(Atom::Function(Box::new(Function::Ident(param))))
-}
-
-fn is_function(s: &str) -> bool {
-    let functions = ["pl", "id"];
-    functions.contains(&s)
-}
-
-fn parameter(
-    s: &mut &str,
-    len: usize,
-) -> Result<Atom, VthaError> {
-    // Get the next two characters
-    let (next_two, _) = s.split_at(2);
-
-    // If the next two characters are a function, parse function
-    // else parse the parameter
-    if is_function(next_two) {
-        info!("next {:?}", next_two);
-        function(s)
-    } else {
-        let (next, rest) = s.split_at(len);
-        info!("next {:?}", next);
-        *s = rest;
-
-        Ok(Atom::Num(0))
-        // let ch = u8::from_str_radix(next, 16).unwrap();
-        // Atom::Num(ch)
-    }
 }
 
 // channel, velocity, note
 fn play(s: &mut &str) -> Result<Atom, VthaError> {
-    use std::collections::HashMap;
+    let ch = s.take(1).to_atom_num()?;
 
-    let note_to_midi: HashMap<&str, u8> = [
-        ("A0", 21),
-        ("a0", 22),
-        ("B0", 23),
-        ("C1", 24),
-        ("c1", 25),
-        ("D1", 26),
-        ("d1", 27),
-        ("E1", 28),
-        ("F1", 29),
-        ("f1", 30),
-        ("G1", 31),
-        ("g1", 32),
-        ("A1", 33),
-        ("a1", 34),
-        ("B1", 35),
-        ("C2", 36),
-        ("c2", 37),
-        ("D2", 38),
-        ("d2", 39),
-        ("E2", 40),
-        ("F2", 41),
-        ("f2", 42),
-        ("G2", 43),
-        ("g2", 44),
-        ("A2", 45),
-        ("a2", 46),
-        ("B2", 47),
-        ("C3", 48),
-        ("c3", 49),
-        ("D3", 50),
-        ("d3", 51),
-        ("E3", 52),
-        ("F3", 53),
-        ("f3", 54),
-        ("G3", 55),
-        ("g3", 56),
-        ("A3", 57),
-        ("a3", 58),
-        ("B3", 59),
-        ("C4", 60),
-        ("c4", 61),
-        ("D4", 62),
-        ("d4", 63),
-        ("E4", 64),
-        ("F4", 65),
-        ("f4", 66),
-        ("G4", 67),
-        ("g4", 68),
-        ("A4", 69),
-        ("a4", 70),
-        ("B4", 71),
-        ("C5", 72),
-        ("c5", 73),
-        ("D5", 74),
-        ("d5", 75),
-        ("E5", 76),
-        ("F5", 77),
-        ("f5", 78),
-        ("G5", 79),
-        ("g5", 80),
-        ("A5", 81),
-        ("a5", 82),
-        ("B5", 83),
-        ("C6", 84),
-        ("c6", 85),
-        ("D6", 86),
-        ("d6", 87),
-        ("E6", 88),
-        ("F6", 89),
-        ("d6", 90),
-        ("G6", 91),
-        ("g6", 92),
-        ("A6", 93),
-        ("a6", 94),
-        ("B6", 95),
-        ("C7", 96),
-        ("c7", 97),
-        ("D7", 98),
-        ("d7", 99),
-        ("E7", 100),
-        ("F7", 101),
-        ("f7", 102),
-        ("G7", 103),
-        ("g7", 104),
-        ("A7", 105),
-        ("a7", 106),
-        ("B7", 107),
-        ("C8", 108),
-        ("c8", 109),
-        ("D8", 110),
-        ("d8", 111),
-        ("E8", 112),
-        ("F8", 113),
-        ("f8", 114),
-        ("G8", 115),
-        ("g8", 116),
-        ("A8", 117),
-        ("a8", 118),
-        ("B8", 119),
-        ("C9", 120),
-        ("c9", 121),
-        ("D9", 122),
-        ("d9", 123),
-        ("E9", 124),
-        ("F9", 125),
-        ("f9", 126),
-        ("G9", 127),
-    ]
-    .iter()
-    .cloned()
-    .collect();
-
-    // Get the next two characters
-    let (next_two, _) = s.split_at(2);
-
-    // If the next two characters are a function, parse function
-    // else parse the parameter
-    let ch: Atom = if is_function(next_two) {
-        info!("next {:?}", next_two);
-        function(s)?
-    } else {
-        let (next, rest) = s.split_at(1);
-        info!("next {:?}", next);
-        *s = rest;
-        let ch = u8::from_str_radix(next, 16).unwrap();
-        Atom::Num(ch)
-    };
-
-    // and repeat
-    let (next_two, _) = s.split_at(2);
-
-    let vel: Atom = if is_function(next_two) {
-        info!("next {:?}", next_two);
-        function(s)?
-    } else {
-        let (next, rest) = s.split_at(2);
-        info!("next {:?}", next);
-        *s = rest;
-        let vel = u8::from_str_radix(next, 16).unwrap();
-        Atom::Num(vel)
-    };
-
-    let (next_two, _) = s.split_at(2);
-
-    let note: Atom = if is_function(next_two) {
-        info!("next {:?}", next_two);
-        function(s)?
-    } else {
-        let (next, rest) = s.split_at(2);
-        info!("next {:?}", next);
-        *s = rest;
-
-        let note =
-            note_to_midi.get(next).unwrap_or(&0).clone();
-
-        Atom::Num(note)
-    };
+    let ch = s.take_atom_num()?;
+    let vel = s.take_atom_num()?;
+    let note = s.take_atom_note()?;
 
     Ok(Atom::Function(Box::new(Function::Play(
         ch, vel, note,
@@ -322,12 +230,15 @@ fn play(s: &mut &str) -> Result<Atom, VthaError> {
 #[cfg(test)]
 mod test {
 
+    use tracing::info;
+
     use crate::{
-        list, parser::function, Atom, Expression, Function,
+        list,
+        parser::{function, Token},
+        Atom, Expression, Function,
     };
 
-    #[test]
-    fn test_parse_function() {
+    fn trace() {
         use tracing_subscriber::FmtSubscriber;
 
         let subscriber = FmtSubscriber::builder()
@@ -336,21 +247,46 @@ mod test {
 
         tracing::subscriber::set_global_default(subscriber)
             .expect("setting default subscriber failed");
+    }
+    #[test]
+    fn test_parse_id_function() {
+        trace();
 
-        let mut s = "plidAFFC4";
+        let mut s = "idAA";
+        let ast = function(&mut s);
+        info!("{:?}", ast);
+
+        let expected = Atom::Function(Box::new(
+            Function::Ident(Atom::String("AA".to_string())),
+        ));
+        // assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_function() {
+        let mut s = "pl010AC4";
         let ast = function(&mut s).unwrap();
 
-        let id = Atom::Function(Box::new(Function::Ident(
-            Atom::String("A".to_string()),
-        )));
         let expected =
             Atom::Function(Box::new(Function::Play(
-                id,
-                Atom::Num(255),
-                Atom::Num(60),
+                Atom::Num(1),
+                Atom::Num(10),
+                Atom::Note(60),
             )));
 
         assert_eq!(ast, expected);
+
+        // let id = Atom::Function(Box::new(Function::Ident(
+        //     Atom::String("A".to_string()),
+        // )));
+        // let expected =
+        //     Atom::Function(Box::new(Function::Play(
+        //         id,
+        //         Atom::Num(255),
+        //         Atom::Num(60),
+        //     )));
+
+        // assert_eq!(ast, expected);
 
         // let mut s = "plAFFC4";
         // let ast = parse_function(&mut s).unwrap();
@@ -359,16 +295,21 @@ mod test {
         // assert_eq!(ast, expected);
     }
 
-    // #[test]
-    // fn test_parse_nested_functions() {
-    //     let mut s = "x y";
-    //     let ast = parse(&mut s).unwrap();
-    //     let expected = Expression::Function(
-    //         Function::X,
-    //         Atom::Char('y'),
-    //     );
-    //     assert_eq!(ast, expected);
-    // }
+    #[test]
+    fn test_next_token() {
+        trace();
+        let mut s = "xy";
+        let s = s.next_token().unwrap();
+        assert_eq!(s, "xy");
+
+        let mut s = "x";
+        let s = s.next_token();
+        assert_eq!(s, None);
+
+        let mut s = "";
+        let s = s.next_token();
+        assert_eq!(s, None);
+    }
 
     // #[test]
     // fn test_parse_atom_list() {
