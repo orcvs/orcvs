@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+enum_dispatch = "0.3.13"
 lazy_static = "1.4.0"
 # miette = { version = "7.2.0", features = ["fancy"] }
 # miette = { version = "7.2.0" }
 thiserror = "1.0.58"
 # tinyvec = "1.6.0"
-tracing = "0.1.40"
+# tracing = "0.1.40"
+tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = "0.3.18"
 # winnow = { version = "0.6" }

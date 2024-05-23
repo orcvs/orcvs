@@ -204,52 +204,37 @@ impl From<&str> for Glyph {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct Play {
-    pub channel: u8,
-    pub velocity: u8,
-    pub note: String,
-}
+// #[derive(Debug, Eq, PartialEq, Clone)]
+// pub struct Play {
+//     pub channel: u8,
+//     pub velocity: u8,
+//     pub note: String,
+// }
 
-impl Play {
-    pub fn new(
-        channel: u8,
-        note: String,
-        velocity: u8,
-    ) -> Play {
-        Play {
-            channel,
-            note,
-            velocity,
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum Expression {
-    Function(Function, Atom),
-    Play(Play),
-}
+// impl Play {
+//     pub fn new(channel: u8, note: String, velocity: u8) -> Play {
+//         Play {
+//             channel,
+//             note,
+//             velocity,
+//         }
+//     }
+// }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Atom {
     Function(Box<Function>),
-    Char(char),
-    Hex(char),
     Num(u8),
     Note(u8),
-    List(Vec<Atom>),
     String(String),
+    // Char(char),
+    // Hex(char),
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Function {
     Play(Atom, Atom, Atom),
-    Take,
-    End,
     Ident(Atom),
-    X,
-    Y,
 }
 
 // impl fmt::Display for Function {
@@ -279,7 +264,7 @@ pub enum Function {
 // }
 
 lazy_static! {
-    static ref MIDI_NOTES: HashMap<&'static str, u8> = {
+    static ref MIDI_NOTE_TO_NUMBER: HashMap<&'static str, u8> = {
         let mut m = HashMap::new();
         m.insert("A0", 21);
         m.insert("a0", 22);
@@ -392,6 +377,120 @@ lazy_static! {
     };
 }
 
+lazy_static! {
+    static ref MIDI_NUMBER_TO_NOTE: HashMap<u8, &'static str> = {
+        let mut m = HashMap::new();
+        m.insert(21, "A0");
+        m.insert(22, "a0");
+        m.insert(23, "B0");
+        m.insert(24, "C1");
+        m.insert(25, "c1");
+        m.insert(26, "D1");
+        m.insert(27, "d1");
+        m.insert(28, "E1");
+        m.insert(29, "F1");
+        m.insert(30, "f1");
+        m.insert(31, "G1");
+        m.insert(32, "g1");
+        m.insert(33, "A1");
+        m.insert(34, "a1");
+        m.insert(35, "B1");
+        m.insert(36, "C2");
+        m.insert(37, "c2");
+        m.insert(38, "D2");
+        m.insert(39, "d2");
+        m.insert(40, "E2");
+        m.insert(41, "F2");
+        m.insert(42, "f2");
+        m.insert(43, "G2");
+        m.insert(44, "g2");
+        m.insert(45, "A2");
+        m.insert(46, "a2");
+        m.insert(47, "B2");
+        m.insert(48, "C3");
+        m.insert(49, "c3");
+        m.insert(50, "D3");
+        m.insert(51, "d3");
+        m.insert(52, "E3");
+        m.insert(53, "F3");
+        m.insert(54, "f3");
+        m.insert(55, "G3");
+        m.insert(56, "g3");
+        m.insert(57, "A3");
+        m.insert(58, "a3");
+        m.insert(59, "B3");
+        m.insert(60, "C4");
+        m.insert(61, "c4");
+        m.insert(62, "D4");
+        m.insert(63, "d4");
+        m.insert(64, "E4");
+        m.insert(65, "F4");
+        m.insert(66, "f4");
+        m.insert(67, "G4");
+        m.insert(68, "g4");
+        m.insert(69, "A4");
+        m.insert(70, "a4");
+        m.insert(71, "B4");
+        m.insert(72, "C5");
+        m.insert(73, "c5");
+        m.insert(74, "D5");
+        m.insert(75, "d5");
+        m.insert(76, "E5");
+        m.insert(77, "F5");
+        m.insert(78, "f5");
+        m.insert(79, "G5");
+        m.insert(80, "g5");
+        m.insert(81, "A5");
+        m.insert(82, "a5");
+        m.insert(83, "B5");
+        m.insert(84, "C6");
+        m.insert(85, "c6");
+        m.insert(86, "D6");
+        m.insert(87, "d6");
+        m.insert(88, "E6");
+        m.insert(89, "F6");
+        m.insert(90, "d6");
+        m.insert(91, "G6");
+        m.insert(92, "g6");
+        m.insert(93, "A6");
+        m.insert(94, "a6");
+        m.insert(95, "B6");
+        m.insert(96, "C7");
+        m.insert(97, "c7");
+        m.insert(98, "D7");
+        m.insert(99, "d7");
+        m.insert(100, "E7");
+        m.insert(101, "F7");
+        m.insert(102, "f7");
+        m.insert(103, "G7");
+        m.insert(104, "g7");
+        m.insert(105, "A7");
+        m.insert(106, "a7");
+        m.insert(107, "B7");
+        m.insert(108, "C8");
+        m.insert(109, "c8");
+        m.insert(110, "D8");
+        m.insert(111, "d8");
+        m.insert(112, "E8");
+        m.insert(113, "F8");
+        m.insert(114, "f8");
+        m.insert(115, "G8");
+        m.insert(116, "g8");
+        m.insert(117, "A8");
+        m.insert(118, "a8");
+        m.insert(119, "B8");
+        m.insert(120, "C9");
+        m.insert(121, "c9");
+        m.insert(122, "D9");
+        m.insert(123, "d9");
+        m.insert(124, "E9");
+        m.insert(125, "F9");
+        m.insert(126, "f9");
+        m.insert(127, "G9");
+        m
+    };
+}
+
 #[derive(Error, Debug)]
 pub enum VthaError {
     #[error(transparent)]
@@ -423,24 +522,12 @@ pub enum ArgumentError {
     Arity { expected: usize, found: usize },
 
     #[error("{0:?} should be a number")]
-    NumberExpected(&'static str),
+    NumberExpected(String),
 
     #[error("{0:?} should be a string")]
-    StringExpected(&'static str),
+    StringExpected(String),
+
+    #[error("{0:?} should be a note")]
+    NoteExpected(String),
 }
 // #[diagnostic(code(ArgumentError), url("https://my_website.com/error"))]
-
-#[macro_export]
-macro_rules! list {
-    ($($x:expr),*) => {
-        Atom::List(vec![$($x),*])
-        // Atom::List(array_vec![$($x),*])
-    };
-}
-
-#[macro_export]
-macro_rules! empty_list {
-    () => {
-        Atom::List(vec![])
-    };
-}

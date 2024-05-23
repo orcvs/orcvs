@@ -1,18 +1,15 @@
 #![allow(unused_imports)]
 
-use tracing::error;
-use tracing::info;
-
-use crate::empty_list;
+use crate::ArgumentError;
 use crate::Atom;
-use crate::Expression;
 use crate::Function;
 use crate::Glyph;
 use crate::SyntaxError;
 use crate::VthaError;
-use crate::MIDI_NOTES;
-
-const FUNCTIONS: [&str; 2] = ["pl", "id"];
+use crate::MIDI_NOTE_TO_NUMBER;
+use crate::MIDI_NUMBER_TO_NOTE;
+use tracing::error;
+use tracing::info;
 
 // ///
 // ///
@@ -57,7 +54,7 @@ const FUNCTIONS: [&str; 2] = ["pl", "id"];
 // ///     2 3
 // ///     _
 // ///   _
-// ///
+// //
 // ///
 // /// ` ` `
 // ///
@@ -67,115 +64,150 @@ const FUNCTIONS: [&str; 2] = ["pl", "id"];
 /// Parses literal function identifiers
 /// e.g.
 ///
-fn function(s: &mut &str) -> Result<Atom, VthaError> {
-    let token = s.take();
+fn function<'a, 'b: 'a>(
+    s: &'a mut &'b str,
+) -> Result<Atom, VthaError> {
+    let token = next_token(s, 2);
 
-    let f: fn(&mut &str) -> Result<Atom, VthaError> =
-        match token {
-            Some("pl") => play,
-            Some("id") => ident,
-            Some(&_) => todo!(),
-            None => {
-                return Err(VthaError::SyntaxError(
-                    SyntaxError::UnknownFunction {
-                        f: s.to_string(),
-                    },
-                ))
-            }
-        };
-
+    let f: fn(&mut &str) -> Result<Atom, VthaError> = match token {
+        Some("pl") => play,
+        Some("id") => ident,
+        Some(&_) => todo!(),
+        None => {
+            return Err(VthaError::SyntaxError(
+                SyntaxError::ExpectedToken {},
+            ));
+        }
+    };
+    info!("Function {:?}", token);
+    info!("Params {:?}", s);
     f(s)
 }
 
-// enum Either {
-//     Atom(Atom),
-//     Token(&str),
-// }
+impl Atom {
+    fn into_string(self) -> Result<Atom, VthaError> {
+        match self {
+            Atom::String(s) => Ok(Atom::String(s)),
+            Atom::Num(n) => {
+                let s = format!("{:X}", n);
+                Ok(Atom::String(s))
+            }
+            Atom::Note(n) => match MIDI_NUMBER_TO_NOTE.get(&n) {
+                Some(s) => Ok(Atom::String(s.to_string())),
+                None => {
+                    let s = n.to_string();
+                    Err(ArgumentError::StringExpected(s).into())
+                }
+            },
+            Atom::Function(_) => Ok(self),
+            _ => Err(VthaError::SyntaxError(
+                SyntaxError::ExpectedToken {},
+            )),
+        }
+    }
 
-pub trait Token {
-    // fn next_token(&mut self) -> Option<&str>;
+    fn into_num(self) -> Result<Atom, VthaError> {
+        match self {
+            Atom::String(s) => match u8::from_str_radix(&s, 16) {
+                Ok(n) => Ok(Atom::Num(n)),
+                Err(_) => {
+                    Err(ArgumentError::NumberExpected(s).into())
+                }
+            },
+            Atom::Num(_) => Ok(self.clone()),
+            Atom::Note(n) => Ok(Atom::Num(n)),
+            Atom::Function(_) => Ok(self),
+            _ => Err(VthaError::SyntaxError(
+                SyntaxError::ExpectedToken {},
+            )),
+        }
+    }
 
-    // fn peek_next(&mut self) -> Option<&str>;
-
-    fn is_function(self) -> bool;
-
-    fn take_count(&mut self, count: usize) -> Option<&str>;
-
-    fn take(&mut self) -> Option<&str>;
-
-    fn to_atom(
-        &mut self,
-        atomizer: fn(&str) -> Atom,
-    ) -> Result<Atom, VthaError>;
-
-    fn as_string(&mut self) -> Result<Atom, VthaError>;
-
-    fn as_num(&mut self) -> Result<Atom, VthaError>;
-
-    fn as_note(&mut self) -> Result<Atom, VthaError>;
+    fn into_note(self) -> Result<Atom, VthaError> {
+        match self {
+            Atom::String(s) => {
+                match MIDI_NOTE_TO_NUMBER.get(s.as_str()) {
+                    Some(n) => Ok(Atom::Note(n.clone())),
+                    None => {
+                        Err(ArgumentError::NoteExpected(s).into())
+                    }
+                }
+            }
+            Atom::Num(n) => Ok(Atom::Note(n)),
+            Atom::Note(_) => Ok(self.clone()),
+            Atom::Function(_) => Ok(self),
+            _ => Err(VthaError::SyntaxError(
+                SyntaxError::ExpectedToken {},
+            )),
+        }
+    }
 }
 
-impl Token for &str {
-    fn is_function(self) -> bool {
-        match self {
+pub trait Token<'a> {
+    fn is_function(&'a self) -> bool;
+
+    fn take_count(
+        &'a mut self,
+        count: usize,
+    ) -> Result<Atom, VthaError>;
+
+    fn take(&'a mut self) -> Result<Atom, VthaError>;
+}
+
+impl<'a, 'b: 'a> Token<'a> for &'b str {
+    fn is_function(&'a self) -> bool {
+        match *self {
             "pl" | "id" => true,
             _ => false,
         }
     }
 
-    fn take_count(&mut self, count: usize) -> Option<&str> {
+    fn take_count(
+        &'a mut self,
+        count: usize,
+    ) -> Result<Atom, VthaError> {
         let token = peek_next(self);
 
         if token.filter(|t| t.is_function()).is_some() {
-            next_token(self, 2)
-        } else {
-            next_token(self, count)
-        }
-    }
-
-    fn take(&mut self) -> Option<&str> {
-        self.take_count(2)
-    }
-
-    fn to_atom(
-        &mut self,
-        atomizer: fn(&str) -> Atom,
-    ) -> Result<Atom, VthaError> {
-        if self.is_function() {
+            info!("is_function {:?}", token);
+            // Always Some because we peeked
+            // let mut t = next_token(self, 2).unwrap();
             function(self)
         } else {
-            Ok(atomizer(self))
+            let t = next_token(self, count);
+            info!("take_count {:?}", t);
+            match t {
+                Some(t) => {
+                    error!("take_count {:?}", t);
+                    let s = t.to_string();
+                    error!("take_count {:?}", s);
+                    Ok(Atom::String(t.to_string()))
+                }
+                None => {
+                    return Err(VthaError::SyntaxError(
+                        SyntaxError::ExpectedToken {},
+                    ));
+                }
+            }
         }
     }
 
-    fn as_string(&mut self) -> Result<Atom, VthaError> {
-        self.to_atom(|s| Atom::String(s.to_string()))
-    }
-
-    fn as_num(&mut self) -> Result<Atom, VthaError> {
-        self.to_atom(|s| {
-            let n = u8::from_str_radix(s, 16).unwrap();
-            Atom::Num(n)
-        })
-    }
-
-    fn as_note(&mut self) -> Result<Atom, VthaError> {
-        self.to_atom(|s| {
-            let n = MIDI_NOTES.get(s).unwrap_or(&0).clone();
-            Atom::Note(n)
-        })
+    fn take(&mut self) -> Result<Atom, VthaError> {
+        self.take_count(2)
     }
 }
 
 #[inline(always)]
-fn next_token<'a>(
-    s: &'a mut &'a str,
+fn next_token<'a, 'b>(
+    s: &'a mut &'b str,
     count: usize,
-) -> Option<&str> {
+) -> Option<&'b str> {
+    info!("next_token {:?}", s);
     match s.len() {
         0 | 1 => None,
         _ => {
             let (next_token, rest) = s.split_at(count);
+            info!("next_token {:?}", next_token);
             *s = rest;
             Some(next_token)
         }
@@ -183,10 +215,11 @@ fn next_token<'a>(
 }
 
 #[inline(always)]
-fn peek_next<'a>(s: &'a mut &'a str) -> Option<&str> {
+fn peek_next<'a>(s: &'a str) -> Option<&str> {
     match s.len() {
         0 | 1 => None,
         _ => {
+            info!("peek_next {:?}", s);
             let (next_token, _) = s.split_at(2);
             Some(next_token)
         }
@@ -194,41 +227,32 @@ fn peek_next<'a>(s: &'a mut &'a str) -> Option<&str> {
 }
 
 fn ident<'a>(s: &mut &str) -> Result<Atom, VthaError> {
-    let param = s.take().map(|s| s.as_string())?;
+    info!("Ident {:?}", s);
+    let param = s.take()?;
+    info!("Param {:?}", param);
+    // Ok(Atom::Function(Box::new(Function::Ident(Atom::String(
+    //     "ok".to_string(),
+    // )))))
     Ok(Atom::Function(Box::new(Function::Ident(param))))
 }
 
-// match self {
-//     Some(token) => Ok(atomizer(self)),
-//     None => {
-//         return Err(VthaError::SyntaxError(
-//             SyntaxError::ExpectedToken {},
-//         ));
-//     }
-// }
-
 // channel, velocity, note
-fn play(s: &mut &str) -> Result<Atom, VthaError> {
-    let ch = s.take_count(1).to_atom_num()?;
+fn play<'a>(s: &mut &str) -> Result<Atom, VthaError> {
+    let ch = s.take_count(1)?.into_num()?;
+    let vel = s.take()?.into_num()?;
+    let note = s.take()?.into_note()?;
 
-    let ch = s.take_atom_num()?;
-    let vel = s.take_atom_num()?;
-    let note = s.take_atom_note()?;
-
-    Ok(Atom::Function(Box::new(Function::Play(
-        ch, vel, note,
-    ))))
+    Ok(Atom::Function(Box::new(Function::Play(ch, vel, note))))
 }
 
 #[cfg(test)]
 mod test {
 
-    use tracing::info;
+    use tracing::{error, info};
 
     use crate::{
-        list,
         parser::{function, Token},
-        Atom, Expression, Function,
+        ArgumentError, Atom, Function,
     };
 
     fn trace() {
@@ -236,6 +260,8 @@ mod test {
 
         let subscriber = FmtSubscriber::builder()
             .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
+            .with_line_number(true)
+            .with_target(true)
             .finish();
 
         tracing::subscriber::set_global_default(subscriber)
@@ -246,26 +272,42 @@ mod test {
         trace();
 
         let mut s = "idAA";
-        let ast = function(&mut s);
-        info!("{:?}", ast);
+        let ast = function(&mut s).unwrap();
+        // info!("{:?}", ast);
 
-        let expected = Atom::Function(Box::new(
-            Function::Ident(Atom::String("AA".to_string())),
-        ));
-        // assert_eq!(ast, expected);
+        let expected = Atom::Function(Box::new(Function::Ident(
+            Atom::String("AA".to_string()),
+        )));
+
+        assert_eq!(ast, expected);
     }
 
     #[test]
     fn test_parse_function() {
-        let mut s = "pl010AC4";
+        trace();
+        // let mut s = "pl10AC4";
+        // let ast = function(&mut s).unwrap();
+
+        // let expected = Atom::Function(Box::new(Function::Play(
+        //     Atom::Num(1),
+        //     Atom::Num(10),
+        //     Atom::Note(60),
+        // )));
+
+        // assert_eq!(ast, expected);
+
+        let mut s = "plidXY0AC4";
         let ast = function(&mut s).unwrap();
 
-        let expected =
-            Atom::Function(Box::new(Function::Play(
-                Atom::Num(1),
-                Atom::Num(10),
-                Atom::Note(60),
-            )));
+        let id = Atom::Function(Box::new(Function::Ident(
+            Atom::String("XY".to_string()),
+        )));
+
+        let expected = Atom::Function(Box::new(Function::Play(
+            id,
+            Atom::Num(10),
+            Atom::Note(60),
+        )));
 
         assert_eq!(ast, expected);
 
@@ -289,19 +331,59 @@ mod test {
     }
 
     #[test]
+    fn test_atom_into() {
+        trace();
+
+        let num = Atom::Num(60);
+        let str = Atom::String("3C".to_string());
+        let note = Atom::Note(60);
+
+        assert_eq!(num, num.clone().into_num().unwrap());
+        assert_eq!(num, str.into_num().unwrap());
+        assert_eq!(num, note.into_num().unwrap());
+
+        let str = Atom::String("C4".to_string());
+        let note = Atom::Note(60);
+        assert_eq!(str, str.clone().into_string().unwrap());
+        assert_eq!(str, note.into_string().unwrap());
+
+        // Numbers convert to string literally, not as note value
+        let str = Atom::String("A".to_string());
+        let num = Atom::Num(10);
+        assert_eq!(str, num.into_string().unwrap());
+
+        let num = Atom::Num(60);
+        let str = Atom::String("C4".to_string());
+        let note = Atom::Note(60);
+
+        assert_eq!(note, note.clone().into_note().unwrap());
+        assert_eq!(note, str.into_note().unwrap());
+        assert_eq!(note, num.into_note().unwrap());
+
+        let str = Atom::String("XYZ".to_string());
+        str.into_note().expect_err("Expected error");
+
+        let str = Atom::String("XYZ".to_string());
+        str.into_num().expect_err("Expected error");
+
+        let str = Atom::String("CA".to_string());
+        str.into_note().expect_err("Expected error");
+    }
+
+    #[test]
     fn test_next_token() {
         trace();
-        let mut s = "xy";
-        let s = s.next_token().unwrap();
-        assert_eq!(s, "xy");
+        // let mut s = "xy";
+        // let s = next_token(s).unwrap();
+        // assert_eq!(s, "xy");
 
-        let mut s = "x";
-        let s = s.next_token();
-        assert_eq!(s, None);
+        // let mut s = "x";
+        // let s = next_token(s).unwrap();
+        // assert_eq!(s, None);
 
-        let mut s = "";
-        let s = s.next_token();
-        assert_eq!(s, None);
+        // let mut s = "";
+        // let s = next_token(s).unwrap();
+        // assert_eq!(s, None);
     }
 
     // #[test]
