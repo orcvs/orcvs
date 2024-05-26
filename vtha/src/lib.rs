@@ -1,14 +1,18 @@
-mod ast;
+mod eval;
 mod parser;
-
-// use std::fmt;
 
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
+use std::fmt;
+use std::sync::Once;
+
+use thiserror::Error;
 // use miette::diagnostic;
 // use miette::Diagnostic;
-use thiserror::Error;
+
+pub use eval::eval;
+pub use parser::parse;
 
 ///
 /// play channel octave note velocity
@@ -19,211 +23,10 @@ use thiserror::Error;
 ///  x (y 1 2 3) 4
 ///
 
-// Glyph Enum with an option for all alphanumeric characters
-#[allow(non_camel_case_types)]
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum Glyph {
-    _0,
-    _1,
-    _2,
-    _3,
-    _4,
-    _5,
-    _6,
-    _7,
-    _8,
-    _9,
-    A,
-    a,
-    B,
-    b,
-    C,
-    c,
-    D,
-    d,
-    E,
-    e,
-    F,
-    f,
-    G,
-    g,
-    H,
-    h,
-    I,
-    i,
-    J,
-    j,
-    K,
-    k,
-    L,
-    l,
-    M,
-    m,
-    N,
-    n,
-    O,
-    o,
-    P,
-    p,
-    Q,
-    q,
-    R,
-    r,
-    S,
-    s,
-    T,
-    t,
-    U,
-    u,
-    V,
-    v,
-    W,
-    w,
-    X,
-    x,
-    Y,
-    y,
-    Z,
-    z,
-    Unknown,
-}
-
-// Convert a Glyphe &str to a Glyph enum
-impl From<char> for Glyph {
-    fn from(c: char) -> Self {
-        match c {
-            '0' => Glyph::_0,
-            '1' => Glyph::_1,
-            '2' => Glyph::_2,
-            '3' => Glyph::_3,
-            '4' => Glyph::_4,
-            '5' => Glyph::_5,
-            '6' => Glyph::_6,
-            '7' => Glyph::_7,
-            '8' => Glyph::_8,
-            '9' => Glyph::_9,
-            'A' => Glyph::A,
-            'a' => Glyph::a,
-            'B' => Glyph::B,
-            'b' => Glyph::b,
-            'C' => Glyph::C,
-            'c' => Glyph::c,
-            'D' => Glyph::D,
-            'd' => Glyph::d,
-            'E' => Glyph::E,
-            'e' => Glyph::e,
-            'F' => Glyph::F,
-            'f' => Glyph::f,
-            'G' => Glyph::G,
-            'g' => Glyph::g,
-            'H' => Glyph::H,
-            'h' => Glyph::h,
-            'I' => Glyph::I,
-            'i' => Glyph::i,
-            'J' => Glyph::J,
-            'j' => Glyph::j,
-            'K' => Glyph::K,
-            'k' => Glyph::k,
-            'L' => Glyph::L,
-            'l' => Glyph::l,
-            'M' => Glyph::M,
-            'm' => Glyph::m,
-            'N' => Glyph::N,
-            'n' => Glyph::n,
-            'O' => Glyph::O,
-            'o' => Glyph::o,
-            'P' => Glyph::P,
-            'p' => Glyph::p,
-            'Q' => Glyph::Q,
-            'q' => Glyph::q,
-            'R' => Glyph::R,
-            'r' => Glyph::r,
-            'S' => Glyph::S,
-            's' => Glyph::s,
-            'T' => Glyph::T,
-            't' => Glyph::t,
-            'U' => Glyph::U,
-            'u' => Glyph::u,
-            'V' => Glyph::V,
-            'v' => Glyph::v,
-            'W' => Glyph::W,
-            'w' => Glyph::w,
-            'X' => Glyph::X,
-            'x' => Glyph::x,
-            'Y' => Glyph::Y,
-            'y' => Glyph::y,
-            'Z' => Glyph::Z,
-            'z' => Glyph::z,
-            _ => Glyph::Unknown,
-        }
-    }
-}
-
-// Convert a Glyphe &str to a Glyph enum
-impl From<&str> for Glyph {
-    fn from(s: &str) -> Self {
-        match s {
-            "0" => Glyph::_0,
-            "1" => Glyph::_1,
-            "2" => Glyph::_2,
-            "3" => Glyph::_3,
-            "4" => Glyph::_4,
-            "5" => Glyph::_5,
-            "6" => Glyph::_6,
-            "7" => Glyph::_7,
-            "8" => Glyph::_8,
-            "9" => Glyph::_9,
-            "A" => Glyph::A,
-            "B" => Glyph::B,
-            "C" => Glyph::C,
-            "D" => Glyph::D,
-            "E" => Glyph::E,
-            "F" => Glyph::F,
-            "G" => Glyph::G,
-            "H" => Glyph::H,
-            "I" => Glyph::I,
-            "J" => Glyph::J,
-            "K" => Glyph::K,
-            "L" => Glyph::L,
-            "M" => Glyph::M,
-            "N" => Glyph::N,
-            "O" => Glyph::O,
-            "P" => Glyph::P,
-            "Q" => Glyph::Q,
-            "R" => Glyph::R,
-            "S" => Glyph::S,
-            "T" => Glyph::T,
-            "U" => Glyph::U,
-            "V" => Glyph::V,
-            "W" => Glyph::W,
-            "X" => Glyph::X,
-            "Y" => Glyph::Y,
-            "Z" => Glyph::Z,
-            _ => Glyph::Unknown,
-        }
-    }
-}
-
-// #[derive(Debug, Eq, PartialEq, Clone)]
-// pub struct Play {
-//     pub channel: u8,
-//     pub velocity: u8,
-//     pub note: String,
-// }
-
-// impl Play {
-//     pub fn new(channel: u8, note: String, velocity: u8) -> Play {
-//         Play {
-//             channel,
-//             note,
-//             velocity,
-//         }
-//     }
-// }
-
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Atom {
     Function(Box<Function>),
+    // Function(&'a Function<'a>),
     Num(u8),
     Note(u8),
     String(String),
@@ -233,35 +36,118 @@ pub enum Atom {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Function {
-    Play(Atom, Atom, Atom),
+    Add(Atom, Atom),
     Ident(Atom),
+    Play(Atom, Atom, Atom),
+    Sub(Atom, Atom),
 }
 
-// impl fmt::Display for Function {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match *self {
-//             Function::Play(a, b, c) => {
-//                 write!(f, "Play {} {} {}", a, b, c)
-//             }
-//             Function::Take => write!(f, "Take"),
-//             Function::End => write!(f, "End"),
-//             Function::Ident(x) => write!(f, "Ident {}", x),
-//             Function::X => write!(f, "X"),
-//             Function::Y => write!(f, "Y"),
-//         }
-//     }
-// }
+impl From<&str> for Atom {
+    fn from(s: &str) -> Self {
+        Atom::String(s.to_owned())
+    }
+}
 
-// impl fmt::Display for Atom {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match *self {
-//             Atom::Num() => {
-//                 write!(f, "Play {} {} {}", a, b, c)
-//             }
+impl From<Function> for Atom {
+    fn from(f: Function) -> Self {
+        Atom::Function(Box::new(f))
+    }
+}
 
-//         }
-//     }
-// }
+impl From<u8> for Atom {
+    fn from(n: u8) -> Self {
+        Atom::Num(n)
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum VthaError {
+    #[error(transparent)]
+    // #[diagnostic(transparent)]
+    ArgumentError(#[from] ArgumentError),
+
+    #[error(transparent)]
+    // #[diagnostic(transparent)]
+    SyntaxError(#[from] SyntaxError),
+
+    #[error("{0:?}")]
+    EvalError(String),
+}
+
+#[derive(Error, Debug)]
+pub enum SyntaxError {
+    #[error("unknown function {f:?}")]
+    // #[diagnostic(code(SyntaxError))]
+    UnknownFunction { f: String },
+
+    #[error("expected token")]
+    ExpectedToken {},
+}
+
+#[derive(Error, Debug)]
+pub enum ArgumentError {
+    #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
+    // #[diagnostic(code(ArgumentError))]
+    Arity { expected: usize, found: usize },
+
+    #[error("{0:?} should be a number")]
+    NumberExpected(String),
+
+    #[error("{0:?} should be a string")]
+    StringExpected(String),
+
+    #[error("{0:?} should be a note")]
+    NoteExpected(String),
+}
+
+static INIT: Once = Once::new();
+
+fn trace() {
+    INIT.call_once(|| {
+        use tracing_subscriber::FmtSubscriber;
+
+        let subscriber = FmtSubscriber::builder()
+            .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
+            .with_line_number(true)
+            .with_target(true)
+            .finish();
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+    });
+}
+
+// #[diagnostic(code(ArgumentError), url("https://my_website.com/error"))]
+
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Function::Add(a, b) => {
+                write!(f, "Add {} {}", a, b)
+            }
+            Function::Sub(a, b) => {
+                write!(f, "Sub {} {}", a, b)
+            }
+            _ => write!(f, "Function"),
+        }
+    }
+}
+
+impl fmt::Display for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Atom::Num(n) => {
+                write!(f, "{}", n)
+            }
+            Atom::Note(n) => match MIDI_NUMBER_TO_NOTE.get(&n) {
+                Some(note) => write!(f, "{}", note),
+                None => write!(f, "{}", n),
+            },
+            Atom::String(ref s) => write!(f, "{}", s),
+            Atom::Function(ref func) => write!(f, "{}", func),
+        }
+    }
+}
 
 lazy_static! {
     static ref MIDI_NOTE_TO_NUMBER: HashMap<&'static str, u8> = {
@@ -490,44 +376,3 @@ lazy_static! {
         m
     };
 }
-
-#[derive(Error, Debug)]
-pub enum VthaError {
-    #[error(transparent)]
-    // #[diagnostic(transparent)]
-    ArgumentError(#[from] ArgumentError),
-
-    #[error(transparent)]
-    // #[diagnostic(transparent)]
-    SyntaxError(#[from] SyntaxError),
-
-    #[error("{0:?}")]
-    EvalError(String),
-}
-
-#[derive(Error, Debug)]
-pub enum SyntaxError {
-    #[error("unknown function {f:?}")]
-    // #[diagnostic(code(SyntaxError))]
-    UnknownFunction { f: String },
-
-    #[error("expected token")]
-    ExpectedToken {},
-}
-
-#[derive(Error, Debug)]
-pub enum ArgumentError {
-    #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
-    // #[diagnostic(code(ArgumentError))]
-    Arity { expected: usize, found: usize },
-
-    #[error("{0:?} should be a number")]
-    NumberExpected(String),
-
-    #[error("{0:?} should be a string")]
-    StringExpected(String),
-
-    #[error("{0:?} should be a note")]
-    NoteExpected(String),
-}
-// #[diagnostic(code(ArgumentError), url("https://my_website.com/error"))]

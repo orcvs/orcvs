@@ -1,13 +1,11 @@
-#![allow(unused_imports)]
-
 use crate::ArgumentError;
 use crate::Atom;
 use crate::Function;
-use crate::Glyph;
 use crate::SyntaxError;
 use crate::VthaError;
 use crate::MIDI_NOTE_TO_NUMBER;
 use crate::MIDI_NUMBER_TO_NOTE;
+
 use tracing::error;
 use tracing::info;
 
@@ -64,7 +62,7 @@ use tracing::info;
 /// Parses literal function identifiers
 /// e.g.
 ///
-fn function<'a, 'b: 'a>(
+pub fn parse<'a, 'b: 'a>(
     s: &'a mut &'b str,
 ) -> Result<Atom, VthaError> {
     let token = next_token(s, 2);
@@ -172,7 +170,7 @@ impl<'a, 'b: 'a> Token<'a> for &'b str {
             info!("is_function {:?}", token);
             // Always Some because we peeked
             // let mut t = next_token(self, 2).unwrap();
-            function(self)
+            parse(self)
         } else {
             let t = next_token(self, count);
             info!("take_count {:?}", t);
@@ -227,13 +225,8 @@ fn peek_next<'a>(s: &'a str) -> Option<&str> {
 }
 
 fn ident<'a>(s: &mut &str) -> Result<Atom, VthaError> {
-    info!("Ident {:?}", s);
     let param = s.take()?;
-    info!("Param {:?}", param);
-    // Ok(Atom::Function(Box::new(Function::Ident(Atom::String(
-    //     "ok".to_string(),
-    // )))))
-    Ok(Atom::Function(Box::new(Function::Ident(param))))
+    Ok(Atom::from(Function::Ident(param)))
 }
 
 // channel, velocity, note
@@ -242,7 +235,7 @@ fn play<'a>(s: &mut &str) -> Result<Atom, VthaError> {
     let vel = s.take()?.into_num()?;
     let note = s.take()?.into_note()?;
 
-    Ok(Atom::Function(Box::new(Function::Play(ch, vel, note))))
+    Ok(Atom::from(Function::Play(ch, vel, note)))
 }
 
 #[cfg(test)]
@@ -251,33 +244,40 @@ mod test {
     use tracing::{error, info};
 
     use crate::{
-        parser::{function, Token},
-        ArgumentError, Atom, Function,
+        parser::{parse, Token},
+        trace, ArgumentError, Atom, Function,
     };
 
-    fn trace() {
-        use tracing_subscriber::FmtSubscriber;
-
-        let subscriber = FmtSubscriber::builder()
-            .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
-            .with_line_number(true)
-            .with_target(true)
-            .finish();
-
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("setting default subscriber failed");
-    }
     #[test]
     fn test_parse_id_function() {
         trace();
 
         let mut s = "idAA";
-        let ast = function(&mut s).unwrap();
+        let ast = parse(&mut s).unwrap();
         // info!("{:?}", ast);
 
-        let expected = Atom::Function(Box::new(Function::Ident(
-            Atom::String("AA".to_string()),
+        let expected = Atom::from(Function::Ident(Atom::String(
+            "AA".to_string(),
         )));
+
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_parse_recursive_function() {
+        trace();
+
+        let mut s = "idididAA";
+        let ast = parse(&mut s).unwrap();
+        // info!("{:?}", ast);
+
+        let f = Atom::from(Function::Ident(Atom::String(
+            "AA".to_string(),
+        )));
+        let f = Atom::from(Function::Ident(f));
+        let f = Atom::from(Function::Ident(f));
+
+        let expected = f;
 
         assert_eq!(ast, expected);
     }
@@ -297,17 +297,17 @@ mod test {
         // assert_eq!(ast, expected);
 
         let mut s = "plidXY0AC4";
-        let ast = function(&mut s).unwrap();
+        let ast = parse(&mut s).unwrap();
 
-        let id = Atom::Function(Box::new(Function::Ident(
-            Atom::String("XY".to_string()),
+        let id = Atom::from(Function::Ident(Atom::String(
+            "XY".to_string(),
         )));
 
-        let expected = Atom::Function(Box::new(Function::Play(
+        let expected = Atom::from(Function::Play(
             id,
             Atom::Num(10),
             Atom::Note(60),
-        )));
+        ));
 
         assert_eq!(ast, expected);
 
