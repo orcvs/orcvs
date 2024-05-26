@@ -2,8 +2,7 @@
 
 resolver = "2"
 
-# members = ["gui", "plugin", "vtha", "xtask"]
-members = ["vtha"]
+members = ["console", "vtha"]
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
