@@ -12,13 +12,15 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([300.0, 220.0])
             .with_icon(
                 // NOTE: Adding an icon is optional
-                eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
-                    .expect("Failed to load icon"),
+                eframe::icon_data::from_png_bytes(
+                    &include_bytes!("../assets/icon-256.png")[..],
+                )
+                .expect("Failed to load icon"),
             ),
         ..Default::default()
     };
     eframe::run_native(
-        "eframe template",
+        "[ o r c v s ]",
         native_options,
         Box::new(|cc| Box::new(console::TemplateApp::new(cc))),
     )
@@ -37,7 +39,9 @@ fn main() {
             .start(
                 "the_canvas_id", // hardcode it
                 web_options,
-                Box::new(|cc| Box::new(console::TemplateApp::new(cc))),
+                Box::new(|cc| {
+                    Box::new(eframe_template::TemplateApp::new(cc))
+                }),
             )
             .await
             .expect("failed to start eframe");

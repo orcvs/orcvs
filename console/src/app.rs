@@ -1,22 +1,77 @@
+use egui::Color32;
+
+pub const DEFAULT_FONT_SIZE: f32 = 25.0;
+pub const DEFAULT_COL_COUNT: usize = 10;
+pub const DEFAULT_ROW_COUNT: usize = 10;
+// pub const DEFAULT_SCALE: f32 = 1.0;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
+#[serde(default)]
 pub struct TemplateApp {
-    // Example stuff:
-    label: String,
-
-    #[serde(skip)] // This how you opt-out of serialization of a field
-    value: f32,
+    grid: Grid,
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
-        Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
-        }
+        let grid = Grid::default();
+        Self { grid }
     }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub struct Grid {
+    items: [[Glyph; DEFAULT_COL_COUNT]; DEFAULT_ROW_COUNT],
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        // create multidimensional array of Glyphs using core::array::from_fn(|i| i)
+
+        let mut items = [[Glyph::default(); DEFAULT_COL_COUNT]; DEFAULT_ROW_COUNT];
+
+        for y in 0..=DEFAULT_ROW_COUNT - 1 {
+            for x in 0..=DEFAULT_COL_COUNT - 1 {
+                let glyph = Glyph {
+                    char: '.',
+                    x,
+                    y,
+                    state: GlyphState::Default,
+                };
+
+                items[y][x] = glyph;
+            }
+        }
+
+        Self { items }
+    }
+}
+
+impl Grid {
+    fn get_glyph_at(&self, x: usize, y: usize) -> &Glyph {
+        &self.items[y][x]
+    }
+
+    fn set_glyph_at(&mut self, x: usize, y: usize, glyph: Glyph) {
+        self.items[y][x] = glyph;
+    }
+}
+
+#[derive(Copy, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub struct Glyph {
+    char: char,
+    x: usize,
+    y: usize,
+    state: GlyphState,
+}
+
+#[derive(Copy, Clone, Default, serde::Deserialize, serde::Serialize)]
+pub enum GlyphState {
+    #[default]
+    Default,
+    Selected,
 }
 
 impl TemplateApp {
@@ -35,6 +90,8 @@ impl TemplateApp {
     }
 }
 
+// let mut button_states: Vec<Vec<bool>> = vec![vec![false; DEFAULT_COL_COUNT]; DEFAULT_ROW_COUNT];
+
 impl eframe::App for TemplateApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -46,9 +103,17 @@ impl eframe::App for TemplateApp {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
+        let top_panel = egui::TopBottomPanel::top("top_panel")
+            .resizable(true)
+            .min_height(32.0);
 
+        let bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
+            .resizable(false)
+            .min_height(0.0);
+
+        let central_panel = egui::CentralPanel::default().show(ctx, |ui| {});
+
+        top_panel.show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
@@ -65,45 +130,54 @@ impl eframe::App for TemplateApp {
             });
         });
 
+        let font_id = egui::FontId::monospace(DEFAULT_FONT_SIZE);
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
+            ui.heading("edit");
+            ui.spacing_mut().item_spacing = egui::Vec2::splat(2.0);
 
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
-            });
+            for y in 0..=DEFAULT_ROW_COUNT - 1 {
+                ui.horizontal(|ui| {
+                    for x in 0..=DEFAULT_COL_COUNT - 1 {
+                        let glyph = self.grid.get_glyph_at(x, y);
 
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
+                        let mut button_text =
+                            egui::RichText::new(glyph.char.to_string()).font(font_id.clone());
+                        let button = egui::Button::new(button_text.clone()).frame(false);
+
+                        if ui.add(button).clicked() {
+                            button_text = button_text.color(egui::Color32::RED);
+                            // Change text color to red
+                        }
+
+                        ui.add(egui::Label::new(button_text));
+
+                        // let button = egui::Button::new(
+                        //     egui::RichText::new(".".to_string())
+                        //         .font(font_id.clone()),
+                        // )
+                        // .frame(false);
+
+                        // let button = egui::Button::new(
+                        //     egui::RichText::new(".".to_string())
+                        //         .font(font_id.clone()),
+                        // )
+                        // .frame(false);
+
+                        // if ui.add(button).clicked() {
+                        //     print!("click");
+                        //     ui.style_mut()
+                        //         .visuals
+                        //         .widgets
+                        //         .inactive
+                        //         .bg_fill = egui::Color32::RED;
+                        //     // button.fill(Color32::from_rgb(255, 0, 0));
+                        //     // Set button background color to red
+                        // }
+                    }
+                });
             }
-
-            ui.separator();
-
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/main/",
-                "Source code."
-            ));
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
-                egui::warn_if_debug_build(ui);
-            });
         });
     }
-}
-
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
 }

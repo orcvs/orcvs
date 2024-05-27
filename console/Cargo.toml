@@ -8,7 +8,11 @@ rust-version = "1.76"
 
 [package.metadata.docs.rs]
 all-features = true
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+targets = [
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
 
 [dependencies]
 eframe = { version = "0.27.0", default-features = false, features = [
@@ -18,6 +22,7 @@ eframe = { version = "0.27.0", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
 egui = "0.27.0"
+# hot-lib-reloader = "0.7.0"
 log = "0.4"
 
 # You only need serde if you want app persistence:
@@ -31,14 +36,14 @@ env_logger = "0.10"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 
-[profile.release]
-opt-level = 2 # fast and small wasm
+# [profile.release]
+# opt-level = 2 # fast and small wasm
 
-# Optimize all dependencies even in debug builds:
-[profile.dev.package."*"]
-opt-level = 2
+# # Optimize all dependencies even in debug builds:
+# [profile.dev.package."*"]
+# opt-level = 3
 
-[patch.crates-io]
+# [patch.crates-io]
 
 # If you want to use the bleeding edge version of egui and eframe:
 # egui = { git = "https://github.com/emilk/egui", branch = "master" }
