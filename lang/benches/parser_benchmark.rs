@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, Criterion,
 };
-use vtha::{eval, parse, Atom, Function};
+use lang::{eval, parse, Atom, Function};
 
 pub fn parser_benchmark(c: &mut Criterion) {
     // let mut s = "plidXY0AC4"; //basic

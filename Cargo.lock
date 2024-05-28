@@ -744,6 +744,7 @@ dependencies = [
  "eframe",
  "egui",
  "env_logger",
+ "lang",
  "log",
  "serde",
  "wasm-bindgen-futures",
@@ -1650,6 +1651,17 @@ name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+
+[[package]]
+name = "lang"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "lazy_static",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "lazy_static"
@@ -2871,18 +2883,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "vtha"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "lazy_static",
- "nohash-hasher",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "waker-fn"
