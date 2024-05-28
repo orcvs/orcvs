@@ -1,10 +1,35 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+use env_logger::Builder;
+use log::{error, info, LevelFilter};
+// use std::sync::Once;
+
+// static INIT: Once = Once::new();
+
+// fn trace() {
+//     INIT.call_once(|| {
+//         use tracing_subscriber::FmtSubscriber;
+
+//         let subscriber = FmtSubscriber::builder()
+//             .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
+//             .with_line_number(true)
+//             .with_target(true)
+//             .finish();
+
+//         tracing::subscriber::set_global_default(subscriber)
+//             .expect("setting default subscriber failed");
+//     });
+// }
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+
+    Builder::from_default_env()
+        .filter(None, LevelFilter::Info)
+        .init();
+    // builder.format(|buf, record| writeln!(buf, "{} - {}", record.level(), record.args()))
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -12,17 +37,15 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([300.0, 220.0])
             .with_icon(
                 // NOTE: Adding an icon is optional
-                eframe::icon_data::from_png_bytes(
-                    &include_bytes!("../assets/icon-256.png")[..],
-                )
-                .expect("Failed to load icon"),
+                eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
+                    .expect("Failed to load icon"),
             ),
         ..Default::default()
     };
     eframe::run_native(
         "[ o r c v s ]",
         native_options,
-        Box::new(|cc| Box::new(console::TemplateApp::new(cc))),
+        Box::new(|cc| Box::new(console::ConsoleApp::new(cc))),
     )
 }
 
@@ -39,9 +62,7 @@ fn main() {
             .start(
                 "the_canvas_id", // hardcode it
                 web_options,
-                Box::new(|cc| {
-                    Box::new(eframe_template::TemplateApp::new(cc))
-                }),
+                Box::new(|cc| Box::new(eframe_template::TemplateApp::new(cc))),
             )
             .await
             .expect("failed to start eframe");
