@@ -26,12 +26,9 @@ pub use parser::parse;
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Atom {
     Function(Box<Function>),
-    // Function(&'a Function<'a>),
     Num(u8),
     Note(u8),
     String(String),
-    // Char(char),
-    // Hex(char),
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -100,8 +97,10 @@ pub enum ArgumentError {
     NoteExpected(String),
 }
 
+#[allow(dead_code)]
 static INIT: Once = Once::new();
 
+#[allow(dead_code)]
 fn trace() {
     INIT.call_once(|| {
         use tracing_subscriber::FmtSubscriber;
@@ -123,10 +122,10 @@ impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Function::Add(a, b) => {
-                write!(f, "Add {} {}", a, b)
+                write!(f, "Add {a} {b}")
             }
             Function::Sub(a, b) => {
-                write!(f, "Sub {} {}", a, b)
+                write!(f, "Sub {a} {b}")
             }
             _ => write!(f, "Function"),
         }
@@ -137,14 +136,14 @@ impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Atom::Num(n) => {
-                write!(f, "{}", n)
+                write!(f, "{n}")
             }
-            Atom::Note(n) => match MIDI_NUMBER_TO_NOTE.get(&n) {
-                Some(note) => write!(f, "{}", note),
-                None => write!(f, "{}", n),
+            Atom::Note(n) => match MIDI_NUMBER_TO_NOTE.get(n) {
+                Some(note) => write!(f, "{note}"),
+                None => write!(f, "{n}"),
             },
-            Atom::String(ref s) => write!(f, "{}", s),
-            Atom::Function(ref func) => write!(f, "{}", func),
+            Atom::String(ref s) => write!(f, "{s}"),
+            Atom::Function(ref fun) => write!(f, "{fun}"),
         }
     }
 }

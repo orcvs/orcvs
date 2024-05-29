@@ -1,7 +1,7 @@
 use egui::{Color32, Event, EventFilter};
-use log::{error, info};
+use tracing::info;
 
-use lang::{eval, parse};
+use lang::parse;
 pub const DEFAULT_FONT_SIZE: f32 = 23.0;
 pub const DEFAULT_COL_COUNT: usize = 10;
 pub const DEFAULT_ROW_COUNT: usize = 10;
@@ -11,52 +11,25 @@ pub const DEFAULT_ROW_COUNT: usize = 10;
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct ConsoleApp {
-    grid: Grid,
     src: String,
     selected: Option<(usize, usize)>,
 }
 
 impl Default for ConsoleApp {
     fn default() -> Self {
-        let grid = Grid::default();
         let mut src = String::new();
 
-        for y in 0..=DEFAULT_ROW_COUNT - 1 {
-            for x in 0..=DEFAULT_COL_COUNT - 1 {
+        for _y in 0..DEFAULT_ROW_COUNT {
+            for _x in 0..DEFAULT_COL_COUNT {
                 src.push('.');
             }
             // src.push("\n");
         }
 
         Self {
-            grid,
             src,
             selected: None,
         }
-    }
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-pub struct Grid {
-    items: [[Option<char>; DEFAULT_COL_COUNT]; DEFAULT_ROW_COUNT],
-}
-
-impl Default for Grid {
-    fn default() -> Self {
-        let mut items = [[None; DEFAULT_COL_COUNT]; DEFAULT_ROW_COUNT];
-        Self { items }
-    }
-}
-
-impl Grid {
-    #[inline(always)]
-    fn get_char_at(&self, x: usize, y: usize) -> &Option<char> {
-        &self.items[y][x]
-    }
-
-    fn set_char_at(&mut self, x: usize, y: usize, c: char) {
-        self.items[y][x] = Some(c);
     }
 }
 
@@ -78,7 +51,7 @@ impl Grid {
 
 impl ConsoleApp {
     /// Called once before the first frame.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -87,24 +60,25 @@ impl ConsoleApp {
         // if let Some(storage) = cc.storage {
         //     return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         // }
-
-        Default::default()
+        ConsoleApp::default()
     }
 
+    #[inline(always)]
+    #[must_use]
     pub fn is_selected(&self, x: usize, y: usize) -> bool {
         self.selected == Some((x, y))
     }
 
+    #[inline(always)]
     pub fn select(&mut self, x: usize, y: usize) {
         self.selected = Some((x, y));
     }
 
+    #[inline(always)]
     pub fn deselect(&mut self) {
         self.selected = None;
     }
 }
-
-// let mut button_states: Vec<Vec<bool>> = vec![vec![false; DEFAULT_COL_COUNT]; DEFAULT_ROW_COUNT];
 
 impl eframe::App for ConsoleApp {
     /// Called by the frame work to save state before shutdown.
@@ -123,11 +97,11 @@ impl eframe::App for ConsoleApp {
             .resizable(true)
             .min_height(32.0);
 
-        let bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
+        let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .min_height(0.0);
 
-        let central_panel = egui::CentralPanel::default().show(ctx, |ui| {});
+        let _central_panel = egui::CentralPanel::default().show(ctx, |ui| {});
 
         top_panel.show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -148,21 +122,6 @@ impl eframe::App for ConsoleApp {
 
         let event_filter = EventFilter::default();
         let events = ctx.input(|i| i.filtered_events(&event_filter));
-
-        // error!("{}", self.src);
-        // let s = "hello".to_string();
-        // let ch = s.chars().nth(index).unwrap();
-
-        // Expresions
-        // Start coord, length
-        // On key event
-        //  - if no char to right, new expression of len 1
-        //  - if char to right, increment len by 1
-        //
-        // On delete event
-        //
-
-        // [x, y]
 
         for event in &events {
             match event {
@@ -194,19 +153,23 @@ impl eframe::App for ConsoleApp {
                 _ => {}
             }
         }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
 
-            for y in 0..=DEFAULT_ROW_COUNT - 1 {
+            for y in 0..DEFAULT_ROW_COUNT {
                 let mut start: Option<usize> = None;
 
                 ui.horizontal(|ui| {
-                    for x in 0..=DEFAULT_COL_COUNT - 1 {
+                    for x in 0..DEFAULT_COL_COUNT {
                         let idx = y * DEFAULT_COL_COUNT + x;
 
-                        // info!("s: {}", idx);
                         let s = unsafe { self.src.get_unchecked(idx..=idx) };
-                        // info!("s: {}", s);
+
+                        // let exp = if let Some(start_idx) = start {
+                        //     let mut exp = unsafe { self.src.get_unchecked(start_idx..idx) };
+                        //     info!("exp: {}", exp);
+                        // };
 
                         match s {
                             "." => {
@@ -215,9 +178,12 @@ impl eframe::App for ConsoleApp {
                                     let mut exp = unsafe { self.src.get_unchecked(start_idx..idx) };
                                     info!("exp: {}", exp);
 
-                                    let result = parse(&mut exp);
-                                    // let result = eval(exp);
-                                    info!("result: {:?}", result);
+                                    if exp.len() > 1 {
+                                        let result = parse(&mut exp);
+                                        // let result = eval(exp);
+                                        info!("result: {:?}", result);
+                                    }
+
                                     start = None; // reset expression
                                 };
                             }
@@ -242,7 +208,7 @@ impl eframe::App for ConsoleApp {
                         let button = egui::Button::new(button_text).small().frame(false);
 
                         if ui.add(button).clicked() {
-                            let _ = &self.select(x, y);
+                            self.select(x, y);
                         }
                     }
                 });

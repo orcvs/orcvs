@@ -16,72 +16,68 @@
 */
 
 use crate::{ArgumentError, Atom, Function, VthaError};
-use tracing::{info, warn};
+use tracing::info;
 
 impl Atom {
     fn get_num(&self) -> Result<u8, VthaError> {
         match self {
-            Atom::Num(n) => Ok(*n),
-            Atom::Note(n) => Ok(*n),
-            a => {
-                Err(ArgumentError::NumberExpected(a.to_string())
-                    .into())
-            }
+            Atom::Note(n) | Atom::Num(n) => Ok(*n),
+            a => Err(ArgumentError::NumberExpected(a.to_string()).into()),
         }
     }
 
-    fn get_str(&self) -> Result<&str, VthaError> {
+    fn _get_str(&self) -> Result<&str, VthaError> {
         match self {
             Atom::String(s) => Ok(s),
 
-            a => {
-                Err(ArgumentError::StringExpected(a.to_string())
-                    .into())
-            }
+            a => Err(ArgumentError::StringExpected(a.to_string()).into()),
         }
     }
 }
 
-pub fn eval(a: Atom) -> Result<Atom, VthaError> {
-    let result = match a {
-        Atom::Function(f) => match *f {
+/// # Errors
+///
+///
+pub fn eval(atom: Atom) -> Result<Atom, VthaError> {
+    let result = match atom {
+        Atom::Function(fun) => match *fun {
             Function::Add(a, b) => {
                 let a = eval(a)?.get_num()?;
                 let b = eval(b)?.get_num()?;
-                add(a, b)?
+                add(a, b)
             }
-            Function::Play(c, v, n) => {
-                let c = eval(c)?.get_num()?;
-                let v = eval(v)?.get_num()?;
-                let n = eval(n)?.get_num()?;
-                play(c, v, n)?
+            Function::Play(ch, vel, note) => {
+                let ch = eval(ch)?.get_num()?;
+                let vel = eval(vel)?.get_num()?;
+                let note = eval(note)?.get_num()?;
+                play(ch, vel, note)
             }
             Function::Sub(a, b) => {
                 let a = eval(a)?.get_num()?;
                 let b = eval(b)?.get_num()?;
-                sub(a, b)?
+                sub(a, b)
             }
             Function::Ident(a) => a,
         },
-        _ => a,
+        _ => atom,
     };
 
     Ok(result)
 }
 
-fn add(a: u8, b: u8) -> Result<Atom, VthaError> {
+fn add(a: u8, b: u8) -> Atom {
     let res = a + b;
-    Ok(Atom::Num(res))
+    Atom::Num(res)
 }
 
-fn sub(a: u8, b: u8) -> Result<Atom, VthaError> {
+fn sub(a: u8, b: u8) -> Atom {
     let res = a - b;
-    Ok(Atom::Num(res))
+    Atom::Num(res)
 }
 
-fn play(c: u8, v: u8, n: u8) -> Result<Atom, VthaError> {
+fn play(c: u8, v: u8, n: u8) -> Atom {
     info!("Play: c: {}, v: {}, n: {}", c, v, n);
-    Ok(Atom::Num(0))
+    Atom::Num(0)
 }
 
 #[cfg(test)]
@@ -130,10 +126,8 @@ mod test {
         let a = Atom::from("vtha");
 
         let result = a.get_num().unwrap_err().to_string();
-        let expected = VthaError::ArgumentError(
-            ArgumentError::NumberExpected("vtha".to_string()),
-        )
-        .to_string();
+        let expected =
+            VthaError::ArgumentError(ArgumentError::NumberExpected("vtha".to_string())).to_string();
 
         assert_eq!(result, expected);
     }
@@ -141,11 +135,7 @@ mod test {
     #[test]
     fn test_play() {
         trace();
-        let a = Atom::from(Function::Play(
-            Atom::Num(1),
-            Atom::Num(10),
-            Atom::Note(60),
-        ));
+        let a = Atom::from(Function::Play(Atom::Num(1), Atom::Num(10), Atom::Note(60)));
 
         let result = eval(a).unwrap();
 

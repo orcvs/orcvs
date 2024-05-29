@@ -1,36 +1,29 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-use env_logger::Builder;
-use log::{error, info, LevelFilter};
-// use std::sync::Once;
 
-// static INIT: Once = Once::new();
+use std::sync::Once;
 
-// fn trace() {
-//     INIT.call_once(|| {
-//         use tracing_subscriber::FmtSubscriber;
+static INIT: Once = Once::new();
 
-//         let subscriber = FmtSubscriber::builder()
-//             .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
-//             .with_line_number(true)
-//             .with_target(true)
-//             .finish();
+fn trace() {
+    INIT.call_once(|| {
+        use tracing_subscriber::FmtSubscriber;
 
-//         tracing::subscriber::set_global_default(subscriber)
-//             .expect("setting default subscriber failed");
-//     });
-// }
+        let subscriber = FmtSubscriber::builder()
+            .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
+            .with_line_number(true)
+            .with_target(true)
+            .finish();
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+    });
+}
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-
-    Builder::from_default_env()
-        .filter(None, LevelFilter::Info)
-        .init();
-    // builder.format(|buf, record| writeln!(buf, "{} - {}", record.level(), record.args()))
-
+    trace();
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 300.0])
