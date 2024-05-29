@@ -13,41 +13,42 @@ pub const DEFAULT_ROW_COUNT: usize = 10;
 pub struct ConsoleApp {
     src: String,
     selected: Option<(usize, usize)>,
+    mode: Mode,
+    cols: usize,
+    rows: usize,
 }
+
+#[derive(serde::Deserialize, serde::Serialize, PartialEq)]
+pub enum Mode {
+    Insert,
+    Command,
+}
+
+// pub struct Source {
+//     inner: String,
+// }
 
 impl Default for ConsoleApp {
     fn default() -> Self {
-        let mut src = String::new();
+        // let mut src = String::new();
+        // for _y in 0..DEFAULT_ROW_COUNT {
+        //     for _x in 0..DEFAULT_COL_COUNT {
+        //         src.push('.');
+        //     }
+        // }
 
-        for _y in 0..DEFAULT_ROW_COUNT {
-            for _x in 0..DEFAULT_COL_COUNT {
-                src.push('.');
-            }
-            // src.push("\n");
-        }
+        let n = DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT;
+        let src = '.'.to_string().repeat(n);
 
         Self {
             src,
             selected: None,
+            mode: Mode::Insert,
+            cols: DEFAULT_COL_COUNT,
+            rows: DEFAULT_ROW_COUNT,
         }
     }
 }
-
-// #[derive(Copy, Clone, Default, serde::Deserialize, serde::Serialize)]
-// #[serde(default)]
-// pub struct Glyph {
-//     char: char,
-//     x: usize,
-//     y: usize,
-//     state: GlyphState,
-// }
-
-// #[derive(Copy, Clone, Default, serde::Deserialize, serde::Serialize)]
-// pub enum GlyphState {
-//     #[default]
-//     Default,
-//     Selected,
-// }
 
 impl ConsoleApp {
     /// Called once before the first frame.
@@ -72,6 +73,14 @@ impl ConsoleApp {
     #[inline(always)]
     pub fn select(&mut self, x: usize, y: usize) {
         self.selected = Some((x, y));
+    }
+
+    #[inline(always)]
+    pub fn select_next(&mut self) {
+        if let Some((x, y)) = self.selected {
+            let x = std::cmp::min(x + 1, self.cols - 1);
+            self.selected = Some((x, y));
+        }
     }
 
     #[inline(always)]
@@ -126,18 +135,21 @@ impl eframe::App for ConsoleApp {
         for event in &events {
             match event {
                 Event::Text(text_to_insert) => {
-                    info!("text_to_insert: {}", text_to_insert);
+                    // info!("text_to_insert: {}", text_to_insert);
 
                     // This is all probably a very bad idea
                     // I am treating the string as byte array and mutating it
                     if let Some((x, y)) = &self.selected {
                         let c = text_to_insert.as_bytes();
-                        let idx = y * DEFAULT_COL_COUNT + x;
+                        let idx = y * self.cols + x;
                         unsafe {
                             let bytes = self.src.as_bytes_mut();
                             bytes[idx] = c[0];
                         }
-                        info!("self.src: {}", self.src);
+                        // info!("self.src: {}", self.src);
+                        if self.mode == Mode::Insert {
+                            self.select_next();
+                        }
                     }
                 }
 
@@ -157,12 +169,12 @@ impl eframe::App for ConsoleApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
 
-            for y in 0..DEFAULT_ROW_COUNT {
+            for y in 0..self.rows {
                 let mut start: Option<usize> = None;
 
                 ui.horizontal(|ui| {
-                    for x in 0..DEFAULT_COL_COUNT {
-                        let idx = y * DEFAULT_COL_COUNT + x;
+                    for x in 0..self.cols {
+                        let idx = y * self.cols + x;
 
                         let s = unsafe { self.src.get_unchecked(idx..=idx) };
 

@@ -1,12 +1,12 @@
+use crate::midi_note_to_number;
+use crate::midi_number_to_note;
 use crate::ArgumentError;
 use crate::Atom;
 use crate::Function;
 use crate::SyntaxError;
 use crate::VthaError;
-use crate::MIDI_NOTE_TO_NUMBER;
-use crate::MIDI_NUMBER_TO_NOTE;
 
-use tracing::{error, info};
+use tracing::debug;
 
 // ///
 // ///
@@ -77,8 +77,7 @@ pub fn parse<'a, 'b: 'a>(s: &'a mut &'b str) -> Result<Atom, VthaError> {
             return Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {}));
         }
     };
-    // info!("Function {:?}", token);
-    info!("Params {:?}", s);
+    debug!("Params {:?}", s);
     f(s)
 }
 
@@ -92,15 +91,14 @@ impl Atom {
                 Ok(Atom::String(s))
             }
             Atom::Note(n) => {
-                if let Some(s) = MIDI_NUMBER_TO_NOTE.get(&n) {
-                    Ok(Atom::String((*s).to_string()))
+                if let Some(s) = midi_number_to_note(n) {
+                    Ok(Atom::String(s.to_string()))
                 } else {
                     let s = n.to_string();
                     Err(ArgumentError::StringExpected(s).into())
                 }
             }
             Atom::Function(_) => Ok(self),
-            // _ => Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {})),
         }
     }
 
@@ -113,15 +111,14 @@ impl Atom {
             Atom::Num(_) => Ok(self.clone()),
             Atom::Note(n) => Ok(Atom::Num(n)),
             Atom::Function(_) => Ok(self),
-            // _ => Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {})),
         }
     }
 
     fn into_note(self) -> Result<Atom, VthaError> {
         match self {
             Atom::String(s) => {
-                if let Some(n) = MIDI_NOTE_TO_NUMBER.get(s.as_str()) {
-                    Ok(Atom::Note(*n))
+                if let Some(n) = midi_note_to_number(&s) {
+                    Ok(Atom::Note(n))
                 } else {
                     Err(ArgumentError::NoteExpected(s).into())
                 }
@@ -129,7 +126,6 @@ impl Atom {
             Atom::Num(n) => Ok(Atom::Note(n)),
             Atom::Note(_) => Ok(self.clone()),
             Atom::Function(_) => Ok(self),
-            // _ => Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {})),
         }
     }
 }
@@ -144,10 +140,6 @@ pub trait Token<'a> {
 
 impl<'a, 'b: 'a> Token<'a> for &'b str {
     fn is_function(&'a self) -> bool {
-        // match *self {
-        //     "pl" | "id" => true,
-        //     _ => false,
-        // }
         matches!(*self, "pl" | "id")
     }
 
@@ -155,18 +147,18 @@ impl<'a, 'b: 'a> Token<'a> for &'b str {
         let token = peek_next(self);
 
         if token.filter(|t| t.is_function()).is_some() {
-            info!("is_function {:?}", token);
+            // info!("is_function {:?}", token);
             // Always Some because we peeked
             // let mut t = next_token(self, 2).unwrap();
             parse(self)
         } else {
             let t = next_token(self, count);
-            info!("take_count {:?}", t);
+            // info!("take_count {:?}", t);
             match t {
                 Some(t) => {
-                    error!("take_count {:?}", t);
-                    let s = t.to_string();
-                    error!("take_count {:?}", s);
+                    // error!("take_count {:?}", t);
+                    // let s = t.to_string();
+                    // error!("take_count {:?}", s);
                     Ok(Atom::String(t.to_string()))
                 }
                 None => Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {})),
@@ -181,7 +173,7 @@ impl<'a, 'b: 'a> Token<'a> for &'b str {
 
 #[inline(always)]
 fn next_token<'a>(s: &mut &'a str, count: usize) -> Option<&'a str> {
-    info!("next_token {:?}", s);
+    // info!("next_token {:?}", s);
     match s.len() {
         0 | 1 => None,
         _ => {
