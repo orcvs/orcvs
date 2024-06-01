@@ -741,9 +741,11 @@ dependencies = [
 name = "console"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "eframe",
  "egui",
  "lang",
+ "rand",
  "serde",
  "tracing",
  "tracing-subscriber",

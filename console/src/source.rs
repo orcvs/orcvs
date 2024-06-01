@@ -1,46 +1,14 @@
-/*
-
-
-        ID: [f][f][n][n]
-
-        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
-
-            I
-        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
-            |
-    idx     5
-    idx 4 => nil
-    new src idx 5
-
-    if map[idx-1] == None
-       map[idx] = idx
-
-               D
-        [ ][5][5][ ][ ][ ][ ][ ][ ][ ]
-               |
-    idx        6
-    idx 5 => 5
-
-
-    let start = map[idx-1]
-    if Some(start)
-       map[idx] = start
-
-
-
-
-*/
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use tracing::info;
 
+const TERMINATOR: &str = ".";
+
 pub struct Source {
     inner: String,
     cols: usize,
     rows: usize,
-    // map: Vec<Rc<RefCell<Option<Expression>>>>,
-    // expressions: Vec<Rc<RefCell<Option<Expression>>>>,
     map: Vec<Option<Rc<RefCell<Expression>>>>,
     expressions: Vec<Option<Rc<RefCell<Expression>>>>,
 }
@@ -57,7 +25,7 @@ impl<'a> Source {
         let inner = '.'.to_string().repeat(n);
 
         let map = vec![None; n];
-        let expressions = vec![None; n];
+        let expressions = Vec::with_capacity(n / 6);
 
         Self {
             cols,
@@ -101,107 +69,144 @@ impl<'a> Source {
             bytes[idx] = b[0];
         }
 
-        let lhs = idx.checked_sub(1).unwrap_or(0);
-        let rhs = std::cmp::min(idx + 1, self.len() - 1);
-
-        /*
-
-            ch:  I
-            idx: 0
-            lhs: 0
-            rhs: 1
-
-            if None at idx 0
-                new expression
-
-            if Some at idx 0
-                if end == lhs
-                    append to expression
-
-
-           ch:  D
-           idx: 1
-           lhs: 0
-           rhs: 2
-
-        */
-
-        // if lhs == 0 {
-        //     info!("first");
-        // }
-
-        // if rhs == idx {
-        //     info!("last");
-        // }
-
-        let lhs_exp = self.map[lhs].clone();
-        let rhs_exp = self.map[rhs].clone();
-
-        info!("lhs: {:?}", lhs);
-        info!("expression: {:?}", lhs_exp);
-
-        let end_idx = match rhs_exp {
-            Some(exp) => {
-                // Inserting into an existing expression
-                exp.borrow().end
-            }
-            None => {
-                // Appending to the expression
-                idx
-            }
+        let (lft_idx, lft_exp) = if idx > 0 {
+            let idx = idx - 1;
+            let exp = self.map[idx].clone();
+            (idx, exp)
+        } else {
+            // Index 0 has no left expression
+            (0, None)
         };
 
-        match lhs_exp {
-            Some(exp) => {
-                self.map[idx] = Some(exp.clone());
+        let (rgt_idx, rgt_exp) = if idx < self.len() - 1 {
+            let idx = idx + 1;
+            let exp = self.map[idx].clone();
+            (idx, exp)
+        } else {
+            // Last index  has no right expression
+            (self.len(), None)
+        };
 
-                let mut exp = exp.borrow_mut();
-                if exp.end == lhs {
-                    exp.end = idx;
+        let terminator = s == TERMINATOR;
+        let alphanumeric = !terminator;
+
+        /*
+            // ... => .I.
+            // Create a new expression if the lhs and rhs are None
+            //   exp.start = idx
+            //   exp.end   = idx
+
+            // .I. => .ID.
+            // Append to the lhs expression if Some(lft_exp) and None(rhs)
+            //   lhs.end = idx
+
+            // .IDAA. => .ID0A.
+            // Replace if Some(lft) and Some(rhs)
+            //   // noop
+
+            // .IDAA. => .ID.A.
+            // Split if Terminator and Some(lft) and Some(rhs)
+            //
+
+            // .ID.A. => .IDAA.
+            // Join if None(idx) and Some(lft_exp) and Some(rhs)
+            //  lft.end = rgt.end
+            //  rgt = lft
+            //  self.map[idx] = lft
+
+            // ..DAA. => .IDAA.
+            // Prepend if None(lhs) and Some(rhs)
+            //  exp.start = idx
+        */
+
+        // info!("idx {:?} | {:?}", lft_exp, rgt_exp);
+
+        match (lft_exp, rgt_exp) {
+            (Some(lft_exp), Some(ref mut rgt_exp)) => {
+                // Split the expression
+                if terminator {
+                    self.map[idx] = None;
+                    // In some cases lft and rgt may refer to the same expression
+                    // We cannot have multiple mutable borrows in the same scope
+                    // So we split the borrows into separate scopes
+
+                    // Right must be first as we want to preserve the end idx
+                    // The left expression will be modified
+                    {
+                        let rgt = rgt_exp.borrow();
+                        let exp = Rc::new(RefCell::new(Expression {
+                            start: rgt_idx,
+                            end: rgt.end,
+                        }));
+                        self.map[rgt_idx] = Some(exp);
+                    }
+                    {
+                        let mut exp = lft_exp.borrow_mut();
+                        exp.end = lft_idx;
+                    }
+                };
+
+                // Join or Replace the expression
+                // Replace is a noop
+                if alphanumeric {
+                    let idx_exp = &self.map[idx];
+
+                    // Join the lft and rgt expressions
+                    if idx_exp.is_none() {
+                        // In some cases lft and rgt may refer to the same expression
+                        // We cannot have multiple mutable borrows in the same scope
+                        // So we split the borrows into separate scopes
+
+                        // Right must be first as we want to preserve the end idx
+                        // The left expression will be modified
+                        let rgt = rgt_exp.borrow();
+                        let end = rgt.end;
+                        {
+                            let mut exp = lft_exp.borrow_mut();
+                            exp.end = end;
+                        }
+
+                        // Iterate the map until the rgt end and set the lft expression
+                        for i in idx..=end {
+                            self.map[i] = Some(lft_exp.clone());
+                        }
+                    }
                 }
             }
-            None => {
-                let exp = Rc::new(RefCell::new(Expression {
-                    start: idx,
-                    end: idx,
-                }));
-                self.map[idx] = Some(exp);
+            (Some(lft_exp), None) => {
+                // Append to the expression
+
+                self.map[idx] = Some(lft_exp.clone());
+
+                let mut exp = lft_exp.borrow_mut();
+                exp.end = idx;
+            }
+            (None, Some(rgt_exp)) => {
+                // Prepend to the expression
+                self.map[idx] = Some(rgt_exp.clone());
+
+                let mut exp = rgt_exp.borrow_mut();
+
+                exp.start = idx;
+            }
+            (None, None) => {
+                if terminator {
+                    // Remove expression
+                    self.map[idx] = None;
+                    self.expressions.pop();
+                }
+
+                if alphanumeric {
+                    // New Expression
+                    let exp = Rc::new(RefCell::new(Expression {
+                        start: idx,
+                        end: idx,
+                    }));
+                    self.expressions.push(Some(exp.clone()));
+                    self.map[idx] = Some(exp.clone());
+                }
             }
         }
-
-        // let mut expression = expression.borrow_mut();
-
-        // match *expression {
-        //     Some(ref mut expression) => {
-        //         // if the current expression end is the lhs, append to the expression
-        //         if expression.end == lhs {
-        //             expression.end = idx;
-        //         }
-        //     }
-        //     None => {
-        //         let exp = Expression {
-        //             start: idx,
-        //             end: idx,
-        //         };
-        //         info!("expression start: {:?}", exp);
-        //         *expression = Some(exp);
-        //         info!("expression: {:?}", expression);
-        //     }
-        // };
-
-        // match self.map.get(lhs) {
-        //     Some(expression) => {
-        //         expression.borrow_mut().end = idx;
-        //         self.map[idx] = expression.clone();
-        //     }
-        //     None => {
-        //         let exp = Rc::new(RefCell::new(Expression {
-        //             start: idx,
-        //             end: idx,
-        //         }));
-        //         self.map.insert(idx, exp);
-        //     }
-        // }
     }
 
     ///
@@ -224,15 +229,35 @@ impl<'a> Source {
     }
 }
 
-// let mut expression_start_idx: Option<usize> = None;
-// The literal source string for evaluation
-// let mut source_start_idx: Option<usize> = None;
+/*
 
-// // iterate each byte in self.src.as_bytes
-// self.src.as_bytes().iter().for_each(|b| {
-// info!("b: {}", b);
-// });
 
+        ID: [f][f][n][n]
+
+        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
+
+            I
+        [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
+            |
+    idx     5
+    idx 4 => nil
+    new src idx 5
+
+    if map[idx-1] == None
+       map[idx] = idx
+
+               D
+        [ ][5][5][ ][ ][ ][ ][ ][ ][ ]
+               |
+    idx        6
+    idx 5 => 5
+
+
+    let start = map[idx-1]
+    if Some(start)
+       map[idx] = start
+
+*/
 #[cfg(test)]
 mod test {
     use std::sync::Once;
@@ -263,7 +288,131 @@ mod test {
     }
 
     #[test]
-    fn test_map_expression_with_break() {
+    fn test_expression_delete_last() {
+        trace();
+
+        let mut source = Source::new(10, 1);
+
+        source.set_at(5, 0, "C");
+        source.set_at(7, 0, "B");
+        source.set_at(9, 0, "A");
+        assert_eq!(source.inner, ".....C.B.A");
+
+        assert_eq!(source.expressions.len(), 3);
+
+        source.set_at(5, 0, ".");
+        source.set_at(7, 0, ".");
+        source.set_at(9, 0, ".");
+        assert_eq!(source.inner, "..........");
+
+        // source.expressions.iter().for_each(|m| {
+        //     info!("map: {:?}", m);
+        // });
+
+        assert_eq!(source.expressions.len(), 0);
+    }
+
+    #[test]
+    fn test_expressions_list_with_delete() {
+        trace();
+
+        let mut source = Source::new(10, 1);
+
+        source.set_at(0, 0, "A");
+        source.set_at(2, 0, "B");
+        source.set_at(4, 0, "C");
+        assert_eq!(source.inner, "A.B.C.....");
+
+        assert_eq!(source.expressions.len(), 3);
+
+        source.set_at(4, 0, ".");
+        assert_eq!(source.expressions.len(), 2);
+
+        source.set_at(2, 0, ".");
+        assert_eq!(source.expressions.len(), 1);
+
+        source.set_at(0, 0, ".");
+
+        assert_eq!(source.expressions.len(), 0);
+
+        source.expressions.iter().for_each(|m| {
+            info!("map: {:?}", m);
+        });
+    }
+
+    #[test]
+    fn test_expressions_list() {
+        trace();
+
+        let mut source = Source::new(10, 1);
+
+        source.set_at(0, 0, "A");
+        source.set_at(2, 0, "B");
+        source.set_at(4, 0, "C");
+        assert_eq!(source.inner, "A.B.C.....");
+
+        assert_eq!(source.expressions.len(), 3);
+    }
+
+    #[test]
+    fn test_map_expression_with_join() {
+        trace();
+
+        // let mut source = Source::from_source(10, 1, "IDAA......");
+        let mut source = Source::new(10, 1);
+
+        source.set_at(0, 0, "I");
+        source.set_at(1, 0, "D");
+        source.set_at(3, 0, "A");
+        assert_eq!(source.inner, "ID.A......");
+
+        assert_ne!(source.map[0], source.map[2]);
+
+        source.set_at(2, 0, "A");
+        assert_eq!(source.inner, "IDAA......");
+
+        // Single expression
+        assert_eq!(source.map[0], source.map[1]);
+        assert_eq!(source.map[0], source.map[2]);
+        assert_eq!(source.map[0], source.map[3]);
+    }
+
+    #[test]
+    fn test_map_expression_at_max_idx() {
+        trace();
+
+        let mut source = Source::new(10, 1);
+
+        source.set_at(6, 0, "I");
+        source.set_at(7, 0, "D");
+        source.set_at(8, 0, "A");
+        source.set_at(9, 0, "A");
+        assert_eq!(source.inner, "......IDAA");
+    }
+
+    #[test]
+    fn test_map_expression_with_prepend() {
+        trace();
+
+        let mut source = Source::new(10, 1);
+
+        source.set_at(6, 0, "I");
+        source.set_at(7, 0, "D");
+        source.set_at(8, 0, "A");
+        source.set_at(9, 0, "A");
+        assert_eq!(source.inner, "......IDAA");
+
+        source.set_at(5, 0, "X");
+        assert_eq!(source.inner, ".....XIDAA");
+
+        assert_eq!(source.map[5], source.map[6]);
+
+        let exp = source.map[5].as_ref().unwrap().as_ref();
+        assert_eq!(exp.borrow().start, 5);
+    }
+
+    #[test]
+    fn test_map_expression_with_split() {
         trace();
 
         // let mut source = Source::from_source(10, 1, "IDAA......");
@@ -279,9 +428,13 @@ mod test {
         assert_eq!(source.inner, "ID.A......");
 
         assert_eq!(source.map[0], source.map[1]);
-        assert_eq!(source.map[0], source.map[2]);
+        assert_ne!(source.map[0], source.map[2]);
 
-        // assert_eq!(source.map[0], source.map[3]);
+        // Start of new expression
+        assert_ne!(source.map[0], source.map[3]);
+
+        // Now empty
+        assert_eq!(source.map[2], None);
     }
 
     #[test]
@@ -296,6 +449,10 @@ mod test {
         source.set_at(2, 0, "A");
         source.set_at(3, 0, "A");
         assert_eq!(source.inner, "IDAA......");
+
+        source.map.iter().for_each(|m| {
+            info!("map: {:?}", m);
+        });
 
         source.set_at(2, 0, "0");
         assert_eq!(source.inner, "ID0A......");
