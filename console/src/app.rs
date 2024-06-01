@@ -1,10 +1,11 @@
 use egui::{Color32, Event, EventFilter};
-use tracing::info;
+use tracing::{debug, info};
 
 use lang::parse;
+use tracing_subscriber::field::debug;
 pub const DEFAULT_FONT_SIZE: f32 = 23.0;
-pub const DEFAULT_COL_COUNT: usize = 10;
-pub const DEFAULT_ROW_COUNT: usize = 10;
+pub const DEFAULT_COL_COUNT: usize = 4;
+pub const DEFAULT_ROW_COUNT: usize = 1;
 // pub const DEFAULT_SCALE: f32 = 1.0;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -23,10 +24,6 @@ pub enum Mode {
     Insert,
     Command,
 }
-
-// pub struct Source {
-//     inner: String,
-// }
 
 impl Default for ConsoleApp {
     fn default() -> Self {
@@ -89,6 +86,43 @@ impl ConsoleApp {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Glyph {
+    Any,
+    Function,
+    // Note,
+    Number,
+    // String,
+}
+
+const FUNCTION_ID: [Glyph; 4] = [
+    Glyph::Function,
+    Glyph::Function,
+    Glyph::Number,
+    Glyph::Number,
+];
+
+const FUNCTION_PLAY: [Glyph; 5] = [
+    Glyph::Function,
+    Glyph::Function,
+    Glyph::Number,
+    Glyph::Number,
+    Glyph::Number,
+];
+
+/// ID Number
+///
+/// Play Number 1, Number, Note
+///
+///
+/// src IDAA
+///     |
+///     idx
+///
+///     IDAA
+///       |
+///       pos
+
 impl eframe::App for ConsoleApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -110,7 +144,7 @@ impl eframe::App for ConsoleApp {
             .resizable(false)
             .min_height(0.0);
 
-        let _central_panel = egui::CentralPanel::default().show(ctx, |ui| {});
+        let _central_panel = egui::CentralPanel::default().show(ctx, |_ui| {});
 
         top_panel.show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -170,46 +204,18 @@ impl eframe::App for ConsoleApp {
             ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
 
             for y in 0..self.rows {
-                let mut start: Option<usize> = None;
-
                 ui.horizontal(|ui| {
                     for x in 0..self.cols {
                         let idx = y * self.cols + x;
 
                         let s = unsafe { self.src.get_unchecked(idx..=idx) };
 
-                        // let exp = if let Some(start_idx) = start {
-                        //     let mut exp = unsafe { self.src.get_unchecked(start_idx..idx) };
-                        //     info!("exp: {}", exp);
-                        // };
+                        let mut background_color = Color32::TRANSPARENT;
 
-                        match s {
-                            "." => {
-                                // end of expression
-                                if let Some(start_idx) = start {
-                                    let mut exp = unsafe { self.src.get_unchecked(start_idx..idx) };
-                                    info!("exp: {}", exp);
-
-                                    if exp.len() > 1 {
-                                        let result = parse(&mut exp);
-                                        // let result = eval(exp);
-                                        info!("result: {:?}", result);
-                                    }
-
-                                    start = None; // reset expression
-                                };
-                            }
-                            _ => {
-                                if start.is_none() {
-                                    start = Some(idx);
-                                };
-                            }
-                        };
-
-                        let background_color = if self.is_selected(x, y) {
+                        background_color = if self.is_selected(x, y) {
                             Color32::DARK_GREEN
                         } else {
-                            Color32::TRANSPARENT
+                            background_color
                         };
 
                         let button_text = egui::RichText::new(s)

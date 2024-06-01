@@ -77,7 +77,7 @@ pub fn parse<'a, 'b: 'a>(s: &'a mut &'b str) -> Result<Atom, VthaError> {
             return Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {}));
         }
     };
-    debug!("Params {:?}", s);
+    // debug!("Params {:?}", s);
     f(s)
 }
 
@@ -86,7 +86,7 @@ impl Atom {
     fn into_string(self) -> Result<Atom, VthaError> {
         match self {
             Atom::String(s) => Ok(Atom::String(s)),
-            Atom::Num(n) => {
+            Atom::Number(n) => {
                 let s = format!("{n:X}");
                 Ok(Atom::String(s))
             }
@@ -105,11 +105,11 @@ impl Atom {
     fn into_num(self) -> Result<Atom, VthaError> {
         match self {
             Atom::String(s) => match u8::from_str_radix(&s, 16) {
-                Ok(n) => Ok(Atom::Num(n)),
+                Ok(n) => Ok(Atom::Number(n)),
                 Err(_) => Err(ArgumentError::NumberExpected(s).into()),
             },
-            Atom::Num(_) => Ok(self.clone()),
-            Atom::Note(n) => Ok(Atom::Num(n)),
+            Atom::Number(_) => Ok(self.clone()),
+            Atom::Note(n) => Ok(Atom::Number(n)),
             Atom::Function(_) => Ok(self),
         }
     }
@@ -123,7 +123,7 @@ impl Atom {
                     Err(ArgumentError::NoteExpected(s).into())
                 }
             }
-            Atom::Num(n) => Ok(Atom::Note(n)),
+            Atom::Number(n) => Ok(Atom::Note(n)),
             Atom::Note(_) => Ok(self.clone()),
             Atom::Function(_) => Ok(self),
         }
@@ -265,7 +265,7 @@ mod test {
 
         let id = Atom::from(Function::Ident(Atom::String("XY".to_string())));
 
-        let expected = Atom::from(Function::Play(id, Atom::Num(10), Atom::Note(60)));
+        let expected = Atom::from(Function::Play(id, Atom::Number(10), Atom::Note(60)));
 
         assert_eq!(ast, expected);
 
@@ -292,7 +292,7 @@ mod test {
     fn test_atom_into() {
         trace();
 
-        let num = Atom::Num(60);
+        let num = Atom::Number(60);
         let str = Atom::String("3C".to_string());
         let note = Atom::Note(60);
 
@@ -307,10 +307,10 @@ mod test {
 
         // Numbers convert to string literally, not as note value
         let str = Atom::String("A".to_string());
-        let num = Atom::Num(10);
+        let num = Atom::Number(10);
         assert_eq!(str, num.into_string().unwrap());
 
-        let num = Atom::Num(60);
+        let num = Atom::Number(60);
         let str = Atom::String("C4".to_string());
         let note = Atom::Note(60);
 

@@ -21,7 +21,7 @@ use tracing::info;
 impl Atom {
     fn get_num(&self) -> Result<u8, VthaError> {
         match self {
-            Atom::Note(n) | Atom::Num(n) => Ok(*n),
+            Atom::Note(n) | Atom::Number(n) => Ok(*n),
             a => Err(ArgumentError::NumberExpected(a.to_string()).into()),
         }
     }
@@ -67,17 +67,17 @@ pub fn eval(atom: Atom) -> Result<Atom, VthaError> {
 
 fn add(a: u8, b: u8) -> Atom {
     let res = a + b;
-    Atom::Num(res)
+    Atom::Number(res)
 }
 
 fn sub(a: u8, b: u8) -> Atom {
     let res = a - b;
-    Atom::Num(res)
+    Atom::Number(res)
 }
 
 fn play(c: u8, v: u8, n: u8) -> Atom {
     info!("Play: c: {}, v: {}, n: {}", c, v, n);
-    Atom::Num(0)
+    Atom::Number(0)
 }
 
 #[cfg(test)]
@@ -92,10 +92,10 @@ mod test {
     fn test_add_function() {
         trace();
 
-        let a = Atom::from(Function::Add(Atom::Num(1), Atom::Num(2)));
+        let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
 
         let result = eval(a).unwrap();
-        let expected = Atom::Num(3);
+        let expected = Atom::Number(3);
 
         assert_eq!(result, expected);
     }
@@ -104,10 +104,10 @@ mod test {
     fn test_sub_function() {
         trace();
 
-        let a = Atom::from(Function::Sub(Atom::Num(1), Atom::Num(1)));
+        let a = Atom::from(Function::Sub(Atom::Number(1), Atom::Number(1)));
 
         let result = eval(a).unwrap();
-        let expected = Atom::Num(0);
+        let expected = Atom::Number(0);
 
         assert_eq!(result, expected);
     }
@@ -116,7 +116,7 @@ mod test {
     fn test_get_num() {
         trace();
 
-        let a = Atom::Num(1);
+        let a = Atom::Number(1);
 
         let result = a.get_num().unwrap();
         let expected = 1;
@@ -135,25 +135,29 @@ mod test {
     #[test]
     fn test_play() {
         trace();
-        let a = Atom::from(Function::Play(Atom::Num(1), Atom::Num(10), Atom::Note(60)));
+        let a = Atom::from(Function::Play(
+            Atom::Number(1),
+            Atom::Number(10),
+            Atom::Note(60),
+        ));
 
         let result = eval(a).unwrap();
 
-        assert_eq!(result, Atom::Num(0));
+        assert_eq!(result, Atom::Number(0));
     }
 
     #[test]
     fn test_eval_recursive_function() {
         trace();
 
-        let a = Atom::from(Function::Add(Atom::Num(1), Atom::Num(2)));
+        let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
 
-        let a = Atom::from(Function::Add(Atom::Num(1), a));
+        let a = Atom::from(Function::Add(Atom::Number(1), a));
 
-        let a = Atom::from(Function::Add(Atom::Num(1), a));
+        let a = Atom::from(Function::Add(Atom::Number(1), a));
 
         let result = eval(a).unwrap();
-        let expected = Atom::Num(5);
+        let expected = Atom::Number(5);
 
         assert_eq!(result, expected);
     }

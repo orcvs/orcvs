@@ -26,7 +26,7 @@ pub use parser::parse;
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Atom {
     Function(Box<Function>),
-    Num(u8),
+    Number(u8),
     Note(u8),
     String(String),
 }
@@ -53,7 +53,7 @@ impl From<Function> for Atom {
 
 impl From<u8> for Atom {
     fn from(n: u8) -> Self {
-        Atom::Num(n)
+        Atom::Number(n)
     }
 }
 
@@ -135,7 +135,7 @@ impl fmt::Display for Function {
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Atom::Num(n) => {
+            Atom::Number(n) => {
                 write!(f, "{n}")
             }
             Atom::Note(n) => match midi_number_to_note(*n) {

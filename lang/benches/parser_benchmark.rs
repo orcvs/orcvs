@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lang::{
-    eval, midi_note_to_number, midi_note_to_number_hash, parse, Atom, Function, MIDI_NOTE_TO_NUMBER,
-};
+use lang::{eval, midi_note_to_number, midi_note_to_number_hash, parse, Atom, Function};
 
 fn midi_lookup_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Midi Lookup");
@@ -27,7 +25,7 @@ pub fn parser_benchmark(c: &mut Criterion) {
 
 pub fn eval_benchmark(c: &mut Criterion) {
     // let mut s = "plidXY0AC4"; //basic
-    let a = Atom::from(Function::Add(Atom::Num(1), Atom::Num(2)));
+    let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
     c.bench_function("eval", |b| b.iter(|| eval(black_box(a.clone()))));
 }
 
