@@ -1,7 +1,7 @@
 use egui::{Color32, Event, EventFilter};
 use tracing::{debug, info};
 
-use lang::parse;
+use lang::function;
 use tracing_subscriber::field::debug;
 
 use crate::source::Source;

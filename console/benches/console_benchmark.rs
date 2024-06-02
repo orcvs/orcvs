@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lang::{eval, midi_note_to_number, midi_note_to_number_hash, parse, Atom, Function};
+use lang::{eval, function, midi_note_to_number, midi_note_to_number_hash, Atom, Function};
 use rand::Rng;
 
 fn lookup(c: &mut Criterion) {

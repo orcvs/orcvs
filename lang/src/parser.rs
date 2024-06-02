@@ -2,6 +2,7 @@ use crate::midi_note_to_number;
 use crate::midi_number_to_note;
 use crate::ArgumentError;
 use crate::Atom;
+use crate::AtomRef;
 use crate::Function;
 use crate::SyntaxError;
 use crate::VthaError;
@@ -57,15 +58,64 @@ use tracing::debug;
 // ///
 // ///
 
+#[derive(Default)]
+struct Pool {
+    pool: Vec<Atom>,
+}
+
+impl Pool {
+    fn get(&self, atom_ref: AtomRef) -> &Atom {
+        &self.pool[atom_ref.0]
+    }
+
+    fn add(&mut self, atom: Atom) -> AtomRef {
+        let idx = self.pool.len();
+        self.pool.push(atom);
+        AtomRef(idx.into())
+    }
+
+    // pub fn parse<'a, 'b: 'a>(&mut self, s: &'a mut &'b str) -> Result<Atom, VthaError> {
+    //     let token = next_token(s, 2);
+
+    //     let f: fn(&mut &str, &mut Parser) -> Result<Atom, VthaError> = match token {
+    //         Some("pl") => play,
+    //         Some("id") => ident,
+    //         Some(s) => {
+    //             return Err(VthaError::SyntaxError(SyntaxError::UnknownFunction {
+    //                 f: s.to_string(),
+    //             }));
+    //         }
+    //         None => {
+    //             return Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {}));
+    //         }
+    //     };
+
+    //     f(s, self)
+    // }
+
+    pub fn take_pool(&mut self) -> Vec<Atom> {
+        std::mem::take(&mut self.pool)
+    }
+}
+
 ///
 /// Parses literal function identifiers
 /// e.g.
 /// # Errors
 ///
-pub fn parse<'a, 'b: 'a>(s: &'a mut &'b str) -> Result<Atom, VthaError> {
+pub fn parse<'a, 'b: 'a>(s: &'a mut &'b str, pool: &mut Pool) -> Result<Atom, VthaError> {
+    function(s, pool)
+}
+
+///
+/// Parses literal function identifiers
+/// e.g.
+/// # Errors
+///
+pub fn function<'a, 'b: 'a>(s: &'a mut &'b str, pool: &mut Pool) -> Result<Atom, VthaError> {
     let token = next_token(s, 2);
 
-    let f: fn(&mut &str) -> Result<Atom, VthaError> = match token {
+    let f: fn(&mut &str, &mut Pool) -> Result<Atom, VthaError> = match token {
         Some("pl") => play,
         Some("id") => ident,
         Some(s) => {
@@ -77,8 +127,8 @@ pub fn parse<'a, 'b: 'a>(s: &'a mut &'b str) -> Result<Atom, VthaError> {
             return Err(VthaError::SyntaxError(SyntaxError::ExpectedToken {}));
         }
     };
-    // debug!("Params {:?}", s);
-    f(s)
+
+    f(s, &mut pool)
 }
 
 impl Atom {
@@ -150,7 +200,7 @@ impl<'a, 'b: 'a> Token<'a> for &'b str {
             // info!("is_function {:?}", token);
             // Always Some because we peeked
             // let mut t = next_token(self, 2).unwrap();
-            parse(self)
+            function(self)
         } else {
             let t = next_token(self, count);
             // info!("take_count {:?}", t);
@@ -197,16 +247,22 @@ fn peek_next(s: &str) -> Option<&str> {
     }
 }
 
-fn ident(s: &mut &str) -> Result<Atom, VthaError> {
+fn ident(s: &mut &str, parser: &mut Parser) -> Result<Atom, VthaError> {
     let param = s.take()?;
+
+    let param = parser.add(param);
     Ok(Atom::from(Function::Ident(param)))
 }
 
 // channel, velocity, note
-fn play(s: &mut &str) -> Result<Atom, VthaError> {
+fn play(s: &mut &str, parser: &mut Parser) -> Result<Atom, VthaError> {
     let ch = s.take_count(1)?.into_num()?;
     let vel = s.take()?.into_num()?;
     let note = s.take()?.into_note()?;
+
+    let ch = parser.add(ch);
+    let vel = parser.add(vel);
+    let note = parser.add(note);
 
     Ok(Atom::from(Function::Play(ch, vel, note)))
 }
@@ -214,17 +270,24 @@ fn play(s: &mut &str) -> Result<Atom, VthaError> {
 #[cfg(test)]
 mod test {
 
-    use crate::{parser::parse, trace, Atom, Function};
+    use tracing::info;
+
+    use crate::{
+        parser::{function, Parser},
+        trace, Atom, AtomRef, Function,
+    };
 
     #[test]
     fn test_parse_id_function() {
         trace();
 
+        let mut parser = Parser::default();
+
         let mut s = "idAA";
-        let ast = parse(&mut s).unwrap();
+        let ast = parser.parse(&mut s).unwrap();
         // info!("{:?}", ast);
 
-        let expected = Atom::from(Function::Ident(Atom::String("AA".to_string())));
+        let expected = Atom::from(Function::Ident(AtomRef(0)));
 
         assert_eq!(ast, expected);
     }
@@ -233,13 +296,14 @@ mod test {
     fn test_parse_recursive_function() {
         trace();
 
+        let mut parser = Parser::default();
         let mut s = "idididAA";
-        let ast = parse(&mut s).unwrap();
+        let ast = parser.parse(&mut s).unwrap();
         // info!("{:?}", ast);
 
-        let f = Atom::from(Function::Ident(Atom::String("AA".to_string())));
-        let f = Atom::from(Function::Ident(f));
-        let f = Atom::from(Function::Ident(f));
+        let f = Atom::from(Function::Ident(AtomRef(2)));
+        let f = Atom::from(Function::Ident(AtomRef(1)));
+        let f = Atom::from(Function::Ident(AtomRef(0)));
 
         let expected = f;
 
@@ -260,12 +324,15 @@ mod test {
 
         // assert_eq!(ast, expected);
 
+        let mut parser = Parser::default();
         let mut s = "plidXY0AC4";
-        let ast = parse(&mut s).unwrap();
+        // let ast = parse(&mut s).unwrap();
+        let ast = parser.parse(&mut s).unwrap();
+        info!("{:?}", ast);
 
-        let id = Atom::from(Function::Ident(Atom::String("XY".to_string())));
+        let id = Atom::from(Function::Ident(AtomRef(0)));
 
-        let expected = Atom::from(Function::Play(id, Atom::Number(10), Atom::Note(60)));
+        let expected = Atom::from(Function::Play(AtomRef(0), AtomRef(1), AtomRef(2)));
 
         assert_eq!(ast, expected);
 

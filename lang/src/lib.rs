@@ -11,8 +11,8 @@ use thiserror::Error;
 // use miette::diagnostic;
 // use miette::Diagnostic;
 
-pub use eval::eval;
-pub use parser::parse;
+// pub use eval::eval;
+pub use parser::function;
 
 ///
 /// play channel octave note velocity
@@ -23,9 +23,12 @@ pub use parser::parse;
 ///  x (y 1 2 3) 4
 ///
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AtomRef(usize);
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Atom {
-    Function(Box<Function>),
+    Function(Function),
     Number(u8),
     Note(u8),
     String(String),
@@ -33,10 +36,10 @@ pub enum Atom {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Function {
-    Add(Atom, Atom),
-    Ident(Atom),
-    Play(Atom, Atom, Atom),
-    Sub(Atom, Atom),
+    Add(AtomRef, AtomRef),
+    Ident(AtomRef),
+    Play(AtomRef, AtomRef, AtomRef),
+    Sub(AtomRef, AtomRef),
 }
 
 impl From<&str> for Atom {
@@ -47,7 +50,7 @@ impl From<&str> for Atom {
 
 impl From<Function> for Atom {
     fn from(f: Function) -> Self {
-        Atom::Function(Box::new(f))
+        Atom::Function(f.clone())
     }
 }
 
@@ -121,12 +124,12 @@ fn trace() {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Function::Add(a, b) => {
-                write!(f, "Add {a} {b}")
-            }
-            Function::Sub(a, b) => {
-                write!(f, "Sub {a} {b}")
-            }
+            // Function::Add(a, b) => {
+            //     write!(f, "Add {a} {b}")
+            // }
+            // Function::Sub(a, b) => {
+            //     write!(f, "Sub {a} {b}")
+            // }
             _ => write!(f, "Function"),
         }
     }
