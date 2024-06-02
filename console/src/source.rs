@@ -5,6 +5,7 @@ use tracing::info;
 
 const TERMINATOR: &str = ".";
 
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct Source {
     inner: String,
     cols: usize,
@@ -13,14 +14,14 @@ pub struct Source {
     expressions: Vec<Option<Rc<RefCell<Expression>>>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, PartialEq)]
 pub struct Expression {
     start: usize,
     end: usize,
 }
 
 impl<'a> Source {
-    fn new(cols: usize, rows: usize) -> Self {
+    pub fn new(cols: usize, rows: usize) -> Self {
         let n = cols * rows;
         let inner = '.'.to_string().repeat(n);
 
@@ -54,16 +55,29 @@ impl<'a> Source {
         source
     }
 
-    pub fn get_at(&self, idx: usize) -> &str {
-        assert!(idx <= self.len(), "index out of bounds {idx}");
+    pub fn get_at(&self, x: usize, y: usize) -> &str {
+        let idx = self.to_idx(x, y);
+        // SAFELY UNSAFE
+        // all characters are single-byte ASCII
+        //   the idx is always in range
+        //      - to_index will panic if the index is out of bounds
         unsafe { self.inner.get_unchecked(idx..=idx) }
     }
+
+    // pub fn get_at_idx(&self, idx: usize) -> &str {
+    //     assert!(idx <= self.len(), "index out of bounds {idx}");
+    //     unsafe { self.inner.get_unchecked(idx..=idx) }
+    // }
 
     pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
         let idx = self.to_idx(x, y);
 
         let b = s.as_bytes();
 
+        // SAFELY UNSAFE
+        //   all characters are single-byte ASCII
+        //   the idx is always in range
+        //      - to_index will panic if the index is out of bounds
         unsafe {
             let bytes = self.inner.as_bytes_mut();
             bytes[idx] = b[0];
@@ -509,11 +523,11 @@ mod test {
 
         let source = Source::from_source(10, 1, "T......X..");
 
-        let s = source.get_at(0);
+        let s = source.get_at(0, 0);
 
         assert_eq!(s, "T");
 
-        let s = source.get_at(7);
+        let s = source.get_at(7, 0);
 
         assert_eq!(s, "X");
     }

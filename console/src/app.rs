@@ -3,6 +3,8 @@ use tracing::{debug, info};
 
 use lang::parse;
 use tracing_subscriber::field::debug;
+
+use crate::source::Source;
 pub const DEFAULT_FONT_SIZE: f32 = 23.0;
 pub const DEFAULT_COL_COUNT: usize = 4;
 pub const DEFAULT_ROW_COUNT: usize = 1;
@@ -12,7 +14,7 @@ pub const DEFAULT_ROW_COUNT: usize = 1;
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct ConsoleApp {
-    src: String,
+    src: Source,
     selected: Option<(usize, usize)>,
     mode: Mode,
     cols: usize,
@@ -27,16 +29,7 @@ pub enum Mode {
 
 impl Default for ConsoleApp {
     fn default() -> Self {
-        // let mut src = String::new();
-        // for _y in 0..DEFAULT_ROW_COUNT {
-        //     for _x in 0..DEFAULT_COL_COUNT {
-        //         src.push('.');
-        //     }
-        // }
-
-        let n = DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT;
-        let src = '.'.to_string().repeat(n);
-
+        let src = Source::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         Self {
             src,
             selected: None,
@@ -174,12 +167,14 @@ impl eframe::App for ConsoleApp {
                     // This is all probably a very bad idea
                     // I am treating the string as byte array and mutating it
                     if let Some((x, y)) = &self.selected {
-                        let c = text_to_insert.as_bytes();
-                        let idx = y * self.cols + x;
-                        unsafe {
-                            let bytes = self.src.as_bytes_mut();
-                            bytes[idx] = c[0];
-                        }
+                        self.src.set_at(*x, *y, text_to_insert);
+
+                        // let c = text_to_insert.as_bytes();
+                        // let idx = y * self.cols + x;
+                        // unsafe {
+                        //     let bytes = self.src.as_bytes_mut();
+                        //     bytes[idx] = c[0];
+                        // }
                         // info!("self.src: {}", self.src);
                         if self.mode == Mode::Insert {
                             self.select_next();
@@ -206,9 +201,9 @@ impl eframe::App for ConsoleApp {
             for y in 0..self.rows {
                 ui.horizontal(|ui| {
                     for x in 0..self.cols {
-                        let idx = y * self.cols + x;
+                        // let idx = y * self.cols + x;
 
-                        let s = unsafe { self.src.get_unchecked(idx..=idx) };
+                        let s = self.src.get_at(x, y);
 
                         let mut background_color = Color32::TRANSPARENT;
 
