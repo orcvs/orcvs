@@ -5,14 +5,14 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 
 use std::fmt;
+use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::Once;
-
 use thiserror::Error;
 // use miette::diagnostic;
 // use miette::Diagnostic;
 
 // pub use eval::eval;
-pub use parser::function;
 
 ///
 /// play channel octave note velocity
@@ -23,45 +23,140 @@ pub use parser::function;
 ///  x (y 1 2 3) 4
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct AtomRef(usize);
+// #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// pub struct AtomRef(usize);
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+pub trait AtomTrait: Debug {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AtomRef<T: AtomTrait> {
+    index: usize,
+    phantom: PhantomData<T>,
+}
+
+impl<T: AtomTrait> From<AtomRef<T>> for usize {
+    fn from(atom_ref: AtomRef<T>) -> Self {
+        atom_ref.index
+    }
+}
+
+impl<T: AtomTrait> AtomRef<T> {
+    pub fn new(index: usize) -> Self {
+        Self {
+            index,
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtomNumber(u8);
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtomNote(u8);
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtomString(String);
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtomFunction(Function);
+
+impl AtomTrait for AtomNumber {}
+impl AtomTrait for AtomNote {}
+impl AtomTrait for AtomString {}
+impl AtomTrait for AtomFunction {}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Atom {
     Function(Function),
-    Number(u8),
     Note(u8),
+    Number(u8),
     String(String),
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Function {
-    Add(AtomRef, AtomRef),
-    Ident(AtomRef),
-    Play(AtomRef, AtomRef, AtomRef),
-    Sub(AtomRef, AtomRef),
+    Add(AtomRef<AtomNumber>, AtomRef<AtomNumber>),
+    Ident(AtomRef<AtomString>),
+    Play(AtomRef<AtomNumber>, AtomRef<AtomNumber>, AtomRef<AtomNote>),
+    Sub(AtomRef<AtomNumber>, AtomRef<AtomNumber>),
 }
 
-impl From<&str> for Atom {
-    fn from(s: &str) -> Self {
-        Atom::String(s.to_owned())
+impl From<AtomFunction> for Atom {
+    fn from(atom: AtomFunction) -> Self {
+        Atom::Function(atom.0)
     }
 }
 
-impl From<Function> for Atom {
-    fn from(f: Function) -> Self {
-        Atom::Function(f.clone())
-    }
-}
+// impl From<&str> for Atom {
+//     fn from(s: &str) -> Self {
+//         Atom::String(s.to_owned())
+//     }
+// }
 
-impl From<u8> for Atom {
-    fn from(n: u8) -> Self {
-        Atom::Number(n)
-    }
-}
+// impl From<Function> for Atom {
+//     fn from(f: Function) -> Self {
+//         Atom::Function(f.clone())
+//     }
+// }
+
+// impl From<u8> for Atom {
+//     fn from(n: u8) -> Self {
+//         Atom::Number(n)
+//     }
+// }
+
+// impl Atom {
+//     #[allow(dead_code)]
+//     fn into_string(self) -> Result<Atom, Error> {
+//         match self {
+//             Atom::String(s) => Ok(Atom::String(s)),
+//             Atom::Number(n) => {
+//                 let s = format!("{n:X}");
+//                 Ok(Atom::String(s))
+//             }
+//             Atom::Note(n) => {
+//                 if let Some(s) = midi_number_to_note(n) {
+//                     Ok(Atom::String(s.to_string()))
+//                 } else {
+//                     let s = n.to_string();
+//                     Err(ArgumentError::StringExpected(s).into())
+//                 }
+//             }
+//             Atom::Function(_) => Ok(self),
+//         }
+//     }
+
+//     fn into_num(self) -> Result<Atom, Error> {
+//         match self {
+//             Atom::String(s) => match u8::from_str_radix(&s, 16) {
+//                 Ok(n) => Ok(Atom::Number(n)),
+//                 Err(_) => Err(ArgumentError::NumberExpected(s).into()),
+//             },
+//             Atom::Number(_) => Ok(self.clone()),
+//             Atom::Note(n) => Ok(Atom::Number(n)),
+//             Atom::Function(_) => Ok(self),
+//         }
+//     }
+
+//     fn into_note(self) -> Result<Atom, Error> {
+//         match self {
+//             Atom::String(s) => {
+//                 if let Some(n) = midi_note_to_number(&s) {
+//                     Ok(Atom::Note(n))
+//                 } else {
+//                     Err(ArgumentError::NoteExpected(s).into())
+//                 }
+//             }
+//             Atom::Number(n) => Ok(Atom::Note(n)),
+//             Atom::Note(_) => Ok(self.clone()),
+//             Atom::Function(_) => Ok(self),
+//         }
+//     }
+// }
 
 #[derive(Error, Debug)]
-pub enum VthaError {
+pub enum Error {
     #[error(transparent)]
     // #[diagnostic(transparent)]
     ArgumentError(#[from] ArgumentError),
@@ -135,21 +230,21 @@ impl fmt::Display for Function {
     }
 }
 
-impl fmt::Display for Atom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Atom::Number(n) => {
-                write!(f, "{n}")
-            }
-            Atom::Note(n) => match midi_number_to_note(*n) {
-                Some(note) => write!(f, "{note}"),
-                None => write!(f, "{n}"),
-            },
-            Atom::String(ref s) => write!(f, "{s}"),
-            Atom::Function(ref fun) => write!(f, "{fun}"),
-        }
-    }
-}
+// impl fmt::Display for Atom {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match self {
+//             Atom::Number(n) => {
+//                 write!(f, "{n}")
+//             }
+//             Atom::Note(n) => match midi_number_to_note(*n) {
+//                 Some(note) => write!(f, "{note}"),
+//                 None => write!(f, "{n}"),
+//             },
+//             Atom::String(ref s) => write!(f, "{s}"),
+//             Atom::Function(ref fun) => write!(f, "{fun}"),
+//         }
+//     }
+// }
 
 lazy_static! {
     pub static ref MIDI_NOTE_TO_NUMBER: HashMap<&'static str, u8> = {
