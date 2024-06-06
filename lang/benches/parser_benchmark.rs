@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lang::{midi_note_to_number, midi_note_to_number_hash};
+use lang::{midi_note_to_number, midi_note_to_number_hash, Parser};
 
 fn midi_lookup_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("Midi Lookup");
@@ -19,8 +19,16 @@ fn midi_lookup_benchmarks(c: &mut Criterion) {
 
 pub fn parser_benchmark(c: &mut Criterion) {
     // let mut s = "plidXY0AC4"; //basic
-    let mut s = "idididAA"; //recursive
-                            // c.bench_function("parse", |b| b.iter(|| function(black_box(&mut s))));
+
+    c.bench_function("parse", |b| {
+        b.iter(|| {
+            let mut s = String::from("idididAA");
+            let mut parser = Parser::new(black_box(&mut s));
+
+            let result = parser.parse();
+            let _result = black_box(result);
+        })
+    });
 }
 
 pub fn eval_benchmark(c: &mut Criterion) {
@@ -29,7 +37,7 @@ pub fn eval_benchmark(c: &mut Criterion) {
     // c.bench_function("eval", |b| b.iter(|| eval(black_box(a.clone()))));
 }
 
-criterion_group!(benches, midi_lookup_benchmarks);
-// criterion_group!(benches, parser_benchmark);
+// criterion_group!(benches, midi_lookup_benchmarks);
+criterion_group!(benches, parser_benchmark);
 // criterion_group!(benches, eval_benchmark);
 criterion_main!(benches);

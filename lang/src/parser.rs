@@ -14,14 +14,14 @@ use crate::SyntaxError;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
-struct Parser<'a> {
+pub struct Parser<'a> {
     pool: Vec<Atom>,
     source: &'a str,
     take_next: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn new(source: &'a mut str) -> Self {
+    pub fn new(source: &'a mut str) -> Self {
         Self {
             pool: Vec::new(),
             take_next: DEFAULT_TOKEN_LEN,

@@ -12,7 +12,7 @@ use thiserror::Error;
 // use miette::diagnostic;
 // use miette::Diagnostic;
 
-// pub use eval::eval;
+pub use parser::Parser;
 
 ///
 /// play channel octave note velocity
@@ -72,6 +72,7 @@ pub enum Atom {
     Note(u8),
     Number(u8),
     String(String),
+    Empty,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,14 +156,17 @@ fn trace() {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            // Function::Add(a, b) => {
-            //     write!(f, "Add {a} {b}")
-            // }
-            // Function::Sub(a, b) => {
-            //     write!(f, "Sub {a} {b}")
-            // }
-            _ => write!(f, "Function"),
+            Function::Add(a, b) => write!(f, "add({a}, {b})"),
+            Function::Ident(a) => write!(f, "ident({a})"),
+            Function::Play(a, b, c) => write!(f, "play({a}, {b}, {c})"),
+            Function::Sub(a, b) => write!(f, "sub({a}, {b})"),
         }
+    }
+}
+
+impl<T: AtomTrait> fmt::Display for AtomRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.index)
     }
 }
 
@@ -178,6 +182,7 @@ impl fmt::Display for Atom {
             },
             Atom::String(ref s) => write!(f, "{s}"),
             Atom::Function(ref fun) => write!(f, "{fun}"),
+            Atom::Empty => write!(f, "_"),
         }
     }
 }
