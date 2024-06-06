@@ -6,7 +6,6 @@ use std::collections::HashMap;
 
 use std::fmt;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::sync::Once;
 use thiserror::Error;
 // use miette::diagnostic;
@@ -26,29 +25,6 @@ pub use parser::Parser;
 // #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 // pub struct AtomRef(usize);
 
-pub trait AtomTrait: Debug {}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AtomRef<T: AtomTrait> {
-    index: usize,
-    phantom: PhantomData<T>,
-}
-
-impl<T: AtomTrait> From<AtomRef<T>> for usize {
-    fn from(atom_ref: AtomRef<T>) -> Self {
-        atom_ref.index
-    }
-}
-
-impl<T: AtomTrait> AtomRef<T> {
-    pub fn new(index: usize) -> Self {
-        Self {
-            index,
-            phantom: PhantomData,
-        }
-    }
-}
-
 // impl From Atom for String
 impl From<Atom> for String {
     fn from(atom: Atom) -> Self {
@@ -66,23 +42,6 @@ impl From<Atom> for String {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AtomNumber();
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AtomNote();
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AtomString();
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AtomFunction(Function);
-
-impl AtomTrait for AtomNumber {}
-impl AtomTrait for AtomNote {}
-impl AtomTrait for AtomString {}
-impl AtomTrait for AtomFunction {}
-
-#[derive(Clone, Debug, PartialEq)]
 pub enum Atom {
     Function(Function),
     Note(u8),
@@ -93,15 +52,15 @@ pub enum Atom {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Function {
-    Add(AtomRef<AtomNumber>, AtomRef<AtomNumber>),
-    Ident(AtomRef<AtomString>),
-    Play(AtomRef<AtomNumber>, AtomRef<AtomNumber>, AtomRef<AtomNote>),
-    Sub(AtomRef<AtomNumber>, AtomRef<AtomNumber>),
+    Add,
+    Ident,
+    Play,
+    Sub,
 }
 
-impl From<AtomFunction> for Atom {
-    fn from(atom: AtomFunction) -> Self {
-        Atom::Function(atom.0)
+impl From<Function> for Atom {
+    fn from(f: Function) -> Self {
+        Atom::Function(f)
     }
 }
 
@@ -167,24 +126,22 @@ fn trace() {
     });
 }
 
-// #[diagnostic(code(ArgumentError), url("https://my_website.com/error"))]
-
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Function::Add(a, b) => write!(f, "add({a}, {b})"),
-            Function::Ident(a) => write!(f, "ident({a})"),
-            Function::Play(a, b, c) => write!(f, "play({a}, {b}, {c})"),
-            Function::Sub(a, b) => write!(f, "sub({a}, {b})"),
+            Function::Add => write!(f, "add()"),
+            Function::Ident => write!(f, "ident()"),
+            Function::Play => write!(f, "play()"),
+            Function::Sub => write!(f, "sub()"),
         }
     }
 }
 
-impl<T: AtomTrait> fmt::Display for AtomRef<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.index)
-    }
-}
+// impl<T: AtomTrait> fmt::Display for AtomRef<T> {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "{}", self.index)
+//     }
+// }
 
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

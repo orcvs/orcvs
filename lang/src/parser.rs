@@ -1,13 +1,6 @@
 use crate::midi_note_to_number;
-use crate::midi_number_to_note;
 use crate::ArgumentError;
 use crate::Atom;
-use crate::AtomFunction;
-use crate::AtomNote;
-use crate::AtomNumber;
-use crate::AtomRef;
-use crate::AtomString;
-use crate::AtomTrait;
 use crate::Error;
 use crate::Function;
 use crate::SyntaxError;
@@ -29,18 +22,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<AtomRef<AtomFunction>, Error> {
+    pub fn parse(&mut self) -> Result<(), Error> {
         self.take_function()
     }
 
-    pub fn as_string(&mut self) -> Result<AtomRef<AtomString>, Error> {
+    pub fn as_string(&mut self) -> Result<(), Error> {
         self.inner_take(|s| {
             let a = Atom::String(s.to_string());
             Ok(a)
         })
     }
 
-    pub fn as_note(&mut self) -> Result<AtomRef<AtomNote>, Error> {
+    pub fn as_note(&mut self) -> Result<(), Error> {
         self.inner_take(|s| match midi_note_to_number(&s) {
             Some(n) => {
                 let a = Atom::Note(n);
@@ -50,7 +43,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub fn as_num(&mut self) -> Result<AtomRef<AtomNumber>, Error> {
+    pub fn as_num(&mut self) -> Result<(), Error> {
         self.inner_take(|s| match u8::from_str_radix(&s, 16) {
             Ok(n) => {
                 let a = Atom::Number(n);
@@ -72,10 +65,10 @@ impl<'a> Parser<'a> {
     ///     parser.next().as_num() will parse "ad0101" and handle it as the expected num type
     ///
     ///
-    pub fn take_function<T: AtomTrait + 'static>(&mut self) -> Result<AtomRef<T>, Error> {
+    pub fn take_function(&mut self) -> Result<(), Error> {
         let token = self.next_token(2);
 
-        let functionizer: fn(&mut Parser) -> Result<AtomFunction, Error> = match token {
+        let functionizer: fn(&mut Parser) -> Result<Function, Error> = match token {
             Some("++") => add,
             Some("pl") => play,
             Some("id") => ident,
@@ -91,25 +84,22 @@ impl<'a> Parser<'a> {
         };
 
         let a = functionizer(self)?;
-        let r = self.add(a);
-        Ok(r)
+        self.add(a);
+        Ok(())
     }
 
-    #[inline(always)]
-    pub fn get<T: Into<usize>>(&self, atom_ref: T) -> &Atom {
-        let index: usize = atom_ref.into();
-        &self.pool[index]
-    }
+    // #[inline(always)]
+    // pub fn get<T: Into<usize>>(&self, atom_ref: T) -> &Atom {
+    //     let index: usize = atom_ref.into();
+    //     &self.pool[index]
+    // }
 
     #[inline(always)]
-    fn add<T, A>(&mut self, atom: A) -> AtomRef<T>
+    fn add<A>(&mut self, atom: A)
     where
-        T: AtomTrait + 'static,
         A: Into<Atom>,
     {
-        let idx = self.pool.len();
         self.pool.push(atom.into());
-        AtomRef::new(idx)
     }
 
     #[inline(always)]
@@ -135,9 +125,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn inner_take<F, T>(&mut self, atomizer: F) -> Result<AtomRef<T>, Error>
+    pub fn inner_take<F>(&mut self, atomizer: F) -> Result<(), Error>
     where
-        T: AtomTrait + 'static,
         F: Fn(&str) -> Result<Atom, Error>,
     {
         let count = self.take_next;
@@ -151,8 +140,8 @@ impl<'a> Parser<'a> {
             match t {
                 Some(t) => {
                     let a = atomizer(t)?;
-                    let r = self.add(a);
-                    Ok(r)
+                    self.add(a);
+                    Ok(())
                 }
                 None => Err(Error::SyntaxError(SyntaxError::ExpectedToken {})),
             }
@@ -186,23 +175,23 @@ fn is_function(s: &str) -> bool {
     matches!(s, "pl" | "id")
 }
 
-fn add(pool: &mut Parser) -> Result<AtomFunction, Error> {
-    let a = pool.next().as_num()?;
-    let b = pool.next().as_num()?;
-    Ok(AtomFunction(Function::Add(a, b)))
+fn add(pool: &mut Parser) -> Result<Function, Error> {
+    pool.next().as_num()?;
+    pool.next().as_num()?;
+    Ok(Function::Add)
 }
 
-fn ident(pool: &mut Parser) -> Result<AtomFunction, Error> {
-    let param = pool.next().as_string()?;
-    Ok(AtomFunction(Function::Ident(param)))
+fn ident(pool: &mut Parser) -> Result<Function, Error> {
+    pool.next().as_string()?;
+    Ok(Function::Ident)
 }
 
 // channel, velocity, note
-fn play(pool: &mut Parser) -> Result<AtomFunction, Error> {
-    let ch = pool.take(1).as_num()?;
-    let vel = pool.next().as_num()?;
-    let note = pool.next().as_note()?;
-    Ok(AtomFunction(Function::Play(ch, vel, note)))
+fn play(pool: &mut Parser) -> Result<Function, Error> {
+    pool.take(1).as_num()?;
+    pool.next().as_num()?;
+    pool.next().as_note()?;
+    Ok(Function::Play)
 }
 
 #[cfg(test)]
@@ -210,7 +199,7 @@ mod test {
 
     // use tracing::info;
 
-    use crate::{parser::Parser, trace, Atom, AtomRef, Function};
+    use crate::{parser::Parser, trace, Atom, Function};
 
     #[test]
     fn test_parse_id_function() {
@@ -218,13 +207,10 @@ mod test {
 
         let mut s = String::from("idAA");
         let mut parser = Parser::new(&mut s);
-        let atom_ref = parser.parse().unwrap();
+        parser.parse();
 
-        let expected = Atom::Function(Function::Ident(AtomRef::new(0)));
-
-        let atom = parser.get(atom_ref);
-
-        assert_eq!(atom, &expected);
+        let expected = Atom::String("AA".to_string());
+        assert_eq!(parser.pool[0], expected);
     }
 
     #[test]
@@ -233,12 +219,12 @@ mod test {
 
         let mut s = String::from("idididAA");
         let mut parser = Parser::new(&mut s);
-        parser.parse().unwrap();
+        parser.parse();
 
         let expected = Atom::String("AA".to_string());
         assert_eq!(parser.pool[0], expected);
 
-        let expected = Atom::Function(Function::Ident(AtomRef::new(0)));
+        let expected = Atom::Function(Function::Ident);
         assert_eq!(parser.pool[1], expected);
     }
 

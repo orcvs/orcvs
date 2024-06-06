@@ -15,7 +15,7 @@
 
 */
 
-use crate::{ArgumentError, Atom, AtomRef, Error, Function};
+use crate::{ArgumentError, Atom, Error, Function};
 use tracing::info;
 
 // #[derive(Default)]
@@ -83,13 +83,13 @@ pub fn eval(pool: Vec<Atom>) -> Result<Atom, Error> {
     for atom in pool {
         match atom {
             Atom::Function(fun) => match fun {
-                Function::Add(a, b) => {
+                Function::Add => {
                     let a = pop_num(&mut stack)?;
                     let b = pop_num(&mut stack)?;
                     let result = add(a, b);
                     stack.push(result);
                 }
-                Function::Ident(a) => {
+                Function::Ident => {
                     // return Ok(a);
                 }
                 _ => {}
