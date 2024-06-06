@@ -49,6 +49,22 @@ impl<T: AtomTrait> AtomRef<T> {
     }
 }
 
+// impl From Atom for String
+impl From<Atom> for String {
+    fn from(atom: Atom) -> Self {
+        match atom {
+            Atom::Number(n) => n.to_string(),
+            Atom::Note(n) => match midi_number_to_note(n) {
+                Some(note) => note.to_string(),
+                None => n.to_string(),
+            },
+            Atom::String(s) => s,
+            Atom::Function(fun) => format!("{}", fun),
+            Atom::Empty => "_".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AtomNumber();
 

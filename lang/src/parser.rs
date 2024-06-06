@@ -15,7 +15,7 @@ use crate::SyntaxError;
 const DEFAULT_TOKEN_LEN: usize = 2;
 
 pub struct Parser<'a> {
-    pool: Vec<Atom>,
+    pub pool: Vec<Atom>,
     source: &'a str,
     take_next: usize,
 }
@@ -76,8 +76,10 @@ impl<'a> Parser<'a> {
         let token = self.next_token(2);
 
         let functionizer: fn(&mut Parser) -> Result<AtomFunction, Error> = match token {
+            Some("++") => add,
             Some("pl") => play,
             Some("id") => ident,
+
             Some(s) => {
                 return Err(Error::SyntaxError(SyntaxError::UnknownFunction {
                     f: s.to_string(),
@@ -182,6 +184,12 @@ impl<'a> Parser<'a> {
 #[inline(always)]
 fn is_function(s: &str) -> bool {
     matches!(s, "pl" | "id")
+}
+
+fn add(pool: &mut Parser) -> Result<AtomFunction, Error> {
+    let a = pool.next().as_num()?;
+    let b = pool.next().as_num()?;
+    Ok(AtomFunction(Function::Add(a, b)))
 }
 
 fn ident(pool: &mut Parser) -> Result<AtomFunction, Error> {

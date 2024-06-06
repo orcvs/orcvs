@@ -15,7 +15,7 @@
 
 */
 
-use crate::{ArgumentError, AtomRef, Error, Function};
+use crate::{ArgumentError, Atom, AtomRef, Error, Function};
 use tracing::info;
 
 // #[derive(Default)]
@@ -65,27 +65,50 @@ use tracing::info;
 //     }
 // }
 
-// impl Atom {
-//     fn get_num(&self) -> Result<u8, VthaError> {
-//         match self {
-//             Atom::Note(n) | Atom::Number(n) => Ok(*n),
-//             a => Err(ArgumentError::NumberExpected(a.to_string()).into()),
-//         }
-//     }
+fn pop_num(stack: &mut Vec<Atom>) -> Result<u8, Error> {
+    let atom = stack.pop();
+    match atom {
+        Some(Atom::Number(num)) => Ok(num),
+        Some(atom) => {
+            info!("{:?}", atom);
+            // Err(Error::ArgumentError(ArgumentError::NumberExpected()))
+            Err(ArgumentError::NumberExpected(atom.into()).into())
+        }
+        None => Err(ArgumentError::NumberExpected("".to_string()).into()),
+    }
+}
 
-//     fn _get_str(&self) -> Result<&str, VthaError> {
-//         match self {
-//             Atom::String(s) => Ok(s),
+pub fn eval(pool: Vec<Atom>) -> Result<Atom, Error> {
+    let mut stack: Vec<Atom> = vec![];
+    for atom in pool {
+        match atom {
+            Atom::Function(fun) => match fun {
+                Function::Add(a, b) => {
+                    let a = pop_num(&mut stack)?;
+                    let b = pop_num(&mut stack)?;
+                    let result = add(a, b);
+                    stack.push(result);
+                }
+                Function::Ident(a) => {
+                    // return Ok(a);
+                }
+                _ => {}
+            },
+            _ => {
+                info!("{:?}", atom);
+                stack.push(atom)
+            }
+        }
+    }
 
-//             a => Err(ArgumentError::StringExpected(a.to_string()).into()),
-//         }
-//     }
-// }
+    // Ok(Atom::Empty)
+    Ok(stack.pop().unwrap())
+}
 
-// fn add(a: u8, b: u8) -> Atom {
-//     let res = a + b;
-//     Atom::Number(res)
-// }
+fn add(a: u8, b: u8) -> Atom {
+    let res = a + b;
+    Atom::Number(res)
+}
 
 // fn sub(a: u8, b: u8) -> Atom {
 //     let res = a - b;
@@ -97,85 +120,88 @@ use tracing::info;
 //     Atom::Number(0)
 // }
 
-// #[cfg(test)]
-// mod test {
-//     use tracing::error;
+#[cfg(test)]
+mod test {
+    use tracing::info;
 
-//     use crate::{trace, ArgumentError, Atom, Function, VthaError};
+    use crate::{trace, Atom, Parser};
 
-//     use super::eval;
+    use super::eval;
 
-//     #[test]
-//     fn test_add_function() {
-//         trace();
+    #[test]
+    fn test_add_function() {
+        trace();
 
-//         let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
+        let mut s = String::from("++0102");
 
-//         let result = eval(a).unwrap();
-//         let expected = Atom::Number(3);
+        let mut parser = Parser::new(&mut s);
+        let _result = parser.parse();
 
-//         assert_eq!(result, expected);
-//     }
+        let result = eval(parser.pool).unwrap();
 
-//     #[test]
-//     fn test_sub_function() {
-//         trace();
+        let expected = Atom::Number(3);
+        assert_eq!(result, expected);
+    }
 
-//         let a = Atom::from(Function::Sub(Atom::Number(1), Atom::Number(1)));
+    // #[test]
+    // fn test_sub_function() {
+    //     trace();
 
-//         let result = eval(a).unwrap();
-//         let expected = Atom::Number(0);
+    //     let a = Atom::from(Function::Sub(Atom::Number(1), Atom::Number(1)));
 
-//         assert_eq!(result, expected);
-//     }
+    //     let result = eval(a).unwrap();
+    //     let expected = Atom::Number(0);
 
-//     #[test]
-//     fn test_get_num() {
-//         trace();
+    //     assert_eq!(result, expected);
+    // }
 
-//         let a = Atom::Number(1);
+    // #[test]
+    // fn test_get_num() {
+    //     trace();
 
-//         let result = a.get_num().unwrap();
-//         let expected = 1;
+    //     let a = Atom::Number(1);
 
-//         assert_eq!(result, expected);
+    //     let result = a.get_num().unwrap();
+    //     let expected = 1;
 
-//         let a = Atom::from("vtha");
+    //     assert_eq!(result, expected);
 
-//         let result = a.get_num().unwrap_err().to_string();
-//         let expected =
-//             VthaError::ArgumentError(ArgumentError::NumberExpected("vtha".to_string())).to_string();
+    //     let a = Atom::from("vtha");
 
-//         assert_eq!(result, expected);
-//     }
+    //     let result = a.get_num().unwrap_err().to_string();
+    //     let expected =
+    //         VthaError::ArgumentError(ArgumentError::NumberExpected("vtha".to_string())).to_string();
 
-//     #[test]
-//     fn test_play() {
-//         trace();
-//         let a = Atom::from(Function::Play(
-//             Atom::Number(1),
-//             Atom::Number(10),
-//             Atom::Note(60),
-//         ));
+    //     assert_eq!(result, expected);
+    // }
 
-//         let result = eval(a).unwrap();
+    // #[test]
+    // fn test_play() {
+    //     trace();
+    //     let a = Atom::from(Function::Play(
+    //         Atom::Number(1),
+    //         Atom::Number(10),
+    //         Atom::Note(60),
+    //     ));
 
-//         assert_eq!(result, Atom::Number(0));
-//     }
+    //     let result = eval(a).unwrap();
 
-//     #[test]
-//     fn test_eval_recursive_function() {
-//         trace();
+    //     assert_eq!(result, Atom::Number(0));
+    // }
 
-//         let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
+    // #[test]
+    // fn test_eval_recursive_function() {
+    //     trace();
 
-//         let a = Atom::from(Function::Add(Atom::Number(1), a));
+    //     let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
 
-//         let a = Atom::from(Function::Add(Atom::Number(1), a));
+    //     let a = Atom::from(Function::Add(Atom::Number(1), a));
 
-//         let result = eval(a).unwrap();
-//         let expected = Atom::Number(5);
+    //     let a = Atom::from(Function::Add(Atom::Number(1), a));
 
-//         assert_eq!(result, expected);
-//     }
-// }
+    //     let result = eval(a).unwrap();
+    //     let expected = Atom::Number(5);
+
+    //     assert_eq!(result, expected);
+    // }
+}
