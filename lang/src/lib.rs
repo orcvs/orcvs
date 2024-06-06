@@ -50,13 +50,13 @@ impl<T: AtomTrait> AtomRef<T> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AtomNumber(u8);
+pub struct AtomNumber();
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AtomNote(u8);
+pub struct AtomNote();
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AtomString(String);
+pub struct AtomString();
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AtomFunction(Function);
@@ -88,73 +88,6 @@ impl From<AtomFunction> for Atom {
     }
 }
 
-// impl From<&str> for Atom {
-//     fn from(s: &str) -> Self {
-//         Atom::String(s.to_owned())
-//     }
-// }
-
-// impl From<Function> for Atom {
-//     fn from(f: Function) -> Self {
-//         Atom::Function(f.clone())
-//     }
-// }
-
-// impl From<u8> for Atom {
-//     fn from(n: u8) -> Self {
-//         Atom::Number(n)
-//     }
-// }
-
-// impl Atom {
-//     #[allow(dead_code)]
-//     fn into_string(self) -> Result<Atom, Error> {
-//         match self {
-//             Atom::String(s) => Ok(Atom::String(s)),
-//             Atom::Number(n) => {
-//                 let s = format!("{n:X}");
-//                 Ok(Atom::String(s))
-//             }
-//             Atom::Note(n) => {
-//                 if let Some(s) = midi_number_to_note(n) {
-//                     Ok(Atom::String(s.to_string()))
-//                 } else {
-//                     let s = n.to_string();
-//                     Err(ArgumentError::StringExpected(s).into())
-//                 }
-//             }
-//             Atom::Function(_) => Ok(self),
-//         }
-//     }
-
-//     fn into_num(self) -> Result<Atom, Error> {
-//         match self {
-//             Atom::String(s) => match u8::from_str_radix(&s, 16) {
-//                 Ok(n) => Ok(Atom::Number(n)),
-//                 Err(_) => Err(ArgumentError::NumberExpected(s).into()),
-//             },
-//             Atom::Number(_) => Ok(self.clone()),
-//             Atom::Note(n) => Ok(Atom::Number(n)),
-//             Atom::Function(_) => Ok(self),
-//         }
-//     }
-
-//     fn into_note(self) -> Result<Atom, Error> {
-//         match self {
-//             Atom::String(s) => {
-//                 if let Some(n) = midi_note_to_number(&s) {
-//                     Ok(Atom::Note(n))
-//                 } else {
-//                     Err(ArgumentError::NoteExpected(s).into())
-//                 }
-//             }
-//             Atom::Number(n) => Ok(Atom::Note(n)),
-//             Atom::Note(_) => Ok(self.clone()),
-//             Atom::Function(_) => Ok(self),
-//         }
-//     }
-// }
-
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(transparent)]
@@ -174,6 +107,9 @@ pub enum SyntaxError {
     #[error("unknown function {f:?}")]
     // #[diagnostic(code(SyntaxError))]
     UnknownFunction { f: String },
+
+    #[error("expressions should start with a valid function")]
+    ExpectedFunction {},
 
     #[error("expected token")]
     ExpectedToken {},
@@ -230,21 +166,21 @@ impl fmt::Display for Function {
     }
 }
 
-// impl fmt::Display for Atom {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match self {
-//             Atom::Number(n) => {
-//                 write!(f, "{n}")
-//             }
-//             Atom::Note(n) => match midi_number_to_note(*n) {
-//                 Some(note) => write!(f, "{note}"),
-//                 None => write!(f, "{n}"),
-//             },
-//             Atom::String(ref s) => write!(f, "{s}"),
-//             Atom::Function(ref fun) => write!(f, "{fun}"),
-//         }
-//     }
-// }
+impl fmt::Display for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Atom::Number(n) => {
+                write!(f, "{n}")
+            }
+            Atom::Note(n) => match midi_number_to_note(*n) {
+                Some(note) => write!(f, "{note}"),
+                None => write!(f, "{n}"),
+            },
+            Atom::String(ref s) => write!(f, "{s}"),
+            Atom::Function(ref fun) => write!(f, "{fun}"),
+        }
+    }
+}
 
 lazy_static! {
     pub static ref MIDI_NOTE_TO_NUMBER: HashMap<&'static str, u8> = {

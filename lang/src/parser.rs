@@ -14,13 +14,13 @@ use crate::SyntaxError;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
-struct Pool<'a> {
+struct Parser<'a> {
     pool: Vec<Atom>,
     source: &'a str,
     take_next: usize,
 }
 
-impl<'a> Pool<'a> {
+impl<'a> Parser<'a> {
     fn new(source: &'a mut str) -> Self {
         Self {
             pool: Vec::new(),
@@ -60,10 +60,22 @@ impl<'a> Pool<'a> {
         })
     }
 
+    ///
+    /// Functions are slightly magical
+    /// A function can be evaluated as any other Atom type
+    /// Although take_function always retruns an AtomRef<AtomFunction>,
+    ///     making it generic over <T> means that the return value will
+    ///     be handled as the expected type.
+    ///
+    /// eg
+    ///     Given the expression "adad010101"
+    ///     parser.next().as_num() will parse "ad0101" and handle it as the expected num type
+    ///
+    ///
     pub fn take_function<T: AtomTrait + 'static>(&mut self) -> Result<AtomRef<T>, Error> {
         let token = self.next_token(2);
 
-        let f: fn(&mut Pool) -> Result<AtomFunction, Error> = match token {
+        let functionizer: fn(&mut Parser) -> Result<AtomFunction, Error> = match token {
             Some("pl") => play,
             Some("id") => ident,
             Some(s) => {
@@ -72,28 +84,29 @@ impl<'a> Pool<'a> {
                 }));
             }
             None => {
-                return Err(Error::SyntaxError(SyntaxError::ExpectedToken {}));
+                return Err(Error::SyntaxError(SyntaxError::ExpectedFunction {}));
             }
         };
 
-        let a = f(self)?;
-        let r = self.add(a.into());
+        let a = functionizer(self)?;
+        let r = self.add(a);
         Ok(r)
     }
 
     #[inline(always)]
-    // pub fn get(&self, atom_ref: usize) -> &Box<dyn AtomTrait> {
-    //     &self.pool[atom_ref]
-    // }
     pub fn get<T: Into<usize>>(&self, atom_ref: T) -> &Atom {
         let index: usize = atom_ref.into();
         &self.pool[index]
     }
 
     #[inline(always)]
-    fn add<T: AtomTrait + 'static>(&mut self, atom: Atom) -> AtomRef<T> {
+    fn add<T, A>(&mut self, atom: A) -> AtomRef<T>
+    where
+        T: AtomTrait + 'static,
+        A: Into<Atom>,
+    {
         let idx = self.pool.len();
-        self.pool.push(atom);
+        self.pool.push(atom.into());
         AtomRef::new(idx)
     }
 
@@ -171,13 +184,13 @@ fn is_function(s: &str) -> bool {
     matches!(s, "pl" | "id")
 }
 
-fn ident(pool: &mut Pool) -> Result<AtomFunction, Error> {
+fn ident(pool: &mut Parser) -> Result<AtomFunction, Error> {
     let param = pool.next().as_string()?;
     Ok(AtomFunction(Function::Ident(param)))
 }
 
 // channel, velocity, note
-fn play(pool: &mut Pool) -> Result<AtomFunction, Error> {
+fn play(pool: &mut Parser) -> Result<AtomFunction, Error> {
     let ch = pool.take(1).as_num()?;
     let vel = pool.next().as_num()?;
     let note = pool.next().as_note()?;
@@ -187,248 +200,52 @@ fn play(pool: &mut Pool) -> Result<AtomFunction, Error> {
 #[cfg(test)]
 mod test {
 
-    use crate::{parser::Pool, trace, Atom, AtomRef, Function};
+    // use tracing::info;
+
+    use crate::{parser::Parser, trace, Atom, AtomRef, Function};
 
     #[test]
     fn test_parse_id_function() {
         trace();
 
         let mut s = String::from("idAA");
-        let mut pool = Pool::new(&mut s);
-        let atom_ref = pool.parse().unwrap();
+        let mut parser = Parser::new(&mut s);
+        let atom_ref = parser.parse().unwrap();
 
         let expected = Atom::Function(Function::Ident(AtomRef::new(0)));
 
-        let atom = pool.get(atom_ref);
+        let atom = parser.get(atom_ref);
 
         assert_eq!(atom, &expected);
     }
 
-    // #[test]
-    // fn test_parse_recursive_function() {
-    //     trace();
-
-    //     let mut s = String::from("idididAA");
-    //     let mut pool = Pool::new(&mut s);
-    //     let ast = pool.parse().unwrap();
-    //     info!("{:?}", ast);
-
-    //     let f = Atom::from(Function::Ident(AtomRef::new(2)));
-    //     let f = Atom::from(Function::Ident(AtomRef::new(1)));
-    //     let f = Atom::from(Function::Ident(AtomRef::new(0)));
-
-    //     let expected = f;
-
-    //     // assert_eq!(ast, expected);
-    // }
-
-    // #[test]
-    // fn test_parse_function() {
-    //     trace();
-    //     // let mut s = "pl10AC4";
-    //     // let ast = function(&mut s).unwrap();
-
-    //     // let expected = Atom::Function(Box::new(Function::Play(
-    //     //     Atom::Num(1),
-    //     //     Atom::Num(10),
-    //     //     Atom::Note(60),
-    //     // )));
-
-    //     // assert_eq!(ast, expected);
-
-    //     let mut s = String::from("plidXY0AC4");
-    //     let mut pool = Pool::new(&mut s);
-
-    //     // let ast = parse(&mut s).unwrap();
-    //     let ast = pool.parse().unwrap();
-    //     info!("{:?}", ast);
-
-    //     let expected = Atom::from(Function::Play(
-    //         AtomRef::new(1),
-    //         AtomRef::new(2),
-    //         AtomRef::new(3),
-    //     ));
-
-    //     // assert_eq!(ast, expected);
-
-    //     // let id = Atom::Function(Box::new(Function::Ident(
-    //     //     Atom::String("A".to_string()),
-    //     // )));
-    //     // let expected =
-    //     //     Atom::Function(Box::new(Function::Play(
-    //     //         id,
-    //     //         Atom::Num(255),
-    //     //         Atom::Num(60),
-    //     //     )));
-
-    //     // assert_eq!(ast, expected);
-
-    //     // let mut s = "plAFFC4";
-    //     // let ast = parse_function(&mut s).unwrap();
-    //     // let expected = Function::Play(10, 255, 60);
-
-    //     // assert_eq!(ast, expected);
-    // }
-
-    // #[test]
-    // fn test_atom_into() {
-    //     trace();
-
-    //     let num = Atom::Number(60);
-    //     let str = Atom::String("3C".to_string());
-    //     let note = Atom::Note(60);
-
-    //     assert_eq!(num, num.clone().into_num().unwrap());
-    //     assert_eq!(num, str.into_num().unwrap());
-    //     assert_eq!(num, note.into_num().unwrap());
-
-    //     let str = Atom::String("C4".to_string());
-    //     let note = Atom::Note(60);
-    //     assert_eq!(str, str.clone().into_string().unwrap());
-    //     assert_eq!(str, note.into_string().unwrap());
-
-    //     // Numbers convert to string literally, not as note value
-    //     let str = Atom::String("A".to_string());
-    //     let num = Atom::Number(10);
-    //     assert_eq!(str, num.into_string().unwrap());
-
-    //     let num = Atom::Number(60);
-    //     let str = Atom::String("C4".to_string());
-    //     let note = Atom::Note(60);
-
-    //     assert_eq!(note, note.clone().into_note().unwrap());
-    //     assert_eq!(note, str.into_note().unwrap());
-    //     assert_eq!(note, num.into_note().unwrap());
-
-    //     let str = Atom::String("XYZ".to_string());
-    //     str.into_note().expect_err("Expected error");
-
-    //     let str = Atom::String("XYZ".to_string());
-    //     str.into_num().expect_err("Expected error");
-
-    //     let str = Atom::String("CA".to_string());
-    //     str.into_note().expect_err("Expected error");
-    // }
-
     #[test]
-    fn test_next_token() {
+    fn test_parse_recursive_function() {
         trace();
-        // let mut s = "xy";
-        // let s = next_token(s).unwrap();
-        // assert_eq!(s, "xy");
 
-        // let mut s = "x";
-        // let s = next_token(s).unwrap();
-        // assert_eq!(s, None);
+        let mut s = String::from("idididAA");
+        let mut parser = Parser::new(&mut s);
+        parser.parse().unwrap();
 
-        // let mut s = "";
-        // let s = next_token(s).unwrap();
-        // assert_eq!(s, None);
+        let expected = Atom::String("AA".to_string());
+        assert_eq!(parser.pool[0], expected);
+
+        let expected = Atom::Function(Function::Ident(AtomRef::new(0)));
+        assert_eq!(parser.pool[1], expected);
     }
 
-    // #[test]
-    // fn test_parse_atom_list() {
-    //     let mut s: &str = "1 2 3";
-    //     let expected =
-    //         list![Atom::Num(1), Atom::Num(2), Atom::Num(3)];
-    //     let ast = parse_atoms(&mut s).unwrap();
-    //     assert_eq!(ast, expected);
+    #[test]
+    fn test_parse_function() {
+        trace();
 
-    //     let mut s: &str = "(1 2 3)";
-    //     let expected = list![list![
-    //         Atom::Num(1),
-    //         Atom::Num(2),
-    //         Atom::Num(3)
-    //     ]];
-    //     let ast = parse_atoms(&mut s).unwrap();
-    //     assert_eq!(ast, expected);
-    // }
+        let mut s = String::from("pl0AC4");
+        let mut parser = Parser::new(&mut s);
+        parser.parse().unwrap();
 
-    // #[test]
-    // fn test_parse_nested_atom_lists() {
-    //     let mut s: &str = "1 (2) 3";
-    //     let expected = list![
-    //         Atom::Num(1),
-    //         list![Atom::Num(2)],
-    //         Atom::Num(3)
-    //     ];
-    //     let ast = parse_atoms(&mut s).unwrap();
-    //     assert_eq!(ast, expected);
+        let expected = Atom::Note(60);
+        assert_eq!(parser.pool[0], expected);
 
-    //     let mut s: &str = "(1 (2) 3)";
-    //     let expected = list![list![
-    //         Atom::Num(1),
-    //         list![Atom::Num(2)],
-    //         Atom::Num(3)
-    //     ]];
-    //     let ast = parse_atoms(&mut s).unwrap();
-    //     assert_eq!(ast, expected);
-
-    //     let mut s: &str = "(1 (2 3 (4)) 5)";
-    //     let expected = list![list![
-    //         Atom::Num(1),
-    //         list![
-    //             Atom::Num(2),
-    //             Atom::Num(3),
-    //             list![Atom::Num(4)]
-    //         ],
-    //         Atom::Num(5)
-    //     ]];
-    //     let ast = parse_atoms(&mut s).unwrap();
-    //     assert_eq!(ast, expected);
-    // }
-
-    // #[test]
-    // fn test_parse_atom() {
-    //     let mut s = "1";
-    //     let r = parse_atom(&mut s).unwrap();
-    //     assert_eq!(r, Atom::Num(1));
-
-    //     let mut s = "42";
-    //     let r = parse_atom(&mut s).unwrap();
-    //     assert_eq!(r, Atom::Num(42));
-    // }
-
-    // #[test]
-    // fn test_parse_value() {
-    //     let mut s = "1";
-    //     let r = parse_value(&mut s).unwrap();
-    //     assert_eq!(r, Atom::Num(1));
-
-    //     let mut s = "42";
-    //     let r = parse_value(&mut s).unwrap();
-    //     assert_eq!(r, Atom::Num(42));
-
-    //     let mut s = "1000";
-    //     let r = parse_value(&mut s).unwrap();
-    //     assert_eq!(r, Atom::Num(1000));
-
-    //     let mut s = "a";
-    //     let r = parse_value(&mut s).unwrap();
-    //     assert_eq!(r, Atom::Char('a'));
-
-    //     let mut s = "C4";
-    //     let r = parse_value(&mut s).unwrap();
-    //     assert_eq!(r, Atom::String("C4".to_string()));
-
-    //     let mut s = "42Vtha";
-    //     let r = parse_value(&mut s).unwrap();
-    //     assert_eq!(r, Atom::String("42Vtha".to_string()));
-    // }
-
-    // #[test]
-    // fn test_flatten() {
-    //     let list = list![Atom::Num(1)];
-    //     let res = flatten_list(list);
-    //     assert_eq!(res, Atom::Num(1));
-
-    //     let list = list![Atom::Num(1), Atom::Num(2)];
-    //     let res = flatten_list(list.clone());
-
-    //     assert_eq!(res, list);
-
-    //     let list = Atom::Num(1);
-    //     let res = flatten_list(list);
-    //     assert_eq!(res, Atom::Num(1));
-    // }
+        let expected = Atom::Number(10);
+        assert_eq!(parser.pool[1], expected);
+    }
 }
