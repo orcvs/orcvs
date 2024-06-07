@@ -68,6 +68,7 @@ pub enum Function {
     Ident,
     Play,
     Sub,
+    Empty,
 }
 
 impl From<Function> for Atom {
@@ -151,6 +152,7 @@ impl fmt::Display for Function {
             Function::Ident => write!(f, "ident()"),
             Function::Play => write!(f, "play()"),
             Function::Sub => write!(f, "sub()"),
+            Function::Empty => write!(f, "_()"),
         }
     }
 }

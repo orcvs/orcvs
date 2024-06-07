@@ -14,6 +14,7 @@ pub struct Parser<'a> {
     pub pool: VecStack,
     source: &'a str,
     take_next: usize,
+    check: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -22,10 +23,17 @@ impl<'a> Parser<'a> {
             pool: new_vec(),
             take_next: DEFAULT_TOKEN_LEN,
             source,
+            check: false,
         }
     }
 
     pub fn parse(&mut self) -> Result<(), Error> {
+        self.check = false;
+        self.take_function()
+    }
+
+    pub fn try_parse(&mut self) -> Result<(), Error> {
+        self.check = true;
         self.take_function()
     }
 
@@ -79,9 +87,13 @@ impl<'a> Parser<'a> {
             Some("pl") => play,
             Some("id") => ident,
             Some(s) => {
-                return Err(SyntaxError::UnknownFunction(s.to_string()).into());
+                return self
+                    .check_function()
+                    .ok_or(SyntaxError::UnknownFunction(s.to_string()).into());
             }
-            None => return Err(SyntaxError::ExpectedFunction.into()),
+            None => {
+                return self.check().ok_or(SyntaxError::ExpectedFunction.into());
+            }
         };
 
         let a = functionizer(self)?;
@@ -138,8 +150,30 @@ impl<'a> Parser<'a> {
                     self.add(a);
                     Ok(())
                 }
-                None => Err(SyntaxError::ExpectedToken.into()),
+                None => self.check().ok_or(SyntaxError::ExpectedToken.into()),
             }
+        }
+    }
+
+    #[inline(always)]
+    fn check(&mut self) -> Option<()> {
+        if self.check {
+            let a = Atom::Empty;
+            self.add(a);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    fn check_function(&mut self) -> Option<()> {
+        if self.check {
+            let a = Function::Empty;
+            self.add(a);
+            Some(())
+        } else {
+            None
         }
     }
 
