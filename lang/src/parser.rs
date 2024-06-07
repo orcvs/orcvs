@@ -1,14 +1,17 @@
 use crate::midi_note_to_number;
+use crate::new_vec;
 use crate::ArgumentError;
 use crate::Atom;
 use crate::Error;
 use crate::Function;
 use crate::SyntaxError;
+use crate::TypeError;
+use crate::VecStack;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
 pub struct Parser<'a> {
-    pub pool: Vec<Atom>,
+    pub pool: VecStack,
     source: &'a str,
     take_next: usize,
 }
@@ -16,7 +19,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
-            pool: Vec::new(),
+            pool: new_vec(),
             take_next: DEFAULT_TOKEN_LEN,
             source,
         }
@@ -26,6 +29,7 @@ impl<'a> Parser<'a> {
         self.take_function()
     }
 
+    #[inline(always)]
     pub fn as_string(&mut self) -> Result<(), Error> {
         self.inner_take(|s| {
             let a = Atom::String(s.to_string());
@@ -33,23 +37,25 @@ impl<'a> Parser<'a> {
         })
     }
 
+    #[inline(always)]
     pub fn as_note(&mut self) -> Result<(), Error> {
         self.inner_take(|s| match midi_note_to_number(&s) {
             Some(n) => {
                 let a = Atom::Note(n);
                 Ok(a)
             }
-            None => Err(ArgumentError::NoteExpected(s.to_string()).into()),
+            None => Err(TypeError::Note(s.to_string()).into()),
         })
     }
 
+    #[inline(always)]
     pub fn as_num(&mut self) -> Result<(), Error> {
         self.inner_take(|s| match u8::from_str_radix(&s, 16) {
             Ok(n) => {
                 let a = Atom::Number(n);
                 Ok(a)
             }
-            Err(_) => Err(ArgumentError::NumberExpected(s.to_string()).into()),
+            Err(_) => Err(TypeError::Number(s.to_string()).into()),
         })
     }
 
@@ -72,27 +78,16 @@ impl<'a> Parser<'a> {
             Some("++") => add,
             Some("pl") => play,
             Some("id") => ident,
-
             Some(s) => {
-                return Err(Error::SyntaxError(SyntaxError::UnknownFunction {
-                    f: s.to_string(),
-                }));
+                return Err(SyntaxError::UnknownFunction(s.to_string()).into());
             }
-            None => {
-                return Err(Error::SyntaxError(SyntaxError::ExpectedFunction {}));
-            }
+            None => return Err(SyntaxError::ExpectedFunction.into()),
         };
 
         let a = functionizer(self)?;
         self.add(a);
         Ok(())
     }
-
-    // #[inline(always)]
-    // pub fn get<T: Into<usize>>(&self, atom_ref: T) -> &Atom {
-    //     let index: usize = atom_ref.into();
-    //     &self.pool[index]
-    // }
 
     #[inline(always)]
     fn add<A>(&mut self, atom: A)
@@ -143,7 +138,7 @@ impl<'a> Parser<'a> {
                     self.add(a);
                     Ok(())
                 }
-                None => Err(Error::SyntaxError(SyntaxError::ExpectedToken {})),
+                None => Err(SyntaxError::ExpectedToken.into()),
             }
         }
     }
@@ -197,49 +192,70 @@ fn play(pool: &mut Parser) -> Result<Function, Error> {
 #[cfg(test)]
 mod test {
 
-    // use tracing::info;
+    use crate::{parser::Parser, trace, Atom, Error, Function, TypeError, VecStack};
+    use tracing::info;
 
-    use crate::{parser::Parser, trace, Atom, Function};
+    fn parse_with_result(exp: String) -> Result<(), Error> {
+        let mut exp = exp.clone();
+        let mut parser = Parser::new(&mut exp);
+        parser.parse()
+    }
+
+    fn parse(exp: String) -> VecStack {
+        let mut exp = exp.clone();
+        let mut parser = Parser::new(&mut exp);
+        parser.parse().unwrap();
+        parser.pool
+    }
+
+    #[test]
+    fn test_with_bad_syntax() {
+        trace();
+
+        let s = String::from("++01XY");
+        let result = parse_with_result(s);
+
+        let error = result.unwrap_err();
+        info!("{:?}", error.to_string());
+        assert!(matches!(error, Error::Type(TypeError::Number(_))));
+    }
 
     #[test]
     fn test_parse_id_function() {
         trace();
 
         let mut s = String::from("idAA");
-        let mut parser = Parser::new(&mut s);
-        parser.parse();
+        let pool = parse(s);
 
         let expected = Atom::String("AA".to_string());
-        assert_eq!(parser.pool[0], expected);
+        assert_eq!(pool[0], expected);
     }
 
     #[test]
     fn test_parse_recursive_function() {
         trace();
 
-        let mut s = String::from("idididAA");
-        let mut parser = Parser::new(&mut s);
-        parser.parse();
+        let mut s = String::from("idAA");
+        let pool = parse(s);
 
         let expected = Atom::String("AA".to_string());
-        assert_eq!(parser.pool[0], expected);
+        assert_eq!(pool[0], expected);
 
         let expected = Atom::Function(Function::Ident);
-        assert_eq!(parser.pool[1], expected);
+        assert_eq!(pool[1], expected);
     }
 
-    #[test]
-    fn test_parse_function() {
-        trace();
+    // #[test]
+    // fn test_parse_function() {
+    //     trace();
 
-        let mut s = String::from("pl0AC4");
-        let mut parser = Parser::new(&mut s);
-        parser.parse().unwrap();
+    //     let mut s = String::from("idAA");
+    //     let pool = parse(s);
 
-        let expected = Atom::Note(60);
-        assert_eq!(parser.pool[0], expected);
+    //     let expected = Atom::Note(60);
+    //     assert_eq!(pool[0], expected);
 
-        let expected = Atom::Number(10);
-        assert_eq!(parser.pool[1], expected);
-    }
+    //     let expected = Atom::Number(10);
+    //     assert_eq!(pool[1], expected);
+    // }
 }

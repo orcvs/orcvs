@@ -1,6 +1,7 @@
 mod eval;
 mod parser;
 
+use arrayvec::ArrayVec;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
@@ -34,11 +35,22 @@ impl From<Atom> for String {
                 Some(note) => note.to_string(),
                 None => n.to_string(),
             },
-            Atom::String(s) => s,
+            Atom::String(s) => s.to_owned(),
             Atom::Function(fun) => format!("{}", fun),
             Atom::Empty => "_".to_string(),
         }
     }
+}
+
+// type VecStack = Vec<Atom>;
+
+// use smallvec::{smallvec, SmallVec};
+// type VecStack = SmallVec<[Atom; 32]>;
+// use arrayvec::ArrayVec;
+type VecStack = ArrayVec<Atom, 48>;
+
+fn new_vec() -> VecStack {
+    ArrayVec::new()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,28 +79,40 @@ impl From<Function> for Atom {
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    // #[diagnostic(transparent)]
-    ArgumentError(#[from] ArgumentError),
+    Argument(#[from] ArgumentError),
 
     #[error(transparent)]
-    // #[diagnostic(transparent)]
-    SyntaxError(#[from] SyntaxError),
+    Syntax(#[from] SyntaxError),
 
-    #[error("{0:?}")]
-    EvalError(String),
+    #[error(transparent)]
+    Type(#[from] TypeError),
+}
+
+#[derive(Error, Debug)]
+pub enum TypeError {
+    #[error("expected a function, found {0:?}")]
+    Function(String),
+
+    #[error("expected a note, found {0:?}")]
+    Note(String),
+
+    #[error("expected a number, found {0:?}")]
+    Number(String),
+
+    #[error("expected a string, found {0:?}")]
+    String(String),
 }
 
 #[derive(Error, Debug)]
 pub enum SyntaxError {
-    #[error("unknown function {f:?}")]
-    // #[diagnostic(code(SyntaxError))]
-    UnknownFunction { f: String },
+    #[error("expected a function")]
+    ExpectedFunction,
 
-    #[error("expressions should start with a valid function")]
-    ExpectedFunction {},
+    #[error("expected a token")]
+    ExpectedToken,
 
-    #[error("expected token")]
-    ExpectedToken {},
+    #[error("unknown function {0:?}")]
+    UnknownFunction(String),
 }
 
 #[derive(Error, Debug)]
@@ -97,14 +121,8 @@ pub enum ArgumentError {
     // #[diagnostic(code(ArgumentError))]
     Arity { expected: usize, found: usize },
 
-    #[error("{0:?} should be a number")]
-    NumberExpected(String),
-
-    #[error("{0:?} should be a string")]
-    StringExpected(String),
-
-    #[error("{0:?} should be a note")]
-    NoteExpected(String),
+    #[error("expected an argument")]
+    Expected,
 }
 
 #[allow(dead_code)]

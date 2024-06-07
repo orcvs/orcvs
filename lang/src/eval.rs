@@ -15,132 +15,216 @@
 
 */
 
-use crate::{ArgumentError, Atom, Error, Function};
+use crate::{new_vec, ArgumentError, Atom, Error, Function, TypeError, VecStack};
+
 use tracing::info;
 
-// #[derive(Default)]
-// struct Interpreter {
-//     pool: Vec<Atom>,
-// }
+#[derive(Default)]
+struct Interpreter {
+    pub pool: VecStack,
+}
 
-// impl Interpreter {
-//     fn get(&self, atom_ref: AtomRef) -> &Atom {
-//         &self.pool[atom_ref.0]
-//     }
+struct Stack {
+    inner: VecStack,
+}
 
-//     fn add(&mut self, atom: Atom) -> AtomRef {
-//         let idx = self.pool.len();
-//         self.pool.push(atom);
-//         AtomRef(idx.into())
-//     }
+struct MaybeAtom(Option<Atom>);
 
-//     /// # Errors
-//     ///
-//     ///
-//     pub fn eval(&self) -> Result<Atom, VthaError> {
-//         let result = match atom {
-//             Atom::Function(fun) => match *fun {
-//                 Function::Add(a, b) => {
-//                     let a = eval(a)?.get_num()?;
-//                     let b = eval(b)?.get_num()?;
-//                     add(a, b)
-//                 }
-//                 Function::Play(ch, vel, note) => {
-//                     let ch = eval(ch)?.get_num()?;
-//                     let vel = eval(vel)?.get_num()?;
-//                     let note = eval(note)?.get_num()?;
-//                     play(ch, vel, note)
-//                 }
-//                 Function::Sub(a, b) => {
-//                     let a = eval(a)?.get_num()?;
-//                     let b = eval(b)?.get_num()?;
-//                     sub(a, b)
-//                 }
-//                 Function::Ident(a) => a,
-//             },
-//             _ => atom,
-//         };
+impl Stack {
+    pub fn new() -> Self {
+        Self { inner: new_vec() }
+    }
 
-//         Ok(result)
-//     }
-// }
+    #[inline(always)]
+    fn push(&mut self, atom: Atom) {
+        self.inner.push(atom);
+    }
 
-fn pop_num(stack: &mut Vec<Atom>) -> Result<u8, Error> {
-    let atom = stack.pop();
-    match atom {
-        Some(Atom::Number(num)) => Ok(num),
-        Some(atom) => {
-            info!("{:?}", atom);
-            // Err(Error::ArgumentError(ArgumentError::NumberExpected()))
-            Err(ArgumentError::NumberExpected(atom.into()).into())
-        }
-        None => Err(ArgumentError::NumberExpected("".to_string()).into()),
+    #[inline(always)]
+    fn pop(&mut self) -> MaybeAtom {
+        MaybeAtom(self.inner.pop())
     }
 }
 
-pub fn eval(pool: Vec<Atom>) -> Result<Atom, Error> {
-    let mut stack: Vec<Atom> = vec![];
-    for atom in pool {
-        match atom {
-            Atom::Function(fun) => match fun {
-                Function::Add => {
-                    let a = pop_num(&mut stack)?;
-                    let b = pop_num(&mut stack)?;
-                    let result = add(a, b);
-                    stack.push(result);
-                }
-                Function::Ident => {
-                    // return Ok(a);
-                }
-                _ => {}
-            },
-            _ => {
-                info!("{:?}", atom);
-                stack.push(atom)
+impl<'a> Interpreter {
+    pub fn new(pool: VecStack) -> Self {
+        Self { pool }
+    }
+
+    pub fn interpret(&mut self) -> Result<Atom, Error> {
+        let mut stack = Stack::new();
+        for atom in self.pool.drain(..) {
+            match atom {
+                Atom::Function(fun) => match fun {
+                    Function::Add => {
+                        let atom = add(&mut stack)?;
+                        stack.push(atom);
+                    }
+                    Function::Ident => {
+                        let atom = stack.pop().try_into()?;
+                        stack.push(atom)
+                    }
+                    _ => {}
+                },
+                _ => stack.push(atom),
             }
         }
-    }
 
-    // Ok(Atom::Empty)
-    Ok(stack.pop().unwrap())
+        let atom = stack.pop().try_into()?;
+        Ok(atom)
+    }
 }
 
-fn add(a: u8, b: u8) -> Atom {
+fn map_arity(err: Error, expected: usize, found: usize) -> Error {
+    match err {
+        Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
+        _ => err.into(),
+    }
+}
+
+#[inline(always)]
+fn add(stack: &mut Stack) -> Result<Atom, Error> {
+    let a = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
+    let b = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    Ok(_add(a, b))
+}
+
+#[inline(always)]
+fn _add(a: u8, b: u8) -> Atom {
     let res = a + b;
     Atom::Number(res)
 }
 
-// fn sub(a: u8, b: u8) -> Atom {
-//     let res = a - b;
-//     Atom::Number(res)
-// }
+fn sub(a: u8, b: u8) -> Atom {
+    let res = a - b;
+    Atom::Number(res)
+}
 
-// fn play(c: u8, v: u8, n: u8) -> Atom {
-//     info!("Play: c: {}, v: {}, n: {}", c, v, n);
-//     Atom::Number(0)
-// }
+fn play(c: u8, v: u8, n: u8) -> Atom {
+    info!("Play: c: {}, v: {}, n: {}", c, v, n);
+    Atom::Number(0)
+}
+
+impl TryFrom<MaybeAtom> for u8 {
+    type Error = Error;
+
+    #[inline(always)]
+    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
+        match maybe_atom.0 {
+            Some(Atom::Number(num) | Atom::Note(num)) => Ok(num),
+            Some(atom) => Err(TypeError::Number(atom.into()).into()),
+            None => Err(ArgumentError::Expected.into()),
+        }
+    }
+}
+
+impl TryFrom<MaybeAtom> for String {
+    type Error = Error;
+
+    #[inline(always)]
+    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
+        match maybe_atom.0 {
+            Some(Atom::String(s)) => Ok(s),
+            Some(atom) => Err(TypeError::String(atom.into()).into()),
+            None => Err(ArgumentError::Expected.into()),
+        }
+    }
+}
+
+impl TryFrom<MaybeAtom> for Atom {
+    type Error = Error;
+
+    #[inline(always)]
+    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
+        match maybe_atom.0 {
+            Some(a) => Ok(a),
+            None => Err(ArgumentError::Expected.into()),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
+    use arrayvec::ArrayVec;
     use tracing::info;
 
-    use crate::{trace, Atom, Parser};
+    use crate::{
+        eval::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, TypeError, VecStack,
+    };
 
-    use super::eval;
+    fn eval(exp: String) -> Atom {
+        let mut exp = exp.clone();
+        let mut parser = Parser::new(&mut exp);
+        parser.parse().unwrap();
 
+        // info!("{:?}", parser.pool);
+
+        let mut interpreter = Interpreter::new(parser.pool);
+        interpreter.interpret().unwrap()
+    }
+
+    fn interpret_stack(stack: VecStack) -> Result<Atom, Error> {
+        let mut interpreter = Interpreter::new(stack);
+        interpreter.interpret()
+    }
+
+    ///
+    /// Stacks are fixed size
+    /// Inefficient but easiest option for creating a stack from an array
+    ///
+    fn stack_from(array: &[Atom]) -> VecStack {
+        let mut stack = ArrayVec::new();
+        for a in array {
+            stack.push(a.clone());
+        }
+        stack
+    }
     #[test]
     fn test_add_function() {
         trace();
 
-        let mut s = String::from("++0102");
-
-        let mut parser = Parser::new(&mut s);
-        let _result = parser.parse();
-
-        let result = eval(parser.pool).unwrap();
+        let s = String::from("++0102");
+        let result = eval(s);
 
         let expected = Atom::Number(3);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_with_missing_argument() {
+        trace();
+
+        let stack = stack_from(&[Atom::Number(1), Atom::Function(Function::Add)]);
+
+        let result = interpret_stack(stack);
+
+        let error = result.unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::Argument(ArgumentError::Arity {
+                expected: 2,
+                found: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn test_with_invalid_argument() {
+        trace();
+        let vtha = "VTHA".to_string();
+        let stack = stack_from(&[
+            Atom::String(vtha),
+            Atom::Number(1),
+            Atom::Function(Function::Add),
+        ]);
+
+        let result = interpret_stack(stack);
+
+        let error = result.unwrap_err();
+
+        // info!("{:?}", error.to_string(vtha));
+        assert!(matches!(error, Error::Type(TypeError::Number(vtha))));
     }
 
     // #[test]
