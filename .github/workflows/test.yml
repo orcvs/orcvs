@@ -1,12 +1,24 @@
 name: Test
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - console/src/**
+      - lang/src/**
+      - .github/workflows/test.yml
+    paths-ignore:
+      - ./**/benches/**
   pull_request:
     branches:
       - main
-  workflow_dispatch:
+    paths:
+      - console/src/**
+      - lang/src/**
+      - .github/workflows/test.yml
+    paths-ignore:
+      - ./**/benches/**
 
 env:
   CARGO_TERM_COLOR: always
