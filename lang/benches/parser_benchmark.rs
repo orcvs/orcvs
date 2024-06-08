@@ -1,25 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lang::{midi_note_to_number, midi_note_to_number_hash, Parser};
-
-fn midi_lookup_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Midi Lookup");
-
-    let notes = ["f2", "G2", "g2", "A2", "a2", "B2", "C3", "c3", "D3"];
-
-    for n in notes.iter() {
-        group.bench_with_input(BenchmarkId::new("Match", n), n, |b, n| {
-            b.iter(|| midi_note_to_number(*n))
-        });
-        group.bench_with_input(BenchmarkId::new("Hash", n), n, |b, n| {
-            b.iter(|| midi_note_to_number_hash(*n))
-        });
-    }
-    group.finish();
-}
+use lang::{Interpreter, Parser};
 
 pub fn parser_benchmark(c: &mut Criterion) {
-    // let mut s = "plidXY0AC4"; //basic
-
     c.bench_function("parse", |b| {
         b.iter(|| {
             let mut s = String::from("idididAA");
@@ -62,15 +44,37 @@ pub fn invalid_parser_benchmark(c: &mut Criterion) {
     });
 }
 
-pub fn eval_benchmark(c: &mut Criterion) {
-    // let mut s = "plidXY0AC4"; //basic
-    // let a = Atom::from(Function::Add(Atom::Number(1), Atom::Number(2)));
-    // c.bench_function("eval", |b| b.iter(|| eval(black_box(a.clone()))));
+fn interpret(exp: &String) {
+    let mut exp = exp.clone();
+    let mut parser = Parser::new(&mut exp);
+
+    let result = parser.parse();
+    assert!(result.is_ok());
+
+    let mut interpreter = Interpreter::new(black_box(parser.pool));
+    let result = interpreter.interpret();
+    assert!(result.is_ok());
 }
 
-// criterion_group!(benches, midi_lookup_benchmarks);
-// criterion_group!(benches, eval_benchmark);
-criterion_group!(benches, parser_benchmark);
+pub fn interpret_benchmark(c: &mut Criterion) {
+    let expressions = [
+        "idAA".to_string(),
+        "idididAA".to_string(),
+        "++0A01".to_string(),
+        "--0A01".to_string(),
+    ];
+
+    let mut group = c.benchmark_group("interpret");
+    for exp in expressions.iter() {
+        group.bench_with_input(BenchmarkId::from_parameter(exp), exp, |b, exp| {
+            b.iter(|| interpret(exp));
+        });
+    }
+    group.finish();
+}
+
+// criterion_group!(benches, parser_benchmark);
 // criterion_group!(benches, invalid_parser_benchmark);
+criterion_group!(benches, interpret_benchmark);
 
 criterion_main!(benches);

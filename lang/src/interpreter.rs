@@ -1,3 +1,5 @@
+use std::io::Empty;
+
 #[allow(unused)]
 /*
 
@@ -50,29 +52,25 @@ impl<'a> Interpreter {
         Self { expressions: pool }
     }
 
+    #[inline(always)]
     pub fn interpret(&mut self) -> Result<Atom, Error> {
         let mut stack = Stack::new();
-        for atom in self.expressions.drain(..) {
-            match atom {
+        for expression in self.expressions.drain(..) {
+            let atom = match expression {
                 Atom::Function(fun) => match fun {
-                    Function::Add => {
-                        let atom = add(&mut stack)?;
-                        stack.push(atom);
-                    }
-                    Function::Sub => {
-                        let atom = sub(&mut stack)?;
-                        stack.push(atom);
-                    }
-                    Function::Ident => {
-                        let atom = stack.pop().try_into()?;
-                        stack.push(atom)
-                    }
-                    _ => {}
+                    Function::Add => add(&mut stack)?,
+                    Function::Divide => divide(&mut stack)?,
+                    Function::Multiply => multiply(&mut stack)?,
+                    Function::Subtract => subtract(&mut stack)?,
+                    Function::Ident => ident(&mut stack)?,
+                    _ => Atom::Function(Function::Empty),
                 },
-                _ => stack.push(atom),
-            }
+                _ => expression,
+            };
+            stack.push(atom);
         }
 
+        // Final element in stack is the result
         let atom = stack.pop().try_into()?;
         Ok(atom)
     }
@@ -85,28 +83,59 @@ fn map_arity(err: Error, expected: usize, found: usize) -> Error {
     }
 }
 
-#[inline(always)]
-fn add(stack: &mut Stack) -> Result<Atom, Error> {
-    let a = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
-    let b = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
-    Ok(_add(a, b))
+fn ident(stack: &mut Stack) -> Result<Atom, Error> {
+    stack.pop().try_into()
 }
 
-#[inline(always)]
-fn _add(a: u8, b: u8) -> Atom {
+fn add(stack: &mut Stack) -> Result<Atom, Error> {
+    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
+    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    Ok(add_impl(arg_1, arg_2))
+}
+
+fn add_impl(a: u8, b: u8) -> Atom {
     let res = a + b;
     Atom::Number(res)
 }
 
-#[inline(always)]
-fn sub(stack: &mut Stack) -> Result<Atom, Error> {
-    let a = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
-    let b = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
-    Ok(_sub(a, b))
+fn divide(stack: &mut Stack) -> Result<Atom, Error> {
+    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
+    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    Ok(divide_impl(arg_1, arg_2))
 }
 
-fn _sub(a: u8, b: u8) -> Atom {
-    let res = b - a;
+fn divide_impl(a: u8, b: u8) -> Atom {
+    // Divide by zero is zero, which is terribly incorrect
+    if b == 0 {
+        return Atom::Number(0);
+    }
+    let res = a / b;
+    Atom::Number(res)
+}
+
+fn multiply(stack: &mut Stack) -> Result<Atom, Error> {
+    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
+    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    Ok(multiply_impl(arg_1, arg_2))
+}
+
+fn multiply_impl(a: u8, b: u8) -> Atom {
+    let res = a * b;
+    Atom::Number(res)
+}
+
+fn subtract(stack: &mut Stack) -> Result<Atom, Error> {
+    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
+    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    Ok(subtract_impl(arg_1, arg_2))
+}
+
+fn subtract_impl(a: u8, b: u8) -> Atom {
+    // No negative numbers
+    if a < b {
+        return Atom::Number(0);
+    }
+    let res = a - b;
     Atom::Number(res)
 }
 
@@ -161,7 +190,7 @@ mod test {
         Parser, TypeError, VecStack,
     };
 
-    fn eval(exp: String) -> Atom {
+    fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
@@ -180,7 +209,7 @@ mod test {
         trace();
 
         let s = String::from("++0102");
-        let result = eval(s);
+        let result = interpret(s);
 
         let expected = Atom::Number(3);
         assert_eq!(result, expected);
@@ -191,9 +220,32 @@ mod test {
         trace();
 
         let s = String::from("--0201");
-        let result = eval(s);
+        let result = interpret(s);
 
         let expected = Atom::Number(1);
+        assert_eq!(result, expected);
+
+        let s = String::from("--0102");
+        let result = interpret(s);
+
+        let expected = Atom::Number(0);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_divide() {
+        trace();
+
+        let s = String::from("//0402");
+        let result = interpret(s);
+
+        let expected = Atom::Number(2);
+        assert_eq!(result, expected);
+
+        let s = String::from("//0100");
+        let result = interpret(s);
+
+        let expected = Atom::Number(0);
         assert_eq!(result, expected);
     }
 

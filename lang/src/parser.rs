@@ -74,9 +74,11 @@ impl<'a> Parser<'a> {
 
         let functionizer: fn(&mut Parser) -> Result<Function, Error> = match token {
             Some("++") => add,
-            Some("--") => sub,
-            Some("pl") => play,
+            Some("//") => divide,
+            Some("**") => multiply,
+            Some("--") => subtract,
             Some("id") => ident,
+            Some("pl") => play,
             Some(s) => {
                 return self
                     .check_function()
@@ -95,7 +97,7 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     pub fn inner_take<F>(&mut self, atomizer: F) -> Result<(), Error>
     where
-        F: Fn(&str) -> Result<Atom, Error>,
+        F: FnOnce(&str) -> Result<Atom, Error>,
     {
         let count = self.take_next;
         let token = self.peek_next();
@@ -144,10 +146,14 @@ impl<'a> Parser<'a> {
         self.pool.push(atom.into());
     }
 
-    fn check(&mut self) -> Option<()> {
+    fn check_and_add<T, F>(&mut self, atomizer: F) -> Option<()>
+    where
+        F: FnOnce() -> T,
+        T: Into<Atom>,
+    {
         if self.check {
-            let a = Atom::Empty;
-            self.add(a);
+            let a = atomizer();
+            self.add(a.into());
             self.valid = false;
             Some(())
         } else {
@@ -155,15 +161,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn check(&mut self) -> Option<()> {
+        self.check_and_add(|| Atom::Empty)
+    }
+
     fn check_function(&mut self) -> Option<()> {
-        if self.check {
-            let a = Function::Empty;
-            self.add(a);
-            self.valid = false;
-            Some(())
-        } else {
-            None
-        }
+        self.check_and_add(|| Function::Empty)
     }
 
     pub fn take(&mut self, count: usize) -> &mut Self {
@@ -212,7 +215,7 @@ impl<'a> Parser<'a> {
 }
 
 fn is_function(s: &str) -> bool {
-    matches!(s, "pl" | "id")
+    matches!(s, "++" | "//" | "**" | "--" | "id" | "pl")
 }
 
 fn add(pool: &mut Parser) -> Result<Function, Error> {
@@ -221,10 +224,22 @@ fn add(pool: &mut Parser) -> Result<Function, Error> {
     Ok(Function::Add)
 }
 
-fn sub(pool: &mut Parser) -> Result<Function, Error> {
+fn subtract(pool: &mut Parser) -> Result<Function, Error> {
     pool.next().as_num()?;
     pool.next().as_num()?;
-    Ok(Function::Sub)
+    Ok(Function::Subtract)
+}
+
+fn multiply(pool: &mut Parser) -> Result<Function, Error> {
+    pool.next().as_num()?;
+    pool.next().as_num()?;
+    Ok(Function::Multiply)
+}
+
+fn divide(pool: &mut Parser) -> Result<Function, Error> {
+    pool.next().as_num()?;
+    pool.next().as_num()?;
+    Ok(Function::Divide)
 }
 
 fn ident(pool: &mut Parser) -> Result<Function, Error> {
