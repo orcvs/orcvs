@@ -1,8 +1,4 @@
 use egui::{Color32, Event, EventFilter};
-use tracing::{debug, info};
-
-use lang::function;
-use tracing_subscriber::field::debug;
 
 use crate::source::Source;
 pub const DEFAULT_FONT_SIZE: f32 = 23.0;

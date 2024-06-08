@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use tracing::info;
-
 const TERMINATOR: &str = ".";
 
 #[derive(serde::Deserialize, serde::Serialize)]
