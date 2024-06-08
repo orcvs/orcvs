@@ -25,7 +25,7 @@ pub fn parser_benchmark(c: &mut Criterion) {
             let mut s = String::from("idididAA");
             let mut parser = Parser::new(black_box(&mut s));
 
-            let result = parser.parse();
+            let result = parser.try_parse();
             let _result = black_box(result);
         })
     });
@@ -35,13 +35,21 @@ pub fn parser_benchmark(c: &mut Criterion) {
             let mut s = String::from("idididAA");
             let mut parser = Parser::new(black_box(&mut s));
 
-            let result = parser.try_parse();
+            let result = parser.parse();
             let _result = black_box(result);
         })
     });
 }
 pub fn invalid_parser_benchmark(c: &mut Criterion) {
-    // let mut s = "plidXY0AC4"; //basic
+    c.bench_function("try_parse_with_invalid", |b| {
+        b.iter(|| {
+            let mut s = String::from("id");
+            let mut parser = Parser::new(black_box(&mut s));
+
+            let result = parser.try_parse();
+            let _result = black_box(result);
+        })
+    });
 
     c.bench_function("parse_with_invalid", |b| {
         b.iter(|| {
@@ -49,16 +57,6 @@ pub fn invalid_parser_benchmark(c: &mut Criterion) {
             let mut parser = Parser::new(black_box(&mut s));
 
             let result = parser.parse();
-            let _result = black_box(result);
-        })
-    });
-
-    c.bench_function("try_parse_with_invalid", |b| {
-        b.iter(|| {
-            let mut s = String::from("id");
-            let mut parser = Parser::new(black_box(&mut s));
-
-            let result = parser.try_parse();
             let _result = black_box(result);
         })
     });

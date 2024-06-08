@@ -156,7 +156,7 @@ mod test {
     fn eval(exp: String) -> Atom {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
-        parser.parse().unwrap();
+        parser.try_parse().unwrap();
 
         // info!("{:?}", parser.pool);
 

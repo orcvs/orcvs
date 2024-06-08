@@ -15,6 +15,7 @@ pub struct Parser<'a> {
     source: &'a str,
     take_next: usize,
     check: bool,
+    valid: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -24,17 +25,27 @@ impl<'a> Parser<'a> {
             take_next: DEFAULT_TOKEN_LEN,
             source,
             check: false,
+            valid: false,
         }
     }
 
-    pub fn parse(&mut self) -> Result<(), Error> {
+    ///
+    /// try_parse will error if the parse fails
+    ///
+    pub fn try_parse(&mut self) -> Result<(), Error> {
         self.check = false;
+        self.valid = true; // try_parse is going to return errors
         self.take_function()
     }
 
-    pub fn try_parse(&mut self) -> Result<(), Error> {
+    ///
+    /// parse will return a boolean indicating success or failure
+    ///
+    pub fn parse(&mut self) -> Result<bool, Error> {
         self.check = true;
-        self.take_function()
+        self.valid = true;
+        self.take_function()?;
+        Ok(self.valid)
     }
 
     #[inline(always)]
@@ -160,6 +171,7 @@ impl<'a> Parser<'a> {
         if self.check {
             let a = Atom::Empty;
             self.add(a);
+            self.valid = false;
             Some(())
         } else {
             None
@@ -171,6 +183,7 @@ impl<'a> Parser<'a> {
         if self.check {
             let a = Function::Empty;
             self.add(a);
+            self.valid = false;
             Some(())
         } else {
             None
@@ -232,17 +245,10 @@ mod test {
     };
     use tracing::info;
 
-    fn parse_with_result(exp: String) -> Result<(), Error> {
+    fn try_parse_with_result(exp: String) -> Result<(), Error> {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
-        parser.parse()
-    }
-
-    fn parse(exp: String) -> VecStack {
-        let mut exp = exp.clone();
-        let mut parser = Parser::new(&mut exp);
-        parser.parse().unwrap();
-        parser.pool
+        parser.try_parse()
     }
 
     fn try_parse(exp: String) -> VecStack {
@@ -252,23 +258,33 @@ mod test {
         parser.pool
     }
 
-    #[test]
-    fn test_try_parse() {
-        trace();
-
-        let s = String::from("++");
-        let result = try_parse(s);
-
-        let stack = stack_from(&[Atom::Empty, Atom::Empty, Atom::Function(Function::Add)]);
-        assert_eq!(result, stack);
+    fn parse(exp: String) -> (bool, VecStack) {
+        let mut exp = exp.clone();
+        let mut parser = Parser::new(&mut exp);
+        let result = parser.parse().unwrap();
+        (result, parser.pool)
     }
 
     #[test]
     fn test_parse_with_invalid() {
         trace();
 
+        let s = String::from("++");
+        let (success, result) = parse(s);
+
+        let stack = stack_from(&[Atom::Empty, Atom::Empty, Atom::Function(Function::Add)]);
+
+        assert!(!success); // expression is invalid
+
+        assert_eq!(result, stack);
+    }
+
+    #[test]
+    fn test_try_parse_with_invalid() {
+        trace();
+
         let s = String::from("id");
-        let result = parse_with_result(s);
+        let result = try_parse_with_result(s);
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
@@ -279,7 +295,7 @@ mod test {
         trace();
 
         let s = String::from("++01XY");
-        let result = parse_with_result(s);
+        let result = try_parse_with_result(s);
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Type(TypeError::Number(_))));
@@ -290,7 +306,7 @@ mod test {
         trace();
 
         let s = String::from("idAA");
-        let pool = parse(s);
+        let pool = try_parse(s);
 
         let expected = Atom::String("AA".to_string());
         assert_eq!(pool[0], expected);
@@ -304,7 +320,7 @@ mod test {
         trace();
 
         let s = String::from("idididAA");
-        let pool = parse(s);
+        let pool = try_parse(s);
 
         let expected = Atom::String("AA".to_string());
         assert_eq!(pool[0], expected);
