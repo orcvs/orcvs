@@ -59,5 +59,8 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
-      - name: test lang
-        run: cargo nextest run --workspace --bins --lib --tests --examples --no-fail-fast
+      - name: lang
+        run: cargo nextest run --package lang --no-fail-fast
+
+      - name: console
+        run: cargo nextest run --package console --no-fail-fast
