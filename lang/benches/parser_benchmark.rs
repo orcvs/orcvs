@@ -70,7 +70,7 @@ pub fn eval_benchmark(c: &mut Criterion) {
 
 // criterion_group!(benches, midi_lookup_benchmarks);
 // criterion_group!(benches, eval_benchmark);
-// criterion_group!(benches, parser_benchmark);
-criterion_group!(benches, invalid_parser_benchmark);
+criterion_group!(benches, parser_benchmark);
+// criterion_group!(benches, invalid_parser_benchmark);
 
 criterion_main!(benches);

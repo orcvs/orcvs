@@ -17,6 +17,13 @@ pub struct Parser<'a> {
     valid: bool,
 }
 
+///
+///
+/// #[inline(always)]
+/// Inline on take_function and inner_take improves performance by 5%
+/// Additional inlines do not improve performance
+///
+///
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
@@ -31,6 +38,7 @@ impl<'a> Parser<'a> {
     ///
     /// try_parse will error if the parse fails
     ///
+
     pub fn try_parse(&mut self) -> Result<(), Error> {
         self.check = false;
         self.valid = true; // try_parse is going to return errors
@@ -40,41 +48,12 @@ impl<'a> Parser<'a> {
     ///
     /// parse will return a boolean indicating success or failure
     ///
+
     pub fn parse(&mut self) -> Result<bool, Error> {
         self.check = true;
         self.valid = true;
         self.take_function()?;
         Ok(self.valid)
-    }
-
-    #[inline(always)]
-    pub fn as_string(&mut self) -> Result<(), Error> {
-        self.inner_take(|s| {
-            let a = Atom::String(s.to_string());
-            Ok(a)
-        })
-    }
-
-    #[inline(always)]
-    pub fn as_note(&mut self) -> Result<(), Error> {
-        self.inner_take(|s| match midi_note_to_number(&s) {
-            Some(n) => {
-                let a = Atom::Note(n);
-                Ok(a)
-            }
-            None => Err(TypeError::Note(s.to_string()).into()),
-        })
-    }
-
-    #[inline(always)]
-    pub fn as_num(&mut self) -> Result<(), Error> {
-        self.inner_take(|s| match u8::from_str_radix(&s, 16) {
-            Ok(n) => {
-                let a = Atom::Number(n);
-                Ok(a)
-            }
-            Err(_) => Err(TypeError::Number(s.to_string()).into()),
-        })
     }
 
     ///
@@ -89,6 +68,7 @@ impl<'a> Parser<'a> {
     ///     parser.next().as_num() will parse "ad0101" and handle it as the expected num type
     ///
     ///
+    #[inline(always)]
     pub fn take_function(&mut self) -> Result<(), Error> {
         let token = self.next_token(2);
 
@@ -113,36 +93,6 @@ impl<'a> Parser<'a> {
     }
 
     #[inline(always)]
-    fn add<A>(&mut self, atom: A)
-    where
-        A: Into<Atom>,
-    {
-        self.pool.push(atom.into());
-    }
-
-    #[inline(always)]
-    fn next_token(&mut self, count: usize) -> Option<&'a str> {
-        match self.source.len() {
-            0 | 1 => None,
-            _ => {
-                let (next_token, rest) = self.source.split_at(count);
-                self.source = rest;
-                Some(next_token)
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn peek_next(&self) -> Option<&'a str> {
-        match self.source.len() {
-            0 | 1 => None,
-            _ => {
-                let (next_token, _) = self.source.split_at(2);
-                Some(next_token)
-            }
-        }
-    }
-
     pub fn inner_take<F>(&mut self, atomizer: F) -> Result<(), Error>
     where
         F: Fn(&str) -> Result<Atom, Error>,
@@ -166,7 +116,34 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline(always)]
+    fn next_token(&mut self, count: usize) -> Option<&'a str> {
+        match self.source.len() {
+            0 | 1 => None,
+            _ => {
+                let (next_token, rest) = self.source.split_at(count);
+                self.source = rest;
+                Some(next_token)
+            }
+        }
+    }
+
+    fn peek_next(&self) -> Option<&'a str> {
+        match self.source.len() {
+            0 | 1 => None,
+            _ => {
+                let (next_token, _) = self.source.split_at(2);
+                Some(next_token)
+            }
+        }
+    }
+
+    fn add<A>(&mut self, atom: A)
+    where
+        A: Into<Atom>,
+    {
+        self.pool.push(atom.into());
+    }
+
     fn check(&mut self) -> Option<()> {
         if self.check {
             let a = Atom::Empty;
@@ -178,7 +155,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[inline(always)]
     fn check_function(&mut self) -> Option<()> {
         if self.check {
             let a = Function::Empty;
@@ -206,9 +182,35 @@ impl<'a> Parser<'a> {
         self.take_next = DEFAULT_TOKEN_LEN; // reset the token count
         self
     }
+
+    pub fn as_string(&mut self) -> Result<(), Error> {
+        self.inner_take(|s| {
+            let a = Atom::String(s.to_string());
+            Ok(a)
+        })
+    }
+
+    pub fn as_note(&mut self) -> Result<(), Error> {
+        self.inner_take(|s| match midi_note_to_number(&s) {
+            Some(n) => {
+                let a = Atom::Note(n);
+                Ok(a)
+            }
+            None => Err(TypeError::Note(s.to_string()).into()),
+        })
+    }
+
+    pub fn as_num(&mut self) -> Result<(), Error> {
+        self.inner_take(|s| match u8::from_str_radix(&s, 16) {
+            Ok(n) => {
+                let a = Atom::Number(n);
+                Ok(a)
+            }
+            Err(_) => Err(TypeError::Number(s.to_string()).into()),
+        })
+    }
 }
 
-#[inline(always)]
 fn is_function(s: &str) -> bool {
     matches!(s, "pl" | "id")
 }
@@ -230,7 +232,6 @@ fn ident(pool: &mut Parser) -> Result<Function, Error> {
     Ok(Function::Ident)
 }
 
-// channel, velocity, note
 fn play(pool: &mut Parser) -> Result<Function, Error> {
     pool.take(1).as_num()?;
     pool.next().as_num()?;
