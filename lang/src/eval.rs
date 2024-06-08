@@ -149,7 +149,8 @@ mod test {
     use tracing::info;
 
     use crate::{
-        eval::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, TypeError, VecStack,
+        eval::Interpreter, test::stack_from, trace, ArgumentError, Atom, Error, Function, Parser,
+        TypeError, VecStack,
     };
 
     fn eval(exp: String) -> Atom {
@@ -168,17 +169,6 @@ mod test {
         interpreter.interpret()
     }
 
-    ///
-    /// Stacks are fixed size
-    /// Inefficient but easiest option for creating a stack from an array
-    ///
-    fn stack_from(array: &[Atom]) -> VecStack {
-        let mut stack = ArrayVec::new();
-        for a in array {
-            stack.push(a.clone());
-        }
-        stack
-    }
     #[test]
     fn test_add_function() {
         trace();

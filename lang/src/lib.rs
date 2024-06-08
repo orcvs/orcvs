@@ -639,3 +639,22 @@ fn midi_number_to_note(note: u8) -> Option<&'static str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod test {
+    use arrayvec::ArrayVec;
+
+    use crate::{Atom, VecStack};
+
+    ///
+    /// Stacks are fixed size
+    /// Inefficient but easiest option for creating a stack from an array
+    ///
+    pub fn stack_from(array: &[Atom]) -> VecStack {
+        let mut stack = ArrayVec::new();
+        for a in array {
+            stack.push(a.clone());
+        }
+        stack
+    }
+}

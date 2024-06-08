@@ -226,7 +226,10 @@ fn play(pool: &mut Parser) -> Result<Function, Error> {
 #[cfg(test)]
 mod test {
 
-    use crate::{parser::Parser, trace, Atom, Error, Function, TypeError, VecStack};
+    use crate::{
+        parser::Parser, test::stack_from, trace, Atom, Error, Function, SyntaxError, TypeError,
+        VecStack,
+    };
     use tracing::info;
 
     fn parse_with_result(exp: String) -> Result<(), Error> {
@@ -242,6 +245,35 @@ mod test {
         parser.pool
     }
 
+    fn try_parse(exp: String) -> VecStack {
+        let mut exp = exp.clone();
+        let mut parser = Parser::new(&mut exp);
+        parser.try_parse().unwrap();
+        parser.pool
+    }
+
+    #[test]
+    fn test_try_parse() {
+        trace();
+
+        let s = String::from("++");
+        let result = try_parse(s);
+
+        let stack = stack_from(&[Atom::Empty, Atom::Empty, Atom::Function(Function::Add)]);
+        assert_eq!(result, stack);
+    }
+
+    #[test]
+    fn test_parse_with_invalid() {
+        trace();
+
+        let s = String::from("id");
+        let result = parse_with_result(s);
+
+        let error = result.unwrap_err();
+        assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
+    }
+
     #[test]
     fn test_with_bad_syntax() {
         trace();
@@ -250,7 +282,6 @@ mod test {
         let result = parse_with_result(s);
 
         let error = result.unwrap_err();
-        info!("{:?}", error.to_string());
         assert!(matches!(error, Error::Type(TypeError::Number(_))));
     }
 
@@ -258,18 +289,7 @@ mod test {
     fn test_parse_id_function() {
         trace();
 
-        let mut s = String::from("idAA");
-        let pool = parse(s);
-
-        let expected = Atom::String("AA".to_string());
-        assert_eq!(pool[0], expected);
-    }
-
-    #[test]
-    fn test_parse_recursive_function() {
-        trace();
-
-        let mut s = String::from("idAA");
+        let s = String::from("idAA");
         let pool = parse(s);
 
         let expected = Atom::String("AA".to_string());
@@ -279,17 +299,23 @@ mod test {
         assert_eq!(pool[1], expected);
     }
 
-    // #[test]
-    // fn test_parse_function() {
-    //     trace();
+    #[test]
+    fn test_parse_recursive_function() {
+        trace();
 
-    //     let mut s = String::from("idAA");
-    //     let pool = parse(s);
+        let s = String::from("idididAA");
+        let pool = parse(s);
 
-    //     let expected = Atom::Note(60);
-    //     assert_eq!(pool[0], expected);
+        let expected = Atom::String("AA".to_string());
+        assert_eq!(pool[0], expected);
 
-    //     let expected = Atom::Number(10);
-    //     assert_eq!(pool[1], expected);
-    // }
+        let expected = Atom::Function(Function::Ident);
+        assert_eq!(pool[1], expected);
+
+        let expected = Atom::Function(Function::Ident);
+        assert_eq!(pool[2], expected);
+
+        let expected = Atom::Function(Function::Ident);
+        assert_eq!(pool[3], expected);
+    }
 }
