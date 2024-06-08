@@ -1,6 +1,5 @@
 use crate::midi_note_to_number;
-use crate::new_vec;
-use crate::ArgumentError;
+use crate::new_stack;
 use crate::Atom;
 use crate::Error;
 use crate::Function;
@@ -21,7 +20,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
-            pool: new_vec(),
+            pool: new_stack(),
             take_next: DEFAULT_TOKEN_LEN,
             source,
             check: false,
@@ -95,6 +94,7 @@ impl<'a> Parser<'a> {
 
         let functionizer: fn(&mut Parser) -> Result<Function, Error> = match token {
             Some("++") => add,
+            Some("--") => sub,
             Some("pl") => play,
             Some("id") => ident,
             Some(s) => {
@@ -206,10 +206,6 @@ impl<'a> Parser<'a> {
         self.take_next = DEFAULT_TOKEN_LEN; // reset the token count
         self
     }
-
-    // pub fn take_pool(&mut self) -> Vec<Atom> {
-    //     std::mem::take(&mut self.pool)
-    // }
 }
 
 #[inline(always)]
@@ -221,6 +217,12 @@ fn add(pool: &mut Parser) -> Result<Function, Error> {
     pool.next().as_num()?;
     pool.next().as_num()?;
     Ok(Function::Add)
+}
+
+fn sub(pool: &mut Parser) -> Result<Function, Error> {
+    pool.next().as_num()?;
+    pool.next().as_num()?;
+    Ok(Function::Sub)
 }
 
 fn ident(pool: &mut Parser) -> Result<Function, Error> {
@@ -243,7 +245,6 @@ mod test {
         parser::Parser, test::stack_from, trace, Atom, Error, Function, SyntaxError, TypeError,
         VecStack,
     };
-    use tracing::info;
 
     fn try_parse_with_result(exp: String) -> Result<(), Error> {
         let mut exp = exp.clone();

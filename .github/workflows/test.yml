@@ -5,16 +5,16 @@ on:
     branches:
       - main
     paths:
-      - console/src/**
-      - lang/src/**
+      - console/**
+      - lang/**
       - .github/workflows/test.yml
       - "!**/benches/**"
   pull_request:
     branches:
       - main
     paths:
-      - console/src/**
-      - lang/src/**
+      - console/**
+      - lang/**
       - .github/workflows/test.yml
       - "!**/benches/**"
 

@@ -1,3 +1,4 @@
+#[allow(unused)]
 /*
 
     fn a b c
@@ -14,17 +15,15 @@
     Function(Function, Vec<Atom>)
 
 */
-
-use crate::{new_vec, ArgumentError, Atom, Error, Function, TypeError, VecStack};
-
+use crate::{new_stack, ArgumentError, Atom, Error, Function, TypeError, VecStack};
 use tracing::info;
 
 #[derive(Default)]
-struct Interpreter {
-    pub pool: VecStack,
+pub struct Interpreter {
+    pub expressions: VecStack,
 }
 
-struct Stack {
+pub struct Stack {
     inner: VecStack,
 }
 
@@ -32,7 +31,7 @@ struct MaybeAtom(Option<Atom>);
 
 impl Stack {
     pub fn new() -> Self {
-        Self { inner: new_vec() }
+        Self { inner: new_stack() }
     }
 
     #[inline(always)]
@@ -48,16 +47,20 @@ impl Stack {
 
 impl<'a> Interpreter {
     pub fn new(pool: VecStack) -> Self {
-        Self { pool }
+        Self { expressions: pool }
     }
 
     pub fn interpret(&mut self) -> Result<Atom, Error> {
         let mut stack = Stack::new();
-        for atom in self.pool.drain(..) {
+        for atom in self.expressions.drain(..) {
             match atom {
                 Atom::Function(fun) => match fun {
                     Function::Add => {
                         let atom = add(&mut stack)?;
+                        stack.push(atom);
+                    }
+                    Function::Sub => {
+                        let atom = sub(&mut stack)?;
                         stack.push(atom);
                     }
                     Function::Ident => {
@@ -95,12 +98,19 @@ fn _add(a: u8, b: u8) -> Atom {
     Atom::Number(res)
 }
 
-fn sub(a: u8, b: u8) -> Atom {
-    let res = a - b;
+#[inline(always)]
+fn sub(stack: &mut Stack) -> Result<Atom, Error> {
+    let a = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
+    let b = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    Ok(_sub(a, b))
+}
+
+fn _sub(a: u8, b: u8) -> Atom {
+    let res = b - a;
     Atom::Number(res)
 }
 
-fn play(c: u8, v: u8, n: u8) -> Atom {
+fn _play(c: u8, v: u8, n: u8) -> Atom {
     info!("Play: c: {}, v: {}, n: {}", c, v, n);
     Atom::Number(0)
 }
@@ -145,20 +155,16 @@ impl TryFrom<MaybeAtom> for Atom {
 
 #[cfg(test)]
 mod test {
-    use arrayvec::ArrayVec;
-    use tracing::info;
 
     use crate::{
-        eval::Interpreter, test::stack_from, trace, ArgumentError, Atom, Error, Function, Parser,
-        TypeError, VecStack,
+        interpreter::Interpreter, test::stack_from, trace, ArgumentError, Atom, Error, Function,
+        Parser, TypeError, VecStack,
     };
 
     fn eval(exp: String) -> Atom {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
-
-        // info!("{:?}", parser.pool);
 
         let mut interpreter = Interpreter::new(parser.pool);
         interpreter.interpret().unwrap()
@@ -177,6 +183,17 @@ mod test {
         let result = eval(s);
 
         let expected = Atom::Number(3);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sub_function() {
+        trace();
+
+        let s = String::from("--0201");
+        let result = eval(s);
+
+        let expected = Atom::Number(1);
         assert_eq!(result, expected);
     }
 
@@ -213,8 +230,7 @@ mod test {
 
         let error = result.unwrap_err();
 
-        // info!("{:?}", error.to_string(vtha));
-        assert!(matches!(error, Error::Type(TypeError::Number(vtha))));
+        assert!(matches!(error, Error::Type(TypeError::Number(_))));
     }
 
     // #[test]

@@ -1,4 +1,4 @@
-mod eval;
+mod interpreter;
 mod parser;
 
 use arrayvec::ArrayVec;
@@ -12,21 +12,9 @@ use thiserror::Error;
 // use miette::diagnostic;
 // use miette::Diagnostic;
 
+pub use interpreter::{Interpreter, Stack};
 pub use parser::Parser;
 
-///
-/// play channel octave note velocity
-/// p 11 C4 100
-///
-///  pass function as param
-///  x y 1 2 3 4
-///  x (y 1 2 3) 4
-///
-
-// #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-// pub struct AtomRef(usize);
-
-// impl From Atom for String
 impl From<Atom> for String {
     fn from(atom: Atom) -> Self {
         match atom {
@@ -49,26 +37,26 @@ impl From<Atom> for String {
 // use arrayvec::ArrayVec;
 type VecStack = ArrayVec<Atom, 48>;
 
-fn new_vec() -> VecStack {
+fn new_stack() -> VecStack {
     ArrayVec::new()
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Atom {
+    Empty,
     Function(Function),
     Note(u8),
     Number(u8),
     String(String),
-    Empty,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Function {
     Add,
+    Empty,
     Ident,
     Play,
     Sub,
-    Empty,
 }
 
 impl From<Function> for Atom {
@@ -156,12 +144,6 @@ impl fmt::Display for Function {
         }
     }
 }
-
-// impl<T: AtomTrait> fmt::Display for AtomRef<T> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "{}", self.index)
-//     }
-// }
 
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
