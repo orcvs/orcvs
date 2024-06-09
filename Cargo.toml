@@ -21,5 +21,9 @@ inherits = "dev"
 debug = false
 incremental = false
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 # [workspace.dependencies]
 # syn = { version = "2.0", default-features = false, features = [] }

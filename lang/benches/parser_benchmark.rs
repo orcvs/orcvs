@@ -51,7 +51,7 @@ fn interpret(exp: &String) {
     let result = parser.parse();
     assert!(result.is_ok());
 
-    let mut interpreter = Interpreter::new(black_box(parser.pool));
+    let mut interpreter = Interpreter::new(black_box(parser.stack));
     let result = interpreter.interpret();
     assert!(result.is_ok());
 }
