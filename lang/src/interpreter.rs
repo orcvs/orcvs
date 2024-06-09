@@ -29,7 +29,7 @@ pub struct Stack {
     inner: VecStack,
 }
 
-struct MaybeAtom(Option<Atom>);
+pub struct MaybeAtom(Option<Atom>);
 
 impl Stack {
     pub fn new() -> Self {
@@ -44,6 +44,17 @@ impl Stack {
     #[inline(always)]
     fn pop(&mut self) -> MaybeAtom {
         MaybeAtom(self.inner.pop())
+    }
+
+    #[inline(always)]
+    pub fn pop_arg<T: TryFrom<MaybeAtom, Error = Error>>(
+        &mut self,
+        expected: usize,
+        count: usize,
+    ) -> Result<T, Error> {
+        self.pop()
+            .try_into()
+            .map_err(|err| map_arity(err, expected, count))
     }
 }
 
@@ -63,6 +74,7 @@ impl<'a> Interpreter {
                     Function::Multiply => multiply(&mut stack)?,
                     Function::Subtract => subtract(&mut stack)?,
                     Function::Ident => ident(&mut stack)?,
+                    Function::Play => play(&mut stack)?,
                     _ => Atom::Function(Function::Empty),
                 },
                 _ => expression,
@@ -76,6 +88,7 @@ impl<'a> Interpreter {
     }
 }
 
+#[inline(always)]
 fn map_arity(err: Error, expected: usize, found: usize) -> Error {
     match err {
         Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
@@ -88,19 +101,19 @@ fn ident(stack: &mut Stack) -> Result<Atom, Error> {
 }
 
 fn add(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
-    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    let arg_2 = stack.pop_arg(2, 0)?;
+    let arg_1 = stack.pop_arg(2, 1)?;
     Ok(add_impl(arg_1, arg_2))
 }
 
 fn add_impl(a: u8, b: u8) -> Atom {
-    let res = a + b;
+    let res: u8 = a + b;
     Atom::Number(res)
 }
 
 fn divide(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
-    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    let arg_2 = stack.pop_arg(2, 0)?;
+    let arg_1 = stack.pop_arg(2, 1)?;
     Ok(divide_impl(arg_1, arg_2))
 }
 
@@ -114,8 +127,8 @@ fn divide_impl(a: u8, b: u8) -> Atom {
 }
 
 fn multiply(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
-    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    let arg_2 = stack.pop_arg(2, 0)?;
+    let arg_1 = stack.pop_arg(2, 1)?;
     Ok(multiply_impl(arg_1, arg_2))
 }
 
@@ -125,8 +138,8 @@ fn multiply_impl(a: u8, b: u8) -> Atom {
 }
 
 fn subtract(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 0))?;
-    let arg_1 = stack.pop().try_into().map_err(|err| map_arity(err, 2, 1))?;
+    let arg_2 = stack.pop_arg(2, 0)?;
+    let arg_1 = stack.pop_arg(2, 1)?;
     Ok(subtract_impl(arg_1, arg_2))
 }
 
@@ -139,7 +152,14 @@ fn subtract_impl(a: u8, b: u8) -> Atom {
     Atom::Number(res)
 }
 
-fn _play(c: u8, v: u8, n: u8) -> Atom {
+fn play(stack: &mut Stack) -> Result<Atom, Error> {
+    let arg_3 = stack.pop_arg(3, 0)?;
+    let arg_2 = stack.pop_arg(3, 1)?;
+    let arg_1 = stack.pop_arg(3, 2)?;
+    Ok(play_impl(arg_1, arg_2, arg_3))
+}
+
+fn play_impl(c: u8, v: u8, n: u8) -> Atom {
     info!("Play: c: {}, v: {}, n: {}", c, v, n);
     Atom::Number(0)
 }
@@ -195,7 +215,7 @@ mod test {
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
 
-        let mut interpreter = Interpreter::new(parser.pool);
+        let mut interpreter = Interpreter::new(parser.stack);
         interpreter.interpret().unwrap()
     }
 

@@ -10,7 +10,7 @@ use crate::VecStack;
 const DEFAULT_TOKEN_LEN: usize = 2;
 
 pub struct Parser<'a> {
-    pub pool: VecStack,
+    pub stack: VecStack,
     source: &'a str,
     take_next: usize,
     check: bool,
@@ -27,7 +27,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
-            pool: new_stack(),
+            stack: new_stack(),
             take_next: DEFAULT_TOKEN_LEN,
             source,
             check: false,
@@ -48,7 +48,6 @@ impl<'a> Parser<'a> {
     ///
     /// parse will return a boolean indicating success or failure
     ///
-
     pub fn parse(&mut self) -> Result<bool, Error> {
         self.check = true;
         self.valid = true;
@@ -71,6 +70,7 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     pub fn take_function(&mut self) -> Result<(), Error> {
         let token = self.next_token(2);
+        // "0102"
 
         let functionizer: fn(&mut Parser) -> Result<Function, Error> = match token {
             Some("++") => add,
@@ -143,7 +143,7 @@ impl<'a> Parser<'a> {
     where
         A: Into<Atom>,
     {
-        self.pool.push(atom.into());
+        self.stack.push(atom.into());
     }
 
     fn check_and_add<T, F>(&mut self, atomizer: F) -> Option<()>
@@ -272,14 +272,14 @@ mod test {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
-        parser.pool
+        parser.stack
     }
 
     fn parse(exp: String) -> (bool, VecStack) {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         let result = parser.parse().unwrap();
-        (result, parser.pool)
+        (result, parser.stack)
     }
 
     #[test]
