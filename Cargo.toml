@@ -1,3 +1,4 @@
+# cargo-features = ["codegen-backend"]
 [workspace]
 
 resolver = "2"
@@ -7,6 +8,7 @@ members = ["console", "lang"]
 # Enable a small amount of optimization in debug mode
 [profile.dev]
 opt-level = 1
+# codegen-backend = "cranelift"
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -24,6 +26,3 @@ incremental = false
 [profile.profiling]
 inherits = "release"
 debug = true
-
-# [workspace.dependencies]
-# syn = { version = "2.0", default-features = false, features = [] }

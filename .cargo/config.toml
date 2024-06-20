@@ -6,6 +6,19 @@
 rustflags = ["--cfg=web_sys_unstable_apis"]
 
 
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
+
+
+# [unstable]
+# codegen-backend = true
+
+# [profile.dev]
+# codegen-backend = "cranelift"
+
+
 # [llvm]
 # # Pass extra compiler and linker flags to the LLVM CMake build.
 # # <PROFDATA_DIR> must be an absolute path to a writeable

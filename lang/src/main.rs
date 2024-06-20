@@ -1,4 +1,4 @@
-use lang::{Atom, Interpreter, Parser};
+use lang::{Atom, Parser};
 
 fn main() {
     let mut exp = String::from("++0102");
@@ -6,12 +6,14 @@ fn main() {
     let mut parser = Parser::new(&mut exp);
     let _ = parser.parse();
 
-    let mut interpreter = Interpreter::new(parser.stack);
+    // let mut interpreter = Interpreter::new(parser.stack());
 
-    let result = interpreter.interpret().unwrap();
+    // let result = interpreter.interpret().unwrap();
 
-    let expected = Atom::Number(3);
-    assert_eq!(result, expected);
+    // let expected = Atom::Number(3);
+    // assert_eq!(result, expected);
 
-    println!("Result: {:?}", result);
+    // println!("Result: {:?}", result);
+
+    std::thread::sleep(std::time::Duration::from_secs(100));
 }

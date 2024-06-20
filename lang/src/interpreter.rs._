@@ -1,5 +1,4 @@
-use std::io::Empty;
-
+use crate::parser::Stack;
 #[allow(unused)]
 /*
 
@@ -17,49 +16,15 @@ use std::io::Empty;
     Function(Function, Vec<Atom>)
 
 */
-use crate::{new_stack, ArgumentError, Atom, Error, Function, TypeError, VecStack};
+use crate::{ArgumentError, Atom, Error, Function, MaybeAtom, TypeError};
 use tracing::info;
 
-#[derive(Default)]
 pub struct Interpreter {
-    pub expressions: VecStack,
-}
-
-pub struct Stack {
-    inner: VecStack,
-}
-
-pub struct MaybeAtom(Option<Atom>);
-
-impl Stack {
-    pub fn new() -> Self {
-        Self { inner: new_stack() }
-    }
-
-    #[inline(always)]
-    fn push(&mut self, atom: Atom) {
-        self.inner.push(atom);
-    }
-
-    #[inline(always)]
-    fn pop(&mut self) -> MaybeAtom {
-        MaybeAtom(self.inner.pop())
-    }
-
-    #[inline(always)]
-    pub fn pop_arg<T: TryFrom<MaybeAtom, Error = Error>>(
-        &mut self,
-        expected: usize,
-        count: usize,
-    ) -> Result<T, Error> {
-        self.pop()
-            .try_into()
-            .map_err(|err| map_arity(err, expected, count))
-    }
+    pub expressions: Stack,
 }
 
 impl<'a> Interpreter {
-    pub fn new(pool: VecStack) -> Self {
+    pub fn new(pool: Stack) -> Self {
         Self { expressions: pool }
     }
 
@@ -73,7 +38,7 @@ impl<'a> Interpreter {
                     Function::Divide => divide(&mut stack)?,
                     Function::Multiply => multiply(&mut stack)?,
                     Function::Subtract => subtract(&mut stack)?,
-                    Function::Ident => ident(&mut stack)?,
+                    Function::Id => ident(&mut stack)?,
                     Function::Play => play(&mut stack)?,
                     _ => Atom::Function(Function::Empty),
                 },
@@ -83,26 +48,18 @@ impl<'a> Interpreter {
         }
 
         // Final element in stack is the result
-        let atom = stack.pop().try_into()?;
+        let atom = stack.pop().into();
         Ok(atom)
     }
 }
 
-#[inline(always)]
-fn map_arity(err: Error, expected: usize, found: usize) -> Error {
-    match err {
-        Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
-        _ => err.into(),
-    }
-}
-
 fn ident(stack: &mut Stack) -> Result<Atom, Error> {
-    stack.pop().try_into()
+    Ok(stack.pop().into())
 }
 
 fn add(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop_arg(2, 0)?;
-    let arg_1 = stack.pop_arg(2, 1)?;
+    let arg_2 = stack.try_pop(2, 0)?;
+    let arg_1 = stack.try_pop(2, 1)?;
     Ok(add_impl(arg_1, arg_2))
 }
 
@@ -112,8 +69,8 @@ fn add_impl(a: u8, b: u8) -> Atom {
 }
 
 fn divide(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop_arg(2, 0)?;
-    let arg_1 = stack.pop_arg(2, 1)?;
+    let arg_2 = stack.try_pop(2, 0)?;
+    let arg_1 = stack.try_pop(2, 1)?;
     Ok(divide_impl(arg_1, arg_2))
 }
 
@@ -127,8 +84,8 @@ fn divide_impl(a: u8, b: u8) -> Atom {
 }
 
 fn multiply(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop_arg(2, 0)?;
-    let arg_1 = stack.pop_arg(2, 1)?;
+    let arg_2 = stack.try_pop(2, 0)?;
+    let arg_1 = stack.try_pop(2, 1)?;
     Ok(multiply_impl(arg_1, arg_2))
 }
 
@@ -138,8 +95,8 @@ fn multiply_impl(a: u8, b: u8) -> Atom {
 }
 
 fn subtract(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_2 = stack.pop_arg(2, 0)?;
-    let arg_1 = stack.pop_arg(2, 1)?;
+    let arg_2 = stack.try_pop(2, 0)?;
+    let arg_1 = stack.try_pop(2, 1)?;
     Ok(subtract_impl(arg_1, arg_2))
 }
 
@@ -153,9 +110,9 @@ fn subtract_impl(a: u8, b: u8) -> Atom {
 }
 
 fn play(stack: &mut Stack) -> Result<Atom, Error> {
-    let arg_3 = stack.pop_arg(3, 0)?;
-    let arg_2 = stack.pop_arg(3, 1)?;
-    let arg_1 = stack.pop_arg(3, 2)?;
+    let arg_3 = stack.try_pop(3, 0)?;
+    let arg_2 = stack.try_pop(3, 1)?;
+    let arg_1 = stack.try_pop(3, 2)?;
     Ok(play_impl(arg_1, arg_2, arg_3))
 }
 
@@ -164,50 +121,12 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
     Atom::Number(0)
 }
 
-impl TryFrom<MaybeAtom> for u8 {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::Number(num) | Atom::Note(num)) => Ok(num),
-            Some(atom) => Err(TypeError::Number(atom.into()).into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for String {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::String(s)) => Ok(s),
-            Some(atom) => Err(TypeError::String(atom.into()).into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for Atom {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(a) => Ok(a),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
 
     use crate::{
-        interpreter::Interpreter, test::stack_from, trace, ArgumentError, Atom, Error, Function,
-        Parser, TypeError, VecStack,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, Stack,
+        TypeError,
     };
 
     fn interpret(exp: String) -> Atom {
@@ -215,11 +134,12 @@ mod test {
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
 
-        let mut interpreter = Interpreter::new(parser.stack);
+        let stack = parser.stack()
+        let mut interpreter = Interpreter::new(parser.stack());
         interpreter.interpret().unwrap()
     }
 
-    fn interpret_stack(stack: VecStack) -> Result<Atom, Error> {
+    fn interpret_stack(stack: Stack) -> Result<Atom, Error> {
         let mut interpreter = Interpreter::new(stack);
         interpreter.interpret()
     }
@@ -273,7 +193,8 @@ mod test {
     fn test_with_missing_argument() {
         trace();
 
-        let stack = stack_from(&[Atom::Number(1), Atom::Function(Function::Add)]);
+        let array: &[Atom] = &[Atom::Number(1), Atom::Function(Function::Add)];
+        let stack: Stack = Stack::from(array);
 
         let result = interpret_stack(stack);
 
@@ -292,11 +213,13 @@ mod test {
     fn test_with_invalid_argument() {
         trace();
         let vtha = "VTHA".to_string();
-        let stack = stack_from(&[
+
+        let array: &[Atom] = &[
             Atom::String(vtha),
             Atom::Number(1),
             Atom::Function(Function::Add),
-        ]);
+        ];
+        let stack: Stack = Stack::from(array);
 
         let result = interpret_stack(stack);
 

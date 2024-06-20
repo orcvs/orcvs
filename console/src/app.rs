@@ -75,43 +75,6 @@ impl ConsoleApp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Glyph {
-    Any,
-    Function,
-    // Note,
-    Number,
-    // String,
-}
-
-const FUNCTION_ID: [Glyph; 4] = [
-    Glyph::Function,
-    Glyph::Function,
-    Glyph::Number,
-    Glyph::Number,
-];
-
-const FUNCTION_PLAY: [Glyph; 5] = [
-    Glyph::Function,
-    Glyph::Function,
-    Glyph::Number,
-    Glyph::Number,
-    Glyph::Number,
-];
-
-/// ID Number
-///
-/// Play Number 1, Number, Note
-///
-///
-/// src IDAA
-///     |
-///     idx
-///
-///     IDAA
-///       |
-///       pos
-
 impl eframe::App for ConsoleApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
