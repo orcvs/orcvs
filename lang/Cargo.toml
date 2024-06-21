@@ -10,7 +10,9 @@ serde = { version = "1.0.203", default-features = false }
 # miette = { version = "7.2.0" }
 thiserror = "1.0.58"
 tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18", features = ["fmt"], default-features = false }
+tracing-subscriber = { version = "0.3.18", features = [
+    "fmt",
+], default-features = false }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -19,6 +21,6 @@ criterion = "0.5.1"
 name = "parser_benchmark"
 harness = false
 
-[[bin]]
-name = "lang"
-src = "src/main.rs"
+# [[bin]]
+# name = "lang"
+# src = "src/main.rs"

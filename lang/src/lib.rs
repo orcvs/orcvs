@@ -23,21 +23,6 @@ impl From<Atom> for String {
     }
 }
 
-impl From<Atom> for String {
-    fn from(atom: Atom) -> Self {
-        match atom {
-            Atom::Number(n) => n.to_string(),
-            Atom::Note(n) => match midi_number_to_note(n) {
-                Some(note) => note.to_string(),
-                None => n.to_string(),
-            },
-            Atom::String(s) => s.to_owned(),
-            Atom::Function(fun) => format!("{}", fun),
-            Atom::Empty => "_".to_string(),
-        }
-    }
-}
-
 pub fn to_atom_string(s: &str) -> Result<Atom, Error> {
     let a = Atom::String(s.to_string());
     Ok(a)

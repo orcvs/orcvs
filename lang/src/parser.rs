@@ -1,4 +1,3 @@
-use crate::midi_note_to_number;
 use crate::to_atom_note;
 use crate::to_atom_num;
 use crate::to_atom_string;
@@ -6,13 +5,12 @@ use crate::Atom;
 use crate::Error;
 use crate::Function;
 use crate::SyntaxError;
-use crate::TypeError;
+
 use arrayvec::ArrayVec;
-use tracing::info;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
-pub type Stack = ArrayVec<Atom, 48>;
+pub type Stack = ArrayVec<Atom, 32>;
 
 pub struct Parser<'a> {
     stack: Stack,
@@ -53,6 +51,7 @@ macro_rules! map_from {
 }
 
 #[must_use]
+#[inline(always)]
 fn tokens_for(f: &Function) -> Tokens {
     match f {
         Function::Add => map_from!([T::Number, T::Number]),
@@ -61,21 +60,11 @@ fn tokens_for(f: &Function) -> Tokens {
     }
 }
 
-// pub struct Tokenizer<'a> {
-//     working_stack: ArrayVec<Atom, 8>,
-//     source: &'a str,
-//     take_next: usize,
-//     check: bool,
-//     valid: bool,
-// }
-
 ///
 ///
 /// #[inline(always)]
 /// Inline on take_function and inner_take improves performance by 5%
 /// Additional inlines do not improve performance
-///
-///
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
@@ -137,8 +126,6 @@ impl<'a> Parser<'a> {
     ///     Given the expression "adad010101"
     ///     parser.next().as_num() will parse "ad0101" and handle it as the expected num type
     ///
-    ///   #[inline(always)]
-
     #[inline(always)]
     fn take_function(&mut self) -> Result<(), Error> {
         let token = self.next_token(2);
@@ -148,125 +135,57 @@ impl<'a> Parser<'a> {
                 let result = Function::try_from(t);
                 let f = match result {
                     Ok(f) => f,
-                    Err(e) => {
-                        return Err(e);
-                        // return self.check_function().ok_or(e);
-                    }
+                    Err(e) => self.check_function().ok_or(e)?,
                 };
-
-                info!("{:?}", f);
 
                 let tokens = tokens_for(&f);
 
-                info!("{:?}", tokens);
-
-                self.stack.push(f.into());
-                // let mut stack = Stack::new();
+                self.add(f);
 
                 for token in tokens {
                     if self.is_function_next() {
-                        let f_stack = self.take_function()?;
-                        info!("f_stack {:?}", f_stack);
-                        stack.extend(f_stack.into_iter());
+                        self.take_function()?;
                     } else {
                         let a = self.take_token(token)?;
-                        stack.push(a);
+                        self.add(a);
                     }
                 }
-
-                info!("stack {:?}", stack);
-
-                // let a = Atom::from(f);
-                // info!("{:?}", a);
-                // self.stack.push(a.clone());
-
-                // let result = tokens
-                //     .into_iter()
-                //     .map(|t| self.take_token(t))
-                //     .collect::<Result<Stack, _>>();
-
-                // match result {
-                //     Ok(mut atoms) => {
-                //         atoms.insert(0, a.clone());
-
-                //         info!("{:?}", atoms);
-
-                //         self.stack.extend(atoms.into_iter())
-                //     }
-                //     Err(e) => return Err(e),
-                // }
-                // info!("{:?}", self.stack);
-
                 Ok(())
             }
             None => {
-                // self
-                // .check_atom()
-                // .ok_or(SyntaxError::ExpectedFunction.into())
+                // return self
+                //     .check_function()
+                //     .ok_or(SyntaxError::ExpectedFunction.into())?;
                 return Err(SyntaxError::ExpectedFunction.into());
             }
         }
     }
 
+    #[inline(always)]
     fn take_token(&mut self, token: Token) -> Result<Atom, Error> {
         let count = DEFAULT_TOKEN_LEN;
-        let s = self.next_token(count);
-
-        match s {
-            Some(t) => {
-                match token {
-                    Token::Note => {
-                        let a = to_atom_note(s)?;
-                        Ok(a)
-                    }
-                    Token::Number => {
-                        let a = to_atom_num(s)?;
-                        Ok(a)
-                    }
-                    Token::String => {
-                        let a = to_atom_string(s)?;
-                        Ok(a)
-                    }
-                }
-
-                Ok(a)
-            }
-            None => self.check_atom().ok_or(SyntaxError::ExpectedToken.into()),
-        }
-    }
-
-    #[inline(always)]
-    fn inner_take<F>(&mut self, atomizer: F) -> Result<Atom, Error>
-    where
-        F: FnOnce(&str) -> Result<Atom, Error>,
-    {
-        let token = self.peek_next();
-
-        if is_function(token) {
-            self.take_function()
-        } else {
-            self.take_atom(atomizer)
-        }
-    }
-
-    #[inline(always)]
-    fn take_atom<F>(&mut self, atomizer: F) -> Result<Atom, Error>
-    where
-        F: FnOnce(&str) -> Result<Atom, Error>,
-    {
-        let count = self.take_next;
-
         let t = self.next_token(count);
-        self.take_next = DEFAULT_TOKEN_LEN; // reset the token count
+
         match t {
-            Some(t) => {
-                let a = atomizer(t)?;
-                Ok(a)
-            }
+            Some(s) => match token {
+                Token::Note => {
+                    let a = to_atom_note(s)?;
+                    Ok(a)
+                }
+                Token::Number => {
+                    let a = to_atom_num(s)?;
+                    Ok(a)
+                }
+                Token::String => {
+                    let a = to_atom_string(s)?;
+                    Ok(a)
+                }
+            },
             None => self.check_atom().ok_or(SyntaxError::ExpectedToken.into()),
         }
     }
 
+    #[inline(always)]
     fn next_token(&mut self, count: usize) -> Option<&'a str> {
         match self.source.len() {
             0 | 1 => None,
@@ -278,11 +197,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Inlining causes performance regression
     fn is_function_next(&self) -> bool {
         let peek = self.peek_next();
         is_function(peek)
     }
 
+    #[inline(always)]
     fn peek_next(&self) -> Option<&'a str> {
         match self.source.len() {
             0 | 1 => None,
@@ -298,118 +219,32 @@ impl<'a> Parser<'a> {
         A: Into<Atom>,
     {
         let a = atom.into();
-        info!("add: {:?}", a);
-        // self.stack.push(a);
-        // self.working_stack
+        self.stack.push(a);
     }
 
-    fn check<T, F>(&mut self, atomizer: F) -> Option<Atom>
-    where
-        F: FnOnce() -> T,
-        T: Into<Atom>,
-    {
+    #[inline(always)]
+    fn check_atom(&mut self) -> Option<Atom> {
         if self.check {
-            let a = atomizer();
             self.valid = false;
-            Some(a.into())
+            Some(Atom::Empty)
         } else {
             None
         }
     }
 
-    fn check_atom(&mut self) -> Option<Atom> {
-        self.check(|| Atom::Empty)
-    }
-
-    fn check_function(&mut self) -> Option<Atom> {
-        self.check(|| Function::Empty)
-    }
-
-    fn start(&mut self) -> Result<Atom, Error> {
-        let token = self.next_token(2);
-
-        match token {
-            Some(t) => {
-                let result = Function::try_from(t);
-
-                let f = match result {
-                    Ok(f) => f,
-                    Err(e) => {
-                        return self.check_function().ok_or(e);
-                    }
-                };
-                info!("{:?}", f);
-
-                let tokens = tokens_for(&f);
-
-                let a = Atom::from(f);
-
-                let result = tokens
-                    .into_iter()
-                    .map(|t| self.take_token(t))
-                    .collect::<Result<Stack, _>>();
-
-                match result {
-                    Ok(mut atoms) => {
-                        atoms.insert(0, a.clone());
-
-                        info!("{:?}", atoms);
-
-                        self.stack.extend(atoms.into_iter())
-                    }
-                    Err(e) => return Err(e),
-                }
-
-                info!("{:?}", self.stack);
-
-                Ok(a)
-            }
-            None => self
-                .check_atom()
-                .ok_or(SyntaxError::ExpectedFunction.into()),
+    fn check_function(&mut self) -> Option<Function> {
+        if self.check {
+            self.valid = false;
+            Some(Function::Empty)
+        } else {
+            None
         }
     }
 }
 
+// Inlining causes performance regression
 fn is_function(s: Option<&str>) -> bool {
     s.filter(|t| Function::try_from(*t).is_ok()).is_some()
-}
-
-fn add(pool: &mut Parser) -> Result<Function, Error> {
-    pool.next().as_num()?;
-    pool.next().as_num()?;
-    Ok(Function::Add)
-}
-
-fn subtract(pool: &mut Parser) -> Result<Function, Error> {
-    pool.next().as_num()?;
-    pool.next().as_num()?;
-    Ok(Function::Subtract)
-}
-
-fn multiply(pool: &mut Parser) -> Result<Function, Error> {
-    pool.next().as_num()?;
-    pool.next().as_num()?;
-    Ok(Function::Multiply)
-}
-
-fn divide(pool: &mut Parser) -> Result<Function, Error> {
-    pool.next().as_num()?;
-    pool.next().as_num()?;
-    Ok(Function::Divide)
-}
-
-fn id(pool: &mut Parser) -> Result<Function, Error> {
-    info!("ident====");
-    pool.next().as_string()?;
-    Ok(Function::Id)
-}
-
-fn play(pool: &mut Parser) -> Result<Function, Error> {
-    pool.take(1).as_num()?;
-    pool.next().as_num()?;
-    pool.next().as_note()?;
-    Ok(Function::Play)
 }
 
 #[cfg(test)]
@@ -456,7 +291,7 @@ mod test {
         let s = String::from("++");
         let (success, result) = parse(s);
 
-        let array: &[Atom] = &[Atom::Empty, Atom::Empty, Atom::Function(Function::Add)];
+        let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Empty, Atom::Empty];
         let stack: Stack = stack_from(array);
 
         assert!(!success); // expression is invalid
@@ -490,14 +325,12 @@ mod test {
     fn test_parse_id_function() {
         trace();
 
-        let s = String::from("idAA");
-        let pool = try_parse(s);
+        let s = String::from("idFA");
+        let stack = try_parse(s);
 
-        let expected = Atom::String("AA".to_string());
-        assert_eq!(pool[0], expected);
+        let expected = stack_from(&[Atom::Function(Function::Id), Atom::String("FA".to_string())]);
 
-        let expected = Atom::Function(Function::Id);
-        assert_eq!(pool[1], expected);
+        assert_eq!(stack, expected);
     }
 
     #[test]
@@ -505,48 +338,30 @@ mod test {
         trace();
 
         let s = String::from("++id0Aid01");
-        info!("exp {:?}", s);
 
-        let pool = try_parse(s);
+        let stack = try_parse(s);
 
-        info!("pool {:?}", pool);
+        let expected = stack_from(&[
+            Atom::Function(Function::Add),
+            Atom::Function(Function::Id),
+            Atom::String("0A".to_string()),
+            Atom::Function(Function::Id),
+            Atom::String("01".to_string()),
+        ]);
 
-        // Add
-        //     take_function
-        //         Id
-        //             take_next
-        //                 0A
-        //     take_next
-        //         0A
+        assert_eq!(stack, expected);
 
-        // [String("0A"), Function(Id), Number(10), Function(Add)] }
+        let s = String::from("++id0A01");
 
-        let expected = Atom::Number(10);
-        assert_eq!(pool[0], expected);
+        let stack = try_parse(s);
+        let expected = stack_from(&[
+            Atom::Function(Function::Add),
+            Atom::Function(Function::Id),
+            Atom::String("0A".to_string()),
+            Atom::Number(1),
+        ]);
 
-        let expected = Atom::String("0A".to_string());
-        assert_eq!(pool[0], expected);
-
-        let expected = Atom::Function(Function::Id);
-        assert_eq!(pool[1], expected);
-
-        let expected = Atom::Function(Function::Add);
-        assert_eq!(pool[2], expected);
-
-        // let s = String::from("++0Aid0A");
-        // let pool = try_parse(s);
-
-        // let expected = Atom::String("0A".to_string());
-        // assert_eq!(pool[0], expected);
-
-        // let expected = Atom::Number(10);
-        // assert_eq!(pool[0], expected);
-
-        // let expected = Atom::Function(Function::Id);
-        // assert_eq!(pool[1], expected);
-
-        // let expected = Atom::Function(Function::Add);
-        // assert_eq!(pool[2], expected);
+        assert_eq!(stack, expected);
     }
 
     #[test]
@@ -554,18 +369,29 @@ mod test {
         trace();
 
         let s = String::from("idididAA");
-        let pool = try_parse(s);
 
-        let expected = Atom::String("AA".to_string());
-        assert_eq!(pool[0], expected);
+        let stack = try_parse(s);
+        let expected = stack_from(&[
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::String("AA".to_string()),
+        ]);
 
-        let expected = Atom::Function(Function::Id);
-        assert_eq!(pool[1], expected);
+        assert_eq!(stack, expected);
 
-        let expected = Atom::Function(Function::Id);
-        assert_eq!(pool[2], expected);
+        let s = String::from("++idididAA01");
 
-        let expected = Atom::Function(Function::Id);
-        assert_eq!(pool[3], expected);
+        let stack = try_parse(s);
+        let expected = stack_from(&[
+            Atom::Function(Function::Add),
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::String("AA".to_string()),
+            Atom::Number(1),
+        ]);
+
+        assert_eq!(stack, expected);
     }
 }

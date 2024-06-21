@@ -1,48 +1,48 @@
-// use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-// use lang::{Interpreter, Parser};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use lang::Parser;
 
-// pub fn parser_benchmark(c: &mut Criterion) {
-//     c.bench_function("parse", |b| {
-//         b.iter(|| {
-//             let mut s = String::from("idididAA");
-//             let mut parser = Parser::new(black_box(&mut s));
+pub fn parser_benchmark(c: &mut Criterion) {
+    c.bench_function("parse", |b| {
+        b.iter(|| {
+            let mut s = String::from("idididAA");
+            let mut parser = Parser::new(black_box(&mut s));
 
-//             let result = parser.try_parse();
-//             let _result = black_box(result);
-//         })
-//     });
+            let result = parser.try_parse();
+            let _result = black_box(result);
+        })
+    });
 
-//     c.bench_function("try_parse", |b| {
-//         b.iter(|| {
-//             let mut s = String::from("idididAA");
-//             let mut parser = Parser::new(black_box(&mut s));
+    c.bench_function("try_parse", |b| {
+        b.iter(|| {
+            let mut s = String::from("idididAA");
+            let mut parser = Parser::new(black_box(&mut s));
 
-//             let result = parser.parse();
-//             let _result = black_box(result);
-//         })
-//     });
-// }
-// pub fn invalid_parser_benchmark(c: &mut Criterion) {
-//     c.bench_function("try_parse_with_invalid", |b| {
-//         b.iter(|| {
-//             let mut s = String::from("id");
-//             let mut parser = Parser::new(black_box(&mut s));
+            let result = parser.parse();
+            let _result = black_box(result);
+        })
+    });
+}
+pub fn invalid_parser_benchmark(c: &mut Criterion) {
+    c.bench_function("try_parse_with_invalid", |b| {
+        b.iter(|| {
+            let mut s = String::from("id");
+            let mut parser = Parser::new(black_box(&mut s));
 
-//             let result = parser.try_parse();
-//             let _result = black_box(result);
-//         })
-//     });
+            let result = parser.try_parse();
+            let _result = black_box(result);
+        })
+    });
 
-//     c.bench_function("parse_with_invalid", |b| {
-//         b.iter(|| {
-//             let mut s = String::from("id");
-//             let mut parser = Parser::new(black_box(&mut s));
+    c.bench_function("parse_with_invalid", |b| {
+        b.iter(|| {
+            let mut s = String::from("id");
+            let mut parser = Parser::new(black_box(&mut s));
 
-//             let result = parser.parse();
-//             let _result = black_box(result);
-//         })
-//     });
-// }
+            let result = parser.parse();
+            let _result = black_box(result);
+        })
+    });
+}
 
 // fn interpret(exp: &String) {
 //     let mut exp = exp.clone();
@@ -73,8 +73,8 @@
 //     group.finish();
 // }
 
-// // criterion_group!(benches, parser_benchmark);
-// // criterion_group!(benches, invalid_parser_benchmark);
+criterion_group!(benches, parser_benchmark);
+// criterion_group!(benches, invalid_parser_benchmark);
 // criterion_group!(benches, interpret_benchmark);
 
-// criterion_main!(benches);
+criterion_main!(benches);
