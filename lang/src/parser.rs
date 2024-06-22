@@ -126,7 +126,10 @@ impl<'a> Parser<'a> {
 
                 let tokens = tokens_for(&f);
 
-                self.add(f);
+                match f {
+                    Function::Id => (),
+                    _ => self.add(f),
+                };
 
                 for token in tokens {
                     if self.is_function_next() {
@@ -310,7 +313,10 @@ mod test {
         let s = String::from("idFA");
         let stack = try_parse(s);
 
-        let expected = stack_from(&[Atom::Function(Function::Id), Atom::String("FA".to_string())]);
+        let expected = stack_from(&[
+            // Atom::Function(Function::Id),
+            Atom::String("FA".to_string()),
+        ]);
 
         assert_eq!(stack, expected);
     }
@@ -325,9 +331,9 @@ mod test {
 
         let expected = stack_from(&[
             Atom::Function(Function::Add),
-            Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
-            Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
             Atom::String("01".to_string()),
         ]);
 
@@ -338,7 +344,7 @@ mod test {
         let stack = try_parse(s);
         let expected = stack_from(&[
             Atom::Function(Function::Add),
-            Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
             Atom::Number(1),
         ]);
@@ -354,9 +360,9 @@ mod test {
 
         let stack = try_parse(s);
         let expected = stack_from(&[
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
         ]);
 
@@ -367,9 +373,9 @@ mod test {
         let stack = try_parse(s);
         let expected = stack_from(&[
             Atom::Function(Function::Add),
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
+            // Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
             Atom::Number(1),
         ]);
