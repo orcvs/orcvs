@@ -259,6 +259,12 @@ mod test {
 
         let expected = Atom::Number(10);
         assert_eq!(result, expected);
+
+        let s = String::from("++++0101--0A05");
+        let result = interpret(s);
+
+        let expected = Atom::Number(7);
+        assert_eq!(result, expected);
     }
 
     #[test]

@@ -63,6 +63,7 @@ pub fn interpret_benchmark(c: &mut Criterion) {
         String::from("++0A01"),
         String::from("--0A01"),
         String::from("++idididAA01"),
+        String::from("++++0101--0A05"),
     ];
 
     let mut group = c.benchmark_group("interpret");
