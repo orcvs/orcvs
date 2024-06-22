@@ -13,6 +13,45 @@ use thiserror::Error;
 
 pub struct MaybeAtom(Option<Atom>);
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Token {
+    Note,
+    Number,
+    String,
+    // Number(u8),
+}
+pub type T = Token;
+
+pub type Tokens = ArrayVec<Token, 8>;
+
+macro_rules! array_vec {
+    ($($items:tt),*) => {
+        {
+            let mut ary = ArrayVec::new();
+            $(
+                for item in $items.iter() {
+                    ary.push(*item);
+                }
+            )*
+            ary
+        }
+    };
+}
+
+impl From<&Function> for Tokens {
+    #[inline(always)]
+    fn from(f: &Function) -> Self {
+        match f {
+            Function::Add => array_vec!([T::Number, T::Number]),
+            Function::Divide => array_vec!([T::Number, T::Number]),
+            Function::Id => array_vec!([T::String]),
+            Function::Multiply => array_vec!([T::Number, T::Number]),
+            Function::Subtract => array_vec!([T::Number, T::Number]),
+            _ => array_vec!(([])),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Stack<const N: usize> {
     pub(crate) inner: ArrayVec<Atom, N>,

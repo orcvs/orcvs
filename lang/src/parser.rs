@@ -6,7 +6,8 @@ use crate::Error;
 use crate::Function;
 use crate::Stack;
 use crate::SyntaxError;
-use arrayvec::ArrayVec;
+use crate::Token;
+use crate::Tokens;
 use std::mem;
 use std::ops::Not;
 
@@ -17,44 +18,6 @@ pub struct Parser<'a> {
     source: &'a str,
     check: bool,
     invalid: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Token {
-    Note,
-    Number,
-    String,
-    // Number(u8),
-}
-type T = Token;
-
-type Tokens = ArrayVec<Token, 16>;
-
-macro_rules! array_vec {
-    ($($items:tt),*) => {
-        {
-            let mut ary = ArrayVec::new();
-            $(
-                for item in $items.iter() {
-                    ary.push(*item);
-                }
-            )*
-            ary
-        }
-    };
-}
-
-#[must_use]
-#[inline(always)]
-fn tokens_for(f: &Function) -> Tokens {
-    match f {
-        Function::Add => array_vec!([T::Number, T::Number]),
-        Function::Divide => array_vec!([T::Number, T::Number]),
-        Function::Id => array_vec!([T::String]),
-        Function::Multiply => array_vec!([T::Number, T::Number]),
-        Function::Subtract => array_vec!([T::Number, T::Number]),
-        _ => array_vec!(([])),
-    }
 }
 
 ///
@@ -124,7 +87,7 @@ impl<'a> Parser<'a> {
                     Err(e) => self.check_function().ok_or(e)?,
                 };
 
-                let tokens = tokens_for(&f);
+                let tokens = Tokens::from(&f);
 
                 match f {
                     Function::Id => (),
