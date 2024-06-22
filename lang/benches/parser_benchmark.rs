@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use lang::Parser;
+use lang::{Interpreter, Parser};
 
 pub fn parser_benchmark(c: &mut Criterion) {
     c.bench_function("parse", |b| {
@@ -44,37 +44,38 @@ pub fn invalid_parser_benchmark(c: &mut Criterion) {
     });
 }
 
-// fn interpret(exp: &String) {
-//     let mut exp = exp.clone();
-//     let mut parser = Parser::new(&mut exp);
+fn interpret(exp: &String) {
+    let mut exp = exp.clone();
+    let mut parser = Parser::new(&mut exp);
 
-//     let result = parser.parse();
-//     assert!(result.is_ok());
+    let result = parser.try_parse();
+    assert!(result.is_ok());
 
-//     let mut interpreter = Interpreter::new(black_box(parser.stack));
-//     let result = interpreter.interpret();
-//     assert!(result.is_ok());
-// }
+    let mut interpreter = Interpreter::new(black_box(&mut parser));
+    let result = interpreter.interpret();
+    assert!(result.is_ok());
+}
 
-// pub fn interpret_benchmark(c: &mut Criterion) {
-//     let expressions = [
-//         "idAA".to_string(),
-//         "idididAA".to_string(),
-//         "++0A01".to_string(),
-//         "--0A01".to_string(),
-//     ];
+pub fn interpret_benchmark(c: &mut Criterion) {
+    let expressions = [
+        String::from("idAA"),
+        String::from("idididAA"),
+        String::from("++0A01"),
+        String::from("--0A01"),
+        String::from("++idididAA01"),
+    ];
 
-//     let mut group = c.benchmark_group("interpret");
-//     for exp in expressions.iter() {
-//         group.bench_with_input(BenchmarkId::from_parameter(exp), exp, |b, exp| {
-//             b.iter(|| interpret(exp));
-//         });
-//     }
-//     group.finish();
-// }
+    let mut group = c.benchmark_group("interpret");
+    for exp in expressions.iter() {
+        group.bench_with_input(BenchmarkId::from_parameter(exp), exp, |b, exp| {
+            b.iter(|| interpret(exp));
+        });
+    }
+    group.finish();
+}
 
-criterion_group!(benches, parser_benchmark);
+// criterion_group!(benches, parser_benchmark);
 // criterion_group!(benches, invalid_parser_benchmark);
-// criterion_group!(benches, interpret_benchmark);
+criterion_group!(benches, interpret_benchmark);
 
 criterion_main!(benches);

@@ -1,33 +1,93 @@
+mod interpreter;
 mod parser;
 
-use arrayvec::ArrayVec;
+pub use interpreter::Interpreter;
 pub use parser::Parser;
+
+use arrayvec::ArrayVec;
 use std::fmt;
 use std::fmt::Debug;
-use std::ops::{Deref, DerefMut, Index};
+use std::ops::{Deref, DerefMut};
 use std::sync::Once;
 use thiserror::Error;
 
-impl From<Atom> for String {
-    fn from(atom: Atom) -> Self {
-        match atom {
-            Atom::Number(n) => n.to_string(),
-            Atom::Note(n) => match midi_number_to_note(n) {
-                Some(note) => note.to_string(),
-                None => n.to_string(),
-            },
-            Atom::String(s) => s.to_owned(),
-            Atom::Function(fun) => format!("{}", fun),
-            Atom::Empty => "_".to_string(),
+pub struct MaybeAtom(Option<Atom>);
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Stack<const N: usize> {
+    pub(crate) inner: ArrayVec<Atom, N>,
+}
+
+impl<const N: usize> Stack<N> {
+    pub fn new() -> Self {
+        Self {
+            inner: ArrayVec::new(),
         }
+    }
+
+    pub fn new_with(array_vec: ArrayVec<Atom, N>) -> Self {
+        Self { inner: array_vec }
+    }
+
+    #[inline(always)]
+    pub fn push(&mut self, atom: Atom) {
+        self.inner.push(atom);
+    }
+
+    #[inline(always)]
+    pub fn pop(&mut self) -> MaybeAtom {
+        MaybeAtom(self.inner.pop())
+    }
+
+    #[inline(always)]
+    pub fn peek(&self) -> Option<&Atom> {
+        self.inner.last()
+    }
+
+    #[inline(always)]
+    pub fn try_pop<T: TryFrom<MaybeAtom, Error = Error>>(
+        &mut self,
+        expected: usize,
+        count: usize,
+    ) -> Result<T, Error> {
+        self.pop()
+            .try_into()
+            .map_err(|err| map_arity(err, expected, count))
     }
 }
 
+impl<const N: usize> From<&[Atom]> for Stack<N> {
+    fn from(array: &[Atom]) -> Self {
+        let mut inner: ArrayVec<Atom, N> = ArrayVec::new();
+        for item in array.into_iter() {
+            inner.push(item.clone());
+        }
+
+        Stack { inner }
+    }
+}
+
+impl<const N: usize> Deref for Stack<N> {
+    type Target = [Atom];
+
+    fn deref(&self) -> &[Atom] {
+        &self.inner[..]
+    }
+}
+
+impl<const N: usize> DerefMut for Stack<N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+#[inline(always)]
 pub fn to_atom_string(s: &str) -> Result<Atom, Error> {
     let a = Atom::String(s.to_string());
     Ok(a)
 }
 
+#[inline(always)]
 pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
     match midi_note_to_number(s) {
         Some(n) => {
@@ -38,110 +98,29 @@ pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
     }
 }
 
+#[inline(always)]
 pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
+    let n = str_to_num(&s)?;
+    Ok(Atom::Number(n))
+}
+
+#[inline(always)]
+fn str_to_num(s: &str) -> Result<u8, Error> {
     match u8::from_str_radix(&s, 16) {
-        Ok(n) => {
-            let a = Atom::Number(n);
-            Ok(a)
-        }
+        Ok(n) => Ok(n),
         Err(_) => Err(TypeError::Number(s.to_string()).into()),
     }
 }
 
-pub struct MaybeAtom(Option<Atom>);
-
-// #[derive(Debug, Clone, PartialEq)]
-// pub struct Stack {
-//     pub(crate) inner: ArrayVec<Atom, 48>,
-// }
-
-// impl Stack {
-//     pub fn new() -> Self {
-//         Self {
-//             inner: ArrayVec::new(),
-//         }
-//     }
-
-//     #[inline(always)]
-//     pub fn push(&mut self, atom: Atom) {
-//         self.inner.push(atom);
-//     }
-
-//     #[inline(always)]
-//     pub fn pop(&mut self) -> MaybeAtom {
-//         MaybeAtom(self.inner.pop())
-//     }
-
-//     #[inline(always)]
-//     pub fn peek(&self) -> Option<&Atom> {
-//         self.inner.last()
-//     }
-
-//     #[inline(always)]
-//     pub fn try_pop<T: TryFrom<MaybeAtom, Error = Error>>(
-//         &mut self,
-//         expected: usize,
-//         count: usize,
-//     ) -> Result<T, Error> {
-//         self.pop()
-//             .try_into()
-//             .map_err(|err| map_arity(err, expected, count))
-//     }
-// }
-
-// impl Deref for Stack {
-//     type Target = [Atom];
-
-//     fn deref(&self) -> &[Atom] {
-//         &self.inner[..]
-//     }
-// }
-
-// impl DerefMut for Stack {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.inner
-//     }
-// }
-
-// impl Iterator for Stack {
-//     type Item = Atom;
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         self.inner.pop()
-//     }
-// }
-
-// impl DoubleEndedIterator for Stack {
-//     fn next_back(&mut self) -> Option<Self::Item> {
-//         self.inner.pop()
-//     }
-// }
-
-pub struct StackIter<'a> {
-    inner: std::slice::Iter<'a, Atom>,
-}
-
-impl<'a> Iterator for StackIter<'a> {
-    type Item = &'a Atom;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next_back()
+impl From<MaybeAtom> for Atom {
+    #[inline(always)]
+    fn from(maybe_atom: MaybeAtom) -> Self {
+        match maybe_atom.0 {
+            Some(a) => a,
+            None => Atom::Empty,
+        }
     }
 }
-
-impl<'a> DoubleEndedIterator for StackIter<'a> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-}
-
-// impl Stack {
-//     pub fn iter(&self) -> StackIter {
-//         StackIter {
-//             inner: self.inner.iter(),
-//         }
-//     }
-// }
 
 impl TryFrom<MaybeAtom> for u8 {
     type Error = Error;
@@ -149,7 +128,8 @@ impl TryFrom<MaybeAtom> for u8 {
     #[inline(always)]
     fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
         match maybe_atom.0 {
-            Some(Atom::Number(num) | Atom::Note(num)) => Ok(num),
+            Some(Atom::Number(n) | Atom::Note(n)) => Ok(n),
+            Some(Atom::String(s)) => str_to_num(&s),
             Some(atom) => Err(TypeError::Number(atom.into()).into()),
             None => Err(ArgumentError::Expected.into()),
         }
@@ -162,8 +142,7 @@ impl TryFrom<MaybeAtom> for String {
     #[inline(always)]
     fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
         match maybe_atom.0 {
-            Some(Atom::String(s)) => Ok(s),
-            Some(atom) => Err(TypeError::String(atom.into()).into()),
+            Some(a) => Ok(a.into()),
             None => Err(ArgumentError::Expected.into()),
         }
     }
@@ -197,12 +176,18 @@ impl TryFrom<&str> for Function {
     }
 }
 
-impl From<MaybeAtom> for Atom {
+impl From<Atom> for String {
     #[inline(always)]
-    fn from(maybe_atom: MaybeAtom) -> Self {
-        match maybe_atom.0 {
-            Some(a) => a,
-            None => Atom::Empty,
+    fn from(atom: Atom) -> Self {
+        match atom {
+            Atom::Number(n) => n.to_string(),
+            Atom::Note(n) => match midi_number_to_note(n) {
+                Some(note) => note.to_string(),
+                None => n.to_string(),
+            },
+            Atom::String(s) => s.to_owned(),
+            Atom::Function(fun) => format!("{}", fun),
+            Atom::Empty => "_".to_string(),
         }
     }
 }
@@ -227,15 +212,7 @@ impl From<MaybeAtom> for Atom {
 //     }
 // }
 
-// impl Index<usize> for Stack {
-//     type Output = Atom;
-
-//     fn index(&self, index: usize) -> &Self::Output {
-//         &self.inner[index]
-//     }
-// }
-
-#[inline(always)]
+// #[inline(always)]
 fn map_arity(err: Error, expected: usize, found: usize) -> Error {
     match err {
         Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
@@ -325,6 +302,9 @@ pub enum ArgumentError {
 
     #[error("expected an argument")]
     Expected,
+
+    #[error("expected a function")]
+    ExpectedFunction,
 }
 
 #[allow(dead_code)]

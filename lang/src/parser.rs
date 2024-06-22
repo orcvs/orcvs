@@ -4,20 +4,19 @@ use crate::to_atom_string;
 use crate::Atom;
 use crate::Error;
 use crate::Function;
+use crate::Stack;
 use crate::SyntaxError;
-
 use arrayvec::ArrayVec;
+use std::mem;
+use std::ops::Not;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
-pub type Stack = ArrayVec<Atom, 32>;
-
 pub struct Parser<'a> {
-    stack: Stack,
+    stack: Stack<32>,
     source: &'a str,
-    take_next: usize,
     check: bool,
-    valid: bool,
+    invalid: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,12 +30,7 @@ type T = Token;
 
 type Tokens = ArrayVec<Token, 16>;
 
-// #[derive(Debug, Clone, PartialEq)]
-// struct Tokens {
-//     inner: ArrayVec<Token, 16>,
-// }
-
-macro_rules! map_from {
+macro_rules! array_vec {
     ($($items:tt),*) => {
         {
             let mut ary = ArrayVec::new();
@@ -54,25 +48,27 @@ macro_rules! map_from {
 #[inline(always)]
 fn tokens_for(f: &Function) -> Tokens {
     match f {
-        Function::Add => map_from!([T::Number, T::Number]),
-        Function::Id => map_from!([T::String]),
-        _ => map_from!(([])),
+        Function::Add => array_vec!([T::Number, T::Number]),
+        Function::Divide => array_vec!([T::Number, T::Number]),
+        Function::Id => array_vec!([T::String]),
+        Function::Multiply => array_vec!([T::Number, T::Number]),
+        Function::Subtract => array_vec!([T::Number, T::Number]),
+        _ => array_vec!(([])),
     }
 }
 
 ///
-///
 /// #[inline(always)]
 /// Inline on take_function and inner_take improves performance by 5%
 /// Additional inlines do not improve performance
+///
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
-            stack: ArrayVec::new(),
-            take_next: DEFAULT_TOKEN_LEN,
+            stack: Stack::new(),
             source,
             check: false,
-            valid: true,
+            invalid: false,
         }
     }
 
@@ -80,9 +76,7 @@ impl<'a> Parser<'a> {
     /// try_parse will error if the parse fails
     ///
     pub fn try_parse(&mut self) -> Result<(), Error> {
-        let _a = self.take_function()?;
-        // self.stack.push(a);
-        Ok(())
+        self.take_function()
     }
 
     ///
@@ -90,29 +84,21 @@ impl<'a> Parser<'a> {
     ///
     pub fn parse(&mut self) -> Result<bool, Error> {
         self.check = true;
+        self.invalid = false;
         self.try_parse()?;
-        Ok(self.valid)
+        Ok(self.is_valid())
     }
 
-    pub fn take(&mut self, count: usize) -> &mut Self {
-        self.take_next = count;
-        self
-    }
-
-    ///
-    /// next takes the next token
-    /// unless preceded by take with a count, will use the default TOKEN_SIZE
-    /// exists mostly to provide symetry with take
-    /// pool.take(2).as_string();
-    /// pool.next().as_string();
-    ///
-    pub fn next(&mut self) -> &mut Self {
-        self.take_next = DEFAULT_TOKEN_LEN; // reset the token count
-        self
-    }
-
-    pub fn stack(&self) -> &Stack {
+    pub fn stack(&self) -> &Stack<32> {
         &self.stack
+    }
+
+    pub fn take_stack(&mut self) -> Stack<32> {
+        mem::take(&mut self.stack)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.invalid.not()
     }
 
     ///
@@ -225,7 +211,7 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn check_atom(&mut self) -> Option<Atom> {
         if self.check {
-            self.valid = false;
+            self.invalid = true;
             Some(Atom::Empty)
         } else {
             None
@@ -234,7 +220,7 @@ impl<'a> Parser<'a> {
 
     fn check_function(&mut self) -> Option<Function> {
         if self.check {
-            self.valid = false;
+            self.invalid = true;
             Some(Function::Empty)
         } else {
             None
@@ -250,11 +236,7 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use tracing::{info, span::Id};
-
-    use crate::{parser::Parser, trace, Atom, Error, Function, SyntaxError, TypeError};
-
-    use super::Stack;
+    use crate::{parser::Parser, trace, Atom, Error, Function, Stack, SyntaxError, TypeError};
 
     fn try_parse_with_result(exp: String) -> Result<(), Error> {
         let mut exp = exp.clone();
@@ -262,21 +244,21 @@ mod test {
         parser.try_parse()
     }
 
-    fn try_parse(exp: String) -> Stack {
+    fn try_parse(exp: String) -> Stack<32> {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
         parser.stack().clone()
     }
 
-    fn parse(exp: String) -> (bool, Stack) {
+    fn parse(exp: String) -> (bool, Stack<32>) {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         let result = parser.parse().unwrap();
         (result, parser.stack().clone())
     }
 
-    fn stack_from(array: &[Atom]) -> Stack {
+    fn stack_from(array: &[Atom]) -> Stack<32> {
         let mut stack = Stack::new();
         for a in array {
             stack.push(a.clone());
@@ -292,7 +274,7 @@ mod test {
         let (success, result) = parse(s);
 
         let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Empty, Atom::Empty];
-        let stack: Stack = stack_from(array);
+        let stack = stack_from(array);
 
         assert!(!success); // expression is invalid
 
