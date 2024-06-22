@@ -119,36 +119,29 @@ impl<'a> Parser<'a> {
         };
 
         let t = self.next_token(count);
-
-        match t {
+        let atom = match t {
             Some(s) => match token {
-                Token::Note => {
-                    let a = to_atom_note(s)?;
-                    Ok(a)
-                }
-                Token::Number | Token::Number1 => {
-                    let a = to_atom_num(s)?;
-                    Ok(a)
-                }
-
-                Token::String => {
-                    let a = to_atom_string(s)?;
-                    Ok(a)
-                }
+                Token::Note => to_atom_note(s)?,
+                Token::Number => to_atom_num(s)?,
+                Token::Number1 => to_atom_num(s)?,
+                Token::String => to_atom_string(s)?,
             },
-            None => self.check_atom().ok_or(SyntaxError::ExpectedToken.into()),
-        }
+            None => self
+                .check_atom()
+                .ok_or(Error::Syntax(SyntaxError::ExpectedToken))?,
+        };
+
+        Ok(atom)
     }
 
     #[inline(always)]
     fn next_token(&mut self, count: usize) -> Option<&'a str> {
-        match self.source.len() {
-            0 | 1 => None,
-            _ => {
-                let (next_token, rest) = self.source.split_at(count);
+        match self.source.split_at_checked(count) {
+            Some((next_token, rest)) => {
                 self.source = rest;
                 Some(next_token)
             }
+            None => None,
         }
     }
 

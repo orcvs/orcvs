@@ -7,7 +7,6 @@ pub use parser::Parser;
 use arrayvec::ArrayVec;
 use std::fmt;
 use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
 use std::sync::Once;
 use thiserror::Error;
 
@@ -107,19 +106,21 @@ impl<const N: usize> From<&[Atom]> for Stack<N> {
     }
 }
 
-impl<const N: usize> Deref for Stack<N> {
-    type Target = [Atom];
+// impl<const N: usize> Deref for Stack<N> {
+//     type Target = [Atom];
 
-    fn deref(&self) -> &[Atom] {
-        &self.inner[..]
-    }
-}
+//     #[inline(always)]
+//     fn deref(&self) -> &[Atom] {
+//         &self.inner[..]
+//     }
+// }
 
-impl<const N: usize> DerefMut for Stack<N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
+// impl<const N: usize> DerefMut for Stack<N> {
+//     #[inline(always)]
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.inner
+//     }
+// }
 
 #[inline(always)]
 pub fn to_atom_string(s: &str) -> Result<Atom, Error> {
@@ -233,27 +234,6 @@ impl From<Atom> for String {
     }
 }
 
-// impl From<MaybeAtom> for Function {
-//     #[inline(always)]
-//     fn from(maybe_atom: MaybeAtom) -> Self {
-//         match maybe_atom.0 {
-//             Some(Atom::Function(f)) => f,
-//             _ => Function::Empty,
-//         }
-//     }
-// }
-
-// impl From<Option<&Atom>> for Atom {
-//     #[inline(always)]
-//     fn from(atom: Option<&Atom>) -> Self {
-//         match atom {
-//             Some(a) => a.clone(),
-//             None => Atom::Empty,
-//         }
-//     }
-// }
-
-// #[inline(always)]
 fn map_arity(err: Error, expected: usize, found: usize) -> Error {
     match err {
         Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
