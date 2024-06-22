@@ -17,8 +17,8 @@ pub struct MaybeAtom(Option<Atom>);
 pub enum Token {
     Note,
     Number,
+    Number1,
     String,
-    // Number(u8),
 }
 pub type T = Token;
 
@@ -45,6 +45,7 @@ impl From<&Function> for Tokens {
             Function::Add => array_vec!([T::Number, T::Number]),
             Function::Divide => array_vec!([T::Number, T::Number]),
             Function::Id => array_vec!([T::String]),
+            Function::Play => array_vec!([T::Number1], [T::Number], [T::Note]),
             Function::Multiply => array_vec!([T::Number, T::Number]),
             Function::Subtract => array_vec!([T::Number, T::Number]),
             _ => array_vec!(([])),
@@ -207,9 +208,10 @@ impl TryFrom<&str> for Function {
         match s {
             "++" => Ok(Function::Add),
             "//" => Ok(Function::Divide),
-            "**" => Ok(Function::Multiply),
-            "--" => Ok(Function::Subtract),
             "id" => Ok(Function::Id),
+            "**" => Ok(Function::Multiply),
+            ">>" => Ok(Function::Play),
+            "--" => Ok(Function::Subtract),
             s => Err(SyntaxError::UnknownFunction(s.to_string()).into()),
         }
     }
@@ -373,7 +375,7 @@ impl fmt::Display for Function {
             Function::Divide => write!(f, "//"),
             Function::Id => write!(f, "id"),
             Function::Multiply => write!(f, "**"),
-            Function::Play => write!(f, "pl"),
+            Function::Play => write!(f, ">>"),
             Function::Subtract => write!(f, "--"),
         }
     }

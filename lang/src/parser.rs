@@ -113,7 +113,11 @@ impl<'a> Parser<'a> {
 
     #[inline(always)]
     fn take_token(&mut self, token: Token) -> Result<Atom, Error> {
-        let count = DEFAULT_TOKEN_LEN;
+        let count = match token {
+            Token::Number1 => 1,
+            _ => DEFAULT_TOKEN_LEN,
+        };
+
         let t = self.next_token(count);
 
         match t {
@@ -122,10 +126,11 @@ impl<'a> Parser<'a> {
                     let a = to_atom_note(s)?;
                     Ok(a)
                 }
-                Token::Number => {
+                Token::Number | Token::Number1 => {
                     let a = to_atom_num(s)?;
                     Ok(a)
                 }
+
                 Token::String => {
                     let a = to_atom_string(s)?;
                     Ok(a)
@@ -285,6 +290,23 @@ mod test {
         let expected = stack_from(&[
             // Atom::Function(Function::Id),
             Atom::String("FA".to_string()),
+        ]);
+
+        assert_eq!(stack, expected);
+    }
+
+    #[test]
+    fn test_parse_play_function() {
+        trace();
+
+        let s = String::from(">>10AC4");
+        let stack = try_parse(s);
+
+        let expected = stack_from(&[
+            Atom::Function(Function::Play),
+            Atom::Number(1),
+            Atom::Number(10),
+            Atom::Note(60),
         ]);
 
         assert_eq!(stack, expected);
