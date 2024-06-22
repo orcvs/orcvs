@@ -141,12 +141,10 @@ impl<'a> Parser<'a> {
                 }
                 Ok(())
             }
-            None => {
-                // return self
-                //     .check_function()
-                //     .ok_or(SyntaxError::ExpectedFunction.into())?;
-                return Err(SyntaxError::ExpectedFunction.into());
-            }
+            None => self
+                .check_atom()
+                .and_then(|a| Some(self.add(a)))
+                .ok_or(SyntaxError::ExpectedFunction.into()),
         }
     }
 
@@ -280,7 +278,15 @@ mod test {
         let stack = stack_from(array);
 
         assert!(!success); // expression is invalid
+        assert_eq!(result, stack);
 
+        let s = String::from("");
+        let (success, result) = parse(s);
+
+        let array: &[Atom] = &[Atom::Empty];
+        let stack = stack_from(array);
+
+        assert!(!success); // expression is invalid
         assert_eq!(result, stack);
     }
 
