@@ -17,6 +17,7 @@ impl<'a> Interpreter {
         Self { expressions }
     }
 
+    #[cfg(test)]
     pub fn from_stack(expressions: Expressions) -> Self {
         Self { expressions }
     }
@@ -52,17 +53,20 @@ fn ident(stack: &mut Args) -> Result<Atom, Error> {
     Ok(stack.pop().into())
 }
 
+#[inline(always)]
 fn add(stack: &mut Args) -> Result<Atom, Error> {
     let arg_1 = stack.try_pop(2, 0)?;
     let arg_2 = stack.try_pop(2, 1)?;
     Ok(add_impl(arg_1, arg_2))
 }
 
+#[inline(always)]
 fn add_impl(a: u8, b: u8) -> Atom {
     let res: u8 = a + b;
     Atom::Number(res)
 }
 
+#[inline(always)]
 fn divide(stack: &mut Args) -> Result<Atom, Error> {
     let arg_1 = stack.try_pop(2, 0)?;
     let arg_2 = stack.try_pop(2, 1)?;
@@ -70,6 +74,7 @@ fn divide(stack: &mut Args) -> Result<Atom, Error> {
     Ok(divide_impl(arg_1, arg_2))
 }
 
+#[inline(always)]
 fn divide_impl(a: u8, b: u8) -> Atom {
     // Divide by zero is zero, which is terribly incorrect
     if b == 0 {
@@ -79,23 +84,27 @@ fn divide_impl(a: u8, b: u8) -> Atom {
     Atom::Number(res)
 }
 
+#[inline(always)]
 fn multiply(stack: &mut Args) -> Result<Atom, Error> {
     let arg_1 = stack.try_pop(2, 0)?;
     let arg_2 = stack.try_pop(2, 1)?;
     Ok(multiply_impl(arg_1, arg_2))
 }
 
+#[inline(always)]
 fn multiply_impl(a: u8, b: u8) -> Atom {
     let res = a * b;
     Atom::Number(res)
 }
 
+#[inline(always)]
 fn subtract(stack: &mut Args) -> Result<Atom, Error> {
     let arg_1 = stack.try_pop(2, 0)?;
     let arg_2 = stack.try_pop(2, 1)?;
     Ok(subtract_impl(arg_1, arg_2))
 }
 
+#[inline(always)]
 fn subtract_impl(a: u8, b: u8) -> Atom {
     // No negative numbers
     if a < b {
@@ -105,6 +114,7 @@ fn subtract_impl(a: u8, b: u8) -> Atom {
     Atom::Number(res)
 }
 
+#[inline(always)]
 fn play(stack: &mut Args) -> Result<Atom, Error> {
     let arg_1 = stack.try_pop(3, 0)?;
     let arg_2 = stack.try_pop(3, 1)?;
@@ -112,6 +122,7 @@ fn play(stack: &mut Args) -> Result<Atom, Error> {
     Ok(play_impl(arg_1, arg_2, arg_3))
 }
 
+#[inline(always)]
 fn play_impl(c: u8, v: u8, n: u8) -> Atom {
     info!("Play: c: {}, v: {}, n: {}", c, v, n);
     Atom::Number(0)

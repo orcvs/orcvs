@@ -29,17 +29,6 @@ impl Expression {
     }
 }
 
-impl From<Function> for Expression {
-    #[inline(always)]
-    fn from(f: Function) -> Self {
-        let atom = Atom::from(f);
-        Expression {
-            token: Token::Function,
-            atom: Some(atom),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
     Function,
@@ -52,6 +41,17 @@ pub type T = Token;
 
 pub type Expressions = ArrayVec<Expression, 32>;
 pub type Tokens = ArrayVec<Expression, 8>;
+
+impl From<Function> for Expression {
+    #[inline(always)]
+    fn from(f: Function) -> Self {
+        let atom = Atom::from(f);
+        Expression {
+            token: Token::Function,
+            atom: Some(atom),
+        }
+    }
+}
 
 macro_rules! to_expressions {
     ($($items:tt),*) => {
