@@ -3,8 +3,10 @@ use crate::to_atom_num;
 use crate::to_atom_string;
 use crate::Atom;
 use crate::Error;
+use crate::Expression;
+use crate::Expressions;
 use crate::Function;
-use crate::Stack;
+// use crate::Stack;
 use crate::SyntaxError;
 use crate::Token;
 use crate::Tokens;
@@ -14,7 +16,7 @@ use std::ops::Not;
 const DEFAULT_TOKEN_LEN: usize = 2;
 
 pub struct Parser<'a> {
-    stack: Stack<32>,
+    stack: Expressions,
     source: &'a str,
     check: bool,
     invalid: bool,
@@ -28,7 +30,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(source: &'a mut str) -> Self {
         Self {
-            stack: Stack::new(),
+            stack: Expressions::new(),
             source,
             check: false,
             invalid: false,
@@ -52,11 +54,11 @@ impl<'a> Parser<'a> {
         Ok(self.is_valid())
     }
 
-    pub fn stack(&self) -> &Stack<32> {
+    pub fn stack(&self) -> &Expressions {
         &self.stack
     }
 
-    pub fn take_stack(&mut self) -> Stack<32> {
+    pub fn take_stack(&mut self) -> Expressions {
         mem::take(&mut self.stack)
     }
 
@@ -82,37 +84,48 @@ impl<'a> Parser<'a> {
         match token {
             Some(t) => {
                 let result = Function::try_from(t);
-                let f = match result {
-                    Ok(f) => f,
-                    Err(e) => self.check_function().ok_or(e)?,
+
+                let tokens = match result {
+                    Ok(Function::Id) => Tokens::from(&Function::Id),
+                    Ok(f) => {
+                        let tokens = Tokens::from(&f);
+                        let exp = Expression::from(f);
+                        self.add(exp);
+                        tokens
+                    }
+                    Err(e) => {
+                        self.check_function().ok_or(e)?;
+                        Tokens::new()
+                    }
                 };
 
-                let tokens = Tokens::from(&f);
-
-                match f {
-                    Function::Id => (),
-                    _ => self.add(f),
-                };
-
-                for token in tokens {
+                for mut exp in tokens {
                     if self.is_function_next() {
                         self.take_function()?;
                     } else {
-                        let a = self.take_token(token)?;
-                        self.add(a);
+                        let atom = self.take_token(&exp)?;
+                        exp.set_atom(atom);
+                        self.add(exp);
                     }
                 }
                 Ok(())
             }
             None => self
                 .check_atom()
-                .and_then(|a| Some(self.add(a)))
+                .and_then(|a| {
+                    let mut exp = Expression::new(Token::Function);
+                    exp.set_atom(a);
+                    self.add(exp);
+
+                    Some(())
+                })
                 .ok_or(SyntaxError::ExpectedFunction.into()),
         }
     }
 
     #[inline(always)]
-    fn take_token(&mut self, token: Token) -> Result<Atom, Error> {
+    fn take_token(&mut self, exp: &Expression) -> Result<Atom, Error> {
+        let token = exp.token;
         let count = match token {
             Token::Number1 => 1,
             _ => DEFAULT_TOKEN_LEN,
@@ -125,6 +138,7 @@ impl<'a> Parser<'a> {
                 Token::Number => to_atom_num(s)?,
                 Token::Number1 => to_atom_num(s)?,
                 Token::String => to_atom_string(s)?,
+                Token::Function => unreachable!(),
             },
             None => self
                 .check_atom()
@@ -162,12 +176,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn add<A>(&mut self, atom: A)
-    where
-        A: Into<Atom>,
-    {
-        let a = atom.into();
-        self.stack.push(a);
+    fn add(&mut self, exp: Expression) {
+        self.stack.push(exp);
     }
 
     #[inline(always)]
@@ -198,7 +208,9 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use crate::{parser::Parser, trace, Atom, Error, Function, Stack, SyntaxError, TypeError};
+    use crate::{
+        parser::Parser, trace, Atom, Error, Expressions, Function, Stack, SyntaxError, TypeError,
+    };
 
     fn try_parse_with_result(exp: String) -> Result<(), Error> {
         let mut exp = exp.clone();
@@ -206,26 +218,29 @@ mod test {
         parser.try_parse()
     }
 
-    fn try_parse(exp: String) -> Stack<32> {
+    fn try_parse(exp: String) -> Vec<Atom> {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         parser.try_parse().unwrap();
-        parser.stack().clone()
+        parser
+            .stack()
+            .into_iter()
+            .filter_map(|exp| exp.atom.clone())
+            .collect()
     }
 
-    fn parse(exp: String) -> (bool, Stack<32>) {
+    fn parse(exp: String) -> (bool, Vec<Atom>) {
         let mut exp = exp.clone();
         let mut parser = Parser::new(&mut exp);
         let result = parser.parse().unwrap();
-        (result, parser.stack().clone())
-    }
 
-    fn stack_from(array: &[Atom]) -> Stack<32> {
-        let mut stack = Stack::new();
-        for a in array {
-            stack.push(a.clone());
-        }
-        stack
+        let atoms = parser
+            .stack()
+            .into_iter()
+            .filter_map(|exp| exp.atom.clone())
+            .collect();
+
+        (result, atoms)
     }
 
     #[test]
@@ -235,8 +250,7 @@ mod test {
         let s = String::from("++");
         let (success, result) = parse(s);
 
-        let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Empty, Atom::Empty];
-        let stack = stack_from(array);
+        let stack = vec![Atom::Function(Function::Add), Atom::Empty, Atom::Empty];
 
         assert!(!success); // expression is invalid
         assert_eq!(result, stack);
@@ -244,8 +258,7 @@ mod test {
         let s = String::from("");
         let (success, result) = parse(s);
 
-        let array: &[Atom] = &[Atom::Empty];
-        let stack = stack_from(array);
+        let stack = vec![Atom::Empty];
 
         assert!(!success); // expression is invalid
         assert_eq!(result, stack);
@@ -280,10 +293,10 @@ mod test {
         let s = String::from("idFA");
         let stack = try_parse(s);
 
-        let expected = stack_from(&[
+        let expected = vec![
             // Atom::Function(Function::Id),
             Atom::String("FA".to_string()),
-        ]);
+        ];
 
         assert_eq!(stack, expected);
     }
@@ -295,12 +308,12 @@ mod test {
         let s = String::from(">>10AC4");
         let stack = try_parse(s);
 
-        let expected = stack_from(&[
+        let expected = vec![
             Atom::Function(Function::Play),
             Atom::Number(1),
             Atom::Number(10),
             Atom::Note(60),
-        ]);
+        ];
 
         assert_eq!(stack, expected);
     }
@@ -313,25 +326,25 @@ mod test {
 
         let stack = try_parse(s);
 
-        let expected = stack_from(&[
+        let expected = vec![
             Atom::Function(Function::Add),
             // Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
             // Atom::Function(Function::Id),
             Atom::String("01".to_string()),
-        ]);
+        ];
 
         assert_eq!(stack, expected);
 
         let s = String::from("++id0A01");
 
         let stack = try_parse(s);
-        let expected = stack_from(&[
+        let expected = vec![
             Atom::Function(Function::Add),
             // Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
             Atom::Number(1),
-        ]);
+        ];
 
         assert_eq!(stack, expected);
     }
@@ -343,26 +356,26 @@ mod test {
         let s = String::from("idididAA");
 
         let stack = try_parse(s);
-        let expected = stack_from(&[
+        let expected = vec![
             // Atom::Function(Function::Id),
             // Atom::Function(Function::Id),
             // Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
-        ]);
+        ];
 
         assert_eq!(stack, expected);
 
         let s = String::from("++idididAA01");
 
         let stack = try_parse(s);
-        let expected = stack_from(&[
+        let expected = vec![
             Atom::Function(Function::Add),
             // Atom::Function(Function::Id),
             // Atom::Function(Function::Id),
             // Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
             Atom::Number(1),
-        ]);
+        ];
 
         assert_eq!(stack, expected);
     }

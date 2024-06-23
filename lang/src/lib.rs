@@ -12,8 +12,37 @@ use thiserror::Error;
 
 pub struct MaybeAtom(Option<Atom>);
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Expression {
+    token: Token,
+    atom: Option<Atom>,
+}
+
+impl Expression {
+    pub fn new(token: Token) -> Self {
+        Self { token, atom: None }
+    }
+
+    #[inline(always)]
+    pub fn set_atom(&mut self, atom: Atom) {
+        self.atom = Some(atom);
+    }
+}
+
+impl From<Function> for Expression {
+    #[inline(always)]
+    fn from(f: Function) -> Self {
+        let atom = Atom::from(f);
+        Expression {
+            token: Token::Function,
+            atom: Some(atom),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
+    Function,
     Note,
     Number,
     Number1,
@@ -21,15 +50,18 @@ pub enum Token {
 }
 pub type T = Token;
 
-pub type Tokens = ArrayVec<Token, 8>;
+pub type Expressions = ArrayVec<Expression, 32>;
+pub type Tokens = ArrayVec<Expression, 8>;
 
-macro_rules! array_vec {
+macro_rules! to_expressions {
     ($($items:tt),*) => {
         {
             let mut ary = ArrayVec::new();
+
             $(
                 for item in $items.iter() {
-                    ary.push(*item);
+                    let exp = Expression::new(*item);
+                    ary.push(exp);
                 }
             )*
             ary
@@ -41,13 +73,13 @@ impl From<&Function> for Tokens {
     #[inline(always)]
     fn from(f: &Function) -> Self {
         match f {
-            Function::Add => array_vec!([T::Number, T::Number]),
-            Function::Divide => array_vec!([T::Number, T::Number]),
-            Function::Id => array_vec!([T::String]),
-            Function::Play => array_vec!([T::Number1], [T::Number], [T::Note]),
-            Function::Multiply => array_vec!([T::Number, T::Number]),
-            Function::Subtract => array_vec!([T::Number, T::Number]),
-            _ => array_vec!(([])),
+            Function::Add => to_expressions!([T::Number, T::Number]),
+            Function::Divide => to_expressions!([T::Number, T::Number]),
+            Function::Id => to_expressions!([T::String]),
+            Function::Play => to_expressions!([T::Number1], [T::Number], [T::Note]),
+            Function::Multiply => to_expressions!([T::Number, T::Number]),
+            Function::Subtract => to_expressions!([T::Number, T::Number]),
+            _ => to_expressions!(([])),
         }
     }
 }
@@ -262,17 +294,9 @@ pub enum Function {
 }
 
 impl From<Function> for Atom {
+    #[inline(always)]
     fn from(f: Function) -> Self {
         Atom::Function(f)
-    }
-}
-
-impl From<&Atom> for Function {
-    fn from(a: &Atom) -> Self {
-        match a {
-            Atom::Function(f) => f.clone(),
-            _ => panic!("expected a function"),
-        }
     }
 }
 

@@ -1,10 +1,10 @@
 // #[allow(unused)]
 
-use crate::{Atom, Error, Function, Parser, Stack};
+use crate::{Atom, Error, Expressions, Function, Parser, Stack};
 use tracing::info;
 
 pub struct Interpreter {
-    stack: Stack<32>,
+    expressions: Expressions,
 }
 
 type Args = Stack<6>;
@@ -13,27 +13,21 @@ impl<'a> Interpreter {
     pub fn new(parser: &mut Parser) -> Self {
         // if parser.is_valid() {
         // }
-        let stack = parser.take_stack();
-        Self { stack }
+        let expressions = parser.take_stack();
+        Self { expressions }
     }
 
-    pub fn from_stack(stack: Stack<32>) -> Self {
-        Self { stack }
+    pub fn from_stack(expressions: Expressions) -> Self {
+        Self { expressions }
     }
 
-    // assert!(self.stack.inner.len() != 0);
-    // let stack = self.stack.deref_mut();
-    // let atom = stack.take_first_mut()
-    // if let Some((atom, rest)) = stack.split_first_mut() {
-    // let args = &rest[0..=1];
-    // let atom = self.stack.inner.remove(0);
     #[inline(always)]
     pub fn interpret(&mut self) -> Result<Atom, Error> {
         let mut stack = Args::new();
 
-        while let Some(element) = self.stack.inner.pop() {
-            let atom = match element {
-                Atom::Function(fun) => match fun {
+        while let Some(element) = self.expressions.pop() {
+            let atom = match element.atom {
+                Some(Atom::Function(fun)) => match fun {
                     Function::Add => add(&mut stack)?,
                     Function::Divide => divide(&mut stack)?,
                     Function::Multiply => multiply(&mut stack)?,
@@ -42,7 +36,8 @@ impl<'a> Interpreter {
                     Function::Play => play(&mut stack)?,
                     _ => Atom::Function(Function::Empty),
                 },
-                _ => element,
+                Some(atom) => atom,
+                None => unreachable!(),
             };
             stack.push(atom);
         }
@@ -126,21 +121,37 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, Stack,
-        TypeError,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Expression, Expressions,
+        Function, Parser, Token, TypeError,
     };
     use arrayvec::ArrayVec;
 
-    macro_rules! stack {
+    // macro_rules! stack {
+    //     ($($items:tt),*) => {
+    //         {
+    //             let mut inner: ArrayVec<Atom, 32> = ArrayVec::new();
+    //             $(
+    //                 for item in $items.iter() {
+    //                     inner.push(item.clone());
+    //                 }
+    //             )*
+    //             Stack::new_with(inner)
+    //         }
+    //     };
+    // }
+
+    macro_rules! to_expressions {
         ($($items:tt),*) => {
             {
-                let mut inner: ArrayVec<Atom, 32> = ArrayVec::new();
+                let mut ary: ArrayVec<Expression, 32> = ArrayVec::new();
                 $(
                     for item in $items.iter() {
-                        inner.push(item.clone());
+                        let mut exp = Expression::new(Token::String);
+                        exp.set_atom(item.clone());
+                        ary.push(exp);
                     }
                 )*
-                Stack::new_with(inner)
+                ary
             }
         };
     }
@@ -154,8 +165,8 @@ mod test {
         interpreter.interpret().unwrap()
     }
 
-    fn interpret_stack(stack: Stack<32>) -> Result<Atom, Error> {
-        let mut interpreter = Interpreter::from_stack(stack);
+    fn interpret_stack(exp: Expressions) -> Result<Atom, Error> {
+        let mut interpreter = Interpreter::from_stack(exp);
         interpreter.interpret()
     }
 
@@ -272,7 +283,7 @@ mod test {
         trace();
 
         let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Number(1)];
-        let stack = stack!(array);
+        let stack = to_expressions!(array);
 
         let result = interpret_stack(stack);
 
@@ -297,7 +308,7 @@ mod test {
             Atom::Number(1),
             Atom::String(vtha),
         ];
-        let stack = stack!(array);
+        let stack = to_expressions!(array);
 
         let result = interpret_stack(stack);
 
