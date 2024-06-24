@@ -4,26 +4,26 @@ use lang::{Interpreter, Parser};
 fn parse(exp: &String) {
     let mut exp = exp.clone();
 
-    let mut parser = Parser::new(black_box(&mut exp));
+    let mut parser = Parser::new();
 
-    let result = parser.try_parse();
+    let result = parser.try_parse(black_box(&mut exp));
     assert!(result.is_ok());
 }
 
 fn try_parse(exp: &String) {
     let mut exp = exp.clone();
 
-    let mut parser = Parser::new(black_box(&mut exp));
+    let mut parser = Parser::new();
 
-    let result = parser.parse();
+    let result = parser.parse(black_box(&mut exp));
     assert!(result.is_ok());
 }
 
 fn interpret(exp: &String) {
     let mut exp = exp.clone();
-    let mut parser = Parser::new(&mut exp);
+    let mut parser = Parser::new();
 
-    let result = parser.try_parse();
+    let result = parser.try_parse(&mut exp);
     assert!(result.is_ok());
 
     let mut interpreter = Interpreter::new(black_box(&mut parser));

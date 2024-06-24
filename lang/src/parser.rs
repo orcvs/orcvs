@@ -15,6 +15,8 @@ use std::ops::Not;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
+const EMPTY: &str = "";
+
 pub struct Parser<'a> {
     stack: Expressions,
     source: &'a str,
@@ -28,10 +30,10 @@ pub struct Parser<'a> {
 /// Additional inlines do not improve performance
 ///
 impl<'a> Parser<'a> {
-    pub fn new(source: &'a mut str) -> Self {
+    pub fn new() -> Self {
         Self {
             stack: Expressions::new(),
-            source,
+            source: EMPTY,
             check: false,
             invalid: false,
         }
@@ -40,17 +42,18 @@ impl<'a> Parser<'a> {
     ///
     /// try_parse will error if the parse fails
     ///
-    pub fn try_parse(&mut self) -> Result<(), Error> {
+    pub fn try_parse(&mut self, source: &'a mut str) -> Result<(), Error> {
+        self.source = source;
         self.take_function()
     }
 
     ///
     /// parse will return a boolean indicating success or failure
     ///
-    pub fn parse(&mut self) -> Result<bool, Error> {
+    pub fn parse(&mut self, source: &'a mut str) -> Result<bool, Error> {
         self.check = true;
         self.invalid = false;
-        self.try_parse()?;
+        self.try_parse(source)?;
         Ok(self.is_valid())
     }
 
@@ -224,21 +227,20 @@ mod test {
 
     use crate::{parser::Parser, trace, Atom, Error, Function, SyntaxError, Token, TypeError};
 
-    fn try_parse_with_result(exp: String) -> Result<(), Error> {
-        let mut exp = exp.clone();
-        let mut parser = Parser::new(&mut exp);
-        parser.try_parse()
+    fn try_parse_with_result(exp: &mut str) -> Result<(), Error> {
+        let mut parser = Parser::new();
+        parser.try_parse(exp)
     }
 
-    fn try_parse<'a>(exp: &'a mut str) -> Parser<'a> {
-        let mut parser = Parser::new(exp);
-        parser.try_parse().unwrap();
+    fn try_parse(exp: &mut str) -> Parser {
+        let mut parser = Parser::new();
+        parser.try_parse(exp).unwrap();
         parser
     }
 
-    fn parse<'a>(exp: &'a mut str) -> (bool, Parser<'a>) {
-        let mut parser = Parser::new(exp);
-        let result = parser.parse().unwrap();
+    fn parse(exp: &mut str) -> (bool, Parser) {
+        let mut parser = Parser::new();
+        let result = parser.parse(exp).unwrap();
 
         (result, parser)
     }
@@ -286,8 +288,8 @@ mod test {
     fn test_try_parse_with_invalid() {
         trace();
 
-        let s = String::from("id");
-        let result = try_parse_with_result(s);
+        let mut s = String::from("id");
+        let result = try_parse_with_result(&mut s);
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
@@ -297,8 +299,8 @@ mod test {
     fn test_with_bad_syntax() {
         trace();
 
-        let s = String::from("++01XY");
-        let result = try_parse_with_result(s);
+        let mut s = String::from("++01XY");
+        let result = try_parse_with_result(&mut s);
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Type(TypeError::Number(_))));

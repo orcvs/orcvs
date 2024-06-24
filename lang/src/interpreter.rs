@@ -169,8 +169,8 @@ mod test {
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
-        let mut parser = Parser::new(&mut exp);
-        parser.try_parse().unwrap();
+        let mut parser = Parser::new();
+        parser.try_parse(&mut exp).unwrap();
 
         let mut interpreter = Interpreter::new(&mut parser);
         interpreter.interpret().unwrap()

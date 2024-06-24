@@ -3,8 +3,8 @@ use lang::{Atom, Parser};
 fn main() {
     let mut exp = String::from("++0102");
 
-    let mut parser = Parser::new(&mut exp);
-    let _ = parser.parse();
+    let mut parser = Parser::new();
+    let _ = parser.parse(&mut exp);
 
     // let mut interpreter = Interpreter::new(parser.stack());
 
