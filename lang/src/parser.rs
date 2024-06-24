@@ -6,10 +6,10 @@ use crate::Error;
 use crate::Expression;
 use crate::Expressions;
 use crate::Function;
-// use crate::Stack;
 use crate::SyntaxError;
 use crate::Token;
 use crate::Tokens;
+use arrayvec::ArrayVec;
 use std::mem;
 use std::ops::Not;
 
@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
                 let result = Function::try_from(t);
 
                 let tokens = match result {
-                    Ok(Function::Id) => Tokens::from(&Function::Id),
+                    // Ok(Function::Id) => Tokens::from(&Function::Id),
                     Ok(f) => {
                         let tokens = Tokens::from(&f);
                         let exp = Expression::from(f);
@@ -198,6 +198,17 @@ impl<'a> Parser<'a> {
             None
         }
     }
+
+    fn atoms(&self) -> ArrayVec<Atom, 32> {
+        self.stack
+            .iter()
+            .filter_map(|exp| exp.atom.clone())
+            .collect()
+    }
+
+    fn tokens(&self) -> ArrayVec<Token, 32> {
+        self.stack.iter().map(|exp| exp.token).collect()
+    }
 }
 
 // Inlining causes performance regression
@@ -208,9 +219,10 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use crate::{
-        parser::Parser, trace, Atom, Error, Expressions, Function, Stack, SyntaxError, TypeError,
-    };
+    use arrayvec::ArrayVec;
+    use tracing::info;
+
+    use crate::{parser::Parser, trace, Atom, Error, Function, SyntaxError, Token, TypeError};
 
     fn try_parse_with_result(exp: String) -> Result<(), Error> {
         let mut exp = exp.clone();
@@ -218,49 +230,55 @@ mod test {
         parser.try_parse()
     }
 
-    fn try_parse(exp: String) -> Vec<Atom> {
-        let mut exp = exp.clone();
-        let mut parser = Parser::new(&mut exp);
+    fn try_parse<'a>(exp: &'a mut str) -> Parser<'a> {
+        let mut parser = Parser::new(exp);
         parser.try_parse().unwrap();
         parser
-            .stack()
-            .into_iter()
-            .filter_map(|exp| exp.atom.clone())
-            .collect()
     }
 
-    fn parse(exp: String) -> (bool, Vec<Atom>) {
-        let mut exp = exp.clone();
-        let mut parser = Parser::new(&mut exp);
+    fn parse<'a>(exp: &'a mut str) -> (bool, Parser<'a>) {
+        let mut parser = Parser::new(exp);
         let result = parser.parse().unwrap();
 
-        let atoms = parser
-            .stack()
-            .into_iter()
-            .filter_map(|exp| exp.atom.clone())
-            .collect();
+        (result, parser)
+    }
 
-        (result, atoms)
+    macro_rules! array_vec {
+        ($($items:tt),*) => {
+            {
+                let mut ary = ArrayVec::new();
+
+                $(
+                    for item in $items.iter() {
+                        ary.push(item.clone());
+                    }
+                )*
+                ary
+            }
+        };
     }
 
     #[test]
     fn test_parse_with_invalid() {
         trace();
 
-        let s = String::from("++");
-        let (success, result) = parse(s);
-
-        let stack = vec![Atom::Function(Function::Add), Atom::Empty, Atom::Empty];
+        let mut s = String::from("++");
+        let (success, parser) = parse(&mut s);
 
         assert!(!success); // expression is invalid
+
+        let stack = array_vec!([Atom::Function(Function::Add), Atom::Empty, Atom::Empty]);
+        let result = parser.atoms();
         assert_eq!(result, stack);
 
-        let s = String::from("");
-        let (success, result) = parse(s);
-
-        let stack = vec![Atom::Empty];
+        let mut s = String::from("");
+        let (success, parser) = parse(&mut s);
 
         assert!(!success); // expression is invalid
+
+        let stack = array_vec!([Atom::Empty]);
+
+        let result = parser.atoms();
         assert_eq!(result, stack);
     }
 
@@ -290,14 +308,12 @@ mod test {
     fn test_parse_id_function() {
         trace();
 
-        let s = String::from("idFA");
-        let stack = try_parse(s);
+        let mut s = String::from("idFA");
+        let parser = try_parse(&mut s);
 
-        let expected = vec![
-            // Atom::Function(Function::Id),
-            Atom::String("FA".to_string()),
-        ];
+        let expected = array_vec!([Atom::Function(Function::Id), Atom::String("FA".to_string()),]);
 
+        let stack = parser.atoms();
         assert_eq!(stack, expected);
     }
 
@@ -305,16 +321,17 @@ mod test {
     fn test_parse_play_function() {
         trace();
 
-        let s = String::from(">>10AC4");
-        let stack = try_parse(s);
+        let mut s = String::from(">>10AC4");
+        let parser = try_parse(&mut s);
 
-        let expected = vec![
+        let expected = array_vec!([
             Atom::Function(Function::Play),
             Atom::Number(1),
             Atom::Number(10),
             Atom::Note(60),
-        ];
+        ]);
 
+        let stack = parser.atoms();
         assert_eq!(stack, expected);
     }
 
@@ -322,30 +339,43 @@ mod test {
     fn test_with_function_parameter() {
         trace();
 
-        let s = String::from("++id0Aid01");
+        let mut s = String::from("++id0Aid01");
 
-        let stack = try_parse(s);
+        let parser = try_parse(&mut s);
 
-        let expected = vec![
+        let expected = array_vec!([
+            Token::Function,
+            Token::Function,
+            Token::String,
+            Token::Function,
+            Token::String,
+        ]);
+
+        let result = parser.tokens();
+        assert_eq!(result, expected);
+
+        let expected = array_vec!([
             Atom::Function(Function::Add),
-            // Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
-            // Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
             Atom::String("01".to_string()),
-        ];
+        ]);
 
+        let stack = parser.atoms();
         assert_eq!(stack, expected);
 
-        let s = String::from("++id0A01");
+        let mut s = String::from("++id0A01");
+        let parser = try_parse(&mut s);
 
-        let stack = try_parse(s);
-        let expected = vec![
+        let expected = array_vec!([
             Atom::Function(Function::Add),
-            // Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
             Atom::Number(1),
-        ];
+        ]);
 
+        let stack = parser.atoms();
         assert_eq!(stack, expected);
     }
 
@@ -353,30 +383,44 @@ mod test {
     fn test_parse_recursive_function() {
         trace();
 
-        let s = String::from("idididAA");
+        let mut s = String::from("idididAA");
+        let parser = try_parse(&mut s);
 
-        let stack = try_parse(s);
-        let expected = vec![
-            // Atom::Function(Function::Id),
-            // Atom::Function(Function::Id),
-            // Atom::Function(Function::Id),
+        let expected = array_vec!([
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
-        ];
+        ]);
 
+        let stack = parser.atoms();
         assert_eq!(stack, expected);
 
-        let s = String::from("++idididAA01");
+        let mut s = String::from("++idididAA01");
+        let parser = try_parse(&mut s);
 
-        let stack = try_parse(s);
-        let expected = vec![
+        let expected = array_vec!([
+            Token::Function,
+            Token::Function,
+            Token::Function,
+            Token::Function,
+            Token::String,
+            Token::Number,
+        ]);
+
+        let result = parser.tokens();
+        assert_eq!(result, expected);
+
+        let expected = array_vec!([
             Atom::Function(Function::Add),
-            // Atom::Function(Function::Id),
-            // Atom::Function(Function::Id),
-            // Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
+            Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
             Atom::Number(1),
-        ];
+        ]);
 
+        let stack = parser.atoms();
         assert_eq!(stack, expected);
     }
 }
