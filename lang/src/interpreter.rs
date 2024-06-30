@@ -1,24 +1,16 @@
 // #[allow(unused)]
 
-use crate::{Atom, Error, Expressions, Function, Parser, Stack};
+use crate::{Atom, Error, Function, FunctionExpression, Parser, Stack};
 use tracing::info;
 
 pub struct Interpreter {
-    expressions: Expressions,
+    expressions: FunctionExpression,
 }
 
 type Args = Stack<6>;
 
 impl<'a> Interpreter {
-    pub fn new(parser: &mut Parser) -> Self {
-        // if parser.is_valid() {
-        // }
-        let expressions = parser.take_stack();
-        Self { expressions }
-    }
-
-    #[cfg(test)]
-    pub fn from_stack(expressions: Expressions) -> Self {
+    pub fn new(expressions: FunctionExpression) -> Self {
         Self { expressions }
     }
 
@@ -132,8 +124,8 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Expression, Expressions,
-        Function, Parser, Token, TypeError,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Expression, Function,
+        FunctionExpression, Parser, Token, TypeError,
     };
     use arrayvec::ArrayVec;
 
@@ -162,22 +154,22 @@ mod test {
                         ary.push(exp);
                     }
                 )*
-                ary
+                FunctionExpression::from(ary)
             }
         };
     }
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
-        let mut parser = Parser::new();
-        parser.try_parse(&mut exp).unwrap();
+        let mut parser = Parser::from(&mut exp);
+        let exp = parser.try_parse().unwrap();
 
-        let mut interpreter = Interpreter::new(&mut parser);
+        let mut interpreter = Interpreter::new(exp);
         interpreter.interpret().unwrap()
     }
 
-    fn interpret_stack(exp: Expressions) -> Result<Atom, Error> {
-        let mut interpreter = Interpreter::from_stack(exp);
+    fn interpret_stack(exp: FunctionExpression) -> Result<Atom, Error> {
+        let mut interpreter = Interpreter::new(exp);
         interpreter.interpret()
     }
 
@@ -294,9 +286,9 @@ mod test {
         trace();
 
         let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Number(1)];
-        let stack = to_expressions!(array);
+        let exp = to_expressions!(array);
 
-        let result = interpret_stack(stack);
+        let result = interpret_stack(exp);
 
         let error = result.unwrap_err();
 

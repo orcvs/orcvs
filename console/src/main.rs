@@ -23,8 +23,11 @@ fn trace() {
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
+    use eframe::Renderer;
+
     trace();
     let native_options = eframe::NativeOptions {
+        // renderer: Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 300.0])
             .with_min_inner_size([300.0, 220.0])

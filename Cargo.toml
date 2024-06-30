@@ -5,12 +5,15 @@ resolver = "2"
 
 members = ["console", "lang"]
 
-# Enable a small amount of optimization in debug mode
 [profile.dev]
 opt-level = 1
+split-debuginfo = "unpacked"
 # codegen-backend = "cranelift"
 
 [profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.build-override]
 opt-level = 3
 
 [profile.release]

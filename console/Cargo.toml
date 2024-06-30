@@ -16,23 +16,26 @@ targets = [
 
 [dependencies]
 lang = { path = "../lang" }
-
 arrayvec = { version = "0.7.4", default-features = false }
-criterion = { version = "0.5.1", default-features = false }
-eframe = { version = "0.27.0", default-features = false, features = ["glow", "persistence"] }
+eframe = { version = "0.27.0", default-features = false, features = ["glow"] }
+# eframe = { version = "0.27.0", default-features = false, features = ["wgpu"] }
 egui = { version = "0.27.0", default-features = false }
 rand = "0.8.5"
-serde = { version = "1", default-features = false }
+# serde = { version = "1", default-features = false }
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", default-features = false }
+nohash-hasher = "0.2.0"
 # native:
 # [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # env_logger = "0.10"
+
+# [dev-dependencies]
+# criterion = { version = "0.5.1", default-features = false }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 
-[[bench]]
-name = "console_benchmark"
-harness = false
+# [[bench]]
+# name = "console_benchmark"
+# harness = false

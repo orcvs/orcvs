@@ -5,11 +5,10 @@
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg=web_sys_unstable_apis"]
 
-
-[target.x86_64-apple-darwin]
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
-[target.aarch64-apple-darwin]
-rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
+# [target.x86_64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
 
 
 # [unstable]

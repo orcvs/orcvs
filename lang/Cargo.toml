@@ -3,9 +3,12 @@ name = "lang"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+benchmark = []
+
 [dependencies]
 arrayvec = { version = "0.7.4", default-features = false }
-serde = { version = "1.0.203", default-features = false }
+# serde = { version = "1.0.203", default-features = false }
 # miette = { version = "7.2.0", features = ["fancy"] }
 # miette = { version = "7.2.0" }
 thiserror = "1.0.58"
@@ -15,8 +18,11 @@ tracing-subscriber = { version = "0.3.18", features = [
 ], default-features = false }
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = { version = "0.5.1", default-features = false, feature = [
+    "benchmark",
+] }
 
+#[cfg(feature = "benchmark")]
 [[bench]]
 name = "parser_benchmark"
 harness = false

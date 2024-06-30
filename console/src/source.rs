@@ -1,30 +1,34 @@
+use lang::{Atom, Function, FunctionExpression, Parser};
 use std::cell::{Ref, RefCell};
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::rc::Rc;
-
-use arrayvec::ArrayVec;
-use lang::{Atom, Function, Parser, Stack};
-use tracing::info;
+use tracing::{error, info};
+// use arrayvec::ArrayVec;
 
 const TERMINATOR: &str = ".";
 
-#[derive(serde::Deserialize, serde::Serialize)]
+// #[derive(serde::Deserialize, serde::Serialize)]
 pub struct Source {
     inner: String,
     cols: usize,
     rows: usize,
     map: Vec<Option<Rc<RefCell<Expression>>>>,
-    expressions: Vec<Rc<RefCell<Expression>>>,
+    // expressions: Vec<Rc<RefCell<Expression>>>,
+    // parsed_expressions: Vec<FunctionExpression>,
+    parsed: HashMap<usize, FunctionExpression, nohash_hasher::BuildNoHashHasher<usize>>,
 }
 
-#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+// // #[serde(skip_deserializing, skip_serializing)]
+// inner: Option<ParserExpression>,
+
+// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, PartialEq)]
 pub struct Expression {
     start: usize,
     end: usize,
 
-    #[serde(skip_deserializing, skip_serializing)]
-    stack: Option<Stack>,
-
-    #[serde(skip_deserializing, skip_serializing)]
+    // #[serde(skip_deserializing, skip_serializing)]
     valid: Option<bool>,
 
     function: Option<Function>,
@@ -35,122 +39,31 @@ impl Expression {
         Self {
             start,
             end,
-            stack: None,
             valid: None,
             function: None,
         }
     }
-
-    pub fn to_map(&self) -> Map {
-        let mut map: Map = ArrayVec::new();
-
-        if let Some(stack) = &self.stack {
-            for (idx, exp) in stack.into_iter().rev().enumerate() {
-                info!("====================");
-                info!("{}: {:?}", idx, exp);
-                info!("map {:?}", map);
-
-                match exp {
-                    Atom::Function(f) => {
-                        let f_map = get_function_map(&f);
-
-                        info!("----------------------");
-                        info!("f_map {:?}", f_map);
-
-                        // First function
-                        if map.is_empty() {
-                            map.extend(f_map.into_iter());
-                        } else {
-                            info!("idx {:?}", idx);
-
-                            // remove the element at idx
-                            map.pop_at(idx);
-                            info!("map {:?}", map);
-
-                            let mut pos = idx;
-
-                            // Insert the function map at idx
-                            for glyph in f_map.into_iter() {
-                                map.insert(pos, glyph);
-                                pos += 1;
-                            }
-
-                            // [Function, Number, Function, Number, Number]
-                            // info!("count {:?}", count);
-                            info!("map {:?}", map);
-                            // Remove the element at idx +
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        map
-    }
 }
 
-macro_rules! map_from {
-    ($($items:tt),*) => {
-        {
-            let mut ary: Map = ArrayVec::new();
-            $(
-                for item in $items.iter() {
-                    ary.push(*item);
-                }
-            )*
-            ary
-        }
-    };
-}
-
-#[must_use]
-fn get_function_map(f: &Function) -> Map {
-    match f {
-        Function::Add => map_from!([G::Function, G::Number, G::Number]),
-        Function::Id => map_from!([G::Function, G::Number]),
-        _ => map_from!(([])),
-    }
-}
-
-impl<'a> Source {
+impl Source {
     pub fn new(cols: usize, rows: usize) -> Self {
         let n = cols * rows;
         let inner = '.'.to_string().repeat(n);
 
         let map = vec![None; n];
-        let expressions = Vec::with_capacity(n / 6);
+        // let expressions = Vec::with_capacity(n / 6);
+
+        // let parsed_expressions = vec![FunctionExpression; n];
+
+        let parsed = HashMap::with_capacity_and_hasher(n, BuildHasherDefault::default());
 
         Self {
             cols,
             rows,
             inner,
             map,
-            expressions,
-        }
-    }
-
-    fn map(&mut self) {
-        for exp in self.expressions.iter() {
-            let s = self.get_expression(exp.borrow());
-            let mut s = String::from(s);
-
-            let mut parser = Parser::new(&mut s);
-            let result = parser.parse();
-
-            match result {
-                Ok(valid) => {
-                    let mut exp = exp.borrow_mut();
-                    // let f = parser.stack.last();
-                    // if let Some(f) = f {
-                    // exp.function = Some(f.into());
-                    // }
-                    exp.stack = Some(parser.stack);
-                    exp.valid = Some(valid);
-                }
-                Err(e) => {
-                    info!("error: {:?}", e);
-                }
-            }
+            // expressions,
+            parsed,
         }
     }
 
@@ -178,10 +91,12 @@ impl<'a> Source {
         // all characters are single-byte ASCII
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
-        unsafe { self.inner.get_unchecked(idx..=idx) }
+        unsafe { self.inner.get_unchecked(idx..(idx + 1)) }
     }
 
-    pub fn get_expression(&self, exp: Ref<'_, Expression>) -> &str {
+    #[inline(always)]
+    pub fn get_exp_str(&self, exp: &Rc<RefCell<Expression>>) -> &str {
+        let exp = exp.borrow();
         let start = exp.start;
         let end = exp.end;
 
@@ -194,7 +109,35 @@ impl<'a> Source {
         // all characters are single-byte ASCII
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
-        unsafe { self.inner.get_unchecked(start..=end) }
+        unsafe { self.inner.get_unchecked(start..(end + 1)) }
+    }
+
+    pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<Expression>>) {
+        self.parse_exp(&exp);
+        self.map[idx] = Some(exp);
+    }
+
+    pub fn remove_exp(&mut self, idx: usize) {
+        self.parsed.remove(&idx);
+        self.map[idx] = None;
+    }
+
+    pub fn parse_exp(&mut self, exp: &Rc<RefCell<Expression>>) {
+        let mut s = self.get_exp_str(exp).to_owned();
+
+        let exp = exp.borrow();
+        let idx = exp.start;
+
+        let result = Parser::from(&mut s).parse();
+        match result {
+            Ok(exp) => {
+                error!("FunctionExpression {exp:?}");
+                self.parsed.insert(idx, exp);
+            }
+            _ => {
+                error!("parse error");
+            }
+        }
     }
 
     pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
@@ -261,13 +204,12 @@ impl<'a> Source {
             //  exp.start = idx
         */
 
-        // info!("idx {:?} | {:?}", lft_exp, rgt_exp);
-
         match (lft_exp, rgt_exp) {
             (Some(lft_exp), Some(ref mut rgt_exp)) => {
                 // Split the expression
                 if terminator {
-                    self.map[idx] = None;
+                    // self.map[idx] = None;
+                    self.remove_exp(idx);
                     // In some cases lft and rgt may refer to the same expression
                     // We cannot have multiple mutable borrows in the same scope
                     // So we split the borrows into separate scopes
@@ -277,7 +219,8 @@ impl<'a> Source {
                     {
                         let rgt = rgt_exp.borrow();
                         let exp = Rc::new(RefCell::new(Expression::new(rgt_idx, rgt.end)));
-                        self.map[rgt_idx] = Some(exp);
+                        // self.map[rgt_idx] = Some(exp);
+                        self.set_exp(rgt_idx, exp);
                     }
                     {
                         let mut exp = lft_exp.borrow_mut();
@@ -306,8 +249,9 @@ impl<'a> Source {
                         }
 
                         // Iterate the map until the rgt end and set the lft expression
-                        for i in idx..=end {
-                            self.map[i] = Some(lft_exp.clone());
+                        for i in idx..(end + 1) {
+                            // self.map[i] = Some(lft_exp.clone());
+                            self.set_exp(i, lft_exp.clone());
                         }
                     }
                 }
@@ -315,14 +259,16 @@ impl<'a> Source {
             (Some(lft_exp), None) => {
                 // Append to the expression
 
-                self.map[idx] = Some(lft_exp.clone());
+                // self.map[idx] = Some(lft_exp.clone());
+                self.set_exp(idx, lft_exp.clone());
 
                 let mut exp = lft_exp.borrow_mut();
                 exp.end = idx;
             }
             (None, Some(rgt_exp)) => {
                 // Prepend to the expression
-                self.map[idx] = Some(rgt_exp.clone());
+                // self.map[idx] = Some(rgt_exp.clone());
+                self.set_exp(idx, rgt_exp.clone());
 
                 let mut exp = rgt_exp.borrow_mut();
 
@@ -331,15 +277,15 @@ impl<'a> Source {
             (None, None) => {
                 if terminator {
                     // Remove expression
-                    self.map[idx] = None;
-                    self.expressions.pop();
+                    self.remove_exp(idx);
                 }
 
                 if alphanumeric {
                     // New Expression
                     let exp = Rc::new(RefCell::new(Expression::new(idx, idx)));
-                    self.expressions.push(exp.clone());
-                    self.map[idx] = Some(exp.clone());
+                    // self.expressions.push(exp.clone());
+                    // self.map[idx] = Some(exp.clone());
+                    self.set_exp(idx, exp.clone());
                 }
             }
         }
@@ -351,7 +297,7 @@ impl<'a> Source {
     ///
     pub fn to_idx(&self, x: usize, y: usize) -> usize {
         let idx = y * self.cols + x;
-        assert!(idx <= self.len(), "index out of bounds {idx} for [{x},{y}]");
+        assert!(idx <= self.len(), "index {idx} out of bounds for [{x},{y}]");
         idx
     }
 
@@ -363,59 +309,19 @@ impl<'a> Source {
     }
 
     fn print_exp(&self) {
-        self.expressions.iter().for_each(|m| {
+        self.parsed.iter().for_each(|m| {
             info!("map: {:?}", m);
         });
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Glyph {
-    Function,
-    Note,
-    Number,
-    String,
-    FunctionN(u8),
-    NoteN(u8),
-    NumberN(u8),
-    StringN(u8),
-}
-
-type G = Glyph;
-
-// type InnerArrayVec<T, const N: usize> = ArrayVec<T, N>;
-// type OuterArrayVec<T, const N: usize, const M: usize> = ArrayVec<InnerArrayVec<T, N>, M>;
-
-// type GlyphMap = ArrayVec<G, 32>;
-
-type Map = ArrayVec<G, 32>;
-
-struct FunctionMap {
-    map: Map,
-    parameters: usize,
-}
-
-impl FunctionMap {
-    fn new(map: Map, parameters: usize) -> Self {
-        Self { map, parameters }
-    }
-}
-
-// type Map = ArrayVec<ArrayVec<G, 32>, 32>;
-// type NestedArrayVec<T, const N: usize> = ArrayVec<NestedArrayVec<T, N - 1>, N>;
-// type NestedArrayVec<T, 0> = ArrayVec<T, N>;
-
 #[cfg(test)]
 mod test {
     use super::Source;
-    use crate::source::get_function_map;
     use crate::source::Expression;
-    use crate::source::Map;
-
-    use crate::source::{Glyph, G};
     use arrayvec::ArrayVec;
-    use lang::Parser;
     use lang::{Atom, Function, Stack};
+    use lang::{FunctionExpression, Parser};
     use std::sync::Once;
     use tracing::info;
 
@@ -439,231 +345,17 @@ mod test {
     }
 
     #[test]
-    fn _test_expression_map_alt() {
+    fn test_expression_map() {
         trace();
 
-        let array: &[Atom] = &[
-            Atom::Empty,
-            Atom::Function(Function::Id),
-            Atom::Empty,
-            Atom::Function(Function::Add),
-        ];
+        let source = source_from("++0101");
 
-        // co0
-        // for exp in stack.pop
-        //    Empty => positions += 1
-        //    Empty => positions += 1
-        //
-        //    Function::Id
-        //      [G::Function, G::Number]
-        //      positions -= 1
-        //
-        //   Function::Add
-        //      [G::Function, G::Number, G::Number]
-        //
-        //
-        //   Prepend function
-        //      [G::Number, G::Number]
-        //      [G::Function, G::Function, G::Number]
-        //
-        //   Append parameters
-        //
-        //
+        info!("exp {:?}", source.parsed);
 
-        let mut stack: Stack = Stack::from(array);
+        let exp = source.parsed.values().collect::<Vec<&FunctionExpression>>();
+        // let result = source.parse_exp(exp.first().unwrap());
 
-        let mut map: Map = ArrayVec::new();
-
-        info!("map: {:?}", map);
-
-        let mut count = 0;
-        for exp in stack.into_iter() {
-            info!("--------------------------");
-            info!("exp: {:?}", exp);
-
-            info!("count: {:?}", count);
-
-            match exp {
-                Atom::Function(f) => {
-                    let mut f_map = get_function_map(&f);
-
-                    count += 1;
-
-                    info!("f_map: {:?}", f_map);
-
-                    if map.is_empty() {
-                        map.extend(f_map.into_iter());
-                    } else {
-                        // Wrap the function
-                        let f = f_map.remove(0);
-                        map.insert(0, f);
-
-                        for x in 1..=count {
-                            info!("x: {:?}", x);
-                        }
-
-                        // if let Some(f) = f_map.first() {}
-                        // if let Some((first, rest)) = f_map.split_first_mut() {
-                        //     //     info!("first: {:?}", first);
-                        //     //     info!("rest: {:?}", rest);
-
-                        //     //     map.insert(0, *first);
-
-                        //     //     assert!(count <= rest.len());
-
-                        //     //     // map.extend(rest[..count].copy_from_slice(src));
-                        // }
-                    }
-
-                    // Decrement by the number of fgunction parameters
-                    match f {
-                        Function::Id => {
-                            count -= 1;
-                        }
-                        Function::Add => {
-                            count -= 2;
-                        }
-                        _ => {}
-                    };
-                    info!("count: {:?}", count);
-
-                    // if arity <= positions {
-                    //     map.extend(f_map.into_iter());
-                    // } else {
-                    //     // Wrap the function
-                    //     let f = f_map.pop();
-
-                    //     map.extend(f_map.into_iter());
-                    // }
-                }
-                _ => {}
-            }
-        }
-        info!("positions: {:?}", count);
-        info!("map: {:?}", map);
-        // let expected: Map = map_from!([G::Function, G::Function, G::Number, G::Number]);
-        // assert_eq!(map, expected);
-    }
-
-    #[test]
-    fn test_expression_map_one() {
-        trace();
-
-        // let array: &[Atom] = &[
-        //     Atom::Empty,
-        //     Atom::Empty,
-        //     Atom::Function(Function::Id),
-        //     Atom::Function(Function::Add),
-        // ];
-
-        // let mut stack: Stack = Stack::from(array);
-
-        // let source = source_from("++id0A0A");
-        let source = source_from("++id0A0A");
-        // source.map();
-
-        let exp = source.expressions.first().unwrap();
-        info!("exp: {:?}", exp);
-
-        let s = source.get_expression(exp.borrow());
-        info!("s: {:?}", s);
-
-        let mut s = String::from(s);
-
-        let mut parser = Parser::new(&mut s);
-        let result = parser.parse();
-
-        info!("stack: {:?}", parser.stack);
-
-        let mut exp = exp.borrow_mut();
-        exp.stack = Some(parser.stack);
-
-        // let map = exp.to_map();
-        // info!(" map: {:?}", map);
-        let mut map = Map::new();
-        if let Some(stack) = &exp.stack {
-            for (idx, exp) in stack.into_iter().rev().enumerate() {
-                info!("====================");
-                info!("{}: {:?}", idx, exp);
-                info!("map {:?}", map);
-
-                match exp {
-                    Atom::Function(f) => {
-                        let f_map = get_function_map(&f);
-
-                        info!("----------------------");
-                        info!("f_map {:?}", f_map);
-
-                        // First function
-                        if map.is_empty() {
-                            map.extend(f_map.into_iter());
-                        } else {
-                            info!("idx {:?}", idx);
-
-                            // let l = f_map.len();
-
-                            // remove the element at idx
-                            map.pop_at(idx);
-                            info!("map {:?}", map);
-
-                            let mut pos = idx;
-
-                            // Insert the function map at idx
-                            for glyph in f_map.into_iter() {
-                                map.insert(pos, glyph);
-                                pos += 1;
-                            }
-
-                            // [Function, Number, Function, Number, Number]
-
-                            // info!("count {:?}", count);
-                            info!("map {:?}", map);
-                            // Remove the element at idx +
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // let expected: Map = map_from!([G::Function, G::Number, G::Function, G::Number]);
-        // assert_eq!(map, expected);
-
-        let expected: Map = map_from!([G::Function, G::Function, G::Number, G::Number]);
-        assert_eq!(map, expected);
-
-        info!("map {:?}", map);
-
-        // let map = exp.borrow().to_map();
-
-        // info!("map: {:?}", map);
-
-        // let mut map: Map = ArrayVec::new();
-
-        // info!("map: {:?}", map);
-
-        // for (idx, exp) in stack.into_iter().enumerate() {
-        //     info!("{}: {:?}", idx, exp);
-
-        //     match exp {
-        //         Atom::Function(f) => {
-        //             let f_map = get_function_map(&f);
-
-        //             // First function
-        //             if idx == 0 {
-        //                 map.extend(f_map.into_iter());
-        //             } else {
-        //                 map.pop_at(idx);
-
-        //                 for (inner_idx, glyph) in f_map.into_iter().enumerate() {
-        //                     let pos = idx + inner_idx;
-        //                     map.insert(pos, glyph);
-        //                 }
-        //             }
-        //         }
-        //         _ => {}
-        //     }
-        // }
+        info!("exp {:?}", exp);
     }
 
     #[test]
@@ -677,14 +369,14 @@ mod test {
         source.set_at(9, 0, "A");
         assert_eq!(source.inner, ".....C.B.A");
 
-        assert_eq!(source.expressions.len(), 3);
+        assert_eq!(source.parsed.len(), 3);
 
         source.set_at(5, 0, ".");
         source.set_at(7, 0, ".");
         source.set_at(9, 0, ".");
         assert_eq!(source.inner, "..........");
 
-        assert_eq!(source.expressions.len(), 0);
+        assert_eq!(source.parsed.len(), 0);
     }
 
     #[test]
@@ -701,10 +393,14 @@ mod test {
 
         source.print_exp();
 
-        let exp = source.expressions.first().unwrap();
-        let exp = exp.borrow();
+        let exp = source
+            .map
+            .iter()
+            .find_map(|o| o.as_ref().map(|e| e))
+            .unwrap();
+        // let exp = exp.borrow();
 
-        let s = source.get_expression(exp);
+        let s = source.get_exp_str(&exp);
 
         assert_eq!(s, "id0A");
     }
@@ -720,21 +416,21 @@ mod test {
         source.set_at(4, 0, "C");
         assert_eq!(source.inner, "A.B.C.....");
 
-        assert_eq!(source.expressions.len(), 3);
+        assert_eq!(source.parsed.len(), 3);
 
         source.set_at(4, 0, ".");
-        assert_eq!(source.expressions.len(), 2);
+        assert_eq!(source.parsed.len(), 2);
 
         source.set_at(2, 0, ".");
-        assert_eq!(source.expressions.len(), 1);
+        assert_eq!(source.parsed.len(), 1);
 
         source.set_at(0, 0, ".");
 
-        assert_eq!(source.expressions.len(), 0);
+        assert_eq!(source.parsed.len(), 0);
 
-        source.expressions.iter().for_each(|m| {
-            info!("map: {:?}", m);
-        });
+        // source.parsed.iter().for_each(|m| {
+        //     info!("map: {:?}", m);
+        // });
     }
 
     #[test]
@@ -748,7 +444,7 @@ mod test {
         source.set_at(4, 0, "C");
         assert_eq!(source.inner, "A.B.C.....");
 
-        assert_eq!(source.expressions.len(), 3);
+        assert_eq!(source.parsed.len(), 3);
     }
 
     #[test]
@@ -935,7 +631,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "index out of bounds")]
+    #[should_panic(expected = "index 121 out of bounds for [11,11]")]
     fn test_to_idx_out_of_bounds() {
         let source = Source::new(10, 10);
         let _idx = source.to_idx(11, 11); // This should panic

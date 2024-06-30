@@ -4,21 +4,22 @@ use crate::to_atom_string;
 use crate::Atom;
 use crate::Error;
 use crate::Expression;
-use crate::Expressions;
 use crate::Function;
+use crate::FunctionExpression;
 use crate::SyntaxError;
 use crate::Token;
 use crate::Tokens;
 use arrayvec::ArrayVec;
 use std::mem;
 use std::ops::Not;
+use tracing::info;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
 const EMPTY: &str = "";
 
 pub struct Parser<'a> {
-    stack: Expressions,
+    stack: FunctionExpression,
     source: &'a str,
     check: bool,
     invalid: bool,
@@ -30,10 +31,10 @@ pub struct Parser<'a> {
 /// Additional inlines do not improve performance
 ///
 impl<'a> Parser<'a> {
-    pub fn new() -> Self {
+    pub fn from(source: &'a mut str) -> Self {
         Self {
-            stack: Expressions::new(),
-            source: EMPTY,
+            stack: FunctionExpression::new(),
+            source,
             check: false,
             invalid: false,
         }
@@ -42,27 +43,19 @@ impl<'a> Parser<'a> {
     ///
     /// try_parse will error if the parse fails
     ///
-    pub fn try_parse(&mut self, source: &'a mut str) -> Result<(), Error> {
-        self.source = source;
-        self.take_function()
+    pub fn try_parse(&mut self) -> Result<FunctionExpression, Error> {
+        self.take_function()?;
+        Ok(mem::take(&mut self.stack))
     }
 
     ///
     /// parse will return a boolean indicating success or failure
     ///
-    pub fn parse(&mut self, source: &'a mut str) -> Result<bool, Error> {
+    pub fn parse(&mut self) -> Result<FunctionExpression, Error> {
         self.check = true;
         self.invalid = false;
-        self.try_parse(source)?;
-        Ok(self.is_valid())
-    }
-
-    pub fn stack(&self) -> &Expressions {
-        &self.stack
-    }
-
-    pub fn take_stack(&mut self) -> Expressions {
-        mem::take(&mut self.stack)
+        self.take_function()?;
+        Ok(mem::take(&mut self.stack))
     }
 
     pub fn is_valid(&self) -> bool {
@@ -89,7 +82,6 @@ impl<'a> Parser<'a> {
                 let result = Function::try_from(t);
 
                 let tokens = match result {
-                    // Ok(Function::Id) => Tokens::from(&Function::Id),
                     Ok(f) => {
                         let tokens = Tokens::from(&f);
                         let exp = Expression::from(f);
@@ -97,7 +89,11 @@ impl<'a> Parser<'a> {
                         tokens
                     }
                     Err(e) => {
-                        self.check_function().ok_or(e)?;
+                        self.check_function().ok_or(e).map(|f| {
+                            let exp = Expression::from(f);
+
+                            self.add(exp);
+                        })?;
                         Tokens::new()
                     }
                 };
@@ -163,6 +159,7 @@ impl<'a> Parser<'a> {
     }
 
     // Inlining causes performance regression
+    #[inline(always)]
     fn is_function_next(&self) -> bool {
         let peek = self.peek_next();
         is_function(peek)
@@ -179,6 +176,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[inline(always)]
     fn add(&mut self, exp: Expression) {
         self.stack.push(exp);
     }
@@ -193,6 +191,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[inline(always)]
     fn check_function(&mut self) -> Option<Function> {
         if self.check {
             self.invalid = true;
@@ -201,22 +200,18 @@ impl<'a> Parser<'a> {
             None
         }
     }
-
-    fn atoms(&self) -> ArrayVec<Atom, 32> {
-        self.stack
-            .iter()
-            .filter_map(|exp| exp.atom.clone())
-            .collect()
-    }
-
-    fn tokens(&self) -> ArrayVec<Token, 32> {
-        self.stack.iter().map(|exp| exp.token).collect()
-    }
 }
 
 // Inlining causes performance regression
+#[inline(always)]
 fn is_function(s: Option<&str>) -> bool {
-    s.filter(|t| Function::try_from(*t).is_ok()).is_some()
+    // s.map_or(false, |t| Function::try_from(t).is_ok())
+    // s.filter(|t| Function::try_from(*t).is_ok()).is_some()
+    if let Some(t) = s {
+        Function::try_from(t).is_ok()
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -225,24 +220,19 @@ mod test {
     use arrayvec::ArrayVec;
     use tracing::info;
 
-    use crate::{parser::Parser, trace, Atom, Error, Function, SyntaxError, Token, TypeError};
+    use crate::{
+        parser::Parser, trace, Atom, Error, Function, FunctionExpression, SyntaxError, Token,
+        TypeError,
+    };
 
-    fn try_parse_with_result(exp: &mut str) -> Result<(), Error> {
-        let mut parser = Parser::new();
-        parser.try_parse(exp)
+    fn try_parse(exp: &mut str) -> Result<FunctionExpression, Error> {
+        let mut parser = Parser::from(exp);
+        parser.try_parse()
     }
 
-    fn try_parse(exp: &mut str) -> Parser {
-        let mut parser = Parser::new();
-        parser.try_parse(exp).unwrap();
-        parser
-    }
-
-    fn parse(exp: &mut str) -> (bool, Parser) {
-        let mut parser = Parser::new();
-        let result = parser.parse(exp).unwrap();
-
-        (result, parser)
+    fn parse(exp: &mut str) -> Result<FunctionExpression, Error> {
+        let mut parser = Parser::from(exp);
+        parser.parse()
     }
 
     macro_rules! array_vec {
@@ -265,23 +255,18 @@ mod test {
         trace();
 
         let mut s = String::from("++");
-        let (success, parser) = parse(&mut s);
-
-        assert!(!success); // expression is invalid
+        let expression = parse(&mut s).unwrap();
 
         let stack = array_vec!([Atom::Function(Function::Add), Atom::Empty, Atom::Empty]);
-        let result = parser.atoms();
-        assert_eq!(result, stack);
 
-        let mut s = String::from("");
-        let (success, parser) = parse(&mut s);
+        assert_eq!(expression.atoms(), stack);
 
-        assert!(!success); // expression is invalid
+        let mut s = String::from("..");
+        let exp = parse(&mut s).unwrap();
 
-        let stack = array_vec!([Atom::Empty]);
+        let stack = array_vec!([Atom::Function(Function::Empty)]);
 
-        let result = parser.atoms();
-        assert_eq!(result, stack);
+        assert_eq!(exp.atoms(), stack);
     }
 
     #[test]
@@ -289,7 +274,7 @@ mod test {
         trace();
 
         let mut s = String::from("id");
-        let result = try_parse_with_result(&mut s);
+        let result = try_parse(&mut s);
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
@@ -300,7 +285,7 @@ mod test {
         trace();
 
         let mut s = String::from("++01XY");
-        let result = try_parse_with_result(&mut s);
+        let result = try_parse(&mut s);
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Type(TypeError::Number(_))));
@@ -311,11 +296,11 @@ mod test {
         trace();
 
         let mut s = String::from("idFA");
-        let parser = try_parse(&mut s);
+        let parser = try_parse(&mut s).unwrap();
 
         let expected = array_vec!([Atom::Function(Function::Id), Atom::String("FA".to_string()),]);
 
-        let stack = parser.atoms();
+        let stack: ArrayVec<Atom, 32> = parser.atoms();
         assert_eq!(stack, expected);
     }
 
@@ -324,7 +309,7 @@ mod test {
         trace();
 
         let mut s = String::from(">>10AC4");
-        let parser = try_parse(&mut s);
+        let parser = try_parse(&mut s).unwrap();
 
         let expected = array_vec!([
             Atom::Function(Function::Play),
@@ -343,7 +328,7 @@ mod test {
 
         let mut s = String::from("++id0Aid01");
 
-        let parser = try_parse(&mut s);
+        let parser = try_parse(&mut s).unwrap();
 
         let expected = array_vec!([
             Token::Function,
@@ -368,7 +353,7 @@ mod test {
         assert_eq!(stack, expected);
 
         let mut s = String::from("++id0A01");
-        let parser = try_parse(&mut s);
+        let parser = try_parse(&mut s).unwrap();
 
         let expected = array_vec!([
             Atom::Function(Function::Add),
@@ -386,7 +371,7 @@ mod test {
         trace();
 
         let mut s = String::from("idididAA");
-        let parser = try_parse(&mut s);
+        let parser = try_parse(&mut s).unwrap();
 
         let expected = array_vec!([
             Atom::Function(Function::Id),
@@ -399,7 +384,7 @@ mod test {
         assert_eq!(stack, expected);
 
         let mut s = String::from("++idididAA01");
-        let parser = try_parse(&mut s);
+        let parser = try_parse(&mut s).unwrap();
 
         let expected = array_vec!([
             Token::Function,

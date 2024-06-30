@@ -7,8 +7,8 @@ pub const DEFAULT_ROW_COUNT: usize = 1;
 // pub const DEFAULT_SCALE: f32 = 1.0;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)]
+// #[derive(serde::Deserialize, serde::Serialize)]
+// #[serde(default)]
 pub struct ConsoleApp {
     src: Source,
     selected: Option<(usize, usize)>,
@@ -17,7 +17,8 @@ pub struct ConsoleApp {
     rows: usize,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, PartialEq)]
+// #[derive(serde::Deserialize, serde::Serialize)]
+#[derive(PartialEq)]
 pub enum Mode {
     Insert,
     Command,
@@ -77,9 +78,9 @@ impl ConsoleApp {
 
 impl eframe::App for ConsoleApp {
     /// Called by the frame work to save state before shutdown.
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, self);
-    }
+    // fn save(&mut self, storage: &mut dyn eframe::Storage) {
+    //     eframe::set_value(storage, eframe::APP_KEY, self);
+    // }
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {

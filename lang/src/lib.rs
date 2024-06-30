@@ -18,6 +18,33 @@ pub struct Expression {
     atom: Option<Atom>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct FunctionExpression {
+    inner: ArrayVec<Expression, 32>,
+}
+
+// #[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum Atom {
+    Empty,
+    Function(Function),
+    Note(u8),
+    Number(u8),
+    String(String),
+}
+
+// #[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum Function {
+    Add,
+    Divide,
+    Empty,
+    Id,
+    Multiply,
+    Play,
+    Subtract,
+}
+
 impl Expression {
     pub fn new(token: Token) -> Self {
         Self { token, atom: None }
@@ -29,6 +56,39 @@ impl Expression {
     }
 }
 
+impl FunctionExpression {
+    pub fn new() -> Self {
+        let inner = ArrayVec::new();
+        Self { inner }
+    }
+
+    #[cfg(test)]
+    pub fn from(expressions: ArrayVec<Expression, 32>) -> Self {
+        Self { inner: expressions }
+    }
+
+    #[inline(always)]
+    pub fn push(&mut self, exp: Expression) {
+        self.inner.push(exp);
+    }
+
+    #[inline(always)]
+    pub fn pop(&mut self) -> Option<Expression> {
+        self.inner.pop()
+    }
+
+    fn atoms(&self) -> ArrayVec<Atom, 32> {
+        self.inner
+            .iter()
+            .filter_map(|exp| exp.atom.clone())
+            .collect()
+    }
+
+    fn tokens(&self) -> ArrayVec<Token, 32> {
+        self.inner.iter().map(|exp| exp.token).collect()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
     Function,
@@ -37,9 +97,10 @@ pub enum Token {
     Number1,
     String,
 }
+
 pub type T = Token;
 
-pub type Expressions = ArrayVec<Expression, 32>;
+// pub type FunctionExpression = ArrayVec<Expression, 32>;
 pub type Tokens = ArrayVec<Expression, 8>;
 
 impl From<Function> for Expression {
@@ -137,22 +198,6 @@ impl<const N: usize> From<&[Atom]> for Stack<N> {
         Stack { inner }
     }
 }
-
-// impl<const N: usize> Deref for Stack<N> {
-//     type Target = [Atom];
-
-//     #[inline(always)]
-//     fn deref(&self) -> &[Atom] {
-//         &self.inner[..]
-//     }
-// }
-
-// impl<const N: usize> DerefMut for Stack<N> {
-//     #[inline(always)]
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.inner
-//     }
-// }
 
 #[inline(always)]
 pub fn to_atom_string(s: &str) -> Result<Atom, Error> {
@@ -271,26 +316,6 @@ fn map_arity(err: Error, expected: usize, found: usize) -> Error {
         Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
         _ => err.into(),
     }
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-pub enum Atom {
-    Empty,
-    Function(Function),
-    Note(u8),
-    Number(u8),
-    String(String),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
-pub enum Function {
-    Add,
-    Divide,
-    Empty,
-    Id,
-    Multiply,
-    Play,
-    Subtract,
 }
 
 impl From<Function> for Atom {
