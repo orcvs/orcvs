@@ -17,10 +17,15 @@ targets = [
 [dependencies]
 lang = { path = "../lang" }
 arrayvec = { version = "0.7.4", default-features = false }
-eframe = { version = "0.27.0", default-features = false, features = ["glow"] }
+eframe = { version = "0.28.0", default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "persistence",
+] }
 # eframe = { version = "0.27.0", default-features = false, features = ["wgpu"] }
-egui = { version = "0.27.0", default-features = false }
+egui = { version = "0.28.0", default-features = false }
 rand = "0.8.5"
+# serde = { version = "1", features = ["derive"] }
 # serde = { version = "1", default-features = false }
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", default-features = false }
