@@ -3,7 +3,7 @@ use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::rc::Rc;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 // use arrayvec::ArrayVec;
 
 const TERMINATOR: &str = ".";
@@ -51,9 +51,6 @@ impl Source {
         let inner = '.'.to_string().repeat(n);
 
         let map = vec![None; n];
-        // let expressions = Vec::with_capacity(n / 6);
-
-        // let parsed_expressions = vec![FunctionExpression; n];
 
         let parsed = HashMap::with_capacity_and_hasher(n, BuildHasherDefault::default());
 
@@ -62,7 +59,6 @@ impl Source {
             rows,
             inner,
             map,
-            // expressions,
             parsed,
         }
     }
@@ -71,6 +67,7 @@ impl Source {
         let n = cols * rows;
         let inner = source.into();
         let len = inner.len();
+
         assert!(len == n, "source length {len}, expected {n}");
 
         let mut source = Self::new(cols, rows);
@@ -113,6 +110,7 @@ impl Source {
     }
 
     pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<Expression>>) {
+        debug!("exp: {exp:?}");
         self.parse_exp(&exp);
         self.map[idx] = Some(exp);
     }
@@ -123,16 +121,16 @@ impl Source {
     }
 
     pub fn parse_exp(&mut self, exp: &Rc<RefCell<Expression>>) {
-        let mut s = self.get_exp_str(exp).to_owned();
+        let mut s = self.get_exp_str(&exp).to_owned();
 
-        let exp = exp.borrow();
-        let idx = exp.start;
+        debug!("src: {s:?}");
 
         let result = Parser::from(&mut s).parse();
         match result {
-            Ok(exp) => {
-                error!("FunctionExpression {exp:?}");
-                self.parsed.insert(idx, exp);
+            Ok(fun_exp) => {
+                let exp = exp.borrow();
+                let idx = exp.start;
+                self.parsed.insert(idx, fun_exp);
             }
             _ => {
                 error!("parse error");
@@ -173,7 +171,7 @@ impl Source {
         };
 
         let terminator = s == TERMINATOR;
-        let alphanumeric = !terminator;
+        let glyph = !terminator;
 
         /*
             // ... => .I.
@@ -204,12 +202,16 @@ impl Source {
             //  exp.start = idx
         */
 
+        // info!("{:?}", lft_exp);
+        // info!("{:?}", rgt_exp);
+
         match (lft_exp, rgt_exp) {
             (Some(lft_exp), Some(ref mut rgt_exp)) => {
                 // Split the expression
                 if terminator {
-                    // self.map[idx] = None;
+                    // Remove current expression from idx
                     self.remove_exp(idx);
+
                     // In some cases lft and rgt may refer to the same expression
                     // We cannot have multiple mutable borrows in the same scope
                     // So we split the borrows into separate scopes
@@ -230,7 +232,7 @@ impl Source {
 
                 // Join or Replace the expression
                 // Replace is a noop
-                if alphanumeric {
+                if glyph {
                     let idx_exp = &self.map[idx];
 
                     // Join the lft and rgt expressions
@@ -250,29 +252,26 @@ impl Source {
 
                         // Iterate the map until the rgt end and set the lft expression
                         for i in idx..(end + 1) {
-                            // self.map[i] = Some(lft_exp.clone());
                             self.set_exp(i, lft_exp.clone());
                         }
                     }
                 }
             }
             (Some(lft_exp), None) => {
+                {
+                    let mut exp = lft_exp.borrow_mut();
+                    exp.end = idx;
+                }
                 // Append to the expression
-
-                // self.map[idx] = Some(lft_exp.clone());
-                self.set_exp(idx, lft_exp.clone());
-
-                let mut exp = lft_exp.borrow_mut();
-                exp.end = idx;
+                self.set_exp(idx, lft_exp);
             }
             (None, Some(rgt_exp)) => {
                 // Prepend to the expression
-                // self.map[idx] = Some(rgt_exp.clone());
-                self.set_exp(idx, rgt_exp.clone());
-
-                let mut exp = rgt_exp.borrow_mut();
-
-                exp.start = idx;
+                {
+                    let mut exp = rgt_exp.borrow_mut();
+                    exp.start = idx;
+                }
+                self.set_exp(idx, rgt_exp);
             }
             (None, None) => {
                 if terminator {
@@ -280,12 +279,10 @@ impl Source {
                     self.remove_exp(idx);
                 }
 
-                if alphanumeric {
+                if glyph {
                     // New Expression
                     let exp = Rc::new(RefCell::new(Expression::new(idx, idx)));
-                    // self.expressions.push(exp.clone());
-                    // self.map[idx] = Some(exp.clone());
-                    self.set_exp(idx, exp.clone());
+                    self.set_exp(idx, exp);
                 }
             }
         }
@@ -309,8 +306,11 @@ impl Source {
     }
 
     fn print_exp(&self) {
-        self.parsed.iter().for_each(|m| {
+        self.map.iter().for_each(|m| {
             info!("map: {:?}", m);
+        });
+        self.parsed.iter().for_each(|m| {
+            info!("parsed: {:?}", m);
         });
     }
 }
@@ -323,7 +323,7 @@ mod test {
     use lang::{Atom, Function, Stack};
     use lang::{FunctionExpression, Parser};
     use std::sync::Once;
-    use tracing::info;
+    use tracing::{debug, info};
 
     fn source_from(s: &str) -> Source {
         let mut source = Source::new(10, 1);
@@ -332,6 +332,23 @@ mod test {
 
         for (x, c) in s.chars().enumerate() {
             source.set_at(x, y, &c.to_string());
+
+            //
+            // I ACTUALLY UNDERSTAND THIS
+            //
+            // Reference to Option (the Map owns the data)
+            //
+            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<Expression>>> = &source.map[0];
+            // Get Reference to the RC the Option is wrapping
+            // Swap for Option<&RC>
+            opt_exp
+                .as_ref()
+                // and map Option to get the &RC
+                .map(|exp: &std::rc::Rc<std::cell::RefCell<Expression>>| {
+                    // Now we can borrow the actual Exp we are interested in.
+                    let end = exp.borrow().end;
+                    assert_eq!(end, x);
+                });
         }
 
         // append '.' to s to fil the source to len 10
@@ -339,8 +356,8 @@ mod test {
         let mut expected = String::from(s);
         expected.push_str(&".".repeat(10 - l));
 
+        debug!("source.inner {:?}", source.inner);
         assert_eq!(source.inner, expected);
-
         source
     }
 
@@ -350,9 +367,12 @@ mod test {
 
         let source = source_from("++0101");
 
-        info!("exp {:?}", source.parsed);
+        // source.print_exp();
+        // info!("============================");
+        // info!("parsed {:?}", source.parsed);
 
         let exp = source.parsed.values().collect::<Vec<&FunctionExpression>>();
+
         // let result = source.parse_exp(exp.first().unwrap());
 
         info!("exp {:?}", exp);
@@ -398,7 +418,8 @@ mod test {
             .iter()
             .find_map(|o| o.as_ref().map(|e| e))
             .unwrap();
-        // let exp = exp.borrow();
+
+        source.print_exp();
 
         let s = source.get_exp_str(&exp);
 

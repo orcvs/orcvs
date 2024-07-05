@@ -9,7 +9,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::sync::Once;
 use thiserror::Error;
-
 pub struct MaybeAtom(Option<Atom>);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,7 +99,6 @@ pub enum Token {
 
 pub type T = Token;
 
-// pub type FunctionExpression = ArrayVec<Expression, 32>;
 pub type Tokens = ArrayVec<Expression, 8>;
 
 impl From<Function> for Expression {
@@ -157,6 +155,7 @@ impl<const N: usize> Stack<N> {
         }
     }
 
+    #[inline(always)]
     pub fn new_with(array_vec: ArrayVec<Atom, N>) -> Self {
         Self { inner: array_vec }
     }
@@ -427,7 +426,6 @@ impl fmt::Display for Atom {
     }
 }
 
-#[must_use]
 pub fn midi_note_to_number(note: &str) -> Option<u8> {
     match note {
         "A0" => Some(21),
@@ -541,7 +539,6 @@ pub fn midi_note_to_number(note: &str) -> Option<u8> {
     }
 }
 
-#[must_use]
 fn midi_number_to_note(note: u8) -> Option<&'static str> {
     match note {
         21 => Some("A0"),
