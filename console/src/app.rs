@@ -1,25 +1,61 @@
-use egui::{Color32, Event, EventFilter};
+use egui::{Color32, Event, EventFilter, Stroke};
 use tracing::info;
 
-use crate::source::Source;
-pub const DEFAULT_FONT_SIZE: f32 = 23.0;
+use crate::{source::Source, style};
+pub const DEFAULT_FONT_SIZE: f32 = 33.0;
 pub const DEFAULT_COL_COUNT: usize = 5;
 pub const DEFAULT_ROW_COUNT: usize = 5;
 // pub const DEFAULT_SCALE: f32 = 1.0;
 
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
-// #[derive(serde::Deserialize, serde::Serialize)]
-// #[serde(default)]
+// b00_bg
+
+pub const COLOR_BG: Color32 = Color32::TRANSPARENT;
+pub const COLOR_BG_LIGHT: Color32 = Color32::TRANSPARENT;
+pub const COLOR_BG_SELECTED: Color32 = Color32::from_gray(33);
+pub const COLOR_BG_COMMENT: Color32 = Color32::TRANSPARENT;
+pub const COLOR_FG_DARK: Color32 = Color32::TRANSPARENT;
+pub const COLOR_FG: Color32 = Color32::TRANSPARENT;
+pub const COLOR_FG_LIGHT: Color32 = Color32::TRANSPARENT;
+pub const COLOR_FG_BRIGHT: Color32 = Color32::TRANSPARENT;
+pub const COLOR_VAR: Color32 = Color32::TRANSPARENT;
+pub const COLOR_FG_: Color32 = Color32::TRANSPARENT;
+
+pub const TEXT_HOVER: Color32 = Color32::WHITE;
+
+// base00 - Default Background
+// base01 - Lighter Background (Used for status bars, line number and folding marks)
+// base02 - Selection Background
+// base03 - Comments, Invisibles, Line Highlighting
+// base04 - Dark Foreground (Used for status bars)
+// base05 - Default Foreground, Caret, Delimiters, Operators
+// base06 - Light Foreground (Not often used)
+// base07 - Brightest Foreground (Not often used)
+// base08 - Variables, XML Tags, Markup Link Text, Markup Lists, Diff Deleted
+// base09 - Integers, Boolean, Constants, XML Attributes, Markup Link Url
+// base0A - Classes, Markup Bold, Search Text Background
+// base0B - Strings, Inherited Class, Markup Code, Diff Inserted
+// base0C - Support, Regular Expressions, Escape Characters, Markup Quotes
+// base0D - Functions, Methods, Attribute IDs, Headings
+// base0E - Keywords, Storage, Selector, Markup Italic, Diff Changed
+// base0F - Deprecated, Opening/Closing Embedded Language Tags, e.g. <?php ?>
+
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct ConsoleApp {
     src: Source,
     selected: Option<(usize, usize)>,
     mode: Mode,
     cols: usize,
     rows: usize,
+    opts: Opts,
 }
 
-// #[derive(serde::Deserialize, serde::Serialize)]
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+pub struct Opts {
+    font_size: f32,
+}
+
 #[derive(PartialEq)]
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub enum Mode {
     Insert,
     Command,
@@ -32,17 +68,29 @@ impl Default for ConsoleApp {
             src,
             selected: None,
             mode: Mode::Insert,
+            opts: Opts::default(),
             cols: DEFAULT_COL_COUNT,
             rows: DEFAULT_ROW_COUNT,
         }
     }
 }
 
+impl Default for Opts {
+    fn default() -> Self {
+        Self {
+            font_size: DEFAULT_FONT_SIZE,
+        }
+    }
+}
+
 impl ConsoleApp {
     /// Called once before the first frame.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
+
+        let style = style();
+        cc.egui_ctx.set_style(style);
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
@@ -84,7 +132,7 @@ impl eframe::App for ConsoleApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let font_id = egui::FontId::monospace(DEFAULT_FONT_SIZE);
+        let font_id = egui::FontId::monospace(self.opts.font_size);
 
         let top_panel = egui::TopBottomPanel::top("top_panel")
             .resizable(true)
@@ -106,108 +154,99 @@ impl eframe::App for ConsoleApp {
                     });
                     ui.add_space(16.0);
                 }
-
+                ui.label(format!("HELLO"));
                 // egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
 
-        // let event_filter = EventFilter::default();
-        // let events = ctx.input(|i| i.filtered_events(&event_filter));
+        let event_filter = EventFilter::default();
+        let events = ctx.input(|i| i.filtered_events(&event_filter));
 
-        // for event in &events {
-        //     match event {
-        //         Event::Text(text_to_insert) => {
-        //             // info!("text_to_insert: {}", text_to_insert);
+        for event in &events {
+            match event {
+                Event::Text(text_to_insert) => {
+                    // info!("text_to_insert: {}", text_to_insert);
 
-        //             // This is all probably a very bad idea
-        //             // I am treating the string as byte array and mutating it
-        //             if let Some((x, y)) = &self.selected {
-        //                 self.src.set_at(*x, *y, text_to_insert);
+                    // This is all probably a very bad idea
+                    // I am treating the string as byte array and mutating it
+                    if let Some((x, y)) = &self.selected {
+                        self.src.set_at(*x, *y, text_to_insert);
 
-        //                 // let c = text_to_insert.as_bytes();
-        //                 // let idx = y * self.cols + x;
-        //                 // unsafe {
-        //                 //     let bytes = self.src.as_bytes_mut();
-        //                 //     bytes[idx] = c[0];
-        //                 // }
-        //                 // info!("self.src: {}", self.src);
-        //                 if self.mode == Mode::Insert {
-        //                     self.select_next();
-        //                 }
-        //             }
-        //         }
-
-        //         // egui::Event::Key {
-        //         //     key,
-        //         //     physical_key,
-        //         //     pressed: true,
-        //         //     modifiers,
-        //         //     repeat,
-        //         // } => {
-        //         //     info!("Pressed key: {}", key);
-        //         // }
-        //         _ => {}
-        //     }
-        // }
-        // egui::CentralPanel::default().show(ctx, |ui| {
-        //     ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
-
-        //     for y in 0..self.rows {
-        //         ui.horizontal(|ui| {
-        //             for x in 0..self.cols {
-        //                 // let idx = y * self.cols + x;
-
-        //                 let s = self.src.get_at(x, y);
-
-        //                 info!("x/y: {x}/{y}");
-        //                 info!("s: {s}");
-
-        //                 let mut background_color = Color32::LIGHT_BLUE;
-
-        //                 // background_color = if self.is_selected(x, y) {
-        //                 //     Color32::DARK_GREEN
-        //                 // } else {
-        //                 //     background_color
-        //                 // };
-
-        //                 let button_text = egui::RichText::new(s)
-        //                     .font(font_id.clone())
-        //                     .extra_letter_spacing(0.4)
-        //                     .background_color(background_color);
-
-        //                 let button = egui::Button::new(button_text).small().frame(false);
-
-        //                 // if ui.add(button).clicked() {
-        //                 //     self.select(x, y);
-        //                 // }
-        //             }
-        //         });
-        //     }
-        // });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Grid::new("my_grid")
-                .striped(true)
-                .min_col_width(25.0)
-                .max_col_width(25.0)
-                .show(ui, |ui| {
-                    for row in 0..self.rows {
-                        for col in 0..self.cols {
-                            // ui.label(format!("{row} {col}"));
-
-                            let button_text = egui::RichText::new(".")
-                                .font(font_id.clone())
-                                .extra_letter_spacing(0.4)
-                                .background_color(Color32::LIGHT_BLUE);
-
-                            let button = egui::Button::new(button_text).small().frame(false);
-
-                            if ui.add(button).clicked() {
-                                // self.select(x, y);
-                            }
+                        // let c = text_to_insert.as_bytes();
+                        // let idx = y * self.cols + x;
+                        // unsafe {
+                        //     let bytes = self.src.as_bytes_mut();
+                        //     bytes[idx] = c[0];
+                        // }
+                        // info!("self.src: {}", self.src);
+                        if self.mode == Mode::Insert {
+                            self.select_next();
                         }
-                        ui.end_row();
+                    }
+                }
+
+                // egui::Event::Key {
+                //     key,
+                //     physical_key,
+                //     pressed: true,
+                //     modifiers,
+                //     repeat,
+                // } => {
+                //     info!("Pressed key: {}", key);
+                // }
+                _ => {}
+            }
+        }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // let color = Color32::from_gray(55);
+            let stroke = Stroke::new(1.0, TEXT_HOVER);
+            ui.style_mut().visuals.widgets.hovered.fg_stroke = stroke;
+
+            ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
+
+            for y in 0..self.rows {
+                ui.horizontal(|ui| {
+                    for x in 0..self.cols {
+                        let s = self.src.get_at(x, y);
+                        // let s = ".";
+                        // info!("x/y: {x}/{y}");
+                        // info!("s: {s}");
+
+                        // let mut background_color = Color32::LIGHT_BLUE;
+
+                        // background_color = if self.is_selected(x, y) {
+                        //     Color32::DARK_GREEN
+                        // } else {
+                        //     background_color
+                        // };
+
+                        let bg_color = if self.is_selected(x, y) {
+                            COLOR_BG_SELECTED
+                        } else {
+                            COLOR_BG
+                        };
+
+                        // let text_color = Color32::LIGHT_BLUE;
+                        let button_text = egui::RichText::new(s)
+                            .font(font_id.clone())
+                            .background_color(bg_color);
+                        // .color(text_color);
+                        // .extra_letter_spacing(0.4);
+
+                        let color = Color32::from_gray(44);
+                        let stroke = Stroke::new(1.0, color);
+                        let button = egui::Button::new(button_text)
+                            .stroke(stroke)
+                            .small()
+                            .frame(false);
+
+                        if ui.add(button).clicked() {
+                            self.select(x, y);
+                        }
                     }
                 });
+            }
         });
     }
 }

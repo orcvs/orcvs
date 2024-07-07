@@ -2,4 +2,5 @@
 
 mod app;
 mod source;
+mod style;
 pub use app::ConsoleApp;

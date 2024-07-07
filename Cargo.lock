@@ -382,6 +382,7 @@ dependencies = [
  "lang",
  "nohash-hasher",
  "rand",
+ "serde",
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen-futures",
