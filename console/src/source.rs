@@ -6,7 +6,7 @@ use std::rc::Rc;
 use tracing::{debug, error, info};
 // use arrayvec::ArrayVec;
 
-const TERMINATOR: &str = ".";
+pub const TERMINATOR: &str = " ";
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 pub struct Source {
@@ -48,7 +48,7 @@ impl Expression {
 impl Source {
     pub fn new(cols: usize, rows: usize) -> Self {
         let n = cols * rows;
-        let inner = '.'.to_string().repeat(n);
+        let inner = TERMINATOR.to_string().repeat(n);
 
         let map = vec![None; n];
 
@@ -82,13 +82,14 @@ impl Source {
         source
     }
 
-    pub fn get_at(&self, x: usize, y: usize) -> &str {
+    pub fn get_at(&self, x: usize, y: usize) -> String {
         let idx = self.to_idx(x, y);
         // SAFELY UNSAFE
         // all characters are single-byte ASCII
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
-        unsafe { self.inner.get_unchecked(idx..(idx + 1)) }
+        let s = unsafe { self.inner.get_unchecked(idx..(idx + 1)) };
+        s.to_owned()
     }
 
     #[inline(always)]
@@ -152,6 +153,28 @@ impl Source {
             bytes[idx] = b[0];
         }
 
+        self.calculate_at(idx, s);
+    }
+
+    pub fn unset_at(&mut self, x: usize, y: usize) {
+        let idx = self.to_idx(x, y);
+
+        let s = TERMINATOR;
+        let b = s.as_bytes();
+
+        // SAFELY UNSAFE
+        //   all characters are single-byte ASCII
+        //   the idx is always in range
+        //      - to_index will panic if the index is out of bounds
+        unsafe {
+            let bytes = self.inner.as_bytes_mut();
+            bytes[idx] = b[0];
+        }
+
+        self.calculate_at(idx, s);
+    }
+
+    pub fn calculate_at(&mut self, idx: usize, s: &str) {
         let (lft_idx, lft_exp) = if idx > 0 {
             let idx = idx - 1;
             let exp = self.map[idx].clone();
@@ -170,7 +193,7 @@ impl Source {
             (self.len(), None)
         };
 
-        let terminator = s == TERMINATOR;
+        let terminator = is_terminator(s);
         let glyph = !terminator;
 
         /*
@@ -315,10 +338,20 @@ impl Source {
     }
 }
 
+pub fn is_terminator(s: &str) -> bool {
+    match s {
+        "." => true,
+        " " => true,
+        "+" => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::Source;
     use crate::source::Expression;
+    use crate::test::trace;
     use arrayvec::ArrayVec;
     use lang::{Atom, Function, Stack};
     use lang::{FunctionExpression, Parser};
@@ -656,24 +689,5 @@ mod test {
     fn test_to_idx_out_of_bounds() {
         let source = Source::new(10, 10);
         let _idx = source.to_idx(11, 11); // This should panic
-    }
-
-    #[allow(dead_code)]
-    static INIT: Once = Once::new();
-
-    #[allow(dead_code)]
-    fn trace() {
-        INIT.call_once(|| {
-            use tracing_subscriber::FmtSubscriber;
-
-            let subscriber = FmtSubscriber::builder()
-                .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
-                .with_line_number(true)
-                .with_target(true)
-                .finish();
-
-            tracing::subscriber::set_global_default(subscriber)
-                .expect("setting default subscriber failed");
-        });
     }
 }

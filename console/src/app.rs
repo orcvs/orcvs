@@ -1,26 +1,17 @@
-use egui::{Color32, Event, EventFilter, Stroke};
+use egui::{Color32, Event, EventFilter, Key, Stroke, Vec2};
 use tracing::info;
 
-use crate::{source::Source, style};
-pub const DEFAULT_FONT_SIZE: f32 = 33.0;
-pub const DEFAULT_COL_COUNT: usize = 5;
-pub const DEFAULT_ROW_COUNT: usize = 5;
+use crate::{
+    source::{is_terminator, Source, TERMINATOR},
+    style::style,
+};
+pub const DEFAULT_FONT_SIZE: f32 = 20.0;
+pub const DEFAULT_COL_COUNT: usize = 20;
+pub const DEFAULT_ROW_COUNT: usize = 20;
+
+const SELECT_DISTANCE: f64 = 3.5;
+
 // pub const DEFAULT_SCALE: f32 = 1.0;
-
-// b00_bg
-
-pub const COLOR_BG: Color32 = Color32::TRANSPARENT;
-pub const COLOR_BG_LIGHT: Color32 = Color32::TRANSPARENT;
-pub const COLOR_BG_SELECTED: Color32 = Color32::from_gray(33);
-pub const COLOR_BG_COMMENT: Color32 = Color32::TRANSPARENT;
-pub const COLOR_FG_DARK: Color32 = Color32::TRANSPARENT;
-pub const COLOR_FG: Color32 = Color32::TRANSPARENT;
-pub const COLOR_FG_LIGHT: Color32 = Color32::TRANSPARENT;
-pub const COLOR_FG_BRIGHT: Color32 = Color32::TRANSPARENT;
-pub const COLOR_VAR: Color32 = Color32::TRANSPARENT;
-pub const COLOR_FG_: Color32 = Color32::TRANSPARENT;
-
-pub const TEXT_HOVER: Color32 = Color32::WHITE;
 
 // base00 - Default Background
 // base01 - Lighter Background (Used for status bars, line number and folding marks)
@@ -39,10 +30,16 @@ pub const TEXT_HOVER: Color32 = Color32::WHITE;
 // base0E - Keywords, Storage, Selector, Markup Italic, Diff Changed
 // base0F - Deprecated, Opening/Closing Embedded Language Tags, e.g. <?php ?>
 
+#[derive(Clone, Copy, PartialEq)]
+pub struct Coord<const X: usize, const Y: usize> {
+    x: usize,
+    y: usize,
+}
+
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-pub struct ConsoleApp {
+pub struct ConsoleApp<const X: usize, const Y: usize> {
     src: Source,
-    selected: Option<(usize, usize)>,
+    selected: Option<Coord<X, Y>>,
     mode: Mode,
     cols: usize,
     rows: usize,
@@ -61,16 +58,16 @@ pub enum Mode {
     Command,
 }
 
-impl Default for ConsoleApp {
+impl<const X: usize, const Y: usize> Default for ConsoleApp<X, Y> {
     fn default() -> Self {
-        let src = Source::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let src = Source::new(X, Y);
         Self {
             src,
             selected: None,
             mode: Mode::Insert,
             opts: Opts::default(),
-            cols: DEFAULT_COL_COUNT,
-            rows: DEFAULT_ROW_COUNT,
+            cols: X,
+            rows: Y,
         }
     }
 }
@@ -83,7 +80,47 @@ impl Default for Opts {
     }
 }
 
-impl ConsoleApp {
+impl<const X: usize, const Y: usize> Coord<X, Y> {
+    fn from(x: usize, y: usize) -> Self {
+        Self { x, y }
+    }
+
+    fn from_x(self, x: usize) -> Self {
+        Self { x, y: self.y }
+    }
+
+    fn from_y(self, y: usize) -> Self {
+        Self { x: self.x, y }
+    }
+
+    fn up(&self) -> Self {
+        let y = match self.y {
+            0 | 1 => 0,
+            _ => self.y - 1,
+        };
+        self.from_y(y)
+    }
+
+    fn down(&self) -> Self {
+        let y = std::cmp::min(self.y + 1, Y - 1);
+        self.from_y(y)
+    }
+
+    fn left(&self) -> Self {
+        let x = match self.x {
+            0 | 1 => 0,
+            _ => self.x - 1,
+        };
+        self.from_x(x)
+    }
+
+    fn right(&self) -> Self {
+        let x = std::cmp::min(self.x + 1, X - 1);
+        self.from_x(x)
+    }
+}
+
+impl<const X: usize, const Y: usize> ConsoleApp<X, Y> {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
@@ -97,34 +134,88 @@ impl ConsoleApp {
         // if let Some(storage) = cc.storage {
         //     return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         // }
-        ConsoleApp::default()
+        ConsoleApp::<X, Y>::default()
     }
 
     #[inline]
     pub fn is_selected(&self, x: usize, y: usize) -> bool {
-        self.selected == Some((x, y))
+        self.selected == Some(Coord::from(x, y))
     }
 
     #[inline]
-    pub fn select(&mut self, x: usize, y: usize) {
-        self.selected = Some((x, y));
+    pub fn select_at(&mut self, x: usize, y: usize) {
+        self.selected = Some(Coord::from(x, y))
+    }
+
+    #[inline]
+    pub fn select_up(&mut self) {
+        if let Some(coord) = self.selected {
+            self.selected = Some(coord.up());
+        }
+    }
+
+    #[inline]
+    pub fn select_down(&mut self) {
+        if let Some(coord) = self.selected {
+            self.selected = Some(coord.down());
+        }
+    }
+
+    #[inline]
+    pub fn select_left(&mut self) {
+        if let Some(coord) = self.selected {
+            self.selected = Some(coord.left());
+        }
+    }
+
+    #[inline]
+    pub fn select_right(&mut self) {
+        if let Some(coord) = self.selected {
+            self.selected = Some(coord.right());
+        }
     }
 
     #[inline]
     pub fn select_next(&mut self) {
-        if let Some((x, y)) = self.selected {
-            let x = std::cmp::min(x + 1, self.cols - 1);
-            self.selected = Some((x, y));
-        }
+        self.select_right()
     }
+
+    // this.isCursor = (x, y) => {
+    //     return x === this.cursor.x && y === this.cursor.y
+    //   }
+
+    //   this.isMarker = (x, y) => {
+    //     return x % this.grid.w === 0 && y % this.grid.h === 0
+    //   }
+
+    //   this.isNear = (x, y) => {
+    //     return x > (parseInt(this.cursor.x / this.grid.w) * this.grid.w) - 1 && x <= ((1 + parseInt(this.cursor.x / this.grid.w)) * this.grid.w) && y > (parseInt(this.cursor.y / this.grid.h) * this.grid.h) - 1 && y <= ((1 + parseInt(this.cursor.y / this.grid.h)) * this.grid.h)
+    //   }
+
+    //   this.isLocals = (x, y) => {
+    //     return this.isNear(x, y) === true && (x % (this.grid.w / 4) === 0 && y % (this.grid.h / 4) === 0) === true
+    //   }
+
+    //   this.isInvisible = (x, y) => {
+    //     return this.orca.glyphAt(x, y) === '.' && !this.isMarker(x, y) && !this.cursor.selected(x, y) && !this.isLocals(x, y) && !this.ports[this.orca.indexAt(x, y)] && !this.orca.lockAt(x, y)
+    //   }
 
     #[inline]
     pub fn deselect(&mut self) {
         self.selected = None;
     }
+
+    #[inline]
+    pub fn delete(&mut self) {
+        info!("delete");
+        // self.select_left();
+        // if let Some((x, y)) = self.selected {
+        //     self.src.unset_at(x, y);
+        // }
+    }
 }
 
-impl eframe::App for ConsoleApp {
+impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
     /// Called by the frame work to save state before shutdown.
     // fn save(&mut self, storage: &mut dyn eframe::Storage) {
     //     eframe::set_value(storage, eframe::APP_KEY, self);
@@ -159,23 +250,60 @@ impl eframe::App for ConsoleApp {
             });
         });
 
-        let event_filter = EventFilter::default();
+        let event_filter = EventFilter {
+            tab: true,
+            horizontal_arrows: true,
+            vertical_arrows: true,
+            escape: true,
+        };
+
         let events = ctx.input(|i| i.filtered_events(&event_filter));
 
         for event in &events {
             match event {
+                Event::Key {
+                    key: Key::ArrowDown,
+                    pressed: true,
+                    ..
+                } => self.select_down(),
+                Event::Key {
+                    key: Key::ArrowLeft,
+                    pressed: true,
+                    ..
+                } => self.select_left(),
+                Event::Key {
+                    key: Key::ArrowRight,
+                    pressed: true,
+                    ..
+                } => self.select_right(),
+                Event::Key {
+                    key: Key::ArrowUp,
+                    pressed: true,
+                    ..
+                } => self.select_up(),
+                Event::Key {
+                    key: Key::Backspace,
+                    pressed: true,
+                    ..
+                } => self.delete(),
+                Event::Key {
+                    key: Key::Delete,
+                    pressed: true,
+                    ..
+                } => self.delete(),
+
                 Event::Text(text_to_insert) => {
                     // info!("text_to_insert: {}", text_to_insert);
 
                     // This is all probably a very bad idea
                     // I am treating the string as byte array and mutating it
-                    if let Some((x, y)) = &self.selected {
-                        self.src.set_at(*x, *y, text_to_insert);
+                    if let Some(coord) = &self.selected {
+                        self.src.set_at(coord.x, coord.y, text_to_insert);
 
                         // let c = text_to_insert.as_bytes();
                         // let idx = y * self.cols + x;
                         // unsafe {
-                        //     let bytes = self.src.as_bytes_mut();
+                        //     let bytes = self.src.as  _bytes_mut();
                         //     bytes[idx] = c[0];
                         // }
                         // info!("self.src: {}", self.src);
@@ -185,64 +313,110 @@ impl eframe::App for ConsoleApp {
                     }
                 }
 
-                // egui::Event::Key {
-                //     key,
-                //     physical_key,
-                //     pressed: true,
-                //     modifiers,
-                //     repeat,
-                // } => {
-                //     info!("Pressed key: {}", key);
-                // }
-                _ => {}
+                _ => {
+                    // info!("Pressed");
+                }
             }
         }
 
+        // button selected font color
+        // visuals.active.fg_stroke.color
+        //
+
+        //
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // let color = Color32::from_gray(55);
-            let stroke = Stroke::new(1.0, TEXT_HOVER);
-            ui.style_mut().visuals.widgets.hovered.fg_stroke = stroke;
 
-            ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
+            // let stroke = Stroke::new(1.0, TEXT_HOVER);
+            // ui.style_mut().visuals.widgets.hovered.fg_stroke = stroke;
+
+            ui.spacing_mut().item_spacing = Vec2::splat(0.0);
+
+            // ui.style_mut().text_styles.insert(
+            //     egui::TextStyle::Button,
+            //     egui::FontId::new(24.0, eframe::epaint::FontFamily::Proportional),
+            // );
+            // info!("x/y {x} /  {y}");
+            info!("-------------------");
 
             for y in 0..self.rows {
                 ui.horizontal(|ui| {
                     for x in 0..self.cols {
+                        let this = Coord::<X, Y>::from(x, y);
                         let s = self.src.get_at(x, y);
-                        // let s = ".";
-                        // info!("x/y: {x}/{y}");
-                        // info!("s: {s}");
 
-                        // let mut background_color = Color32::LIGHT_BLUE;
+                        if is_terminator(&s) {
+                            let mut t = TERMINATOR;
 
-                        // background_color = if self.is_selected(x, y) {
-                        //     Color32::DARK_GREEN
+                            if let Some(selected) = self.selected {
+                                info!("");
+                                info!("x/y {x} /  {y}");
+
+                                let grid_x = (x as f64 / 10.0).round() * 10.0;
+                                let grid_y = (y as f64 / 10.0).round() * 10.0;
+
+                                let selected_grid_x = (selected.x as f64 / 10.0).round() * 10.0;
+                                let selected_grid_y = (selected.y as f64 / 10.0).round() * 10.0;
+
+                                info!("selected {selected_grid_x} /  {selected_grid_y}");
+                                info!("grid {grid_x} /  {grid_y}");
+
+                                if selected_grid_x == grid_x && selected_grid_y == grid_y {
+                                    if x % 2 == 0 && y % 2 == 0 {
+                                        t = ".";
+                                    }
+                                }
+                            }
+
+                            if x % 8 == 0 && y % 8 == 0 {
+                                t = "+";
+                            }
+
+                            self.src.set_at(x, y, t);
+
+                            // let mut t = TERMINATOR;
+
+                            // if x % 10 == 0 && y % 10 == 0 {
+                            //     t = "+";
+                            // }
+
+                            // if let Some(selected) = self.selected {
+                            //     if distance(this, selected) <= SELECT_DISTANCE {
+                            //         t = "."
+                            //     }
+                            // }
+
+                            // self.src.set_at(x, y, t);
+                        }
+
+                        ui.spacing_mut().item_spacing = Vec2::splat(0.0);
+                        ui.spacing_mut().button_padding = Vec2::splat(0.0);
+
+                        // let bg_color = if self.is_selected(x, y) {
+                        //     COLOR_BG_SELECTED
                         // } else {
-                        //     background_color
+                        //     COLOR_BG
                         // };
 
-                        let bg_color = if self.is_selected(x, y) {
-                            COLOR_BG_SELECTED
-                        } else {
-                            COLOR_BG
-                        };
+                        let selected = self.is_selected(x, y);
 
                         // let text_color = Color32::LIGHT_BLUE;
-                        let button_text = egui::RichText::new(s)
-                            .font(font_id.clone())
-                            .background_color(bg_color);
+                        let button_text = egui::RichText::new(s).font(font_id.clone());
+                        // .background_color(bg_color);
                         // .color(text_color);
                         // .extra_letter_spacing(0.4);
 
                         let color = Color32::from_gray(44);
-                        let stroke = Stroke::new(1.0, color);
+                        // let stroke = Stroke::new(1.0, color);
                         let button = egui::Button::new(button_text)
-                            .stroke(stroke)
+                            // .stroke(stroke)
                             .small()
+                            .selected(selected)
                             .frame(false);
 
                         if ui.add(button).clicked() {
-                            self.select(x, y);
+                            self.select_at(x, y);
                         }
                     }
                 });

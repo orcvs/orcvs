@@ -1,6 +1,6 @@
 // #[allow(unused)]
 
-use crate::{Atom, Error, Function, FunctionExpression, Parser, Stack};
+use crate::{Atom, Error, Function, FunctionExpression, Stack};
 use tracing::info;
 
 pub struct Interpreter {

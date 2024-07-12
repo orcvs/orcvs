@@ -76,6 +76,7 @@ impl FunctionExpression {
         self.inner.pop()
     }
 
+    #[cfg(test)]
     fn atoms(&self) -> ArrayVec<Atom, 32> {
         self.inner
             .iter()
@@ -83,6 +84,7 @@ impl FunctionExpression {
             .collect()
     }
 
+    #[cfg(test)]
     fn tokens(&self) -> ArrayVec<Token, 32> {
         self.inner.iter().map(|exp| exp.token).collect()
     }

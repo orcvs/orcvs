@@ -9,14 +9,10 @@ use crate::FunctionExpression;
 use crate::SyntaxError;
 use crate::Token;
 use crate::Tokens;
-use arrayvec::ArrayVec;
 use std::mem;
 use std::ops::Not;
-use tracing::info;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
-
-const EMPTY: &str = "";
 
 pub struct Parser<'a> {
     stack: FunctionExpression,
@@ -218,7 +214,6 @@ fn is_function(s: Option<&str>) -> bool {
 mod test {
 
     use arrayvec::ArrayVec;
-    use tracing::info;
 
     use crate::{
         parser::Parser, trace, Atom, Error, Function, FunctionExpression, SyntaxError, Token,

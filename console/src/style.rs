@@ -4,8 +4,10 @@ use eframe::egui;
 
 use egui::{
     epaint::Shadow,
-    style::{Interaction, Margin, Selection, Spacing, WidgetVisuals, Widgets},
-    Color32, Rounding, Stroke, Style, Vec2, Visuals,
+    style::{
+        HandleShape, Interaction, NumericColorSpace, Selection, Spacing, WidgetVisuals, Widgets,
+    },
+    vec2, Color32, Margin, Rounding, Stroke, Style, Vec2, Visuals,
 };
 
 pub fn style() -> Style {
@@ -186,10 +188,12 @@ pub fn style() -> Style {
                 // extrusion: 32.0,
                 color: Color32::from_rgba_premultiplied(0, 0, 0, 96),
                 offset: Vec2 { x: 3.0, y: 3.0 },
-                blur: 3,
-                spread: 3,
+                blur: 3.0,
+                spread: 3.0,
             },
-            window_fill: Color32::from_rgba_premultiplied(27, 27, 27, 255),
+            // window_fill: Color32::from_rgba_premultiplied(27, 27, 27, 255),
+            window_fill: Color32::from_rgba_premultiplied(0, 0, 0, 255),
+
             window_stroke: Stroke {
                 width: 1.0,
                 color: Color32::from_rgba_premultiplied(60, 60, 60, 255),
@@ -205,8 +209,8 @@ pub fn style() -> Style {
                 // extrusion: 16.0,
                 color: Color32::from_rgba_premultiplied(0, 0, 0, 96),
                 offset: Vec2 { x: 3.0, y: 3.0 },
-                blur: 3,
-                spread: 3,
+                blur: 3.0,
+                spread: 3.0,
             },
             resize_corner_size: 12.0,
             // text_cursor_width: 2.0,

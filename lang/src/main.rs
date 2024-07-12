@@ -1,4 +1,4 @@
-use lang::{Atom, Parser};
+use lang::Parser;
 
 fn main() {
     let mut exp = String::from("++0102");
