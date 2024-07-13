@@ -6,6 +6,13 @@ edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
 rust-version = "1.76"
 
+[lib]
+name = "console"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console"
+path = "src/main.rs"
 
 [features]
 default = []

@@ -5,6 +5,19 @@ use std::sync::Once;
 
 static INIT: Once = Once::new();
 
+pub const DEFAULT_COL_COUNT: usize = 20;
+pub const DEFAULT_ROW_COUNT: usize = 20;
+pub const DEFAULT_VIEW_SIZE: [f32; 2] = [800.0, 600.0];
+pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
+
+pub struct Vec2 {
+    /// Rightwards. Width.
+    pub x: f32,
+
+    /// Downwards. Height.
+    pub y: f32,
+}
+
 fn trace() {
     INIT.call_once(|| {
         use tracing_subscriber::FmtSubscriber;
@@ -27,8 +40,8 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0])
-            .with_min_inner_size([300.0, 220.0])
+            .with_inner_size(DEFAULT_VIEW_SIZE)
+            .with_min_inner_size(DEFAULT_VIEW_SIZE_MIN)
             .with_icon(
                 // NOTE: Adding an icon is optional
                 eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
@@ -39,7 +52,12 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "[ o r c v s ]",
         native_options,
-        Box::new(|cc| Ok(Box::new(console::ConsoleApp::<20, 20>::new(cc)))),
+        Box::new(|cc| {
+            Ok(Box::new(console::ConsoleApp::<
+                DEFAULT_COL_COUNT,
+                DEFAULT_ROW_COUNT,
+            >::new(cc)))
+        }),
     )
 }
 

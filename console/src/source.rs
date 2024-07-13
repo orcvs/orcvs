@@ -139,7 +139,36 @@ impl Source {
         }
     }
 
+    ///
+    /// Sets `s` at the x, y coords of the grid and recalculates expressions.
+    ///
+    /// ```
+    /// use console::source::Source;
+    /// let mut source = Source::new(10, 10);
+    /// let idx = source.set_at(3, 3, "!");
+    ///
+    /// let s = source.get_at(3, 3);
+    /// assert_eq!(s.as_str(), "!");
+    /// ```
+    ///
     pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
+        let idx = self.set_at_uncalculated(x, y, s);
+        self.calculate_at(idx, s);
+    }
+
+    ///
+    /// Sets `s` at the x, y coords of the grid without recalculating expressions.
+    /// Returns the index position of the updated character
+    ///
+    /// ```
+    /// use console::source::Source;
+    /// let mut source = Source::new(10, 10);
+    /// let idx = source.set_at_uncalculated(3, 3, "!");
+    ///
+    /// assert_eq!(idx, 33);
+    /// ```
+    ///
+    pub fn set_at_uncalculated(&mut self, x: usize, y: usize, s: &str) -> usize {
         let idx = self.to_idx(x, y);
 
         let b = s.as_bytes();
@@ -153,7 +182,15 @@ impl Source {
             bytes[idx] = b[0];
         }
 
-        self.calculate_at(idx, s);
+        idx
+    }
+
+    ///
+    /// Alias of `set_at_uncalculated``
+    ///
+    ///
+    pub fn set_terminator_at(&mut self, x: usize, y: usize, s: &str) {
+        self.set_at_uncalculated(x, y, s);
     }
 
     pub fn unset_at(&mut self, x: usize, y: usize) {
@@ -315,6 +352,7 @@ impl Source {
     /// Convert x, y coordinates to a linear index
     /// panic if the index is out of bounds
     ///
+    #[inline]
     pub fn to_idx(&self, x: usize, y: usize) -> usize {
         let idx = y * self.cols + x;
         assert!(idx <= self.len(), "index {idx} out of bounds for [{x},{y}]");
@@ -338,6 +376,7 @@ impl Source {
     }
 }
 
+#[inline]
 pub fn is_terminator(s: &str) -> bool {
     match s {
         "." => true,
@@ -346,11 +385,17 @@ pub fn is_terminator(s: &str) -> bool {
         _ => false,
     }
 }
+#[inline]
+pub fn is_character(s: &str) -> bool {
+    !is_terminator(s)
+}
 
 #[cfg(test)]
 mod test {
-    use super::Source;
+    use crate::source::is_terminator;
+    // use super::Source;
     use crate::source::Expression;
+    use crate::source::Source;
     use crate::test::trace;
     use arrayvec::ArrayVec;
     use lang::{Atom, Function, Stack};
@@ -392,6 +437,24 @@ mod test {
         debug!("source.inner {:?}", source.inner);
         assert_eq!(source.inner, expected);
         source
+    }
+
+    #[test]
+    fn test_is_terminator() {
+        let t = is_terminator(".");
+        assert!(t);
+
+        let t = is_terminator(" ");
+        assert!(t);
+
+        let t = is_terminator("+");
+        assert!(t);
+
+        let t = is_terminator("..");
+        assert!(t == false);
+
+        let t = is_terminator("!");
+        assert!(t == false);
     }
 
     #[test]

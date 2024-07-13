@@ -4,10 +4,11 @@ use tracing::info;
 use crate::{
     source::{is_terminator, Source, TERMINATOR},
     style::style,
+    Coord,
 };
+
 pub const DEFAULT_FONT_SIZE: f32 = 20.0;
-pub const DEFAULT_COL_COUNT: usize = 20;
-pub const DEFAULT_ROW_COUNT: usize = 20;
+pub const DEFAULT_GRID_SIZE: f32 = 8.0;
 
 const SELECT_DISTANCE: f64 = 3.5;
 
@@ -30,16 +31,10 @@ const SELECT_DISTANCE: f64 = 3.5;
 // base0E - Keywords, Storage, Selector, Markup Italic, Diff Changed
 // base0F - Deprecated, Opening/Closing Embedded Language Tags, e.g. <?php ?>
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct Coord<const X: usize, const Y: usize> {
-    x: usize,
-    y: usize,
-}
-
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct ConsoleApp<const X: usize, const Y: usize> {
     src: Source,
-    selected: Option<Coord<X, Y>>,
+    selected: Coord<X, Y>,
     mode: Mode,
     cols: usize,
     rows: usize,
@@ -49,6 +44,7 @@ pub struct ConsoleApp<const X: usize, const Y: usize> {
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Opts {
     font_size: f32,
+    grid_size: f32,
 }
 
 #[derive(PartialEq)]
@@ -63,7 +59,7 @@ impl<const X: usize, const Y: usize> Default for ConsoleApp<X, Y> {
         let src = Source::new(X, Y);
         Self {
             src,
-            selected: None,
+            selected: Coord::<X, Y>::from(0, 0),
             mode: Mode::Insert,
             opts: Opts::default(),
             cols: X,
@@ -76,47 +72,8 @@ impl Default for Opts {
     fn default() -> Self {
         Self {
             font_size: DEFAULT_FONT_SIZE,
+            grid_size: DEFAULT_GRID_SIZE,
         }
-    }
-}
-
-impl<const X: usize, const Y: usize> Coord<X, Y> {
-    fn from(x: usize, y: usize) -> Self {
-        Self { x, y }
-    }
-
-    fn from_x(self, x: usize) -> Self {
-        Self { x, y: self.y }
-    }
-
-    fn from_y(self, y: usize) -> Self {
-        Self { x: self.x, y }
-    }
-
-    fn up(&self) -> Self {
-        let y = match self.y {
-            0 | 1 => 0,
-            _ => self.y - 1,
-        };
-        self.from_y(y)
-    }
-
-    fn down(&self) -> Self {
-        let y = std::cmp::min(self.y + 1, Y - 1);
-        self.from_y(y)
-    }
-
-    fn left(&self) -> Self {
-        let x = match self.x {
-            0 | 1 => 0,
-            _ => self.x - 1,
-        };
-        self.from_x(x)
-    }
-
-    fn right(&self) -> Self {
-        let x = std::cmp::min(self.x + 1, X - 1);
-        self.from_x(x)
     }
 }
 
@@ -139,40 +96,32 @@ impl<const X: usize, const Y: usize> ConsoleApp<X, Y> {
 
     #[inline]
     pub fn is_selected(&self, x: usize, y: usize) -> bool {
-        self.selected == Some(Coord::from(x, y))
+        self.selected == Coord::from(x, y)
     }
 
     #[inline]
     pub fn select_at(&mut self, x: usize, y: usize) {
-        self.selected = Some(Coord::from(x, y))
+        self.selected = Coord::from(x, y)
     }
 
     #[inline]
     pub fn select_up(&mut self) {
-        if let Some(coord) = self.selected {
-            self.selected = Some(coord.up());
-        }
+        self.selected = self.selected.up();
     }
 
     #[inline]
     pub fn select_down(&mut self) {
-        if let Some(coord) = self.selected {
-            self.selected = Some(coord.down());
-        }
+        self.selected = self.selected.down();
     }
 
     #[inline]
     pub fn select_left(&mut self) {
-        if let Some(coord) = self.selected {
-            self.selected = Some(coord.left());
-        }
+        self.selected = self.selected.left();
     }
 
     #[inline]
     pub fn select_right(&mut self) {
-        if let Some(coord) = self.selected {
-            self.selected = Some(coord.right());
-        }
+        self.selected = self.selected.right();
     }
 
     #[inline]
@@ -199,11 +148,6 @@ impl<const X: usize, const Y: usize> ConsoleApp<X, Y> {
     //   this.isInvisible = (x, y) => {
     //     return this.orca.glyphAt(x, y) === '.' && !this.isMarker(x, y) && !this.cursor.selected(x, y) && !this.isLocals(x, y) && !this.ports[this.orca.indexAt(x, y)] && !this.orca.lockAt(x, y)
     //   }
-
-    #[inline]
-    pub fn deselect(&mut self) {
-        self.selected = None;
-    }
 
     #[inline]
     pub fn delete(&mut self) {
@@ -297,8 +241,9 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
 
                     // This is all probably a very bad idea
                     // I am treating the string as byte array and mutating it
-                    if let Some(coord) = &self.selected {
-                        self.src.set_at(coord.x, coord.y, text_to_insert);
+                    {
+                        self.src
+                            .set_at(self.selected.x, self.selected.y, text_to_insert);
 
                         // let c = text_to_insert.as_bytes();
                         // let idx = y * self.cols + x;
@@ -343,51 +288,26 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
             for y in 0..self.rows {
                 ui.horizontal(|ui| {
                     for x in 0..self.cols {
-                        let this = Coord::<X, Y>::from(x, y);
                         let s = self.src.get_at(x, y);
 
                         if is_terminator(&s) {
                             let mut t = TERMINATOR;
 
-                            if let Some(selected) = self.selected {
-                                info!("");
-                                info!("x/y {x} /  {y}");
-
-                                let grid_x = (x as f64 / 10.0).round() * 10.0;
-                                let grid_y = (y as f64 / 10.0).round() * 10.0;
-
-                                let selected_grid_x = (selected.x as f64 / 10.0).round() * 10.0;
-                                let selected_grid_y = (selected.y as f64 / 10.0).round() * 10.0;
-
-                                info!("selected {selected_grid_x} /  {selected_grid_y}");
-                                info!("grid {grid_x} /  {grid_y}");
-
-                                if selected_grid_x == grid_x && selected_grid_y == grid_y {
-                                    if x % 2 == 0 && y % 2 == 0 {
-                                        t = ".";
-                                    }
-                                }
+                            // Highlight
+                            if self.selected.in_grid(x, y, self.opts.grid_size) {
+                                // if x % 2 == 0 && y % 2 == 0 {
+                                t = ".";
+                                // }
                             }
 
-                            if x % 8 == 0 && y % 8 == 0 {
+                            // Grid markers
+                            if x as f32 % self.opts.grid_size == 0.0
+                                && y as f32 % self.opts.grid_size == 0.0
+                            {
                                 t = "+";
                             }
 
-                            self.src.set_at(x, y, t);
-
-                            // let mut t = TERMINATOR;
-
-                            // if x % 10 == 0 && y % 10 == 0 {
-                            //     t = "+";
-                            // }
-
-                            // if let Some(selected) = self.selected {
-                            //     if distance(this, selected) <= SELECT_DISTANCE {
-                            //         t = "."
-                            //     }
-                            // }
-
-                            // self.src.set_at(x, y, t);
+                            self.src.set_terminator_at(x, y, t);
                         }
 
                         ui.spacing_mut().item_spacing = Vec2::splat(0.0);
