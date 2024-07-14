@@ -1,18 +1,26 @@
-use egui::{Color32, Event, EventFilter, Key, Stroke, Vec2};
-use tracing::info;
+use std::time::{Duration, Instant};
+
+use egui::{Color32, Event, EventFilter, Id, Key, Stroke, Vec2};
+use tracing::{error, info};
 
 use crate::{
     source::{is_terminator, Source, TERMINATOR},
     style::style,
-    Coord,
+    Color, Coord,
 };
 
 pub const DEFAULT_FONT_SIZE: f32 = 20.0;
 pub const DEFAULT_GRID_SIZE: f32 = 8.0;
 
-const SELECT_DISTANCE: f64 = 3.5;
+const DEFAULT_VISUAL_SELECTED_BG_COLOR: Color32 = Color::rgb(0, 92, 128).build();
+const DEFAULT_VISUAL_SELECTED_STROKE_COLOR: Color32 = Color::rgb(192, 222, 255).build();
 
-// pub const DEFAULT_SCALE: f32 = 1.0;
+const VISUAL_SELECTED_STROKE_COLOR_BLINK: Color32 = Color::rgb(66, 66, 66).build();
+
+const CURSOR_DELAY: u64 = 800;
+
+const TERMINATOR_SELECT: &str = ".";
+const TERMINATOR_MARKER: &str = "+";
 
 // base00 - Default Background
 // base01 - Lighter Background (Used for status bars, line number and folding marks)
@@ -35,9 +43,8 @@ const SELECT_DISTANCE: f64 = 3.5;
 pub struct ConsoleApp<const X: usize, const Y: usize> {
     src: Source,
     selected: Coord<X, Y>,
-    mode: Mode,
-    cols: usize,
-    rows: usize,
+    blinked_at: Instant,
+    blink_on: bool,
     opts: Opts,
 }
 
@@ -45,6 +52,7 @@ pub struct ConsoleApp<const X: usize, const Y: usize> {
 pub struct Opts {
     font_size: f32,
     grid_size: f32,
+    mode: Mode,
 }
 
 #[derive(PartialEq)]
@@ -60,10 +68,9 @@ impl<const X: usize, const Y: usize> Default for ConsoleApp<X, Y> {
         Self {
             src,
             selected: Coord::<X, Y>::from(0, 0),
-            mode: Mode::Insert,
             opts: Opts::default(),
-            cols: X,
-            rows: Y,
+            blinked_at: Instant::now(),
+            blink_on: true,
         }
     }
 }
@@ -73,6 +80,7 @@ impl Default for Opts {
         Self {
             font_size: DEFAULT_FONT_SIZE,
             grid_size: DEFAULT_GRID_SIZE,
+            mode: Mode::Insert,
         }
     }
 }
@@ -101,32 +109,39 @@ impl<const X: usize, const Y: usize> ConsoleApp<X, Y> {
 
     #[inline]
     pub fn select_at(&mut self, x: usize, y: usize) {
-        self.selected = Coord::from(x, y)
+        self.select(Coord::from(x, y));
     }
 
     #[inline]
     pub fn select_up(&mut self) {
-        self.selected = self.selected.up();
+        self.select(self.selected.up());
     }
 
     #[inline]
     pub fn select_down(&mut self) {
-        self.selected = self.selected.down();
+        self.select(self.selected.down());
     }
 
     #[inline]
     pub fn select_left(&mut self) {
-        self.selected = self.selected.left();
+        self.select(self.selected.left());
     }
 
     #[inline]
     pub fn select_right(&mut self) {
-        self.selected = self.selected.right();
+        self.select(self.selected.right());
     }
 
     #[inline]
     pub fn select_next(&mut self) {
         self.select_right()
+    }
+
+    #[inline]
+    pub fn select(&mut self, selected: Coord<X, Y>) {
+        self.selected = selected;
+        self.blink_on = true;
+        self.blinked_at = Instant::now();
     }
 
     // this.isCursor = (x, y) => {
@@ -151,11 +166,14 @@ impl<const X: usize, const Y: usize> ConsoleApp<X, Y> {
 
     #[inline]
     pub fn delete(&mut self) {
-        info!("delete");
-        // self.select_left();
-        // if let Some((x, y)) = self.selected {
-        //     self.src.unset_at(x, y);
+        // If we are at last position delete the selected character
+        // if self.selected.x == X - 1 {
+
         // }
+        self.src.unset_at(self.selected.x, self.selected.y);
+
+        self.select_left();
+        self.src.unset_at(self.selected.x, self.selected.y);
     }
 }
 
@@ -245,16 +263,9 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
                         self.src
                             .set_at(self.selected.x, self.selected.y, text_to_insert);
 
-                        // let c = text_to_insert.as_bytes();
-                        // let idx = y * self.cols + x;
-                        // unsafe {
-                        //     let bytes = self.src.as  _bytes_mut();
-                        //     bytes[idx] = c[0];
+                        // if self.opts.mode == Mode::Insert {
+                        self.select_next();
                         // }
-                        // info!("self.src: {}", self.src);
-                        if self.mode == Mode::Insert {
-                            self.select_next();
-                        }
                     }
                 }
 
@@ -264,12 +275,6 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
             }
         }
 
-        // button selected font color
-        // visuals.active.fg_stroke.color
-        //
-
-        //
-
         egui::CentralPanel::default().show(ctx, |ui| {
             // let color = Color32::from_gray(55);
 
@@ -278,16 +283,14 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
 
             ui.spacing_mut().item_spacing = Vec2::splat(0.0);
 
-            // ui.style_mut().text_styles.insert(
-            //     egui::TextStyle::Button,
-            //     egui::FontId::new(24.0, eframe::epaint::FontFamily::Proportional),
-            // );
-            // info!("x/y {x} /  {y}");
-            info!("-------------------");
+            // let time = ui.input(|i| i.time);
+            // let stable_time = ui.input(|i| i.stable_dt);
+            // info!("time {time}");
+            // info!("stable_time {stable_time}");
 
-            for y in 0..self.rows {
+            for y in 0..Y {
                 ui.horizontal(|ui| {
-                    for x in 0..self.cols {
+                    for x in 0..X {
                         let s = self.src.get_at(x, y);
 
                         if is_terminator(&s) {
@@ -295,23 +298,29 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
 
                             // Highlight
                             if self.selected.in_grid(x, y, self.opts.grid_size) {
-                                // if x % 2 == 0 && y % 2 == 0 {
-                                t = ".";
-                                // }
+                                if x % 2 == 0 && y % 2 == 0 {
+                                    t = TERMINATOR_SELECT;
+                                }
                             }
 
                             // Grid markers
                             if x as f32 % self.opts.grid_size == 0.0
                                 && y as f32 % self.opts.grid_size == 0.0
                             {
-                                t = "+";
+                                t = TERMINATOR_MARKER;
                             }
 
                             self.src.set_terminator_at(x, y, t);
+                        } else {
+                            if let Some(exp) = self.src.get_exp_at(x, y) {
+                                let exp = exp.inner.first().unwrap();
+                            }
                         }
 
                         ui.spacing_mut().item_spacing = Vec2::splat(0.0);
                         ui.spacing_mut().button_padding = Vec2::splat(0.0);
+
+                        // let mut bg_color = Color32::TRANSPARENT;
 
                         // let bg_color = if self.is_selected(x, y) {
                         //     COLOR_BG_SELECTED
@@ -319,7 +328,30 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
                         //     COLOR_BG
                         // };
 
+                        // info!("!!!elapsed {:?}", self.blinked_at);
+
                         let selected = self.is_selected(x, y);
+
+                        if selected {
+                            // error!("elapsed {:?}", self.blinked_at.elapsed());
+                            // error!("blink_on {:?}", self.blink_on);
+
+                            if self.blinked_at.elapsed() >= Duration::from_millis(CURSOR_DELAY) {
+                                self.blinked_at = Instant::now();
+                                self.blink_on = !self.blink_on;
+                            }
+
+                            if self.blink_on {
+                                ui.style_mut().visuals.selection.bg_fill =
+                                    DEFAULT_VISUAL_SELECTED_BG_COLOR;
+                                ui.style_mut().visuals.selection.stroke.color =
+                                    DEFAULT_VISUAL_SELECTED_STROKE_COLOR;
+                            } else {
+                                ui.style_mut().visuals.selection.bg_fill = Color32::TRANSPARENT;
+                                ui.style_mut().visuals.selection.stroke.color =
+                                    VISUAL_SELECTED_STROKE_COLOR_BLINK;
+                            }
+                        }
 
                         // let text_color = Color32::LIGHT_BLUE;
                         let button_text = egui::RichText::new(s).font(font_id.clone());
@@ -341,6 +373,8 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
                     }
                 });
             }
+
+            ctx.request_repaint();
         });
     }
 }

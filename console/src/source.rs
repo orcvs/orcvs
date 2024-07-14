@@ -111,7 +111,6 @@ impl Source {
     }
 
     pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<Expression>>) {
-        debug!("exp: {exp:?}");
         self.parse_exp(&exp);
         self.map[idx] = Some(exp);
     }
@@ -119,6 +118,20 @@ impl Source {
     pub fn remove_exp(&mut self, idx: usize) {
         self.parsed.remove(&idx);
         self.map[idx] = None;
+    }
+
+    pub fn get_exp_at(&self, x: usize, y: usize) -> Option<&FunctionExpression> {
+        let idx = self.to_idx(x, y);
+
+        if let Some(exp) = &self.map[idx] {
+            let exp = exp.borrow();
+            let key = exp.start;
+
+            if let Some(parsed) = self.parsed.get(&key) {
+                return Some(parsed);
+            }
+        }
+        None
     }
 
     pub fn parse_exp(&mut self, exp: &Rc<RefCell<Expression>>) {
@@ -131,6 +144,7 @@ impl Source {
             Ok(fun_exp) => {
                 let exp = exp.borrow();
                 let idx = exp.start;
+                debug!("fun_exp: {fun_exp:?}");
                 self.parsed.insert(idx, fun_exp);
             }
             _ => {
@@ -153,6 +167,7 @@ impl Source {
     ///
     pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
         let idx = self.set_at_uncalculated(x, y, s);
+
         self.calculate_at(idx, s);
     }
 
@@ -197,18 +212,23 @@ impl Source {
         let idx = self.to_idx(x, y);
 
         let s = TERMINATOR;
-        let b = s.as_bytes();
+        let s_bytes = s.as_bytes();
 
         // SAFELY UNSAFE
         //   all characters are single-byte ASCII
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
-        unsafe {
+        let recalculate = unsafe {
             let bytes = self.inner.as_bytes_mut();
-            bytes[idx] = b[0];
-        }
+            let b = bytes[idx];
+            bytes[idx] = s_bytes[0];
 
-        self.calculate_at(idx, s);
+            is_terminator_bytes(b)
+        };
+
+        if recalculate {
+            self.calculate_at(idx, s);
+        }
     }
 
     pub fn calculate_at(&mut self, idx: usize, s: &str) {
@@ -381,10 +401,21 @@ pub fn is_terminator(s: &str) -> bool {
     match s {
         "." => true,
         " " => true,
-        "+" => true,
+        // "+" => true,
         _ => false,
     }
 }
+
+#[inline]
+pub fn is_terminator_bytes(b: u8) -> bool {
+    match b {
+        46 => true,
+        32 => true,
+        // 43 => true,
+        _ => false,
+    }
+}
+
 #[inline]
 pub fn is_character(s: &str) -> bool {
     !is_terminator(s)
@@ -392,15 +423,16 @@ pub fn is_character(s: &str) -> bool {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Debug;
+
     use crate::source::is_terminator;
-    // use super::Source;
+    use crate::source::is_terminator_bytes;
     use crate::source::Expression;
     use crate::source::Source;
     use crate::test::trace;
-    use arrayvec::ArrayVec;
-    use lang::{Atom, Function, Stack};
-    use lang::{FunctionExpression, Parser};
-    use std::sync::Once;
+    use lang::Atom;
+    use lang::Function;
+    use lang::FunctionExpression;
     use tracing::{debug, info};
 
     fn source_from(s: &str) -> Source {
@@ -440,6 +472,29 @@ mod test {
     }
 
     #[test]
+    fn test_get_exp_at() {
+        trace();
+        let source = source_from("..++0101..");
+
+        let exp = source.get_exp_at(2, 0).unwrap();
+        let exp = exp.inner.first().unwrap();
+
+        assert_eq!(exp.atom, Some(Atom::Function(Function::Add)));
+
+        let exp = source.get_exp_at(3, 0).unwrap();
+        let exp = exp.inner.first().unwrap();
+
+        assert_eq!(exp.atom, Some(Atom::Function(Function::Add)));
+
+        let exp = source.get_exp_at(4, 0).unwrap();
+        let exp = exp.inner.first().unwrap();
+
+        assert_eq!(exp.atom, Some(Atom::Function(Function::Add)));
+
+        // info!("{exp:?}");
+    }
+
+    #[test]
     fn test_is_terminator() {
         let t = is_terminator(".");
         assert!(t);
@@ -454,6 +509,25 @@ mod test {
         assert!(t == false);
 
         let t = is_terminator("!");
+        assert!(t == false);
+    }
+
+    #[test]
+    fn test_is_terminator_bytes() {
+        let b = ".".as_bytes();
+        let t = is_terminator_bytes(b[0]);
+        assert!(t);
+
+        let b = " ".as_bytes();
+        let t = is_terminator_bytes(b[0]);
+        assert!(t);
+
+        let b = "+".as_bytes();
+        let t = is_terminator_bytes(b[0]);
+        assert!(t);
+
+        let b = "!".as_bytes();
+        let t = is_terminator_bytes(b[0]);
         assert!(t == false);
     }
 

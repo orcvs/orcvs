@@ -5,6 +5,7 @@ pub mod source;
 mod style;
 
 pub use app::ConsoleApp;
+use egui::Color32;
 use tracing::info;
 
 // pub fn distance(Coord(x1, y1): Coord, Coord(x2, y2): Coord) -> f64 {
@@ -14,6 +15,27 @@ use tracing::info;
 //     let d = y.hypot(x);
 //     d.floor()
 // }
+
+struct Color(Color32);
+
+impl Color {
+    const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self(Color32::from_rgba_premultiplied(r, g, b, 255))
+    }
+
+    const fn with_alpha(self, a: u8) -> Self {
+        Self(Color32::from_rgba_premultiplied(
+            self.0.r(),
+            self.0.g(),
+            self.0.b(),
+            a,
+        ))
+    }
+
+    const fn build(self) -> Color32 {
+        self.0
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Coord<const X: usize, const Y: usize> {
@@ -65,7 +87,6 @@ impl<const X: usize, const Y: usize> Coord<X, Y> {
 
         let min_x = (self.x as f32 / grid_size).floor() * grid_size;
         let max_x = ((self.x as f32 / grid_size).ceil() * grid_size).max(grid_size);
-
         let min_y = (self.y as f32 / grid_size).floor() * grid_size;
         let max_y = ((self.y as f32 / grid_size).ceil() * grid_size).max(grid_size);
 
@@ -104,7 +125,6 @@ mod test {
 
         // Grid X 5 Y 6
         let selected = Coord::<100, 100>::from(42, 51);
-
         for x in 0..=grid_size as usize {
             for y in 0..=grid_size as usize {
                 let x = x + 40;

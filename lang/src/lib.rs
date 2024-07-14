@@ -7,19 +7,17 @@ pub use parser::Parser;
 use arrayvec::ArrayVec;
 use std::fmt;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::sync::Once;
 use thiserror::Error;
+
+const EXP_LEN: usize = 32;
 pub struct MaybeAtom(Option<Atom>);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
-    token: Token,
-    atom: Option<Atom>,
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct FunctionExpression {
-    inner: ArrayVec<Expression, 32>,
+    pub token: Token,
+    pub atom: Option<Atom>,
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
@@ -52,41 +50,6 @@ impl Expression {
     #[inline(always)]
     pub fn set_atom(&mut self, atom: Atom) {
         self.atom = Some(atom);
-    }
-}
-
-impl FunctionExpression {
-    pub fn new() -> Self {
-        let inner = ArrayVec::new();
-        Self { inner }
-    }
-
-    #[cfg(test)]
-    pub fn from(expressions: ArrayVec<Expression, 32>) -> Self {
-        Self { inner: expressions }
-    }
-
-    #[inline(always)]
-    pub fn push(&mut self, exp: Expression) {
-        self.inner.push(exp);
-    }
-
-    #[inline(always)]
-    pub fn pop(&mut self) -> Option<Expression> {
-        self.inner.pop()
-    }
-
-    #[cfg(test)]
-    fn atoms(&self) -> ArrayVec<Atom, 32> {
-        self.inner
-            .iter()
-            .filter_map(|exp| exp.atom.clone())
-            .collect()
-    }
-
-    #[cfg(test)]
-    fn tokens(&self) -> ArrayVec<Token, 32> {
-        self.inner.iter().map(|exp| exp.token).collect()
     }
 }
 
@@ -186,6 +149,10 @@ impl<const N: usize> Stack<N> {
         self.pop()
             .try_into()
             .map_err(|err| map_arity(err, expected, count))
+    }
+
+    fn take_atoms(self) -> ArrayVec<Atom, EXP_LEN> {
+        self.inner.into_iter().collect()
     }
 }
 

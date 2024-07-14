@@ -5,18 +5,10 @@ use std::sync::Once;
 
 static INIT: Once = Once::new();
 
-pub const DEFAULT_COL_COUNT: usize = 20;
-pub const DEFAULT_ROW_COUNT: usize = 20;
+pub const DEFAULT_COL_COUNT: usize = 80;
+pub const DEFAULT_ROW_COUNT: usize = 60;
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [800.0, 600.0];
 pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
-
-pub struct Vec2 {
-    /// Rightwards. Width.
-    pub x: f32,
-
-    /// Downwards. Height.
-    pub y: f32,
-}
 
 fn trace() {
     INIT.call_once(|| {

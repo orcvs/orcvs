@@ -1,16 +1,16 @@
 // #[allow(unused)]
 
-use crate::{Atom, Error, Function, FunctionExpression, Stack};
+use crate::{Atom, Error, Expression, Function, Stack, EXP_LEN};
 use tracing::info;
 
 pub struct Interpreter {
-    expressions: FunctionExpression,
+    expressions: Stack<EXP_LEN>,
 }
 
 type Args = Stack<6>;
 
 impl<'a> Interpreter {
-    pub fn new(expressions: FunctionExpression) -> Self {
+    pub fn new(expressions: Stack<EXP_LEN>) -> Self {
         Self { expressions }
     }
 
@@ -18,9 +18,9 @@ impl<'a> Interpreter {
     pub fn interpret(&mut self) -> Result<Atom, Error> {
         let mut stack = Args::new();
 
-        while let Some(element) = self.expressions.pop() {
-            let atom = match element.atom {
-                Some(Atom::Function(fun)) => match fun {
+        while let Some(atom) = self.expressions.pop().0 {
+            let atom = match atom {
+                Atom::Function(fun) => match fun {
                     Function::Add => add(&mut stack)?,
                     Function::Divide => divide(&mut stack)?,
                     Function::Multiply => multiply(&mut stack)?,
@@ -29,8 +29,7 @@ impl<'a> Interpreter {
                     Function::Play => play(&mut stack)?,
                     _ => Atom::Function(Function::Empty),
                 },
-                Some(atom) => atom,
-                None => unreachable!(),
+                atom => atom,
             };
             stack.push(atom);
         }
@@ -124,8 +123,8 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Expression, Function,
-        FunctionExpression, Parser, Token, TypeError,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Expression, Function, Parser,
+        Stack, Token, TypeError,
     };
     use arrayvec::ArrayVec;
 
@@ -143,18 +142,17 @@ mod test {
     //     };
     // }
 
-    macro_rules! to_expressions {
+    macro_rules! array_vec {
         ($($items:tt),*) => {
             {
-                let mut ary: ArrayVec<Expression, 32> = ArrayVec::new();
+                let mut ary = ArrayVec::new();
+
                 $(
                     for item in $items.iter() {
-                        let mut exp = Expression::new(Token::String);
-                        exp.set_atom(item.clone());
-                        ary.push(exp);
+                        ary.push(item.clone());
                     }
                 )*
-                FunctionExpression::from(ary)
+                ary
             }
         };
     }
@@ -164,12 +162,14 @@ mod test {
         let mut parser = Parser::from(&mut exp);
         let exp = parser.try_parse().unwrap();
 
-        let mut interpreter = Interpreter::new(exp);
+        let stack = Stack::new_with(exp);
+        let mut interpreter = Interpreter::new(stack);
         interpreter.interpret().unwrap()
     }
 
-    fn interpret_stack(exp: FunctionExpression) -> Result<Atom, Error> {
-        let mut interpreter = Interpreter::new(exp);
+    fn interpret_stack(exp: ArrayVec<Atom, 32>) -> Result<Atom, Error> {
+        let stack = Stack::new_with(exp);
+        let mut interpreter = Interpreter::new(stack);
         interpreter.interpret()
     }
 
@@ -286,7 +286,7 @@ mod test {
         trace();
 
         let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Number(1)];
-        let exp = to_expressions!(array);
+        let exp = array_vec!(array);
 
         let result = interpret_stack(exp);
 
@@ -311,7 +311,7 @@ mod test {
             Atom::Number(1),
             Atom::String(vtha),
         ];
-        let stack = to_expressions!(array);
+        let stack = array_vec!(array);
 
         let result = interpret_stack(stack);
 

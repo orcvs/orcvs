@@ -10,6 +10,8 @@ use egui::{
     vec2, Color32, Margin, Rounding, Stroke, Style, Vec2, Visuals,
 };
 
+use crate::Color;
+
 pub fn style() -> Style {
     Style {
         // override the text styles here:
@@ -165,15 +167,17 @@ pub fn style() -> Style {
                     expansion: 0.0,
                 },
             },
+
             selection: Selection {
-                bg_fill: Color32::from_rgba_premultiplied(0, 92, 128, 255),
+                bg_fill: Color::rgb(0, 92, 128).build(),
                 stroke: Stroke {
                     width: 1.0,
-                    color: Color32::from_rgba_premultiplied(192, 222, 255, 255),
+                    color: Color::rgb(192, 222, 255).build(),
                 },
             },
             hyperlink_color: Color32::from_rgba_premultiplied(90, 170, 255, 255),
-            faint_bg_color: Color32::from_rgba_premultiplied(5, 5, 5, 0),
+            faint_bg_color: Color::rgb(5, 5, 5).with_alpha(0).build(),
+
             extreme_bg_color: Color32::from_rgba_premultiplied(10, 10, 10, 255),
             code_bg_color: Color32::from_rgba_premultiplied(64, 64, 64, 255),
             warn_fg_color: Color32::from_rgba_premultiplied(255, 143, 0, 255),
