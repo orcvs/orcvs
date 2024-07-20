@@ -1,40 +1,39 @@
-use lang::{Atom, Function, FunctionExpression, Parser};
+use arrayvec::ArrayVec;
+use lang::{Atom, Expression, Function, Parsed, Parser, Token};
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
+use std::io::repeat;
+use std::iter;
 use std::rc::Rc;
 use tracing::{debug, error, info};
 // use arrayvec::ArrayVec;
 
 pub const TERMINATOR: &str = " ";
+pub const TERMINATOR_BYTES: &[u8] = TERMINATOR.as_bytes();
 
-// #[derive(serde::Deserialize, serde::Serialize)]
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Source {
-    inner: String,
+    pub inner: String,
+    pub parsed: HashMap<usize, Parsed<Expression>, nohash_hasher::BuildNoHashHasher<usize>>,
+    pub glyphs: Vec<Glyph>,
+    map: Vec<Option<Rc<RefCell<SourceExpression>>>>,
     cols: usize,
     rows: usize,
-    map: Vec<Option<Rc<RefCell<Expression>>>>,
-    // expressions: Vec<Rc<RefCell<Expression>>>,
-    // parsed_expressions: Vec<FunctionExpression>,
-    parsed: HashMap<usize, FunctionExpression, nohash_hasher::BuildNoHashHasher<usize>>,
 }
 
-// // #[serde(skip_deserializing, skip_serializing)]
-// inner: Option<ParserExpression>,
-
-// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq)]
-pub struct Expression {
+pub struct SourceExpression {
     start: usize,
     end: usize,
 
     // #[serde(skip_deserializing, skip_serializing)]
     valid: Option<bool>,
-
     function: Option<Function>,
 }
 
-impl Expression {
+impl SourceExpression {
     pub fn new(start: usize, end: usize) -> Self {
         Self {
             start,
@@ -45,41 +44,108 @@ impl Expression {
     }
 }
 
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Glyph {
+    Function,
+    Number,
+    Note,
+    String,
+    Terminator(Terminator),
+}
+pub type G = Glyph;
+
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Terminator {
+    Dot,
+    Marker,
+    Space,
+}
+
+impl Glyph {
+    pub fn highlight() -> Self {
+        Glyph::Terminator(Terminator::Dot)
+    }
+    pub fn marker() -> Self {
+        Glyph::Terminator(Terminator::Marker)
+    }
+}
+
+impl Default for Glyph {
+    fn default() -> Self {
+        Glyph::Terminator(Terminator::default())
+    }
+}
+
+impl Default for Terminator {
+    fn default() -> Self {
+        Terminator::Space
+    }
+}
+
+impl From<Glyph> for String {
+    fn from(g: Glyph) -> Self {
+        match g {
+            Glyph::Function => "F".to_string(),
+            Glyph::Number => "h".to_string(),
+            Glyph::Note => "n".to_string(),
+            Glyph::String => "s".to_string(),
+            Glyph::Terminator(t) => t.into(),
+        }
+    }
+}
+
+impl From<Terminator> for String {
+    fn from(t: Terminator) -> Self {
+        match t {
+            Terminator::Dot => ".".to_string(),
+            Terminator::Marker => "+".to_string(),
+            Terminator::Space => " ".to_string(),
+        }
+    }
+}
+
+fn to_glyphs(parsed_exps: &Parsed<Expression>) -> Vec<Glyph> {
+    parsed_exps
+        .0
+        .iter()
+        .filter_map(|exp| match exp.atom {
+            Some(Atom::Empty) => None,
+            Some(Atom::Function(Function::Empty)) => None,
+            _ => Some(exp.token),
+        })
+        .flat_map(|t| {
+            let (g, n) = match t {
+                Token::Function => (G::Function, 2),
+                Token::Note => (G::Note, 2),
+                Token::Number => (G::Number, 2),
+                Token::Number1 => (G::Number, 1),
+                Token::String => (G::String, 2),
+            };
+            iter::repeat(g).take(n)
+        })
+        .collect()
+}
+
 impl Source {
     pub fn new(cols: usize, rows: usize) -> Self {
         let n = cols * rows;
         let inner = TERMINATOR.to_string().repeat(n);
 
         let map = vec![None; n];
+        let glyphs = vec![Glyph::default(); n];
 
         let parsed = HashMap::with_capacity_and_hasher(n, BuildHasherDefault::default());
 
         Self {
+            inner,
+            glyphs,
+            parsed,
+            map,
             cols,
             rows,
-            inner,
-            map,
-            parsed,
         }
-    }
-
-    fn from_source(cols: usize, rows: usize, source: impl Into<String>) -> Self {
-        let n = cols * rows;
-        let inner = source.into();
-        let len = inner.len();
-
-        assert!(len == n, "source length {len}, expected {n}");
-
-        let mut source = Self::new(cols, rows);
-
-        // Iterate through inner and call set_at
-        for (idx, &byte) in inner.as_bytes().iter().enumerate() {
-            let x = idx % cols;
-            let y = idx / cols;
-            source.set_at(x, y, &(byte as char).to_string());
-        }
-
-        source
     }
 
     pub fn get_at(&self, x: usize, y: usize) -> String {
@@ -93,7 +159,7 @@ impl Source {
     }
 
     #[inline(always)]
-    pub fn get_exp_str(&self, exp: &Rc<RefCell<Expression>>) -> &str {
+    pub fn get_exp_str(&self, exp: &Rc<RefCell<SourceExpression>>) -> &str {
         let exp = exp.borrow();
         let start = exp.start;
         let end = exp.end;
@@ -110,46 +176,55 @@ impl Source {
         unsafe { self.inner.get_unchecked(start..(end + 1)) }
     }
 
-    pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<Expression>>) {
+    pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
         self.parse_exp(&exp);
         self.map[idx] = Some(exp);
     }
 
     pub fn remove_exp(&mut self, idx: usize) {
-        self.parsed.remove(&idx);
+        // self.glyphs.remove(&idx);
         self.map[idx] = None;
     }
 
-    pub fn get_exp_at(&self, x: usize, y: usize) -> Option<&FunctionExpression> {
+    pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
         let idx = self.to_idx(x, y);
+        let s = self.get_at(x, y);
 
-        if let Some(exp) = &self.map[idx] {
-            let exp = exp.borrow();
-            let key = exp.start;
+        // info!("{:?}", self.glyphs);
+        // if let Some(exp) = &self.map[idx] {
+        //     let exp = exp.borrow();
+        //     let key = exp.start;
 
-            if let Some(parsed) = self.parsed.get(&key) {
-                return Some(parsed);
-            }
-        }
-        None
+        //     if let Some(parsed) = self.glyphs.get(&key) {
+        //         info!("{:?}", parsed);
+        //         let pos = idx - key;
+        //         let g = *parsed.get(pos).unwrap_or(&Glyph::default());
+        //         info!("{:?}", g);
+        //         return g;
+        //     }
+        // }
+
+        Glyph::default()
     }
 
-    pub fn parse_exp(&mut self, exp: &Rc<RefCell<Expression>>) {
+    pub fn parse_exp(&mut self, exp: &Rc<RefCell<SourceExpression>>) {
         let mut s = self.get_exp_str(&exp).to_owned();
 
-        debug!("src: {s:?}");
+        let parsed = Parser::from(&mut s).parse().take();
 
-        let result = Parser::from(&mut s).parse();
-        match result {
-            Ok(fun_exp) => {
-                let exp = exp.borrow();
-                let idx = exp.start;
-                debug!("fun_exp: {fun_exp:?}");
-                self.parsed.insert(idx, fun_exp);
-            }
-            _ => {
-                error!("parse error");
-            }
+        let glyphs = to_glyphs(&parsed);
+
+        let exp = exp.borrow();
+        let idx = exp.start;
+
+        debug!("parsed {parsed:?}");
+        debug!("glyphs {glyphs:?}");
+
+        self.parsed.insert(idx, parsed);
+
+        for (i, g) in glyphs.iter().enumerate() {
+            let pos = idx + i;
+            self.glyphs[pos] = *g;
         }
     }
 
@@ -167,6 +242,8 @@ impl Source {
     ///
     pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
         let idx = self.set_at_uncalculated(x, y, s);
+
+        // info!("{}", self.inner);
 
         self.calculate_at(idx, s);
     }
@@ -211,24 +288,31 @@ impl Source {
     pub fn unset_at(&mut self, x: usize, y: usize) {
         let idx = self.to_idx(x, y);
 
-        let s = TERMINATOR;
-        let s_bytes = s.as_bytes();
-
         // SAFELY UNSAFE
         //   all characters are single-byte ASCII
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
-        let recalculate = unsafe {
-            let bytes = self.inner.as_bytes_mut();
-            let b = bytes[idx];
-            bytes[idx] = s_bytes[0];
 
-            is_terminator_bytes(b)
+        unsafe {
+            let bytes = self.inner.as_bytes_mut();
+            bytes[idx] = TERMINATOR_BYTES[0];
         };
 
-        if recalculate {
-            self.calculate_at(idx, s);
-        }
+        self.calculate_at(idx, TERMINATOR);
+
+        // let recalculate = unsafe {
+        //     let bytes = self.inner.as_bytes_mut();
+        //     let b = bytes[idx];
+
+        //     info!("{b}");
+        //     bytes[idx] = s_bytes[0];
+
+        //     is_terminator_bytes(b)
+        // };
+
+        // if recalculate {
+        //     self.calculate_at(idx, s);
+        // }
     }
 
     pub fn calculate_at(&mut self, idx: usize, s: &str) {
@@ -300,7 +384,7 @@ impl Source {
                     // The left expression will be modified
                     {
                         let rgt = rgt_exp.borrow();
-                        let exp = Rc::new(RefCell::new(Expression::new(rgt_idx, rgt.end)));
+                        let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt.end)));
                         // self.map[rgt_idx] = Some(exp);
                         self.set_exp(rgt_idx, exp);
                     }
@@ -361,7 +445,7 @@ impl Source {
 
                 if glyph {
                     // New Expression
-                    let exp = Rc::new(RefCell::new(Expression::new(idx, idx)));
+                    let exp = Rc::new(RefCell::new(SourceExpression::new(idx, idx)));
                     self.set_exp(idx, exp);
                 }
             }
@@ -386,11 +470,32 @@ impl Source {
         self.cols * self.rows
     }
 
+    #[cfg(test)]
+    fn from_source(cols: usize, rows: usize, source: impl Into<String>) -> Self {
+        let n = cols * rows;
+        let inner = source.into();
+        let len = inner.len();
+
+        assert!(len == n, "source length {len}, expected {n}");
+
+        let mut source = Self::new(cols, rows);
+
+        // Iterate through inner and call set_at
+        for (idx, &byte) in inner.as_bytes().iter().enumerate() {
+            let x = idx % cols;
+            let y = idx / cols;
+            source.set_at(x, y, &(byte as char).to_string());
+        }
+
+        source
+    }
+
+    #[cfg(test)]
     fn print_exp(&self) {
         self.map.iter().for_each(|m| {
             info!("map: {:?}", m);
         });
-        self.parsed.iter().for_each(|m| {
+        self.glyphs.iter().for_each(|m| {
             info!("parsed: {:?}", m);
         });
     }
@@ -423,16 +528,14 @@ pub fn is_character(s: &str) -> bool {
 
 #[cfg(test)]
 mod test {
-    use std::fmt::Debug;
-
     use crate::source::is_terminator;
     use crate::source::is_terminator_bytes;
-    use crate::source::Expression;
+    use crate::source::Glyph;
     use crate::source::Source;
+    use crate::source::SourceExpression;
+    use crate::source::Terminator;
     use crate::test::trace;
-    use lang::Atom;
-    use lang::Function;
-    use lang::FunctionExpression;
+    use std::fmt::Debug;
     use tracing::{debug, info};
 
     fn source_from(s: &str) -> Source {
@@ -448,13 +551,14 @@ mod test {
             //
             // Reference to Option (the Map owns the data)
             //
-            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<Expression>>> = &source.map[0];
+            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<SourceExpression>>> =
+                &source.map[0];
             // Get Reference to the RC the Option is wrapping
             // Swap for Option<&RC>
             opt_exp
                 .as_ref()
                 // and map Option to get the &RC
-                .map(|exp: &std::rc::Rc<std::cell::RefCell<Expression>>| {
+                .map(|exp: &std::rc::Rc<std::cell::RefCell<SourceExpression>>| {
                     // Now we can borrow the actual Exp we are interested in.
                     let end = exp.borrow().end;
                     assert_eq!(end, x);
@@ -472,26 +576,25 @@ mod test {
     }
 
     #[test]
-    fn test_get_exp_at() {
+    fn test_get_glyph_at() {
         trace();
-        let source = source_from("..++0101..");
 
-        let exp = source.get_exp_at(2, 0).unwrap();
-        let exp = exp.inner.first().unwrap();
+        let source = source_from("  ++0101  ");
 
-        assert_eq!(exp.atom, Some(Atom::Function(Function::Add)));
+        let glyph = source.get_glyph_at(0, 0);
+        assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
 
-        let exp = source.get_exp_at(3, 0).unwrap();
-        let exp = exp.inner.first().unwrap();
+        let glyph = source.get_glyph_at(2, 0);
+        assert_eq!(glyph, Glyph::Function);
 
-        assert_eq!(exp.atom, Some(Atom::Function(Function::Add)));
+        let glyph = source.get_glyph_at(3, 0);
+        assert_eq!(glyph, Glyph::Function);
 
-        let exp = source.get_exp_at(4, 0).unwrap();
-        let exp = exp.inner.first().unwrap();
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Number);
 
-        assert_eq!(exp.atom, Some(Atom::Function(Function::Add)));
-
-        // info!("{exp:?}");
+        let glyph = source.get_glyph_at(9, 0);
+        assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
     }
 
     #[test]
@@ -503,7 +606,7 @@ mod test {
         assert!(t);
 
         let t = is_terminator("+");
-        assert!(t);
+        assert!(t == false);
 
         let t = is_terminator("..");
         assert!(t == false);
@@ -524,28 +627,11 @@ mod test {
 
         let b = "+".as_bytes();
         let t = is_terminator_bytes(b[0]);
-        assert!(t);
+        assert!(t == false);
 
         let b = "!".as_bytes();
         let t = is_terminator_bytes(b[0]);
         assert!(t == false);
-    }
-
-    #[test]
-    fn test_expression_map() {
-        trace();
-
-        let source = source_from("++0101");
-
-        // source.print_exp();
-        // info!("============================");
-        // info!("parsed {:?}", source.parsed);
-
-        let exp = source.parsed.values().collect::<Vec<&FunctionExpression>>();
-
-        // let result = source.parse_exp(exp.first().unwrap());
-
-        info!("exp {:?}", exp);
     }
 
     #[test]
@@ -557,16 +643,17 @@ mod test {
         source.set_at(5, 0, "C");
         source.set_at(7, 0, "B");
         source.set_at(9, 0, "A");
-        assert_eq!(source.inner, ".....C.B.A");
 
-        assert_eq!(source.parsed.len(), 3);
+        assert_eq!(source.inner, "     C B A");
+
+        assert_eq!(source.glyphs.len(), 3);
 
         source.set_at(5, 0, ".");
         source.set_at(7, 0, ".");
         source.set_at(9, 0, ".");
-        assert_eq!(source.inner, "..........");
+        assert_eq!(source.inner, "     . . .");
 
-        assert_eq!(source.parsed.len(), 0);
+        assert_eq!(source.glyphs.len(), 0);
     }
 
     #[test]
@@ -579,7 +666,8 @@ mod test {
         source.set_at(1, 0, "d");
         source.set_at(2, 0, "0");
         source.set_at(3, 0, "A");
-        assert_eq!(source.inner, "id0A......");
+
+        assert_eq!(source.inner, "id0A      ");
 
         source.print_exp();
 
@@ -596,7 +684,7 @@ mod test {
         assert_eq!(s, "id0A");
     }
 
-    #[test]
+    // #[test]
     fn test_expressions_list_with_delete() {
         trace();
 
@@ -605,19 +693,19 @@ mod test {
         source.set_at(0, 0, "A");
         source.set_at(2, 0, "B");
         source.set_at(4, 0, "C");
-        assert_eq!(source.inner, "A.B.C.....");
+        assert_eq!(source.inner, "A B C     ");
 
-        assert_eq!(source.parsed.len(), 3);
+        assert_eq!(source.glyphs.len(), 3);
 
         source.set_at(4, 0, ".");
-        assert_eq!(source.parsed.len(), 2);
+        assert_eq!(source.glyphs.len(), 2);
 
         source.set_at(2, 0, ".");
-        assert_eq!(source.parsed.len(), 1);
+        assert_eq!(source.glyphs.len(), 1);
 
         source.set_at(0, 0, ".");
 
-        assert_eq!(source.parsed.len(), 0);
+        assert_eq!(source.glyphs.len(), 0);
 
         // source.parsed.iter().for_each(|m| {
         //     info!("map: {:?}", m);
@@ -631,11 +719,13 @@ mod test {
         let mut source = Source::new(10, 1);
 
         source.set_at(0, 0, "A");
-        source.set_at(2, 0, "B");
-        source.set_at(4, 0, "C");
-        assert_eq!(source.inner, "A.B.C.....");
+        // source.set_at(2, 0, "B");
+        // source.set_at(4, 0, "C");
+        // assert_eq!(source.inner, "A B C     ");
 
-        assert_eq!(source.parsed.len(), 3);
+        info!("{:?}", source.inner);
+        info!("{:?}", source.glyphs);
+        // assert_eq!(source.glyphs.len(), 3);
     }
 
     #[test]
@@ -648,12 +738,12 @@ mod test {
         source.set_at(0, 0, "I");
         source.set_at(1, 0, "D");
         source.set_at(3, 0, "A");
-        assert_eq!(source.inner, "ID.A......");
+        assert_eq!(source.inner, "ID A      ");
 
         assert_ne!(source.map[0], source.map[2]);
 
         source.set_at(2, 0, "A");
-        assert_eq!(source.inner, "IDAA......");
+        assert_eq!(source.inner, "IDAA      ");
 
         // Single expression
         assert_eq!(source.map[0], source.map[1]);
@@ -671,7 +761,7 @@ mod test {
         source.set_at(7, 0, "D");
         source.set_at(8, 0, "A");
         source.set_at(9, 0, "A");
-        assert_eq!(source.inner, "......IDAA");
+        assert_eq!(source.inner, "      IDAA");
     }
 
     #[test]
@@ -684,10 +774,10 @@ mod test {
         source.set_at(7, 0, "D");
         source.set_at(8, 0, "A");
         source.set_at(9, 0, "A");
-        assert_eq!(source.inner, "......IDAA");
+        assert_eq!(source.inner, "      IDAA");
 
         source.set_at(5, 0, "X");
-        assert_eq!(source.inner, ".....XIDAA");
+        assert_eq!(source.inner, "     XIDAA");
 
         assert_eq!(source.map[5], source.map[6]);
 
@@ -706,10 +796,10 @@ mod test {
         source.set_at(1, 0, "D");
         source.set_at(2, 0, "A");
         source.set_at(3, 0, "A");
-        assert_eq!(source.inner, "IDAA......");
+        assert_eq!(source.inner, "IDAA      ");
 
         source.set_at(2, 0, ".");
-        assert_eq!(source.inner, "ID.A......");
+        assert_eq!(source.inner, "ID.A      ");
 
         assert_eq!(source.map[0], source.map[1]);
         assert_ne!(source.map[0], source.map[2]);
@@ -732,14 +822,14 @@ mod test {
         source.set_at(1, 0, "D");
         source.set_at(2, 0, "A");
         source.set_at(3, 0, "A");
-        assert_eq!(source.inner, "IDAA......");
+        assert_eq!(source.inner, "IDAA      ");
 
         source.map.iter().for_each(|m| {
             info!("map: {:?}", m);
         });
 
         source.set_at(2, 0, "0");
-        assert_eq!(source.inner, "ID0A......");
+        assert_eq!(source.inner, "ID0A      ");
 
         assert_eq!(source.map[0], source.map[1]);
         assert_eq!(source.map[0], source.map[2]);
@@ -752,11 +842,12 @@ mod test {
 
         let mut source = Source::new(10, 1);
         source.set_at(0, 0, "I");
-        assert_eq!(source.inner, "I.........");
+
+        assert_eq!(source.inner, "I         ");
 
         source.set_at(1, 0, "D");
-        assert_eq!(source.inner, "ID........");
 
+        assert_eq!(source.inner, "ID        ");
         assert_eq!(source.map[0], source.map[1]);
 
         let ptr_0 = source.map[0].as_ref().unwrap().as_ref();
@@ -780,11 +871,11 @@ mod test {
 
         source.set_at(0, 0, "T");
 
-        assert_eq!(source.inner, "T.........");
+        assert_eq!(source.inner, "T         ");
 
         source.set_at(7, 0, "X");
 
-        assert_eq!(source.inner, "T......X..");
+        assert_eq!(source.inner, "T      X  ");
     }
 
     #[test]

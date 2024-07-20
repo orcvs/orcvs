@@ -22,9 +22,9 @@ fn interpret(exp: &String) {
 
     assert!(result.is_ok());
 
-    let mut interpreter = Interpreter::new(black_box(result.unwrap()));
-    let result = interpreter.interpret();
-    assert!(result.is_ok());
+    // let mut interpreter = Interpreter::new(black_box(result.unwrap()));
+    // let result = interpreter.interpret();
+    // assert!(result.is_ok());
 }
 
 pub fn parser_benchmark(c: &mut Criterion) {
@@ -73,8 +73,8 @@ pub fn interpret_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-// criterion_group!(benches, parser_benchmark);
+criterion_group!(benches, parser_benchmark);
 // criterion_group!(benches, invalid_parser_benchmark);
-criterion_group!(benches, interpret_benchmark);
+// criterion_group!(benches, interpret_benchmark);
 
 criterion_main!(benches);

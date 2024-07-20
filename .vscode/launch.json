@@ -13,14 +13,16 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=console"
+                    "--package=console",
                 ],
                 "filter": {
                     "name": "console",
                     "kind": "lib"
                 }
             },
-            "args": [],
+            "args": [
+                "test_highlight"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -30,25 +32,6 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=console",
-                    "--package=console"
-                ],
-                "filter": {
-                    "name": "console",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'console'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
                     "--bin=console",
                     "--package=console"
                 ],

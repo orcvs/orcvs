@@ -1,6 +1,6 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
-mod app;
+pub mod app;
 pub mod source;
 mod style;
 
@@ -8,15 +8,7 @@ pub use app::ConsoleApp;
 use egui::Color32;
 use tracing::info;
 
-// pub fn distance(Coord(x1, y1): Coord, Coord(x2, y2): Coord) -> f64 {
-//     let x = (x2 as f64 - x1 as f64) as f64;
-//     let y = (y2 as f64 - y1 as f64) as f64;
-
-//     let d = y.hypot(x);
-//     d.floor()
-// }
-
-struct Color(Color32);
+pub struct Color(Color32);
 
 impl Color {
     const fn rgb(r: u8, g: u8, b: u8) -> Self {
@@ -85,46 +77,77 @@ impl<const X: usize, const Y: usize> Coord<X, Y> {
     pub fn in_grid(self, x: usize, y: usize, grid_size: f32) -> bool {
         assert!(grid_size != 0.0);
 
-        let min_x = (self.x as f32 / grid_size).floor() * grid_size;
-        let max_x = ((self.x as f32 / grid_size).ceil() * grid_size).max(grid_size);
-        let min_y = (self.y as f32 / grid_size).floor() * grid_size;
-        let max_y = ((self.y as f32 / grid_size).ceil() * grid_size).max(grid_size);
+        let x = x as i32;
+        let y = y as i32;
+        let cursor_x = self.x as i32;
+        let cursor_y = self.y as i32;
+        let grid_size = grid_size as i32;
 
-        x as f32 >= min_x && x as f32 <= max_x && y as f32 >= min_y && y as f32 <= max_y
+        let min_x = ((cursor_x / grid_size) * grid_size) - 1;
+        let max_x = (1 + (cursor_x / grid_size)) * grid_size;
+        let min_y = ((cursor_y / grid_size) * grid_size) - 1;
+        let max_y = (1 + (cursor_y / grid_size)) * grid_size;
+
+        // info!("{min_x}/{max_x}");
+        // info!("{min_y}/{max_y}");
+
+        x > min_x && (x) <= max_x && y > min_y && (y) <= max_y
     }
 }
 
 #[cfg(test)]
 mod test {
+
     use std::sync::Once;
 
     use tracing::info;
 
     use crate::Coord;
 
+    #[allow(dead_code)]
+    static INIT: Once = Once::new();
+
+    #[allow(dead_code)]
+    pub fn trace() {
+        INIT.call_once(|| {
+            use tracing_subscriber::FmtSubscriber;
+
+            let subscriber = FmtSubscriber::builder()
+                .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
+                .with_line_number(true)
+                .with_target(true)
+                .finish();
+
+            tracing::subscriber::set_global_default(subscriber)
+                .expect("setting default subscriber failed");
+        });
+    }
+
     #[test]
     fn test_in_grid() {
         trace();
         let grid_size = 8.0;
 
-        let selected = Coord::<100, 100>::from(0, 0);
-
-        for x in 0..=grid_size as usize {
-            for y in 0..=grid_size as usize {
+        let selected = Coord::<100, 100>::from(5, 5);
+        assert!(!selected.in_grid(10, 10, grid_size));
+        for x in 0..grid_size as usize {
+            for y in 0..grid_size as usize {
                 assert!(selected.in_grid(x, y, grid_size));
             }
         }
 
-        let selected = Coord::<100, 100>::from(5, 5);
+        let selected = Coord::<100, 100>::from(8, 8);
+        assert!(!selected.in_grid(1, 1, grid_size));
 
-        for x in 0..=grid_size as usize {
-            for y in 0..=grid_size as usize {
+        for x in 8..=16 as usize {
+            for y in 8..=16 as usize {
                 assert!(selected.in_grid(x, y, grid_size));
             }
         }
 
         // Grid X 5 Y 6
         let selected = Coord::<100, 100>::from(42, 51);
+        assert!(!selected.in_grid(1, 1, grid_size));
         for x in 0..=grid_size as usize {
             for y in 0..=grid_size as usize {
                 let x = x + 40;
@@ -161,47 +184,5 @@ mod test {
         let coord = coord.up();
         let coord = coord.up();
         assert_eq!(coord.y, 0);
-    }
-
-    #[test]
-    fn test_distance() {
-        trace();
-
-        // let a = Coord(1, 1);
-        // let b = Coord(1, 2);
-        // let d = distance(a, b);
-
-        // assert_eq!(d, 1.0);
-
-        // let a = Coord(1, 1);
-        // let b = Coord(3, 3);
-        // let d = distance(a, b);
-
-        // assert_eq!(d, 2.0);
-
-        // let a = Coord(1, 1);
-        // let b = Coord(7, 5);
-        // let d = distance(a, b);
-
-        // assert_eq!(d, 7.0);
-    }
-
-    #[allow(dead_code)]
-    static INIT: Once = Once::new();
-
-    #[allow(dead_code)]
-    pub fn trace() {
-        INIT.call_once(|| {
-            use tracing_subscriber::FmtSubscriber;
-
-            let subscriber = FmtSubscriber::builder()
-                .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
-                .with_line_number(true)
-                .with_target(true)
-                .finish();
-
-            tracing::subscriber::set_global_default(subscriber)
-                .expect("setting default subscriber failed");
-        });
     }
 }

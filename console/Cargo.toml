@@ -40,6 +40,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", default-features = false }
 nohash-hasher = "0.2.0"
+
 # native:
 # [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # env_logger = "0.10"

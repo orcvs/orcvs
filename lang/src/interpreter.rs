@@ -1,6 +1,4 @@
-// #[allow(unused)]
-
-use crate::{Atom, Error, Expression, Function, Stack, EXP_LEN};
+use crate::{Atom, Error, Function, Stack, EXP_LEN};
 use tracing::info;
 
 pub struct Interpreter {
@@ -123,8 +121,8 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Expression, Function, Parser,
-        Stack, Token, TypeError,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, Stack,
+        TypeError,
     };
     use arrayvec::ArrayVec;
 
@@ -159,10 +157,10 @@ mod test {
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
-        let mut parser = Parser::from(&mut exp);
-        let exp = parser.try_parse().unwrap();
+        let parser = Parser::from(&mut exp);
+        let parsed = parser.try_parse().unwrap();
 
-        let stack = Stack::new_with(exp);
+        let stack = Stack::new_with(parsed.0);
         let mut interpreter = Interpreter::new(stack);
         interpreter.interpret().unwrap()
     }

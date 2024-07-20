@@ -1,5 +1,3 @@
-use arrayvec::ArrayVec;
-
 use crate::to_atom_note;
 use crate::to_atom_num;
 use crate::to_atom_string;
@@ -7,11 +5,14 @@ use crate::Atom;
 use crate::Error;
 use crate::Expression;
 use crate::Function;
+use crate::Parsed;
 use crate::SyntaxError;
 use crate::Token;
 use crate::Tokens;
 use crate::EXP_LEN;
+use arrayvec::ArrayVec;
 use std::ops::Not;
+use tracing::info;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 
@@ -40,7 +41,7 @@ impl<'a> Parser<'a> {
     ///
     /// try_parse will error if the parse fails
     ///
-    pub fn try_parse(mut self) -> Result<ArrayVec<Atom, 32>, Error> {
+    pub fn try_parse(mut self) -> Result<Parsed<Atom>, Error> {
         self.take_function()?;
         Ok(self.take_atoms())
     }
@@ -48,19 +49,30 @@ impl<'a> Parser<'a> {
     ///
     /// parse will return a boolean indicating success or failure
     ///
-    pub fn parse(mut self) -> Result<ArrayVec<Atom, EXP_LEN>, Error> {
+    pub fn parse(mut self) -> Self {
         self.check = true;
         self.invalid = false;
-        self.take_function()?;
-
-        Ok(self.take_atoms())
+        let _ = self.take_function();
+        self
     }
 
-    fn take_atoms(self) -> ArrayVec<Atom, 32> {
-        self.stack
+    pub fn take(self) -> Parsed<Expression> {
+        let exp = self.stack.into_iter().collect();
+        Parsed(exp)
+    }
+
+    pub fn take_atoms(self) -> Parsed<Atom> {
+        let atm = self
+            .stack
             .into_iter()
             .map(|exp| exp.atom.unwrap_or(Atom::Empty))
-            .collect()
+            .collect();
+        Parsed(atm)
+    }
+
+    pub fn take_tokens(self) -> Parsed<Token> {
+        let tkn = self.stack.into_iter().map(|exp| exp.token).collect();
+        Parsed(tkn)
     }
 
     pub fn is_valid(&self) -> bool {
@@ -80,8 +92,10 @@ impl<'a> Parser<'a> {
     ///
     #[inline(always)]
     fn take_function(&mut self) -> Result<(), Error> {
+        info!("source {:?}", self.source);
         let token = self.next_token(2);
 
+        info!("token {token:?}");
         match token {
             Some(t) => {
                 let result = Function::try_from(t);
@@ -94,10 +108,9 @@ impl<'a> Parser<'a> {
                         tokens
                     }
                     Err(e) => {
-                        self.check_function().ok_or(e).map(|f| {
-                            let exp = Expression::from(f);
-
-                            self.add(exp);
+                        self.check_function().ok_or(e).map(|_f| {
+                            // let exp = Expression::from(f);
+                            // self.add(exp);
                         })?;
                         Tokens::new()
                     }
@@ -114,16 +127,26 @@ impl<'a> Parser<'a> {
                 }
                 Ok(())
             }
-            None => self
-                .check_atom()
-                .and_then(|a| {
-                    let mut exp = Expression::new(Token::Function);
-                    exp.set_atom(a);
-                    self.add(exp);
-
-                    Some(())
-                })
-                .ok_or(SyntaxError::ExpectedFunction.into()),
+            None => {
+                if self.check {
+                    Ok(())
+                } else {
+                    Err(SyntaxError::ExpectedFunction.into())
+                }
+                // self
+                // .check_atom()
+                // // .and_then(|a| {
+                // //     info!("HERE (None)");
+                // //     // YOU ARE HERE !!!!!
+                // //     // SINGLE CHARACTER MEANS TOKEN is NONE
+                // //     // WE SHOULD BE EMPTY HERE
+                // //     let mut exp = Expression::new(Token::Function);
+                // //     exp.set_atom(a);
+                // //     self.add(exp);
+                // //     Some(())
+                // // })
+                // .ok_or(SyntaxError::ExpectedFunction.into())?
+            }
         }
     }
 
@@ -224,7 +247,7 @@ mod test {
 
     use arrayvec::ArrayVec;
 
-    use crate::{parser::Parser, trace, Atom, Error, Function, SyntaxError, Token, TypeError};
+    use crate::{parser::Parser, trace, Atom, Error, Function, Parsed, SyntaxError, TypeError};
 
     macro_rules! array_vec {
         ($($items:tt),*) => {
@@ -241,14 +264,14 @@ mod test {
         };
     }
 
-    fn try_parse(exp: &mut str) -> Result<ArrayVec<Atom, 32>, Error> {
-        let mut parser = Parser::from(exp);
+    fn try_parse(exp: &mut str) -> Result<Parsed<Atom>, Error> {
+        let parser = Parser::from(exp);
         parser.try_parse()
     }
 
-    fn parse(exp: &mut str) -> Result<ArrayVec<Atom, 32>, Error> {
-        let mut parser = Parser::from(exp);
-        parser.parse()
+    fn parse(exp: &mut str) -> Result<Parsed<Atom>, Error> {
+        let parser = Parser::from(exp);
+        Ok(parser.parse().take_atoms())
     }
 
     #[test]
@@ -260,14 +283,21 @@ mod test {
 
         let stack = array_vec!([Atom::Function(Function::Add), Atom::Empty, Atom::Empty]);
 
-        assert_eq!(parsed, stack);
+        assert_eq!(parsed.0, stack);
 
         let mut s = String::from("..");
         let parsed = parse(&mut s).unwrap();
+        assert!(parsed.0.is_empty());
 
-        let stack = array_vec!([Atom::Function(Function::Empty)]);
+        let mut s = String::from("ABC");
+        let parsed = parse(&mut s).unwrap();
+        assert!(parsed.0.is_empty());
 
-        assert_eq!(parsed, stack);
+        let mut s = String::from("A           ");
+        // let parsed = parse(&mut s).unwrap();
+        let parser = Parser::from(&mut s);
+        let parsed = parser.parse().take();
+        assert!(parsed.0.is_empty());
     }
 
     #[test]
@@ -301,7 +331,7 @@ mod test {
 
         let expected = array_vec!([Atom::Function(Function::Id), Atom::String("FA".to_string()),]);
 
-        assert_eq!(parsed, expected);
+        assert_eq!(parsed.0, expected);
     }
 
     #[test]
@@ -318,7 +348,7 @@ mod test {
             Atom::Note(60),
         ]);
 
-        assert_eq!(parsed, expected);
+        assert_eq!(parsed.0, expected);
     }
 
     #[test]
@@ -348,7 +378,7 @@ mod test {
             Atom::String("01".to_string()),
         ]);
 
-        assert_eq!(parsed, expected);
+        assert_eq!(parsed.0, expected);
 
         let mut s = String::from("++id0A01");
         let parsed = try_parse(&mut s).unwrap();
@@ -360,7 +390,7 @@ mod test {
             Atom::Number(1),
         ]);
 
-        assert_eq!(parsed, expected);
+        assert_eq!(parsed.0, expected);
     }
 
     #[test]
@@ -377,7 +407,7 @@ mod test {
             Atom::String("AA".to_string()),
         ]);
 
-        assert_eq!(parsed, expected);
+        assert_eq!(parsed.0, expected);
 
         let mut s = String::from("++idididAA01");
         let parsed = try_parse(&mut s).unwrap();
@@ -403,6 +433,6 @@ mod test {
             Atom::Number(1),
         ]);
 
-        assert_eq!(parsed, expected);
+        assert_eq!(parsed.0, expected);
     }
 }

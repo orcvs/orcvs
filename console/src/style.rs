@@ -91,11 +91,13 @@ pub fn style() -> Style {
                     expansion: 0.0,
                 },
                 inactive: WidgetVisuals {
-                    bg_fill: Color32::from_rgba_premultiplied(60, 60, 60, 255),
-                    weak_bg_fill: Color32::from_rgba_premultiplied(60, 60, 60, 255),
+                    bg_fill: Color::rgb(60, 60, 60).build(),
+                    weak_bg_fill: Color::rgb(60, 60, 60).build(),
+
                     bg_stroke: Stroke {
                         width: 0.0,
-                        color: Color32::from_rgba_premultiplied(0, 0, 0, 0),
+
+                        color: Color::rgb(180, 180, 180).build(),
                     },
                     rounding: Rounding {
                         nw: 2.0,
@@ -105,7 +107,7 @@ pub fn style() -> Style {
                     },
                     fg_stroke: Stroke {
                         width: 1.0,
-                        color: Color32::from_rgba_premultiplied(180, 180, 180, 255),
+                        color: Color::rgb(180, 180, 180).build(),
                     },
                     expansion: 0.0,
                 },
@@ -129,11 +131,11 @@ pub fn style() -> Style {
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
-                    bg_fill: Color32::from_rgba_premultiplied(55, 55, 55, 255),
-                    weak_bg_fill: Color32::from_rgba_premultiplied(55, 55, 55, 255),
+                    bg_fill: Color::rgb(55, 55, 55).build(),
+                    weak_bg_fill: Color::rgb(55, 55, 55).build(),
                     bg_stroke: Stroke {
                         width: 1.0,
-                        color: Color32::from_rgba_premultiplied(255, 255, 255, 255),
+                        color: Color::rgb(255, 255, 255).build(),
                     },
                     rounding: Rounding {
                         nw: 2.0,

@@ -7,12 +7,14 @@ pub use parser::Parser;
 use arrayvec::ArrayVec;
 use std::fmt;
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::sync::Once;
 use thiserror::Error;
 
 const EXP_LEN: usize = 32;
 pub struct MaybeAtom(Option<Atom>);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Parsed<T>(pub ArrayVec<T, 32>);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
@@ -149,10 +151,6 @@ impl<const N: usize> Stack<N> {
         self.pop()
             .try_into()
             .map_err(|err| map_arity(err, expected, count))
-    }
-
-    fn take_atoms(self) -> ArrayVec<Atom, EXP_LEN> {
-        self.inner.into_iter().collect()
     }
 }
 
