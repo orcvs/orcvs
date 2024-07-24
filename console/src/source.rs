@@ -106,12 +106,13 @@ impl From<Terminator> for String {
     }
 }
 
+// Parsed([Expression { token: Function, atom: Some(Function(Id)) }, Expression { token: String, atom: Some(Empty) }])
+
 fn to_glyphs(parsed_exps: &Parsed<Expression>) -> Vec<Glyph> {
     parsed_exps
         .0
         .iter()
         .filter_map(|exp| match exp.atom {
-            Some(Atom::Empty) => None,
             Some(Atom::Function(Function::Empty)) => None,
             _ => Some(exp.token),
         })
@@ -176,35 +177,60 @@ impl Source {
         unsafe { self.inner.get_unchecked(start..(end + 1)) }
     }
 
+    pub fn set_exp_from(&mut self, start: usize, end: usize, exp: Rc<RefCell<SourceExpression>>) {
+        for i in start..(end + 1) {
+            self.map[i] = Some(exp.clone());
+        }
+    }
+
     pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
-        self.parse_exp(&exp);
         self.map[idx] = Some(exp);
     }
 
+    pub fn end_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
+        let mut exp = exp.borrow_mut();
+        exp.end = idx;
+    }
+
+    pub fn start_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
+        let mut exp = exp.borrow_mut();
+        exp.start = idx;
+    }
+
     pub fn remove_exp(&mut self, idx: usize) {
-        // self.glyphs.remove(&idx);
         self.map[idx] = None;
     }
+
+    //     if let Some(exp) = &self.map[idx] {
+    //     let exp = exp.borrow();
+    //     for i in exp.start..exp.end {
+    //         self.glyphs[i] = Glyph::default();
+    //     }
+    // }
 
     pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
         let idx = self.to_idx(x, y);
         let s = self.get_at(x, y);
 
-        // info!("{:?}", self.glyphs);
+        *self.glyphs.get(idx).unwrap()
+
+        // info!("get_glyph_at [{x}/{y}]: {s}");
+        // info!("glyphs {:?}", self.glyphs);
+
         // if let Some(exp) = &self.map[idx] {
         //     let exp = exp.borrow();
-        //     let key = exp.start;
+        //     let pos = idx - exp.start;
 
-        //     if let Some(parsed) = self.glyphs.get(&key) {
-        //         info!("{:?}", parsed);
-        //         let pos = idx - key;
-        //         let g = *parsed.get(pos).unwrap_or(&Glyph::default());
-        //         info!("{:?}", g);
-        //         return g;
+        //     info!("pos: {}");
+
+        //     if let Some(parsed) = self.glyphs.get(pos) {
+        //         // info!("{:?}", parsed);
+        //         // let g = *parsed.get(pos).unwrap_or(&Glyph::default());
+        //         // info!("{:?}", g);
+        //         return *parsed;
         //     }
         // }
-
-        Glyph::default()
+        // Glyph::default()
     }
 
     pub fn parse_exp(&mut self, exp: &Rc<RefCell<SourceExpression>>) {
@@ -281,38 +307,12 @@ impl Source {
     /// Alias of `set_at_uncalculated``
     ///
     ///
-    pub fn set_terminator_at(&mut self, x: usize, y: usize, s: &str) {
-        self.set_at_uncalculated(x, y, s);
-    }
+    // pub fn set_terminator_at(&mut self, x: usize, y: usize, s: &str) {
+    //     self.set_at_uncalculated(x, y, s);
+    // }
 
     pub fn unset_at(&mut self, x: usize, y: usize) {
-        let idx = self.to_idx(x, y);
-
-        // SAFELY UNSAFE
-        //   all characters are single-byte ASCII
-        //   the idx is always in range
-        //      - to_index will panic if the index is out of bounds
-
-        unsafe {
-            let bytes = self.inner.as_bytes_mut();
-            bytes[idx] = TERMINATOR_BYTES[0];
-        };
-
-        self.calculate_at(idx, TERMINATOR);
-
-        // let recalculate = unsafe {
-        //     let bytes = self.inner.as_bytes_mut();
-        //     let b = bytes[idx];
-
-        //     info!("{b}");
-        //     bytes[idx] = s_bytes[0];
-
-        //     is_terminator_bytes(b)
-        // };
-
-        // if recalculate {
-        //     self.calculate_at(idx, s);
-        // }
+        self.set_at(x, y, TERMINATOR);
     }
 
     pub fn calculate_at(&mut self, idx: usize, s: &str) {
@@ -372,26 +372,49 @@ impl Source {
         match (lft_exp, rgt_exp) {
             (Some(lft_exp), Some(ref mut rgt_exp)) => {
                 // Split the expression
+                // [AAA] => [B C]
                 if terminator {
                     // Remove current expression from idx
+                    // idx is the middle element of expression [AAA]
+                    // after this operation we are at [A A]
                     self.remove_exp(idx);
 
-                    // In some cases lft and rgt may refer to the same expression
-                    // We cannot have multiple mutable borrows in the same scope
-                    // So we split the borrows into separate scopes
+                    // We have [A A]
+                    // We are going to map A-1 => B
+                    //                 and A+1 => C
+                    // Any elements of A to the left of A-1 now also B
+                    // Any elements of A to the left of A+1 now also C
+                    // eg
+                    //   [AAAAA]
+                    //   [A AAA]
+                    //   [B CCC]
+                    //
+                    //   [AAAAA]
+                    //   [AAA A]
+                    //   [BBB C]
 
-                    // Right must be first as we want to preserve the end idx
-                    // The left expression will be modified
+                    // Create a new expression (C) for A+1 (Right)
+                    // Starts at idx + 1
+                    // Ends is current A end
                     {
+                        // lft and rgt often refer to the same expression
+                        // We cannot have multiple mutable borrows in the same scope
+                        // So we split the borrows into separate scopes
+                        // Right must be first as we want to capture the end value before modifying the left value
                         let rgt = rgt_exp.borrow();
-                        let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt.end)));
+                        let rgt_end = rgt.end;
+                        let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt_end)));
                         // self.map[rgt_idx] = Some(exp);
-                        self.set_exp(rgt_idx, exp);
+                        // self.set_exp(rgt_idx, exp);
+                        // Iterate the map until the rgt end and set the expression
+                        // for i in rgt_idx..(rgt_end + 1) {
+                        //     self.set_exp(i, exp.clone());
+                        // }
+                        self.set_exp_from(rgt_idx, rgt_end, exp);
                     }
-                    {
-                        let mut exp = lft_exp.borrow_mut();
-                        exp.end = lft_idx;
-                    }
+                    // Update A-1 (Left)
+                    // Expression now ends at A-1 (Left)
+                    self.end_exp(lft_idx, &lft_exp);
                 };
 
                 // Join or Replace the expression
@@ -408,33 +431,35 @@ impl Source {
                         // Right must be first as we want to preserve the end idx
                         // The left expression will be modified
                         let rgt = rgt_exp.borrow();
-                        let end = rgt.end;
+                        let rgt_end = rgt.end;
                         {
-                            let mut exp = lft_exp.borrow_mut();
-                            exp.end = end;
+                            // let mut exp = lft_exp.borrow_mut();
+                            // exp.end = end;
+                            self.end_exp(rgt_end, &lft_exp);
                         }
 
                         // Iterate the map until the rgt end and set the lft expression
-                        for i in idx..(end + 1) {
-                            self.set_exp(i, lft_exp.clone());
-                        }
+                        // for i in idx..(rgt_end + 1) {
+                        //     self.set_exp(i, lft_exp.clone());
+                        // }
+                        self.set_exp_from(idx, rgt_end, lft_exp);
                     }
                 }
             }
             (Some(lft_exp), None) => {
-                {
-                    let mut exp = lft_exp.borrow_mut();
-                    exp.end = idx;
-                }
+                // {
+                self.end_exp(idx, &lft_exp);
+                // }
                 // Append to the expression
                 self.set_exp(idx, lft_exp);
             }
             (None, Some(rgt_exp)) => {
                 // Prepend to the expression
-                {
-                    let mut exp = rgt_exp.borrow_mut();
-                    exp.start = idx;
-                }
+                // {
+                // let mut exp = rgt_exp.borrow_mut();
+                // exp.start = idx;
+                self.start_exp(idx, &rgt_exp);
+                // }
                 self.set_exp(idx, rgt_exp);
             }
             (None, None) => {
@@ -534,6 +559,7 @@ mod test {
     use crate::source::Source;
     use crate::source::SourceExpression;
     use crate::source::Terminator;
+    use crate::source::G;
     use crate::test::trace;
     use std::fmt::Debug;
     use tracing::{debug, info};
@@ -570,7 +596,6 @@ mod test {
         let mut expected = String::from(s);
         expected.push_str(&".".repeat(10 - l));
 
-        debug!("source.inner {:?}", source.inner);
         assert_eq!(source.inner, expected);
         source
     }
@@ -580,6 +605,9 @@ mod test {
         trace();
 
         let source = source_from("  ++0101  ");
+
+        debug!("source.glyphs {:?}", source.glyphs);
+        debug!("source.map {:?}", source.map);
 
         let glyph = source.get_glyph_at(0, 0);
         assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
@@ -593,8 +621,32 @@ mod test {
         let glyph = source.get_glyph_at(4, 0);
         assert_eq!(glyph, Glyph::Number);
 
+        let glyph = source.get_glyph_at(6, 0);
+        assert_eq!(glyph, Glyph::Number);
+
         let glyph = source.get_glyph_at(9, 0);
         assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
+    }
+
+    #[test]
+    fn test_get_glyph_at_with_edit() {
+        trace();
+
+        let mut source = source_from("  ++0101  ");
+
+        // "  ++2101  "
+        source.set_at(4, 0, "2");
+        assert_eq!(source.inner, "  ++2101  ");
+
+        // "  ++  01  "
+        source.set_at(4, 0, " ");
+        //  YOU ARE HERE
+        //  on recaulculate
+        //  the range is fucked up -> start 5 end 3
+        //  I extracted the actions in recacl into functions. end_exp etc
+        //   Did I miss something?
+        source.set_at(5, 0, " ");
+        assert_eq!(source.inner, "  ++  01  ");
     }
 
     #[test]
@@ -646,14 +698,28 @@ mod test {
 
         assert_eq!(source.inner, "     C B A");
 
-        assert_eq!(source.glyphs.len(), 3);
+        let count = source
+            .map
+            .iter()
+            .filter_map(|o| o.as_deref())
+            .collect::<Vec<_>>()
+            .len();
 
-        source.set_at(5, 0, ".");
-        source.set_at(7, 0, ".");
-        source.set_at(9, 0, ".");
-        assert_eq!(source.inner, "     . . .");
+        assert_eq!(count, 3);
 
-        assert_eq!(source.glyphs.len(), 0);
+        source.set_at(5, 0, " ");
+        source.set_at(7, 0, " ");
+        source.set_at(9, 0, " ");
+        assert_eq!(source.inner, "          ");
+
+        let count = source
+            .map
+            .iter()
+            .filter_map(|o| o.as_deref())
+            .collect::<Vec<_>>()
+            .len();
+        tracing::debug!("source.map {:?}", count);
+        assert_eq!(count, 0);
     }
 
     #[test]
@@ -685,7 +751,7 @@ mod test {
     }
 
     // #[test]
-    fn test_expressions_list_with_delete() {
+    fn _test_expressions_list_with_delete() {
         trace();
 
         let mut source = Source::new(10, 1);
@@ -713,19 +779,61 @@ mod test {
     }
 
     #[test]
-    fn test_expressions_list() {
+    fn test_glyphs_with_invalid() {
+        let mut source = Source::new(10, 1);
+
+        source.set_at(0, 0, "A");
+        source.set_at(2, 0, "B");
+        source.set_at(4, 0, "C");
+        assert_eq!(source.inner, "A B C     ");
+
+        info!("{:?}", source.inner);
+        info!("{:?}", source.glyphs);
+
+        for g in source.glyphs {
+            assert!(matches!(g, Glyph::Terminator(_)));
+        }
+    }
+
+    #[test]
+    fn test_glyphs_with_incomplete_function() {
         trace();
 
         let mut source = Source::new(10, 1);
 
-        source.set_at(0, 0, "A");
-        // source.set_at(2, 0, "B");
-        // source.set_at(4, 0, "C");
-        // assert_eq!(source.inner, "A B C     ");
+        source.set_at(0, 0, "i");
+        source.set_at(1, 0, "d");
+        assert_eq!(source.inner, "id        ");
 
-        info!("{:?}", source.inner);
+        let expected = vec![G::Function, G::Function, G::String, G::String];
+        let results: Vec<Glyph> = source.glyphs.into_iter().take(4).collect();
+        assert_eq!(results, expected)
+    }
+
+    #[test]
+    fn test_glyphs_with_incomplete_function_edited() {
+        trace();
+
+        let mut source = Source::new(10, 1);
+
+        source.set_at(0, 0, "i");
+        source.set_at(1, 0, "d");
+        assert_eq!(source.inner, "id        ");
+
+        let expected = vec![&G::Function, &G::Function, &G::String, &G::String];
+        let results: Vec<&Glyph> = source.glyphs.iter().take(4).collect();
+
+        assert_eq!(results, expected);
+
+        source.set_at(0, 0, "i");
+        source.set_at(1, 0, " ");
+        assert_eq!(source.inner, "i         ");
+
+        // You are here
+        // The glyphs need to be reset when a new Parsed is invalid/empty
+        // i is nothing from highligh perspective
+        // info!("{:?}", source.inner);
         info!("{:?}", source.glyphs);
-        // assert_eq!(source.glyphs.len(), 3);
     }
 
     #[test]
@@ -792,23 +900,35 @@ mod test {
         // let mut source = Source::from_source(10, 1, "IDAA......");
         let mut source = Source::new(10, 1);
 
-        source.set_at(0, 0, "I");
-        source.set_at(1, 0, "D");
+        source.set_at(0, 0, "+");
+        source.set_at(1, 0, "+");
         source.set_at(2, 0, "A");
         source.set_at(3, 0, "A");
-        assert_eq!(source.inner, "IDAA      ");
+        source.set_at(4, 0, "B");
+        source.set_at(5, 0, "B");
+        assert_eq!(source.inner, "++AABB    ");
 
-        source.set_at(2, 0, ".");
-        assert_eq!(source.inner, "ID.A      ");
+        source.set_at(2, 0, " ");
+        assert_eq!(source.inner, "++ ABB    ");
 
+        // ++
         assert_eq!(source.map[0], source.map[1]);
+
+        // ` `
+        assert_eq!(source.map[2], None);
+
+        // + and ` `
         assert_ne!(source.map[0], source.map[2]);
 
-        // Start of new expression
+        // + and A
         assert_ne!(source.map[0], source.map[3]);
 
-        // Now empty
-        assert_eq!(source.map[2], None);
+        // ABB
+        assert_eq!(source.map[3], source.map[4]);
+        assert_eq!(source.map[3], source.map[5]);
+
+        // end
+        assert_eq!(source.map[6], None);
     }
 
     #[test]
