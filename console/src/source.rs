@@ -131,6 +131,9 @@ fn to_glyphs(parsed_exps: &Parsed<Expression>) -> Vec<Glyph> {
 
 impl Source {
     pub fn new(cols: usize, rows: usize) -> Self {
+        assert!(cols > 0, "cols must be greater than zero");
+        assert!(rows > 0, "rows must be greater than zero");
+
         let n = cols * rows;
         let inner = TERMINATOR.to_string().repeat(n);
 
@@ -206,24 +209,26 @@ impl Source {
 
     fn join_exp(
         &mut self,
+        idx: usize,
         lft_exp: &Rc<RefCell<SourceExpression>>,
         rgt_exp: &Rc<RefCell<SourceExpression>>,
     ) {
-        // In some cases lft and rgt may refer to the same expression
-        // We cannot have multiple mutable borrows in the same scope
-        // So we split the borrows into separate scopes
+        let idx_exp = &self.map[idx];
+        if idx_exp.is_none() {
+            // In some cases lft and rgt may refer to the same expression
+            // We cannot have multiple mutable borrows in the same scope
+            // So we split the borrows into separate scopes
 
-        // Right must be first as we want to preserve the end idx
-        // The left expression will be modified
-        let rgt = rgt_exp.borrow();
-        let start = rgt.start;
-        let end = rgt.end;
-        {
-            self.end_exp(end, &lft_exp);
+            // Right must be first as we want to preserve the end idx
+            // The left expression will be modified
+            let rgt = rgt_exp.borrow();
+            let end = rgt.end;
+            {
+                self.end_exp(end, &lft_exp);
+            }
+            // Iterate the map until the rgt end and set the lft expression
+            self.set_exp_from(idx, end, lft_exp);
         }
-
-        // Iterate the map until the rgt end and set the lft expression
-        self.set_exp_from(start, end, lft_exp);
     }
 
     fn split_exp(
@@ -248,9 +253,23 @@ impl Source {
         self.end_exp(lft_idx, &lft_exp);
     }
 
+    fn append_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
+        self.end_exp(idx, &exp);
+        self.set_exp(idx, exp);
+    }
+
+    fn prepend_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
+        self.start_exp(idx, &exp);
+        self.set_exp(idx, exp);
+    }
+
+    fn new_exp(&mut self, idx: usize) {
+        let exp = Rc::new(RefCell::new(SourceExpression::new(idx, idx)));
+        self.set_exp(idx, exp);
+    }
+
     pub fn remove_exp(&mut self, idx: usize) {
         self.map[idx] = None;
-        self.glyphs[idx] = Glyph::default();
     }
 
     pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
@@ -271,13 +290,21 @@ impl Source {
         let idx = exp.start;
 
         // debug!("parsed {parsed:?}");
-        // debug!("glyphs {glyphs:?}");
+        // debug!("glyphs {glyphs:?}"); z
 
-        self.parsed.insert(idx, parsed);
-
-        for (i, g) in glyphs.iter().enumerate() {
-            let pos = idx + i;
-            self.glyphs[pos] = *g;
+        if glyphs.is_empty() {
+            if let Some(parsed) = self.parsed.get(&idx) {
+                for i in 0..parsed.0.len() {
+                    let pos = idx + i;
+                    self.glyphs[pos] = Glyph::Terminator(Terminator::Space);
+                }
+            }
+        } else {
+            self.parsed.insert(idx, parsed);
+            for (i, g) in glyphs.iter().enumerate() {
+                let pos = idx + i;
+                self.glyphs[pos] = *g;
+            }
         }
     }
 
@@ -331,13 +358,9 @@ impl Source {
     }
 
     ///
-    /// Alias of `set_at_uncalculated``
+    /// Unset at {x, y}
+    /// Sets a `TERMINATOR` at the position`
     ///
-    ///
-    // pub fn set_terminator_at(&mut self, x: usize, y: usize, s: &str) {
-    //     self.set_at_uncalculated(x, y, s);
-    // }
-
     pub fn unset_at(&mut self, x: usize, y: usize) {
         self.set_at(x, y, TERMINATOR);
     }
@@ -366,103 +389,39 @@ impl Source {
         let terminator = is_terminator(s);
         let glyph = !terminator;
 
-        /*
-            // ... => .I.
-            // Create a new expression if the lhs and rhs are None
-            //   exp.start = idx
-            //   exp.end   = idx
-
-            // .I. => .ID.
-            // Append to the lhs expression if Some(lft_exp) and None(rhs)
-            //   lhs.end = idx
-
-            // .IDAA. => .ID0A.
-            // Replace if Some(lft) and Some(rhs)
-            //   // noop
-
-            // .IDAA. => .ID.A.
-            // Split if Terminator and Some(lft) and Some(rhs)
-            //
-
-            // .ID.A. => .IDAA.
-            // Join if None(idx) and Some(lft_exp) and Some(rhs)
-            //  lft.end = rgt.end
-            //  rgt = lft
-            //  self.map[idx] = lft
-
-            // ..DAA. => .IDAA.
-            // Prepend if None(lhs) and Some(rhs)
-            //  exp.start = idx
-        */
-
         if terminator {
             self.remove_exp(idx);
         }
 
         match (lft_exp, rgt_exp) {
             (Some(lft_exp), Some(ref mut rgt_exp)) => {
-                // Split the expression
-                // [AAA] => [B C]
-                if terminator {
-                    // Remove current expression from idx
-                    // idx is the middle element of expression [AAA]
-                    // after this operation we are at [A A]
-                    // self.remove_exp(idx);
-
-                    // We have [A A]
-                    // We are going to map A-1 => B
-                    //                 and A+1 => C
-                    // Any elements of A to the left of A-1 now also B
-                    // Any elements of A to the left of A+1 now also C
-                    // eg
-                    //   [AAAAA]
-                    //   [A AAA]
-                    //   [B CCC]
-                    //
-                    //   [AAAAA]
-                    //   [AAA A]
-                    //   [BBB C]
-                    //
-                    // Create a new expression (C) for A+1 (Right)
-                    // Starts at idx + 1
-                    // Ends is current A end
-                    // {
-                    //     // lft and rgt often refer to the same expression
-                    //     // We cannot have multiple mutable borrows in the same scope
-                    //     // So we split the borrows into separate scopes
-                    //     // Right must be first as we want to capture the end value before modifying the left value
-                    //     let rgt = rgt_exp.borrow();
-                    //     let rgt_end = rgt.end;
-                    //     let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt_end)));
-                    //     self.set_exp_from(rgt_idx, rgt_end, &exp);
-                    // }
-                    // // Update A-1 (Left)
-                    // // Expression now ends at A-1 (Left)
-                    // self.end_exp(lft_idx, &lft_exp);
-                    self.split_exp(lft_idx, &lft_exp, rgt_idx, &rgt_exp);
+                if glyph {
+                    self.join_exp(idx, &lft_exp, &rgt_exp);
                 } else {
-                    let idx_exp = &self.map[idx];
-                    if idx_exp.is_none() {
-                        self.join_exp(&lft_exp, &rgt_exp);
-                    }
+                    self.split_exp(lft_idx, &lft_exp, rgt_idx, &rgt_exp);
                 }
             }
             (Some(lft_exp), None) => {
-                // Append to the expression
-                self.end_exp(idx, &lft_exp);
-                self.set_exp(idx, lft_exp);
+                if glyph {
+                    // self.end_exp(idx, &lft_exp);
+                    // self.set_exp(idx, lft_exp);
+                    self.append_exp(idx, lft_exp);
+                } else {
+                    self.end_exp(lft_idx, &lft_exp);
+                }
             }
             (None, Some(rgt_exp)) => {
-                // Prepend to the expression
-                self.start_exp(idx, &rgt_exp);
-                self.set_exp(idx, rgt_exp);
+                if glyph {
+                    // self.start_exp(idx, &rgt_exp);
+                    // self.set_exp(idx, rgt_exp);
+                    self.prepend_exp(idx, rgt_exp);
+                } else {
+                    self.start_exp(rgt_idx, &rgt_exp);
+                }
             }
             (None, None) => {
                 if glyph {
-                    // New Expression
-                    // A single character never needs parsing
-                    let exp = Rc::new(RefCell::new(SourceExpression::new(idx, idx)));
-                    self.set_exp(idx, exp);
+                    self.new_exp(idx);
                 }
             }
         }
@@ -484,36 +443,6 @@ impl Source {
     ///
     fn len(&self) -> usize {
         self.cols * self.rows
-    }
-
-    #[cfg(test)]
-    fn from_source(cols: usize, rows: usize, source: impl Into<String>) -> Self {
-        let n = cols * rows;
-        let inner = source.into();
-        let len = inner.len();
-
-        assert!(len == n, "source length {len}, expected {n}");
-
-        let mut source = Self::new(cols, rows);
-
-        // Iterate through inner and call set_at
-        for (idx, &byte) in inner.as_bytes().iter().enumerate() {
-            let x = idx % cols;
-            let y = idx / cols;
-            source.set_at(x, y, &(byte as char).to_string());
-        }
-
-        source
-    }
-
-    #[cfg(test)]
-    fn print_exp(&self) {
-        self.map.iter().for_each(|m| {
-            info!("map: {:?}", m);
-        });
-        self.glyphs.iter().for_each(|m| {
-            info!("parsed: {:?}", m);
-        });
     }
 }
 
@@ -555,41 +484,121 @@ mod test {
     use std::fmt::Debug;
     use tracing::{debug, info};
 
-    fn source_from(s: &str) -> Source {
+    // ===========================================================================
+    #[test]
+    fn test_get_glyph_at_with_edit() {
+        trace();
+
+        // let mut source = source_from("  ++0101  ");
         let mut source = Source::new(10, 1);
 
-        let y = 0;
+        source.set_at(2, 0, "+");
+        assert_eq!(source.inner, "  +       ");
 
-        for (x, c) in s.chars().enumerate() {
-            source.set_at(x, y, &c.to_string());
+        // `+` is not a function yet
+        let glyph = source.get_glyph_at(2, 0);
+        assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
+        assert_eq!(source.map_len(), 1);
 
-            //
-            // I ACTUALLY UNDERSTAND THIS
-            //
-            // Reference to Option (the Map owns the data)
-            //
-            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<SourceExpression>>> =
-                &source.map[0];
-            // Get Reference to the RC the Option is wrapping
-            // Swap for Option<&RC>
-            opt_exp
-                .as_ref()
-                // and map Option to get the &RC
-                .map(|exp: &std::rc::Rc<std::cell::RefCell<SourceExpression>>| {
-                    // Now we can borrow the actual Exp we are interested in.
-                    let end = exp.borrow().end;
-                    assert_eq!(end, x);
-                });
-        }
+        source.set_at(3, 0, "+");
+        assert_eq!(source.inner, "  ++      ");
 
-        // append '.' to s to fil the source to len 10
-        let l = s.len();
-        let mut expected = String::from(s);
-        expected.push_str(&".".repeat(10 - l));
+        // Now `++` is a function yet
+        let glyph = source.get_glyph_at(3, 0);
+        assert_eq!(glyph, Glyph::Function);
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Number);
+        assert_eq!(source.map_len(), 2);
 
-        assert_eq!(source.inner, expected);
-        source
+        source.set_at(4, 0, "1");
+        assert_eq!(source.inner, "  ++1     ");
+
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Number);
+        assert_eq!(source.map_len(), 3);
+
+        source.set_at(5, 0, "1");
+        assert_eq!(source.inner, "  ++11    ");
+
+        let glyph = source.get_glyph_at(5, 0);
+        assert_eq!(glyph, Glyph::Number);
+        assert_eq!(source.map_len(), 4);
+
+        source.set_at(6, 0, "2");
+        assert_eq!(source.inner, "  ++112   ");
+
+        let glyph = source.get_glyph_at(6, 0);
+        assert_eq!(glyph, Glyph::Number);
+        assert_eq!(source.map_len(), 5);
+
+        source.set_at(7, 0, "2");
+        assert_eq!(source.inner, "  ++1122  ");
+
+        let glyph = source.get_glyph_at(7, 0);
+        assert_eq!(glyph, Glyph::Number);
+        assert_eq!(source.map_len(), 6);
+
+        // --
+
+        source.unset_at(7, 0);
+        assert_eq!(source.inner, "  ++112   ");
+        assert_eq!(source.map_len(), 5);
+
+        let glyph = source.get_glyph_at(7, 0);
+        assert_eq!(glyph, Glyph::Number);
+
+        // --
+
+        source.unset_at(4, 0);
+        assert_eq!(source.inner, "  ++ 12   ");
+
+        assert_eq!(source.map_len(), 4);
+        // `++`` and `12` are distinct expressions`
+        assert_ne!(source.map[2], source.map[4]);
+
+        // `++` is valid, glyphs map to the expanded function
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Number);
+
+        // --
+
+        source.unset_at(3, 0);
+        assert_eq!(source.inner, "  +  12   ");
+
+        assert_eq!(source.map_len(), 3);
+
+        // Now `+` is not a valid function, no glyphs
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
+
+        let glyph = source.get_glyph_at(3, 0);
+        assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
+
+        // --
+
+        source.unset_at(2, 0);
+        assert_eq!(source.inner, "     12   ");
+        assert_eq!(source.map_len(), 2);
+
+        let glyph = source.get_glyph_at(2, 0);
+        assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
+
+        source.set_at(3, 0, "+");
+        source.set_at(4, 0, "+");
+        assert_eq!(source.inner, "   ++12   ");
+        assert_eq!(source.map_len(), 4);
+
+        let glyph = source.get_glyph_at(3, 0);
+        assert_eq!(glyph, Glyph::Function);
+
+        let glyph = source.get_glyph_at(5, 0);
+        assert_eq!(glyph, Glyph::Number);
     }
+
+    // ===========================================================================
+    // ===========================================================================
+    // ===========================================================================
+    // ===========================================================================
 
     #[test]
     fn test_get_glyph_at() {
@@ -614,36 +623,6 @@ mod test {
 
         let glyph = source.get_glyph_at(9, 0);
         assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
-    }
-
-    #[test]
-    fn test_get_glyph_at_with_edit() {
-        trace();
-
-        let mut source = source_from("  ++0101  ");
-
-        // "  ++2101  "
-        source.set_at(4, 0, "2");
-        assert_eq!(source.inner, "  ++2101  ");
-
-        let glyph = source.get_glyph_at(4, 0);
-        assert_eq!(glyph, Glyph::Number);
-
-        // "  ++  01  "
-        source.set_at(4, 0, " ");
-        source.set_at(5, 0, " ");
-        assert_eq!(source.inner, "  ++  01  ");
-
-        let glyph = source.get_glyph_at(4, 0);
-        assert_eq!(glyph, Glyph::Number);
-
-        // "      01  "
-        source.set_at(3, 0, " ");
-        source.set_at(2, 0, " ");
-        assert_eq!(source.inner, "      01  ");
-
-        debug!("source.glyphs {:?}", source.glyphs);
-        debug!("source.map {:?}", source.map);
     }
 
     #[test]
@@ -846,9 +825,14 @@ mod test {
         assert_eq!(source.inner, "ID A      ");
 
         assert_ne!(source.map[0], source.map[2]);
+        assert_ne!(source.map[2], source.map[3]);
 
         source.set_at(2, 0, "A");
         assert_eq!(source.inner, "IDAA      ");
+
+        source.print_exp();
+        // info!("source.map {:?}", source.map);
+        // info!("source.glyphs {:?}", source.glyphs);
 
         // Single expression
         assert_eq!(source.map[0], source.map[1]);
@@ -1034,5 +1018,79 @@ mod test {
     fn test_to_idx_out_of_bounds() {
         let source = Source::new(10, 10);
         let _idx = source.to_idx(11, 11); // This should panic
+    }
+
+    impl Source {
+        fn from_source(cols: usize, rows: usize, source: impl Into<String>) -> Self {
+            let n = cols * rows;
+            let inner = source.into();
+            let len = inner.len();
+
+            assert!(len == n, "source length {len}, expected {n}");
+
+            let mut source = Self::new(cols, rows);
+
+            // Iterate through inner and call set_at
+            for (idx, &byte) in inner.as_bytes().iter().enumerate() {
+                let x = idx % cols;
+                let y = idx / cols;
+                source.set_at(x, y, &(byte as char).to_string());
+            }
+
+            source
+        }
+
+        fn print_exp(&self) {
+            self.map.iter().for_each(|m| {
+                info!("map: {:?}", m);
+            });
+            self.glyphs.iter().for_each(|m| {
+                info!("parsed: {:?}", m);
+            });
+        }
+
+        fn map_len(&self) -> usize {
+            self.map
+                .iter()
+                .filter(|e| e.is_some())
+                .collect::<Vec<_>>()
+                .len()
+        }
+    }
+
+    fn source_from(s: &str) -> Source {
+        let mut source = Source::new(10, 1);
+
+        let y = 0;
+
+        for (x, c) in s.chars().enumerate() {
+            source.set_at(x, y, &c.to_string());
+
+            //
+            // I ACTUALLY UNDERSTAND THIS
+            //
+            // Reference to Option (the Map owns the data)
+            //
+            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<SourceExpression>>> =
+                &source.map[0];
+            // Get Reference to the RC the Option is wrapping
+            // Swap for Option<&RC>
+            opt_exp
+                .as_ref()
+                // and map Option to get the &RC
+                .map(|exp: &std::rc::Rc<std::cell::RefCell<SourceExpression>>| {
+                    // Now we can borrow the actual Exp we are interested in.
+                    let end = exp.borrow().end;
+                    assert_eq!(end, x);
+                });
+        }
+
+        // append '.' to s to fil the source to len 10
+        let l = s.len();
+        let mut expected = String::from(s);
+        expected.push_str(&".".repeat(10 - l));
+
+        assert_eq!(source.inner, expected);
+        source
     }
 }

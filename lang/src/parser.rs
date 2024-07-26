@@ -244,6 +244,7 @@ fn is_function(s: Option<&str>) -> bool {
 mod test {
 
     use arrayvec::ArrayVec;
+    use tracing::info;
 
     use crate::{parser::Parser, trace, Atom, Error, Function, Parsed, SyntaxError, TypeError};
 
@@ -280,7 +281,12 @@ mod test {
         let parsed = parse(&mut s).unwrap();
 
         let stack = array_vec!([Atom::Function(Function::Add), Atom::Empty, Atom::Empty]);
+        assert_eq!(parsed.0, stack);
 
+        let mut s = String::from("+");
+        let parsed = parse(&mut s).unwrap();
+
+        let stack = ArrayVec::<Atom, 32>::new();
         assert_eq!(parsed.0, stack);
 
         let mut s = String::from("..");
@@ -302,11 +308,20 @@ mod test {
     fn test_try_parse_with_invalid() {
         trace();
 
-        let mut s = String::from("id");
+        // let mut s = String::from("id");
+        // let result = try_parse(&mut s);
+
+        // let error = result.unwrap_err();
+        // assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
+
+        let mut s = String::from("+");
         let result = try_parse(&mut s);
 
         let error = result.unwrap_err();
-        assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
+        assert!(matches!(
+            error,
+            Error::Syntax(SyntaxError::ExpectedFunction)
+        ));
     }
 
     #[test]
