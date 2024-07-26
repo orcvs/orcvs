@@ -101,6 +101,7 @@ mod test {
     use std::sync::Once;
 
     use tracing::info;
+    use tracing_subscriber::EnvFilter;
 
     use crate::Coord;
 
@@ -110,16 +111,13 @@ mod test {
     #[allow(dead_code)]
     pub fn trace() {
         INIT.call_once(|| {
-            use tracing_subscriber::FmtSubscriber;
-
-            let subscriber = FmtSubscriber::builder()
-                .with_max_level(tracing::Level::DEBUG) // Set the maximum level of tracing events that should be logged.
+            tracing_subscriber::fmt()
+                .with_env_filter("debug")
+                // .with_thread_ids(true)
+                .with_file(true)
                 .with_line_number(true)
-                .with_target(true)
-                .finish();
-
-            tracing::subscriber::set_global_default(subscriber)
-                .expect("setting default subscriber failed");
+                .pretty()
+                .init();
         });
     }
 

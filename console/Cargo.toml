@@ -38,7 +38,12 @@ egui = { version = "0.28.0", default-features = false }
 rand = "0.8.5"
 serde = { version = "1", features = ["derive"], optional = true }
 tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "ansi",
+    "env-filter",
+    "std",
+] }
+
 nohash-hasher = "0.2.0"
 
 # native:

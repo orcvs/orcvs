@@ -159,7 +159,7 @@ impl Source {
         s.to_owned()
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_exp_str(&self, exp: &Rc<RefCell<SourceExpression>>) -> &str {
         let exp = exp.borrow();
         let start = exp.start;
@@ -177,10 +177,11 @@ impl Source {
         unsafe { self.inner.get_unchecked(start..(end + 1)) }
     }
 
-    pub fn set_exp_from(&mut self, start: usize, end: usize, exp: Rc<RefCell<SourceExpression>>) {
+    pub fn set_exp_from(&mut self, start: usize, end: usize, exp: &Rc<RefCell<SourceExpression>>) {
         for i in start..(end + 1) {
             self.map[i] = Some(exp.clone());
         }
+        self.parse_exp(&exp);
     }
 
     pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
@@ -188,49 +189,75 @@ impl Source {
     }
 
     pub fn end_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
-        let mut exp = exp.borrow_mut();
-        exp.end = idx;
+        {
+            let mut exp = exp.borrow_mut();
+            exp.end = idx;
+        }
+        self.parse_exp(exp);
     }
 
     pub fn start_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
-        let mut exp = exp.borrow_mut();
-        exp.start = idx;
+        {
+            let mut exp = exp.borrow_mut();
+            exp.start = idx;
+        }
+        self.parse_exp(exp);
+    }
+
+    fn join_exp(
+        &mut self,
+        lft_exp: &Rc<RefCell<SourceExpression>>,
+        rgt_exp: &Rc<RefCell<SourceExpression>>,
+    ) {
+        // In some cases lft and rgt may refer to the same expression
+        // We cannot have multiple mutable borrows in the same scope
+        // So we split the borrows into separate scopes
+
+        // Right must be first as we want to preserve the end idx
+        // The left expression will be modified
+        let rgt = rgt_exp.borrow();
+        let start = rgt.start;
+        let end = rgt.end;
+        {
+            self.end_exp(end, &lft_exp);
+        }
+
+        // Iterate the map until the rgt end and set the lft expression
+        self.set_exp_from(start, end, lft_exp);
+    }
+
+    fn split_exp(
+        &mut self,
+        lft_idx: usize,
+        lft_exp: &Rc<RefCell<SourceExpression>>,
+        rgt_idx: usize,
+        rgt_exp: &Rc<RefCell<SourceExpression>>,
+    ) {
+        {
+            // lft and rgt often refer to the same expression
+            // We cannot have multiple mutable borrows in the same scope
+            // So we split the borrows into separate scopes
+            // Right must be first as we want to capture the end value before modifying the left value
+            let rgt = rgt_exp.borrow();
+            let rgt_end = rgt.end;
+            let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt_end)));
+            self.set_exp_from(rgt_idx, rgt_end, &exp);
+        }
+        // Update A-1 (Left)
+        // Expression now ends at A-1 (Left)
+        self.end_exp(lft_idx, &lft_exp);
     }
 
     pub fn remove_exp(&mut self, idx: usize) {
         self.map[idx] = None;
+        self.glyphs[idx] = Glyph::default();
     }
-
-    //     if let Some(exp) = &self.map[idx] {
-    //     let exp = exp.borrow();
-    //     for i in exp.start..exp.end {
-    //         self.glyphs[i] = Glyph::default();
-    //     }
-    // }
 
     pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
         let idx = self.to_idx(x, y);
         let s = self.get_at(x, y);
 
         *self.glyphs.get(idx).unwrap()
-
-        // info!("get_glyph_at [{x}/{y}]: {s}");
-        // info!("glyphs {:?}", self.glyphs);
-
-        // if let Some(exp) = &self.map[idx] {
-        //     let exp = exp.borrow();
-        //     let pos = idx - exp.start;
-
-        //     info!("pos: {}");
-
-        //     if let Some(parsed) = self.glyphs.get(pos) {
-        //         // info!("{:?}", parsed);
-        //         // let g = *parsed.get(pos).unwrap_or(&Glyph::default());
-        //         // info!("{:?}", g);
-        //         return *parsed;
-        //     }
-        // }
-        // Glyph::default()
     }
 
     pub fn parse_exp(&mut self, exp: &Rc<RefCell<SourceExpression>>) {
@@ -243,8 +270,8 @@ impl Source {
         let exp = exp.borrow();
         let idx = exp.start;
 
-        debug!("parsed {parsed:?}");
-        debug!("glyphs {glyphs:?}");
+        // debug!("parsed {parsed:?}");
+        // debug!("glyphs {glyphs:?}");
 
         self.parsed.insert(idx, parsed);
 
@@ -316,6 +343,8 @@ impl Source {
     }
 
     pub fn calculate_at(&mut self, idx: usize, s: &str) {
+        let exp = self.map[idx].clone();
+
         let (lft_idx, lft_exp) = if idx > 0 {
             let idx = idx - 1;
             let exp = self.map[idx].clone();
@@ -366,8 +395,9 @@ impl Source {
             //  exp.start = idx
         */
 
-        // info!("{:?}", lft_exp);
-        // info!("{:?}", rgt_exp);
+        if terminator {
+            self.remove_exp(idx);
+        }
 
         match (lft_exp, rgt_exp) {
             (Some(lft_exp), Some(ref mut rgt_exp)) => {
@@ -377,7 +407,7 @@ impl Source {
                     // Remove current expression from idx
                     // idx is the middle element of expression [AAA]
                     // after this operation we are at [A A]
-                    self.remove_exp(idx);
+                    // self.remove_exp(idx);
 
                     // We have [A A]
                     // We are going to map A-1 => B
@@ -392,84 +422,45 @@ impl Source {
                     //   [AAAAA]
                     //   [AAA A]
                     //   [BBB C]
-
+                    //
                     // Create a new expression (C) for A+1 (Right)
                     // Starts at idx + 1
                     // Ends is current A end
-                    {
-                        // lft and rgt often refer to the same expression
-                        // We cannot have multiple mutable borrows in the same scope
-                        // So we split the borrows into separate scopes
-                        // Right must be first as we want to capture the end value before modifying the left value
-                        let rgt = rgt_exp.borrow();
-                        let rgt_end = rgt.end;
-                        let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt_end)));
-                        // self.map[rgt_idx] = Some(exp);
-                        // self.set_exp(rgt_idx, exp);
-                        // Iterate the map until the rgt end and set the expression
-                        // for i in rgt_idx..(rgt_end + 1) {
-                        //     self.set_exp(i, exp.clone());
-                        // }
-                        self.set_exp_from(rgt_idx, rgt_end, exp);
-                    }
-                    // Update A-1 (Left)
-                    // Expression now ends at A-1 (Left)
-                    self.end_exp(lft_idx, &lft_exp);
-                };
-
-                // Join or Replace the expression
-                // Replace is a noop
-                if glyph {
+                    // {
+                    //     // lft and rgt often refer to the same expression
+                    //     // We cannot have multiple mutable borrows in the same scope
+                    //     // So we split the borrows into separate scopes
+                    //     // Right must be first as we want to capture the end value before modifying the left value
+                    //     let rgt = rgt_exp.borrow();
+                    //     let rgt_end = rgt.end;
+                    //     let exp = Rc::new(RefCell::new(SourceExpression::new(rgt_idx, rgt_end)));
+                    //     self.set_exp_from(rgt_idx, rgt_end, &exp);
+                    // }
+                    // // Update A-1 (Left)
+                    // // Expression now ends at A-1 (Left)
+                    // self.end_exp(lft_idx, &lft_exp);
+                    self.split_exp(lft_idx, &lft_exp, rgt_idx, &rgt_exp);
+                } else {
                     let idx_exp = &self.map[idx];
-
-                    // Join the lft and rgt expressions
                     if idx_exp.is_none() {
-                        // In some cases lft and rgt may refer to the same expression
-                        // We cannot have multiple mutable borrows in the same scope
-                        // So we split the borrows into separate scopes
-
-                        // Right must be first as we want to preserve the end idx
-                        // The left expression will be modified
-                        let rgt = rgt_exp.borrow();
-                        let rgt_end = rgt.end;
-                        {
-                            // let mut exp = lft_exp.borrow_mut();
-                            // exp.end = end;
-                            self.end_exp(rgt_end, &lft_exp);
-                        }
-
-                        // Iterate the map until the rgt end and set the lft expression
-                        // for i in idx..(rgt_end + 1) {
-                        //     self.set_exp(i, lft_exp.clone());
-                        // }
-                        self.set_exp_from(idx, rgt_end, lft_exp);
+                        self.join_exp(&lft_exp, &rgt_exp);
                     }
                 }
             }
             (Some(lft_exp), None) => {
-                // {
-                self.end_exp(idx, &lft_exp);
-                // }
                 // Append to the expression
+                self.end_exp(idx, &lft_exp);
                 self.set_exp(idx, lft_exp);
             }
             (None, Some(rgt_exp)) => {
                 // Prepend to the expression
-                // {
-                // let mut exp = rgt_exp.borrow_mut();
-                // exp.start = idx;
                 self.start_exp(idx, &rgt_exp);
-                // }
                 self.set_exp(idx, rgt_exp);
             }
             (None, None) => {
-                if terminator {
-                    // Remove expression
-                    self.remove_exp(idx);
-                }
-
                 if glyph {
                     // New Expression
+                    // A single character never needs parsing
                     let exp = Rc::new(RefCell::new(SourceExpression::new(idx, idx)));
                     self.set_exp(idx, exp);
                 }
@@ -606,9 +597,6 @@ mod test {
 
         let source = source_from("  ++0101  ");
 
-        debug!("source.glyphs {:?}", source.glyphs);
-        debug!("source.map {:?}", source.map);
-
         let glyph = source.get_glyph_at(0, 0);
         assert_eq!(glyph, Glyph::Terminator(Terminator::Space));
 
@@ -638,15 +626,24 @@ mod test {
         source.set_at(4, 0, "2");
         assert_eq!(source.inner, "  ++2101  ");
 
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Number);
+
         // "  ++  01  "
         source.set_at(4, 0, " ");
-        //  YOU ARE HERE
-        //  on recaulculate
-        //  the range is fucked up -> start 5 end 3
-        //  I extracted the actions in recacl into functions. end_exp etc
-        //   Did I miss something?
         source.set_at(5, 0, " ");
         assert_eq!(source.inner, "  ++  01  ");
+
+        let glyph = source.get_glyph_at(4, 0);
+        assert_eq!(glyph, Glyph::Number);
+
+        // "      01  "
+        source.set_at(3, 0, " ");
+        source.set_at(2, 0, " ");
+        assert_eq!(source.inner, "      01  ");
+
+        debug!("source.glyphs {:?}", source.glyphs);
+        debug!("source.map {:?}", source.map);
     }
 
     #[test]

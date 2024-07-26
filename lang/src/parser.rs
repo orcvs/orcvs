@@ -92,10 +92,8 @@ impl<'a> Parser<'a> {
     ///
     #[inline(always)]
     fn take_function(&mut self) -> Result<(), Error> {
-        info!("source {:?}", self.source);
         let token = self.next_token(2);
 
-        info!("token {token:?}");
         match token {
             Some(t) => {
                 let result = Function::try_from(t);
