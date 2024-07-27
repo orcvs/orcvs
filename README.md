@@ -106,3 +106,20 @@ From Orca
             // Prepend if None(lhs) and Some(rhs)
             //  exp.start = idx
         */
+
+
+
+
+### Simplified Design
+
+-> Fixed Array of Chars
+   [A, B, C, D]
+
+   On Change
+      take while char
+        parse
+          -> glyphs
+
+
+
+

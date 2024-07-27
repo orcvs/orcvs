@@ -391,10 +391,6 @@ impl<const X: usize, const Y: usize> App<X, Y> {
                 } => self.delete(),
 
                 Event::Text(text_to_insert) => {
-                    // info!("text_to_insert: {}", text_to_insert);
-                    // This is all probably a very bad idea
-                    // I am treating the string as byte array and mutating it
-
                     self.src
                         .set_at(self.cursor.x, self.cursor.y, text_to_insert);
 

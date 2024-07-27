@@ -14,17 +14,14 @@ path = "src/lib.rs"
 name = "console"
 path = "src/main.rs"
 
+[[bench]]
+name = "source_benchmark"
+harness = false
+
 [features]
 default = []
 persistence = ["dep:serde", "eframe/persistence"]
 
-[package.metadata.docs.rs]
-all-features = true
-targets = [
-    "x86_64-apple-darwin",
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-]
 
 [dependencies]
 lang = { path = "../lang" }
@@ -33,8 +30,8 @@ eframe = { version = "0.28.0", default-features = false, features = [
     "glow",
     "default_fonts",
 ] }
-# eframe = { version = "0.27.0", default-features = false, features = ["wgpu"] }
 egui = { version = "0.28.0", default-features = false }
+nohash-hasher = "0.2.0"
 rand = "0.8.5"
 serde = { version = "1", features = ["derive"], optional = true }
 tracing = { version = "0.1.40", default-features = false }
@@ -44,19 +41,23 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "std",
 ] }
 
-nohash-hasher = "0.2.0"
+[dev-dependencies]
+criterion = { version = "0.5.1", default-features = false }
+
+
+[package.metadata.docs.rs]
+all-features = true
+targets = [
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
 
 # native:
 # [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # env_logger = "0.10"
 
-# [dev-dependencies]
-# criterion = { version = "0.5.1", default-features = false }
 
 # web:
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4"
-
-# [[bench]]
-# name = "console_benchmark"
-# harness = false
+# [target.'cfg(target_arch = "wasm32")'.dependencies]
+# wasm-bindgen-futures = "0.4"

@@ -377,6 +377,7 @@ name = "console"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
+ "criterion",
  "eframe",
  "egui",
  "lang",
@@ -385,7 +386,6 @@ dependencies = [
  "serde",
  "tracing",
  "tracing-subscriber",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
