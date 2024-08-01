@@ -1,8 +1,10 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
 pub mod app;
+pub mod executor;
 pub mod source;
-mod style;
+
+pub mod style;
 
 pub use app::ConsoleApp;
 use egui::Color32;
@@ -33,6 +35,12 @@ impl Color {
 pub struct Coord<const X: usize, const Y: usize> {
     x: usize,
     y: usize,
+}
+
+impl<const X: usize, const Y: usize> Default for Coord<X, Y> {
+    fn default() -> Self {
+        Coord::<X, Y>::from(0, 0)
+    }
 }
 
 impl<const X: usize, const Y: usize> Coord<X, Y> {

@@ -21,7 +21,7 @@
                 }
             },
             "args": [
-                "test_get_glyph_at_with_edit"
+                "test_simple_edit"
             ],
             "cwd": "${workspaceFolder}"
         },

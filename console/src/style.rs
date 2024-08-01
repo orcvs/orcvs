@@ -95,15 +95,14 @@ pub fn style() -> Style {
                     weak_bg_fill: Color::rgb(60, 60, 60).build(),
 
                     bg_stroke: Stroke {
-                        width: 0.0,
-
-                        color: Color::rgb(180, 180, 180).build(),
+                        width: 1.0,
+                        color: Color32::TRANSPARENT,
                     },
                     rounding: Rounding {
-                        nw: 2.0,
-                        ne: 2.0,
-                        sw: 2.0,
-                        se: 2.0,
+                        nw: 1.0,
+                        ne: 1.0,
+                        sw: 1.0,
+                        se: 1.0,
                     },
                     fg_stroke: Stroke {
                         width: 1.0,
@@ -179,7 +178,6 @@ pub fn style() -> Style {
             },
             hyperlink_color: Color32::from_rgba_premultiplied(90, 170, 255, 255),
             faint_bg_color: Color::rgb(5, 5, 5).with_alpha(0).build(),
-
             extreme_bg_color: Color32::from_rgba_premultiplied(10, 10, 10, 255),
             code_bg_color: Color32::from_rgba_premultiplied(64, 64, 64, 255),
             warn_fg_color: Color32::from_rgba_premultiplied(255, 143, 0, 255),

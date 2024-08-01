@@ -16,11 +16,12 @@ tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", features = [
     "fmt",
 ], default-features = false }
-
-[dev-dependencies]
 criterion = { version = "0.5.1", default-features = false, feature = [
     "benchmark",
 ] }
+
+
+[dev-dependencies]
 
 #[cfg(feature = "benchmark")]
 [[bench]]

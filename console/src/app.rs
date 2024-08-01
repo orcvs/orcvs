@@ -4,7 +4,8 @@ use egui::{Color32, Event, EventFilter, FontId, Key, Rounding, Vec2};
 use tracing::{error, info};
 
 use crate::{
-    source::{is_terminator, Glyph, Source, TERMINATOR},
+    executor::Executor,
+    source::{is_glyph, is_terminator, Glyph, Source, TERMINATOR},
     style::style,
     Color, Coord,
 };
@@ -13,29 +14,45 @@ pub const DEFAULT_FONT_SIZE: f32 = 20.0;
 pub const DEFAULT_GRID_SIZE: f32 = 8.0;
 const DEFAULT_GRID_SELECTED_DOT_SPACING: usize = 2;
 
-const DEFAULT_VISUAL_BG_COLOR: Color32 = Color32::TRANSPARENT;
-const DEFAULT_VISUAL_SELECTED_BG_COLOR: Color32 = Color::rgb(0, 92, 128).build();
-const DEFAULT_VISUAL_SELECTED_STROKE_COLOR: Color32 = Color::rgb(192, 222, 255).build();
+const DEFAULT_GLYPH_BG_COLOR: Color32 = Color32::TRANSPARENT;
+const DEFAULT_GLYPH_STROKE_COLOR: Color32 = Color32::TRANSPARENT;
+const DEFAULT_GLYPH_FONT_COLOR: Color32 = Color::rgb(164, 166, 169).build();
 
-const VISUAL_SELECTED_STROKE_COLOR_BLINK: Color32 = Color::rgb(66, 66, 66).build();
+const DEFAULT_GLYPH_SELECTED_BG_COLOR: Color32 = Color::rgb(0, 92, 128).build();
+const DEFAULT_GLYPH_SELECTED_FONT_COLOR: Color32 = DEFAULT_GLYPH_FONT_COLOR;
+
+const DEFAULT_VISUAL_BG_COLOR: Color32 = Color32::TRANSPARENT;
+
+// const VISUAL_SELECTED_STROKE_COLOR_BLINK: Color32 = Color::rgb(66, 66, 66).build();
+const VISUAL_SELECTED_STROKE_COLOR_BLINK: Color32 = Color::rgb(192, 222, 255).build();
 
 const CURSOR_DELAY: u64 = 800;
 
 const TERMINATOR_SELECT: &str = ".";
 const TERMINATOR_MARKER: &str = "+";
 
-// const GRID_MARKER_SPACE: usize = 2;
+enum Command {
+    Set(usize, usize, String),
+    Unset(usize, usize),
+}
 
 /// ConsoleApp wraps the inner App
 /// ConsoleApp handles the egui presentation concerns
 /// App owns the underlying logic
 ///
-
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct ConsoleApp<const X: usize, const Y: usize> {
     app: App<X, Y>,
 }
 
+///
+/// I can't tell if making this generic is better
+/// X + Y are passed two levels down and I didn't like it.
+/// Instead X + Y are defined in the type and so that has to be everywhere
+/// I think there is more cognitive load with the generics
+/// Other issue that will bite is if I want to resize the X, Y
+/// I will actually need to restart the entire application because X, Y
+/// has to be done in main, but is not a parameter but a type.
 impl<const X: usize, const Y: usize> Default for ConsoleApp<X, Y> {
     fn default() -> Self {
         Self {
@@ -66,9 +83,17 @@ impl<const X: usize, const Y: usize> ConsoleApp<X, Y> {
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App<const X: usize, const Y: usize> {
     src: Source,
+    exe: Executor,
+
+    /// Append-only log of commands
+    cmd: Vec<Command>,
+
     cursor: Coord<X, Y>,
+
+    // TODO: move into cursor
     blinked_at: Instant,
     blink: bool,
+
     opts: Opts,
 }
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
@@ -88,10 +113,11 @@ pub enum Mode {
 
 impl<const X: usize, const Y: usize> Default for App<X, Y> {
     fn default() -> Self {
-        let src = Source::new(X, Y);
         Self {
-            src,
-            cursor: Coord::<X, Y>::from(0, 0),
+            src: Source::new(X, Y),
+            exe: Executor::default(),
+            cmd: Vec::default(),
+            cursor: Coord::default(),
             opts: Opts::default(),
             blinked_at: Instant::now(),
             blink: false,
@@ -155,73 +181,48 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
         self.app.event_handler(events);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // let color = Color32::from_gray(55);
-
-            // let stroke = Stroke::new(1.0, TEXT_HOVER);
-            // ui.style_mut().visuals.widgets.hovered.fg_stroke = stroke;
-
             ui.spacing_mut().item_spacing = Vec2::splat(0.0);
             ui.spacing_mut().button_padding = Vec2::splat(2.5);
 
             // button background colour
-            ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
+            // ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
             ui.style_mut().visuals.widgets.inactive.rounding = Rounding::default();
 
             for y in 0..Y {
                 ui.horizontal(|ui| {
                     for x in 0..X {
-                        // Need
-                        // s - char at x, y
-                        //   -> button text
-
-                        // g - glyph
-                        //   -> bg and fill
-
                         let mut s = self.app.src.get_at(x, y);
                         let mut g = self.app.src.get_glyph_at(x, y);
 
                         if is_terminator(&s) {
                             if matches!(g, Glyph::Terminator(_)) {
                                 g = self.app.terminator(x, y);
+                                s = g.into()
                             }
-                            s = g.into()
+                            // else {
+                            // info!("{x} {y} - {s} - {g:?}");
+                            // }
                         }
-
-                        // info!("{s} - {g:?}");// info!("{s} - {g:?}");
-
-                        // if is_terminator(&s) {
-                        //     let mut t = TERMINATOR;
-
-                        //     // Highlight
-                        //     if self.selected.in_grid(x, y, self.opts.grid_size) {
-                        //         if x % 2 == 0 && y % 2 == 0 {
-                        //             t = TERMINATOR_SELECT;
-                        //         }
-                        //     }
-
-                        //     // Grid markers
-                        //     if x as f32 % self.opts.grid_size == 0.0
-                        //         && y as f32 % self.opts.grid_size == 0.0
-                        //     {
-                        //         t = TERMINATOR_MARKER;
-                        //     }
-
-                        //     self.src.set_terminator_at(x, y, t);
-                        // } else {
-                        //     if let Some(g) = self.src.get_token_at(x, y) {
-                        //         info!("{s} - {g:?}")
-                        //         //     let exp = exp.inner.first().unwrap();
-                        //     }
-                        // }
-
-                        // info!("!!!elapsed {:?}", self.blinked_at);
 
                         let selected = self.app.is_cursor(x, y);
 
                         let visuals = g.style(selected);
 
-                        ui.style_mut().visuals.selection.bg_fill = visuals.bg_fill;
-                        ui.style_mut().visuals.selection.stroke.color = visuals.stroke_color;
+                        // if is_glyph(&s) {
+                        //     info!("{x} {y} - {g:?} {visuals:?}");
+                        // }
+
+                        ui.style_mut().visuals.widgets.inactive.weak_bg_fill = visuals.bg_fill;
+
+                        // font
+                        ui.style_mut().visuals.widgets.inactive.fg_stroke.color =
+                            visuals.font_color;
+
+                        // frame stroke
+                        ui.style_mut().visuals.widgets.inactive.bg_stroke.color =
+                            visuals.stroke_color;
+
+                        ui.style_mut().visuals.widgets.inactive.bg_fill = visuals.stroke_color;
 
                         if selected {
                             // error!("elapsed {:?}", self.blinked_at.elapsed());
@@ -236,6 +237,10 @@ impl<const X: usize, const Y: usize> eframe::App for ConsoleApp<X, Y> {
                                 ui.style_mut().visuals.selection.bg_fill = Color32::TRANSPARENT;
                                 ui.style_mut().visuals.selection.stroke.color =
                                     VISUAL_SELECTED_STROKE_COLOR_BLINK;
+                            } else {
+                                ui.style_mut().visuals.selection.bg_fill = visuals.bg_fill;
+                                ui.style_mut().visuals.selection.stroke.color =
+                                    visuals.stroke_color;
                             }
                         }
 
@@ -283,6 +288,9 @@ impl<const X: usize, const Y: usize> App<X, Y> {
     pub fn cursor_down(&mut self) {
         self.cursor(self.cursor.down());
     }
+
+    #[inline]
+    pub fn play(&mut self) {}
 
     #[inline]
     pub fn cursor_left(&mut self) {
@@ -409,64 +417,92 @@ impl<const X: usize, const Y: usize> App<X, Y> {
     }
 }
 
+#[derive(Debug)]
 struct GlyphStyle {
     bg_fill: Color32,
     stroke_color: Color32,
+    font_color: Color32,
 }
 
 impl Glyph {
     fn style(&self, selected: bool) -> GlyphStyle {
-        let v = GlyphStyle {
-            bg_fill: DEFAULT_VISUAL_SELECTED_BG_COLOR,
-            stroke_color: DEFAULT_VISUAL_SELECTED_STROKE_COLOR,
+        let default = GlyphStyle {
+            bg_fill: DEFAULT_GLYPH_BG_COLOR,
+            stroke_color: DEFAULT_GLYPH_STROKE_COLOR,
+            font_color: DEFAULT_GLYPH_FONT_COLOR,
         };
 
+        let default_selected = GlyphStyle {
+            bg_fill: DEFAULT_GLYPH_SELECTED_BG_COLOR,
+            stroke_color: DEFAULT_GLYPH_SELECTED_FONT_COLOR,
+            font_color: DEFAULT_GLYPH_SELECTED_FONT_COLOR,
+        };
+
+        // Color::rgb(97, 0, 255).build()
+        // Color::rgb(255, 0, 230).build(),
+
         match (self, selected) {
-            (Glyph::Function, true) => v,
-            // (Glyph::Function, true) => GlyphVisuals {
-            //     bg_fill: Color::rgb(97, 0, 255).build(),
-            //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
-            // },
+            // (Glyph::Function, true) => v,
+            (Glyph::Function, true) => GlyphStyle {
+                bg_fill: Color::rgb(200, 75, 255).build(),
+                stroke_color: default_selected.stroke_color,
+                font_color: default_selected.font_color,
+            },
             (Glyph::Function, false) => GlyphStyle {
-                bg_fill: Color::rgb(97, 0, 255).build(),
-                stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
+                bg_fill: Color::rgb(255, 0, 230).build(),
+                stroke_color: Color::rgb(0, 0, 0).build(),
+                font_color: Color::rgb(255, 255, 255).build(),
             },
             // (Glyph::Number, true) => GlyphVisuals {
             //     bg_fill: Color::rgb(97, 0, 255).build(),
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
             // },
-            (Glyph::Number, true) => v,
-            (Glyph::Number, false) => GlyphStyle {
-                bg_fill: Color::rgb(97, 0, 255).build(),
-                stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
-            },
+            (Glyph::Number, true) => default_selected,
+            (Glyph::Number, false) => default,
+            // (Glyph::Number, false) => GlyphStyle {
+            //     bg_fill: Color::rgb(20, 146, 135).build(),
+            //     stroke_color: Color::rgb(156, 192, 189).build(),
+            //     font_color: Color::rgb(156, 192, 189).build(),
+            // },
+            // (Glyph::Number, false) => GlyphStyle {
+            //     bg_fill: Color::rgb(97, 0, 255).build(),
+            //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
+            // },
             // (Glyph::Note, true) => GlyphVisuals {
             //     bg_fill: Color::rgb(97, 0, 255).build(),
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
             // },
-            (Glyph::Note, true) => v,
+            (Glyph::Note, true) => default_selected,
             (Glyph::Note, false) => GlyphStyle {
-                bg_fill: Color::rgb(97, 0, 255).build(),
-                stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
+                bg_fill: Color::rgb(25, 150, 135).build(),
+                stroke_color: Color::rgb(33, 33, 33).build(),
+                font_color: Color::rgb(200, 200, 200).build(),
             },
-            // (Glyph::String, true) => GlyphVisuals {
+            // (Glyph::Note, false) => GlyphStyle {
+            //     bg_fill: Color::rgb(20, 146, 135).build(),
+            //     stroke_color: Color::rgb(156, 192, 189).build(),
+            //     font_color: Color::rgb(156, 192, 189).build(),
+            // },
+            (Glyph::String, true) => default_selected,
+            (Glyph::String, false) => GlyphStyle {
+                bg_fill: Color::rgb(125, 225, 220).build(),
+                stroke_color: Color::rgb(33, 33, 33).build(),
+                font_color: Color::rgb(200, 200, 200).build(),
+            },
+            // (Glyph::String, false) => GlyphStyle {
             //     bg_fill: Color::rgb(97, 0, 255).build(),
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
             // },
-            (Glyph::String, true) => v,
-            (Glyph::String, false) => GlyphStyle {
-                bg_fill: Color::rgb(97, 0, 255).build(),
-                stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
-            },
-            (Glyph::Terminator(_), true) => v,
+            (Glyph::Terminator(_), true) => default_selected,
+            (Glyph::Terminator(_), false) => default,
             // (Glyph::Terminator(_), true) => GlyphVisuals {
             //     bg_fill: Color::rgb(97, 0, 255).build(),
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
             // },
-            (Glyph::Terminator(_), false) => GlyphStyle {
-                bg_fill: Color::rgb(97, 0, 255).build(),
-                stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
-            },
+            // (Glyph::Terminator(_), false) => GlyphStyle {
+            //     bg_fill: Color::rgb(97, 0, 255).build(),
+            //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
+            // },
         }
     }
 }
@@ -486,16 +522,16 @@ mod test {
 
         let mut app = App::<10, 10>::default();
 
-        app.set_at(0, 0, "i");
-        app.set_at(1, 0, "d");
+        // app.set_at(0, 0, "i");
+        // app.set_at(1, 0, "d");
 
-        // info!(":{:?}", app.src.inner);
+        // // info!(":{:?}", app.src.inner);
 
-        // let (s, g) = app.render(1, 0);
-        // info!("{}:{:?}", s, g);
+        // // let (s, g) = app.render(1, 0);
+        // // info!("{}:{:?}", s, g);
 
-        let (s, g) = app.render(2, 0);
-        info!("{}:{:?}", s, g);
+        // // let (s, g) = app.render(2, 0);
+        // // info!("{}:{:?}", s, g);
         // assert_eq!(&s, "s");
         // assert_eq!(g, Glyph::String);
     }
