@@ -5,8 +5,6 @@ use std::sync::Once;
 
 static INIT: Once = Once::new();
 
-pub const DEFAULT_COL_COUNT: usize = 20;
-pub const DEFAULT_ROW_COUNT: usize = 10;
 // pub const DEFAULT_COL_COUNT: usize = 80;
 // pub const DEFAULT_ROW_COUNT: usize = 60;
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [800.0, 600.0];
@@ -30,6 +28,8 @@ fn trace() {
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
+    use console::console::Console;
+
     trace();
 
     let native_options = eframe::NativeOptions {
@@ -46,12 +46,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "[ o r c v s ]",
         native_options,
-        Box::new(|cc| {
-            Ok(Box::new(console::ConsoleApp::<
-                DEFAULT_COL_COUNT,
-                DEFAULT_ROW_COUNT,
-            >::new(cc)))
-        }),
+        Box::new(|cc| Ok(Box::new(Console::new(cc)))),
     )
 }
 

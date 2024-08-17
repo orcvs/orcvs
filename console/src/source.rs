@@ -7,6 +7,8 @@ use std::io::repeat;
 use std::iter;
 use std::rc::Rc;
 use tracing::{debug, error, info};
+
+use crate::glyph::{Glyph, Terminator, G};
 // use arrayvec::ArrayVec;
 
 pub const TERMINATOR: &str = " ";
@@ -45,68 +47,6 @@ impl SourceExpression {
     }
 }
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Glyph {
-    Function,
-    Number,
-    Note,
-    String,
-    Terminator(Terminator),
-}
-pub type G = Glyph;
-
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Terminator {
-    Dot,
-    Marker,
-    Space,
-}
-
-impl Glyph {
-    pub fn highlight() -> Self {
-        Glyph::Terminator(Terminator::Dot)
-    }
-    pub fn marker() -> Self {
-        Glyph::Terminator(Terminator::Marker)
-    }
-}
-
-impl Default for Glyph {
-    fn default() -> Self {
-        Glyph::Terminator(Terminator::default())
-    }
-}
-
-impl Default for Terminator {
-    fn default() -> Self {
-        Terminator::Space
-    }
-}
-
-impl From<Glyph> for String {
-    fn from(g: Glyph) -> Self {
-        match g {
-            Glyph::Function => "F".to_string(),
-            Glyph::Number => "h".to_string(),
-            Glyph::Note => "n".to_string(),
-            Glyph::String => "s".to_string(),
-            Glyph::Terminator(t) => t.into(),
-        }
-    }
-}
-
-impl From<Terminator> for String {
-    fn from(t: Terminator) -> Self {
-        match t {
-            Terminator::Dot => ".".to_string(),
-            Terminator::Marker => "+".to_string(),
-            Terminator::Space => " ".to_string(),
-        }
-    }
-}
-
 // Parsed([Expression { token: Function, atom: Some(Function(Id)) }, Expression { token: String, atom: Some(Empty) }])
 
 fn to_glyphs(parsed_exps: &Parsed<Expression>) -> Vec<Glyph> {
@@ -136,6 +76,9 @@ impl Source {
         assert!(rows > 0, "rows must be greater than zero");
 
         let n = cols * rows;
+
+        info!("n: {n}");
+
         let inner = TERMINATOR.to_string().repeat(n);
 
         let map = vec![None; n];
@@ -154,7 +97,12 @@ impl Source {
     }
 
     pub fn get_at(&self, x: usize, y: usize) -> String {
+        info!("x: {x}, y: {y}");
+
         let idx = self.to_idx(x, y);
+
+        info!("idx: {idx}");
+
         // SAFELY UNSAFE
         // all characters are single-byte ASCII
         //   the idx is always in range
@@ -276,9 +224,9 @@ impl Source {
     pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
         let idx = self.to_idx(x, y);
         // let s = self.get_at(x, y);
-        if x == 2 || x == 3 {
-            info!("glyphs {:?}", self.glyphs.iter().take(10));
-        }
+        // if x == 2 || x == 3 {
+        //     info!("glyphs {:?}", self.glyphs.iter().take(10));
+        // }
         *self.glyphs.get(idx).unwrap()
     }
 
@@ -391,7 +339,7 @@ impl Source {
             (self.len(), None)
         };
 
-        let terminator = is_terminator(s);
+        let terminator = Glyph::is_terminator(s);
         let glyph = !terminator;
 
         if terminator {
@@ -451,44 +399,8 @@ impl Source {
     }
 }
 
-#[inline]
-pub fn is_glyph(s: &str) -> bool {
-    !is_terminator(s) && !is_marker(s)
-}
-
-#[inline]
-pub fn is_marker(s: &str) -> bool {
-    s == "+"
-}
-
-#[inline]
-pub fn is_terminator(s: &str) -> bool {
-    match s {
-        "." => true,
-        " " => true,
-        _ => false,
-    }
-}
-
-#[inline]
-pub fn is_terminator_bytes(b: u8) -> bool {
-    match b {
-        46 => true,
-        32 => true,
-        // 43 => true,
-        _ => false,
-    }
-}
-
-#[inline]
-pub fn is_character(s: &str) -> bool {
-    !is_terminator(s)
-}
-
 #[cfg(test)]
 mod test {
-    use crate::source::is_terminator;
-    use crate::source::is_terminator_bytes;
     use crate::source::Glyph;
     use crate::source::Source;
     use crate::source::SourceExpression;
@@ -687,38 +599,38 @@ mod test {
 
     #[test]
     fn test_is_terminator() {
-        let t = is_terminator(".");
+        let t = Glyph::is_terminator(".");
         assert!(t);
 
-        let t = is_terminator(" ");
+        let t = Glyph::is_terminator(" ");
         assert!(t);
 
-        let t = is_terminator("+");
+        let t = Glyph::is_terminator("+");
         assert!(t == false);
 
-        let t = is_terminator("..");
+        let t = Glyph::is_terminator("..");
         assert!(t == false);
 
-        let t = is_terminator("!");
+        let t = Glyph::is_terminator("!");
         assert!(t == false);
     }
 
     #[test]
     fn test_is_terminator_bytes() {
         let b = ".".as_bytes();
-        let t = is_terminator_bytes(b[0]);
+        let t = Glyph::is_terminator_bytes(b[0]);
         assert!(t);
 
         let b = " ".as_bytes();
-        let t = is_terminator_bytes(b[0]);
+        let t = Glyph::is_terminator_bytes(b[0]);
         assert!(t);
 
         let b = "+".as_bytes();
-        let t = is_terminator_bytes(b[0]);
+        let t = Glyph::is_terminator_bytes(b[0]);
         assert!(t == false);
 
         let b = "!".as_bytes();
-        let t = is_terminator_bytes(b[0]);
+        let t = Glyph::is_terminator_bytes(b[0]);
         assert!(t == false);
     }
 

@@ -1,12 +1,13 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
 pub mod app;
+pub mod console;
 pub mod executor;
+pub mod glyph;
 pub mod source;
 
 pub mod style;
 
-pub use app::ConsoleApp;
 use egui::Color32;
 use tracing::info;
 
@@ -32,28 +33,47 @@ impl Color {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct Coord<const X: usize, const Y: usize> {
+pub struct Coord {
     x: usize,
     y: usize,
+    max_x: usize,
+    max_y: usize,
 }
 
-impl<const X: usize, const Y: usize> Default for Coord<X, Y> {
-    fn default() -> Self {
-        Coord::<X, Y>::from(0, 0)
-    }
-}
-
-impl<const X: usize, const Y: usize> Coord<X, Y> {
-    fn from(x: usize, y: usize) -> Self {
-        Self { x, y }
+impl Coord {
+    fn new(x: usize, y: usize, max_x: usize, max_y: usize) -> Self {
+        Self { x, y, max_x, max_y }
     }
 
     fn from_x(self, x: usize) -> Self {
-        Self { x, y: self.y }
+        Self {
+            x,
+            y: self.y,
+            max_x: self.max_x,
+            max_y: self.max_y,
+        }
     }
 
     fn from_y(self, y: usize) -> Self {
-        Self { x: self.x, y }
+        Self {
+            x: self.x,
+            y,
+            max_x: self.max_x,
+            max_y: self.max_y,
+        }
+    }
+
+    pub fn is_at(&self, x: usize, y: usize) -> bool {
+        self.x == x && self.y == y
+    }
+
+    fn at(&self, x: usize, y: usize) -> Self {
+        Self {
+            x,
+            y,
+            max_x: self.max_x,
+            max_y: self.max_y,
+        }
     }
 
     fn up(&self) -> Self {
@@ -65,7 +85,7 @@ impl<const X: usize, const Y: usize> Coord<X, Y> {
     }
 
     fn down(&self) -> Self {
-        let y = (self.y + 1).clamp(0, Y - 1);
+        let y = (self.y + 1).clamp(0, self.max_y - 1);
         self.from_y(y)
     }
 
@@ -78,7 +98,7 @@ impl<const X: usize, const Y: usize> Coord<X, Y> {
     }
 
     fn right(&self) -> Self {
-        let x = (self.x + 1).clamp(0, X - 1);
+        let x = (self.x + 1).clamp(0, self.max_x - 1);
         self.from_x(x)
     }
 
@@ -134,7 +154,7 @@ mod test {
         trace();
         let grid_size = 8.0;
 
-        let selected = Coord::<100, 100>::from(5, 5);
+        let selected = Coord::new(5, 5, 100, 100);
         assert!(!selected.in_grid(10, 10, grid_size));
         for x in 0..grid_size as usize {
             for y in 0..grid_size as usize {
@@ -142,7 +162,7 @@ mod test {
             }
         }
 
-        let selected = Coord::<100, 100>::from(8, 8);
+        let selected = Coord::new(8, 8, 100, 100);
         assert!(!selected.in_grid(1, 1, grid_size));
 
         for x in 8..=16 as usize {
@@ -152,7 +172,7 @@ mod test {
         }
 
         // Grid X 5 Y 6
-        let selected = Coord::<100, 100>::from(42, 51);
+        let selected = Coord::new(42, 51, 100, 100);
         assert!(!selected.in_grid(1, 1, grid_size));
         for x in 0..=grid_size as usize {
             for y in 0..=grid_size as usize {
@@ -165,7 +185,7 @@ mod test {
 
     #[test]
     fn test_coord() {
-        let coord = Coord::<10, 10>::from(3, 3);
+        let coord = Coord::new(3, 3, 10, 10);
 
         let coord = coord.down();
         assert_eq!(coord.y, 4);
