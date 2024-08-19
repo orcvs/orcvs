@@ -77,7 +77,7 @@ impl Source {
 
         let n = cols * rows;
 
-        info!("n: {n}");
+        // info!("n: {n}");
 
         let inner = TERMINATOR.to_string().repeat(n);
 
@@ -97,11 +97,11 @@ impl Source {
     }
 
     pub fn get_at(&self, x: usize, y: usize) -> String {
-        info!("x: {x}, y: {y}");
+        // info!("x: {x}, y: {y}");
 
         let idx = self.to_idx(x, y);
 
-        info!("idx: {idx}");
+        // info!("idx: {idx}");
 
         // SAFELY UNSAFE
         // all characters are single-byte ASCII

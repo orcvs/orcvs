@@ -25,10 +25,7 @@ persistence = ["dep:serde", "eframe/persistence"]
 [dependencies]
 lang = { path = "../lang" }
 arrayvec = { version = "0.7.4", default-features = false }
-eframe = { version = "0.28.0", default-features = false, features = [
-    "glow",
-    "default_fonts",
-] }
+eframe = { version = "0.28.0", default-features = false, features = ["glow"] }
 egui = { version = "0.28.0", default-features = false }
 nohash-hasher = "0.2.0"
 rand = "0.8.5"

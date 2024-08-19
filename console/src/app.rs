@@ -4,9 +4,11 @@ use std::{
 };
 
 use egui::{Event, FontId, Key};
+use tokio::{task, time};
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::{executor::Executor, glyph::Glyph, source::Source, Coord};
+use crate::{cursor::Cursor, glyph::Glyph, source::Source};
 
 pub const DEFAULT_FONT_SIZE: f32 = 20.0;
 pub const DEFAULT_GRID_SIZE: f32 = 8.0;
@@ -29,13 +31,14 @@ pub struct App {
     pub cursor: Cursor,
 
     src: Source,
-    exe: Executor,
+    token: Option<CancellationToken>,
     // Append-only log of commands
     // cmd: Vec<Command>,
 }
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Opts {
+    pub bpm: Bpm,
     pub cols: usize,
     pub cursor_delay: u64,
     pub font_id: FontId,
@@ -55,6 +58,7 @@ pub enum Mode {
 impl Opts {
     fn new(cols: usize, rows: usize) -> Self {
         Self {
+            bpm: Bpm(120),
             cols,
             cursor_delay: DEFAULT_CURSOR_DELAY,
             font_id: egui::FontId::monospace(DEFAULT_FONT_SIZE),
@@ -66,109 +70,26 @@ impl Opts {
     }
 }
 
-pub struct Cursor {
-    pub on: bool,
-
-    coord: Coord,
-    at: Instant,
-    delay: u64,
-}
-
-impl Cursor {
-    fn new(cols: usize, rows: usize, delay: u64) -> Self {
-        Self {
-            coord: Coord::new(0, 0, cols, rows),
-            at: Instant::now(),
-            on: false,
-            delay,
-        }
-    }
-
-    pub fn blink(&mut self) {
-        if self.at.elapsed() >= Duration::from_millis(self.delay) {
-            self.at = Instant::now();
-            self.on = !self.on;
-        }
-    }
-
-    #[inline]
-    pub fn select(&mut self, selected: Coord) {
-        self.coord = selected;
-        self.on = false;
-        self.at = Instant::now();
-    }
-
-    #[inline]
-    pub fn select_at(&mut self, x: usize, y: usize) {
-        self.select(self.coord.at(x, y));
-    }
-
-    #[inline]
-    pub fn up(&mut self) {
-        self.select(self.coord.up());
-    }
-
-    #[inline]
-    pub fn down(&mut self) {
-        self.select(self.coord.down());
-    }
-
-    #[inline]
-    pub fn left(&mut self) {
-        self.select(self.coord.left());
-    }
-
-    #[inline]
-    pub fn right(&mut self) {
-        self.select(self.coord.right());
-    }
-}
-
-impl Deref for Cursor {
-    type Target = Coord;
-    fn deref(&self) -> &Self::Target {
-        &self.coord
-    }
-}
-
 impl App {
     pub fn new(cols: usize, rows: usize) -> Self {
         let opts = Opts::new(cols, rows);
 
         Self {
             cursor: Cursor::new(cols, rows, opts.cursor_delay),
-            exe: Executor::default(),
             src: Source::new(cols, rows),
             opts,
+            token: None,
         }
     }
 
     #[inline]
     pub fn delete(&mut self) {
-        self.src.unset_at(self.cursor.x, self.cursor.y);
+        self.src.unset_at(self.cursor.coord.x, self.cursor.coord.y);
         self.cursor.left();
     }
 
     pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
         self.src.get_glyph_at(x, y)
-    }
-
-    pub fn terminator(&self, x: usize, y: usize) -> Glyph {
-        // Highlight
-        if self.cursor.in_grid(x, y, self.opts.grid_size) {
-            if x % self.opts.grid_selected_dot_spacing == 0
-                && y % self.opts.grid_selected_dot_spacing == 0
-            {
-                return Glyph::highlight();
-            }
-        }
-
-        // Grid markers
-        if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
-            return Glyph::marker();
-        }
-
-        Glyph::default()
     }
 
     pub fn get_at(&self, x: usize, y: usize) -> (String, Glyph) {
@@ -224,12 +145,15 @@ impl App {
                 } => self.delete(),
 
                 Event::Text(text_to_insert) => {
-                    self.src
-                        .set_at(self.cursor.x, self.cursor.y, text_to_insert);
+                    if text_to_insert.len() == 1 {
+                        self.src
+                            .set_at(self.cursor.coord.x, self.cursor.coord.y, text_to_insert);
 
-                    // if self.opts.mode == Mode::Insert {
-                    self.cursor.right();
-                    repaint = true;
+                        // if self.opts.mode == Mode::Insert {
+                        self.cursor.right();
+                        repaint = true;
+                    }
+
                     // }
                 }
 
@@ -240,34 +164,88 @@ impl App {
         }
         repaint
     }
+
+    async fn play(&mut self) {
+        let token = CancellationToken::new();
+        let cln_token = token.clone();
+        self.token = Some(token);
+
+        let ms = self.opts.bpm.delay_ms();
+
+        // info!("{ms}");
+        // let state = self.state;
+        task::spawn(async move {
+            info!("spawn");
+            tokio::select! {
+                _ = cln_token.cancelled() => {
+                    info!("cancelled");
+                }
+                _ = Self::ticker(ms) => {
+                    info!("done");
+                }
+            }
+        });
+        info!("here");
+    }
+
+    async fn ticker(ms: u64) {
+        let mut interval = time::interval(Duration::from_millis(ms));
+        loop {
+            info!("interval");
+            interval.tick().await;
+            // tick().await;
+        }
+    }
+
+    fn terminator(&self, x: usize, y: usize) -> Glyph {
+        // Grid markers
+        if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
+            return Glyph::marker();
+        }
+
+        // Highlight
+        if self.cursor.coord.in_grid(x, y, self.opts.grid_size) {
+            if x % self.opts.grid_selected_dot_spacing == 0
+                && y % self.opts.grid_selected_dot_spacing == 0
+            {
+                return Glyph::highlight();
+            }
+        }
+
+        Glyph::default()
+    }
+}
+
+struct Bpm(usize);
+
+impl Bpm {
+    fn delay_ms(&self) -> u64 {
+        let ms = (60000 / self.0) / 4;
+        ms as u64
+    }
 }
 
 #[cfg(test)]
 mod test {
 
-    use tracing::info;
+    use crate::{
+        glyph::{Glyph, Terminator},
+        test::trace,
+    };
 
-    use crate::test::trace;
-
-    use super::App;
+    use super::{App, DEFAULT_GRID_SIZE};
 
     #[test]
-    fn test_highlight() {
+    fn test_terminator() {
         trace();
 
-        let mut app = App::new(10, 10);
+        let rows = 3 * (DEFAULT_GRID_SIZE as usize);
+        let cols = 3 * (DEFAULT_GRID_SIZE as usize);
 
-        // app.set_at(0, 0, "i");
-        // app.set_at(1, 0, "d");
+        let mut app = App::new(cols, rows);
+        app.cursor.select_at(3, 3);
 
-        // // info!(":{:?}", app.src.inner);
-
-        // // let (s, g) = app.render(1, 0);
-        // // info!("{}:{:?}", s, g);
-
-        // // let (s, g) = app.render(2, 0);
-        // // info!("{}:{:?}", s, g);
-        // assert_eq!(&s, "s");
-        // assert_eq!(g, Glyph::String);
+        let g = app.terminator(0, 0);
+        assert_eq!(g, Glyph::Terminator(Terminator::Marker));
     }
 }

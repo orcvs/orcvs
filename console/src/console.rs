@@ -21,6 +21,31 @@ impl Console {
         let style = style();
         cc.egui_ctx.set_style(style);
 
+        // Start with the default fonts (we will be adding to them rather than replacing them).
+        let mut fonts = egui::FontDefinitions::default();
+        let key = "ServerMono";
+        // Install my own font (maybe supporting non-latin characters).
+        // .ttf and .otf files supported.
+        fonts.font_data.insert(
+            key.to_owned(),
+            egui::FontData::from_static(include_bytes!("../assets/ServerMono-Regular.otf")),
+        );
+
+        fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default()
+            .insert(0, key.to_owned());
+
+        // Put my font as last fallback for monospace:
+        fonts
+            .families
+            .entry(egui::FontFamily::Monospace)
+            .or_default()
+            .insert(0, key.to_owned());
+
+        cc.egui_ctx.set_fonts(fonts);
+
         Self {
             app: App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
         }
