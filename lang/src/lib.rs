@@ -13,13 +13,30 @@ use thiserror::Error;
 const EXP_LEN: usize = 32;
 pub struct MaybeAtom(Option<Atom>);
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Parsed<T>(pub ArrayVec<T, 32>);
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Expression {
-    pub token: Token,
-    pub atom: Option<Atom>,
+    pub tokens: ArrayVec<Token, EXP_LEN>,
+    pub atoms: ArrayVec<Atom, EXP_LEN>,
+}
+
+impl Expression {
+    pub fn new() -> Self {
+        let tokens = ArrayVec::new();
+        let atoms = ArrayVec::new();
+
+        Self { tokens, atoms }
+    }
+
+    ///
+    /// Adds a token and atom to the expression
+    fn add(&mut self, t: Token, a: Atom) {
+        self.tokens.push(t);
+        self.atoms.push(a);
+    }
+
+    pub fn take_atoms(self) -> Vec<Atom> {
+        self.atoms.into_iter().collect()
+    }
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
@@ -33,7 +50,7 @@ pub enum Atom {
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Function {
     Add,
     Divide,
@@ -42,17 +59,6 @@ pub enum Function {
     Multiply,
     Play,
     Subtract,
-}
-
-impl Expression {
-    pub fn new(token: Token) -> Self {
-        Self { token, atom: None }
-    }
-
-    #[inline(always)]
-    pub fn set_atom(&mut self, atom: Atom) {
-        self.atom = Some(atom);
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,47 +72,22 @@ pub enum Token {
 
 pub type T = Token;
 
-pub type Tokens = ArrayVec<Expression, 8>;
-
-impl From<Function> for Expression {
-    #[inline(always)]
-    fn from(f: Function) -> Self {
-        let atom = Atom::from(f);
-        Expression {
-            token: Token::Function,
-            atom: Some(atom),
-        }
-    }
-}
-
-macro_rules! to_expressions {
-    ($($items:tt),*) => {
-        {
-            let mut ary = ArrayVec::new();
-
-            $(
-                for item in $items.iter() {
-                    let exp = Expression::new(*item);
-                    ary.push(exp);
-                }
-            )*
-            ary
-        }
-    };
-}
+pub type Tokens = ArrayVec<Token, 8>;
 
 impl From<&Function> for Tokens {
     #[inline(always)]
     fn from(f: &Function) -> Self {
-        match f {
-            Function::Add => to_expressions!([T::Number, T::Number]),
-            Function::Divide => to_expressions!([T::Number, T::Number]),
-            Function::Id => to_expressions!([T::String]),
-            Function::Play => to_expressions!([T::Number1], [T::Number], [T::Note]),
-            Function::Multiply => to_expressions!([T::Number, T::Number]),
-            Function::Subtract => to_expressions!([T::Number, T::Number]),
-            _ => to_expressions!(([])),
-        }
+        let tokens = match f {
+            Function::Add => vec![T::Number, T::Number],
+            Function::Divide => vec![T::Number, T::Number],
+            Function::Id => vec![T::String],
+            Function::Play => vec![T::Number1, T::Number, T::Note],
+            Function::Multiply => vec![T::Number, T::Number],
+            Function::Subtract => vec![T::Number, T::Number],
+            _ => vec![],
+        };
+
+        tokens.into_iter().collect()
     }
 }
 
@@ -123,8 +104,10 @@ impl<const N: usize> Stack<N> {
     }
 
     #[inline(always)]
-    pub fn new_with(array_vec: ArrayVec<Atom, N>) -> Self {
-        Self { inner: array_vec }
+    pub fn from(v: Vec<Atom>) -> Self {
+        Self {
+            inner: v.into_iter().collect(),
+        }
     }
 
     #[inline(always)]

@@ -160,13 +160,13 @@ mod test {
         let parser = Parser::from(&mut exp);
         let parsed = parser.try_parse().unwrap();
 
-        let stack = Stack::new_with(parsed.0);
+        let stack = Stack::from(parsed);
         let mut interpreter = Interpreter::new(stack);
         interpreter.interpret().unwrap()
     }
 
-    fn interpret_stack(exp: ArrayVec<Atom, 32>) -> Result<Atom, Error> {
-        let stack = Stack::new_with(exp);
+    fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
+        let stack = Stack::from(exp);
         let mut interpreter = Interpreter::new(stack);
         interpreter.interpret()
     }
@@ -283,8 +283,7 @@ mod test {
     fn test_with_missing_argument() {
         trace();
 
-        let array: &[Atom] = &[Atom::Function(Function::Add), Atom::Number(1)];
-        let exp = array_vec!(array);
+        let exp = vec![Atom::Function(Function::Add), Atom::Number(1)];
 
         let result = interpret_stack(exp);
 
@@ -304,12 +303,11 @@ mod test {
         trace();
         let vtha = "VTHA".to_string();
 
-        let array: &[Atom] = &[
+        let stack = vec![
             Atom::Function(Function::Add),
             Atom::Number(1),
             Atom::String(vtha),
         ];
-        let stack = array_vec!(array);
 
         let result = interpret_stack(stack);
 

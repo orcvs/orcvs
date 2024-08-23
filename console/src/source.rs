@@ -1,9 +1,8 @@
 use arrayvec::ArrayVec;
-use lang::{Atom, Expression, Function, Parsed, Parser, Token};
+use lang::{Atom, Function, Parser, Token};
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::io::repeat;
 use std::iter;
 use std::rc::Rc;
 use tracing::{debug, error, info};
@@ -17,7 +16,7 @@ pub const TERMINATOR_BYTES: &[u8] = TERMINATOR.as_bytes();
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Source {
     pub inner: String,
-    pub parsed: HashMap<usize, Parsed<Expression>, nohash_hasher::BuildNoHashHasher<usize>>,
+    pub parsed: HashMap<usize, Vec<Atom>, nohash_hasher::BuildNoHashHasher<usize>>,
     pub glyphs: Vec<Glyph>,
     map: Vec<Option<Rc<RefCell<SourceExpression>>>>,
     cols: usize,
@@ -30,9 +29,6 @@ pub struct SourceExpression {
     start: usize,
     end: usize,
     parsed_len: usize,
-    // #[serde(skip_deserializing, skip_serializing)]
-    // valid: Option<bool>,
-    // function: Option<Function>,
 }
 
 impl SourceExpression {
@@ -41,22 +37,13 @@ impl SourceExpression {
             start,
             end,
             parsed_len: Default::default(),
-            // valid: None,
-            // function: None,
         }
     }
 }
 
-// Parsed([Expression { token: Function, atom: Some(Function(Id)) }, Expression { token: String, atom: Some(Empty) }])
-
-fn to_glyphs(parsed_exps: &Parsed<Expression>) -> Vec<Glyph> {
-    parsed_exps
-        .0
+fn to_glyphs(tokens: &ArrayVec<Token, 32>) -> Vec<Glyph> {
+    tokens
         .iter()
-        .filter_map(|exp| match exp.atom {
-            Some(Atom::Function(Function::Empty)) => None,
-            _ => Some(exp.token),
-        })
         .flat_map(|t| {
             let (g, n) = match t {
                 Token::Function => (G::Function, 2),
@@ -68,6 +55,23 @@ fn to_glyphs(parsed_exps: &Parsed<Expression>) -> Vec<Glyph> {
             iter::repeat(g).take(n)
         })
         .collect()
+    // parsed_exps
+    //     .iter()
+    //     .filter_map(|exp| match exp.atom {
+    //         Some(Atom::Function(Function::Empty)) => None,
+    //         _ => Some(exp.token),
+    //     })
+    //     .flat_map(|t| {
+    //         let (g, n) = match t {
+    //             Token::Function => (G::Function, 2),
+    //             Token::Note => (G::Note, 2),
+    //             Token::Number => (G::Number, 2),
+    //             Token::Number1 => (G::Number, 1),
+    //             Token::String => (G::String, 2),
+    //         };
+    //         iter::repeat(g).take(n)
+    //     })
+    //     .collect()
 }
 
 impl Source {
@@ -96,6 +100,25 @@ impl Source {
         }
     }
 
+    ///
+    /// Sets `s` at the x, y coords of the grid and recalculates expressions.
+    ///
+    /// ```
+    /// use console::source::Source;
+    /// let mut source = Source::new(10, 10);
+    /// let idx = source.set_at(3, 3, "!");
+    ///
+    /// let s = source.get_at(3, 3);
+    /// assert_eq!(s.as_str(), "!");
+    /// ```
+    ///
+    pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
+        let idx = self.set_at_inner(x, y, s);
+
+        // info!("{}", self.inner);
+        self.calculate_at(idx, s);
+    }
+
     pub fn get_at(&self, x: usize, y: usize) -> String {
         // info!("x: {x}, y: {y}");
 
@@ -111,8 +134,21 @@ impl Source {
         s.to_owned()
     }
 
+    pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
+        let idx = self.to_idx(x, y);
+        *self.glyphs.get(idx).unwrap()
+    }
+
+    ///
+    /// Unset at {x, y}
+    /// Sets a `TERMINATOR` at the position`
+    ///
+    pub fn unset_at(&mut self, x: usize, y: usize) {
+        self.set_at(x, y, TERMINATOR);
+    }
+
     #[inline]
-    pub fn get_exp_str(&self, exp: &Rc<RefCell<SourceExpression>>) -> &str {
+    fn get_exp_str(&self, exp: &Rc<RefCell<SourceExpression>>) -> &str {
         let exp = exp.borrow();
         let start = exp.start;
         let end = exp.end;
@@ -129,18 +165,18 @@ impl Source {
         unsafe { self.inner.get_unchecked(start..(end + 1)) }
     }
 
-    pub fn set_exp_from(&mut self, start: usize, end: usize, exp: &Rc<RefCell<SourceExpression>>) {
+    fn set_exp_from(&mut self, start: usize, end: usize, exp: &Rc<RefCell<SourceExpression>>) {
         for i in start..(end + 1) {
             self.map[i] = Some(exp.clone());
         }
         self.parse_exp(&exp);
     }
 
-    pub fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
+    fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<SourceExpression>>) {
         self.map[idx] = Some(exp);
     }
 
-    pub fn end_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
+    fn end_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
         {
             let mut exp = exp.borrow_mut();
             exp.end = idx;
@@ -148,7 +184,11 @@ impl Source {
         self.parse_exp(exp);
     }
 
-    pub fn start_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
+    fn remove_exp(&mut self, idx: usize) {
+        self.map[idx] = None;
+    }
+
+    fn start_exp(&mut self, idx: usize, exp: &Rc<RefCell<SourceExpression>>) {
         {
             let mut exp = exp.borrow_mut();
             exp.start = idx;
@@ -217,19 +257,6 @@ impl Source {
         self.set_exp(idx, exp);
     }
 
-    pub fn remove_exp(&mut self, idx: usize) {
-        self.map[idx] = None;
-    }
-
-    pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
-        let idx = self.to_idx(x, y);
-        // let s = self.get_at(x, y);
-        // if x == 2 || x == 3 {
-        //     info!("glyphs {:?}", self.glyphs.iter().take(10));
-        // }
-        *self.glyphs.get(idx).unwrap()
-    }
-
     fn unset_glyphs(&mut self, start: usize, len: usize) {
         for i in 0..len {
             let pos = start + i;
@@ -237,12 +264,14 @@ impl Source {
         }
     }
 
-    pub fn parse_exp(&mut self, exp: &Rc<RefCell<SourceExpression>>) {
+    fn parse_exp(&mut self, exp: &Rc<RefCell<SourceExpression>>) {
         let mut s = self.get_exp_str(&exp).to_owned();
 
-        let parsed = Parser::from(&mut s).parse().take();
+        let expression = Parser::from(&mut s).parse();
 
-        let glyphs = to_glyphs(&parsed);
+        let glyphs = to_glyphs(&expression.tokens);
+
+        let atoms = expression.take_atoms();
 
         let mut exp = exp.borrow_mut();
 
@@ -251,34 +280,19 @@ impl Source {
 
         self.unset_glyphs(idx, len);
 
+        // self.stack
+        // .into_iter()
+        // .map(|exp| exp.atom.unwrap_or(Atom::Empty))
+        // .collect()
+
         if !glyphs.is_empty() {
             exp.parsed_len = glyphs.len();
-            self.parsed.insert(idx, parsed);
+            self.parsed.insert(idx, atoms);
             for (i, g) in glyphs.iter().enumerate() {
                 let pos = idx + i;
                 self.glyphs[pos] = *g;
             }
         }
-    }
-
-    ///
-    /// Sets `s` at the x, y coords of the grid and recalculates expressions.
-    ///
-    /// ```
-    /// use console::source::Source;
-    /// let mut source = Source::new(10, 10);
-    /// let idx = source.set_at(3, 3, "!");
-    ///
-    /// let s = source.get_at(3, 3);
-    /// assert_eq!(s.as_str(), "!");
-    /// ```
-    ///
-    pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
-        let idx = self.set_at_uncalculated(x, y, s);
-
-        // info!("{}", self.inner);
-
-        self.calculate_at(idx, s);
     }
 
     ///
@@ -293,7 +307,7 @@ impl Source {
     /// assert_eq!(idx, 33);
     /// ```
     ///
-    pub fn set_at_uncalculated(&mut self, x: usize, y: usize, s: &str) -> usize {
+    fn set_at_inner(&mut self, x: usize, y: usize, s: &str) -> usize {
         let idx = self.to_idx(x, y);
 
         let b = s.as_bytes();
@@ -310,15 +324,7 @@ impl Source {
         idx
     }
 
-    ///
-    /// Unset at {x, y}
-    /// Sets a `TERMINATOR` at the position`
-    ///
-    pub fn unset_at(&mut self, x: usize, y: usize) {
-        self.set_at(x, y, TERMINATOR);
-    }
-
-    pub fn calculate_at(&mut self, idx: usize, s: &str) {
+    fn calculate_at(&mut self, idx: usize, s: &str) {
         let exp = self.map[idx].clone();
 
         let (lft_idx, lft_exp) = if idx > 0 {
@@ -385,7 +391,7 @@ impl Source {
     /// panic if the index is out of bounds
     ///
     #[inline]
-    pub fn to_idx(&self, x: usize, y: usize) -> usize {
+    fn to_idx(&self, x: usize, y: usize) -> usize {
         let idx = y * self.cols + x;
         assert!(idx <= self.len(), "index {idx} out of bounds for [{x},{y}]");
         idx

@@ -32,6 +32,8 @@ pub struct App {
 
     src: Source,
     token: Option<CancellationToken>,
+    // parsed: HashMap<usize, Parsed<Expression>, nohash_hasher::BuildNoHashHasher<usize>>,
+
     // Append-only log of commands
     // cmd: Vec<Command>,
 }
@@ -172,8 +174,6 @@ impl App {
 
         let ms = self.opts.bpm.delay_ms();
 
-        // info!("{ms}");
-        // let state = self.state;
         task::spawn(async move {
             info!("spawn");
             tokio::select! {
@@ -186,6 +186,20 @@ impl App {
             }
         });
         info!("here");
+    }
+
+    async fn pause(&mut self) {
+        if let Some(token) = &self.token {
+            token.cancel();
+        }
+    }
+
+    fn stop(&mut self) {
+        info!("stop");
+        if let Some(token) = &self.token {
+            info!("stop.cancel");
+            token.cancel();
+        }
     }
 
     async fn ticker(ms: u64) {
