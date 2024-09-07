@@ -5,18 +5,20 @@ pub use interpreter::Interpreter;
 pub use parser::Parser;
 
 use arrayvec::ArrayVec;
-use std::fmt;
 use std::fmt::Debug;
 use std::sync::Once;
+use std::{fmt, mem};
 use thiserror::Error;
 
-const EXP_LEN: usize = 32;
-pub struct MaybeAtom(Option<Atom>);
+pub const EXP_LEN: usize = 32;
+
+pub type Tokens = ArrayVec<Token, EXP_LEN>;
+pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 
 #[derive(Debug, Clone)]
 pub struct Expression {
-    pub tokens: ArrayVec<Token, EXP_LEN>,
-    pub atoms: ArrayVec<Atom, EXP_LEN>,
+    pub tokens: Tokens,
+    pub atoms: Atoms,
 }
 
 impl Expression {
@@ -29,13 +31,25 @@ impl Expression {
 
     ///
     /// Adds a token and atom to the expression
+    /// Should always be added together to keep collections in sync
+    ///
     fn add(&mut self, t: Token, a: Atom) {
         self.tokens.push(t);
         self.atoms.push(a);
     }
 
-    pub fn take_atoms(self) -> Vec<Atom> {
-        self.atoms.into_iter().collect()
+    pub fn take_atoms(&mut self) -> Atoms {
+        let atoms = mem::take(&mut self.atoms);
+        atoms.into_iter().collect()
+    }
+
+    pub fn take_tokens(&mut self) -> Vec<Token> {
+        let tokens = mem::take(&mut self.tokens);
+        tokens.into_iter().collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.tokens.len().max(self.atoms.len())
     }
 }
 
@@ -48,6 +62,8 @@ pub enum Atom {
     Number(u8),
     String(String),
 }
+
+pub struct MaybeAtom(Option<Atom>);
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -71,8 +87,6 @@ pub enum Token {
 }
 
 pub type T = Token;
-
-pub type Tokens = ArrayVec<Token, 8>;
 
 impl From<&Function> for Tokens {
     #[inline(always)]

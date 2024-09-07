@@ -11,8 +11,12 @@ default-run = "orcvs"
 
 [profile.dev]
 opt-level = 1
-split-debuginfo = "unpacked"
+debug = true
+# split-debuginfo = "packed"
+# split-debuginfo = "unpacked"
+# split-debuginfo = "off"
 # codegen-backend = "cranelift"
+
 
 # [profile.dev.package."*"]
 # opt-level = 3

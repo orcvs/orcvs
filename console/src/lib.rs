@@ -4,14 +4,12 @@ pub mod app;
 pub mod console;
 pub mod coord;
 pub mod cursor;
-pub mod executor;
 pub mod glyph;
 pub mod source;
 
 pub mod style;
 
 use egui::Color32;
-use tracing::info;
 
 pub struct Color(Color32);
 

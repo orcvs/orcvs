@@ -27,7 +27,8 @@ fn trace() {
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> eframe::Result {
+#[tokio::main]
+async fn main() -> eframe::Result {
     use console::console::Console;
 
     trace();

@@ -39,7 +39,8 @@ impl<'a> Parser<'a> {
     ///
     pub fn try_parse(mut self) -> Result<Vec<Atom>, Error> {
         self.take_function()?;
-        Ok(self.expression.take_atoms())
+        let atoms = self.expression.take_atoms();
+        Ok(atoms.into_iter().collect())
     }
 
     ///
@@ -220,7 +221,8 @@ mod test {
 
     fn parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
         let parser = Parser::from(exp);
-        Ok(parser.parse().take_atoms())
+        let a = parser.parse().take_atoms();
+        Ok(a.into_iter().collect())
     }
 
     #[test]

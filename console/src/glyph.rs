@@ -1,4 +1,7 @@
+use std::{fmt, iter};
+
 use egui::Color32;
+use lang::Token;
 
 use crate::Color;
 
@@ -55,25 +58,54 @@ impl Default for Terminator {
     }
 }
 
-impl From<Glyph> for String {
-    fn from(g: Glyph) -> Self {
-        match g {
-            Glyph::Function => "F".to_string(),
-            Glyph::Number => "h".to_string(),
-            Glyph::Note => "n".to_string(),
-            Glyph::String => "s".to_string(),
-            Glyph::Terminator(t) => t.into(),
+impl From<Token> for Glyph {
+    fn from(t: Token) -> Self {
+        match t {
+            Token::Function => G::Function,
+            Token::Note => G::Note,
+            Token::Number => G::Number,
+            Token::Number1 => G::Number,
+            Token::String => G::String,
         }
     }
 }
 
-impl From<Terminator> for String {
-    fn from(t: Terminator) -> Self {
-        match t {
+pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
+    tokens
+        .into_iter()
+        .flat_map(|t| {
+            let count = match t {
+                Token::Number1 => 1,
+                _ => 2,
+            };
+            iter::repeat(Glyph::from(t)).take(count)
+        })
+        .collect()
+}
+
+impl fmt::Display for Glyph {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Glyph::Function => "F".to_string(),
+            Glyph::Number => "h".to_string(),
+            Glyph::Note => "n".to_string(),
+            Glyph::String => "s".to_string(),
+            Glyph::Terminator(t) => t.to_string(),
+        };
+
+        write!(f, "{}", s)
+    }
+}
+
+impl fmt::Display for Terminator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
             Terminator::Dot => ".".to_string(),
             Terminator::Marker => "+".to_string(),
             Terminator::Space => " ".to_string(),
-        }
+        };
+
+        write!(f, "{}", s)
     }
 }
 
@@ -198,5 +230,47 @@ impl Glyph {
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
             // },
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::glyph::Glyph;
+
+    #[test]
+    fn test_is_terminator() {
+        let t = Glyph::is_terminator(".");
+        assert!(t);
+
+        let t = Glyph::is_terminator(" ");
+        assert!(t);
+
+        let t = Glyph::is_terminator("+");
+        assert!(t == false);
+
+        let t = Glyph::is_terminator("..");
+        assert!(t == false);
+
+        let t = Glyph::is_terminator("!");
+        assert!(t == false);
+    }
+
+    #[test]
+    fn test_is_terminator_bytes() {
+        let b = ".".as_bytes();
+        let t = Glyph::is_terminator_bytes(b[0]);
+        assert!(t);
+
+        let b = " ".as_bytes();
+        let t = Glyph::is_terminator_bytes(b[0]);
+        assert!(t);
+
+        let b = "+".as_bytes();
+        let t = Glyph::is_terminator_bytes(b[0]);
+        assert!(t == false);
+
+        let b = "!".as_bytes();
+        let t = Glyph::is_terminator_bytes(b[0]);
+        assert!(t == false);
     }
 }

@@ -3,6 +3,7 @@ use tokio::time::Instant;
 
 use crate::coord::Coord;
 
+#[derive(Debug)]
 pub struct Cursor {
     pub coord: Coord,
     pub on: bool,

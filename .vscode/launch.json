@@ -8,6 +8,9 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug unit tests in library 'console'",
+            "sourceLanguages": [
+                "rust"
+            ],
             "cargo": {
                 "args": [
                     "test",
@@ -15,6 +18,7 @@
                     "--lib",
                     "--package=console",
                 ],
+                "problemMatcher": "$rustc",
                 "filter": {
                     "name": "console",
                     "kind": "lib"

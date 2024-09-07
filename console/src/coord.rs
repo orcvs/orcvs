@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Coord {
     pub x: usize,
     pub y: usize,
@@ -70,6 +70,21 @@ impl Coord {
         x > min_x && (x) <= max_x && y > min_y && (y) <= max_y
     }
 
+    ///
+    /// Convert x, y coordinates to a linear index
+    /// panic if the index is out of bounds
+    ///
+    pub fn index(&self) -> usize {
+        let idx = self.y * self.max_x + self.x;
+        assert!(
+            idx <= self.max_x * self.max_y,
+            "index {idx} out of bounds for [{},{}]",
+            self.max_x,
+            self.max_y,
+        );
+        idx
+    }
+
     fn from_x(self, x: usize) -> Self {
         Self {
             x,
@@ -93,6 +108,24 @@ impl Coord {
 mod test {
 
     use crate::{coord::Coord, test::trace};
+
+    #[test]
+    fn test_to_idx() {
+        trace();
+
+        let idx = Coord::new(0, 0, 10, 10).index();
+
+        assert_eq!(idx, 0);
+
+        let idx = Coord::new(5, 5, 10, 10).index();
+        assert_eq!(idx, 55);
+    }
+
+    #[test]
+    #[should_panic(expected = "index 121 out of bounds for [11,11]")]
+    fn test_to_idx_out_of_bounds() {
+        let _idx = Coord::new(11, 11, 10, 10).index();
+    }
 
     #[test]
     fn test_in_grid() {
