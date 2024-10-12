@@ -5,6 +5,7 @@ pub mod console;
 pub mod coord;
 pub mod cursor;
 pub mod glyph;
+pub mod opts;
 pub mod source;
 
 pub mod style;
@@ -51,5 +52,12 @@ mod test {
                 .pretty()
                 .init();
         });
+    }
+
+    #[test]
+    fn test_something() {
+        trace();
+
+        debug!("etc");
     }
 }

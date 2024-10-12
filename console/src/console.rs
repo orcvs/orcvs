@@ -1,8 +1,9 @@
 use egui::{Color32, EventFilter, Rounding, Vec2};
 
 use crate::{
-    app::{App, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
+    app::App,
     glyph::{Glyph, GlyphStyle, CURSOR_VISUALS},
+    opts,
     style::style,
     Color,
 };
@@ -47,7 +48,7 @@ impl Console {
         cc.egui_ctx.set_fonts(fonts);
 
         Self {
-            app: App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
+            app: App::new(opts::DEFAULT_COL_COUNT, opts::DEFAULT_ROW_COUNT),
         }
     }
 }

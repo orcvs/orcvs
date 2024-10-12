@@ -79,8 +79,8 @@ impl Coord {
         assert!(
             idx <= self.max_x * self.max_y,
             "index {idx} out of bounds for [{},{}]",
-            self.max_x,
-            self.max_y,
+            self.x,
+            self.y,
         );
         idx
     }

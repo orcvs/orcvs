@@ -2,6 +2,7 @@ use crate::to_atom_note;
 use crate::to_atom_num;
 use crate::to_atom_string;
 use crate::Atom;
+use crate::Atoms;
 use crate::Error;
 use crate::Expression;
 use crate::Function;
@@ -37,7 +38,7 @@ impl<'a> Parser<'a> {
     ///
     /// try_parse will error if the parse fails
     ///
-    pub fn try_parse(mut self) -> Result<Vec<Atom>, Error> {
+    pub fn try_parse(mut self) -> Result<Atoms, Error> {
         self.take_function()?;
         let atoms = self.expression.take_atoms();
         Ok(atoms.into_iter().collect())
@@ -212,9 +213,11 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use crate::{parser::Parser, trace, Atom, Error, Function, SyntaxError, TypeError};
+    use arrayvec::ArrayVec;
 
-    fn try_parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
+    use crate::{parser::Parser, trace, Atom, Atoms, Error, Function, SyntaxError, TypeError};
+
+    fn try_parse(exp: &mut str) -> Result<Atoms, Error> {
         let parser = Parser::from(exp);
         parser.try_parse()
     }
@@ -294,7 +297,9 @@ mod test {
         let mut s = String::from("idFA");
         let parsed = try_parse(&mut s).unwrap();
 
-        let expected = vec![Atom::Function(Function::Id), Atom::String("FA".to_string())];
+        let v = vec![Atom::Function(Function::Id), Atom::String("FA".to_string())];
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
     }
@@ -306,12 +311,15 @@ mod test {
         let mut s = String::from(">>10AC4");
         let parsed = try_parse(&mut s).unwrap();
 
-        let expected = vec![
+        let v = vec![
             Atom::Function(Function::Play),
             Atom::Number(1),
             Atom::Number(10),
             Atom::Note(60),
         ];
+
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
     }
@@ -335,25 +343,29 @@ mod test {
         // let result = parser.take_tokens();
         // assert_eq!(result, expected);
 
-        let expected = vec![
+        let v = vec![
             Atom::Function(Function::Add),
             Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
             Atom::Function(Function::Id),
             Atom::String("01".to_string()),
         ];
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
 
         let mut s = String::from("++id0A01");
         let parsed = try_parse(&mut s).unwrap();
 
-        let expected = vec![
+        let v = vec![
             Atom::Function(Function::Add),
             Atom::Function(Function::Id),
             Atom::String("0A".to_string()),
             Atom::Number(1),
         ];
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
     }
@@ -365,31 +377,23 @@ mod test {
         let mut s = String::from("idididAA");
         let parsed = try_parse(&mut s).unwrap();
 
-        let expected = vec![
+        let v = vec![
             Atom::Function(Function::Id),
             Atom::Function(Function::Id),
             Atom::Function(Function::Id),
             Atom::String("AA".to_string()),
         ];
 
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
+
         assert_eq!(parsed, expected);
 
         let mut s = String::from("++idididAA01");
         let parsed = try_parse(&mut s).unwrap();
-
-        // let expected = vec!([
-        //     Token::Function,
-        //     Token::Function,
-        //     Token::Function,
-        //     Token::Function,
-        //     Token::String,
-        //     Token::Number,
-        // ]);
-
-        // let result = parser.take_tokens();
         // assert_eq!(result, expected);
 
-        let expected = vec![
+        let v = vec![
             Atom::Function(Function::Add),
             Atom::Function(Function::Id),
             Atom::Function(Function::Id),
@@ -397,6 +401,9 @@ mod test {
             Atom::String("AA".to_string()),
             Atom::Number(1),
         ];
+
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
     }

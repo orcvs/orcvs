@@ -1,22 +1,17 @@
-use crate::{Atom, Error, Function, Stack, EXP_LEN};
+use crate::{Atom, Atoms, Error, Function, Stack, EXP_LEN};
 use tracing::info;
 
-pub struct Interpreter {
-    expressions: Stack<EXP_LEN>,
-}
+pub struct Interpreter {}
 
 type Args = Stack<6>;
 
 impl<'a> Interpreter {
-    pub fn new(expressions: Stack<EXP_LEN>) -> Self {
-        Self { expressions }
-    }
-
     #[inline(always)]
-    pub fn interpret(&mut self) -> Result<Atom, Error> {
+    pub fn interpret(atoms: Atoms) -> Result<Atom, Error> {
+        let mut exp: Stack<EXP_LEN> = atoms.into();
         let mut stack = Args::new();
 
-        while let Some(atom) = self.expressions.pop().0 {
+        while let Some(atom) = exp.pop().0 {
             let atom = match atom {
                 Atom::Function(fun) => match fun {
                     Function::Add => add(&mut stack)?,
@@ -121,54 +116,22 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, Stack,
-        TypeError,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Atoms, Error, Function, Parser,
+        Stack, TypeError,
     };
     use arrayvec::ArrayVec;
-
-    // macro_rules! stack {
-    //     ($($items:tt),*) => {
-    //         {
-    //             let mut inner: ArrayVec<Atom, 32> = ArrayVec::new();
-    //             $(
-    //                 for item in $items.iter() {
-    //                     inner.push(item.clone());
-    //                 }
-    //             )*
-    //             Stack::new_with(inner)
-    //         }
-    //     };
-    // }
-
-    macro_rules! array_vec {
-        ($($items:tt),*) => {
-            {
-                let mut ary = ArrayVec::new();
-
-                $(
-                    for item in $items.iter() {
-                        ary.push(item.clone());
-                    }
-                )*
-                ary
-            }
-        };
-    }
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
         let parser = Parser::from(&mut exp);
         let parsed = parser.try_parse().unwrap();
 
-        let stack = Stack::from(parsed);
-        let mut interpreter = Interpreter::new(stack);
-        interpreter.interpret().unwrap()
+        let result = Interpreter::interpret(parsed);
+        result.unwrap()
     }
 
     fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
-        let stack = Stack::from(exp);
-        let mut interpreter = Interpreter::new(stack);
-        interpreter.interpret()
+        Interpreter::interpret(exp.into_iter().collect())
     }
 
     #[test]
@@ -283,9 +246,9 @@ mod test {
     fn test_with_missing_argument() {
         trace();
 
-        let exp = vec![Atom::Function(Function::Add), Atom::Number(1)];
+        let stack = vec![Atom::Function(Function::Add), Atom::Number(1)];
 
-        let result = interpret_stack(exp);
+        let result = interpret_stack(stack);
 
         let error = result.unwrap_err();
 

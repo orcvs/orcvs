@@ -107,20 +107,13 @@ impl From<&Function> for Tokens {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Stack<const N: usize> {
-    pub(crate) inner: ArrayVec<Atom, N>,
+    inner: ArrayVec<Atom, N>,
 }
 
 impl<const N: usize> Stack<N> {
     pub fn new() -> Self {
         Self {
             inner: ArrayVec::new(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn from(v: Vec<Atom>) -> Self {
-        Self {
-            inner: v.into_iter().collect(),
         }
     }
 
@@ -135,11 +128,6 @@ impl<const N: usize> Stack<N> {
     }
 
     #[inline(always)]
-    pub fn peek(&self) -> Option<&Atom> {
-        self.inner.last()
-    }
-
-    #[inline(always)]
     pub fn try_pop<T: TryFrom<MaybeAtom, Error = Error>>(
         &mut self,
         expected: usize,
@@ -151,14 +139,9 @@ impl<const N: usize> Stack<N> {
     }
 }
 
-impl<const N: usize> From<&[Atom]> for Stack<N> {
-    fn from(array: &[Atom]) -> Self {
-        let mut inner: ArrayVec<Atom, N> = ArrayVec::new();
-        for item in array.into_iter() {
-            inner.push(item.clone());
-        }
-
-        Stack { inner }
+impl From<Atoms> for Stack<EXP_LEN> {
+    fn from(atoms: Atoms) -> Self {
+        Stack { inner: atoms }
     }
 }
 

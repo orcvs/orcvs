@@ -1,5 +1,7 @@
-use egui::{Event, FontId, Key};
-use lang::EXP_LEN;
+use arrayvec::ArrayVec;
+use egui::{Event, Key};
+
+use lang::Interpreter;
 use lang::{Atom, Atoms, Parser};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
@@ -12,33 +14,13 @@ use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
+use crate::opts::Opts;
 use crate::{
     coord::Coord,
     cursor::Cursor,
-    glyph::{to_glyphs, Glyph, Terminator},
+    glyph::{to_glyphs, Glyph},
     source::Source,
 };
-
-pub const DEFAULT_FONT_SIZE: f32 = 20.0;
-pub const DEFAULT_GRID_SIZE: f32 = 8.0;
-
-pub const DEFAULT_COL_COUNT: usize = 2 * (DEFAULT_GRID_SIZE as usize);
-pub const DEFAULT_ROW_COUNT: usize = 2 * (DEFAULT_GRID_SIZE as usize);
-
-pub const DEFAULT_GRID_SELECTED_DOT_SPACING: usize = 2;
-
-pub const DEFAULT_CURSOR_DELAY: u64 = 800;
-
-enum Command {
-    Set(usize, usize, String),
-    Unset(usize, usize),
-}
-
-#[derive(Clone, Debug)]
-struct Parsed {
-    len: usize,
-    inner: Atoms,
-}
 
 // pub type ExpressionMap = HashMap<usize, Atoms, nohash_hasher::BuildNoHashHasher<usize>>;
 // https://draft.ryhl.io/blog/shared-mutable-state/
@@ -49,38 +31,44 @@ struct SharedMap {
 
 #[derive(Clone, Debug)]
 struct ExpressionMap {
-    data: HashMap<usize, Parsed, nohash_hasher::BuildNoHashHasher<usize>>,
+    data: Vec<Option<Atoms>>,
 }
 
 impl SharedMap {
     pub fn new(capacity: usize) -> Self {
-        let map = ExpressionMap {
-            data: HashMap::with_capacity_and_hasher(capacity, BuildHasherDefault::default()),
-        };
+        let data = vec![None; capacity];
+        let map = ExpressionMap { data };
 
         Self {
             inner: Arc::new(RwLock::new(map)),
         }
     }
 
-    pub fn insert(&self, idx: usize, parsed: Parsed) {
-        let mut lock = self.inner.write().unwrap();
-        lock.data.insert(idx, parsed);
-    }
-
-    pub fn remove(&self, idx: &usize) {
-        let mut lock = self.inner.write().unwrap();
-        lock.data.remove(idx);
-    }
-
-    pub fn get(&self, idx: &usize) -> Option<Parsed> {
+    pub fn get(&self, idx: usize) -> Option<Atoms> {
         let lock = self.inner.read().unwrap();
-        lock.data.get(idx).cloned()
+        lock.data[idx].clone()
     }
 
-    pub fn len_at(&self, idx: &usize) -> usize {
-        let lock = self.inner.read().unwrap();
-        lock.data.get(idx).map_or(0, |p| p.len)
+    pub fn insert(&self, idx: usize, a: Atoms) {
+        let mut lock = self.inner.write().unwrap();
+        // lock.data.insert(idx, parsed);
+        lock.data[idx] = Some(a)
+    }
+
+    pub fn remove(&self, idx: usize) {
+        let mut lock = self.inner.write().unwrap();
+        lock.data[idx] = None;
+    }
+
+    pub fn fetch(&self) -> Vec<Result<Atom, lang::Error>> {
+        let lock = self.inner.write().unwrap();
+        lock.data
+            .iter()
+            .map(|o| match o {
+                Some(atoms) => Interpreter::interpret(atom.clone()),
+                None => Ok(Atom::Empty),
+            })
+            .collect()
     }
 }
 
@@ -95,47 +83,13 @@ pub struct App {
     token: Option<CancellationToken>,
 }
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-pub struct Opts {
-    pub bpm: Bpm,
-    pub cols: usize,
-    pub cursor_delay: u64,
-    pub font_id: FontId,
-    pub grid_selected_dot_spacing: usize,
-    pub grid_size: f32,
-    pub mode: Mode,
-    pub rows: usize,
-}
-
-#[derive(PartialEq)]
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-pub enum Mode {
-    Insert,
-    Command,
-}
-
-impl Opts {
-    fn new(cols: usize, rows: usize) -> Self {
-        Self {
-            bpm: Bpm(120),
-            cols,
-            cursor_delay: DEFAULT_CURSOR_DELAY,
-            font_id: egui::FontId::monospace(DEFAULT_FONT_SIZE),
-            grid_selected_dot_spacing: DEFAULT_GRID_SELECTED_DOT_SPACING,
-            grid_size: DEFAULT_GRID_SIZE,
-            mode: Mode::Insert,
-            rows,
-        }
-    }
-}
-
 impl App {
     pub fn new(cols: usize, rows: usize) -> Self {
         let opts = Opts::new(cols, rows);
         let count = cols * rows;
 
         let glyphs = vec![Glyph::default(); count];
-        let exp = SharedMap::new(count / 6);
+        let exp = SharedMap::new(count);
 
         let src = Source::new(cols, rows);
 
@@ -177,13 +131,7 @@ impl App {
             let glyphs = to_glyphs(parsed.take_tokens());
             let atoms = parsed.take_atoms();
 
-            self.exp.insert(
-                start,
-                Parsed {
-                    inner: atoms,
-                    len: parsed.len(),
-                },
-            );
+            self.exp.insert(start, atoms);
 
             self.set_glyphs(start, glyphs);
         }
@@ -195,7 +143,7 @@ impl App {
     fn unparse(&mut self) {
         if let Some(exp) = self.src.get_exp_at(self.cursor.coord) {
             self.unset_glyphs(exp.start());
-            self.exp.remove(&exp.start());
+            self.exp.remove(exp.start());
         }
     }
 
@@ -301,6 +249,24 @@ impl App {
         }
     }
 
+    fn terminator(&self, x: usize, y: usize) -> Glyph {
+        // Grid markers
+        if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
+            return Glyph::marker();
+        }
+
+        // Highlight
+        if self.cursor.coord.in_grid(x, y, self.opts.grid_size) {
+            if x % self.opts.grid_selected_dot_spacing == 0
+                && y % self.opts.grid_selected_dot_spacing == 0
+            {
+                return Glyph::highlight();
+            }
+        }
+
+        Glyph::default()
+    }
+
     fn playing(&self) -> bool {
         self.token.is_some()
     }
@@ -340,90 +306,36 @@ impl App {
 
     async fn ticker(ms: u64, exp: SharedMap) {
         let mut interval = time::interval(Duration::from_millis(ms));
+        info!("ticker");
         loop {
-            let exp = exp.get(&0);
-            info!("exp {exp:?}");
-
+            let exp = exp.get(0);
+            Self::tick(exp);
             interval.tick().await;
         }
     }
 
-    fn terminator(&self, x: usize, y: usize) -> Glyph {
-        // Grid markers
-        if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
-            return Glyph::marker();
-        }
-
-        // Highlight
-        if self.cursor.coord.in_grid(x, y, self.opts.grid_size) {
-            if x % self.opts.grid_selected_dot_spacing == 0
-                && y % self.opts.grid_selected_dot_spacing == 0
-            {
-                return Glyph::highlight();
-            }
-        }
-
-        Glyph::default()
-    }
-}
-
-// pub fn get_glyph_at(&self, x: usize, y: usize) -> Glyph {
-//     let idx = self.to_idx(x, y);
-//     *self.glyphs.get(idx).unwrap()
-// }
-
-// async fn parse_exp(&mut self, exp: &Rc<RefCell<Expression>>) {
-//     let mut s = self.get_exp_str(&exp).to_owned();
-
-//     let mut expression = Parser::from(&mut s).parse();
-
-//     let glyphs = to_glyphs(expression.take_tokens());
-
-//     let atoms = expression.take_atoms();
-
-//     let mut exp = exp.borrow_mut();
-//     let idx = exp.start;
-//     let len = exp.parsed_len;
-
-//     self.unset_glyphs(idx, len);
-
-//     if !glyphs.is_empty() {
-//         exp.parsed_len = glyphs.len();
-
-//         {
-//             let mut write_lock = self.exp.blocking_write();
-//             write_lock.insert(idx, atoms);
-//         }
-
-//         for (i, g) in glyphs.iter().enumerate() {
-//             let pos = idx + i;
-//             self.glyphs[pos] = *g;
-//         }
-//     }
-// }
-
-pub struct Bpm(usize);
-
-impl Bpm {
-    fn delay_ms(&self) -> u64 {
-        let ms = (60000 / self.0) / 4;
-        ms as u64
+    fn tick(exp: Option<Atoms>) {
+        info!("tick");
+        info!("exp {exp:?}");
     }
 }
 
 #[cfg(test)]
 mod test {
 
+    use std::time::Duration;
+
     use crate::{
         coord::Coord,
         glyph::{Glyph, Terminator},
+        opts::DEFAULT_GRID_SIZE,
         test::trace,
     };
     use lang::{Atom, Function};
-    use tokio::time;
+    use tokio::{task, time::sleep};
     use tracing::info;
 
-    use super::{App, DEFAULT_GRID_SIZE};
+    use super::App;
 
     fn app() -> App {
         let rows = 1; // * (DEFAULT_GRID_SIZE as usize);
@@ -456,6 +368,31 @@ mod test {
         }
     }
 
+    // #[tokio::test(start_paused = true)]
+    #[tokio::test]
+    async fn test_play() {
+        trace();
+
+        let mut app = app();
+
+        for (x, c) in "++0101".chars().enumerate() {
+            app.set_at(x, 0, &c.to_string());
+        }
+
+        let ms = 100;
+        let exp = app.exp.clone();
+        // App::ticker(ms, exp)
+
+        // App::ticker(ms, exp).await;
+
+        let handle = tokio::spawn(async move {
+            App::ticker(ms, exp).await;
+        });
+
+        sleep(Duration::from_millis(1)).await;
+        handle.abort();
+    }
+
     #[test]
     fn test_edit_complex() {
         trace();
@@ -473,8 +410,8 @@ mod test {
         assert_eq!(app.src.inner, "  ++    ");
 
         // `++` is a function
-        let exp = app.exp.get(&2).unwrap();
-        assert_eq!(exp.inner[0], Atom::Function(Function::Add));
+        let exp = app.exp.get(2).unwrap();
+        assert_eq!(exp[0], Atom::Function(Function::Add));
 
         let glyph = app.get_glyph_at((2, 0).into());
         assert_eq!(glyph, Glyph::Function);
@@ -496,10 +433,10 @@ mod test {
         app.set_at(7, 0, "2");
         assert_eq!(app.src.inner, "  ++0102");
 
-        let exp = app.exp.get(&2).unwrap();
-        assert_eq!(exp.inner[0], Atom::Function(Function::Add));
-        assert_eq!(exp.inner[1], Atom::Number(1));
-        assert_eq!(exp.inner[2], Atom::Number(2));
+        let exp = app.exp.get(2).unwrap();
+        assert_eq!(exp[0], Atom::Function(Function::Add));
+        assert_eq!(exp[1], Atom::Number(1));
+        assert_eq!(exp[2], Atom::Number(2));
 
         // Invalidate the function
         app.delete_at(3, 0);
@@ -512,8 +449,8 @@ mod test {
         assert_eq!(app.src.inner, "  ++0102");
 
         // `++` is a function
-        let exp = app.exp.get(&2).unwrap();
-        assert_eq!(exp.inner[0], Atom::Function(Function::Add));
+        let exp = app.exp.get(2).unwrap();
+        assert_eq!(exp[0], Atom::Function(Function::Add));
     }
 
     #[test]
