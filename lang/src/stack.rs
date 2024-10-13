@@ -3,7 +3,7 @@ use std::ops::Deref;
 use arrayvec::ArrayVec;
 
 use crate::{
-    str_to_num, ArgumentError, Atom, Atoms, Error, Function, SyntaxError, TypeError, EXP_LEN,
+    char_to_num, ArgumentError, Atom, Atoms, Error, Function, SyntaxError, TypeError, EXP_LEN,
 };
 
 pub struct MaybeAtom(pub Option<Atom>);
@@ -73,7 +73,7 @@ impl TryFrom<MaybeAtom> for u8 {
     fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
         match maybe_atom.0 {
             Some(Atom::Number(n) | Atom::Note(n)) => Ok(n),
-            Some(Atom::String(s)) => str_to_num(&s),
+            Some(Atom::Char(c)) => char_to_num(c),
             Some(atom) => Err(TypeError::Number(atom.into()).into()),
             None => Err(ArgumentError::Expected.into()),
         }

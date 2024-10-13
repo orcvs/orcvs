@@ -4,7 +4,7 @@ mod interpreter;
 mod parser;
 mod stack;
 
-pub use atom::{to_atom_note, to_atom_num, to_atom_string, Atom, Function};
+pub use atom::{to_atom_note, to_atom_num, Atom, Function};
 pub use error::{ArgumentError, Error, SyntaxError, TypeError};
 pub use interpreter::Interpreter;
 pub use parser::Parser;
@@ -15,6 +15,7 @@ use std::fmt::Debug;
 use std::sync::Once;
 use std::{fmt, mem};
 use thiserror::Error;
+use tracing::error;
 
 pub const EXP_LEN: usize = 32;
 
@@ -77,7 +78,7 @@ impl From<&Function> for Tokens {
         let tokens = match f {
             Function::Add => vec![T::Number, T::Number],
             Function::Divide => vec![T::Number, T::Number],
-            Function::Id => vec![T::Char, T::Char],
+            Function::Id => vec![T::Char],
             Function::Play => vec![T::Number1, T::Number, T::Note],
             Function::Multiply => vec![T::Number, T::Number],
             Function::Subtract => vec![T::Number, T::Number],
@@ -94,6 +95,11 @@ pub fn str_to_num(s: &str) -> Result<u8, Error> {
         Ok(n) => Ok(n),
         Err(_) => Err(TypeError::Number(s.to_string()).into()),
     }
+}
+
+#[inline(always)]
+pub fn char_to_num(c: char) -> Result<u8, Error> {
+    str_to_num(&c.to_string())
 }
 
 #[allow(dead_code)]

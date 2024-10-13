@@ -26,12 +26,6 @@ pub enum Function {
     Subtract,
 }
 
-// #[inline(always)]
-// pub fn to_atom_string(s: &str) -> Result<Atom, Error> {
-//     let a = Atom::String(s.to_string());
-//     Ok(a)
-// }
-
 #[inline(always)]
 pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
     match midi_note_to_number(s) {
@@ -51,7 +45,6 @@ pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
 
 #[inline(always)]
 pub fn to_atom_char(s: &str) -> Result<Atom, Error> {
-    error!("to_atom_char: {}", s);
     match s.chars().next() {
         Some(c) => Ok(Atom::Char(c)),
         None => Err(TypeError::Char(s.to_string()))?,
@@ -68,7 +61,6 @@ impl From<Atom> for String {
                 None => n.to_string(),
             },
             Atom::Char(c) => c.to_string(),
-            Atom::String(s) => s.to_owned(),
             Atom::Function(fun) => format!("{}", fun),
             Atom::Empty => "_".to_string(),
         }
@@ -107,7 +99,6 @@ impl fmt::Display for Atom {
                 None => write!(f, "{n}"),
             },
             Atom::Char(c) => write!(f, "{c}"),
-            Atom::String(ref s) => write!(f, "{s}"),
             Atom::Function(ref fun) => write!(f, "{fun}"),
             Atom::Empty => write!(f, "_"),
         }

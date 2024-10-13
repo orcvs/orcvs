@@ -1,5 +1,5 @@
 use crate::{Atom, Atoms, Error, Function, Stack, EXP_LEN};
-use tracing::info;
+use tracing::{error, info};
 
 pub struct Interpreter {}
 
@@ -77,6 +77,8 @@ fn multiply(stack: &mut Args) -> Result<Atom, Error> {
 
 #[inline(always)]
 fn multiply_impl(a: u8, b: u8) -> Atom {
+    error!("a: {:?}", a);
+    error!("b: {:?}", b);
     let res = a * b;
     Atom::Number(res)
 }
@@ -120,6 +122,7 @@ mod test {
         Stack, TypeError,
     };
     use arrayvec::ArrayVec;
+    use tracing::error;
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
@@ -144,13 +147,13 @@ mod test {
         let expected = Atom::Number(3);
         assert_eq!(result, expected);
 
-        let s = String::from("++id0A01");
+        let s = String::from("++idA01");
         let result = interpret(s);
 
         let expected = Atom::Number(11);
         assert_eq!(result, expected);
 
-        let s = String::from("++id0Aid01");
+        let s = String::from("++idAid1");
         let result = interpret(s);
 
         let expected = Atom::Number(11);
@@ -190,8 +193,10 @@ mod test {
         let expected = Atom::Number(0);
         assert_eq!(result, expected);
 
-        let s = String::from("**id0Aid0A");
+        let s = String::from("**idAidA");
         let result = interpret(s);
+
+        error!("Result: {:?}", result);
 
         let expected = Atom::Number(100);
         assert_eq!(result, expected);
@@ -201,10 +206,12 @@ mod test {
     fn test_id_function() {
         trace();
 
-        let s = String::from("id02");
+        let s = String::from("id1");
         let result = interpret(s);
 
-        let expected = Atom::String("02".to_string());
+        // error!("Result: {:?}", result);
+
+        let expected = Atom::Char('1');
         assert_eq!(result, expected);
     }
 
@@ -229,7 +236,7 @@ mod test {
     fn test_recursive() {
         trace();
 
-        let s = String::from("++ididid0901");
+        let s = String::from("++ididid901");
         let result = interpret(s);
 
         let expected = Atom::Number(10);
@@ -269,7 +276,10 @@ mod test {
         let stack = vec![
             Atom::Function(Function::Add),
             Atom::Number(1),
-            Atom::String(vtha),
+            Atom::Char('v'),
+            Atom::Char('t'),
+            Atom::Char('h'),
+            Atom::Char('a'),
         ];
 
         let result = interpret_stack(stack);
