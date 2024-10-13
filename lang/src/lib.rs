@@ -1,8 +1,14 @@
+mod atom;
+mod error;
 mod interpreter;
 mod parser;
+mod stack;
 
+pub use atom::{to_atom_note, to_atom_num, to_atom_string, Atom, Function};
+pub use error::{ArgumentError, Error, SyntaxError, TypeError};
 pub use interpreter::Interpreter;
 pub use parser::Parser;
+pub use stack::Stack;
 
 use arrayvec::ArrayVec;
 use std::fmt::Debug;
@@ -53,37 +59,14 @@ impl Expression {
     }
 }
 
-// #[derive(serde::Deserialize, serde::Serialize)]
-#[derive(Clone, Debug, PartialEq)]
-pub enum Atom {
-    Empty,
-    Function(Function),
-    Note(u8),
-    Number(u8),
-    String(String),
-}
-
-pub struct MaybeAtom(Option<Atom>);
-
-// #[derive(serde::Deserialize, serde::Serialize)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Function {
-    Add,
-    Divide,
-    Empty,
-    Id,
-    Multiply,
-    Play,
-    Subtract,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
     Function,
     Note,
     Number,
     Number1,
-    String,
+    // String,
+    Char,
 }
 
 pub type T = Token;
@@ -94,7 +77,7 @@ impl From<&Function> for Tokens {
         let tokens = match f {
             Function::Add => vec![T::Number, T::Number],
             Function::Divide => vec![T::Number, T::Number],
-            Function::Id => vec![T::String],
+            Function::Id => vec![T::Char, T::Char],
             Function::Play => vec![T::Number1, T::Number, T::Note],
             Function::Multiply => vec![T::Number, T::Number],
             Function::Subtract => vec![T::Number, T::Number],
@@ -105,222 +88,12 @@ impl From<&Function> for Tokens {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Stack<const N: usize> {
-    inner: ArrayVec<Atom, N>,
-}
-
-impl<const N: usize> Stack<N> {
-    pub fn new() -> Self {
-        Self {
-            inner: ArrayVec::new(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn push(&mut self, atom: Atom) {
-        self.inner.push(atom);
-    }
-
-    #[inline(always)]
-    pub fn pop(&mut self) -> MaybeAtom {
-        MaybeAtom(self.inner.pop())
-    }
-
-    #[inline(always)]
-    pub fn try_pop<T: TryFrom<MaybeAtom, Error = Error>>(
-        &mut self,
-        expected: usize,
-        count: usize,
-    ) -> Result<T, Error> {
-        self.pop()
-            .try_into()
-            .map_err(|err| map_arity(err, expected, count))
-    }
-}
-
-impl From<Atoms> for Stack<EXP_LEN> {
-    fn from(atoms: Atoms) -> Self {
-        Stack { inner: atoms }
-    }
-}
-
 #[inline(always)]
-pub fn to_atom_string(s: &str) -> Result<Atom, Error> {
-    let a = Atom::String(s.to_string());
-    Ok(a)
-}
-
-#[inline(always)]
-pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
-    match midi_note_to_number(s) {
-        Some(n) => {
-            let a = Atom::Note(n);
-            Ok(a)
-        }
-        None => Err(TypeError::Note(s.to_string()).into()),
-    }
-}
-
-#[inline(always)]
-pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
-    let n = str_to_num(&s)?;
-    Ok(Atom::Number(n))
-}
-
-#[inline(always)]
-fn str_to_num(s: &str) -> Result<u8, Error> {
+pub fn str_to_num(s: &str) -> Result<u8, Error> {
     match u8::from_str_radix(&s, 16) {
         Ok(n) => Ok(n),
         Err(_) => Err(TypeError::Number(s.to_string()).into()),
     }
-}
-
-impl From<MaybeAtom> for Atom {
-    #[inline(always)]
-    fn from(maybe_atom: MaybeAtom) -> Self {
-        match maybe_atom.0 {
-            Some(a) => a,
-            None => Atom::Empty,
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for u8 {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::Number(n) | Atom::Note(n)) => Ok(n),
-            Some(Atom::String(s)) => str_to_num(&s),
-            Some(atom) => Err(TypeError::Number(atom.into()).into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for String {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(a) => Ok(a.into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for Function {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::Function(f)) => Ok(f),
-            _ => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<&str> for Function {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            "++" => Ok(Function::Add),
-            "//" => Ok(Function::Divide),
-            "id" => Ok(Function::Id),
-            "**" => Ok(Function::Multiply),
-            ">>" => Ok(Function::Play),
-            "--" => Ok(Function::Subtract),
-            s => Err(SyntaxError::UnknownFunction(s.to_string()).into()),
-        }
-    }
-}
-
-impl From<Atom> for String {
-    #[inline(always)]
-    fn from(atom: Atom) -> Self {
-        match atom {
-            Atom::Number(n) => n.to_string(),
-            Atom::Note(n) => match midi_number_to_note(n) {
-                Some(note) => note.to_string(),
-                None => n.to_string(),
-            },
-            Atom::String(s) => s.to_owned(),
-            Atom::Function(fun) => format!("{}", fun),
-            Atom::Empty => "_".to_string(),
-        }
-    }
-}
-
-fn map_arity(err: Error, expected: usize, found: usize) -> Error {
-    match err {
-        Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
-        _ => err.into(),
-    }
-}
-
-impl From<Function> for Atom {
-    #[inline(always)]
-    fn from(f: Function) -> Self {
-        Atom::Function(f)
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error(transparent)]
-    Argument(#[from] ArgumentError),
-
-    #[error(transparent)]
-    Syntax(#[from] SyntaxError),
-
-    #[error(transparent)]
-    Type(#[from] TypeError),
-}
-
-#[derive(Error, Debug)]
-pub enum TypeError {
-    #[error("expected a function, found {0:?}")]
-    Function(String),
-
-    #[error("expected a note, found {0:?}")]
-    Note(String),
-
-    #[error("expected a number, found {0:?}")]
-    Number(String),
-
-    #[error("expected a string, found {0:?}")]
-    String(String),
-}
-
-#[derive(Error, Debug)]
-pub enum SyntaxError {
-    #[error("expected a function")]
-    ExpectedFunction,
-
-    #[error("expected a token")]
-    ExpectedToken,
-
-    #[error("unknown function {0:?}")]
-    UnknownFunction(String),
-}
-
-#[derive(Error, Debug)]
-pub enum ArgumentError {
-    #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
-    // #[diagnostic(code(ArgumentError))]
-    Arity { expected: usize, found: usize },
-
-    #[error("expected an argument")]
-    Expected,
-
-    #[error("expected a function")]
-    ExpectedFunction,
 }
 
 #[allow(dead_code)]
@@ -340,37 +113,6 @@ fn trace() {
         tracing::subscriber::set_global_default(subscriber)
             .expect("setting default subscriber failed");
     });
-}
-
-impl fmt::Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Function::Add => write!(f, "++"),
-            Function::Empty => write!(f, "__"),
-            Function::Divide => write!(f, "//"),
-            Function::Id => write!(f, "id"),
-            Function::Multiply => write!(f, "**"),
-            Function::Play => write!(f, ">>"),
-            Function::Subtract => write!(f, "--"),
-        }
-    }
-}
-
-impl fmt::Display for Atom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Atom::Number(n) => {
-                write!(f, "{n}")
-            }
-            Atom::Note(n) => match midi_number_to_note(*n) {
-                Some(note) => write!(f, "{note}"),
-                None => write!(f, "{n}"),
-            },
-            Atom::String(ref s) => write!(f, "{s}"),
-            Atom::Function(ref fun) => write!(f, "{fun}"),
-            Atom::Empty => write!(f, "_"),
-        }
-    }
 }
 
 pub fn midi_note_to_number(note: &str) -> Option<u8> {
