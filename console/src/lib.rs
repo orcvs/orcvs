@@ -38,6 +38,8 @@ mod test {
 
     use std::sync::Once;
 
+    use tracing::debug;
+
     #[allow(dead_code)]
     static INIT: Once = Once::new();
 

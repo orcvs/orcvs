@@ -41,7 +41,7 @@ impl Bpm {
 impl Opts {
     pub fn new(cols: usize, rows: usize) -> Self {
         Self {
-            bpm: Bpm(120),
+            bpm: Bpm(20),
             cols,
             cursor_delay: DEFAULT_CURSOR_DELAY,
             font_id: egui::FontId::monospace(DEFAULT_FONT_SIZE),

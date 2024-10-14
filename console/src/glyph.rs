@@ -20,7 +20,7 @@ pub enum Glyph {
     Function,
     Number,
     Note,
-    String,
+    Char,
     Terminator(Terminator),
 }
 pub type G = Glyph;
@@ -64,8 +64,8 @@ impl From<Token> for Glyph {
             Token::Function => G::Function,
             Token::Note => G::Note,
             Token::Number => G::Number,
-            Token::Number1 => G::Number,
-            Token::String => G::String,
+            Token::NumberN(_) => G::Number,
+            Token::Char => G::Char,
         }
     }
 }
@@ -73,13 +73,7 @@ impl From<Token> for Glyph {
 pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
     tokens
         .into_iter()
-        .flat_map(|t| {
-            let count = match t {
-                Token::Number1 => 1,
-                _ => 2,
-            };
-            iter::repeat(Glyph::from(t)).take(count)
-        })
+        .flat_map(|t| iter::repeat(Glyph::from(t)).take(t.len()))
         .collect()
 }
 
@@ -89,7 +83,7 @@ impl fmt::Display for Glyph {
             Glyph::Function => "F".to_string(),
             Glyph::Number => "h".to_string(),
             Glyph::Note => "n".to_string(),
-            Glyph::String => "s".to_string(),
+            Glyph::Char => "c".to_string(),
             Glyph::Terminator(t) => t.to_string(),
         };
 
@@ -209,8 +203,8 @@ impl Glyph {
             //     stroke_color: Color::rgb(156, 192, 189).build(),
             //     font_color: Color::rgb(156, 192, 189).build(),
             // },
-            (Glyph::String, true) => default_selected,
-            (Glyph::String, false) => GlyphStyle {
+            (Glyph::Char, true) => default_selected,
+            (Glyph::Char, false) => GlyphStyle {
                 bg_fill: Color::rgb(125, 225, 220).build(),
                 stroke_color: Color::rgb(33, 33, 33).build(),
                 font_color: Color::rgb(200, 200, 200).build(),

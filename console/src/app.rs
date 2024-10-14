@@ -1,15 +1,13 @@
-use arrayvec::ArrayVec;
 use egui::{Event, Key};
 
-use lang::Interpreter;
 use lang::{Atom, Atoms, Parser};
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
+use lang::{Expression, Interpreter};
+
 use std::sync::Arc;
 use std::sync::RwLock;
 // use tokio::sync::RwLock;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
@@ -22,7 +20,6 @@ use crate::{
     source::Source,
 };
 
-// pub type ExpressionMap = HashMap<usize, Atoms, nohash_hasher::BuildNoHashHasher<usize>>;
 // https://draft.ryhl.io/blog/shared-mutable-state/
 #[derive(Clone, Debug)]
 struct SharedMap {
@@ -51,7 +48,6 @@ impl SharedMap {
 
     pub fn insert(&self, idx: usize, a: Atoms) {
         let mut lock = self.inner.write().unwrap();
-        // lock.data.insert(idx, parsed);
         lock.data[idx] = Some(a)
     }
 
@@ -60,12 +56,13 @@ impl SharedMap {
         lock.data[idx] = None;
     }
 
-    pub fn fetch(&self) -> Vec<Result<Atom, lang::Error>> {
+    pub fn execute(&self) -> Vec<Result<Atom, lang::Error>> {
         let lock = self.inner.write().unwrap();
         lock.data
             .iter()
+            .filter(|o| o.is_some())
             .map(|o| match o {
-                Some(atoms) => Interpreter::interpret(atom.clone()),
+                Some(atoms) => Interpreter::execute(atoms),
                 None => Ok(Atom::Empty),
             })
             .collect()
@@ -125,7 +122,7 @@ impl App {
     ///   [1] =>
     fn parse(&mut self) {
         if let Some((exp, mut src)) = self.src.get_exp_with_src_at(self.cursor.coord) {
-            let mut parsed: lang::Expression = Parser::from(&mut src).parse();
+            let mut parsed: Expression = Parser::from(&mut src).parse();
             let start = exp.start();
 
             let glyphs = to_glyphs(parsed.take_tokens());
@@ -280,6 +277,7 @@ impl App {
     fn stop(&mut self) {
         if let Some(token) = &self.token {
             token.cancel();
+            self.token = None;
         }
     }
 
@@ -308,8 +306,16 @@ impl App {
         let mut interval = time::interval(Duration::from_millis(ms));
         info!("ticker");
         loop {
-            let exp = exp.get(0);
-            Self::tick(exp);
+            info!("exp {exp:?}");
+
+            // let exp = exp.get(0);
+            // Self::tick(exp);
+            let results = exp.execute();
+
+            for (i, result) in results.iter().enumerate() {
+                info!("result {i}: {result:?}");
+            }
+
             interval.tick().await;
         }
     }
@@ -477,7 +483,7 @@ mod test {
         assert_eq!(glyph, Glyph::Function);
 
         let glyph = app.get_glyph_at((2, 0).into());
-        assert_eq!(glyph, Glyph::String);
+        assert_eq!(glyph, Glyph::Char);
 
         // Delete invalidates expression, and resets glyphs
         app.delete_at(0, 0);
