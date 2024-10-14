@@ -1,93 +1,20 @@
 mod atom;
 mod error;
+mod expression;
 mod interpreter;
 mod parser;
 mod stack;
 
-pub use atom::{to_atom_note, to_atom_num, Atom, Function};
+pub use atom::{to_atom_note, to_atom_num, Atom, Atoms, Function};
 pub use error::{ArgumentError, Error, SyntaxError, TypeError};
+pub use expression::{Expression, Token, Tokens};
 pub use interpreter::Interpreter;
 pub use parser::Parser;
 pub use stack::Stack;
 
-use arrayvec::ArrayVec;
-use std::fmt::Debug;
 use std::sync::Once;
-use std::{fmt, mem};
-use thiserror::Error;
-use tracing::error;
 
 pub const EXP_LEN: usize = 32;
-
-pub type Tokens = ArrayVec<Token, EXP_LEN>;
-pub type Atoms = ArrayVec<Atom, EXP_LEN>;
-
-#[derive(Debug, Clone)]
-pub struct Expression {
-    pub tokens: Tokens,
-    pub atoms: Atoms,
-}
-
-impl Expression {
-    pub fn new() -> Self {
-        let tokens = ArrayVec::new();
-        let atoms = ArrayVec::new();
-
-        Self { tokens, atoms }
-    }
-
-    ///
-    /// Adds a token and atom to the expression
-    /// Should always be added together to keep collections in sync
-    ///
-    fn add(&mut self, t: Token, a: Atom) {
-        self.tokens.push(t);
-        self.atoms.push(a);
-    }
-
-    pub fn take_atoms(&mut self) -> Atoms {
-        let atoms = mem::take(&mut self.atoms);
-        atoms.into_iter().collect()
-    }
-
-    pub fn take_tokens(&mut self) -> Vec<Token> {
-        let tokens = mem::take(&mut self.tokens);
-        tokens.into_iter().collect()
-    }
-
-    pub fn len(&self) -> usize {
-        self.tokens.len().max(self.atoms.len())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Token {
-    Function,
-    Note,
-    Number,
-    Number1,
-    // String,
-    Char,
-}
-
-pub type T = Token;
-
-impl From<&Function> for Tokens {
-    #[inline(always)]
-    fn from(f: &Function) -> Self {
-        let tokens = match f {
-            Function::Add => vec![T::Number, T::Number],
-            Function::Divide => vec![T::Number, T::Number],
-            Function::Id => vec![T::Char],
-            Function::Play => vec![T::Number1, T::Number, T::Note],
-            Function::Multiply => vec![T::Number, T::Number],
-            Function::Subtract => vec![T::Number, T::Number],
-            _ => vec![],
-        };
-
-        tokens.into_iter().collect()
-    }
-}
 
 #[inline(always)]
 pub fn str_to_num(s: &str) -> Result<u8, Error> {

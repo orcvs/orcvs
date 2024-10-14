@@ -11,8 +11,6 @@ use crate::Token;
 use crate::Tokens;
 use std::ops::Not;
 
-const DEFAULT_TOKEN_LEN: usize = 2;
-
 pub struct Parser<'a> {
     expression: Expression,
     source: &'a str,
@@ -112,18 +110,12 @@ impl<'a> Parser<'a> {
 
     #[inline(always)]
     fn take_token(&mut self, token: &Token) -> Result<Atom, Error> {
-        let count = match token {
-            Token::Number1 => 1,
-            Token::Char => 1,
-            _ => DEFAULT_TOKEN_LEN,
-        };
-
-        let t = self.next_token(count);
+        let t = self.next_token(token.len());
         let atom = match t {
             Some(s) => match token {
                 Token::Note => to_atom_note(s)?,
                 Token::Number => to_atom_num(s)?,
-                Token::Number1 => to_atom_num(s)?,
+                Token::NumberN(_) => to_atom_num(s)?,
                 Token::Char => to_atom_char(s)?,
                 Token::Function => unreachable!(),
             },
@@ -205,12 +197,9 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use core::error;
-    use tracing::error;
-
-    use arrayvec::ArrayVec;
-
     use crate::{parser::Parser, trace, Atom, Atoms, Error, Function, SyntaxError, TypeError};
+    use arrayvec::ArrayVec;
+    use tracing::error;
 
     fn try_parse(exp: &mut str) -> Result<Atoms, Error> {
         let parser = Parser::from(exp);
@@ -248,8 +237,6 @@ mod test {
         assert!(parsed.is_empty());
 
         let mut s = String::from("A           ");
-        // let parsed = parse(&mut s).unwrap();
-        let parser = Parser::from(&mut s);
         let parsed = parse(&mut s).unwrap();
         assert!(parsed.is_empty());
     }

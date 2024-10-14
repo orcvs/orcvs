@@ -1,8 +1,9 @@
+use arrayvec::ArrayVec;
 use std::fmt;
 
-use tracing::error;
+use crate::{midi_note_to_number, midi_number_to_note, str_to_num, Error, TypeError, EXP_LEN};
 
-use crate::{midi_note_to_number, midi_number_to_note, str_to_num, Error, TypeError};
+pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]

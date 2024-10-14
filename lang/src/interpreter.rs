@@ -1,17 +1,18 @@
-use crate::{Atom, Atoms, Error, Function, Stack, EXP_LEN};
+use crate::{Atom, Atoms, Error, Function, Stack};
 use tracing::{error, info};
+
+pub type Args = Stack<16>;
 
 pub struct Interpreter {}
 
-type Args = Stack<6>;
-
 impl<'a> Interpreter {
     #[inline(always)]
-    pub fn interpret(atoms: Atoms) -> Result<Atom, Error> {
-        let mut exp: Stack<EXP_LEN> = atoms.into();
-        let mut stack = Args::new();
+    pub fn execute(atoms: &Atoms) -> Result<Atom, Error> {
+        let mut stack = Stack::new();
 
-        while let Some(atom) = exp.pop().0 {
+        for atom in atoms.iter().rev() {
+            // info!("atoms: {:?}", atoms);
+            // info!("stack: {:?}", stack);
             let atom = match atom {
                 Atom::Function(fun) => match fun {
                     Function::Add => add(&mut stack)?,
@@ -22,7 +23,7 @@ impl<'a> Interpreter {
                     Function::Play => play(&mut stack)?,
                     _ => Atom::Function(Function::Empty),
                 },
-                atom => atom,
+                atom => *atom,
             };
             stack.push(atom);
         }
@@ -118,23 +119,24 @@ fn play_impl(c: u8, v: u8, n: u8) -> Atom {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Atoms, Error, Function, Parser,
-        Stack, TypeError,
+        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, TypeError,
     };
-    use arrayvec::ArrayVec;
-    use tracing::error;
+    use tracing::{error, info};
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
         let parser = Parser::from(&mut exp);
         let parsed = parser.try_parse().unwrap();
 
-        let result = Interpreter::interpret(parsed);
+        info!("Parsed: {:?}", parsed);
+
+        let result = Interpreter::execute(&parsed);
         result.unwrap()
     }
 
     fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
-        Interpreter::interpret(exp.into_iter().collect())
+        let atoms = exp.into_iter().collect();
+        Interpreter::execute(&atoms)
     }
 
     #[test]
@@ -271,7 +273,6 @@ mod test {
     #[test]
     fn test_with_invalid_argument() {
         trace();
-        let vtha = "VTHA".to_string();
 
         let stack = vec![
             Atom::Function(Function::Add),

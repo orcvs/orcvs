@@ -1,14 +1,10 @@
-use std::ops::Deref;
-
+use crate::{char_to_num, ArgumentError, Atom, Error, Function, SyntaxError, TypeError};
 use arrayvec::ArrayVec;
-
-use crate::{
-    char_to_num, ArgumentError, Atom, Atoms, Error, Function, SyntaxError, TypeError, EXP_LEN,
-};
+use std::ops::Deref;
 
 pub struct MaybeAtom(pub Option<Atom>);
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Stack<const N: usize> {
     inner: ArrayVec<Atom, N>,
 }
@@ -39,12 +35,6 @@ impl<const N: usize> Stack<N> {
         self.pop()
             .try_into()
             .map_err(|err| map_arity(err, expected, count))
-    }
-}
-
-impl From<Atoms> for Stack<EXP_LEN> {
-    fn from(atoms: Atoms) -> Self {
-        Stack { inner: atoms }
     }
 }
 
