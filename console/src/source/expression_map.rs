@@ -209,10 +209,25 @@ impl ExpressionMap {
 
 #[cfg(test)]
 mod test {
+
     use crate::{
         source::{expression_map::Range, ExpressionMap},
         test::trace,
     };
+
+    impl ExpressionMap {
+        fn assert_range(&self, start: usize, end: usize) {
+            for i in start..end {
+                let exp = self.get(i).unwrap();
+                assert_eq!(exp, Range { start, end });
+            }
+        }
+
+        fn assert_none(&self, idx: usize) {
+            let exp = self.get(idx).is_none();
+            assert_eq!(exp, true);
+        }
+    }
 
     #[test]
     fn test_expression_join() {
@@ -224,22 +239,13 @@ mod test {
         map.set(1);
         map.set(3);
 
-        let exp = map.get(0).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 1 });
-
-        let exp = map.get(1).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 1 });
-
-        let exp = map.get(3).unwrap();
-        assert_eq!(exp, Range { start: 3, end: 3 });
+        map.assert_range(0, 1);
+        map.assert_none(2);
+        map.assert_range(3, 3);
 
         map.set(2);
 
-        let exp = map.get(2).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 3 });
-
-        let exp = map.get(3).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 3 });
+        map.assert_range(0, 3);
     }
 
     #[test]
@@ -256,14 +262,14 @@ mod test {
         map.set(4);
         map.set(5);
 
-        let exp = map.get(0).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 5 });
+        map.assert_range(0, 5);
 
         // {++ ABB}
         map.unset(2);
 
-        let exp = map.get(0).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 1 });
+        map.assert_range(0, 1);
+        map.assert_none(2);
+        map.assert_range(3, 5);
     }
 
     #[test]
@@ -278,18 +284,16 @@ mod test {
         map.set(8);
         map.set(9);
 
-        let exp = map.get(6).unwrap();
-        assert_eq!(exp, Range { start: 6, end: 9 });
+        map.assert_range(6, 9);
 
         // {    XIDAA}
         map.set(5);
 
-        let exp = map.get(5).unwrap();
-        assert_eq!(exp, Range { start: 5, end: 9 });
+        map.assert_range(5, 9);
     }
 
     #[test]
-    fn test_expression_insert() {
+    fn test_expression_replace() {
         trace();
 
         let mut map = ExpressionMap::new(10);
@@ -300,16 +304,12 @@ mod test {
         map.set(2);
         map.set(3);
 
-        let exp = map.get(0).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 3 });
+        map.assert_range(0, 3);
+
         // {ID0A       }
         map.set(2);
 
-        let exp = map.get(0).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 3 });
-
-        let exp = map.get(7).is_none();
-        assert_eq!(exp, true);
+        map.assert_range(0, 3);
     }
 
     #[test]
@@ -321,22 +321,51 @@ mod test {
         map.set(8);
         map.set(9);
 
-        let exp = map.get(9).unwrap();
-        assert_eq!(exp, Range { start: 8, end: 9 });
+        map.assert_range(8, 9);
 
         // {          A}
         map.unset(8);
 
-        let exp = map.get(9).unwrap();
-        assert_eq!(exp, Range { start: 9, end: 9 });
+        map.assert_range(9, 9);
 
         // {          A}
         map.unset(9);
 
-        let exp = map.get(8).is_none();
-        assert_eq!(exp, true);
+        map.assert_none(8);
+        map.assert_none(9);
+    }
 
-        let exp = map.get(9).is_none();
-        assert_eq!(exp, true);
+    #[test]
+    fn test_expression_edit() {
+        trace();
+
+        let mut map = ExpressionMap::new(10);
+
+        // {x          }
+        map.set(0);
+
+        let exp = map.get(0).unwrap();
+        assert_eq!(exp, Range { start: 0, end: 0 });
+
+        // {x          }
+        map.unset(0);
+
+        map.assert_none(0);
+
+        // {xxxxx      }
+        map.set(0);
+        map.set(1);
+        map.set(2);
+        map.set(3);
+        map.set(4);
+
+        map.assert_range(0, 4);
+
+        // {xx xx      }
+        map.unset(2);
+
+        map.assert_none(2);
+        map.assert_range(0, 1);
+        map.assert_range(3, 4);
     }
 }

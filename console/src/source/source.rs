@@ -81,24 +81,6 @@ impl Source {
         s.to_owned()
     }
 
-    ///
-    /// Unset at {x, y}
-    /// Sets a `TERMINATOR` at the position`
-    ///
-    // pub fn unset_at(&mut self, idx: usize) {
-    //     self.set_at(idx, TERMINATOR);
-    // }
-
-    // pub fn get_exp_with_src_at(&self, idx: usize) -> Option<(ExpressionIndex, String)> {
-    //     if let Some(exp) = &self.map[idx] {
-    //         let exp = exp.borrow();
-    //         let src = self.get_exp_src(exp.start(), exp.end());
-    //         Some((*exp, src))
-    //     } else {
-    //         None
-    //     }
-    // }
-
     #[inline]
     fn get_exp_src(&self, range: Range) -> String {
         let from = range.start;
@@ -194,10 +176,6 @@ impl Source {
     pub fn get_sender(&self) -> Sender<Command> {
         self.sender.clone()
     }
-
-    // pub fn inner(&self) -> String {
-    //     self.inner.to_owned()
-    // }
 }
 
 impl fmt::Display for Source {
