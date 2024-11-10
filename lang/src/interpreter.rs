@@ -1,14 +1,20 @@
-use crate::{Atom, Atoms, Error, Function, Stack};
+use crate::{Atom, Atoms, Error, Function, Portal, Stack};
+use arrayvec::ArrayVec;
 use tracing::{error, info};
 
 pub type Args = Stack<16>;
 
 pub struct Interpreter {}
 
-impl<'a> Interpreter {
+impl Interpreter {
     #[inline(always)]
-    pub fn execute(atoms: &Atoms) -> Result<Atom, Error> {
+    pub fn execute(atoms: &Atoms) -> Result<Portal, Error> {
         let mut stack = Stack::new();
+
+        let f = match atoms.first() {
+            Some(Atom::Function(f)) => *f,
+            _ => Function::Empty,
+        };
 
         for atom in atoms.iter().rev() {
             // info!("atoms: {:?}", atoms);
@@ -28,9 +34,10 @@ impl<'a> Interpreter {
             stack.push(atom);
         }
 
+        let portal = Portal::new(stack.pop().into());
         // Final element in stack is the result
-        let atom = stack.pop().into();
-        Ok(atom)
+        // let atom = stack.pop().into();
+        Ok(portal)
     }
 }
 
@@ -123,6 +130,8 @@ mod test {
     };
     use tracing::{error, info};
 
+    use super::Portal;
+
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
         let parser = Parser::from(&mut exp);
@@ -131,10 +140,10 @@ mod test {
         info!("Parsed: {:?}", parsed);
 
         let result = Interpreter::execute(&parsed);
-        result.unwrap()
+        result.unwrap().atom
     }
 
-    fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
+    fn interpret_stack(exp: Vec<Atom>) -> Result<Portal, Error> {
         let atoms = exp.into_iter().collect();
         Interpreter::execute(&atoms)
     }

@@ -3,6 +3,7 @@ mod error;
 mod expression;
 mod interpreter;
 mod parser;
+mod portal;
 mod stack;
 
 pub use atom::{to_atom_note, to_atom_num, Atom, Atoms, Function};
@@ -10,6 +11,7 @@ pub use error::{ArgumentError, Error, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::Interpreter;
 pub use parser::Parser;
+pub use portal::{Coord, Portal};
 pub use stack::Stack;
 
 use std::sync::Once;

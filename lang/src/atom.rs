@@ -8,11 +8,11 @@ pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
+    Char(char),
     Empty,
     Function(Function),
     Note(u8),
     Number(u8),
-    Char(char),
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]

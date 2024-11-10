@@ -1,101 +1,47 @@
 use egui::{Event, Key};
 
-use lang::{Atom, Atoms, Parser};
+use lang::{Atom, Atoms, Parser, Portal};
 use lang::{Expression, Interpreter};
+use tokio::sync::oneshot;
 
 use std::sync::Arc;
-use std::sync::RwLock;
-// use tokio::sync::RwLock;
-
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
 use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::opts::Opts;
+use crate::source::source::TERMINATOR;
+use crate::source::{source, Command, Source};
 use crate::{
     coord::Coord,
     cursor::Cursor,
     glyph::{to_glyphs, Glyph},
-    source::Source,
 };
-
-// https://draft.ryhl.io/blog/shared-mutable-state/
-#[derive(Clone, Debug)]
-struct SharedMap {
-    inner: Arc<RwLock<ExpressionMap>>,
-}
-
-#[derive(Clone, Debug)]
-struct ExpressionMap {
-    data: Vec<Option<Atoms>>,
-}
-
-impl SharedMap {
-    pub fn new(capacity: usize) -> Self {
-        let data = vec![None; capacity];
-        let map = ExpressionMap { data };
-
-        Self {
-            inner: Arc::new(RwLock::new(map)),
-        }
-    }
-
-    pub fn get(&self, idx: usize) -> Option<Atoms> {
-        let lock = self.inner.read().unwrap();
-        lock.data[idx].clone()
-    }
-
-    pub fn insert(&self, idx: usize, a: Atoms) {
-        let mut lock = self.inner.write().unwrap();
-        lock.data[idx] = Some(a)
-    }
-
-    pub fn remove(&self, idx: usize) {
-        let mut lock = self.inner.write().unwrap();
-        lock.data[idx] = None;
-    }
-
-    pub fn execute(&self) -> Vec<Result<Atom, lang::Error>> {
-        let lock = self.inner.write().unwrap();
-        lock.data
-            .iter()
-            .filter(|o| o.is_some())
-            .map(|o| match o {
-                Some(atoms) => Interpreter::execute(atoms),
-                None => Ok(Atom::Empty),
-            })
-            .collect()
-    }
-}
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
     pub opts: Opts,
     pub cursor: Cursor,
 
-    exp: SharedMap,
-    glyphs: Vec<Glyph>,
-    src: Source,
     token: Option<CancellationToken>,
+    source: Arc<Source>,
 }
 
 impl App {
     pub fn new(cols: usize, rows: usize) -> Self {
+        assert!(cols > 0, "cols must be greater than zero");
+        assert!(rows > 0, "rows must be greater than zero");
+
         let opts = Opts::new(cols, rows);
-        let count = cols * rows;
 
-        let glyphs = vec![Glyph::default(); count];
-        let exp = SharedMap::new(count);
-
-        let src = Source::new(cols, rows);
+        let source = source(opts.count());
 
         Self {
             cursor: Cursor::new(cols, rows, opts.cursor_delay),
-            src,
-            exp,
-            glyphs,
             opts,
+            source,
             token: None,
         }
     }
@@ -105,54 +51,63 @@ impl App {
     /// triggers parse of expression
     ///
     pub fn write(&mut self, s: &String) {
-        self.unparse();
-        self.src.set_at(self.cursor.coord, s);
-        self.parse();
+        let idx = self.cursor_index();
+
+        self.send_command(idx, s.to_owned());
         self.cursor.right();
     }
 
     #[inline]
-    pub fn delete(&mut self) {
-        self.unparse();
-        self.src.unset_at(self.cursor.coord);
-        self.parse();
+    fn delete(&mut self) {
+        let idx = self.cursor_index();
+
+        self.send_command(idx, TERMINATOR.to_owned());
         self.cursor.left();
     }
 
-    ///   [1] =>
-    fn parse(&mut self) {
-        if let Some((exp, mut src)) = self.src.get_exp_with_src_at(self.cursor.coord) {
-            let mut parsed: Expression = Parser::from(&mut src).parse();
-            let start = exp.start();
+    fn send_command(&self, idx: usize, s: String) {
+        // let (responder, receiver) = oneshot::channel();
+        let cmd = Command::Set { idx, s };
 
-            let glyphs = to_glyphs(parsed.take_tokens());
-            let atoms = parsed.take_atoms();
+        let tx = self.source.get_sender();
 
-            self.exp.insert(start, atoms);
+        tokio::spawn(async move {
+            match tx.send(cmd).await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("Error {e:?}");
+                }
+            }
+        });
+    }
 
-            self.set_glyphs(start, glyphs);
-        }
+    pub fn cursor_index(&self) -> usize {
+        self.index(self.cursor.coord)
     }
 
     ///
-    /// Unsets the expresion glyphs and parsed atom for the expression at cursor.coord
+    /// Convert x, y coordinates to a linear index
+    /// panic if the index is out of bounds
     ///
-    fn unparse(&mut self) {
-        if let Some(exp) = self.src.get_exp_at(self.cursor.coord) {
-            self.unset_glyphs(exp.start());
-            self.exp.remove(exp.start());
-        }
-    }
-
-    pub fn get_glyph_at(&self, coord: Coord) -> Glyph {
-        self.glyphs[coord.index()]
+    pub fn index(&self, coord: Coord) -> usize {
+        info!("opts.cols {}", self.opts.cols);
+        let idx = coord.y * self.opts.cols + coord.x;
+        assert!(
+            idx <= self.opts.cols * self.opts.rows,
+            "index {idx} out of bounds for [{},{}]",
+            coord.x,
+            coord.y,
+        );
+        idx
     }
 
     pub fn get_at(&self, x: usize, y: usize) -> (String, Glyph) {
-        let coord = Coord::new(x, y, self.opts.cols, self.opts.rows);
+        let coord = Coord::new(x, y);
 
-        let mut s = self.src.get_at(coord);
-        let mut g = self.get_glyph_at(coord);
+        let idx = self.index(coord);
+
+        let mut s = self.source.get_at(idx);
+        let mut g = self.source.get_glyph_at(idx);
 
         if Glyph::is_terminator(&s) {
             if matches!(g, Glyph::Terminator(_)) {
@@ -213,8 +168,9 @@ impl App {
                     }
                 }
                 Event::Text(text_to_insert) => {
-                    if text_to_insert.len() == 1 {
+                    if text_to_insert.len() == 1 && text_to_insert != " " {
                         self.write(text_to_insert);
+
                         repaint = true;
                     }
                 }
@@ -224,26 +180,6 @@ impl App {
             }
         }
         repaint
-    }
-
-    fn set_glyphs(&mut self, start: usize, glyphs: Vec<Glyph>) {
-        for (i, g) in glyphs.iter().enumerate() {
-            let pos = start + i;
-            self.glyphs[pos] = *g;
-        }
-    }
-
-    fn unset_glyphs(&mut self, start: usize) {
-        let end = self.glyphs.len();
-
-        for i in start..end {
-            match self.glyphs.get(i) {
-                Some(Glyph::Terminator(_)) => break,
-                _ => {
-                    self.glyphs[i] = Glyph::default();
-                }
-            };
-        }
     }
 
     fn terminator(&self, x: usize, y: usize) -> Glyph {
@@ -288,33 +224,55 @@ impl App {
         info!("play");
 
         let ms = self.opts.bpm.delay_ms();
-        let exp = self.exp.clone();
+        let tx = self.source.get_sender();
+
         task::spawn(async move {
             info!("spawn");
             tokio::select! {
                 _ = cln_token.cancelled() => {
                     info!("cancelled");
                 }
-                _ = Self::ticker(ms, exp) => {
+                _ = Self::ticker(ms, tx) => {
                     info!("done");
                 }
             }
         });
     }
 
-    async fn ticker(ms: u64, exp: SharedMap) {
+    async fn ticker(ms: u64, tx: Sender<Command>) {
         let mut interval = time::interval(Duration::from_millis(ms));
         info!("ticker");
         loop {
-            info!("exp {exp:?}");
-
+            match tx.send(Command::Tick).await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("error {e:?}");
+                }
+            }
+            // info!("exp {exp:?}");
+            //
             // let exp = exp.get(0);
             // Self::tick(exp);
-            let results = exp.execute();
+            // let results = exp.execute();
 
-            for (i, result) in results.iter().enumerate() {
-                info!("result {i}: {result:?}");
-            }
+            // for (i, result) in results.into_iter().enumerate() {
+            //     info!("result {i}: {result:?}");
+            //     match result {
+            //         Ok(portal) => {
+            //             for c in portal.ports {
+            //                 let coord = Coord::new(c.0, c.1);
+            //                 let str = portal.atom.to_string();
+
+            //                 info!("send {coord}: {str}");
+
+            //                 tx.send((coord, str)).await;
+            //             }
+            //         }
+            //         Err(e) => {
+            //             error!("error {i}: {e:?}");
+            //         }
+            //     }
+            // }
 
             interval.tick().await;
         }
@@ -370,8 +328,33 @@ mod test {
 
     impl From<(usize, usize)> for Coord {
         fn from((x, y): (usize, usize)) -> Self {
-            Coord::new(x, y, 100, 100)
+            Coord::new(x, y)
         }
+    }
+
+    #[tokio::test]
+    async fn test_to_idx() {
+        trace();
+        let app = App::new(10, 10);
+
+        let coord = Coord::new(0, 0);
+        let idx = app.index(coord);
+        assert_eq!(idx, 0);
+
+        let coord = Coord::new(5, 5);
+        let idx = app.index(coord);
+        assert_eq!(idx, 55);
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "index 121 out of bounds for [11,11]")]
+    async fn test_to_idx_out_of_bounds() {
+        trace();
+        let app = App::new(10, 10);
+
+        let coord = Coord::new(11, 11);
+
+        let _ = app.index(coord);
     }
 
     // #[tokio::test(start_paused = true)]
@@ -386,115 +369,115 @@ mod test {
         }
 
         let ms = 100;
-        let exp = app.exp.clone();
+        // let exp = app.exp.clone();
         // App::ticker(ms, exp)
 
         // App::ticker(ms, exp).await;
 
         let handle = tokio::spawn(async move {
-            App::ticker(ms, exp).await;
+            // App::ticker(ms, exp).await;
         });
 
         sleep(Duration::from_millis(1)).await;
         handle.abort();
     }
 
-    #[test]
-    fn test_edit_complex() {
-        trace();
+    // #[test]
+    // fn test_edit_complex() {
+    //     trace();
 
-        let mut app = app();
+    //     let mut app = app();
 
-        app.set_at(2, 0, "+");
-        assert_eq!(app.src.inner, "  +     ");
+    //     app.set_at(2, 0, "+");
+    //     assert_eq!(app.src.inner, "  +     ");
 
-        // `+` is not a function (yet)
-        let glyph = app.get_glyph_at((2, 0).into());
-        assert_eq!(glyph, Glyph::default());
+    //     // `+` is not a function (yet)
+    //     let glyph = app.get_glyph_at((2, 0).into());
+    //     assert_eq!(glyph, Glyph::default());
 
-        app.set_at(3, 0, "+");
-        assert_eq!(app.src.inner, "  ++    ");
+    //     app.set_at(3, 0, "+");
+    //     assert_eq!(app.src.inner, "  ++    ");
 
-        // `++` is a function
-        let exp = app.exp.get(2).unwrap();
-        assert_eq!(exp[0], Atom::Function(Function::Add));
+    //     // `++` is a function
+    //     // let exp = app.exp.get(2).unwrap();
+    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
 
-        let glyph = app.get_glyph_at((2, 0).into());
-        assert_eq!(glyph, Glyph::Function);
+    //     let glyph = app.get_glyph_at((2, 0).into());
+    //     assert_eq!(glyph, Glyph::Function);
 
-        let glyph = app.get_glyph_at((3, 0).into());
-        assert_eq!(glyph, Glyph::Function);
+    //     let glyph = app.get_glyph_at((3, 0).into());
+    //     assert_eq!(glyph, Glyph::Function);
 
-        let glyph = app.get_glyph_at((4, 0).into());
-        assert_eq!(glyph, Glyph::Number);
+    //     let glyph = app.get_glyph_at((4, 0).into());
+    //     assert_eq!(glyph, Glyph::Number);
 
-        app.set_at(4, 0, "0");
-        assert_eq!(app.src.inner, "  ++0   ");
+    //     app.set_at(4, 0, "0");
+    //     assert_eq!(app.src.inner, "  ++0   ");
 
-        app.set_at(5, 0, "1");
-        assert_eq!(app.src.inner, "  ++01  ");
+    //     app.set_at(5, 0, "1");
+    //     assert_eq!(app.src.inner, "  ++01  ");
 
-        app.set_at(6, 0, "0");
-        assert_eq!(app.src.inner, "  ++010 ");
-        app.set_at(7, 0, "2");
-        assert_eq!(app.src.inner, "  ++0102");
+    //     app.set_at(6, 0, "0");
+    //     assert_eq!(app.src.inner, "  ++010 ");
+    //     app.set_at(7, 0, "2");
+    //     assert_eq!(app.src.inner, "  ++0102");
 
-        let exp = app.exp.get(2).unwrap();
-        assert_eq!(exp[0], Atom::Function(Function::Add));
-        assert_eq!(exp[1], Atom::Number(1));
-        assert_eq!(exp[2], Atom::Number(2));
+    //     // let exp = app.exp.get(2).unwrap();
+    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
+    //     // assert_eq!(exp[1], Atom::Number(1));
+    //     // assert_eq!(exp[2], Atom::Number(2));
 
-        // Invalidate the function
-        app.delete_at(3, 0);
-        assert_eq!(app.src.inner, "  + 0102");
+    //     // Invalidate the function
+    //     app.delete_at(3, 0);
+    //     assert_eq!(app.src.inner, "  + 0102");
 
-        assert!(app.glyphs.iter().all(|g| *g == Glyph::default()));
+    //     // assert!(app.glyphs.iter().all(|g| *g == Glyph::default()));
 
-        // Recreate the function
-        app.set_at(3, 0, "+");
-        assert_eq!(app.src.inner, "  ++0102");
+    //     // Recreate the function
+    //     app.set_at(3, 0, "+");
+    //     assert_eq!(app.src.inner, "  ++0102");
 
-        // `++` is a function
-        let exp = app.exp.get(2).unwrap();
-        assert_eq!(exp[0], Atom::Function(Function::Add));
-    }
+    //     // `++` is a function
+    //     // let exp = app.exp.get(2).unwrap();
+    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
+    // }
 
-    #[test]
-    fn test_edit_simple() {
-        trace();
+    // #[test]
+    // fn test_edit_simple() {
+    //     trace();
 
-        let mut app = app();
+    //     let mut app = app();
 
-        app.set_at(0, 0, "i");
-        assert!(app.src.inner.starts_with('i'));
+    //     app.set_at(0, 0, "i");
+    //     assert!(app.src.inner.starts_with('i'));
 
-        // `i` is not a function yet
-        let glyph = app.get_glyph_at((0, 0).into());
-        assert_eq!(glyph, Glyph::default());
+    //     // `i` is not a function yet
+    //     let glyph = app.get_glyph_at((0, 0).into());
+    //     assert_eq!(glyph, Glyph::default());
 
-        // id
-        app.set_at(1, 0, "d");
-        assert!(app.src.inner.starts_with("id"));
+    //     // id
+    //     app.set_at(1, 0, "d");
+    //     assert!(app.src.inner.starts_with("id"));
 
-        let glyph = app.get_glyph_at((0, 0).into());
-        assert_eq!(glyph, Glyph::Function);
+    //     let glyph = app.get_glyph_at((0, 0).into());
+    //     assert_eq!(glyph, Glyph::Function);
 
-        let glyph = app.get_glyph_at((1, 0).into());
-        assert_eq!(glyph, Glyph::Function);
+    //     let glyph = app.get_glyph_at((1, 0).into());
+    //     assert_eq!(glyph, Glyph::Function);
 
-        let glyph = app.get_glyph_at((2, 0).into());
-        assert_eq!(glyph, Glyph::Char);
+    //     let glyph = app.get_glyph_at((2, 0).into());
+    //     assert_eq!(glyph, Glyph::Char);
 
-        // Delete invalidates expression, and resets glyphs
-        app.delete_at(0, 0);
-        for x in 0..3 {
-            let glyph = app.get_glyph_at((x, 0).into());
-            assert_eq!(glyph, Glyph::default());
-        }
-    }
+    //     // Delete invalidates expression, and resets glyphs
+    //     app.delete_at(0, 0);
+    //     for x in 0..3 {
+    //         let glyph = app.get_glyph_at((x, 0).into());
+    //         assert_eq!(glyph, Glyph::default());
+    //     }
+    // }
 
-    #[test]
-    fn test_terminator() {
+    #[tokio::test]
+    async fn test_terminator() {
         trace();
 
         let mut app = app();

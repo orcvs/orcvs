@@ -14,10 +14,6 @@ path = "src/lib.rs"
 name = "console"
 path = "src/main.rs"
 
-[[bench]]
-name = "source_benchmark"
-harness = false
-
 [features]
 default = []
 persistence = ["dep:serde", "eframe/persistence"]
@@ -25,15 +21,15 @@ persistence = ["dep:serde", "eframe/persistence"]
 [dependencies]
 lang = { path = "../lang" }
 arrayvec = { version = "0.7.4", default-features = false }
-eframe = { version = "0.28", default-features = false, features = ["glow"] }
-# eframe = { version = "0.28", default-features = false, features = ["wgpu"] }
-egui = { version = "0.28", default-features = false }
+criterion = { version = "0.5.1" }
+eframe = { version = "0.29", default-features = false, features = ["glow"] }
+egui = { version = "0.29", default-features = false }
 nohash-hasher = "0.2.0"
 rand = "0.8.5"
 serde = { version = "1", default-features = false, features = [
     "derive",
 ], optional = true }
-tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.39.2", features = ["rt-multi-thread", "macros", "time"] }
 tokio-util = "0.7.11"
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = [
@@ -44,7 +40,6 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 
 
 [dev-dependencies]
-criterion = { version = "0.5.1" }
 tokio = { version = "1.39.2", features = ["full", "test-util"] }
 
 

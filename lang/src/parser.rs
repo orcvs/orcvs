@@ -63,14 +63,6 @@ impl<'a> Parser<'a> {
     ///
     /// Functions are slightly magical
     /// A function can be evaluated as any other Atom type
-    /// Although take_function always retruns an AtomRef<AtomFunction>,
-    ///     making it generic over <T> means that the return value will
-    ///     be handled as the expected type.
-    ///
-    /// eg
-    ///     Given the expression "adad010101"
-    ///     parser.next().as_num() will parse "ad0101" and handle it as the expected num type
-    ///
     #[inline(always)]
     fn take_function(&mut self) -> Result<(), Error> {
         match self.next_token(2) {

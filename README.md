@@ -9,9 +9,21 @@ On tick - pull latest from Source?
 
 App
 
+  update
+    -> source.update
+
   -> Source
 
-  -> Parsed Expressions
+    -> source expressions
+    -> parsed expressions
+    -> glyphs
+
+  [thread]
+  on_interval
+    -> execute
+
+
+
 
 
 
@@ -141,3 +153,10 @@ From Orca
 
 
 
+
+
+
+
+[ ][I][1][ ][ ]
+[ ][1][ ][ ][ ]
+[ ][ ][ ][ ][ ]

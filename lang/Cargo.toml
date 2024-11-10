@@ -11,7 +11,7 @@ arrayvec = { version = "0.7.4", default-features = false }
 # serde = { version = "1.0.203", default-features = false }
 # miette = { version = "7.2.0", features = ["fancy"] }
 # miette = { version = "7.2.0" }
-thiserror = "1.0.58"
+thiserror = "1.0.64"
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", features = [
     "fmt",
@@ -20,14 +20,4 @@ criterion = { version = "0.5.1", default-features = false, feature = [
     "benchmark",
 ] }
 
-
 [dev-dependencies]
-
-#[cfg(feature = "benchmark")]
-[[bench]]
-name = "parser_benchmark"
-harness = false
-
-# [[bin]]
-# name = "lang"
-# src = "src/main.rs"

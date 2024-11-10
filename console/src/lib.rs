@@ -1,4 +1,4 @@
-#![warn(clippy::all, rust_2018_idioms)]
+#![warn(clippy::all)]
 
 pub mod app;
 pub mod console;
@@ -7,7 +7,6 @@ pub mod cursor;
 pub mod glyph;
 pub mod opts;
 pub mod source;
-
 pub mod style;
 
 use egui::Color32;

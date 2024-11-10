@@ -8,6 +8,9 @@ pub struct Cursor {
     pub coord: Coord,
     pub on: bool,
 
+    cols: usize,
+    rows: usize,
+
     at: Instant,
     delay_ms: u64,
 }
@@ -15,7 +18,9 @@ pub struct Cursor {
 impl Cursor {
     pub fn new(cols: usize, rows: usize, delay: u64) -> Self {
         Self {
-            coord: Coord::new(0, 0, cols, rows),
+            coord: Coord::new(0, 0),
+            cols,
+            rows,
             at: Instant::now(),
             on: false,
             delay_ms: delay,
@@ -46,23 +51,71 @@ impl Cursor {
         self.select(self.coord.at(x, y));
     }
 
-    #[inline]
     pub fn up(&mut self) {
-        self.select(self.coord.up());
+        let y = match self.coord.y {
+            0 | 1 => 0,
+            _ => self.coord.y - 1,
+        };
+
+        let coord = self.coord.from_y(y);
+        self.select(coord);
     }
 
-    #[inline]
     pub fn down(&mut self) {
-        self.select(self.coord.down());
+        let y = (self.coord.y + 1).clamp(0, self.rows - 1);
+
+        let coord = self.coord.from_y(y);
+        self.select(coord);
     }
 
-    #[inline]
     pub fn left(&mut self) {
-        self.select(self.coord.left());
+        let x = match self.coord.x {
+            0 | 1 => 0,
+            _ => self.coord.x - 1,
+        };
+
+        let coord = self.coord.from_x(x);
+        self.select(coord);
     }
 
-    #[inline]
     pub fn right(&mut self) {
-        self.select(self.coord.right());
+        let x = (self.coord.x + 1).clamp(0, self.cols - 1);
+        let coord = self.coord.from_x(x);
+        self.select(coord);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{cursor::Cursor, test::trace};
+
+    #[test]
+    fn test_coord() {
+        trace();
+        let mut cursor = Cursor::new(10, 10, 1000);
+
+        cursor.down();
+        assert_eq!(cursor.coord.y, 1);
+
+        cursor.left();
+        assert_eq!(cursor.coord.x, 0);
+
+        cursor.right();
+        cursor.right();
+        cursor.right();
+        cursor.right();
+        assert_eq!(cursor.coord.x, 4);
+
+        cursor.up();
+        assert_eq!(cursor.coord.y, 0);
+
+        cursor.right();
+        assert_eq!(cursor.coord.x, 5);
+
+        cursor.up();
+        cursor.up();
+        cursor.up();
+        cursor.up();
+        assert_eq!(cursor.coord.y, 0);
     }
 }

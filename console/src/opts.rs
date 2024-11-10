@@ -51,4 +51,8 @@ impl Opts {
             rows,
         }
     }
+
+    pub fn count(&self) -> usize {
+        self.rows * self.cols
+    }
 }
