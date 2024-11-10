@@ -1,5 +1,5 @@
 use std::{
-    ops::Deref,
+    ops::{Deref, RangeInclusive},
     sync::{Arc, RwLock},
 };
 
@@ -9,7 +9,12 @@ pub struct ExpressionMap {
     inner: Vec<Option<ExpressionRange>>,
 }
 
-type Range = std::ops::Range<usize>;
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Range {
+    pub start: usize,
+    pub end: usize,
+}
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
@@ -204,7 +209,10 @@ impl ExpressionMap {
 
 #[cfg(test)]
 mod test {
-    use crate::{source::ExpressionMap, test::trace};
+    use crate::{
+        source::{expression_map::Range, ExpressionMap},
+        test::trace,
+    };
 
     #[test]
     fn test_expression_join() {
@@ -217,21 +225,21 @@ mod test {
         map.set(3);
 
         let exp = map.get(0).unwrap();
-        assert_eq!(exp, 0..1);
+        assert_eq!(exp, Range { start: 0, end: 1 });
 
         let exp = map.get(1).unwrap();
-        assert_eq!(exp, 0..1);
+        assert_eq!(exp, Range { start: 0, end: 1 });
 
         let exp = map.get(3).unwrap();
-        assert_eq!(exp, 3..3);
+        assert_eq!(exp, Range { start: 3, end: 3 });
 
         map.set(2);
 
         let exp = map.get(2).unwrap();
-        assert_eq!(exp, 0..3);
+        assert_eq!(exp, Range { start: 0, end: 3 });
 
         let exp = map.get(3).unwrap();
-        assert_eq!(exp, 0..3);
+        assert_eq!(exp, Range { start: 0, end: 3 });
     }
 
     #[test]
@@ -249,13 +257,13 @@ mod test {
         map.set(5);
 
         let exp = map.get(0).unwrap();
-        assert_eq!(exp, 0..5);
+        assert_eq!(exp, Range { start: 0, end: 5 });
 
         // {++ ABB}
         map.unset(2);
 
         let exp = map.get(0).unwrap();
-        assert_eq!(exp, 0..1);
+        assert_eq!(exp, Range { start: 0, end: 1 });
     }
 
     #[test]
@@ -271,13 +279,13 @@ mod test {
         map.set(9);
 
         let exp = map.get(6).unwrap();
-        assert_eq!(exp, 6..9);
+        assert_eq!(exp, Range { start: 6, end: 9 });
 
         // {    XIDAA}
         map.set(5);
 
         let exp = map.get(5).unwrap();
-        assert_eq!(exp, 5..9);
+        assert_eq!(exp, Range { start: 5, end: 9 });
     }
 
     #[test]
@@ -293,12 +301,12 @@ mod test {
         map.set(3);
 
         let exp = map.get(0).unwrap();
-        assert_eq!(exp, 0..3);
+        assert_eq!(exp, Range { start: 0, end: 3 });
         // {ID0A       }
         map.set(2);
 
         let exp = map.get(0).unwrap();
-        assert_eq!(exp, 0..3);
+        assert_eq!(exp, Range { start: 0, end: 3 });
 
         let exp = map.get(7).is_none();
         assert_eq!(exp, true);
@@ -314,13 +322,13 @@ mod test {
         map.set(9);
 
         let exp = map.get(9).unwrap();
-        assert_eq!(exp, 8..9);
+        assert_eq!(exp, Range { start: 8, end: 9 });
 
         // {          A}
         map.unset(8);
 
         let exp = map.get(9).unwrap();
-        assert_eq!(exp, 9..9);
+        assert_eq!(exp, Range { start: 9, end: 9 });
 
         // {          A}
         map.unset(9);

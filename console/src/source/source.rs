@@ -10,6 +10,7 @@ use tracing::{debug, error, info};
 use crate::coord::Coord;
 use crate::glyph::{to_glyphs, Glyph};
 
+use super::expression_map::Range;
 use super::{Command, ExpressionMap};
 
 // use arrayvec::ArrayVec;
@@ -99,11 +100,15 @@ impl Source {
     // }
 
     #[inline]
-    fn get_exp_src(&self, from: usize, to: usize) -> String {
+    fn get_exp_src(&self, range: Range) -> String {
+        let from = range.start;
+        let to = range.end;
+
         // SAFELY UNSAFE
         // all characters are single-byte ASCII
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
+        // let s = unsafe { self.inner.get_unchecked(from..(to + 1)) };
         let s = unsafe { self.inner.get_unchecked(from..(to + 1)) };
         s.to_owned()
     }
@@ -139,26 +144,27 @@ impl Source {
     /// Unsets the expresion glyphs and parsed atom for the expression at cursor.coord
     ///
     fn unparse(&mut self, idx: usize) {
-        if let Some(exp) = self.map.get(idx) {
-            //     let start = exp.start();
+        if let Some(exp_range) = self.map.get(idx) {
+            let start = exp_range.start;
 
-            //     self.unset_glyphs(start);
-            //     self.parsed[start] = None;
+            self.unset_glyphs(start);
+            self.parsed[start] = None;
         }
     }
 
     fn parse(&mut self, idx: usize) {
-        // if let Some((exp, mut src)) = self.get_exp_with_src_at(idx) {
-        //     let mut parsed: Expression = Parser::from(&mut src).parse();
-        //     let start = exp.start();
+        if let Some(exp_range) = self.map.get(idx) {
+            let start = exp_range.start;
+            let mut src = self.get_exp_src(exp_range);
+            let mut parsed: Expression = Parser::from(&mut src).parse();
 
-        //     let glyphs = to_glyphs(parsed.take_tokens());
-        //     let atoms = parsed.take_atoms();
+            let glyphs = to_glyphs(parsed.take_tokens());
+            let atoms = parsed.take_atoms();
 
-        //     self.parsed[start] = Some(atoms);
+            self.parsed[start] = Some(atoms);
 
-        //     self.set_glyphs(start, glyphs);
-        // }
+            self.set_glyphs(start, glyphs);
+        }
     }
 
     pub fn get_glyph_at(&self, idx: usize) -> Glyph {
@@ -203,39 +209,38 @@ impl fmt::Display for Source {
 #[cfg(test)]
 mod test {
 
-    // fn source(cols: usize, rows: usize) -> Source {
-    //     Source::new(cols, rows)
-    // }
-    // ===========================================================================
+    fn source(size: usize) -> Source {
+        let (sender, mut receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel(1);
 
-    // #[test]
-    // fn test_get_expression_as_str() {
-    //     trace();
+        Source::new(size, sender)
+    }
 
-    //     let cols = 10;
-    //     let mut source = source(10, 1);
+    use tokio::sync::mpsc::{self, Receiver, Sender};
+    use tracing::info;
 
-    //     source.set_at(Coord::new(0, 0).index(cols), "i");
-    //     source.set_at(Coord::new(1, 0).index(cols), "d");
-    //     source.set_at(Coord::new(2, 0).index(cols), "0");
-    //     source.set_at(Coord::new(3, 0).index(cols), "A");
+    use crate::{
+        source::{expression_map::Range, Command, Source},
+        test::trace,
+    };
 
-    //     assert_eq!(source.inner, "id0A      ");
+    #[tokio::test]
+    async fn test_get_exp_src() {
+        trace();
 
-    //     source.print_exp();
+        let mut src = source(10);
 
-    //     let exp = source
-    //         .map
-    //         .iter()
-    //         .find_map(|o| o.as_ref().map(|e| e))
-    //         .unwrap();
+        src.set_at(0, "0");
+        src.set_at(1, "1");
+        src.set_at(2, "2");
 
-    //     source.print_exp();
-    //     let exp = exp.borrow();
-    //     let s = source.get_exp_src(exp.start, exp.end);
+        let exp = src.get_exp_src(Range { start: 0, end: 2 });
 
-    //     assert_eq!(s, "id0A");
-    // }
+        assert_eq!(&exp, "012");
+
+        let exp = src.get_exp_src(Range { start: 0, end: 9 });
+
+        assert_eq!(&exp, "012       ");
+    }
 
     // #[test]
     // fn test_map_expression_at_max_idx() {

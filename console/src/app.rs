@@ -4,7 +4,7 @@ use lang::{Atom, Atoms, Parser, Portal};
 use lang::{Expression, Interpreter};
 use tokio::sync::oneshot;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tokio::{task, time};
@@ -26,7 +26,7 @@ pub struct App {
     pub cursor: Cursor,
 
     token: Option<CancellationToken>,
-    source: Arc<Source>,
+    source: Arc<RwLock<Source>>,
 }
 
 impl App {
@@ -66,10 +66,10 @@ impl App {
     }
 
     fn send_command(&self, idx: usize, s: String) {
-        // let (responder, receiver) = oneshot::channel();
         let cmd = Command::Set { idx, s };
 
-        let tx = self.source.get_sender();
+        let source = self.source.read().unwrap();
+        let tx = source.get_sender();
 
         tokio::spawn(async move {
             match tx.send(cmd).await {
@@ -90,7 +90,6 @@ impl App {
     /// panic if the index is out of bounds
     ///
     pub fn index(&self, coord: Coord) -> usize {
-        info!("opts.cols {}", self.opts.cols);
         let idx = coord.y * self.opts.cols + coord.x;
         assert!(
             idx <= self.opts.cols * self.opts.rows,
@@ -106,8 +105,10 @@ impl App {
 
         let idx = self.index(coord);
 
-        let mut s = self.source.get_at(idx);
-        let mut g = self.source.get_glyph_at(idx);
+        let source = self.source.read().unwrap();
+
+        let mut s = source.get_at(idx);
+        let mut g = source.get_glyph_at(idx);
 
         if Glyph::is_terminator(&s) {
             if matches!(g, Glyph::Terminator(_)) {
@@ -221,13 +222,12 @@ impl App {
         let token = CancellationToken::new();
         let cln_token = token.clone();
         self.token = Some(token);
-        info!("play");
 
         let ms = self.opts.bpm.delay_ms();
-        let tx = self.source.get_sender();
+        let source = self.source.read().unwrap();
+        let tx = source.get_sender();
 
         task::spawn(async move {
-            info!("spawn");
             tokio::select! {
                 _ = cln_token.cancelled() => {
                     info!("cancelled");
@@ -276,11 +276,6 @@ impl App {
 
             interval.tick().await;
         }
-    }
-
-    fn tick(exp: Option<Atoms>) {
-        info!("tick");
-        info!("exp {exp:?}");
     }
 }
 
