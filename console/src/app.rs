@@ -11,14 +11,11 @@ use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
+use crate::glyph::GlyphString;
 use crate::opts::Opts;
-use crate::source::source::TERMINATOR;
-use crate::source::{source, Command, Source};
-use crate::{
-    coord::Coord,
-    cursor::Cursor,
-    glyph::{to_glyphs, Glyph},
-};
+
+use crate::source::{source, Command, Source, SourceCommander};
+use crate::{coord::Coord, cursor::Cursor, glyph::Glyph};
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
@@ -26,7 +23,7 @@ pub struct App {
     pub cursor: Cursor,
 
     token: Option<CancellationToken>,
-    source: Arc<RwLock<Source>>,
+    source: SourceCommander,
 }
 
 impl App {
@@ -36,7 +33,7 @@ impl App {
 
         let opts = Opts::new(cols, rows);
 
-        let source = source(opts.count());
+        let source = SourceCommander::spawn(opts.count());
 
         Self {
             cursor: Cursor::new(cols, rows, opts.cursor_delay),
@@ -52,33 +49,21 @@ impl App {
     ///
     pub fn write(&mut self, s: &String) {
         let idx = self.cursor_index();
+        let cmd = Command::Set {
+            idx,
+            s: s.to_owned(),
+        };
 
-        self.send_command(idx, s.to_owned());
+        self.source.send(cmd);
         self.cursor.right();
     }
 
-    #[inline]
     fn delete(&mut self) {
         let idx = self.cursor_index();
+        let cmd = Command::Unset { idx };
 
-        self.send_command(idx, TERMINATOR.to_owned());
+        self.source.send(cmd);
         self.cursor.left();
-    }
-
-    fn send_command(&self, idx: usize, s: String) {
-        let cmd = Command::Set { idx, s };
-
-        let source = self.source.read().unwrap();
-        let tx = source.get_sender();
-
-        tokio::spawn(async move {
-            match tx.send(cmd).await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Error {e:?}");
-                }
-            }
-        });
     }
 
     pub fn cursor_index(&self) -> usize {
@@ -100,24 +85,14 @@ impl App {
         idx
     }
 
-    pub fn get_at(&self, x: usize, y: usize) -> (String, Glyph) {
-        let coord = Coord::new(x, y);
+    pub fn get(&self, x: usize, y: usize) -> GlyphString {
+        let idx = self.index(Coord::new(x, y));
 
-        let idx = self.index(coord);
-
-        let source = self.source.read().unwrap();
-
-        let mut s = source.get_at(idx);
-        let mut g = source.get_glyph_at(idx);
-
-        if Glyph::is_terminator(&s) {
-            if matches!(g, Glyph::Terminator(_)) {
-                g = self.terminator(x, y);
-                s = g.to_string()
-            }
+        let (s, g) = self.source.get(idx);
+        match g {
+            Some(g) => GlyphString::new(s, g),
+            None => self.terminator(x, y),
         }
-
-        (s, g)
     }
 
     ///
@@ -183,10 +158,10 @@ impl App {
         repaint
     }
 
-    fn terminator(&self, x: usize, y: usize) -> Glyph {
+    fn terminator(&self, x: usize, y: usize) -> GlyphString {
         // Grid markers
         if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
-            return Glyph::marker();
+            return GlyphString::marker();
         }
 
         // Highlight
@@ -194,11 +169,11 @@ impl App {
             if x % self.opts.grid_selected_dot_spacing == 0
                 && y % self.opts.grid_selected_dot_spacing == 0
             {
-                return Glyph::highlight();
+                return GlyphString::highlight();
             }
         }
 
-        Glyph::default()
+        return GlyphString::space();
     }
 
     fn playing(&self) -> bool {
@@ -224,56 +199,31 @@ impl App {
         self.token = Some(token);
 
         let ms = self.opts.bpm.delay_ms();
-        let source = self.source.read().unwrap();
-        let tx = source.get_sender();
+
+        let snd = self.source.sender();
 
         task::spawn(async move {
             tokio::select! {
                 _ = cln_token.cancelled() => {
                     info!("cancelled");
                 }
-                _ = Self::ticker(ms, tx) => {
+                _ = Self::ticker(ms, snd) => {
                     info!("done");
                 }
             }
         });
     }
 
-    async fn ticker(ms: u64, tx: Sender<Command>) {
+    async fn ticker(ms: u64, snd: Sender<Command>) {
         let mut interval = time::interval(Duration::from_millis(ms));
         info!("ticker");
         loop {
-            match tx.send(Command::Tick).await {
+            match snd.send(Command::Tick).await {
                 Ok(_) => {}
                 Err(e) => {
                     error!("error {e:?}");
                 }
             }
-            // info!("exp {exp:?}");
-            //
-            // let exp = exp.get(0);
-            // Self::tick(exp);
-            // let results = exp.execute();
-
-            // for (i, result) in results.into_iter().enumerate() {
-            //     info!("result {i}: {result:?}");
-            //     match result {
-            //         Ok(portal) => {
-            //             for c in portal.ports {
-            //                 let coord = Coord::new(c.0, c.1);
-            //                 let str = portal.atom.to_string();
-
-            //                 info!("send {coord}: {str}");
-
-            //                 tx.send((coord, str)).await;
-            //             }
-            //         }
-            //         Err(e) => {
-            //             error!("error {i}: {e:?}");
-            //         }
-            //     }
-            // }
-
             interval.tick().await;
         }
     }
@@ -282,19 +232,10 @@ impl App {
 #[cfg(test)]
 mod test {
 
-    use std::time::Duration;
-
-    use crate::{
-        coord::Coord,
-        glyph::{Glyph, Terminator},
-        opts::DEFAULT_GRID_SIZE,
-        test::trace,
-    };
-    use lang::{Atom, Function};
-    use tokio::{task, time::sleep};
-    use tracing::info;
-
     use super::App;
+    use crate::{coord::Coord, glyph::GlyphString, opts::DEFAULT_GRID_SIZE, test::trace};
+    use std::time::Duration;
+    use tokio::time::sleep;
 
     fn app() -> App {
         let rows = 1; // * (DEFAULT_GRID_SIZE as usize);
@@ -479,13 +420,13 @@ mod test {
         app.cursor.select_at(7, 0);
 
         let g = app.terminator(0, 0);
-        assert_eq!(g, Glyph::Terminator(Terminator::Marker));
+        assert_eq!(g, GlyphString::marker());
 
         let g = app.terminator(1, 0);
-        assert_eq!(g, Glyph::Terminator(Terminator::Space));
+        assert_eq!(g, GlyphString::space());
 
         let g = app.terminator(2, 0);
-        assert_eq!(g, Glyph::Terminator(Terminator::Dot));
+        assert_eq!(g, GlyphString::highlight());
     }
 }
 

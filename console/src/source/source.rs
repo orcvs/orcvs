@@ -1,4 +1,4 @@
-use lang::{Atoms, Expression, Parser};
+use lang::{Atoms, Expression, Interpreter, Parser, Portal};
 use std::cell::{Ref, RefCell};
 use std::fmt;
 use std::rc::Rc;
@@ -8,31 +8,30 @@ use tokio::task;
 use tracing::{debug, error, info};
 
 use crate::coord::Coord;
-use crate::glyph::{to_glyphs, Glyph};
+use crate::glyph::Glyph;
 
 use super::expression_map::Range;
 use super::{Command, ExpressionMap};
 
-// use arrayvec::ArrayVec;
-
-pub const TERMINATOR: &str = " ";
-pub const TERMINATOR_BYTES: &[u8] = TERMINATOR.as_bytes();
+pub const SPACE: &str = " ";
+// pub const TERMINATOR_BYTES: &[u8] = TERMINATOR.as_bytes();
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Source {
     inner: String,
     map: ExpressionMap,
-    glyphs: Vec<Glyph>,
+    glyphs: Vec<Option<Glyph>>,
     parsed: Vec<Option<Atoms>>,
+    // results: Vec<Option<Atoms>>,
     sender: Sender<Command>,
 }
 
 impl Source {
     pub fn new(size: usize, sender: Sender<Command>) -> Self {
-        let inner = TERMINATOR.to_string().repeat(size);
+        let inner = SPACE.to_string().repeat(size);
         let map = ExpressionMap::new(size);
 
-        let glyphs = vec![Glyph::default(); size];
+        let glyphs = vec![None; size];
         let parsed = vec![None; size];
 
         Self {
@@ -56,12 +55,11 @@ impl Source {
     /// assert_eq!(s.as_str(), "!");
     /// ```
     ///
-    pub fn set_at(&mut self, idx: usize, s: &str) {
+    pub fn set(&mut self, idx: usize, s: &str) {
         self.unparse(idx);
-        self.set_at_inner(idx, s);
+        self.set_inner(idx, s);
 
-        let glyph = Glyph::is_glyph(s);
-        if glyph {
+        if s == SPACE {
             self.map.set(idx);
         } else {
             self.map.unset(idx);
@@ -70,7 +68,7 @@ impl Source {
         self.parse(idx);
     }
 
-    pub fn get_at(&self, idx: usize) -> String {
+    pub fn get(&self, idx: usize) -> Option<String> {
         // info!("idx: {idx}");
 
         // SAFELY UNSAFE
@@ -78,10 +76,27 @@ impl Source {
         //   the idx is always in range
         //      - to_index will panic if the index is out of bounds
         let s = unsafe { self.inner.get_unchecked(idx..(idx + 1)) };
-        s.to_owned()
+
+        match s {
+            SPACE => None,
+            _ => Some(s.to_owned()),
+        }
     }
 
-    #[inline]
+    pub fn execute(&self) {
+        let results: Result<Vec<Portal>, lang::Error> = self
+            .parsed
+            .iter()
+            .map(|o| match o {
+                Some(atoms) => Interpreter::execute(atoms),
+                None => Ok(Portal::default()),
+            })
+            // .enumerate()
+            // .map(|i, o) {
+            // })
+            .collect();
+    }
+
     fn get_exp_src(&self, range: Range) -> String {
         let from = range.start;
         let to = range.end;
@@ -107,7 +122,7 @@ impl Source {
     /// assert_eq!(idx, 33);
     /// ```
     ///
-    fn set_at_inner(&mut self, idx: usize, s: &str) -> usize {
+    fn set_inner(&mut self, idx: usize, s: &str) -> usize {
         let b = s.as_bytes();
 
         // SAFELY UNSAFE
@@ -123,7 +138,7 @@ impl Source {
     }
 
     ///
-    /// Unsets the expresion glyphs and parsed atom for the expression at cursor.coord
+    /// Unsets parsed expresion and glyphs at index
     ///
     fn unparse(&mut self, idx: usize) {
         if let Some(exp_range) = self.map.get(idx) {
@@ -140,23 +155,22 @@ impl Source {
             let mut src = self.get_exp_src(exp_range);
             let mut parsed: Expression = Parser::from(&mut src).parse();
 
-            let glyphs = to_glyphs(parsed.take_tokens());
+            let glyphs = Glyph::to_glyphs(parsed.take_tokens());
             let atoms = parsed.take_atoms();
 
             self.parsed[start] = Some(atoms);
-
             self.set_glyphs(start, glyphs);
         }
     }
 
-    pub fn get_glyph_at(&self, idx: usize) -> Glyph {
+    pub fn get_glyph_at(&self, idx: usize) -> Option<Glyph> {
         self.glyphs[idx]
     }
 
     fn set_glyphs(&mut self, start: usize, glyphs: Vec<Glyph>) {
         for (i, g) in glyphs.iter().enumerate() {
             let pos = start + i;
-            self.glyphs[pos] = *g;
+            self.glyphs[pos] = Some(*g);
         }
     }
 
@@ -165,15 +179,15 @@ impl Source {
 
         for i in start..end {
             match self.glyphs.get(i) {
-                Some(Glyph::Terminator(_)) => break,
-                _ => {
-                    self.glyphs[i] = Glyph::default();
+                Some(_) => {
+                    self.glyphs[i] = None;
                 }
+                None => break,
             };
         }
     }
 
-    pub fn get_sender(&self) -> Sender<Command> {
+    pub fn sender(&self) -> Sender<Command> {
         self.sender.clone()
     }
 }
@@ -202,14 +216,44 @@ mod test {
     };
 
     #[tokio::test]
+    async fn test_execute() {
+        trace();
+
+        let mut src = source(10);
+
+        src.set(0, "0");
+        src.set(1, "1");
+        src.set(2, "2");
+    }
+
+    #[tokio::test]
     async fn test_get_exp_src() {
         trace();
 
         let mut src = source(10);
 
-        src.set_at(0, "0");
-        src.set_at(1, "1");
-        src.set_at(2, "2");
+        src.set(0, "0");
+        src.set(1, "1");
+        src.set(2, "2");
+
+        let exp = src.get_exp_src(Range { start: 0, end: 2 });
+
+        assert_eq!(&exp, "012");
+
+        let exp = src.get_exp_src(Range { start: 0, end: 9 });
+
+        assert_eq!(&exp, "012       ");
+    }
+
+    #[tokio::test]
+    async fn test_get_exp_src_() {
+        trace();
+
+        let mut src = source(10);
+
+        src.set(0, "0");
+        src.set(1, "1");
+        src.set(2, "2");
 
         let exp = src.get_exp_src(Range { start: 0, end: 2 });
 

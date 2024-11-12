@@ -15,134 +15,36 @@ const DEFAULT_GLYPH_SELECTED_FONT_COLOR: Color32 = DEFAULT_GLYPH_FONT_COLOR;
 const DEFAULT_VISUAL_SELECTED_STROKE_COLOR_BLINK: Color32 = Color::rgb(192, 222, 255).build();
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Glyph {
-    Function,
-    Number,
-    Note,
-    Char,
-    Terminator(Terminator),
-}
-pub type G = Glyph;
-
-#[derive(Debug)]
-pub struct GlyphStyle {
-    pub bg_fill: Color32,
-    pub stroke_color: Color32,
-    pub font_color: Color32,
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlyphString {
+    s: Option<String>,
+    t: Glyph,
 }
 
-pub const CURSOR_VISUALS: GlyphStyle = GlyphStyle {
-    bg_fill: Color32::TRANSPARENT,
-    stroke_color: DEFAULT_VISUAL_SELECTED_STROKE_COLOR_BLINK,
-    font_color: DEFAULT_GLYPH_FONT_COLOR,
-};
-
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Terminator {
-    Dot,
-    Marker,
-    Space,
-}
-
-impl Default for Glyph {
-    fn default() -> Self {
-        Glyph::Terminator(Terminator::default())
-    }
-}
-
-impl Default for Terminator {
-    fn default() -> Self {
-        Terminator::Space
-    }
-}
-
-impl From<Token> for Glyph {
-    fn from(t: Token) -> Self {
-        match t {
-            Token::Function => G::Function,
-            Token::Note => G::Note,
-            Token::Number => G::Number,
-            Token::NumberN(_) => G::Number,
-            Token::Char => G::Char,
-        }
-    }
-}
-
-pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
-    tokens
-        .into_iter()
-        .flat_map(|t| iter::repeat(Glyph::from(t)).take(t.len()))
-        .collect()
-}
-
-impl fmt::Display for Glyph {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Glyph::Function => "F".to_string(),
-            Glyph::Number => "h".to_string(),
-            Glyph::Note => "n".to_string(),
-            Glyph::Char => "c".to_string(),
-            Glyph::Terminator(t) => t.to_string(),
-        };
-
-        write!(f, "{}", s)
-    }
-}
-
-impl fmt::Display for Terminator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Terminator::Dot => ".".to_string(),
-            Terminator::Marker => "+".to_string(),
-            Terminator::Space => " ".to_string(),
-        };
-
-        write!(f, "{}", s)
-    }
-}
-
-impl Glyph {
-    #[inline]
-    pub fn is_glyph(s: &str) -> bool {
-        !Self::is_terminator(s) && !Self::is_marker(s)
+impl GlyphString {
+    pub fn new(s: Option<String>, t: Glyph) -> Self {
+        Self { s, t }
     }
 
-    #[inline]
-    pub fn is_marker(s: &str) -> bool {
-        s == "+"
-    }
-
-    #[inline]
-    pub fn is_terminator(s: &str) -> bool {
-        match s {
-            "." => true,
-            " " => true,
-            _ => false,
+    pub fn marker() -> GlyphString {
+        Self {
+            s: None,
+            t: Glyph::Marker,
         }
     }
 
-    #[inline]
-    pub fn is_terminator_bytes(b: u8) -> bool {
-        match b {
-            46 => true,
-            32 => true,
-            // 43 => true,
-            _ => false,
+    pub fn highlight() -> GlyphString {
+        Self {
+            s: None,
+            t: Glyph::Marker,
         }
     }
 
-    #[inline]
-    pub fn is_character(s: &str) -> bool {
-        !Self::is_terminator(s)
-    }
-
-    pub fn highlight() -> Self {
-        Glyph::Terminator(Terminator::Dot)
-    }
-    pub fn marker() -> Self {
-        Glyph::Terminator(Terminator::Marker)
+    pub fn space() -> GlyphString {
+        Self {
+            s: None,
+            t: Glyph::Marker,
+        }
     }
 
     pub fn style(&self, selected: bool) -> GlyphStyle {
@@ -158,10 +60,7 @@ impl Glyph {
             font_color: DEFAULT_GLYPH_SELECTED_FONT_COLOR,
         };
 
-        // Color::rgb(97, 0, 255).build()
-        // Color::rgb(255, 0, 230).build(),
-
-        match (self, selected) {
+        match (self.t, selected) {
             // (Glyph::Function, true) => v,
             (Glyph::Function, true) => GlyphStyle {
                 bg_fill: Color::rgb(200, 75, 255).build(),
@@ -213,8 +112,8 @@ impl Glyph {
             //     bg_fill: Color::rgb(97, 0, 255).build(),
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
             // },
-            (Glyph::Terminator(_), true) => default_selected,
-            (Glyph::Terminator(_), false) => default,
+            (Glyph::Space | Glyph::Marker | Glyph::Highlight, true) => default_selected,
+            (Glyph::Space | Glyph::Marker | Glyph::Highlight, false) => default,
             // (Glyph::Terminator(_), true) => GlyphVisuals {
             //     bg_fill: Color::rgb(97, 0, 255).build(),
             //     stroke_color: Color::rgb(97, 0, 255).with_alpha(128).build(),
@@ -227,27 +126,109 @@ impl Glyph {
     }
 }
 
+#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Glyph {
+    Char,
+    Function,
+    Highlight,
+    Marker,
+    Number,
+    Note,
+    Space,
+}
+pub type G = Glyph;
+
+#[derive(Debug)]
+pub struct GlyphStyle {
+    pub bg_fill: Color32,
+    pub stroke_color: Color32,
+    pub font_color: Color32,
+}
+
+pub const CURSOR_VISUALS: GlyphStyle = GlyphStyle {
+    bg_fill: Color32::TRANSPARENT,
+    stroke_color: DEFAULT_VISUAL_SELECTED_STROKE_COLOR_BLINK,
+    font_color: DEFAULT_GLYPH_FONT_COLOR,
+};
+
+impl From<Token> for Glyph {
+    fn from(t: Token) -> Self {
+        match t {
+            Token::Function => G::Function,
+            Token::Note => G::Note,
+            Token::Number => G::Number,
+            Token::NumberN(_) => G::Number,
+            Token::Char => G::Char,
+        }
+    }
+}
+
+impl fmt::Display for GlyphString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self.t {
+            Glyph::Char => "c".to_string(),
+            Glyph::Function => "F".to_string(),
+            Glyph::Highlight => ".".to_string(),
+            Glyph::Marker => "+".to_string(),
+            Glyph::Note => "n".to_string(),
+            Glyph::Number => "h".to_string(),
+            Glyph::Space => " ".to_string(),
+        };
+
+        write!(f, "{}", s)
+    }
+}
+
+impl Glyph {
+    pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
+        tokens
+            .into_iter()
+            .flat_map(|t| iter::repeat(Glyph::from(t)).take(t.len()))
+            .collect()
+    }
+
+    // #[inline]
+    // pub fn is_terminator(s: &str) -> bool {
+    //     match s {
+    //         "." => true,
+    //         " " => true,
+    //         _ => false,
+    //     }
+    // }
+
+    #[inline]
+    pub fn is_terminator_bytes(b: u8) -> bool {
+        match b {
+            46 => true,
+            32 => true,
+            // 43 => true,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::glyph::Glyph;
 
-    #[test]
-    fn test_is_terminator() {
-        let t = Glyph::is_terminator(".");
-        assert!(t);
+    // #[test]
+    // fn test_is_terminator() {
+    //     let t = Glyph::is_terminator(".");
+    //     assert!(t);
 
-        let t = Glyph::is_terminator(" ");
-        assert!(t);
+    //     let t = Glyph::is_terminator(" ");
+    //     assert!(t);
 
-        let t = Glyph::is_terminator("+");
-        assert!(t == false);
+    //     let t = Glyph::is_terminator("+");
+    //     assert!(t == false);
 
-        let t = Glyph::is_terminator("..");
-        assert!(t == false);
+    //     let t = Glyph::is_terminator("..");
+    //     assert!(t == false);
 
-        let t = Glyph::is_terminator("!");
-        assert!(t == false);
-    }
+    //     let t = Glyph::is_terminator("!");
+    //     assert!(t == false);
+    // }
 
     #[test]
     fn test_is_terminator_bytes() {

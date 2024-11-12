@@ -34,7 +34,8 @@ impl Interpreter {
             stack.push(atom);
         }
 
-        let portal = Portal::new(stack.pop().into());
+        let portal = Portal::new(stack.pop().into(), 0, 0);
+
         // Final element in stack is the result
         // let atom = stack.pop().into();
         Ok(portal)

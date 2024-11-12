@@ -83,6 +83,14 @@ impl ExpressionMap {
         }
     }
 
+    pub fn set(&mut self, idx: usize) {
+        self.set_inner(idx, true)
+    }
+
+    pub fn unset(&mut self, idx: usize) {
+        self.set_inner(idx, false);
+    }
+
     fn set_exp(&mut self, idx: usize, exp: &ExpressionRange) {
         self.inner[idx] = Some(exp.clone());
     }
@@ -92,10 +100,6 @@ impl ExpressionMap {
             self.inner[i] = Some(exp.clone());
         }
     }
-
-    // fn set_exp(&mut self, idx: usize, exp: Rc<RefCell<ExpressionIndex>>) {
-    //     self.inner[idx] = Some(exp);
-    // }
 
     fn remove(&mut self, idx: usize) {
         self.inner[idx] = None;
@@ -142,15 +146,7 @@ impl ExpressionMap {
         lft_exp.set_end(lft_idx);
     }
 
-    pub fn set(&mut self, idx: usize) {
-        self._set(idx, true)
-    }
-
-    pub fn unset(&mut self, idx: usize) {
-        self._set(idx, false);
-    }
-
-    fn _set(&mut self, idx: usize, glyph: bool) {
+    fn set_inner(&mut self, idx: usize, glyph: bool) {
         let (lft_idx, lft_exp) = if idx > 0 {
             let idx = idx - 1;
             let exp = self.inner[idx].clone();

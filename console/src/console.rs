@@ -1,12 +1,6 @@
-use egui::{Color32, EventFilter, Rounding, Vec2};
+use egui::{EventFilter, Rounding, Vec2};
 
-use crate::{
-    app::App,
-    glyph::{Glyph, GlyphStyle, CURSOR_VISUALS},
-    opts,
-    style::style,
-    Color,
-};
+use crate::{app::App, glyph::CURSOR_VISUALS, opts, style::style};
 
 /// ConsoleApp wraps the inner App
 /// ConsoleApp handles the egui presentation concerns
@@ -107,10 +101,10 @@ impl eframe::App for Console {
             for y in 0..self.app.opts.cols {
                 ui.horizontal(|ui| {
                     for x in 0..self.app.opts.rows {
-                        let (s, g) = self.app.get_at(x, y);
+                        let glyph = self.app.get(x, y);
                         let selected = self.app.cursor.is_at(x, y);
 
-                        let visuals = g.style(selected);
+                        let visuals = glyph.style(selected);
 
                         ui.style_mut().visuals.widgets.inactive.weak_bg_fill = visuals.bg_fill;
 
@@ -138,8 +132,8 @@ impl eframe::App for Console {
                             }
                         }
 
-                        let button_text =
-                            egui::RichText::new(s).font(self.app.opts.font_id.clone());
+                        let button_text = egui::RichText::new(glyph.to_string())
+                            .font(self.app.opts.font_id.clone());
                         // .background_color(bg_color);
                         // .color(text_color);
                         // .extra_letter_spacing(0.4);
