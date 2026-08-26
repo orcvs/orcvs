@@ -1,12 +1,12 @@
 use egui::FontId;
 
 pub const DEFAULT_FONT_SIZE: f32 = 20.0;
-pub const DEFAULT_GRID_SIZE: f32 = 8.0;
+pub const DEFAULT_MARKER_SPACING: f32 = 8.0;
 
-pub const DEFAULT_COL_COUNT: usize = 2 * (DEFAULT_GRID_SIZE as usize);
-pub const DEFAULT_ROW_COUNT: usize = 2 * (DEFAULT_GRID_SIZE as usize);
+pub const DEFAULT_COL_COUNT: usize = 2 * (DEFAULT_MARKER_SPACING as usize);
+pub const DEFAULT_ROW_COUNT: usize = 2 * (DEFAULT_MARKER_SPACING as usize);
 
-pub const DEFAULT_GRID_SELECTED_DOT_SPACING: usize = 2;
+pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 2;
 
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
@@ -17,8 +17,8 @@ pub struct Opts {
     pub cols: usize,
     pub cursor_delay: u64,
     pub font_id: FontId,
-    pub grid_selected_dot_spacing: usize,
-    pub grid_size: f32,
+    pub highlight_dot_spacing: usize,
+    pub marker_spacing: f32,
     pub mode: Mode,
     pub rows: usize,
 }
@@ -47,8 +47,8 @@ impl Opts {
             cols,
             cursor_delay: DEFAULT_CURSOR_DELAY,
             font_id: egui::FontId::monospace(DEFAULT_FONT_SIZE),
-            grid_selected_dot_spacing: DEFAULT_GRID_SELECTED_DOT_SPACING,
-            grid_size: DEFAULT_GRID_SIZE,
+            highlight_dot_spacing: DEFAULT_HIGHLIGHT_DOT_SPACING,
+            marker_spacing: DEFAULT_MARKER_SPACING,
             mode: Mode::Insert,
             rows,
         }

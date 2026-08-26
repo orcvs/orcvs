@@ -153,15 +153,15 @@ impl App {
     }
 
     fn terminator(&self, x: usize, y: usize) -> GlyphString {
-        // Grid markers
-        if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
+        // Markers
+        if x as f32 % self.opts.marker_spacing == 0.0 && y as f32 % self.opts.marker_spacing == 0.0
+        {
             return GlyphString::marker();
         }
 
         // Highlight
-        if self.cursor.coord.in_grid(x, y, self.opts.grid_size) {
-            if x % self.opts.grid_selected_dot_spacing == 0
-                && y % self.opts.grid_selected_dot_spacing == 0
+        if in_marker_block(self.cursor.coord, x, y, self.opts.marker_spacing) {
+            if x % self.opts.highlight_dot_spacing == 0 && y % self.opts.highlight_dot_spacing == 0
             {
                 return GlyphString::highlight();
             }
@@ -227,20 +227,41 @@ impl App {
     }
 }
 
+///
+/// True when (x, y) falls inside the marker block containing `cursor`.
+/// Purely visual: `spacing` is the marker spacing, not a Source dimension.
+///
+fn in_marker_block(cursor: Coord, x: usize, y: usize, spacing: f32) -> bool {
+    assert!(spacing != 0.0);
+
+    let x = x as i32;
+    let y = y as i32;
+    let cursor_x = cursor.x as i32;
+    let cursor_y = cursor.y as i32;
+    let spacing = spacing as i32;
+
+    let min_x = ((cursor_x / spacing) * spacing) - 1;
+    let max_x = (1 + (cursor_x / spacing)) * spacing;
+    let min_y = ((cursor_y / spacing) * spacing) - 1;
+    let max_y = (1 + (cursor_y / spacing)) * spacing;
+
+    x > min_x && (x) <= max_x && y > min_y && (y) <= max_y
+}
+
 #[cfg(test)]
 mod test {
 
-    use super::App;
+    use super::{in_marker_block, App};
     use crate::{
         coord::Coord,
         glyph::{Glyph, GlyphString},
-        opts::DEFAULT_GRID_SIZE,
+        opts::DEFAULT_MARKER_SPACING,
         test::trace,
     };
 
     fn app() -> App {
-        let rows = 1; // * (DEFAULT_GRID_SIZE as usize);
-        let cols = 1 * (DEFAULT_GRID_SIZE as usize);
+        let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
+        let cols = 1 * (DEFAULT_MARKER_SPACING as usize);
 
         App::new(cols, rows)
     }
@@ -350,5 +371,39 @@ mod test {
 
         let g = app.terminator(2, 0);
         assert_eq!(g, GlyphString::highlight());
+    }
+
+    #[test]
+    fn test_in_marker_block() {
+        trace();
+        let spacing = 8.0;
+
+        let selected = Coord::new(5, 5);
+        assert!(!in_marker_block(selected, 10, 10, spacing));
+        for x in 0..spacing as usize {
+            for y in 0..spacing as usize {
+                assert!(in_marker_block(selected, x, y, spacing));
+            }
+        }
+
+        let selected = Coord::new(8, 8);
+        assert!(!in_marker_block(selected, 1, 1, spacing));
+
+        for x in 8..=16 as usize {
+            for y in 8..=16 as usize {
+                assert!(in_marker_block(selected, x, y, spacing));
+            }
+        }
+
+        // Marker block X 5 Y 6
+        let selected = Coord::new(42, 51);
+        assert!(!in_marker_block(selected, 1, 1, spacing));
+        for x in 0..=spacing as usize {
+            for y in 0..=spacing as usize {
+                let x = x + 40;
+                let y = y + 48;
+                assert!(in_marker_block(selected, x, y, spacing));
+            }
+        }
     }
 }
