@@ -106,12 +106,11 @@ impl Grid {
     /// as its first Cell. A row is the whole horizontal extent there is:
     /// nothing continues onto the next one.
     ///
-    /// The answer is only meaningful for a Position this Grid minted. A
-    /// Position carries no grid identity, so one minted by another Grid can be
-    /// asked here and cannot be detected: `saturating_sub` means the question
-    /// is always answerable rather than a panic, but a foreign Position may
-    /// answer either way. A column past this Grid's last column answers
-    /// `false`, and one still inside it answers as if this Grid had minted it.
+    /// Total under the console's single-Grid invariant, as `index` is: every
+    /// runtime Position is minted from the one authoritative Grid. The
+    /// subtraction saturates so the question is always answerable, but mixing
+    /// Positions between Grids is outside the supported domain and this
+    /// answers nothing meaningful for one.
     ///
     #[inline]
     pub fn fits(&self, pos: Position, width: usize) -> bool {
@@ -405,38 +404,5 @@ mod test {
         // the last column holds one Cell, and nothing wraps onto the next row
         assert!(grid.fits(at(3, 0), 1));
         assert!(!grid.fits(at(3, 0), 2));
-    }
-
-    #[test]
-    fn test_grid_fits_nothing_past_its_last_column() {
-        trace();
-
-        // A Position is a bare pair carrying no grid identity, so one minted by
-        // a wider Grid can be handed to a narrower one. A column past this
-        // Grid's last column leaves no room for anything, and `saturating_sub`
-        // answers `false` rather than panicking on the underflow.
-        let wide = Grid::new(10, 2);
-        let narrow = Grid::new(4, 2);
-
-        let past_the_last_column = wide.position(9, 0).expect("inside the wider grid");
-
-        assert!(!narrow.fits(past_the_last_column, 1));
-    }
-
-    #[test]
-    fn test_grid_fits_a_foreign_position_inside_its_own_columns() {
-        trace();
-
-        // Known limitation, pinned rather than fixed: `fits` cannot tell a
-        // foreign Position from one it minted, so a foreign column that
-        // happens to be inside this Grid is answered as if it belonged here.
-        // Only a grid identity on Position would make this unaskable — issue
-        // 19.
-        let wide = Grid::new(10, 2);
-        let narrow = Grid::new(4, 2);
-
-        let foreign = wide.position(1, 0).expect("inside the wider grid");
-
-        assert!(narrow.fits(foreign, 2));
     }
 }

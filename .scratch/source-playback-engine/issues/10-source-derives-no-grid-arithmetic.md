@@ -54,3 +54,9 @@ A code review of this branch produced a second round of changes. All of them are
 Criterion 6 read "cover placement, bottom-row discard, and row-edge discard". `test_result_reaching_the_last_column_exactly_is_committed` covers the other half of the row edge — a two-Cell result whose last Cell is the last column of its row, which must be committed and not discarded. The criterion implied that boundary and no test held it, which is how a `fits` written `<` for `<=` would have passed the whole suite.
 
 The criterion now reads "the row edge in both directions", naming the commit and the discard separately, because a criterion that names only the discard is satisfied by an implementation that discards everything near the edge. It stays checked: the behaviour was already correct, and the test is what makes the claim mean something.
+
+**2026-08-26 — the two foreign-Position tests are gone (agent)**
+
+Rebasing onto main brought a `Grid::index` doc declaring a single-Grid invariant: the application owns one authoritative Grid, and mixing Positions between Grids is outside the supported domain. `fits` was reworded to state the same invariant instead of describing what a foreign Position gets back, and the two tests named above that construct a second Grid — `test_grid_fits_nothing_past_its_last_column` and `test_grid_fits_a_foreign_position_inside_its_own_columns` — are deleted. Pinning behaviour outside the supported domain makes the unsupported look guaranteed.
+
+The accounting above stands as written: the underflow red was genuine when it was run, and `saturating_sub` stays, because `index` is total and asserts nothing and `fits` should match it. What changed is that the branch no longer claims a contract for a case main declares out of domain. In-domain coverage is unaffected — `test_grid_answers_whether_a_width_fits_in_the_row` still covers the last column in both directions. Issue 19 is where the invariant becomes something the type enforces.
