@@ -17,7 +17,7 @@
 
 **2026-08-26 — implemented (agent)**
 
-`Source::set`/`unset` are now synchronous, fallible transitions: validation (bounds, exactly one printable single-byte ASCII character) happens before any mutation, and an accepted edit returns a `Change` — the set of Cells whose content or glyph classification differs from the previous revision. `Source::snapshot()` (also on `SourceCommander`) reads the whole grid at one revision. The async `Command::Set`/`Unset` channel is gone; the channel now carries only playback `Tick`. Console `write`/`delete` call the synchronous path and move the cursor only on an accepted edit.
+`Source::set`/`unset` are now synchronous, fallible transitions: validation (the index names a Cell that exists, exactly one printable single-byte ASCII character) happens before any mutation, and an accepted edit returns a `Change` — the set of Cells whose content or glyph classification differs from the previous revision. `Source::snapshot()` (also on `SourceCommander`) reads the whole grid at one revision. The async `Command::Set`/`Unset` channel is gone; the channel now carries only playback `Tick`. Console `write`/`delete` call the synchronous path and move the cursor only on an accepted edit.
 
 Two latent bugs surfaced and fixed along the way: joining/splitting Expressions left stale parsed Atoms (a deleted Expression could still execute on the next Tick) — edits now invalidate and reparse every Expression intersecting the affected span; and an Expression completed near the grid end panicked painting operand-slot glyph hints past the last Cell — hints now truncate. `ExpressionMap` is no longer exported from the crate.
 

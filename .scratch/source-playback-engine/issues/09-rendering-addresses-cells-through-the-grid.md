@@ -1,6 +1,6 @@
 # 09 — Rendering addresses Cells through the Grid
 
-**What to build:** Make the render path ask the Grid which Cells exist and in what order, instead of writing its own loop bounds. Rendering a rectangular Source currently reads the wrong Cell, because the render loop iterates columns as rows; it survives only because the default Source is square.
+**What to build:** Make the render path ask the Grid which Cells exist and in what order, instead of deriving the Grid's extent for itself. Rendering a rectangular Source currently reads the wrong Cell, because the render loop iterates columns as rows; it survives only because the default Source is square.
 
 **Blocked by:** 08 — Grid owns positions and cursor movement.
 
@@ -8,12 +8,12 @@
 
 - [x] A Grid yields its rows, and each row yields the Positions in it, in render order.
 - [x] The console renders one row per iteration of what the Grid yields, and never states a loop bound of its own — a swapped axis is not expressible.
-- [x] Looking up a Cell by position returns that Cell on a rectangular Source, and the bounds assert on the index conversion is removed rather than corrected.
+- [x] Looking up a Cell by position returns that Cell on a rectangular Source, and the index conversion's assert that the position is inside the Grid is removed rather than corrected.
 - [x] A behaviour test on a rectangular Source fails before this change and passes after, without requiring a rendering context.
 
 ## Notes
 
-Ticket 08 removed the bounds assert that used to fire when the render loop asked for a position outside the Grid. Nothing observable changed, because the default Source is square — but on a non-square Source the transposed loop now renders a silent field of blanks with dead clicks, where it previously panicked. Until this ticket lands there is no longer a loud failure for the swap.
+Ticket 08 removed the assert that used to fire when the render loop asked for a position outside the Grid. Nothing observable changed, because the default Source is square — but on a non-square Source the transposed loop now renders a silent field of blanks with dead clicks, where it previously panicked. Until this ticket lands there is no longer a loud failure for the swap.
 
 ## Comments
 

@@ -9,7 +9,7 @@
 - [x] A Grid is constructed with its column and row counts and cannot be constructed with a zero dimension.
 - [x] A Position can be obtained only from a Grid, and a Position outside its Grid cannot be constructed; converting a Position to an index is total and asserts nothing.
 - [x] Movement is the Grid's: moving in any direction returns a Position, clamping at the edges exactly as the cursor does today.
-- [x] The cursor holds a Position, selection and blink state, and nothing else — no dimensions, no clamping, no bounds arithmetic.
+- [x] The cursor holds a Position, selection and blink state, and nothing else — no dimensions, no clamping, no arithmetic over the Grid's extent.
 - [x] Position replaces the console's Coord throughout; the old addressing module is deleted, along with the unused Coord in the language crate.
 - [x] Movement tests run on a rectangular grid and cover every edge in both axes, so a swapped axis fails.
 
@@ -17,7 +17,7 @@
 
 **2026-08-26 — implemented (agent)**
 
-`Grid` and `Position` live in the console crate. A `Grid` asserts non-zero dimensions at construction, carrying the asserts out of `App::new`. `Position` has private fields and is minted only by `Grid::position`, which returns `None` outside, so `Grid::index` is total and `App::index`'s bounds assert is gone. Movement is the Grid's and preserves the cursor's old clamping exactly.
+`Grid` and `Position` live in the console crate. A `Grid` asserts non-zero dimensions at construction, carrying the asserts out of `App::new`. `Position` has private fields and is minted only by `Grid::position`, which returns `None` outside, so `Grid::index` is total and `App::index`'s assert that the position was inside the Grid is gone. Movement is the Grid's and preserves the cursor's old clamping exactly.
 
 `Cursor` now holds a Position, selection and blink state and nothing else. `App` owns the Grid and drives movement. `coord.rs` and the unused `Coord` in the language crate are deleted. `Coord::from_index` and `Coord::index` were not carried onto `Grid`: neither had a production caller, and ticket 10 adds index-to-position when it has one.
 

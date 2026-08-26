@@ -12,6 +12,10 @@ _Avoid_: Document, buffer
 The fixed rectangular shape a Source occupies: its column and row counts, and the valid positions within them. The Grid is the shape; the Source is the contents. A Grid has at least one column and one row, and a position outside it does not exist.
 _Avoid_: Canvas, matrix, bounds
 
+**Position**:
+The column and row of one Cell of a Grid. A Position can be obtained only from the Grid that contains it, so a Position outside its Grid does not exist; the Grid converts between a Position and the index the Source addresses Cells by.
+_Avoid_: Coord, coordinate, point
+
 **Cell**:
 One position in the Source, containing exactly one single-byte ASCII character; a space represents an empty Cell.
 _Avoid_: Character slot, text position
@@ -47,3 +51,19 @@ _Avoid_: Performance command, MIDI event
 **Play Function**:
 The terminal `>>` language Function that interprets a hexadecimal MIDI channel, velocity, and note as one Play Command. It is valid only at the root of an Expression, not where another Function requires a value, and it never writes a Cell result.
 _Avoid_: Note output, MIDI Function
+
+**Cursor**:
+The one Cell the console is editing: a Position, plus the blink state that draws it. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
+_Avoid_: Caret, pointer, insertion point
+
+**Glyph**:
+The classification that decides how a Cell is painted: Function, Note, Number or Char for a Cell the Source has parsed, and Marker, Highlight or Space for a Cell it has not. A Glyph is derived from the Source, never stored as Cell content.
+_Avoid_: Style, token, syntax highlight
+
+**Marker**:
+A purely visual Glyph the console draws at every marker-spacing interval of Cells in both axes, so distance across the Source can be read by eye. A Marker carries no content and belongs to no Expression; it appears only on a Cell the Source gives no Glyph of its own.
+_Avoid_: Guide, gridline, ruler dot
+
+**Render Frame**:
+One repaint of the console, in which every Position the Grid yields is drawn once. Render Frames are driven by the UI many times a second, independently of musical time: a Render Frame reads the Source and never advances Playback, so it is not a Tick.
+_Avoid_: Frame, Tick, refresh
