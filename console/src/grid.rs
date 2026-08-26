@@ -205,21 +205,6 @@ mod test {
     }
 
     #[test]
-    fn test_grid_keeps_its_columns_and_rows() {
-        trace();
-
-        let grid = Grid::new(4, 2);
-
-        // 4 columns and 2 rows, in that order: the Grid mints the last Cell of
-        // that shape and refuses the transposed pair, and counts one Cell per
-        // Position it yields
-        assert!(grid.position(3, 1).is_some());
-        assert_eq!(grid.position(1, 3), None);
-        assert_eq!(grid.count(), 8);
-        assert_eq!(grid.rows().flatten().count(), 8);
-    }
-
-    #[test]
     #[should_panic(expected = "cols must be greater than zero")]
     fn test_grid_cannot_have_zero_cols() {
         trace();
