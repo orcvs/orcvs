@@ -51,9 +51,19 @@ pub struct CellWrite {
     pub content: char,
 }
 
+/// One MIDI Note On instruction. Issue 04 teaches Source interpretation to
+/// populate these; issue 03 establishes their ordered place in every Tick Plan.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlayCommand {
+    pub channel: u8,
+    pub velocity: u8,
+    pub note: u8,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {
     pub writes: Vec<CellWrite>,
+    pub play_commands: Vec<PlayCommand>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -149,17 +159,7 @@ impl Source {
         }
         self.reparse_span(span);
 
-        let cells = self
-            .inner
-            .bytes()
-            .enumerate()
-            .filter(|&(i, b)| b != before_cells[i] || self.glyphs[i] != before_glyphs[i])
-            .map(|(i, b)| Cell {
-                idx: i,
-                content: (b != SPACE_BYTE).then_some(b as char),
-                glyph: self.glyphs[i],
-            })
-            .collect();
+        let cells = self.changed_cells(&before_cells, &before_glyphs);
 
         Change { idx, cells }
     }
@@ -367,6 +367,7 @@ impl Source {
 
         TickPlan {
             writes: writes.into_values().collect(),
+            play_commands: Vec::new(),
             diagnostics,
         }
     }
@@ -381,6 +382,10 @@ impl Source {
         }
         self.rebuild_derived_state();
 
+        self.changed_cells(&before_cells, &before_glyphs)
+    }
+
+    fn changed_cells(&self, before_cells: &[u8], before_glyphs: &[Option<Glyph>]) -> Vec<Cell> {
         self.inner
             .bytes()
             .enumerate()
@@ -952,6 +957,7 @@ mod test {
         assert_eq!(src.get(10), Some("0".to_string()));
         assert_eq!(src.get(11), Some("3".to_string()));
         assert_eq!(tick.snapshot, src.snapshot());
+        assert!(tick.plan.play_commands.is_empty());
         assert_eq!(tick.plan.writes.len(), 2);
         assert_eq!(tick.plan.writes[0].idx, 10);
         assert_eq!(tick.plan.writes[0].content, '0');
