@@ -402,17 +402,11 @@ impl Source {
     }
 
     fn set_glyphs(&mut self, start: usize, glyphs: Vec<Glyph>) {
-        let row = self
-            .grid
-            .position_at(start)
-            .expect("Expression starts belong to the Source Grid")
-            .y();
-
         for (i, g) in glyphs.iter().enumerate() {
             let idx = start + i;
             // Operand-slot hints can extend beyond their Expression, but an
             // Expression is horizontal: hints stop at the same row edge.
-            if self.grid.position_at(idx).map(|p| p.y()) != Some(row) {
+            if !self.indices_share_a_row(start, idx) {
                 break;
             }
             self.glyphs[idx] = Some(*g);
@@ -426,14 +420,9 @@ impl Source {
     ///
     fn unset_glyphs(&mut self, start: usize) -> usize {
         let mut last = start;
-        let row = self
-            .grid
-            .position_at(start)
-            .expect("Expression starts belong to the Source Grid")
-            .y();
 
         for i in start..self.glyphs.len() {
-            if self.grid.position_at(i).map(|p| p.y()) != Some(row) {
+            if !self.indices_share_a_row(start, i) {
                 break;
             }
             match self.glyphs[i] {
@@ -446,6 +435,13 @@ impl Source {
         }
 
         last
+    }
+
+    fn indices_share_a_row(&self, first: usize, second: usize) -> bool {
+        match (self.grid.position_at(first), self.grid.position_at(second)) {
+            (Some(first), Some(second)) => first.y() == second.y(),
+            _ => false,
+        }
     }
 }
 

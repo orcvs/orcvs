@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Make Source edits synchronous and consistent; 10 — Source derives no grid arithmetic.
 
-**Status:** resolved
+**Resolution:** implemented
 
 - [x] An Expression is confined to one row and never joins the last occupied Cell of one row to the first occupied Cell of the next.
 - [x] Incomplete and invalid Expressions preserve their Cells and receive observable diagnostics instead of rejecting intermediate edits.
