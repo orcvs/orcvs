@@ -13,6 +13,7 @@
 - [ ] Overlapping results are applied at Cell granularity in Source order, so later Expressions win only the Cells they overlap.
 - [ ] An Expression evaluation failure suppresses only that Expression's result, records its diagnostic, and does not block unrelated results.
 - [ ] The returned snapshot and change set describe the fully committed post-Tick Source revision.
+- [ ] A Tick Plan commits its Cell writes through a path that does not reparse per character, so no Expression is reparsed and no parse state is mutated part-way through a Tick.
 
 ## Comments
 
@@ -37,3 +38,14 @@ Also fixed here, adjacent to this ticket: committed results used to feed themsel
 - Deleting a source Expression leaves its last committed result on the grid permanently.
 - A result that becomes narrower leaves a stale trailing Cell: `++0102` commits `03`, then replacing it with `id7` leaves `73`.
 
+**2026-08-26 — a Tick commits through the full public edit path (review)**
+
+Found by code review of the branch that implemented issue 10; the behaviour is pre-existing and belongs here.
+
+`Source::execute` (`console/src/source/source.rs`) writes each character of a result with `self.set(idx + i, &c.to_string())` at line 326 — the same public entry point a user edit takes. Every character therefore runs `unparse_around`, `set_source`, an `ExpressionMap` update, `reparse_span`, and a full-grid scan to build a `Change` that is then dropped. Parse state is mutated repeatedly *during* a Tick, and a two-Cell result reparses its neighbourhood twice.
+
+The precomputation claim was checked rather than assumed: lines 256-264 build `results` with a `.collect()` over `self.parsed` before the write loop at line 266 opens, so every Expression is interpreted from the pre-Tick snapshot and no committed Cell can feed an interpretation in the same Tick. That is what makes the current code correct — not the commit path itself.
+
+So this is not a wrong-output defect today; it is cost and fragility. The cost is O(characters x reparse) per Tick. The fragility is that atomicity rests entirely on the precomputation: a later change that made any result depend on state read during the write loop would break it silently, with no test failing, because nothing in the commit path enforces that a Tick reads only the snapshot.
+
+The Tick Plan is the place to fix it — a plan is already the complete set of writes, so committing it needs a path that applies Cells and reparses once for the whole Tick, not the per-character public `set`.
