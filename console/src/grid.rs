@@ -64,10 +64,10 @@ impl Grid {
     ///
     /// The linear index of a Position in this Grid.
     ///
-    /// Total: a Position can only be obtained from a Grid, so it is in range
-    /// for the Grid that minted it. A Position is a bare pair carrying no grid
-    /// identity, so passing one minted by a *different* Grid is not prevented;
-    /// there is one Grid per Source and no path that mixes two.
+    /// Total under the console's single-Grid invariant: the application owns
+    /// one authoritative Grid, and every runtime Position is minted from it.
+    /// Position deliberately carries no Grid identity; constructing multiple
+    /// Grids and mixing their Positions is outside the supported domain.
     ///
     #[inline]
     pub fn index(&self, pos: Position) -> usize {
