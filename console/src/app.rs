@@ -13,6 +13,24 @@ use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 use crate::source::{Command, SourceCommander};
 
+///
+/// The console's editing state: the Grid that is the Source's shape, the
+/// Cursor selecting one of its Positions, and the commander that owns the
+/// Source itself.
+///
+/// Selection names a Position, and only a Grid mints one. There is no
+/// coordinate-taking selection to hand a pair the Grid would refuse, so a
+/// rejected selection cannot silently leave the Cursor on the Cell it was
+/// already on and send the next write there:
+///
+/// ```compile_fail
+/// use console::app::App;
+///
+/// let mut app = App::new(16, 16);
+///
+/// app.select_at(99, 99);
+/// ```
+///
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
     pub opts: Opts,
@@ -37,15 +55,6 @@ impl App {
             opts,
             source,
             token: None,
-        }
-    }
-
-    ///
-    /// Moves the cursor to (x, y). A position outside the Grid is ignored.
-    ///
-    pub fn select_at(&mut self, x: usize, y: usize) {
-        if let Some(position) = self.grid.position(x, y) {
-            self.cursor.select(position);
         }
     }
 
@@ -288,9 +297,10 @@ mod test {
             }
         }
 
-        /// Unlike `select_at`, which ignores a position outside the Grid, these
-        /// panic: a test that silently wrote to the previously selected Cell
-        /// would assert nothing about the Cell it named.
+        /// The one place a test turns coordinates into a Position. It panics
+        /// rather than ignoring a pair the Grid refuses: a test that silently
+        /// wrote to the previously selected Cell would assert nothing about the
+        /// Cell it named.
         fn select_or_panic(&mut self, x: usize, y: usize) {
             let position = self
                 .grid
@@ -380,7 +390,7 @@ mod test {
         trace();
 
         let mut app = app();
-        app.select_at(0, 0);
+        app.select_or_panic(0, 0);
 
         app.write(&"+".to_string());
 
@@ -414,7 +424,7 @@ mod test {
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        app.select_at(7, 0);
+        app.select_or_panic(7, 0);
 
         let g = app.terminator(at(0, 0));
         assert_eq!(g, GlyphString::marker());

@@ -149,7 +149,8 @@ impl eframe::App for Console {
                             .frame(true);
 
                         if ui.add(button).clicked() {
-                            self.app.select_at(position.x(), position.y());
+                            // the Grid minted this Position: it needs no re-validating
+                            self.app.cursor.select(position);
                         }
                     }
                 });
