@@ -1,5 +1,6 @@
 use arrayvec::ArrayVec;
 use std::fmt;
+use tracing::info;
 
 use crate::{midi_note_to_number, midi_number_to_note, str_to_num, Error, TypeError, EXP_LEN};
 
@@ -93,7 +94,8 @@ impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Atom::Number(n) => {
-                write!(f, "{n}")
+                info!("hello!! {n:02}");
+                write!(f, "{:02}", n)
             }
             Atom::Note(n) => match midi_number_to_note(*n) {
                 Some(note) => write!(f, "{note}"),

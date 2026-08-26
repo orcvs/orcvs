@@ -11,6 +11,7 @@ pub const DEFAULT_GRID_SELECTED_DOT_SPACING: usize = 2;
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
 pub struct Opts {
     pub bpm: Bpm,
     pub cols: usize,
@@ -22,13 +23,14 @@ pub struct Opts {
     pub rows: usize,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub enum Mode {
     Insert,
     Command,
 }
 
+#[derive(Clone, Debug)]
 pub struct Bpm(usize);
 
 impl Bpm {

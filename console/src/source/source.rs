@@ -1,33 +1,50 @@
-use lang::{Atoms, Expression, Interpreter, Parser, Portal};
-use std::cell::{Ref, RefCell};
+use lang::{Atoms, Expression, Interpreter, Parser};
 use std::fmt;
-use std::rc::Rc;
-use std::sync::Arc;
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::task;
-use tracing::{debug, error, info};
+use tracing::debug;
 
-use crate::coord::Coord;
 use crate::glyph::Glyph;
+use crate::opts::Opts;
 
-use super::expression_map::Range;
-use super::{Command, ExpressionMap};
+use super::expression_map::{ExpressionMap, Range};
+use super::SourceError;
 
 pub const SPACE: &str = " ";
-// pub const TERMINATOR_BYTES: &[u8] = TERMINATOR.as_bytes();
+const SPACE_BYTE: u8 = b' ';
+
+///
+/// One Cell as observable at a Source revision: its content and its
+/// glyph classification.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cell {
+    pub idx: usize,
+    pub content: Option<char>,
+    pub glyph: Option<Glyph>,
+}
+
+///
+/// The observable outcome of one accepted edit: every Cell whose content or
+/// glyph classification differs from the previous revision, described at the
+/// revision the edit produced.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct Change {
+    pub idx: usize,
+    pub cells: Vec<Cell>,
+}
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Source {
+    opts: Opts,
     inner: String,
     map: ExpressionMap,
     glyphs: Vec<Option<Glyph>>,
     parsed: Vec<Option<Atoms>>,
-    // results: Vec<Option<Atoms>>,
-    sender: Sender<Command>,
 }
 
 impl Source {
-    pub fn new(size: usize, sender: Sender<Command>) -> Self {
+    pub fn new(opts: Opts) -> Self {
+        let size = opts.count();
         let inner = SPACE.to_string().repeat(size);
         let map = ExpressionMap::new(size);
 
@@ -35,160 +52,257 @@ impl Source {
         let parsed = vec![None; size];
 
         Self {
+            opts,
             inner,
             map,
             glyphs,
             parsed,
-            sender,
         }
     }
 
     ///
-    /// Sets `s` at the x, y coords of the grid and recalculates expressions.
+    /// Sets the Cell at `idx` and recalculates the affected Expressions.
+    /// A space empties the Cell, equivalent to `unset`.
     ///
     /// ```
-    /// use console::source::Source;
-    /// let mut source = source(10, 10);
-    /// let idx = source.set_at(Coord::ne, 10, 1), "!");
+    /// use console::{opts::Opts, source::Source};
     ///
-    /// let s = source.get_at(Coord::new(3, 3, 10, 10));
-    /// assert_eq!(s.as_str(), "!");
+    /// let mut source = Source::new(Opts::new(10, 10));
+    /// source.set(33, "!").unwrap();
+    ///
+    /// assert_eq!(source.get(33), Some("!".to_string()));
     /// ```
     ///
-    pub fn set(&mut self, idx: usize, s: &str) {
-        self.unparse(idx);
-        self.set_inner(idx, s);
+    pub fn set(&mut self, idx: usize, s: &str) -> Result<Change, SourceError> {
+        debug!("set {idx}: {s}");
+        self.check_idx(idx)?;
+        let byte = Self::check_content(s)?;
 
-        if s == SPACE {
-            self.map.set(idx);
-        } else {
+        Ok(self.edit(idx, byte))
+    }
+
+    ///
+    /// Empties the Cell at `idx` and recalculates the affected Expressions.
+    ///
+    pub fn unset(&mut self, idx: usize) -> Result<Change, SourceError> {
+        self.check_idx(idx)?;
+
+        Ok(self.edit(idx, SPACE_BYTE))
+    }
+
+    ///
+    /// Applies one already-validated edit and describes the Cells it changed
+    /// at the new revision.
+    ///
+    fn edit(&mut self, idx: usize, byte: u8) -> Change {
+        let before_cells = self.inner.as_bytes().to_vec();
+        let before_glyphs = self.glyphs.clone();
+
+        let span = self.unparse_around(idx);
+        self.set_source(idx, byte);
+        if byte == SPACE_BYTE {
             self.map.unset(idx);
+        } else {
+            self.map.set(idx);
+        }
+        self.reparse_span(span);
+
+        let cells = self
+            .inner
+            .bytes()
+            .enumerate()
+            .filter(|&(i, b)| b != before_cells[i] || self.glyphs[i] != before_glyphs[i])
+            .map(|(i, b)| Cell {
+                idx: i,
+                content: (b != SPACE_BYTE).then_some(b as char),
+                glyph: self.glyphs[i],
+            })
+            .collect();
+
+        Change { idx, cells }
+    }
+
+    ///
+    /// The full grid contents at the current revision.
+    ///
+    pub fn snapshot(&self) -> String {
+        self.inner.clone()
+    }
+
+    fn check_idx(&self, idx: usize) -> Result<(), SourceError> {
+        let len = self.opts.count();
+        if idx >= len {
+            return Err(SourceError::OutOfRange { idx, len });
+        }
+        Ok(())
+    }
+
+    fn check_content(s: &str) -> Result<u8, SourceError> {
+        match s.as_bytes() {
+            [b] if (0x20..=0x7e).contains(b) => Ok(*b),
+            _ => Err(SourceError::InvalidCell {
+                content: s.to_string(),
+            }),
+        }
+    }
+
+    ///
+    /// Clears the derived state (glyphs, parsed Atoms) of every Expression
+    /// adjacent to `idx`, and returns the span of Cells that must be
+    /// reparsed once the edit is applied.
+    ///
+    /// An edit at `idx` can join, split, extend, or shrink the Expressions
+    /// beside it, so all of them are invalidated before the map changes.
+    ///
+    fn unparse_around(&mut self, idx: usize) -> Range {
+        let last = self.opts.count() - 1;
+        let mut span = Range {
+            start: idx.saturating_sub(1),
+            end: (idx + 1).min(last),
+        };
+
+        for start in self.expression_starts(span.start, span.end) {
+            let cleared_to = self.unset_glyphs(start);
+            self.parsed[start] = None;
+
+            span.start = span.start.min(start);
+            span.end = span.end.max(cleared_to);
         }
 
-        self.parse(idx);
+        span
+    }
+
+    ///
+    /// Reparses every Expression that intersects `span`, restoring glyphs and
+    /// parsed Atoms for the current revision. This covers the edited
+    /// Expression and any neighbour whose derived state was cleared with it.
+    ///
+    fn reparse_span(&mut self, span: Range) {
+        for start in self.expression_starts(span.start, span.end) {
+            if let Some(range) = self.map.get(start) {
+                self.parse_range(range);
+            }
+        }
+    }
+
+    ///
+    /// The unique Expression start positions within `from..=to`.
+    ///
+    fn expression_starts(&self, from: usize, to: usize) -> Vec<usize> {
+        let mut starts = Vec::new();
+
+        let mut i = from;
+        while i <= to {
+            if let Some(range) = self.map.get(i) {
+                if !starts.contains(&range.start) {
+                    starts.push(range.start);
+                }
+                i = range.end + 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        starts
     }
 
     pub fn get(&self, idx: usize) -> Option<String> {
-        // info!("idx: {idx}");
+        let b = *self.inner.as_bytes().get(idx)?;
 
-        // SAFELY UNSAFE
-        // all characters are single-byte ASCII
-        //   the idx is always in range
-        //      - to_index will panic if the index is out of bounds
-        let s = unsafe { self.inner.get_unchecked(idx..(idx + 1)) };
-
-        match s {
-            SPACE => None,
-            _ => Some(s.to_owned()),
+        match b {
+            SPACE_BYTE => None,
+            _ => Some((b as char).to_string()),
         }
     }
 
-    pub fn execute(&self) {
-        let results: Result<Vec<Portal>, lang::Error> = self
+    pub fn execute(&mut self) {
+        let results: Vec<_> = self
             .parsed
             .iter()
-            .map(|o| match o {
-                Some(atoms) => Interpreter::execute(atoms),
-                None => Ok(Portal::default()),
-            })
-            // .enumerate()
-            // .map(|i, o) {
-            // })
+            .map(|o| o.as_ref().map(Interpreter::execute))
             .collect();
+
+        debug!("{:?}", results);
+
+        for (idx, o) in results.iter().enumerate() {
+            let idx = (idx + self.opts.cols).clamp(0, self.opts.count() - 1);
+
+            if let Some(Ok(a)) = o {
+                // A result may encode to more than one character; only the first
+                // Cell's worth is written for now (multi-Cell commits are Tick Plan work)
+                if let Some(c) = a.to_string().chars().next() {
+                    if let Err(e) = self.set(idx, &c.to_string()) {
+                        debug!("discarded result at {idx}: {e}");
+                    }
+                }
+            }
+        }
     }
 
     fn get_exp_src(&self, range: Range) -> String {
-        let from = range.start;
-        let to = range.end;
-
-        // SAFELY UNSAFE
-        // all characters are single-byte ASCII
-        //   the idx is always in range
-        //      - to_index will panic if the index is out of bounds
-        // let s = unsafe { self.inner.get_unchecked(from..(to + 1)) };
-        let s = unsafe { self.inner.get_unchecked(from..(to + 1)) };
-        s.to_owned()
+        // Ranges come from the ExpressionMap, which only holds in-bounds indices
+        self.inner[range.start..=range.end].to_owned()
     }
 
     ///
-    /// Sets `s` at the x, y coords of the grid without recalculating expressions.
-    /// Returns the index position of the updated character
+    /// Writes one already-validated ASCII byte at `idx` without
+    /// recalculating Expressions.
     ///
-    /// ```
-    /// use console::source::Source;
-    /// let mut source = source(10, 10);
-    /// let idx = source.set_at_uncalculated(3, 3, "!");
-    ///
-    /// assert_eq!(idx, 33);
-    /// ```
-    ///
-    fn set_inner(&mut self, idx: usize, s: &str) -> usize {
-        let b = s.as_bytes();
-
-        // SAFELY UNSAFE
-        //   all characters are single-byte ASCII
-        //   the idx is always in range
-        //      - to_index will panic if the index is out of bounds
+    fn set_source(&mut self, idx: usize, byte: u8) {
+        // SAFETY: `byte` is validated as ASCII and `idx` is bounds-checked
+        // before any mutation, so the String stays valid UTF-8
         unsafe {
             let bytes = self.inner.as_bytes_mut();
-            bytes[idx] = b[0];
-        }
-
-        idx
-    }
-
-    ///
-    /// Unsets parsed expresion and glyphs at index
-    ///
-    fn unparse(&mut self, idx: usize) {
-        if let Some(exp_range) = self.map.get(idx) {
-            let start = exp_range.start;
-
-            self.unset_glyphs(start);
-            self.parsed[start] = None;
+            bytes[idx] = byte;
         }
     }
 
-    fn parse(&mut self, idx: usize) {
-        if let Some(exp_range) = self.map.get(idx) {
-            let start = exp_range.start;
-            let mut src = self.get_exp_src(exp_range);
-            let mut parsed: Expression = Parser::from(&mut src).parse();
+    fn parse_range(&mut self, exp_range: Range) {
+        let start = exp_range.start;
+        let mut src = self.get_exp_src(exp_range);
+        let mut parsed: Expression = Parser::from(&mut src).parse();
 
-            let glyphs = Glyph::to_glyphs(parsed.take_tokens());
-            let atoms = parsed.take_atoms();
+        let glyphs = Glyph::to_glyphs(parsed.take_tokens());
+        let atoms = parsed.take_atoms();
 
-            self.parsed[start] = Some(atoms);
-            self.set_glyphs(start, glyphs);
-        }
+        self.parsed[start] = Some(atoms);
+        self.set_glyphs(start, glyphs);
     }
 
     pub fn get_glyph_at(&self, idx: usize) -> Option<Glyph> {
-        self.glyphs[idx]
+        self.glyphs.get(idx).copied().flatten()
     }
 
     fn set_glyphs(&mut self, start: usize, glyphs: Vec<Glyph>) {
         for (i, g) in glyphs.iter().enumerate() {
             let pos = start + i;
+            // Operand-slot hints can extend past the last Cell; drop those
+            if pos >= self.glyphs.len() {
+                break;
+            }
             self.glyphs[pos] = Some(*g);
         }
     }
 
-    fn unset_glyphs(&mut self, start: usize) {
-        let end = self.glyphs.len();
+    ///
+    /// Clears the contiguous run of glyphs beginning at `start` and returns
+    /// the last Cell cleared. Operand-slot hints painted past an Expression's
+    /// end are contiguous with it, so they are cleared by the same walk.
+    ///
+    fn unset_glyphs(&mut self, start: usize) -> usize {
+        let mut last = start;
 
-        for i in start..end {
-            match self.glyphs.get(i) {
+        for i in start..self.glyphs.len() {
+            match self.glyphs[i] {
                 Some(_) => {
                     self.glyphs[i] = None;
+                    last = i;
                 }
                 None => break,
             };
         }
-    }
 
-    pub fn sender(&self) -> Sender<Command> {
-        self.sender.clone()
+        last
     }
 }
 
@@ -201,190 +315,240 @@ impl fmt::Display for Source {
 #[cfg(test)]
 mod test {
 
-    fn source(size: usize) -> Source {
-        let (sender, mut receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel(1);
-
-        Source::new(size, sender)
-    }
-
-    use tokio::sync::mpsc::{self, Receiver, Sender};
-    use tracing::info;
-
     use crate::{
-        source::{expression_map::Range, Command, Source},
+        glyph::Glyph,
+        opts::Opts,
+        source::{source::Cell, Source, SourceError},
         test::trace,
     };
 
-    #[tokio::test]
-    async fn test_execute() {
-        trace();
-
-        let mut src = source(10);
-
-        src.set(0, "0");
-        src.set(1, "1");
-        src.set(2, "2");
+    fn source() -> Source {
+        Source::new(Opts::new(10, 10))
     }
 
-    #[tokio::test]
-    async fn test_get_exp_src() {
+    #[test]
+    fn test_set_rejects_out_of_range_without_mutation() {
         trace();
 
-        let mut src = source(10);
+        let mut src = source();
+        let before = src.snapshot();
 
-        src.set(0, "0");
-        src.set(1, "1");
-        src.set(2, "2");
+        let err = src.set(100, "x").unwrap_err();
 
-        let exp = src.get_exp_src(Range { start: 0, end: 2 });
-
-        assert_eq!(&exp, "012");
-
-        let exp = src.get_exp_src(Range { start: 0, end: 9 });
-
-        assert_eq!(&exp, "012       ");
+        assert_eq!(err, SourceError::OutOfRange { idx: 100, len: 100 });
+        assert_eq!(src.snapshot(), before);
     }
 
-    #[tokio::test]
-    async fn test_get_exp_src_() {
+    #[test]
+    fn test_unset_rejects_out_of_range_without_mutation() {
         trace();
 
-        let mut src = source(10);
+        let mut src = source();
+        let before = src.snapshot();
 
-        src.set(0, "0");
-        src.set(1, "1");
-        src.set(2, "2");
+        let err = src.unset(200).unwrap_err();
 
-        let exp = src.get_exp_src(Range { start: 0, end: 2 });
-
-        assert_eq!(&exp, "012");
-
-        let exp = src.get_exp_src(Range { start: 0, end: 9 });
-
-        assert_eq!(&exp, "012       ");
+        assert_eq!(err, SourceError::OutOfRange { idx: 200, len: 100 });
+        assert_eq!(src.snapshot(), before);
     }
 
-    // #[test]
-    // fn test_map_expression_at_max_idx() {
-    //     trace();
+    #[test]
+    fn test_set_rejects_invalid_content_without_mutation() {
+        trace();
 
-    //     let cols = 10;
-    //     let mut source = source(10, 1);
+        let mut src = source();
+        src.set(5, "x").unwrap();
+        let before = src.snapshot();
 
-    //     source.set_at(Coord::new(6, 0).index(cols), "I");
-    //     source.set_at(Coord::new(7, 0).index(cols), "D");
-    //     source.set_at(Coord::new(8, 0).index(cols), "A");
-    //     source.set_at(Coord::new(9, 0).index(cols), "A");
-    //     assert_eq!(source.inner, "      IDAA");
-    // }
+        for content in ["", "ab", "é", "\n"] {
+            let err = src.set(5, content).unwrap_err();
+            assert_eq!(
+                err,
+                SourceError::InvalidCell {
+                    content: content.to_string()
+                }
+            );
+            assert_eq!(src.snapshot(), before);
+            assert_eq!(src.get(5), Some("x".to_string()));
+        }
+    }
 
-    // #[test]
-    // fn test_map_expression() {
-    //     trace();
+    #[test]
+    fn test_set_returns_change_set_of_affected_cells() {
+        trace();
 
-    //     let cols = 10;
-    //     let mut source = source(10, 1);
+        let mut src = source();
 
-    //     source.set_at(Coord::new(0, 0).index(cols), "I");
+        let change = src.set(0, "+").unwrap();
+        assert_eq!(
+            change.cells,
+            vec![Cell {
+                idx: 0,
+                content: Some('+'),
+                glyph: None,
+            }]
+        );
 
-    //     assert_eq!(source.inner, "I         ");
+        // completing the `++` Function reclassifies Cell 0 in the same change and
+        // marks the four empty operand-slot Cells (two 2-wide Numbers) as Number
+        let change = src.set(1, "+").unwrap();
 
-    //     source.set_at(Coord::new(1, 0).index(cols), "D");
+        let function = |idx: usize| Cell {
+            idx,
+            content: Some('+'),
+            glyph: Some(Glyph::Function),
+        };
+        let operand_slot = |idx: usize| Cell {
+            idx,
+            content: None,
+            glyph: Some(Glyph::Number),
+        };
+        assert_eq!(
+            change.cells,
+            vec![
+                function(0),
+                function(1),
+                operand_slot(2),
+                operand_slot(3),
+                operand_slot(4),
+                operand_slot(5),
+            ]
+        );
+    }
 
-    //     assert_eq!(source.inner, "ID        ");
-    //     assert_eq!(source.map[0], source.map[1]);
+    #[test]
+    fn test_unset_returns_change_set_of_affected_cells() {
+        trace();
 
-    //     let ptr_0 = source.map[0].as_ref().unwrap().as_ref();
-    //     let ptr_1 = source.map[1].as_ref().unwrap().as_ref();
+        let mut src = source();
+        src.set(0, "+").unwrap();
+        src.set(1, "+").unwrap();
 
-    //     assert!(std::ptr::eq(ptr_0, ptr_1));
+        // deleting half the Function unclassifies it and clears the operand-slot hints
+        let change = src.unset(1).unwrap();
 
-    //     source.set_at(Coord::new(2, 0).index(cols), "0");
-    //     source.set_at(Coord::new(3, 0).index(cols), "1");
+        let cleared = |idx: usize, content: Option<char>| Cell {
+            idx,
+            content,
+            glyph: None,
+        };
+        assert_eq!(
+            change.cells,
+            vec![
+                cleared(0, Some('+')),
+                cleared(1, None),
+                cleared(2, None),
+                cleared(3, None),
+                cleared(4, None),
+                cleared(5, None),
+            ]
+        );
+    }
 
-    //     assert_eq!(source.map[0], source.map[1]);
-    //     assert_eq!(source.map[0], source.map[2]);
-    //     assert_eq!(source.map[0], source.map[3]);
-    // }
+    #[test]
+    fn test_set_near_grid_end_truncates_operand_hints() {
+        trace();
 
-    // #[test]
-    // fn test_set_at() {
-    //     trace();
+        let mut src = source();
 
-    //     let cols = 10;
-    //     let mut source = source(10, 1);
+        // `++` at the last two Cells wants four more operand-slot glyphs
+        // than the Source has room for
+        src.set(98, "+").unwrap();
+        let change = src.set(99, "+").unwrap();
 
-    //     source.set_at(Coord::new(0, 0).index(cols), "T");
+        assert_eq!(change.cells.len(), 2);
+        assert_eq!(src.get_glyph_at(98), Some(Glyph::Function));
+        assert_eq!(src.get_glyph_at(99), Some(Glyph::Function));
+    }
 
-    //     assert_eq!(source.inner, "T         ");
+    #[test]
+    fn test_set_classifies_expression_immediately() {
+        trace();
 
-    //     source.set_at(Coord::new(7, 0).index(cols), "X");
+        let mut src = source();
 
-    //     assert_eq!(source.inner, "T      X  ");
-    // }
+        for (i, c) in "++0101".chars().enumerate() {
+            src.set(i, &c.to_string()).unwrap();
+        }
 
-    // #[test]
-    // fn test_get_at() {
-    //     trace();
+        let glyphs: Vec<_> = (0..6).map(|i| src.get_glyph_at(i)).collect();
+        assert_eq!(
+            glyphs,
+            vec![
+                Some(Glyph::Function),
+                Some(Glyph::Function),
+                Some(Glyph::Number),
+                Some(Glyph::Number),
+                Some(Glyph::Number),
+                Some(Glyph::Number),
+            ]
+        );
+        assert_eq!(&src.snapshot()[0..10], "++0101    ");
+    }
 
-    //     let source = Source::from_source(10, 1, "T......X..");
+    #[test]
+    fn test_join_discards_stale_expression_state() {
+        trace();
 
-    //     let s = source.get_at(0);
+        let mut src = source();
 
-    //     assert_eq!(s, "T");
+        // `++0101` starting at Cell 2; a Tick would write its result one row below
+        for (i, c) in "++0101".chars().enumerate() {
+            src.set(i + 2, &c.to_string()).unwrap();
+        }
 
-    //     let s = source.get_at(7);
+        // prepending at Cell 1 joins into one Expression starting at Cell 1;
+        // the old Expression starting at Cell 2 no longer exists
+        src.set(1, "+").unwrap();
+        src.execute();
 
-    //     assert_eq!(s, "X");
-    // }
+        // no result may appear below Cell 2 — that would be the stale Expression
+        assert_eq!(src.get(12), None);
+    }
 
-    // #[test]
-    // fn test_expression_len() {
-    //     let exp = ExpressionMap { start: 0, end: 0 };
-    //     assert_eq!(exp.len(), 1);
+    #[test]
+    fn test_split_reclassifies_and_evaluates_fresh_expressions() {
+        trace();
 
-    //     let exp = ExpressionMap { start: 0, end: 1 };
-    //     assert_eq!(exp.len(), 2);
-    // }
+        let mut src = source();
 
-    // #[test]
-    // #[should_panic(expected = "source length 10, expected 100")]
-    // fn test_source_() {
-    //     let _source = Source::from_source(10, 10, "..........");
-    // }
+        for (i, c) in "xx++0101".chars().enumerate() {
+            src.set(i, &c.to_string()).unwrap();
+        }
 
-    // impl Source {
-    //     fn from_source(cols: usize, rows: usize, s: impl Into<String>) -> Self {
-    //         let n = cols * rows;
-    //         let inner = s.into();
-    //         let len = inner.len();
+        // deleting Cell 1 splits off a complete `++0101` Expression at Cell 2
+        src.unset(1).unwrap();
 
-    //         assert!(len == n, "source length {len}, expected {n}");
+        assert_eq!(src.get_glyph_at(1), None);
+        let glyphs: Vec<_> = (2..8).map(|i| src.get_glyph_at(i)).collect();
+        assert_eq!(
+            glyphs,
+            vec![
+                Some(Glyph::Function),
+                Some(Glyph::Function),
+                Some(Glyph::Number),
+                Some(Glyph::Number),
+                Some(Glyph::Number),
+                Some(Glyph::Number),
+            ]
+        );
 
-    //         let mut source = source(cols, rows);
+        // the split-off Expression evaluates on the next Tick
+        src.execute();
+        assert_eq!(src.get(12), Some("0".to_string()));
+    }
 
-    //         // Iterate through inner and call set_at
-    //         for (idx, &byte) in inner.as_bytes().iter().enumerate() {
-    //             let x = idx % cols;
-    //             let y = idx / cols;
-    //             source.set_at(Coord::new(x, y).index(cols), &(byte as char).to_string());
-    //         }
+    #[test]
+    fn test_set_space_empties_cell() {
+        trace();
 
-    //         source
-    //     }
+        let mut src = source();
+        src.set(5, "x").unwrap();
 
-    //     fn print_exp(&self) {
-    //         self.map.iter().for_each(|m| {
-    //             info!("map: {:?}", m);
-    //         });
-    //     }
+        src.set(5, " ").unwrap();
 
-    //     fn map_len(&self) -> usize {
-    //         self.map
-    //             .iter()
-    //             .filter(|e| e.is_some())
-    //             .collect::<Vec<_>>()
-    //             .len()
-    //     }
-    // }
+        assert_eq!(src.get(5), None);
+        assert_eq!(src.snapshot(), " ".repeat(100));
+    }
+
 }

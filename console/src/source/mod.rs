@@ -1,73 +1,65 @@
-pub mod expression_map;
+pub mod error;
+mod expression_map;
 pub mod source;
-pub use expression_map::ExpressionMap;
-pub use source::Source;
-use source::SPACE;
+use crate::{glyph::Glyph, opts::Opts};
+pub use error::SourceError;
+pub use source::{Cell, Change, Source};
 use std::sync::{Arc, RwLock};
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
     task,
 };
-use tracing::{error, info};
-
-use crate::glyph::Glyph;
+use tracing::info;
 
 pub struct SourceCommander {
     inner: Arc<RwLock<Source>>,
+    sender: Sender<Command>,
 }
 
 impl SourceCommander {
-    pub fn send(&self, cmd: Command) {
-        let src = self.inner.read().unwrap();
-        let snd = src.sender();
-
-        tokio::spawn(async move {
-            match snd.send(cmd).await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Error {e:?}");
-                }
-            }
-        });
-    }
-
-    pub fn sender(&self) -> Sender<Command> {
-        let src = self.inner.read().unwrap();
-        src.sender()
-    }
-
-    pub fn spawn(size: usize) -> Self {
+    pub fn spawn(opts: Opts) -> Self {
         let (sender, mut receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel(16);
 
-        let source = Arc::new(RwLock::new(Source::new(size, sender)));
+        let source = Arc::new(RwLock::new(Source::new(opts)));
         let clone = source.clone();
 
         task::spawn(async move {
             while let Some(cmd) = receiver.recv().await {
                 match cmd {
-                    Command::Set { idx, s } => {
-                        info!("Command::Set {idx} [{s}]");
-                        let mut src = clone.write().unwrap();
-                        src.set(idx, &s);
-                        // let src = source.to_string();
-                        // let _ = responder.send(src);
-                    }
-                    Command::Unset { idx } => {
-                        info!("Command::Unset {idx}");
-                        let mut src = clone.write().unwrap();
-                        src.set(idx, &SPACE);
-                    }
                     Command::Tick => {
                         info!("Command::Tick");
 
-                        let src = clone.read().unwrap();
+                        let mut src = clone.write().unwrap();
                         src.execute();
                     }
                 }
             }
         });
 
-        Self { inner: source }
+        Self {
+            inner: source,
+            sender,
+        }
+    }
+
+    ///
+    /// Synchronous edit: when this returns, every observable part of the
+    /// Source describes the new revision.
+    ///
+    pub fn set(&self, idx: usize, s: &str) -> Result<Change, SourceError> {
+        self.inner.write().unwrap().set(idx, s)
+    }
+
+    ///
+    /// Synchronous delete: when this returns, every observable part of the
+    /// Source describes the new revision.
+    ///
+    pub fn unset(&self, idx: usize) -> Result<Change, SourceError> {
+        self.inner.write().unwrap().unset(idx)
+    }
+
+    pub fn sender(&self) -> Sender<Command> {
+        self.sender.clone()
     }
 
     pub fn get(&self, idx: usize) -> (Option<String>, Option<Glyph>) {
@@ -76,10 +68,15 @@ impl SourceCommander {
         let g = source.get_glyph_at(idx);
         (s, g)
     }
+
+    ///
+    /// The full grid contents, read consistently at one revision.
+    ///
+    pub fn snapshot(&self) -> String {
+        self.inner.read().unwrap().snapshot()
+    }
 }
 
 pub enum Command {
-    Set { idx: usize, s: String },
-    Unset { idx: usize },
     Tick,
 }

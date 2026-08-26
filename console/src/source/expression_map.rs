@@ -207,7 +207,7 @@ impl ExpressionMap {
 mod test {
 
     use crate::{
-        source::{expression_map::Range, ExpressionMap},
+        source::expression_map::{ExpressionMap, Range},
         test::trace,
     };
 

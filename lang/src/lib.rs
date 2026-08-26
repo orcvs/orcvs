@@ -1,6 +1,7 @@
 mod atom;
 mod error;
 mod expression;
+mod functions;
 mod interpreter;
 mod parser;
 mod portal;

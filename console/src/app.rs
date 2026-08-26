@@ -1,21 +1,16 @@
 use egui::{Event, Key};
 
-use lang::{Atom, Atoms, Parser, Portal};
-use lang::{Expression, Interpreter};
-use tokio::sync::oneshot;
-
-use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::glyph::GlyphString;
 use crate::opts::Opts;
 
-use crate::source::{source, Command, Source, SourceCommander};
-use crate::{coord::Coord, cursor::Cursor, glyph::Glyph};
+use crate::source::{Command, SourceCommander};
+use crate::{coord::Coord, cursor::Cursor};
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
@@ -33,7 +28,7 @@ impl App {
 
         let opts = Opts::new(cols, rows);
 
-        let source = SourceCommander::spawn(opts.count());
+        let source = SourceCommander::spawn(opts.clone());
 
         Self {
             cursor: Cursor::new(cols, rows, opts.cursor_delay),
@@ -49,21 +44,20 @@ impl App {
     ///
     pub fn write(&mut self, s: &String) {
         let idx = self.cursor_index();
-        let cmd = Command::Set {
-            idx,
-            s: s.to_owned(),
-        };
 
-        self.source.send(cmd);
-        self.cursor.right();
+        match self.source.set(idx, s) {
+            Ok(_) => self.cursor.right(),
+            Err(e) => error!("rejected edit: {e}"),
+        }
     }
 
     fn delete(&mut self) {
         let idx = self.cursor_index();
-        let cmd = Command::Unset { idx };
 
-        self.source.send(cmd);
-        self.cursor.left();
+        match self.source.unset(idx) {
+            Ok(_) => self.cursor.left(),
+            Err(e) => error!("rejected delete: {e}"),
+        }
     }
 
     pub fn cursor_index(&self) -> usize {
@@ -233,9 +227,12 @@ impl App {
 mod test {
 
     use super::App;
-    use crate::{coord::Coord, glyph::GlyphString, opts::DEFAULT_GRID_SIZE, test::trace};
-    use std::time::Duration;
-    use tokio::time::sleep;
+    use crate::{
+        coord::Coord,
+        glyph::{Glyph, GlyphString},
+        opts::DEFAULT_GRID_SIZE,
+        test::trace,
+    };
 
     fn app() -> App {
         let rows = 1; // * (DEFAULT_GRID_SIZE as usize);
@@ -293,124 +290,46 @@ mod test {
         let _ = app.index(coord);
     }
 
-    // #[tokio::test(start_paused = true)]
     #[tokio::test]
-    async fn test_play() {
+    async fn test_write_renders_cell_and_glyph_immediately() {
         trace();
 
         let mut app = app();
 
-        for (x, c) in "++0101".chars().enumerate() {
-            app.set_at(x, 0, &c.to_string());
-        }
+        app.set_at(0, 0, "+");
+        app.set_at(1, 0, "+");
 
-        let ms = 100;
-        // let exp = app.exp.clone();
-        // App::ticker(ms, exp)
-
-        // App::ticker(ms, exp).await;
-
-        let handle = tokio::spawn(async move {
-            // App::ticker(ms, exp).await;
-        });
-
-        sleep(Duration::from_millis(1)).await;
-        handle.abort();
+        // the accepted edits are observable as soon as write returns
+        let expected = GlyphString::new(Some("+".to_string()), Glyph::Function);
+        assert_eq!(app.get(0, 0), expected);
+        assert_eq!(app.get(1, 0), expected);
     }
 
-    // #[test]
-    // fn test_edit_complex() {
-    //     trace();
+    #[tokio::test]
+    async fn test_write_moves_cursor_right() {
+        trace();
 
-    //     let mut app = app();
+        let mut app = app();
+        app.cursor.select_at(0, 0);
 
-    //     app.set_at(2, 0, "+");
-    //     assert_eq!(app.src.inner, "  +     ");
+        app.write(&"+".to_string());
 
-    //     // `+` is not a function (yet)
-    //     let glyph = app.get_glyph_at((2, 0).into());
-    //     assert_eq!(glyph, Glyph::default());
+        assert_eq!(app.cursor.coord, Coord::new(1, 0));
+    }
 
-    //     app.set_at(3, 0, "+");
-    //     assert_eq!(app.src.inner, "  ++    ");
+    #[tokio::test]
+    async fn test_delete_clears_cell_and_moves_cursor_left() {
+        trace();
 
-    //     // `++` is a function
-    //     // let exp = app.exp.get(2).unwrap();
-    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
+        let mut app = app();
+        app.set_at(0, 0, "+");
+        app.set_at(1, 0, "+");
 
-    //     let glyph = app.get_glyph_at((2, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
+        app.delete_at(1, 0);
 
-    //     let glyph = app.get_glyph_at((3, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
-
-    //     let glyph = app.get_glyph_at((4, 0).into());
-    //     assert_eq!(glyph, Glyph::Number);
-
-    //     app.set_at(4, 0, "0");
-    //     assert_eq!(app.src.inner, "  ++0   ");
-
-    //     app.set_at(5, 0, "1");
-    //     assert_eq!(app.src.inner, "  ++01  ");
-
-    //     app.set_at(6, 0, "0");
-    //     assert_eq!(app.src.inner, "  ++010 ");
-    //     app.set_at(7, 0, "2");
-    //     assert_eq!(app.src.inner, "  ++0102");
-
-    //     // let exp = app.exp.get(2).unwrap();
-    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
-    //     // assert_eq!(exp[1], Atom::Number(1));
-    //     // assert_eq!(exp[2], Atom::Number(2));
-
-    //     // Invalidate the function
-    //     app.delete_at(3, 0);
-    //     assert_eq!(app.src.inner, "  + 0102");
-
-    //     // assert!(app.glyphs.iter().all(|g| *g == Glyph::default()));
-
-    //     // Recreate the function
-    //     app.set_at(3, 0, "+");
-    //     assert_eq!(app.src.inner, "  ++0102");
-
-    //     // `++` is a function
-    //     // let exp = app.exp.get(2).unwrap();
-    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
-    // }
-
-    // #[test]
-    // fn test_edit_simple() {
-    //     trace();
-
-    //     let mut app = app();
-
-    //     app.set_at(0, 0, "i");
-    //     assert!(app.src.inner.starts_with('i'));
-
-    //     // `i` is not a function yet
-    //     let glyph = app.get_glyph_at((0, 0).into());
-    //     assert_eq!(glyph, Glyph::default());
-
-    //     // id
-    //     app.set_at(1, 0, "d");
-    //     assert!(app.src.inner.starts_with("id"));
-
-    //     let glyph = app.get_glyph_at((0, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
-
-    //     let glyph = app.get_glyph_at((1, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
-
-    //     let glyph = app.get_glyph_at((2, 0).into());
-    //     assert_eq!(glyph, Glyph::Char);
-
-    //     // Delete invalidates expression, and resets glyphs
-    //     app.delete_at(0, 0);
-    //     for x in 0..3 {
-    //         let glyph = app.get_glyph_at((x, 0).into());
-    //         assert_eq!(glyph, Glyph::default());
-    //     }
-    // }
+        assert_eq!(app.cursor.coord, Coord::new(0, 0));
+        assert_eq!(app.get(1, 0), GlyphString::space());
+    }
 
     #[tokio::test]
     async fn test_terminator() {
@@ -429,40 +348,3 @@ mod test {
         assert_eq!(g, GlyphString::highlight());
     }
 }
-
-/*
-    fn source_from(s: &str) -> Source {
-        let mut source = source(10, 1);
-
-        let y = 0;
-
-        for (x, c) in s.chars().enumerate() {
-            source.set_at(x, y, &c.to_string());
-
-            //
-            // I ACTUALLY UNDERSTAND THIS
-            //
-            // Reference to Option (the Map owns the data)
-            //
-            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<Expression>>> = &source.map[0];
-            // Get Reference to the RC the Option is wrapping
-            // Swap for Option<&RC>
-            opt_exp
-                .as_ref()
-                // and map Option to get the &RC
-                .map(|exp: &std::rc::Rc<std::cell::RefCell<Expression>>| {
-                    // Now we can borrow the actual Exp we are interested in.
-                    let end = exp.borrow().end;
-                    assert_eq!(end, x);
-                });
-        }
-
-        // append '.' to s to fil the source to len 10
-        let l = s.len();
-        let mut expected = String::from(s);
-        expected.push_str(&".".repeat(10 - l));
-
-        assert_eq!(source.inner, expected);
-        source
-    }
-*/
