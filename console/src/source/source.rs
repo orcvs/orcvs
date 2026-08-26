@@ -736,6 +736,24 @@ mod test {
     }
 
     #[test]
+    fn test_result_reaching_the_last_column_exactly_is_committed() {
+        trace();
+
+        let mut src = source();
+
+        // An Expression starting one column further left: its two-Cell result
+        // ends on the last column of the row, using the Cells that are there
+        // and no more. A `fits` that did not count the target Cell as the
+        // result's own first Cell would discard this. (The Expression itself
+        // still wraps — issue 02.)
+        write(&mut src, 8, "++0102");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "0102    03");
+    }
+
+    #[test]
     fn test_expression_without_a_function_commits_nothing() {
         trace();
 
