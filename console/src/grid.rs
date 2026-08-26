@@ -163,16 +163,9 @@ impl Grid {
         (0..rows).map(move |y| (0..cols).map(move |x| Position { x, y }))
     }
 
-    #[inline]
-    pub fn col_count(&self) -> usize {
-        self.cols
-    }
-
-    #[inline]
-    pub fn row_count(&self) -> usize {
-        self.rows
-    }
-
+    ///
+    /// How many Cells this Grid has: one per Position it yields.
+    ///
     #[inline]
     pub fn count(&self) -> usize {
         self.cols * self.rows
@@ -217,9 +210,13 @@ mod test {
 
         let grid = Grid::new(4, 2);
 
-        assert_eq!(grid.col_count(), 4);
-        assert_eq!(grid.row_count(), 2);
+        // 4 columns and 2 rows, in that order: the Grid mints the last Cell of
+        // that shape and refuses the transposed pair, and counts one Cell per
+        // Position it yields
+        assert!(grid.position(3, 1).is_some());
+        assert_eq!(grid.position(1, 3), None);
         assert_eq!(grid.count(), 8);
+        assert_eq!(grid.rows().flatten().count(), 8);
     }
 
     #[test]
@@ -297,14 +294,13 @@ mod test {
 
         let grid = Grid::new(4, 2);
 
-        let mut seen: Vec<usize> = Vec::new();
-        for y in 0..grid.row_count() {
-            for x in 0..grid.col_count() {
-                seen.push(grid.index(grid.position(x, y).expect("inside the grid")));
-            }
-        }
+        // every index names a Position, and that Position converts back to the
+        // index it came from: no two Cells share an index, and none is missed
+        for idx in 0..grid.count() {
+            let position = grid.position_at(idx).expect("inside the grid");
 
-        assert_eq!(seen, (0..grid.count()).collect::<Vec<usize>>());
+            assert_eq!(grid.index(position), idx);
+        }
     }
 
     #[test]

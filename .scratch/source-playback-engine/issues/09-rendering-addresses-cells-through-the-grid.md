@@ -26,3 +26,7 @@ Ticket 08 removed the bounds assert that used to fire when the render loop asked
 Honest accounting of the red steps: `Grid::rows()` and `App::get` had genuine behavioural reds on a rectangular Grid; the rest were compile errors against new signatures. `Console::update` needs an egui context and remains untested — criterion 2 is met structurally, by removing the bound rather than by covering it.
 
 Two pre-existing rendering defects surfaced and are filed rather than fixed here: a Cell with content but no glyph renders as background (issue 15), and the highlight and space glyphs are both constructed as markers (issue 16). Together they explain why a lone character is invisible and why the whole background renders as markers.
+
+**2026-08-26 — follow-up (agent)**
+
+`col_count()` and `row_count()`, added here when `Grid::rows()` took the old count accessor's name, are deleted. Nothing picked them up: ticket 10 moved Source's arithmetic onto `position_at`, `below`, `fits` and `count`, and no open issue asks the Grid for a dimension. `count()` stays. The two grid tests that read the accessors now ask the live API instead, and the shape test asserts that a 4 x 2 Grid refuses `(1, 3)` — the transposed axis this ticket existed to remove was invisible to the assertion it replaces.
