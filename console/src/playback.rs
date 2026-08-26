@@ -81,6 +81,7 @@ pub struct PlaybackEngine<A> {
     playing: bool,
     connected: bool,
     diagnostics: Vec<PlaybackDiagnostic>,
+    generation: u64,
 }
 
 impl<A: OutputAdapter> PlaybackEngine<A> {
@@ -91,10 +92,12 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
             playing: false,
             connected: true,
             diagnostics: Vec::new(),
+            generation: 0,
         }
     }
 
     pub fn start(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
         self.playing = true;
     }
 
@@ -155,6 +158,26 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
         }
         Some(tick)
     }
+
+    fn clock_tick_for_generation(
+        &mut self,
+        generation: u64,
+        scheduled_at: Duration,
+        observed_at: Duration,
+        tick_period: Duration,
+    ) -> Option<TickResult> {
+        if self.generation != generation {
+            return None;
+        }
+
+        self.clock_tick(scheduled_at, observed_at, tick_period)
+    }
+
+    fn stop_generation(&mut self, generation: u64) {
+        if self.generation == generation {
+            self.stop();
+        }
+    }
 }
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
@@ -163,7 +186,11 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
         tick_period: Duration,
         cancellation: CancellationToken,
     ) -> JoinHandle<()> {
-        engine.lock().unwrap().start();
+        let generation = {
+            let mut engine = engine.lock().unwrap();
+            engine.start();
+            engine.generation
+        };
 
         tokio::spawn(async move {
             let epoch = time::Instant::now();
@@ -172,11 +199,15 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
 
             loop {
                 tokio::select! {
-                    _ = cancellation.cancelled() => break,
+                    _ = cancellation.cancelled() => {
+                        engine.lock().unwrap().stop_generation(generation);
+                        break;
+                    },
                     scheduled = interval.tick() => {
                         let scheduled_at = scheduled.duration_since(epoch);
                         let observed_at = time::Instant::now().duration_since(epoch);
-                        engine.lock().unwrap().clock_tick(
+                        engine.lock().unwrap().clock_tick_for_generation(
+                            generation,
                             scheduled_at,
                             observed_at,
                             tick_period,
@@ -342,6 +373,45 @@ mod tests {
 
         cancellation.cancel();
         clock.await.unwrap();
+
+        assert!(!engine.lock().unwrap().is_playing());
+        assert_eq!(adapter.all_notes_off_count(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_clock_cannot_stop_or_tick_restarted_playback() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, ">>07FC4");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = Arc::new(Mutex::new(PlaybackEngine::new(source, adapter.clone())));
+
+        let old_cancellation = CancellationToken::new();
+        let old_clock = PlaybackEngine::start_clock(
+            engine.clone(),
+            Duration::from_secs(1),
+            old_cancellation.clone(),
+        );
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 1);
+
+        old_cancellation.cancel();
+        let new_cancellation = CancellationToken::new();
+        let new_clock = PlaybackEngine::start_clock(
+            engine.clone(),
+            Duration::from_secs(1),
+            new_cancellation.clone(),
+        );
+        old_clock.await.unwrap();
+        tokio::task::yield_now().await;
+
+        assert!(engine.lock().unwrap().is_playing());
+        assert_eq!(adapter.command_lists().len(), 2);
+        assert_eq!(adapter.all_notes_off_count(), 0);
+
+        new_cancellation.cancel();
+        new_clock.await.unwrap();
+        assert!(!engine.lock().unwrap().is_playing());
+        assert_eq!(adapter.all_notes_off_count(), 1);
     }
 
     #[test]
