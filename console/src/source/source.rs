@@ -414,12 +414,17 @@ mod test {
     };
 
     ///
-    /// Rectangular on purpose: a Source that derived a dimension of its own,
-    /// or read the two the wrong way round, addresses different Cells here
-    /// than it does on a square one.
+    /// The shape every test in this module works against. Rectangular on
+    /// purpose: a Source that derived a dimension of its own, or read the two
+    /// the wrong way round, addresses different Cells here than it does on a
+    /// square one. The tests state it once, here, and ask it for the rest.
     ///
+    fn grid() -> Grid {
+        Grid::new(10, 6)
+    }
+
     fn source() -> Source {
-        Source::new(Grid::new(10, 6))
+        Source::new(grid())
     }
 
     ///
@@ -433,10 +438,18 @@ mod test {
     }
 
     ///
-    /// The Cells of row `row`, spaces included.
+    /// The Cells of row `row`, spaces included. The Grid names the Cells of a
+    /// row and where each one sits, so no test restates a width of its own.
     ///
     fn row(src: &Source, row: usize) -> String {
-        src.snapshot()[row * 10..(row + 1) * 10].to_string()
+        let grid = grid();
+        let cells: Vec<char> = src.snapshot().chars().collect();
+
+        grid.rows()
+            .nth(row)
+            .expect("a row of the grid")
+            .map(|position| cells[grid.index(position)])
+            .collect()
     }
 
     #[test]
@@ -446,9 +459,17 @@ mod test {
         let mut src = source();
         let before = src.snapshot();
 
-        let err = src.set(60, "x").unwrap_err();
+        // one past the last Cell the Grid addresses
+        let past_the_end = grid().count();
+        let err = src.set(past_the_end, "x").unwrap_err();
 
-        assert_eq!(err, SourceError::OutOfRange { idx: 60, len: 60 });
+        assert_eq!(
+            err,
+            SourceError::OutOfRange {
+                idx: past_the_end,
+                len: grid().count()
+            }
+        );
         assert_eq!(src.snapshot(), before);
     }
 
@@ -461,7 +482,13 @@ mod test {
 
         let err = src.unset(200).unwrap_err();
 
-        assert_eq!(err, SourceError::OutOfRange { idx: 200, len: 60 });
+        assert_eq!(
+            err,
+            SourceError::OutOfRange {
+                idx: 200,
+                len: grid().count()
+            }
+        );
         assert_eq!(src.snapshot(), before);
     }
 
@@ -596,7 +623,7 @@ mod test {
                 Some(Glyph::Number),
             ]
         );
-        assert_eq!(&src.snapshot()[0..10], "++0101    ");
+        assert_eq!(row(&src, 0), "++0101    ");
     }
 
     #[test]
@@ -666,7 +693,7 @@ mod test {
         src.set(5, " ").unwrap();
 
         assert_eq!(src.get(5), None);
-        assert_eq!(src.snapshot(), " ".repeat(60));
+        assert_eq!(src.snapshot(), " ".repeat(grid().count()));
     }
 
     #[test]
@@ -787,7 +814,10 @@ mod test {
 
         assert_eq!(row(&src, 0), "++0102    ");
         assert_eq!(row(&src, 1), "03        ");
-        assert_eq!(&src.snapshot()[20..], &" ".repeat(40));
+        // and every row below the one it wrote is still empty
+        for r in 2..grid().rows().count() {
+            assert_eq!(row(&src, r), "          ", "row {r} is untouched");
+        }
     }
 
     #[test]
