@@ -1,8 +1,7 @@
 use crate::Atom;
 
-// TODO: Portal is currently unused. `Interpreter::execute` returns a bare
-// Atom and the roadmap (issues 03-05) has Tick Plans subsume result destinations, so
-// this module is retained pending that work rather than removed.
+// TODO: Portal is currently unused. Tick Plans now own result destinations;
+// this legacy type is retained pending the remaining Source playback work.
 
 #[derive(Clone, Debug)]
 pub struct Portal {

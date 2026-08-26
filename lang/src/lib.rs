@@ -8,9 +8,9 @@ mod portal;
 mod stack;
 
 pub use atom::{to_atom_note, to_atom_num, Atom, Atoms, Function};
-pub use error::{ArgumentError, Error, SyntaxError, TypeError};
+pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
-pub use interpreter::Interpreter;
+pub use interpreter::{Interpretation, Interpreter};
 pub use parser::Parser;
 pub use portal::Portal;
 pub use stack::Stack;
@@ -18,6 +18,13 @@ pub use stack::Stack;
 use std::sync::Once;
 
 pub const EXP_LEN: usize = 32;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayCommand {
+    pub channel: u8,
+    pub velocity: u8,
+    pub note: u8,
+}
 
 #[inline(always)]
 pub fn str_to_num(s: &str) -> Result<u8, Error> {

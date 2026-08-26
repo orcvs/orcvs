@@ -1,4 +1,4 @@
-use lang::{Atom, Atoms, Expression, Interpreter, Parser};
+use lang::{Atom, Atoms, Expression, Interpretation, Interpreter, Parser};
 use std::{collections::BTreeMap, fmt};
 use tracing::debug;
 
@@ -53,12 +53,7 @@ pub struct CellWrite {
 
 /// One MIDI Note On instruction. Issue 04 teaches Source interpretation to
 /// populate these; issue 03 establishes their ordered place in every Tick Plan.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PlayCommand {
-    pub channel: u8,
-    pub velocity: u8,
-    pub note: u8,
-}
+pub use lang::PlayCommand;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {
@@ -306,6 +301,7 @@ impl Source {
 
     fn plan_tick(&self) -> TickPlan {
         let mut writes = BTreeMap::new();
+        let mut play_commands = Vec::new();
         let mut diagnostics = Vec::new();
 
         for (start, atoms) in self.parsed.iter().enumerate() {
@@ -318,8 +314,12 @@ impl Source {
                 .expect("parsed Expressions have a Source range");
 
             let result = match Interpreter::execute(atoms) {
-                Ok(Atom::Empty) => continue,
-                Ok(result) => result,
+                Ok(Interpretation::Cell(Atom::Empty)) => continue,
+                Ok(Interpretation::Cell(result)) => result,
+                Ok(Interpretation::Play(command)) => {
+                    play_commands.push(command);
+                    continue;
+                }
                 Err(error) => {
                     diagnostics.push(Diagnostic {
                         start: range.start,
@@ -367,7 +367,7 @@ impl Source {
 
         TickPlan {
             writes: writes.into_values().collect(),
-            play_commands: Vec::new(),
+            play_commands,
             diagnostics,
         }
     }
@@ -519,7 +519,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::Grid,
-        source::{source::Cell, Source, SourceError},
+        source::{source::Cell, PlayCommand, Source, SourceError},
         test::trace,
     };
 
@@ -978,6 +978,105 @@ mod test {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_root_play_function_emits_one_play_command_without_a_cell_write() {
+        let mut src = source();
+        src.write(0, ">>07FC4");
+
+        let tick = src.execute();
+
+        assert_eq!(
+            tick.plan.play_commands,
+            vec![PlayCommand {
+                channel: 0,
+                velocity: 0x7F,
+                note: 60,
+            }]
+        );
+        assert!(tick.plan.writes.is_empty());
+        assert!(tick.changes.is_empty());
+        assert_eq!(src.row(1), "          ");
+    }
+
+    #[test]
+    fn test_play_preserves_zero_velocity_as_an_explicit_command() {
+        let mut src = source();
+        src.write(0, ">>F00A0");
+
+        let tick = src.execute();
+
+        assert_eq!(
+            tick.plan.play_commands,
+            vec![PlayCommand {
+                channel: 0xF,
+                velocity: 0,
+                note: 21,
+            }]
+        );
+        assert!(tick.plan.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_play_velocity_above_midi_range_is_diagnosed() {
+        let mut src = source();
+        src.write(0, ">>080C4");
+
+        let tick = src.execute();
+
+        assert!(tick.plan.play_commands.is_empty());
+        assert!(tick.plan.writes.is_empty());
+        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert_eq!(tick.plan.diagnostics[0].start, 0);
+        assert_eq!(tick.plan.diagnostics[0].end, 6);
+        assert_eq!(
+            tick.plan.diagnostics[0].message,
+            "Play velocity 80 is outside the MIDI range 00–7F"
+        );
+    }
+
+    #[test]
+    fn test_nested_play_is_diagnosed_without_emitting_a_command() {
+        let mut src = SourceUnderTest::new(Grid::new(12, 3));
+        src.write(0, "++>>07FC401");
+
+        let tick = src.execute();
+
+        assert!(tick.plan.play_commands.is_empty());
+        assert!(tick.plan.writes.is_empty());
+        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert_eq!(
+            tick.plan.diagnostics[0].message,
+            "a Play Function is valid only at the root of an Expression"
+        );
+    }
+
+    #[test]
+    fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
+        let mut src = source();
+        src.write(0, ">>001C4");
+        src.write(10, ">>17FA4");
+
+        let first = src.execute();
+        let second = src.execute();
+        let expected = vec![
+            PlayCommand {
+                channel: 0,
+                velocity: 1,
+                note: 60,
+            },
+            PlayCommand {
+                channel: 1,
+                velocity: 0x7F,
+                note: 69,
+            },
+        ];
+
+        assert_eq!(first.plan.play_commands, expected);
+        assert_eq!(second.plan.play_commands, expected);
+        assert!(first.changes.is_empty());
+        assert!(second.changes.is_empty());
     }
 
     #[test]

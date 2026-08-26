@@ -10,6 +10,18 @@ pub enum Error {
 
     #[error(transparent)]
     Type(#[from] TypeError),
+
+    #[error(transparent)]
+    Interpretation(#[from] InterpretationError),
+}
+
+#[derive(Error, Debug)]
+pub enum InterpretationError {
+    #[error("a Play Function is valid only at the root of an Expression")]
+    NestedPlay,
+
+    #[error("Play velocity {0:02X} is outside the MIDI range 00–7F")]
+    PlayVelocity(u8),
 }
 
 #[derive(Error, Debug)]

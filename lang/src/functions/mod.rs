@@ -1,6 +1,5 @@
 pub(crate) mod math;
-use crate::{interpreter::Context, Atom, Error};
-use tracing::info;
+use crate::{interpreter::Context, Atom, Error, InterpretationError, PlayCommand};
 
 #[inline(always)]
 pub fn ident(ctx: &mut Context) -> Result<Atom, Error> {
@@ -8,27 +7,30 @@ pub fn ident(ctx: &mut Context) -> Result<Atom, Error> {
 }
 
 #[inline(always)]
-pub fn play(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
     let arg_1 = ctx.stack.try_pop(3, 0)?;
     let arg_2 = ctx.stack.try_pop(3, 1)?;
     let arg_3 = ctx.stack.try_pop(3, 2)?;
-    Ok(play_impl(arg_1, arg_2, arg_3))
+    play_impl(arg_1, arg_2, arg_3)
 }
 
 #[inline(always)]
-fn play_impl(c: u8, v: u8, n: u8) -> Atom {
-    info!("Play: c: {}, v: {}, n: {}", c, v, n);
+fn play_impl(channel: u8, velocity: u8, note: u8) -> Result<PlayCommand, Error> {
+    if velocity > 0x7F {
+        return Err(InterpretationError::PlayVelocity(velocity).into());
+    }
 
-    // TODO(issue 04): emit one ordered Play Command into the Tick Plan and remove
-    // this placeholder Cell result. A Play Function never writes a Cell.
-    // See .scratch/source-playback-engine/issues/04-interpret-terminal-play-functions-into-play-commands.md
-    Atom::Number(0)
+    Ok(PlayCommand {
+        channel,
+        velocity,
+        note,
+    })
 }
 
 #[cfg(test)]
 mod test {
     use super::play;
-    use crate::{interpreter::Context, ArgumentError, Atom, Error};
+    use crate::{interpreter::Context, ArgumentError, Atom, Error, PlayCommand};
 
     /// Pins the Play arity contract before issue 04 replaces the placeholder.
     /// See `.scratch/source-playback-engine/issues/04-interpret-terminal-play-functions-into-play-commands.md`
@@ -44,8 +46,14 @@ mod test {
 
         let result = play(&mut ctx).unwrap();
 
-        // Placeholder output, removed by issue 04
-        assert_eq!(result, Atom::Number(0));
+        assert_eq!(
+            result,
+            PlayCommand {
+                channel: 0,
+                velocity: 0x7F,
+                note: 60,
+            }
+        );
 
         // Exactly three arguments were consumed
         assert_eq!(Atom::from(ctx.stack.pop()), Atom::Char('z'));
