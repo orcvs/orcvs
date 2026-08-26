@@ -27,9 +27,9 @@ impl App {
     pub fn new(cols: usize, rows: usize) -> Self {
         let grid = Grid::new(cols, rows);
 
-        let opts = Opts::new(cols, rows);
+        let opts = Opts::new();
 
-        let source = SourceCommander::spawn(opts.clone());
+        let source = SourceCommander::spawn(grid);
 
         Self {
             cursor: Cursor::new(grid.origin(), opts.cursor_delay),
