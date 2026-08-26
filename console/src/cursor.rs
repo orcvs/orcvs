@@ -36,8 +36,8 @@ impl Cursor {
     }
 
     #[inline]
-    pub fn is_at(&self, x: usize, y: usize) -> bool {
-        self.position.x() == x && self.position.y() == y
+    pub fn is_at(&self, position: Position) -> bool {
+        self.position == position
     }
 
     #[inline]
@@ -57,11 +57,14 @@ mod test {
         trace();
 
         let grid = Grid::new(10, 4);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
         let cursor = Cursor::new(grid.origin(), 1000);
 
         assert_eq!(cursor.position(), grid.origin());
-        assert!(cursor.is_at(0, 0));
-        assert!(!cursor.is_at(1, 0));
+        assert!(cursor.is_at(grid.origin()));
+        assert!(!cursor.is_at(at(1, 0)));
+        // transposed: (0, 1) is a different Cell from (1, 0)
+        assert!(!cursor.is_at(at(0, 1)));
     }
 
     #[test]

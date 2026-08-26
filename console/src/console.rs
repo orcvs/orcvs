@@ -98,11 +98,15 @@ impl eframe::App for Console {
             // ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
             ui.style_mut().visuals.widgets.inactive.rounding = Rounding::default();
 
-            for y in 0..self.app.opts.cols {
+            // The Grid yields the Positions to render and their order, so the
+            // render path states no bound of its own and cannot swap an axis.
+            let grid = self.app.grid;
+
+            for row in grid.rows() {
                 ui.horizontal(|ui| {
-                    for x in 0..self.app.opts.rows {
-                        let glyph = self.app.get(x, y);
-                        let selected = self.app.cursor.is_at(x, y);
+                    for position in row {
+                        let glyph = self.app.get(position);
+                        let selected = self.app.cursor.is_at(position);
 
                         let visuals = glyph.style(selected);
 
@@ -145,7 +149,7 @@ impl eframe::App for Console {
                             .frame(true);
 
                         if ui.add(button).clicked() {
-                            self.app.select_at(x, y);
+                            self.app.select_at(position.x(), position.y());
                         }
                     }
                 });

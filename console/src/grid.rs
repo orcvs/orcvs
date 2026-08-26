@@ -118,13 +118,26 @@ impl Grid {
         }
     }
 
+    ///
+    /// The Positions of this Grid in render order: one iterator per row, top to
+    /// bottom, each yielding that row's Positions left to right. The render
+    /// path states no bound of its own, so a swapped axis is not expressible.
+    ///
+    pub fn rows(&self) -> impl Iterator<Item = impl Iterator<Item = Position>> {
+        // Captured by value: a Grid is Copy and a Position is plain usizes, so
+        // the returned iterators borrow nothing.
+        let (cols, rows) = (self.cols, self.rows);
+
+        (0..rows).map(move |y| (0..cols).map(move |x| Position { x, y }))
+    }
+
     #[inline]
-    pub fn cols(&self) -> usize {
+    pub fn col_count(&self) -> usize {
         self.cols
     }
 
     #[inline]
-    pub fn rows(&self) -> usize {
+    pub fn row_count(&self) -> usize {
         self.rows
     }
 
@@ -137,7 +150,34 @@ impl Grid {
 #[cfg(test)]
 mod test {
 
-    use crate::{grid::Grid, test::trace};
+    use crate::{
+        grid::{Grid, Position},
+        test::trace,
+    };
+
+    #[test]
+    fn test_grid_yields_its_rows_in_render_order() {
+        trace();
+
+        // Rectangular on purpose: a transposed implementation yields 4 rows of
+        // 2 Positions and fails here.
+        let grid = Grid::new(4, 2);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+        let rows: Vec<Vec<Position>> = grid.rows().map(|row| row.collect()).collect();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].len(), 4);
+        assert_eq!(rows[1].len(), 4);
+
+        // rows top to bottom, each row left to right
+        assert_eq!(rows[0], vec![at(0, 0), at(1, 0), at(2, 0), at(3, 0)]);
+        assert_eq!(rows[1], vec![at(0, 1), at(1, 1), at(2, 1), at(3, 1)]);
+
+        // flattened, exactly the Source's own index order
+        let indices: Vec<usize> = rows.iter().flatten().map(|p| grid.index(*p)).collect();
+        assert_eq!(indices, (0..grid.count()).collect::<Vec<usize>>());
+    }
 
     #[test]
     fn test_grid_keeps_its_columns_and_rows() {
@@ -145,8 +185,8 @@ mod test {
 
         let grid = Grid::new(4, 2);
 
-        assert_eq!(grid.cols(), 4);
-        assert_eq!(grid.rows(), 2);
+        assert_eq!(grid.col_count(), 4);
+        assert_eq!(grid.row_count(), 2);
         assert_eq!(grid.count(), 8);
     }
 
@@ -226,8 +266,8 @@ mod test {
         let grid = Grid::new(4, 2);
 
         let mut seen: Vec<usize> = Vec::new();
-        for y in 0..grid.rows() {
-            for x in 0..grid.cols() {
+        for y in 0..grid.row_count() {
+            for x in 0..grid.col_count() {
                 seen.push(grid.index(grid.position(x, y).expect("inside the grid")));
             }
         }

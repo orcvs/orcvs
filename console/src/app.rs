@@ -84,20 +84,17 @@ impl App {
         self.grid.index(position)
     }
 
-    pub fn get(&self, x: usize, y: usize) -> GlyphString {
-        // TODO(issue 09): unreachable once Console iterates the Positions the
-        // Grid yields rather than stating its own loop bounds.
-        // See .scratch/source-playback-engine/issues/09-rendering-addresses-cells-through-the-grid.md
-        let Some(position) = self.grid.position(x, y) else {
-            return GlyphString::space();
-        };
-
+    ///
+    /// The GlyphString rendered at `position`. Total: a Position can only come
+    /// from a Grid, so every Position names a Cell that exists.
+    ///
+    pub fn get(&self, position: Position) -> GlyphString {
         let idx = self.index(position);
 
         let (s, g) = self.source.get(idx);
         match g {
             Some(g) => GlyphString::new(s, g),
-            None => self.terminator(x, y),
+            None => self.terminator(position),
         }
     }
 
@@ -164,7 +161,12 @@ impl App {
         repaint
     }
 
-    fn terminator(&self, x: usize, y: usize) -> GlyphString {
+    ///
+    /// The purely visual GlyphString for a Cell the Source leaves empty.
+    ///
+    fn terminator(&self, position: Position) -> GlyphString {
+        let (x, y) = (position.x(), position.y());
+
         // Markers
         if x as f32 % self.opts.marker_spacing == 0.0 && y as f32 % self.opts.marker_spacing == 0.0
         {
@@ -172,7 +174,7 @@ impl App {
         }
 
         // Highlight
-        if in_marker_block(self.cursor.position(), x, y, self.opts.marker_spacing) {
+        if in_marker_block(self.cursor.position(), position, self.opts.marker_spacing) {
             if x % self.opts.highlight_dot_spacing == 0 && y % self.opts.highlight_dot_spacing == 0
             {
                 return GlyphString::highlight();
@@ -240,12 +242,12 @@ impl App {
 }
 
 ///
-/// True when (x, y) falls inside the marker block containing `cursor`.
+/// True when `target` falls inside the marker block containing `cursor`.
 /// Purely visual: `spacing` is the marker spacing, not a Source dimension.
 ///
-fn in_marker_block(cursor: Position, x: usize, y: usize, spacing: f32) -> bool {
-    let x = x as i32;
-    let y = y as i32;
+fn in_marker_block(cursor: Position, target: Position, spacing: f32) -> bool {
+    let x = target.x() as i32;
+    let y = target.y() as i32;
     let cursor_x = cursor.x() as i32;
     let cursor_y = cursor.y() as i32;
     // Narrowed first: a spacing between 0 and 1 truncates to zero, and so does
@@ -323,16 +325,37 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_get_outside_the_grid_is_blank() {
+    async fn test_get_reads_the_cell_at_the_position() {
         trace();
 
-        // 8 columns, 1 row
-        let app = app();
+        // 4 columns, 2 rows: transposing the axes addresses a different Cell.
+        let mut app = App::new(4, 2);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        // past the last column
-        assert_eq!(app.get(8, 0), GlyphString::space());
-        // past the last row
-        assert_eq!(app.get(0, 1), GlyphString::space());
+        // written into the second row
+        app.set_at(0, 1, "+");
+        app.set_at(1, 1, "+");
+
+        let written = GlyphString::new(Some("+".to_string()), Glyph::Function);
+        assert_eq!(app.get(at(0, 1)), written);
+        assert_eq!(app.get(at(1, 1)), written);
+
+        // and it is those Cells' content, not another's
+        for row in grid.rows() {
+            for position in row {
+                if position == at(0, 1) || position == at(1, 1) {
+                    continue;
+                }
+                assert_ne!(
+                    app.get(position),
+                    written,
+                    "({}, {}) holds no written Cell",
+                    position.x(),
+                    position.y()
+                );
+            }
+        }
     }
 
     #[tokio::test]
@@ -340,14 +363,16 @@ mod test {
         trace();
 
         let mut app = app();
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         app.set_at(0, 0, "+");
         app.set_at(1, 0, "+");
 
         // the accepted edits are observable as soon as write returns
         let expected = GlyphString::new(Some("+".to_string()), Glyph::Function);
-        assert_eq!(app.get(0, 0), expected);
-        assert_eq!(app.get(1, 0), expected);
+        assert_eq!(app.get(at(0, 0)), expected);
+        assert_eq!(app.get(at(1, 0)), expected);
     }
 
     #[tokio::test]
@@ -367,13 +392,18 @@ mod test {
         trace();
 
         let mut app = app();
+        let grid = app.grid;
+
         app.set_at(0, 0, "+");
         app.set_at(1, 0, "+");
 
         app.delete_at(1, 0);
 
-        assert_eq!(app.cursor.position(), app.grid.position(0, 0).unwrap());
-        assert_eq!(app.get(1, 0), GlyphString::space());
+        assert_eq!(app.cursor.position(), grid.position(0, 0).unwrap());
+        assert_eq!(
+            app.get(grid.position(1, 0).expect("inside the grid")),
+            GlyphString::space()
+        );
     }
 
     #[tokio::test]
@@ -381,15 +411,18 @@ mod test {
         trace();
 
         let mut app = app();
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+
         app.select_at(7, 0);
 
-        let g = app.terminator(0, 0);
+        let g = app.terminator(at(0, 0));
         assert_eq!(g, GlyphString::marker());
 
-        let g = app.terminator(1, 0);
+        let g = app.terminator(at(1, 0));
         assert_eq!(g, GlyphString::space());
 
-        let g = app.terminator(2, 0);
+        let g = app.terminator(at(2, 0));
         assert_eq!(g, GlyphString::highlight());
     }
 
@@ -397,34 +430,35 @@ mod test {
     fn test_in_marker_block() {
         trace();
         let spacing = 8.0;
-        let grid = Grid::new(64, 56);
+        // Rectangular, and large enough to mint every position probed below
+        let grid = Grid::new(64, 60);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         let selected = at(5, 5);
-        assert!(!in_marker_block(selected, 10, 10, spacing));
+        assert!(!in_marker_block(selected, at(10, 10), spacing));
         for x in 0..spacing as usize {
             for y in 0..spacing as usize {
-                assert!(in_marker_block(selected, x, y, spacing));
+                assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
 
         let selected = at(8, 8);
-        assert!(!in_marker_block(selected, 1, 1, spacing));
+        assert!(!in_marker_block(selected, at(1, 1), spacing));
 
         for x in 8..=16 as usize {
             for y in 8..=16 as usize {
-                assert!(in_marker_block(selected, x, y, spacing));
+                assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
 
         // Marker block X 5 Y 6
         let selected = at(42, 51);
-        assert!(!in_marker_block(selected, 1, 1, spacing));
+        assert!(!in_marker_block(selected, at(1, 1), spacing));
         for x in 0..=spacing as usize {
             for y in 0..=spacing as usize {
                 let x = x + 40;
                 let y = y + 48;
-                assert!(in_marker_block(selected, x, y, spacing));
+                assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
     }
