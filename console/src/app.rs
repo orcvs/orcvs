@@ -9,13 +9,15 @@ use tracing::{error, info};
 use crate::glyph::GlyphString;
 use crate::opts::Opts;
 
+use crate::cursor::Cursor;
+use crate::grid::{Grid, Position};
 use crate::source::{Command, SourceCommander};
-use crate::{coord::Coord, cursor::Cursor};
 
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
     pub opts: Opts,
     pub cursor: Cursor,
+    pub grid: Grid,
 
     token: Option<CancellationToken>,
     source: SourceCommander,
@@ -23,18 +25,27 @@ pub struct App {
 
 impl App {
     pub fn new(cols: usize, rows: usize) -> Self {
-        assert!(cols > 0, "cols must be greater than zero");
-        assert!(rows > 0, "rows must be greater than zero");
+        let grid = Grid::new(cols, rows);
 
         let opts = Opts::new(cols, rows);
 
         let source = SourceCommander::spawn(opts.clone());
 
         Self {
-            cursor: Cursor::new(cols, rows, opts.cursor_delay),
+            cursor: Cursor::new(grid.origin(), opts.cursor_delay),
+            grid,
             opts,
             source,
             token: None,
+        }
+    }
+
+    ///
+    /// Moves the cursor to (x, y). A position outside the Grid is ignored.
+    ///
+    pub fn select_at(&mut self, x: usize, y: usize) {
+        if let Some(position) = self.grid.position(x, y) {
+            self.cursor.select(position);
         }
     }
 
@@ -46,7 +57,7 @@ impl App {
         let idx = self.cursor_index();
 
         match self.source.set(idx, s) {
-            Ok(_) => self.cursor.right(),
+            Ok(_) => self.cursor.select(self.grid.right(self.cursor.position())),
             Err(e) => error!("rejected edit: {e}"),
         }
     }
@@ -55,32 +66,33 @@ impl App {
         let idx = self.cursor_index();
 
         match self.source.unset(idx) {
-            Ok(_) => self.cursor.left(),
+            Ok(_) => self.cursor.select(self.grid.left(self.cursor.position())),
             Err(e) => error!("rejected delete: {e}"),
         }
     }
 
     pub fn cursor_index(&self) -> usize {
-        self.index(self.cursor.coord)
+        self.index(self.cursor.position())
     }
 
     ///
-    /// Convert x, y coordinates to a linear index
-    /// panic if the index is out of bounds
+    /// Convert a Position into a linear index.
+    /// Total: a Position can only come from a Grid, so it is in range for the
+    /// Grid that minted it.
     ///
-    pub fn index(&self, coord: Coord) -> usize {
-        let idx = coord.y * self.opts.cols + coord.x;
-        assert!(
-            idx <= self.opts.cols * self.opts.rows,
-            "index {idx} out of bounds for [{},{}]",
-            coord.x,
-            coord.y,
-        );
-        idx
+    pub fn index(&self, position: Position) -> usize {
+        self.grid.index(position)
     }
 
     pub fn get(&self, x: usize, y: usize) -> GlyphString {
-        let idx = self.index(Coord::new(x, y));
+        // TODO(issue 09): unreachable once Console iterates the Positions the
+        // Grid yields rather than stating its own loop bounds.
+        // See .scratch/source-playback-engine/issues/09-rendering-addresses-cells-through-the-grid.md
+        let Some(position) = self.grid.position(x, y) else {
+            return GlyphString::space();
+        };
+
+        let idx = self.index(position);
 
         let (s, g) = self.source.get(idx);
         match g {
@@ -100,22 +112,22 @@ impl App {
                     key: Key::ArrowDown,
                     pressed: true,
                     ..
-                } => self.cursor.down(),
+                } => self.cursor.select(self.grid.down(self.cursor.position())),
                 Event::Key {
                     key: Key::ArrowLeft,
                     pressed: true,
                     ..
-                } => self.cursor.left(),
+                } => self.cursor.select(self.grid.left(self.cursor.position())),
                 Event::Key {
                     key: Key::ArrowRight,
                     pressed: true,
                     ..
-                } => self.cursor.right(),
+                } => self.cursor.select(self.grid.right(self.cursor.position())),
                 Event::Key {
                     key: Key::ArrowUp,
                     pressed: true,
                     ..
-                } => self.cursor.up(),
+                } => self.cursor.select(self.grid.up(self.cursor.position())),
                 Event::Key {
                     key: Key::Backspace,
                     pressed: true,
@@ -160,7 +172,7 @@ impl App {
         }
 
         // Highlight
-        if in_marker_block(self.cursor.coord, x, y, self.opts.marker_spacing) {
+        if in_marker_block(self.cursor.position(), x, y, self.opts.marker_spacing) {
             if x % self.opts.highlight_dot_spacing == 0 && y % self.opts.highlight_dot_spacing == 0
             {
                 return GlyphString::highlight();
@@ -231,14 +243,15 @@ impl App {
 /// True when (x, y) falls inside the marker block containing `cursor`.
 /// Purely visual: `spacing` is the marker spacing, not a Source dimension.
 ///
-fn in_marker_block(cursor: Coord, x: usize, y: usize, spacing: f32) -> bool {
-    assert!(spacing != 0.0);
-
+fn in_marker_block(cursor: Position, x: usize, y: usize, spacing: f32) -> bool {
     let x = x as i32;
     let y = y as i32;
-    let cursor_x = cursor.x as i32;
-    let cursor_y = cursor.y as i32;
+    let cursor_x = cursor.x() as i32;
+    let cursor_y = cursor.y() as i32;
+    // Narrowed first: a spacing between 0 and 1 truncates to zero, and so does
+    // NaN, so this is the value the divisions below actually use
     let spacing = spacing as i32;
+    assert!(spacing > 0, "marker spacing must be at least one Cell");
 
     let min_x = ((cursor_x / spacing) * spacing) - 1;
     let max_x = (1 + (cursor_x / spacing)) * spacing;
@@ -253,8 +266,8 @@ mod test {
 
     use super::{in_marker_block, App};
     use crate::{
-        coord::Coord,
         glyph::{Glyph, GlyphString},
+        grid::Grid,
         opts::DEFAULT_MARKER_SPACING,
         test::trace,
     };
@@ -273,46 +286,53 @@ mod test {
             }
         }
 
+        /// Unlike `select_at`, which ignores a position outside the Grid, these
+        /// panic: a test that silently wrote to the previously selected Cell
+        /// would assert nothing about the Cell it named.
+        fn select_or_panic(&mut self, x: usize, y: usize) {
+            let position = self
+                .grid
+                .position(x, y)
+                .unwrap_or_else(|| panic!("test position ({x}, {y}) is outside the Grid"));
+            self.cursor.select(position);
+        }
+
         pub fn delete_at(&mut self, x: usize, y: usize) {
-            self.cursor.select_at(x, y);
+            self.select_or_panic(x, y);
             self.delete()
         }
 
         pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
-            self.cursor.select_at(x, y);
+            self.select_or_panic(x, y);
             self.write(&s.to_owned());
-        }
-    }
-
-    impl From<(usize, usize)> for Coord {
-        fn from((x, y): (usize, usize)) -> Self {
-            Coord::new(x, y)
         }
     }
 
     #[tokio::test]
     async fn test_to_idx() {
         trace();
-        let app = App::new(10, 10);
+        let app = App::new(10, 4);
 
-        let coord = Coord::new(0, 0);
-        let idx = app.index(coord);
+        let position = app.grid.position(0, 0).expect("inside the grid");
+        let idx = app.index(position);
         assert_eq!(idx, 0);
 
-        let coord = Coord::new(5, 5);
-        let idx = app.index(coord);
-        assert_eq!(idx, 55);
+        let position = app.grid.position(5, 3).expect("inside the grid");
+        let idx = app.index(position);
+        assert_eq!(idx, 35);
     }
 
     #[tokio::test]
-    #[should_panic(expected = "index 121 out of bounds for [11,11]")]
-    async fn test_to_idx_out_of_bounds() {
+    async fn test_get_outside_the_grid_is_blank() {
         trace();
-        let app = App::new(10, 10);
 
-        let coord = Coord::new(11, 11);
+        // 8 columns, 1 row
+        let app = app();
 
-        let _ = app.index(coord);
+        // past the last column
+        assert_eq!(app.get(8, 0), GlyphString::space());
+        // past the last row
+        assert_eq!(app.get(0, 1), GlyphString::space());
     }
 
     #[tokio::test]
@@ -335,11 +355,11 @@ mod test {
         trace();
 
         let mut app = app();
-        app.cursor.select_at(0, 0);
+        app.select_at(0, 0);
 
         app.write(&"+".to_string());
 
-        assert_eq!(app.cursor.coord, Coord::new(1, 0));
+        assert_eq!(app.cursor.position(), app.grid.position(1, 0).unwrap());
     }
 
     #[tokio::test]
@@ -352,7 +372,7 @@ mod test {
 
         app.delete_at(1, 0);
 
-        assert_eq!(app.cursor.coord, Coord::new(0, 0));
+        assert_eq!(app.cursor.position(), app.grid.position(0, 0).unwrap());
         assert_eq!(app.get(1, 0), GlyphString::space());
     }
 
@@ -361,7 +381,7 @@ mod test {
         trace();
 
         let mut app = app();
-        app.cursor.select_at(7, 0);
+        app.select_at(7, 0);
 
         let g = app.terminator(0, 0);
         assert_eq!(g, GlyphString::marker());
@@ -377,8 +397,10 @@ mod test {
     fn test_in_marker_block() {
         trace();
         let spacing = 8.0;
+        let grid = Grid::new(64, 56);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        let selected = Coord::new(5, 5);
+        let selected = at(5, 5);
         assert!(!in_marker_block(selected, 10, 10, spacing));
         for x in 0..spacing as usize {
             for y in 0..spacing as usize {
@@ -386,7 +408,7 @@ mod test {
             }
         }
 
-        let selected = Coord::new(8, 8);
+        let selected = at(8, 8);
         assert!(!in_marker_block(selected, 1, 1, spacing));
 
         for x in 8..=16 as usize {
@@ -396,7 +418,7 @@ mod test {
         }
 
         // Marker block X 5 Y 6
-        let selected = Coord::new(42, 51);
+        let selected = at(42, 51);
         assert!(!in_marker_block(selected, 1, 1, spacing));
         for x in 0..=spacing as usize {
             for y in 0..=spacing as usize {

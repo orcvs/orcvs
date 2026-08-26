@@ -145,7 +145,7 @@ impl eframe::App for Console {
                             .frame(true);
 
                         if ui.add(button).clicked() {
-                            self.app.cursor.select_at(x, y);
+                            self.app.select_at(x, y);
                         }
                     }
                 });

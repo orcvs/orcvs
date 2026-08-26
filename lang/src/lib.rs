@@ -12,7 +12,7 @@ pub use error::{ArgumentError, Error, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::Interpreter;
 pub use parser::Parser;
-pub use portal::{Coord, Portal};
+pub use portal::Portal;
 pub use stack::Stack;
 
 use std::sync::Once;

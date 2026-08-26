@@ -2,9 +2,9 @@
 
 pub mod app;
 pub mod console;
-pub mod coord;
 pub mod cursor;
 pub mod glyph;
+pub mod grid;
 pub mod opts;
 pub mod source;
 pub mod style;
