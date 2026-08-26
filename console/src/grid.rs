@@ -98,12 +98,13 @@ impl Grid {
     /// as its first Cell. A row is the whole horizontal extent there is:
     /// nothing continues onto the next one.
     ///
-    /// Total: a Position is inside the Grid that minted it, so its column is
-    /// before the column count.
+    /// A Position carries no grid identity, so one minted by a wider Grid can
+    /// be asked here. Its column is past this Grid's last column, and nothing
+    /// fits past the end of a row: the answer is `false`.
     ///
     #[inline]
     pub fn fits(&self, pos: Position, width: usize) -> bool {
-        width <= self.cols - pos.x
+        width <= self.cols.saturating_sub(pos.x)
     }
 
     ///
@@ -409,5 +410,20 @@ mod test {
         // the last column holds one Cell, and nothing wraps onto the next row
         assert!(grid.fits(at(3, 0), 1));
         assert!(!grid.fits(at(3, 0), 2));
+    }
+
+    #[test]
+    fn test_grid_fits_nothing_at_a_position_it_did_not_mint() {
+        trace();
+
+        // A Position is a bare pair carrying no grid identity, so one minted by
+        // a wider Grid can be handed to a narrower one. Its column is past this
+        // Grid's last column, where there is no room for anything.
+        let wide = Grid::new(10, 2);
+        let narrow = Grid::new(4, 2);
+
+        let foreign = wide.position(9, 0).expect("inside the wider grid");
+
+        assert!(!narrow.fits(foreign, 1));
     }
 }
