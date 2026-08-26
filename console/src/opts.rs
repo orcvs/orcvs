@@ -3,16 +3,15 @@ use egui::FontId;
 pub const DEFAULT_FONT_SIZE: f32 = 20.0;
 pub const DEFAULT_MARKER_SPACING: f32 = 8.0;
 
-pub const DEFAULT_COL_COUNT: usize = 2 * (DEFAULT_MARKER_SPACING as usize);
-pub const DEFAULT_ROW_COUNT: usize = 2 * (DEFAULT_MARKER_SPACING as usize);
-
 pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 2;
 
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
 ///
-/// How the console presents and plays a Source. Its dimensions are not here:
-/// those belong to the Grid, which is the only thing that states them.
+/// How the console presents and plays a Source. Nothing in this file is a
+/// Source dimension: column and row counts belong to the Grid, which is the
+/// only thing that states them. `marker_spacing` is a visual rhythm drawn
+/// over the Cells, not a count of them.
 ///
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]

@@ -21,6 +21,14 @@ impl Position {
 }
 
 ///
+/// The shape a console starts with, until something states another one. A
+/// Grid's dimensions are its own: they are stated here as Cell counts, and
+/// derived from nothing else.
+///
+pub const DEFAULT_COL_COUNT: usize = 16;
+pub const DEFAULT_ROW_COUNT: usize = 16;
+
+///
 /// The fixed rectangular shape a Source occupies: its column and row counts,
 /// and the valid positions within them. The Grid is the shape; the Source is
 /// the contents.

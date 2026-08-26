@@ -1,6 +1,11 @@
 use egui::{EventFilter, Rounding, Vec2};
 
-use crate::{app::App, glyph::CURSOR_VISUALS, opts, style::style};
+use crate::{
+    app::App,
+    glyph::CURSOR_VISUALS,
+    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
+    style::style,
+};
 
 /// ConsoleApp wraps the inner App
 /// ConsoleApp handles the egui presentation concerns
@@ -42,7 +47,7 @@ impl Console {
         cc.egui_ctx.set_fonts(fonts);
 
         Self {
-            app: App::new(opts::DEFAULT_COL_COUNT, opts::DEFAULT_ROW_COUNT),
+            app: App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
         }
     }
 }
