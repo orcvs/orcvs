@@ -410,6 +410,8 @@ impl fmt::Display for Source {
 #[cfg(test)]
 mod test {
 
+    use std::ops::{Deref, DerefMut};
+
     use crate::{
         glyph::Glyph,
         grid::Grid,
@@ -418,42 +420,110 @@ mod test {
     };
 
     ///
-    /// The shape every test in this module works against. Rectangular on
-    /// purpose: a Source that derived a dimension of its own, or read the two
-    /// the wrong way round, addresses different Cells here than it does on a
-    /// square one. The tests state it once, here, and ask it for the rest.
+    /// The default shape for tests in this module. Rectangular on purpose: a
+    /// Source that derived a dimension of its own, or read the two the wrong
+    /// way round, addresses different Cells here than it does on a square one.
     ///
     fn grid() -> Grid {
         Grid::new(10, 6)
     }
 
-    fn source() -> Source {
-        Source::new(grid())
+    ///
+    /// A Source under test, together with the Grid it was built from. Every
+    /// test obtains its Source here, so the shape a helper reads is always the
+    /// shape the Source was built on: this owns the only constructor, mints
+    /// the Source from the Grid it keeps, and hands neither out for
+    /// replacement. Two different shapes are not expressible, and a Source
+    /// built outside it has no row helper to call.
+    ///
+    /// It derefs to the Source so a test still speaks to a Source directly.
+    ///
+    struct SourceUnderTest {
+        grid: Grid,
+        src: Source,
     }
 
-    ///
-    /// Types `s` into consecutive Cells starting at `idx`, one accepted edit
-    /// per Cell, exactly as a user would.
-    ///
-    fn write(src: &mut Source, idx: usize, s: &str) {
-        for (i, c) in s.chars().enumerate() {
-            src.set(idx + i, &c.to_string()).unwrap();
+    impl SourceUnderTest {
+        fn new(grid: Grid) -> Self {
+            Self {
+                grid,
+                src: Source::new(grid),
+            }
+        }
+
+        ///
+        /// Types `s` into consecutive Cells starting at `idx`, one accepted
+        /// edit per Cell, exactly as a user would.
+        ///
+        fn write(&mut self, idx: usize, s: &str) {
+            for (i, c) in s.chars().enumerate() {
+                self.src.set(idx + i, &c.to_string()).unwrap();
+            }
+        }
+
+        ///
+        /// The Cells of row `row`, spaces included. The Grid names the Cells
+        /// of a row and where each one sits, so no test restates a width of
+        /// its own.
+        ///
+        fn row(&self, row: usize) -> String {
+            let cells: Vec<char> = self.src.snapshot().chars().collect();
+
+            self.grid
+                .rows()
+                .nth(row)
+                .expect("a row of the grid")
+                .map(|position| cells[self.grid.index(position)])
+                .collect()
+        }
+
+        ///
+        /// How many Cells this Source has, asked of the Grid it was built
+        /// from.
+        ///
+        fn count(&self) -> usize {
+            self.grid.count()
+        }
+
+        ///
+        /// How many rows this Source has, asked of the Grid it was built from.
+        ///
+        fn row_count(&self) -> usize {
+            self.grid.rows().count()
         }
     }
 
-    ///
-    /// The Cells of row `row`, spaces included. The Grid names the Cells of a
-    /// row and where each one sits, so no test restates a width of its own.
-    ///
-    fn row(src: &Source, row: usize) -> String {
-        let grid = grid();
-        let cells: Vec<char> = src.snapshot().chars().collect();
+    impl Deref for SourceUnderTest {
+        type Target = Source;
 
-        grid.rows()
-            .nth(row)
-            .expect("a row of the grid")
-            .map(|position| cells[grid.index(position)])
-            .collect()
+        fn deref(&self) -> &Source {
+            &self.src
+        }
+    }
+
+    impl DerefMut for SourceUnderTest {
+        fn deref_mut(&mut self) -> &mut Source {
+            &mut self.src
+        }
+    }
+
+    fn source() -> SourceUnderTest {
+        SourceUnderTest::new(grid())
+    }
+
+    #[test]
+    fn test_row_reads_the_shape_of_the_source_under_test() {
+        trace();
+
+        // A Source built on a shape other than this module's default. The row
+        // helper must read the Cells of *this* Source, not the ones a Grid it
+        // was never built from would name.
+        let mut src = SourceUnderTest::new(Grid::new(8, 4));
+
+        src.write(0, "++0102");
+        src.execute();
+
+        assert_eq!(src.row(1), "03      ");
     }
 
     #[test]
@@ -464,14 +534,14 @@ mod test {
         let before = src.snapshot();
 
         // one past the last Cell the Grid addresses
-        let past_the_end = grid().count();
+        let past_the_end = src.count();
         let err = src.set(past_the_end, "x").unwrap_err();
 
         assert_eq!(
             err,
             SourceError::OutOfRange {
                 idx: past_the_end,
-                len: grid().count()
+                len: src.count()
             }
         );
         assert_eq!(src.snapshot(), before);
@@ -490,7 +560,7 @@ mod test {
             err,
             SourceError::OutOfRange {
                 idx: 200,
-                len: grid().count()
+                len: src.count()
             }
         );
         assert_eq!(src.snapshot(), before);
@@ -627,7 +697,7 @@ mod test {
                 Some(Glyph::Number),
             ]
         );
-        assert_eq!(row(&src, 0), "++0101    ");
+        assert_eq!(src.row(0), "++0101    ");
     }
 
     #[test]
@@ -650,7 +720,7 @@ mod test {
         // `id++0101` commits `02` across Cells 10 and 11. The stale Expression
         // at Cell 2 would commit its own `02` over Cells 12 and 13, so the row
         // is asserted whole: only the joined Expression's result may appear.
-        assert_eq!(row(&src, 1), "02        ");
+        assert_eq!(src.row(1), "02        ");
     }
 
     #[test]
@@ -684,7 +754,7 @@ mod test {
         // whole two-Cell result; the lone `x` left at Cell 0 is a literal and
         // commits nothing
         src.execute();
-        assert_eq!(row(&src, 1), "  02      ");
+        assert_eq!(src.row(1), "  02      ");
     }
 
     #[test]
@@ -697,7 +767,7 @@ mod test {
         src.set(5, " ").unwrap();
 
         assert_eq!(src.get(5), None);
-        assert_eq!(src.snapshot(), " ".repeat(grid().count()));
+        assert_eq!(src.snapshot(), " ".repeat(src.count()));
     }
 
     #[test]
@@ -707,11 +777,11 @@ mod test {
         let mut src = source();
 
         // The README example: `++0102` is 1 + 2, and a Number is two Cells wide
-        write(&mut src, 0, "++0102");
+        src.write(0, "++0102");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "03        ");
+        assert_eq!(src.row(1), "03        ");
         assert_eq!(src.get(10), Some("0".to_string()));
         assert_eq!(src.get(11), Some("3".to_string()));
     }
@@ -724,11 +794,11 @@ mod test {
 
         // Numbers are hexadecimal, so 5 + 5 is `0A` — a Cell holding only the
         // leading `0` would be a truncated, and wrong, result
-        write(&mut src, 0, "++0505");
+        src.write(0, "++0505");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "0A        ");
+        assert_eq!(src.row(1), "0A        ");
     }
 
     #[test]
@@ -740,12 +810,12 @@ mod test {
         // An Expression in the bottom row has nowhere to write: its result
         // falls outside the Source and is discarded, never clamped onto a Cell
         // the user owns
-        write(&mut src, 50, "++0102");
-        write(&mut src, 59, "Z");
+        src.write(50, "++0102");
+        src.write(59, "Z");
 
         src.execute();
 
-        assert_eq!(row(&src, 5), "++0102   Z");
+        assert_eq!(src.row(5), "++0102   Z");
         assert_eq!(src.get(59), Some("Z".to_string()));
     }
 
@@ -758,12 +828,12 @@ mod test {
         // An Expression starting in the last column: its two-Cell result would
         // have to wrap onto the following row, so the whole result is discarded
         // rather than split. (The Expression itself still wraps — issue 02.)
-        write(&mut src, 9, "++0102");
+        src.write(9, "++0102");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "+0102     ");
-        assert_eq!(row(&src, 2), "          ");
+        assert_eq!(src.row(1), "+0102     ");
+        assert_eq!(src.row(2), "          ");
     }
 
     #[test]
@@ -777,11 +847,11 @@ mod test {
         // and no more. A `fits` that did not count the target Cell as the
         // result's own first Cell would discard this. (The Expression itself
         // still wraps — issue 02.)
-        write(&mut src, 8, "++0102");
+        src.write(8, "++0102");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "0102    03");
+        assert_eq!(src.row(1), "0102    03");
     }
 
     #[test]
@@ -792,11 +862,11 @@ mod test {
 
         // A bare Number is not a computation: the Interpreter has nothing to
         // apply, so the Expression has no result to commit
-        write(&mut src, 0, "03");
+        src.write(0, "03");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "          ");
+        assert_eq!(src.row(1), "          ");
     }
 
     #[test]
@@ -804,7 +874,7 @@ mod test {
         trace();
 
         let mut src = source();
-        write(&mut src, 0, "++0102");
+        src.write(0, "++0102");
 
         src.execute();
         let after_first_tick = src.snapshot();
@@ -816,11 +886,11 @@ mod test {
             assert_eq!(src.snapshot(), after_first_tick);
         }
 
-        assert_eq!(row(&src, 0), "++0102    ");
-        assert_eq!(row(&src, 1), "03        ");
+        assert_eq!(src.row(0), "++0102    ");
+        assert_eq!(src.row(1), "03        ");
         // and every row below the one it wrote is still empty
-        for r in 2..grid().rows().count() {
-            assert_eq!(row(&src, r), "          ", "row {r} is untouched");
+        for r in 2..src.row_count() {
+            assert_eq!(src.row(r), "          ", "row {r} is untouched");
         }
     }
 
@@ -833,11 +903,11 @@ mod test {
         // `id` with no operand does contain a Function, but the Interpreter
         // has nothing to identify: the empty result is the absence of a value
         // and must never reach a Cell
-        write(&mut src, 0, "id");
+        src.write(0, "id");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "          ");
+        assert_eq!(src.row(1), "          ");
     }
 
     #[test]
@@ -848,11 +918,11 @@ mod test {
 
         // `id1` is a computation — suppressing literals must not suppress a
         // Function applied to one
-        write(&mut src, 0, "id1");
+        src.write(0, "id1");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "1         ");
+        assert_eq!(src.row(1), "1         ");
     }
 
     #[test]
@@ -863,12 +933,12 @@ mod test {
 
         // `++` with no operands fails to evaluate; the `++0102` beside it is
         // unrelated and must still commit its `03` in the same Tick
-        write(&mut src, 0, "++");
-        write(&mut src, 3, "++0102");
+        src.write(0, "++");
+        src.write(3, "++0102");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "   03     ");
+        assert_eq!(src.row(1), "   03     ");
     }
 
     #[test]
@@ -880,12 +950,12 @@ mod test {
         // The row 0 Expression commits `02` over the first two Cells of the
         // row 1 Expression. Row 1 must still evaluate the `++0304` that was
         // there when the Tick began, not the `020304` the write leaves behind.
-        write(&mut src, 0, "++0101");
-        write(&mut src, 10, "++0304");
+        src.write(0, "++0101");
+        src.write(10, "++0304");
 
         src.execute();
 
-        assert_eq!(row(&src, 1), "020304    ");
-        assert_eq!(row(&src, 2), "07        ");
+        assert_eq!(src.row(1), "020304    ");
+        assert_eq!(src.row(2), "07        ");
     }
 }
