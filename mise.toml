@@ -1,0 +1,24 @@
+
+
+
+[tasks.run]
+alias = 'r'
+description = "run"
+run = 'cargo run'
+
+[tasks.test]
+alias = 't'
+description = "All test"
+run = 'cargo nextest run --no-fail-fast --nocapture'
+
+[tasks.test_console]
+alias = 'tc'
+description = "Console tests"
+env = { RUST_BACKTRACE = 'full' }
+run = 'cargo nextest run --package console --no-fail-fast --nocapture {{arg(name="test",default="")}}'
+
+[tasks.test_lang]
+alias = 'tl'
+description = "Lang tests"
+env = { RUST_BACKTRACE = 'full' }
+run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
