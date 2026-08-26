@@ -1,6 +1,6 @@
 use lang::{Atom, Atoms, Expression, Interpreter, Parser};
-use std::fmt;
-use tracing::{debug, warn};
+use std::{collections::BTreeMap, fmt};
+use tracing::debug;
 
 use crate::glyph::Glyph;
 use crate::grid::Grid;
@@ -43,6 +43,25 @@ pub struct Diagnostic {
     pub start: usize,
     pub end: usize,
     pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellWrite {
+    pub idx: usize,
+    pub content: char,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TickPlan {
+    pub writes: Vec<CellWrite>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TickResult {
+    pub plan: TickPlan,
+    pub snapshot: String,
+    pub changes: Vec<Cell>,
 }
 
 ///
@@ -274,86 +293,122 @@ impl Source {
     /// committed by one Expression can never become another Expression's input
     /// within the same Tick.
     ///
-    pub fn execute(&mut self) {
-        // The whole snapshot is interpreted before the first write
-        let results: Vec<_> = self
-            .parsed
-            .iter()
-            .map(|o| {
-                o.as_ref()
-                    .filter(|atoms| Self::is_computation(atoms))
-                    .map(Interpreter::execute)
-            })
-            .collect();
+    pub fn execute(&mut self) -> TickResult {
+        let plan = self.plan_tick();
+        let changes = self.commit_tick(&plan);
 
-        for (start, o) in results.iter().enumerate() {
-            let a = match o {
-                // Not the start of an Expression, or an Expression that
-                // computes nothing
-                None => continue,
-                // A failing Expression suppresses only its own result and
-                // leaves every other result in this Tick untouched.
-                // TODO(issue 03): this diagnostic belongs in the Tick Plan so
-                // a failure is reportable rather than only loggable.
-                // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
-                Some(Err(e)) => {
-                    warn!("Expression at {start} failed to evaluate: {e}");
+        TickResult {
+            plan,
+            snapshot: self.snapshot(),
+            changes,
+        }
+    }
+
+    fn plan_tick(&self) -> TickPlan {
+        let mut writes = BTreeMap::new();
+        let mut diagnostics = Vec::new();
+
+        for (start, atoms) in self.parsed.iter().enumerate() {
+            let Some(atoms) = atoms.as_ref().filter(|atoms| Self::is_computation(atoms)) else {
+                continue;
+            };
+            let range = self
+                .map
+                .get(start)
+                .expect("parsed Expressions have a Source range");
+
+            let result = match Interpreter::execute(atoms) {
+                Ok(Atom::Empty) => continue,
+                Ok(result) => result,
+                Err(error) => {
+                    diagnostics.push(Diagnostic {
+                        start: range.start,
+                        end: range.end,
+                        message: error.to_string(),
+                    });
                     continue;
                 }
-                Some(Ok(a)) => a,
             };
-
-            // `Atom::Empty` is the absence of a result, not a value, so it is
-            // never written — an Expression whose operands are missing leaves
-            // the Cells below it alone
-            if matches!(a, Atom::Empty) {
-                debug!("Expression at {start} produced no result");
-                continue;
-            }
-
-            let encoded = a.to_string();
-
-            // Total: `parsed` holds one entry per Cell, so `start` is an index
-            // this Grid addresses
+            let encoded = result.to_string();
             let origin = self
                 .grid
                 .position_at(start)
                 .expect("parsed holds one entry per Cell");
-
-            // An Expression writes its result into the row below its own
-            // start. In the bottom row there is no such row, so the result
-            // falls outside the Source and is discarded, never clamped onto a
-            // Cell the Expression does not own.
-            // TODO(issue 03): a discard is a diagnostic the Tick Plan should
-            // report rather than only log.
-            // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
             let Some(target) = self.grid.below(origin) else {
-                debug!("discarded {encoded:?} from Expression at {start}: below the bottom row");
+                diagnostics.push(Diagnostic {
+                    start: range.start,
+                    end: range.end,
+                    message: format!("result {encoded:?} falls below the Source"),
+                });
                 continue;
             };
-
-            // An Expression never wraps across rows, and neither does its
-            // result: a value too wide for the Cells left in the row is
-            // discarded whole rather than split across two rows
             if !self.grid.fits(target, encoded.chars().count()) {
-                debug!(
-                    "discarded {encoded:?} from Expression at {start}: does not fit before the row edge"
-                );
+                diagnostics.push(Diagnostic {
+                    start: range.start,
+                    end: range.end,
+                    message: format!("result {encoded:?} crosses the row edge"),
+                });
                 continue;
             }
 
-            // A result is written as its complete encoding, one Cell per
-            // character, left to right from the target Cell.
-            //
-            // `idx + i` is the one index this file still derives by hand. The
-            // `fits` check above is its sole warrant: it, and nothing here,
-            // is what keeps the walk inside the target's row.
-            let idx = self.grid.index(target);
-            for (i, c) in encoded.chars().enumerate() {
-                if let Err(e) = self.set(idx + i, &c.to_string()) {
-                    debug!("discarded result at {}: {e}", idx + i);
-                }
+            let target_idx = self.grid.index(target);
+            for (offset, content) in encoded.chars().enumerate() {
+                // Expressions are visited in Source order, so insertion gives
+                // a later Expression ownership of only the Cells it overlaps.
+                writes.insert(
+                    target_idx + offset,
+                    CellWrite {
+                        idx: target_idx + offset,
+                        content,
+                    },
+                );
             }
+        }
+
+        TickPlan {
+            writes: writes.into_values().collect(),
+            diagnostics,
+        }
+    }
+
+    fn commit_tick(&mut self, plan: &TickPlan) -> Vec<Cell> {
+        let before_cells = self.inner.as_bytes().to_vec();
+        let before_glyphs = self.glyphs.clone();
+
+        // Commit every planned Cell before rebuilding any derived state.
+        for write in &plan.writes {
+            self.set_source(write.idx, write.content as u8);
+        }
+        self.rebuild_derived_state();
+
+        self.inner
+            .bytes()
+            .enumerate()
+            .filter(|&(idx, byte)| {
+                byte != before_cells[idx] || self.glyphs[idx] != before_glyphs[idx]
+            })
+            .map(|(idx, byte)| Cell {
+                idx,
+                content: (byte != SPACE_BYTE).then_some(byte as char),
+                glyph: self.glyphs[idx],
+            })
+            .collect()
+    }
+
+    fn rebuild_derived_state(&mut self) {
+        self.map = ExpressionMap::new(self.grid);
+        self.glyphs.fill(None);
+        self.parsed.fill(None);
+        self.diagnostics.fill(None);
+
+        for (idx, byte) in self.inner.bytes().enumerate() {
+            if byte != SPACE_BYTE {
+                self.map.set(idx);
+            }
+        }
+        for start in self.expression_starts(0, self.grid.count() - 1) {
+            let range = self.map.get(start).expect("Expression starts have a range");
+            self.parse_range(range);
         }
     }
 
@@ -891,11 +946,32 @@ mod test {
         // The README example: `++0102` is 1 + 2, and a Number is two Cells wide
         src.write(0, "++0102");
 
-        src.execute();
+        let tick = src.execute();
 
         assert_eq!(src.row(1), "03        ");
         assert_eq!(src.get(10), Some("0".to_string()));
         assert_eq!(src.get(11), Some("3".to_string()));
+        assert_eq!(tick.snapshot, src.snapshot());
+        assert_eq!(tick.plan.writes.len(), 2);
+        assert_eq!(tick.plan.writes[0].idx, 10);
+        assert_eq!(tick.plan.writes[0].content, '0');
+        assert_eq!(tick.plan.writes[1].idx, 11);
+        assert_eq!(tick.plan.writes[1].content, '3');
+        assert_eq!(
+            tick.changes,
+            vec![
+                Cell {
+                    idx: 10,
+                    content: Some('0'),
+                    glyph: None,
+                },
+                Cell {
+                    idx: 11,
+                    content: Some('3'),
+                    glyph: None,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -925,10 +1001,19 @@ mod test {
         src.write(50, "++0102");
         src.write(59, "Z");
 
-        src.execute();
+        let tick = src.execute();
 
         assert_eq!(src.row(5), "++0102   Z");
         assert_eq!(src.get(59), Some("Z".to_string()));
+        assert!(tick.plan.writes.is_empty());
+        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert_eq!(tick.plan.diagnostics[0].start, 50);
+        assert_eq!(tick.plan.diagnostics[0].end, 55);
+        assert_eq!(
+            tick.plan.diagnostics[0].message,
+            "result \"03\" falls below the Source"
+        );
+        assert!(tick.changes.is_empty());
     }
 
     #[test]
@@ -1065,9 +1150,17 @@ mod test {
         src.write(0, "++");
         src.write(3, "++0102");
 
-        src.execute();
+        let tick = src.execute();
 
         assert_eq!(src.row(1), "   03     ");
+        assert_eq!(tick.plan.writes.len(), 2);
+        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert_eq!(tick.plan.diagnostics[0].start, 0);
+        assert_eq!(tick.plan.diagnostics[0].end, 1);
+        assert_eq!(
+            tick.plan.diagnostics[0].message,
+            "expected a number, found \"_\""
+        );
     }
 
     #[test]
