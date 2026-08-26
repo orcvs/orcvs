@@ -320,7 +320,11 @@ impl Source {
             }
 
             // A result is written as its complete encoding, one Cell per
-            // character, left to right from the target Cell
+            // character, left to right from the target Cell.
+            //
+            // `idx + i` is the one index this file still derives by hand. The
+            // `fits` check above is its sole warrant: it, and nothing here,
+            // is what keeps the walk inside the target's row.
             let idx = self.grid.index(target);
             for (i, c) in encoded.chars().enumerate() {
                 if let Err(e) = self.set(idx + i, &c.to_string()) {
