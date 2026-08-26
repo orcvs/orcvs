@@ -28,3 +28,9 @@ The Source still speaks in indices at every boundary: `set`, `unset`, `get`, `Ce
 Source tests moved from a square 10 x 10 to a rectangular 10 x 6, which is what makes criterion 6 mean anything — a transposed or self-derived dimension addresses different Cells on a rectangle and the placement, bottom-row and row-edge tests all catch it. The empty-Source Tick test is deleted rather than ported: `Grid::new` asserts at least one column and one row, so `Source::new` cannot be handed a shape with no Cells and the underflow that test guarded against is unreachable.
 
 Honest accounting of the red steps: the three Grid queries had genuine behavioural reds. Everything downstream was a compile error against the new signatures, followed by the rectangular-grid test updates, which were index arithmetic rather than new coverage. 78 tests pass (76 before, plus 3 Grid tests, minus the deleted empty-Source one), the doctest passes, and clippy reports nothing new on the touched files.
+
+**2026-08-26 — unasked-for change (agent)**
+
+A further change landed on this branch that no issue asks for. `App::select_at`, the public method that took an x and y and moved the Cursor if the Grid minted a Position for them, is deleted, and the console's click handler now calls `Cursor::select` directly with the Position `Grid::rows()` had already minted rather than taking it apart for the Grid to mint again. A `compile_fail` doctest on `App` records that no coordinate-taking selection remains, and the two tests that called `select_at` now use the test module's existing `select_or_panic`.
+
+This goes beyond the criteria above, none of which mention selection; neither do issues 08 or 09. It is recorded here because it landed on the same branch as this issue's work, not because this issue called for it.
