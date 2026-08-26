@@ -3,9 +3,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::grid::Grid;
+
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct ExpressionMap {
+    grid: Grid,
     inner: Vec<Option<ExpressionRange>>,
 }
 
@@ -63,9 +66,10 @@ impl Deref for ExpressionRange {
 }
 
 impl ExpressionMap {
-    pub fn new(count: usize) -> Self {
+    pub fn new(grid: Grid) -> Self {
         Self {
-            inner: vec![None; count],
+            grid,
+            inner: vec![None; grid.count()],
         }
     }
 
@@ -142,7 +146,12 @@ impl ExpressionMap {
     }
 
     fn set_inner(&mut self, idx: usize, glyph: bool) {
-        let (lft_idx, lft_exp) = if idx > 0 {
+        let position = self
+            .grid
+            .position_at(idx)
+            .expect("ExpressionMap indices belong to its Grid");
+
+        let (lft_idx, lft_exp) = if position.x() > 0 {
             let idx = idx - 1;
             let exp = self.inner[idx].clone();
             (idx, exp)
@@ -151,7 +160,7 @@ impl ExpressionMap {
             (0, None)
         };
 
-        let (rgt_idx, rgt_exp) = if idx < self.inner.len() - 1 {
+        let (rgt_idx, rgt_exp) = if self.grid.right(position) != position {
             let idx = idx + 1;
             let exp = self.inner[idx].clone();
             (idx, exp)
@@ -202,6 +211,7 @@ impl ExpressionMap {
 mod test {
 
     use crate::{
+        grid::Grid,
         source::expression_map::{ExpressionMap, Range},
         test::trace,
     };
@@ -224,7 +234,7 @@ mod test {
     fn test_expression_join() {
         trace();
 
-        let mut map = ExpressionMap::new(10);
+        let mut map = ExpressionMap::new(Grid::new(10, 1));
 
         map.set(0);
         map.set(1);
@@ -243,7 +253,7 @@ mod test {
     fn test_expression_split() {
         trace();
 
-        let mut map = ExpressionMap::new(10);
+        let mut map = ExpressionMap::new(Grid::new(10, 1));
 
         // {++AABB}
         map.set(0);
@@ -267,7 +277,7 @@ mod test {
     fn test_expression_prepend() {
         trace();
 
-        let mut map = ExpressionMap::new(10);
+        let mut map = ExpressionMap::new(Grid::new(10, 1));
 
         // {     IDAA}
         map.set(6);
@@ -287,7 +297,7 @@ mod test {
     fn test_expression_replace() {
         trace();
 
-        let mut map = ExpressionMap::new(10);
+        let mut map = ExpressionMap::new(Grid::new(10, 1));
 
         // {IDAA       }
         map.set(0);
@@ -307,7 +317,7 @@ mod test {
     fn test_expression_delete_last() {
         trace();
 
-        let mut map = ExpressionMap::new(10);
+        let mut map = ExpressionMap::new(Grid::new(10, 1));
 
         map.set(8);
         map.set(9);
@@ -330,7 +340,7 @@ mod test {
     fn test_expression_edit() {
         trace();
 
-        let mut map = ExpressionMap::new(10);
+        let mut map = ExpressionMap::new(Grid::new(10, 1));
 
         // {x          }
         map.set(0);

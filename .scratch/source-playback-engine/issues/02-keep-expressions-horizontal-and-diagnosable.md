@@ -4,15 +4,15 @@
 
 **Blocked by:** 01 — Make Source edits synchronous and consistent; 10 — Source derives no grid arithmetic.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] An Expression is confined to one row and never joins the last occupied Cell of one row to the first occupied Cell of the next.
-- [ ] Incomplete and invalid Expressions preserve their Cells and receive observable diagnostics instead of rejecting intermediate edits.
-- [ ] Editing an Expression recomputes its classification and diagnostics in the same Source transition.
-- [ ] Fixing or removing the cause of a diagnostic removes that diagnostic from the resulting Source revision.
-- [ ] Behavior tests cover joining, splitting, replacing, and deleting Expressions through Source edits, including rectangular grids and row edges.
-- [ ] Tests no longer require public access to Expression range maintenance merely to verify Source behavior.
-- [ ] Every Tick test that currently records a wrapped Expression as expected-for-now asserts the row-confined outcome instead, so no test still encodes the wrap.
+- [x] An Expression is confined to one row and never joins the last occupied Cell of one row to the first occupied Cell of the next.
+- [x] Incomplete and invalid Expressions preserve their Cells and receive observable diagnostics instead of rejecting intermediate edits.
+- [x] Editing an Expression recomputes its classification and diagnostics in the same Source transition.
+- [x] Fixing or removing the cause of a diagnostic removes that diagnostic from the resulting Source revision.
+- [x] Behavior tests cover joining, splitting, replacing, and deleting Expressions through Source edits, including rectangular grids and row edges.
+- [x] Tests no longer require public access to Expression range maintenance merely to verify Source behavior.
+- [x] Every Tick test that currently records a wrapped Expression as expected-for-now asserts the row-confined outcome instead, so no test still encodes the wrap.
 
 ## Comments
 
@@ -35,3 +35,9 @@ The comment above names one test recording a wrapped Expression as expected-for-
 What it is for is the row edge's other side: a two-Cell result whose last Cell is the last column of its row, which must be committed rather than discarded. It needs a wrapping Expression only because that is the only way to put a result in that Cell today. When this ticket lands, the write splits into `++` at Cells 8 and 9 and a bare `0102` at Cells 10 to 13 — an incomplete Function with no operands and a Number with no Function, neither of which commits anything — so row 1 becomes ten spaces and the assertion inverts. The exact-fit boundary then needs a setup that does not depend on a wrap, or it stops covering anything.
 
 Criterion 7 is reworded from "The Tick test that currently records" to "Every Tick test that currently records", for the same reason: the singular was accurate when written and now understates the work.
+
+**2026-08-26 — implemented (agent)**
+
+`ExpressionMap` now owns the Source's Grid and considers neighbours only within the edited Cell's row. Parser failures are retained as ordered, range-addressed Source diagnostics while the tolerant parse continues to classify and preserve incomplete or invalid user content; accepted edits synchronously replace or remove stale diagnostics. Operand-slot glyph hints and their invalidation walk also stop at the Expression's row edge.
+
+Behavior tests at the Source seam cover the row boundary and current diagnostic lifecycle alongside the existing join, split, replacement, and deletion coverage. Both Tick tests that depended on a wrapped `++0102` now assert the row-confined outcome, and the misleading exact-fit setup was replaced with a row-edge operand-hint assertion because no complete computing Expression can start in the last two columns without itself wrapping.
