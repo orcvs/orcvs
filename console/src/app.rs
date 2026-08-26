@@ -18,17 +18,22 @@ use crate::source::{Command, SourceCommander};
 /// Cursor selecting one of its Positions, and the commander that owns the
 /// Source itself.
 ///
-/// Selection names a Position, and only a Grid mints one. There is no
-/// coordinate-taking selection to hand a pair the Grid would refuse, so a
-/// rejected selection cannot silently leave the Cursor on the Cell it was
-/// already on and send the next write there:
+/// Selection names a Position, and only a Grid mints one. A pair outside the
+/// Grid never becomes a Position at all, so `select` has no rejection to make
+/// and cannot silently leave the Cursor on the Cell it was already on and send
+/// the next write there:
 ///
-/// ```compile_fail
-/// use console::app::App;
+/// ```
+/// use console::grid::Grid;
 ///
-/// let mut app = App::new(16, 16);
+/// let grid = Grid::new(16, 16);
 ///
-/// app.select_at(99, 99);
+/// // the Grid refuses a pair outside itself, so there is no Position to select
+/// assert_eq!(grid.position(99, 99), None);
+///
+/// // every Position `select` can be handed is one the Grid minted
+/// let position = grid.position(15, 15).expect("inside the grid");
+/// assert_eq!((position.x(), position.y()), (15, 15));
 /// ```
 ///
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
