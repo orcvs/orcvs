@@ -1,6 +1,6 @@
-use lang::{Atoms, Expression, Interpreter, Parser};
+use lang::{Atom, Atoms, Expression, Interpreter, Parser};
 use std::fmt;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::glyph::Glyph;
 use crate::opts::Opts;
@@ -215,25 +215,95 @@ impl Source {
         }
     }
 
+    ///
+    /// Whether an Expression computes anything.
+    ///
+    /// An Expression with no Function is a literal — the Interpreter has no
+    /// Function to apply, so a Tick produces no result to commit for it. This
+    /// is what stops a committed result from feeding itself: the value a Tick
+    /// writes is valid Source, but on the next Tick it parses to a literal and
+    /// so commits nothing of its own.
+    ///
+    fn is_computation(atoms: &Atoms) -> bool {
+        atoms.iter().any(|a| matches!(a, Atom::Function(_)))
+    }
+
+    ///
+    /// Runs one Tick: evaluates every Expression against the current Source
+    /// snapshot, then commits the resulting Cell changes.
+    ///
+    /// Every Expression is interpreted before any Cell is written, so a result
+    /// committed by one Expression can never become another Expression's input
+    /// within the same Tick.
+    ///
     pub fn execute(&mut self) {
+        // The whole snapshot is interpreted before the first write
         let results: Vec<_> = self
             .parsed
             .iter()
-            .map(|o| o.as_ref().map(Interpreter::execute))
+            .map(|o| {
+                o.as_ref()
+                    .filter(|atoms| Self::is_computation(atoms))
+                    .map(Interpreter::execute)
+            })
             .collect();
 
-        debug!("{:?}", results);
+        for (start, o) in results.iter().enumerate() {
+            let a = match o {
+                // Not the start of an Expression, or an Expression that
+                // computes nothing
+                None => continue,
+                // A failing Expression suppresses only its own result and
+                // leaves every other result in this Tick untouched.
+                // TODO(issue 03): this diagnostic belongs in the Tick Plan so
+                // a failure is reportable rather than only loggable.
+                // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
+                Some(Err(e)) => {
+                    warn!("Expression at {start} failed to evaluate: {e}");
+                    continue;
+                }
+                Some(Ok(a)) => a,
+            };
 
-        for (idx, o) in results.iter().enumerate() {
-            let idx = (idx + self.opts.cols).clamp(0, self.opts.count() - 1);
+            // An Expression writes its result into the row below its own start
+            let target = start + self.opts.cols;
 
-            if let Some(Ok(a)) = o {
-                // A result may encode to more than one character; only the first
-                // Cell's worth is written for now (multi-Cell commits are Tick Plan work)
-                if let Some(c) = a.to_string().chars().next() {
-                    if let Err(e) = self.set(idx, &c.to_string()) {
-                        debug!("discarded result at {idx}: {e}");
-                    }
+            // `Atom::Empty` is the absence of a result, not a value, so it is
+            // never written — an Expression whose operands are missing leaves
+            // the Cells below it alone
+            if matches!(a, Atom::Empty) {
+                debug!("Expression at {start} produced no result");
+                continue;
+            }
+
+            let encoded = a.to_string();
+
+            // Results outside the Source are discarded, never clamped onto a
+            // Cell the Expression does not own.
+            // TODO(issue 03): a discard is a diagnostic the Tick Plan should
+            // report rather than only log.
+            // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
+            if target >= self.opts.count() {
+                debug!("discarded {encoded:?} from Expression at {start}: below the bottom row");
+                continue;
+            }
+
+            // An Expression never wraps across rows, and neither does its
+            // result: a value too wide for the columns left in the row is
+            // discarded whole rather than split across two rows
+            let col = target % self.opts.cols;
+            if col + encoded.chars().count() > self.opts.cols {
+                debug!(
+                    "discarded {encoded:?} from Expression at {start}: does not fit before the row edge"
+                );
+                continue;
+            }
+
+            // A result is written as its complete encoding, one Cell per
+            // character, left to right from the target Cell
+            for (i, c) in encoded.chars().enumerate() {
+                if let Err(e) = self.set(target + i, &c.to_string()) {
+                    debug!("discarded result at {}: {e}", target + i);
                 }
             }
         }
@@ -324,6 +394,23 @@ mod test {
 
     fn source() -> Source {
         Source::new(Opts::new(10, 10))
+    }
+
+    ///
+    /// Types `s` into consecutive Cells starting at `idx`, one accepted edit
+    /// per Cell, exactly as a user would.
+    ///
+    fn write(src: &mut Source, idx: usize, s: &str) {
+        for (i, c) in s.chars().enumerate() {
+            src.set(idx + i, &c.to_string()).unwrap();
+        }
+    }
+
+    ///
+    /// The Cells of row `row`, spaces included.
+    ///
+    fn row(src: &Source, row: usize) -> String {
+        src.snapshot()[row * 10..(row + 1) * 10].to_string()
     }
 
     #[test]
@@ -497,13 +584,16 @@ mod test {
             src.set(i + 2, &c.to_string()).unwrap();
         }
 
-        // prepending at Cell 1 joins into one Expression starting at Cell 1;
+        // prepending joins everything into one Expression starting at Cell 0;
         // the old Expression starting at Cell 2 no longer exists
-        src.set(1, "+").unwrap();
+        src.set(1, "d").unwrap();
+        src.set(0, "i").unwrap();
         src.execute();
 
-        // no result may appear below Cell 2 — that would be the stale Expression
-        assert_eq!(src.get(12), None);
+        // `id++0101` commits `02` across Cells 10 and 11. The stale Expression
+        // at Cell 2 would commit its own `02` over Cells 12 and 13, so the row
+        // is asserted whole: only the joined Expression's result may appear.
+        assert_eq!(row(&src, 1), "02        ");
     }
 
     #[test]
@@ -533,9 +623,11 @@ mod test {
             ]
         );
 
-        // the split-off Expression evaluates on the next Tick
+        // the split-off Expression evaluates on the next Tick and commits its
+        // whole two-Cell result; the lone `x` left at Cell 0 is a literal and
+        // commits nothing
         src.execute();
-        assert_eq!(src.get(12), Some("0".to_string()));
+        assert_eq!(row(&src, 1), "  02      ");
     }
 
     #[test]
@@ -551,4 +643,186 @@ mod test {
         assert_eq!(src.snapshot(), " ".repeat(100));
     }
 
+    #[test]
+    fn test_result_commits_its_complete_encoding_across_consecutive_cells() {
+        trace();
+
+        let mut src = source();
+
+        // The README example: `++0102` is 1 + 2, and a Number is two Cells wide
+        write(&mut src, 0, "++0102");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "03        ");
+        assert_eq!(src.get(10), Some("0".to_string()));
+        assert_eq!(src.get(11), Some("3".to_string()));
+    }
+
+    #[test]
+    fn test_result_above_nine_commits_both_hexadecimal_cells() {
+        trace();
+
+        let mut src = source();
+
+        // Numbers are hexadecimal, so 5 + 5 is `0A` — a Cell holding only the
+        // leading `0` would be a truncated, and wrong, result
+        write(&mut src, 0, "++0505");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "0A        ");
+    }
+
+    #[test]
+    fn test_result_below_the_bottom_row_is_discarded() {
+        trace();
+
+        let mut src = source();
+
+        // An Expression in the bottom row has nowhere to write: its result
+        // falls outside the Source and is discarded, never clamped onto a Cell
+        // the user owns
+        write(&mut src, 90, "++0102");
+        write(&mut src, 99, "Z");
+
+        src.execute();
+
+        assert_eq!(row(&src, 9), "++0102   Z");
+        assert_eq!(src.get(99), Some("Z".to_string()));
+    }
+
+    #[test]
+    fn test_result_that_cannot_fit_before_the_row_edge_is_discarded() {
+        trace();
+
+        let mut src = source();
+
+        // An Expression starting in the last column: its two-Cell result would
+        // have to wrap onto the following row, so the whole result is discarded
+        // rather than split. (The Expression itself still wraps — issue 02.)
+        write(&mut src, 9, "++0102");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "+0102     ");
+        assert_eq!(row(&src, 2), "          ");
+    }
+
+    #[test]
+    fn test_execute_on_a_source_with_no_cells_does_not_panic() {
+        trace();
+
+        // A Source with no Cells has no Expressions and no room for results;
+        // a Tick over it is a no-op, not an arithmetic underflow
+        for opts in [Opts::new(0, 0), Opts::new(0, 10), Opts::new(10, 0)] {
+            let mut src = Source::new(opts);
+
+            src.execute();
+
+            assert_eq!(src.snapshot(), "");
+        }
+    }
+
+    #[test]
+    fn test_expression_without_a_function_commits_nothing() {
+        trace();
+
+        let mut src = source();
+
+        // A bare Number is not a computation: the Interpreter has nothing to
+        // apply, so the Expression has no result to commit
+        write(&mut src, 0, "03");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "          ");
+    }
+
+    #[test]
+    fn test_repeated_ticks_do_not_cascade_results_down_the_grid() {
+        trace();
+
+        let mut src = source();
+        write(&mut src, 0, "++0102");
+
+        src.execute();
+        let after_first_tick = src.snapshot();
+
+        // A committed result is not itself a computation, so re-Ticking the
+        // same Source re-commits the same Cells and never marches down the grid
+        for _ in 0..4 {
+            src.execute();
+            assert_eq!(src.snapshot(), after_first_tick);
+        }
+
+        assert_eq!(row(&src, 0), "++0102    ");
+        assert_eq!(row(&src, 1), "03        ");
+        assert_eq!(&src.snapshot()[20..], &" ".repeat(80));
+    }
+
+    #[test]
+    fn test_empty_result_of_an_incomplete_function_commits_nothing() {
+        trace();
+
+        let mut src = source();
+
+        // `id` with no operand does contain a Function, but the Interpreter
+        // has nothing to identify: the empty result is the absence of a value
+        // and must never reach a Cell
+        write(&mut src, 0, "id");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "          ");
+    }
+
+    #[test]
+    fn test_function_over_a_literal_still_commits_its_result() {
+        trace();
+
+        let mut src = source();
+
+        // `id1` is a computation — suppressing literals must not suppress a
+        // Function applied to one
+        write(&mut src, 0, "id1");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "1         ");
+    }
+
+    #[test]
+    fn test_failed_expression_suppresses_only_its_own_result() {
+        trace();
+
+        let mut src = source();
+
+        // `++` with no operands fails to evaluate; the `++0102` beside it is
+        // unrelated and must still commit its `03` in the same Tick
+        write(&mut src, 0, "++");
+        write(&mut src, 3, "++0102");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "   03     ");
+    }
+
+    #[test]
+    fn test_every_expression_evaluates_from_the_same_pre_tick_snapshot() {
+        trace();
+
+        let mut src = source();
+
+        // The row 0 Expression commits `02` over the first two Cells of the
+        // row 1 Expression. Row 1 must still evaluate the `++0304` that was
+        // there when the Tick began, not the `020304` the write leaves behind.
+        write(&mut src, 0, "++0101");
+        write(&mut src, 10, "++0304");
+
+        src.execute();
+
+        assert_eq!(row(&src, 1), "020304    ");
+        assert_eq!(row(&src, 2), "07        ");
+    }
 }

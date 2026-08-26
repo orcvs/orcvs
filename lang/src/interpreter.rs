@@ -1,9 +1,7 @@
 use crate::{
     functions::{self, math},
-    Atom, Atoms, Error, Function, Portal, Stack,
+    Atom, Atoms, Error, Function, Stack,
 };
-use arrayvec::ArrayVec;
-use tracing::{error, info, warn};
 
 pub type Args = Stack<16>;
 
@@ -11,19 +9,11 @@ pub struct Interpreter {}
 
 pub struct Context {
     pub stack: Args,
-    pub portals: ArrayVec<Portal, 16>,
 }
 
 impl Context {
     pub fn new() -> Self {
-        Self {
-            stack: Args::new(),
-            portals: ArrayVec::new(),
-        }
-    }
-
-    pub fn push_portal(&mut self, portal: Portal) {
-        self.portals.push(portal);
+        Self { stack: Args::new() }
     }
 }
 
@@ -50,14 +40,11 @@ impl Interpreter {
             ctx.stack.push(atom);
         }
 
+        // Final element in the stack is the result.
+        // TODO(issue 03): the result destination belongs in a Tick Plan rather than
+        // being hardcoded by the caller.
+        // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
         let atom = ctx.stack.pop().into();
-        // let portal = Portal::new(ctx.stack.pop().into(), 0, 0);
-
-        // warn!("{:?}", portal);
-
-        // Final element in stack is the result
-        // let atom = stack.pop().into();
-        // Ok(portal)
         Ok(atom)
     }
 }
@@ -69,8 +56,6 @@ mod test {
         interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, TypeError,
     };
     use tracing::{error, info};
-
-    use super::Portal;
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
@@ -109,6 +94,58 @@ mod test {
 
         let expected = Atom::Number(11);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_add_saturates_at_255_on_overflow() {
+        trace();
+
+        // 0xFF + 0xFF would overflow u8; saturates at 255 rather than panicking
+        let s = String::from("++FFFF");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Exact boundary: 0xFF + 0x01 is the first value that cannot be represented
+        let s = String::from("++FF01");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Just below the boundary still computes normally
+        let s = String::from("++FE01");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        let s = String::from("++FD01");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(254));
+    }
+
+    #[test]
+    fn test_multiply_saturates_at_255_on_overflow() {
+        trace();
+
+        // 0x99 * 0x99 == 153 * 153 == 23409; saturates at 255 rather than panicking
+        let s = String::from("**9999");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        let s = String::from("**FFFF");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Exact boundary: 0x10 * 0x10 == 256 is the first product that cannot be represented
+        let s = String::from("**1010");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Largest exactly-representable product is computed, not saturated
+        let s = String::from("**0F11");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        let s = String::from("**0F10");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(240));
     }
 
     #[test]

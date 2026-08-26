@@ -11,6 +11,18 @@ impl Coord {
         Self { x, y }
     }
 
+    ///
+    /// Convert a linear index into a Coord in a Source `cols` wide
+    /// panics if `cols` is zero
+    ///
+    pub fn from_index(index: usize, cols: usize) -> Self {
+        assert!(cols != 0, "cols must be non-zero to convert index {index}");
+
+        let x = index % cols;
+        let y = index / cols;
+        Coord { x, y }
+    }
+
     pub fn is_at(&self, x: usize, y: usize) -> bool {
         self.x == x && self.y == y
     }
@@ -33,9 +45,6 @@ impl Coord {
         let min_y = ((cursor_y / grid_size) * grid_size) - 1;
         let max_y = (1 + (cursor_y / grid_size)) * grid_size;
 
-        // info!("{min_x}/{max_x}");
-        // info!("{min_y}/{max_y}");
-
         x > min_x && (x) <= max_x && y > min_y && (y) <= max_y
     }
 
@@ -47,8 +56,11 @@ impl Coord {
         Self { x: self.x, y }
     }
 
-    pub fn index(&self, max_x: usize) -> usize {
-        self.y * max_x + self.x
+    ///
+    /// Convert this Coord into a linear index in a Source `cols` wide
+    ///
+    pub fn index(&self, cols: usize) -> usize {
+        self.y * cols + self.x
     }
 }
 
@@ -62,6 +74,47 @@ impl fmt::Display for Coord {
 mod test {
 
     use crate::{coord::Coord, test::trace};
+
+    #[test]
+    fn test_from_index() {
+        trace();
+
+        let cols = 10;
+
+        let expected = Coord::new(0, 0);
+        let coord = Coord::from_index(0, cols);
+
+        assert_eq!(coord, expected);
+
+        let expected = Coord::new(4, 0);
+        let coord = Coord::from_index(expected.index(cols), cols);
+
+        assert_eq!(coord, expected);
+
+        let expected = Coord::new(4, 4);
+        let coord = Coord::from_index(expected.index(cols), cols);
+
+        assert_eq!(coord, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "cols must be non-zero")]
+    fn test_from_index_zero_cols_panics() {
+        trace();
+
+        let _ = Coord::from_index(0, 0);
+    }
+
+    #[test]
+    fn test_index_round_trip() {
+        trace();
+
+        let cols = 10;
+
+        for index in 0..(cols * 4) {
+            assert_eq!(Coord::from_index(index, cols).index(cols), index);
+        }
+    }
 
     #[test]
     fn test_in_grid() {

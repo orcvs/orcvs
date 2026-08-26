@@ -174,6 +174,10 @@ impl App {
         self.token.is_some()
     }
 
+    // TODO(issue 05): unwired — no input reaches it, and it cancels the token
+    // without clearing `self.token`, so `playing()` still reports true afterwards.
+    // Playback lifecycle belongs to the Playback Engine.
+    // See .scratch/source-playback-engine/issues/05-run-live-editing-through-the-playback-engine.md
     fn pause(&mut self) {
         if let Some(token) = &self.token {
             token.cancel();

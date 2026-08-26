@@ -9,7 +9,8 @@ pub fn add(ctx: &mut Context) -> Result<Atom, Error> {
 
 #[inline(always)]
 fn add_impl(a: u8, b: u8) -> Atom {
-    let res: u8 = a + b;
+    // Numbers are a single byte, so sums saturate at 255 rather than overflow
+    let res: u8 = a.saturating_add(b);
     Atom::Number(res)
 }
 
@@ -40,7 +41,8 @@ pub fn multiply(ctx: &mut Context) -> Result<Atom, Error> {
 
 #[inline(always)]
 fn multiply_impl(a: u8, b: u8) -> Atom {
-    let res = a * b;
+    // Numbers are a single byte, so products saturate at 255 rather than overflow
+    let res = a.saturating_mul(b);
     Atom::Number(res)
 }
 
