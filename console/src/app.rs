@@ -1,7 +1,7 @@
 use egui::{Event, Key};
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::mpsc::Sender;
 use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -11,7 +11,8 @@ use crate::opts::Opts;
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
-use crate::source::{Command, SourceCommander};
+use crate::playback::{InMemoryOutputAdapter, PlaybackEngine};
+use crate::source::SourceCommander;
 
 ///
 /// The console's editing state: the Grid that is the Source's shape, the
@@ -44,6 +45,7 @@ pub struct App {
 
     token: Option<CancellationToken>,
     source: SourceCommander,
+    playback: Arc<Mutex<PlaybackEngine<InMemoryOutputAdapter>>>,
 }
 
 impl App {
@@ -52,13 +54,18 @@ impl App {
 
         let opts = Opts::new();
 
-        let source = SourceCommander::spawn(grid);
+        let source = SourceCommander::new(grid);
+        let playback = Arc::new(Mutex::new(PlaybackEngine::new(
+            source.clone(),
+            InMemoryOutputAdapter::default(),
+        )));
 
         Self {
             cursor: Cursor::new(grid.origin(), opts.cursor_delay),
             grid,
             opts,
             source,
+            playback,
             token: None,
         }
     }
@@ -210,21 +217,12 @@ impl App {
         self.token.is_some()
     }
 
-    // TODO(issue 05): unwired — no input reaches it, and it cancels the token
-    // without clearing `self.token`, so `playing()` still reports true afterwards.
-    // Playback lifecycle belongs to the Playback Engine.
-    // See .scratch/source-playback-engine/issues/05-run-live-editing-through-the-playback-engine.md
-    fn pause(&mut self) {
-        if let Some(token) = &self.token {
-            token.cancel();
-        }
-    }
-
     fn stop(&mut self) {
         if let Some(token) = &self.token {
             token.cancel();
             self.token = None;
         }
+        self.playback.lock().unwrap().stop();
     }
 
     fn play(&mut self) {
@@ -233,32 +231,32 @@ impl App {
         self.token = Some(token);
 
         let ms = self.opts.bpm.delay_ms();
-
-        let snd = self.source.sender();
+        let playback = self.playback.clone();
+        playback.lock().unwrap().start();
 
         task::spawn(async move {
             tokio::select! {
                 _ = cln_token.cancelled() => {
                     info!("cancelled");
                 }
-                _ = Self::ticker(ms, snd) => {
+                _ = Self::ticker(ms, playback) => {
                     info!("done");
                 }
             }
         });
     }
 
-    async fn ticker(ms: u64, snd: Sender<Command>) {
+    async fn ticker(ms: u64, playback: Arc<Mutex<PlaybackEngine<InMemoryOutputAdapter>>>) {
+        let period = Duration::from_millis(ms);
         let mut interval = time::interval(Duration::from_millis(ms));
+        interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+        let epoch = time::Instant::now();
         info!("ticker");
         loop {
-            match snd.send(Command::Tick).await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("error {e:?}");
-                }
-            }
-            interval.tick().await;
+            let scheduled = interval.tick().await;
+            let deadline = scheduled.duration_since(epoch) + period;
+            let observed = time::Instant::now().duration_since(epoch);
+            playback.lock().unwrap().clock_tick(deadline, observed);
         }
     }
 }

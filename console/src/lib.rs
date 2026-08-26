@@ -6,6 +6,7 @@ pub mod cursor;
 pub mod glyph;
 pub mod grid;
 pub mod opts;
+pub mod playback;
 pub mod source;
 pub mod style;
 
