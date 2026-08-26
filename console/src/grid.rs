@@ -75,6 +75,38 @@ impl Grid {
     }
 
     ///
+    /// The Cell an index addresses, and so which row and column it is in.
+    /// `None` when the index is past the last Cell. The inverse of `index`.
+    ///
+    #[inline]
+    pub fn position_at(&self, idx: usize) -> Option<Position> {
+        self.position(idx % self.cols, idx / self.cols)
+    }
+
+    ///
+    /// The Position one row below `pos`. `None` in the bottom row, where
+    /// there is no row below. Unlike `down`, which clamps for cursor
+    /// movement, this never answers with a Cell the caller did not ask for.
+    ///
+    #[inline]
+    pub fn below(&self, pos: Position) -> Option<Position> {
+        self.position(pos.x, pos.y + 1)
+    }
+
+    ///
+    /// Whether a value `width` Cells wide fits in `pos`'s row, counting `pos`
+    /// as its first Cell. A row is the whole horizontal extent there is:
+    /// nothing continues onto the next one.
+    ///
+    /// Total: a Position is inside the Grid that minted it, so its column is
+    /// before the column count.
+    ///
+    #[inline]
+    pub fn fits(&self, pos: Position, width: usize) -> bool {
+        width <= self.cols - pos.x
+    }
+
+    ///
     /// The Position one row above `pos`, clamped at the top row.
     ///
     #[inline]
@@ -327,5 +359,59 @@ mod test {
         assert_eq!(grid.right(at(2, 1)), at(3, 1));
         // already at the last column: stays
         assert_eq!(grid.right(at(3, 1)), at(3, 1));
+    }
+
+    #[test]
+    fn test_grid_names_the_cell_an_index_addresses() {
+        trace();
+
+        let grid = Grid::new(4, 2);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+        // the inverse of `index`: row order, first row then second
+        assert_eq!(grid.position_at(0), Some(at(0, 0)));
+        assert_eq!(grid.position_at(3), Some(at(3, 0)));
+        assert_eq!(grid.position_at(4), Some(at(0, 1)));
+        assert_eq!(grid.position_at(7), Some(at(3, 1)));
+
+        // past the last Cell: no Position, rather than one wrapped back inside
+        assert_eq!(grid.position_at(8), None);
+        assert_eq!(grid.position_at(100), None);
+    }
+
+    #[test]
+    fn test_grid_answers_the_row_below_and_stops_past_the_bottom_row() {
+        trace();
+
+        let grid = Grid::new(4, 2);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+        // one row down, same column
+        assert_eq!(grid.below(at(3, 0)), Some(at(3, 1)));
+
+        // the bottom row has no row below it, and `below` says so rather than
+        // clamping the way cursor movement does
+        assert_eq!(grid.below(at(3, 1)), None);
+        assert_eq!(grid.down(at(3, 1)), at(3, 1));
+    }
+
+    #[test]
+    fn test_grid_answers_whether_a_width_fits_in_the_row() {
+        trace();
+
+        let grid = Grid::new(4, 2);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+        // from the first column the whole row is available
+        assert!(grid.fits(at(0, 1), 4));
+        assert!(!grid.fits(at(0, 1), 5));
+
+        // from the third column of a 4 column Grid, two Cells are left
+        assert!(grid.fits(at(2, 0), 2));
+        assert!(!grid.fits(at(2, 0), 3));
+
+        // the last column holds one Cell, and nothing wraps onto the next row
+        assert!(grid.fits(at(3, 0), 1));
+        assert!(!grid.fits(at(3, 0), 2));
     }
 }

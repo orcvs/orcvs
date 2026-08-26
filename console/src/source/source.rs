@@ -3,7 +3,7 @@ use std::fmt;
 use tracing::{debug, warn};
 
 use crate::glyph::Glyph;
-use crate::opts::Opts;
+use crate::grid::Grid;
 
 use super::expression_map::{ExpressionMap, Range};
 use super::SourceError;
@@ -33,9 +33,13 @@ pub struct Change {
     pub cells: Vec<Cell>,
 }
 
+///
+/// The Cells of one Orca program. The Source is the contents; the Grid it is
+/// built from is the shape, and answers every question about that shape.
+///
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Source {
-    opts: Opts,
+    grid: Grid,
     inner: String,
     map: ExpressionMap,
     glyphs: Vec<Option<Glyph>>,
@@ -43,8 +47,12 @@ pub struct Source {
 }
 
 impl Source {
-    pub fn new(opts: Opts) -> Self {
-        let size = opts.count();
+    ///
+    /// A Source of empty Cells, one per Position of `grid`. A Grid has at
+    /// least one column and one row, so a Source always has Cells.
+    ///
+    pub fn new(grid: Grid) -> Self {
+        let size = grid.count();
         let inner = SPACE.to_string().repeat(size);
         let map = ExpressionMap::new(size);
 
@@ -52,7 +60,7 @@ impl Source {
         let parsed = vec![None; size];
 
         Self {
-            opts,
+            grid,
             inner,
             map,
             glyphs,
@@ -65,9 +73,9 @@ impl Source {
     /// A space empties the Cell, equivalent to `unset`.
     ///
     /// ```
-    /// use console::{opts::Opts, source::Source};
+    /// use console::{grid::Grid, source::Source};
     ///
-    /// let mut source = Source::new(Opts::new(10, 10));
+    /// let mut source = Source::new(Grid::new(10, 10));
     /// source.set(33, "!").unwrap();
     ///
     /// assert_eq!(source.get(33), Some("!".to_string()));
@@ -129,12 +137,18 @@ impl Source {
         self.inner.clone()
     }
 
+    ///
+    /// Whether `idx` names a Cell. The Grid decides: an index it cannot
+    /// address is one this Source has no Cell for.
+    ///
     fn check_idx(&self, idx: usize) -> Result<(), SourceError> {
-        let len = self.opts.count();
-        if idx >= len {
-            return Err(SourceError::OutOfRange { idx, len });
+        match self.grid.position_at(idx) {
+            Some(_) => Ok(()),
+            None => Err(SourceError::OutOfRange {
+                idx,
+                len: self.grid.count(),
+            }),
         }
-        Ok(())
     }
 
     fn check_content(s: &str) -> Result<u8, SourceError> {
@@ -155,7 +169,8 @@ impl Source {
     /// beside it, so all of them are invalidated before the map changes.
     ///
     fn unparse_around(&mut self, idx: usize) -> Range {
-        let last = self.opts.count() - 1;
+        // A Grid has at least one Cell, so the last index is not an underflow
+        let last = self.grid.count() - 1;
         let mut span = Range {
             start: idx.saturating_sub(1),
             end: (idx + 1).min(last),
@@ -265,9 +280,6 @@ impl Source {
                 Some(Ok(a)) => a,
             };
 
-            // An Expression writes its result into the row below its own start
-            let target = start + self.opts.cols;
-
             // `Atom::Empty` is the absence of a result, not a value, so it is
             // never written — an Expression whose operands are missing leaves
             // the Cells below it alone
@@ -278,21 +290,29 @@ impl Source {
 
             let encoded = a.to_string();
 
-            // Results outside the Source are discarded, never clamped onto a
+            // Total: `parsed` holds one entry per Cell, so `start` is an index
+            // this Grid addresses
+            let origin = self
+                .grid
+                .position_at(start)
+                .expect("parsed holds one entry per Cell");
+
+            // An Expression writes its result into the row below its own
+            // start. In the bottom row there is no such row, so the result
+            // falls outside the Source and is discarded, never clamped onto a
             // Cell the Expression does not own.
             // TODO(issue 03): a discard is a diagnostic the Tick Plan should
             // report rather than only log.
             // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
-            if target >= self.opts.count() {
+            let Some(target) = self.grid.below(origin) else {
                 debug!("discarded {encoded:?} from Expression at {start}: below the bottom row");
                 continue;
-            }
+            };
 
             // An Expression never wraps across rows, and neither does its
-            // result: a value too wide for the columns left in the row is
+            // result: a value too wide for the Cells left in the row is
             // discarded whole rather than split across two rows
-            let col = target % self.opts.cols;
-            if col + encoded.chars().count() > self.opts.cols {
+            if !self.grid.fits(target, encoded.chars().count()) {
                 debug!(
                     "discarded {encoded:?} from Expression at {start}: does not fit before the row edge"
                 );
@@ -301,9 +321,10 @@ impl Source {
 
             // A result is written as its complete encoding, one Cell per
             // character, left to right from the target Cell
+            let idx = self.grid.index(target);
             for (i, c) in encoded.chars().enumerate() {
-                if let Err(e) = self.set(target + i, &c.to_string()) {
-                    debug!("discarded result at {}: {e}", target + i);
+                if let Err(e) = self.set(idx + i, &c.to_string()) {
+                    debug!("discarded result at {}: {e}", idx + i);
                 }
             }
         }
@@ -387,13 +408,18 @@ mod test {
 
     use crate::{
         glyph::Glyph,
-        opts::Opts,
+        grid::Grid,
         source::{source::Cell, Source, SourceError},
         test::trace,
     };
 
+    ///
+    /// Rectangular on purpose: a Source that derived a dimension of its own,
+    /// or read the two the wrong way round, addresses different Cells here
+    /// than it does on a square one.
+    ///
     fn source() -> Source {
-        Source::new(Opts::new(10, 10))
+        Source::new(Grid::new(10, 6))
     }
 
     ///
@@ -420,9 +446,9 @@ mod test {
         let mut src = source();
         let before = src.snapshot();
 
-        let err = src.set(100, "x").unwrap_err();
+        let err = src.set(60, "x").unwrap_err();
 
-        assert_eq!(err, SourceError::OutOfRange { idx: 100, len: 100 });
+        assert_eq!(err, SourceError::OutOfRange { idx: 60, len: 60 });
         assert_eq!(src.snapshot(), before);
     }
 
@@ -435,7 +461,7 @@ mod test {
 
         let err = src.unset(200).unwrap_err();
 
-        assert_eq!(err, SourceError::OutOfRange { idx: 200, len: 100 });
+        assert_eq!(err, SourceError::OutOfRange { idx: 200, len: 60 });
         assert_eq!(src.snapshot(), before);
     }
 
@@ -540,12 +566,12 @@ mod test {
 
         // `++` at the last two Cells wants four more operand-slot glyphs
         // than the Source has room for
-        src.set(98, "+").unwrap();
-        let change = src.set(99, "+").unwrap();
+        src.set(58, "+").unwrap();
+        let change = src.set(59, "+").unwrap();
 
         assert_eq!(change.cells.len(), 2);
-        assert_eq!(src.get_glyph_at(98), Some(Glyph::Function));
-        assert_eq!(src.get_glyph_at(99), Some(Glyph::Function));
+        assert_eq!(src.get_glyph_at(58), Some(Glyph::Function));
+        assert_eq!(src.get_glyph_at(59), Some(Glyph::Function));
     }
 
     #[test]
@@ -640,7 +666,7 @@ mod test {
         src.set(5, " ").unwrap();
 
         assert_eq!(src.get(5), None);
-        assert_eq!(src.snapshot(), " ".repeat(100));
+        assert_eq!(src.snapshot(), " ".repeat(60));
     }
 
     #[test]
@@ -683,13 +709,13 @@ mod test {
         // An Expression in the bottom row has nowhere to write: its result
         // falls outside the Source and is discarded, never clamped onto a Cell
         // the user owns
-        write(&mut src, 90, "++0102");
-        write(&mut src, 99, "Z");
+        write(&mut src, 50, "++0102");
+        write(&mut src, 59, "Z");
 
         src.execute();
 
-        assert_eq!(row(&src, 9), "++0102   Z");
-        assert_eq!(src.get(99), Some("Z".to_string()));
+        assert_eq!(row(&src, 5), "++0102   Z");
+        assert_eq!(src.get(59), Some("Z".to_string()));
     }
 
     #[test]
@@ -707,21 +733,6 @@ mod test {
 
         assert_eq!(row(&src, 1), "+0102     ");
         assert_eq!(row(&src, 2), "          ");
-    }
-
-    #[test]
-    fn test_execute_on_a_source_with_no_cells_does_not_panic() {
-        trace();
-
-        // A Source with no Cells has no Expressions and no room for results;
-        // a Tick over it is a no-op, not an arithmetic underflow
-        for opts in [Opts::new(0, 0), Opts::new(0, 10), Opts::new(10, 0)] {
-            let mut src = Source::new(opts);
-
-            src.execute();
-
-            assert_eq!(src.snapshot(), "");
-        }
     }
 
     #[test]
@@ -758,7 +769,7 @@ mod test {
 
         assert_eq!(row(&src, 0), "++0102    ");
         assert_eq!(row(&src, 1), "03        ");
-        assert_eq!(&src.snapshot()[20..], &" ".repeat(80));
+        assert_eq!(&src.snapshot()[20..], &" ".repeat(40));
     }
 
     #[test]

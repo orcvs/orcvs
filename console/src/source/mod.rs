@@ -1,7 +1,7 @@
 pub mod error;
 mod expression_map;
 pub mod source;
-use crate::{glyph::Glyph, opts::Opts};
+use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;
 pub use source::{Cell, Change, Source};
 use std::sync::{Arc, RwLock};
@@ -17,10 +17,10 @@ pub struct SourceCommander {
 }
 
 impl SourceCommander {
-    pub fn spawn(opts: Opts) -> Self {
+    pub fn spawn(grid: Grid) -> Self {
         let (sender, mut receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel(16);
 
-        let source = Arc::new(RwLock::new(Source::new(opts)));
+        let source = Arc::new(RwLock::new(Source::new(grid)));
         let clone = source.clone();
 
         task::spawn(async move {
