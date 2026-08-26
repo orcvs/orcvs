@@ -29,3 +29,11 @@ Filed separately from issue 18 rather than folded into it: 18 repairs a build th
 **2026-08-26 — filed (agent)**
 
 Filed alongside the `fits` doc correction on the issue 10 branch, which pins the counter-example rather than fixing it and names this ticket in the comment.
+
+**2026-08-26 — what the issue 10 branch left here for this ticket to undo (review)**
+
+`console/src/grid.rs` carries `test_grid_fits_a_foreign_position_inside_its_own_columns`, which asserts the answer this ticket exists to make unaskable: a Position minted at column 1 by `Grid::new(10, 2)`, handed to `Grid::new(4, 2).fits(pos, 2)`, answers `true`. Criterion 4 names it. The reciprocal is worth stating plainly — that test is not a regression guard, it is a record of a limitation, so when this ticket lands it inverts or goes. A green `fits` counter-example after the fix would mean the fix did not land.
+
+`Grid::fits` was made total on the same branch: `self.cols - pos.x` became `self.cols.saturating_sub(pos.x)`. That is why this is a correctness-of-meaning ticket rather than a crash. Before the change, a foreign Position whose column was past this Grid's last one panicked on the underflow; now it answers `false`. The panic was the only loud signal a foreign Position has ever produced, and removing it was right — `fits` should answer a question, not abort — but it does mean every foreign Position now gets a plausible answer, which is exactly the hazard the doc on `fits` had to be rewritten to describe instead of the guarantee it used to claim.
+
+One more query changed shape in the same round, and it is on this ticket's list. `Grid::down` now delegates to `below` and clamps with `unwrap_or(pos)` rather than computing `(pos.y + 1).min(self.rows - 1)`. For a Position this Grid minted the two are identical. For a foreign Position below this Grid's bottom row they differ: the old code clamped it onto this Grid's last row, the new one hands it back unchanged. Both answers are meaningless, which is the point — what `down` answers a foreign Position is now an accident of the delegation rather than a considered clamp, and no test can tell the difference until a Position knows which Grid minted it.

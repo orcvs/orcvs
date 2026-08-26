@@ -20,3 +20,9 @@ The marker spacing and highlight dot spacing settings are renamed off "grid" (`m
 No `grid` identifier remains under `console/src` or `lang/src`. Five prose mentions remain in doc comments and test names in the Source module, all describing Source contents rather than the visual markers — left for tickets 08–10.
 
 Review found nothing in this change. It did surface three pre-existing defects in the committed Source work, recorded as issues 11, 12 and 13.
+
+**2026-08-26 — one sentence above no longer holds (review)**
+
+The implementation comment records that `DEFAULT_COL_COUNT`/`DEFAULT_ROW_COUNT` "now derive from `DEFAULT_MARKER_SPACING`; their values are unchanged". That was true when written. It is not now: the issue 10 branch moved both constants into `console/src/grid.rs` and wrote them as plain literal `16`s, so a Source's shape is no longer derived from a visual constant. Left as written rather than corrected — it is a record of what this ticket did, and undoing the derivation was someone else's change.
+
+Nothing this ticket asked for is affected. The settings are still named for markers, the predicate still lives beside its only caller, its test still moved with it, and rendering is still unchanged — the values are the same 16s either way. The consequence of the decoupling is recorded on issues 14 and 17, which are the two tickets that have to reason about the marker spacing.
