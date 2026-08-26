@@ -59,6 +59,14 @@ impl App {
     }
 
     ///
+    /// Moves the Cursor to `position`. The Grid minted it, so there is nothing
+    /// left to validate here.
+    ///
+    pub fn select(&mut self, position: Position) {
+        self.cursor.select(position);
+    }
+
+    ///
     /// writes s to the current cursor position
     /// triggers parse of expression
     ///
@@ -383,6 +391,18 @@ mod test {
         let expected = GlyphString::new(Some("+".to_string()), Glyph::Function);
         assert_eq!(app.get(at(0, 0)), expected);
         assert_eq!(app.get(at(1, 0)), expected);
+    }
+
+    #[tokio::test]
+    async fn test_select_moves_the_cursor_to_the_position() {
+        trace();
+
+        let mut app = app();
+        let target = app.grid.position(3, 0).expect("inside the grid");
+
+        app.select(target);
+
+        assert_eq!(app.cursor.position(), target);
     }
 
     #[tokio::test]

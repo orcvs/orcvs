@@ -150,7 +150,7 @@ impl eframe::App for Console {
 
                         if ui.add(button).clicked() {
                             // the Grid minted this Position: it needs no re-validating
-                            self.app.cursor.select(position);
+                            self.app.select(position);
                         }
                     }
                 });
