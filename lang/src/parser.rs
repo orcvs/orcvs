@@ -38,6 +38,9 @@ impl<'a> Parser<'a> {
     ///
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
         self.take_function()?;
+        if !self.source.is_empty() {
+            return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
+        }
         let atoms = self.expression.take_atoms();
         Ok(atoms.into_iter().collect())
     }

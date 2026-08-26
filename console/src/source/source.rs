@@ -409,13 +409,13 @@ impl Source {
             .y();
 
         for (i, g) in glyphs.iter().enumerate() {
-            let pos = start + i;
+            let idx = start + i;
             // Operand-slot hints can extend beyond their Expression, but an
             // Expression is horizontal: hints stop at the same row edge.
-            if self.grid.position_at(pos).map(|p| p.y()) != Some(row) {
+            if self.grid.position_at(idx).map(|p| p.y()) != Some(row) {
                 break;
             }
-            self.glyphs[pos] = Some(*g);
+            self.glyphs[idx] = Some(*g);
         }
     }
 
@@ -788,6 +788,16 @@ mod test {
         src.write(4, "02");
         assert!(src.diagnostics().is_empty());
 
+        // A valid prefix does not make trailing content disappear from the
+        // Expression's diagnostic state.
+        src.set(6, "Z").unwrap();
+        assert_eq!(
+            src.diagnostics()[0].message,
+            "unexpected trailing content \"Z\""
+        );
+        src.unset(6).unwrap();
+        assert!(src.diagnostics().is_empty());
+
         // Replacing a valid operand with invalid content creates a fresh
         // diagnostic for the current Expression, without rejecting the edit.
         src.set(4, "X").unwrap();
@@ -958,6 +968,23 @@ mod test {
         for idx in 10..14 {
             assert_eq!(src.get_glyph_at(idx), None);
         }
+    }
+
+    #[test]
+    fn test_tick_does_not_evaluate_an_expression_across_a_row_edge() {
+        trace();
+
+        let mut src = source();
+
+        // This formerly parsed as one wrapped `++0102` Expression. It is now
+        // an incomplete `++` followed by a separate literal `0102`, neither
+        // of which can produce the old `03` result.
+        src.write(8, "++0102");
+
+        src.execute();
+
+        assert_eq!(src.row(1), "0102      ");
+        assert_eq!(src.row(2), "          ");
     }
 
     #[test]

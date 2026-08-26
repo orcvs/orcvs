@@ -40,6 +40,9 @@ pub enum SyntaxError {
 
     #[error("unknown function {0:?}")]
     UnknownFunction(String),
+
+    #[error("unexpected trailing content {0:?}")]
+    UnexpectedTrailingContent(String),
 }
 
 #[derive(Error, Debug)]
