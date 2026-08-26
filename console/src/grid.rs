@@ -119,14 +119,13 @@ impl Grid {
     }
 
     ///
-    /// The Position one row below `pos`, clamped at the bottom row.
+    /// The Position one row below `pos`, clamped at the bottom row. The row
+    /// below is `below`'s answer; clamping is all this adds, so the two cannot
+    /// disagree about where one row down is.
     ///
     #[inline]
     pub fn down(&self, pos: Position) -> Position {
-        Position {
-            x: pos.x,
-            y: (pos.y + 1).min(self.rows - 1),
-        }
+        self.below(pos).unwrap_or(pos)
     }
 
     ///
