@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Commit atomic Cell results through Tick Plans.
 
-**Resolution:** implemented
+**Status:** resolved
 
 - [x] A root Play Function with a hexadecimal channel `0`–`F`, velocity `00`–`7F`, and valid MIDI note emits exactly one Play Command.
 - [x] A Play Function never writes a Cell result; the existing placeholder zero output is removed.
