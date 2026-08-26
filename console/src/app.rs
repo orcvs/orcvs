@@ -2,9 +2,8 @@ use egui::{Event, Key};
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::error;
 
 use crate::glyph::GlyphString;
 use crate::opts::Opts;
@@ -232,32 +231,7 @@ impl App {
 
         let ms = self.opts.bpm.delay_ms();
         let playback = self.playback.clone();
-        playback.lock().unwrap().start();
-
-        task::spawn(async move {
-            tokio::select! {
-                _ = cln_token.cancelled() => {
-                    info!("cancelled");
-                }
-                _ = Self::ticker(ms, playback) => {
-                    info!("done");
-                }
-            }
-        });
-    }
-
-    async fn ticker(ms: u64, playback: Arc<Mutex<PlaybackEngine<InMemoryOutputAdapter>>>) {
-        let period = Duration::from_millis(ms);
-        let mut interval = time::interval(Duration::from_millis(ms));
-        interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-        let epoch = time::Instant::now();
-        info!("ticker");
-        loop {
-            let scheduled = interval.tick().await;
-            let deadline = scheduled.duration_since(epoch) + period;
-            let observed = time::Instant::now().duration_since(epoch);
-            playback.lock().unwrap().clock_tick(deadline, observed);
-        }
+        PlaybackEngine::start_clock(playback, Duration::from_millis(ms), cln_token);
     }
 }
 

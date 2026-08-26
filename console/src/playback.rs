@@ -1,11 +1,27 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::task::JoinHandle;
+use tokio::time;
+use tokio_util::sync::CancellationToken;
 
 use crate::source::{PlayCommand, SourceCommander, TickResult};
 
 pub trait OutputAdapter {
-    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), String>;
-    fn all_notes_off(&mut self) -> Result<(), String>;
+    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError>;
+    fn all_notes_off(&mut self) -> Result<(), OutputAdapterError>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutputAdapterError {
+    pub message: String,
+}
+
+impl OutputAdapterError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,14 +30,14 @@ pub enum PlaybackDiagnostic {
         scheduled_at: Duration,
         observed_at: Duration,
     },
-    OutputFailure(String),
+    OutputFailure(OutputAdapterError),
 }
 
 #[derive(Default)]
 struct InMemoryOutputState {
-    batches: Vec<Vec<PlayCommand>>,
+    command_lists: Vec<Vec<PlayCommand>>,
     all_notes_off_count: usize,
-    next_failure: Option<String>,
+    next_failure: Option<OutputAdapterError>,
 }
 
 #[derive(Clone, Default)]
@@ -30,8 +46,8 @@ pub struct InMemoryOutputAdapter {
 }
 
 impl InMemoryOutputAdapter {
-    pub fn batches(&self) -> Vec<Vec<PlayCommand>> {
-        self.state.lock().unwrap().batches.clone()
+    pub fn command_lists(&self) -> Vec<Vec<PlayCommand>> {
+        self.state.lock().unwrap().command_lists.clone()
     }
 
     pub fn all_notes_off_count(&self) -> usize {
@@ -39,21 +55,21 @@ impl InMemoryOutputAdapter {
     }
 
     pub fn fail_next_submission(&self, message: impl Into<String>) {
-        self.state.lock().unwrap().next_failure = Some(message.into());
+        self.state.lock().unwrap().next_failure = Some(OutputAdapterError::new(message));
     }
 }
 
 impl OutputAdapter for InMemoryOutputAdapter {
-    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), String> {
+    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
         let mut state = self.state.lock().unwrap();
         if let Some(error) = state.next_failure.take() {
             return Err(error);
         }
-        state.batches.push(commands.to_vec());
+        state.command_lists.push(commands.to_vec());
         Ok(())
     }
 
-    fn all_notes_off(&mut self) -> Result<(), String> {
+    fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
         self.state.lock().unwrap().all_notes_off_count += 1;
         Ok(())
     }
@@ -117,11 +133,12 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
         &mut self,
         scheduled_at: Duration,
         observed_at: Duration,
+        tick_period: Duration,
     ) -> Option<TickResult> {
         if !self.playing {
             return None;
         }
-        if observed_at > scheduled_at {
+        if observed_at >= scheduled_at + tick_period {
             self.diagnostics.push(PlaybackDiagnostic::Overrun {
                 scheduled_at,
                 observed_at,
@@ -140,6 +157,37 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     }
 }
 
+impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
+    pub fn start_clock(
+        engine: Arc<Mutex<Self>>,
+        tick_period: Duration,
+        cancellation: CancellationToken,
+    ) -> JoinHandle<()> {
+        engine.lock().unwrap().start();
+
+        tokio::spawn(async move {
+            let epoch = time::Instant::now();
+            let mut interval = time::interval_at(epoch, tick_period);
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
+
+            loop {
+                tokio::select! {
+                    _ = cancellation.cancelled() => break,
+                    scheduled = interval.tick() => {
+                        let scheduled_at = scheduled.duration_since(epoch);
+                        let observed_at = time::Instant::now().duration_since(epoch);
+                        engine.lock().unwrap().clock_tick(
+                            scheduled_at,
+                            observed_at,
+                            tick_period,
+                        );
+                    }
+                }
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,7 +195,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingAdapter {
-        batches: Vec<Vec<PlayCommand>>,
+        command_lists: Vec<Vec<PlayCommand>>,
         source: Option<SourceCommander>,
         source_at_submission: Vec<String>,
     }
@@ -162,15 +210,15 @@ mod tests {
     }
 
     impl OutputAdapter for RecordingAdapter {
-        fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), String> {
+        fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
             if let Some(source) = &self.source {
                 self.source_at_submission.push(source.snapshot());
             }
-            self.batches.push(commands.to_vec());
+            self.command_lists.push(commands.to_vec());
             Ok(())
         }
 
-        fn all_notes_off(&mut self) -> Result<(), String> {
+        fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
             Ok(())
         }
     }
@@ -191,12 +239,12 @@ mod tests {
         engine.start();
 
         let tick = engine
-            .clock_tick(Duration::ZERO, Duration::ZERO)
+            .clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1))
             .expect("scheduled Tick runs");
 
         assert_eq!(&engine.adapter.source_at_submission[0][10..12], "03");
         assert_eq!(&source.snapshot()[10..12], "03");
-        assert_eq!(engine.adapter.batches, vec![tick.plan.play_commands]);
+        assert_eq!(engine.adapter.command_lists, vec![tick.plan.play_commands]);
     }
 
     #[test]
@@ -207,28 +255,36 @@ mod tests {
         let mut engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.start();
 
-        engine.clock_tick(Duration::ZERO, Duration::ZERO);
+        engine.clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1));
         source.set(5, "D").unwrap();
-        engine.clock_tick(Duration::from_secs(1), Duration::from_secs(1));
+        engine.clock_tick(
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        );
 
-        assert_eq!(adapter.batches().len(), 2);
-        assert_eq!(adapter.batches()[0][0].note, 60);
-        assert_eq!(adapter.batches()[1][0].note, 62);
+        assert_eq!(adapter.command_lists().len(), 2);
+        assert_eq!(adapter.command_lists()[0][0].note, 60);
+        assert_eq!(adapter.command_lists()[1][0].note, 62);
     }
 
     #[test]
-    fn repeated_commands_are_dispatched_as_exact_tick_batches() {
+    fn repeated_commands_are_dispatched_as_exact_tick_lists() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, ">>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let mut engine = PlaybackEngine::new(source, adapter.clone());
         engine.start();
 
-        engine.clock_tick(Duration::ZERO, Duration::ZERO);
-        engine.clock_tick(Duration::from_secs(1), Duration::from_secs(1));
+        engine.clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1));
+        engine.clock_tick(
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        );
 
-        assert_eq!(adapter.batches().len(), 2);
-        assert_eq!(adapter.batches()[0], adapter.batches()[1]);
+        assert_eq!(adapter.command_lists().len(), 2);
+        assert_eq!(adapter.command_lists()[0], adapter.command_lists()[1]);
     }
 
     #[test]
@@ -239,12 +295,20 @@ mod tests {
         let mut engine = PlaybackEngine::new(source, adapter.clone());
         engine.start();
 
-        let missed = engine.clock_tick(Duration::from_secs(1), Duration::from_secs(2));
-        let resumed = engine.clock_tick(Duration::from_secs(3), Duration::from_secs(3));
+        let missed = engine.clock_tick(
+            Duration::from_secs(1),
+            Duration::from_secs(2),
+            Duration::from_secs(1),
+        );
+        let resumed = engine.clock_tick(
+            Duration::from_secs(3),
+            Duration::from_secs(3),
+            Duration::from_secs(1),
+        );
 
         assert!(missed.is_none());
         assert!(resumed.is_some());
-        assert_eq!(adapter.batches().len(), 1);
+        assert_eq!(adapter.command_lists().len(), 1);
         assert_eq!(
             engine.diagnostics(),
             &[PlaybackDiagnostic::Overrun {
@@ -252,6 +316,32 @@ mod tests {
                 observed_at: Duration::from_secs(2),
             }]
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn playback_clock_reports_each_overrun_and_resumes_without_wall_clock_sleep() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, ">>07FC4");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = Arc::new(Mutex::new(PlaybackEngine::new(source, adapter.clone())));
+        let cancellation = CancellationToken::new();
+        let clock = PlaybackEngine::start_clock(
+            engine.clone(),
+            Duration::from_secs(1),
+            cancellation.clone(),
+        );
+
+        tokio::task::yield_now().await;
+        time::advance(Duration::from_secs(3)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(adapter.command_lists().len(), 2);
+        assert_eq!(engine.lock().unwrap().diagnostics().len(), 2);
+
+        cancellation.cancel();
+        clock.await.unwrap();
     }
 
     #[test]
@@ -265,7 +355,7 @@ mod tests {
         engine.start();
 
         let failed_dispatch = engine
-            .clock_tick(Duration::ZERO, Duration::ZERO)
+            .clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1))
             .expect("Source Tick still succeeds");
 
         assert_eq!(&source.snapshot()[10..12], "03");
@@ -273,13 +363,17 @@ mod tests {
         assert!(engine.is_playing());
         assert_eq!(
             engine.diagnostics(),
-            &[PlaybackDiagnostic::OutputFailure(
-                "output unavailable".to_string()
-            )]
+            &[PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
+                "output unavailable"
+            ))]
         );
 
-        engine.clock_tick(Duration::from_secs(1), Duration::from_secs(1));
-        assert_eq!(adapter.batches().len(), 1);
+        engine.clock_tick(
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        );
+        assert_eq!(adapter.command_lists().len(), 1);
     }
 
     #[test]
