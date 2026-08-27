@@ -46,9 +46,10 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        Self {
-            app: App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
-        }
+        let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        app.refresh_midi_destinations();
+        Self { app }
     }
 }
 
@@ -80,6 +81,26 @@ impl eframe::App for Console {
                     });
                     ui.add_space(16.0);
                 }
+                #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+                ui.menu_button("MIDI", |ui| {
+                    if ui.button("Refresh destinations").clicked() {
+                        self.app.refresh_midi_destinations();
+                    }
+                    let selected = self.app.selected_midi_destination_id();
+                    for destination in self.app.midi_destinations().to_vec() {
+                        let is_selected = selected.as_deref() == Some(destination.id.as_str());
+                        if ui.selectable_label(is_selected, destination.name).clicked() {
+                            self.app.select_midi_destination(&destination.id);
+                        }
+                    }
+                    if self.app.midi_destinations().is_empty() {
+                        ui.label("No MIDI destinations found");
+                    }
+                    if let Some(status) = self.app.midi_status() {
+                        ui.separator();
+                        ui.colored_label(ui.visuals().error_fg_color, status);
+                    }
+                });
                 // ui.label(format!("HELLO"));
                 // egui::widgets::global_dark_light_mode_buttons(ui);
             });

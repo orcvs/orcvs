@@ -1,0 +1,258 @@
+use crate::playback::{OutputAdapter, OutputAdapterError};
+use crate::source::PlayCommand;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MidiDestination {
+    pub id: String,
+    pub name: String,
+}
+
+impl MidiDestination {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MidiError {
+    pub message: String,
+}
+
+impl MidiError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+pub trait MidiConnection: Send {
+    fn send(&mut self, message: &[u8]) -> Result<(), MidiError>;
+}
+
+pub trait MidiBackend: Send {
+    fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError>;
+    fn connect(&mut self, destination_id: &str) -> Result<Box<dyn MidiConnection>, MidiError>;
+}
+
+pub struct MidiOutputAdapter<B> {
+    backend: B,
+    connection: Option<Box<dyn MidiConnection>>,
+    selected_destination_id: Option<String>,
+}
+
+impl<B: MidiBackend> MidiOutputAdapter<B> {
+    pub fn new(backend: B) -> Self {
+        Self {
+            backend,
+            connection: None,
+            selected_destination_id: None,
+        }
+    }
+
+    pub fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+        self.backend.destinations()
+    }
+
+    pub fn select(&mut self, destination_id: &str) -> Result<(), MidiError> {
+        if self.connection.is_some() {
+            let _ = self.send_all_notes_off();
+        }
+        let connection = self.backend.connect(destination_id)?;
+        self.connection = Some(connection);
+        self.selected_destination_id = Some(destination_id.to_owned());
+        Ok(())
+    }
+
+    pub fn selected_destination_id(&self) -> Option<&str> {
+        self.selected_destination_id.as_deref()
+    }
+
+    fn send_all_notes_off(&mut self) -> Result<(), MidiError> {
+        let Some(connection) = self.connection.as_mut() else {
+            return Ok(());
+        };
+        let mut first_error = None;
+        for channel in 0..16 {
+            if let Err(error) = connection.send(&[0xb0 | channel, 123, 0]) {
+                first_error.get_or_insert(error);
+            }
+        }
+        if let Some(error) = first_error {
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
+    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
+        let Some(connection) = self.connection.as_mut() else {
+            return Ok(());
+        };
+        for command in commands {
+            if let Err(error) =
+                connection.send(&[0x90 | command.channel, command.note, command.velocity])
+            {
+                let delivery_error = OutputAdapterError::new(error.message);
+                let _ = self.send_all_notes_off();
+                self.connection = None;
+                return Err(delivery_error);
+            }
+        }
+        Ok(())
+    }
+
+    fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
+        self.send_all_notes_off()
+            .map_err(|error| OutputAdapterError::new(error.message))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::playback::OutputAdapter;
+    use crate::source::PlayCommand;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct FakeState {
+        messages: Vec<Vec<u8>>,
+        fail_next_send: bool,
+        connection_count: usize,
+    }
+
+    struct FakeBackend {
+        state: Arc<Mutex<FakeState>>,
+    }
+
+    impl MidiBackend for FakeBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            Ok(vec![MidiDestination::new("one", "Synth")])
+        }
+
+        fn connect(&mut self, _destination_id: &str) -> Result<Box<dyn MidiConnection>, MidiError> {
+            self.state.lock().unwrap().connection_count += 1;
+            Ok(Box::new(FakeConnection {
+                state: self.state.clone(),
+            }))
+        }
+    }
+
+    struct FakeConnection {
+        state: Arc<Mutex<FakeState>>,
+    }
+
+    impl MidiConnection for FakeConnection {
+        fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
+            let mut state = self.state.lock().unwrap();
+            if state.fail_next_send {
+                state.fail_next_send = false;
+                return Err(MidiError::new("device lost"));
+            }
+            state.messages.push(message.to_vec());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn submits_commands_as_ordered_note_on_messages() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select("one").unwrap();
+
+        adapter
+            .submit(&[
+                PlayCommand {
+                    channel: 0x0f,
+                    velocity: 0,
+                    note: 0x15,
+                },
+                PlayCommand {
+                    channel: 2,
+                    velocity: 0x7f,
+                    note: 0x45,
+                },
+            ])
+            .unwrap();
+
+        assert_eq!(
+            state.lock().unwrap().messages,
+            vec![vec![0x9f, 0x15, 0], vec![0x92, 0x45, 0x7f]]
+        );
+    }
+
+    #[test]
+    fn enumerates_and_selects_a_destination() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+
+        assert_eq!(
+            adapter.destinations().unwrap(),
+            vec![MidiDestination::new("one", "Synth")]
+        );
+        adapter.select("one").unwrap();
+
+        assert_eq!(adapter.selected_destination_id(), Some("one"));
+        assert_eq!(state.lock().unwrap().connection_count, 1);
+    }
+
+    #[test]
+    fn delivery_failure_attempts_all_notes_off_and_reselection_reconnects() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select("one").unwrap();
+        state.lock().unwrap().fail_next_send = true;
+
+        let error = adapter
+            .submit(&[PlayCommand {
+                channel: 0,
+                velocity: 0x7f,
+                note: 60,
+            }])
+            .unwrap_err();
+
+        assert_eq!(error, OutputAdapterError::new("device lost"));
+        assert_eq!(state.lock().unwrap().messages.len(), 16);
+
+        adapter.select("one").unwrap();
+        adapter
+            .submit(&[PlayCommand {
+                channel: 1,
+                velocity: 1,
+                note: 61,
+            }])
+            .unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(state.connection_count, 2);
+        assert_eq!(state.messages.last(), Some(&vec![0x91, 61, 1]));
+    }
+
+    #[test]
+    fn all_notes_off_addresses_every_channel() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select("one").unwrap();
+
+        adapter.all_notes_off().unwrap();
+
+        let messages = &state.lock().unwrap().messages;
+        assert_eq!(messages.len(), 16);
+        assert_eq!(messages.first(), Some(&vec![0xb0, 123, 0]));
+        assert_eq!(messages.last(), Some(&vec![0xbf, 123, 0]));
+    }
+}

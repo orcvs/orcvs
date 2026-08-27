@@ -9,8 +9,22 @@ use crate::opts::Opts;
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
-use crate::playback::{InMemoryOutputAdapter, PlaybackEngine};
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+use crate::playback::InMemoryOutputAdapter;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::playback::PlaybackDiagnostic;
+use crate::playback::PlaybackEngine;
 use crate::source::SourceCommander;
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::midi::MidiDestination;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+type AppOutputAdapter = NativeMidiOutputAdapter;
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+type AppOutputAdapter = InMemoryOutputAdapter;
 
 ///
 /// The console's editing state: the Grid that is the Source's shape, the
@@ -42,7 +56,13 @@ pub struct App {
     pub grid: Grid,
 
     source: SourceCommander,
-    playback: Arc<Mutex<PlaybackEngine<InMemoryOutputAdapter>>>,
+    playback: Arc<Mutex<PlaybackEngine<AppOutputAdapter>>>,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    midi_destinations: Vec<MidiDestination>,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    midi_status: Option<String>,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    acknowledged_output_failures: usize,
 }
 
 impl App {
@@ -52,10 +72,11 @@ impl App {
         let opts = Opts::new();
 
         let source = SourceCommander::new(grid);
-        let playback = Arc::new(Mutex::new(PlaybackEngine::new(
-            source.clone(),
-            InMemoryOutputAdapter::default(),
-        )));
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let adapter = NativeMidiOutputAdapter::new(MidirBackend);
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let adapter = InMemoryOutputAdapter::default();
+        let playback = Arc::new(Mutex::new(PlaybackEngine::new(source.clone(), adapter)));
 
         Self {
             cursor: Cursor::new(grid.origin(), opts.cursor_delay),
@@ -63,7 +84,70 @@ impl App {
             opts,
             source,
             playback,
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            midi_destinations: Vec::new(),
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            midi_status: None,
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            acknowledged_output_failures: 0,
         }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn refresh_midi_destinations(&mut self) {
+        match self.playback.lock().unwrap().midi_destinations() {
+            Ok(destinations) => {
+                self.midi_destinations = destinations;
+                self.midi_status = None;
+            }
+            Err(error) => self.midi_status = Some(error.message),
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn midi_destinations(&self) -> &[MidiDestination] {
+        &self.midi_destinations
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn select_midi_destination(&mut self, destination_id: &str) {
+        let mut playback = self.playback.lock().unwrap();
+        match playback.select_midi_destination(destination_id) {
+            Ok(()) => {
+                self.acknowledged_output_failures = playback
+                    .diagnostics()
+                    .iter()
+                    .filter(|diagnostic| matches!(diagnostic, PlaybackDiagnostic::OutputFailure(_)))
+                    .count();
+                self.midi_status = None;
+            }
+            Err(error) => self.midi_status = Some(error.message),
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn selected_midi_destination_id(&self) -> Option<String> {
+        self.playback
+            .lock()
+            .unwrap()
+            .selected_midi_destination_id()
+            .map(str::to_owned)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn midi_status(&self) -> Option<String> {
+        if let Some(message) = &self.midi_status {
+            return Some(message.clone());
+        }
+        let playback = self.playback.lock().unwrap();
+        playback
+            .diagnostics()
+            .iter()
+            .filter_map(|diagnostic| match diagnostic {
+                PlaybackDiagnostic::OutputFailure(error) => Some(error.message.clone()),
+                PlaybackDiagnostic::Overrun { .. } => None,
+            })
+            .nth(self.acknowledged_output_failures)
     }
 
     ///

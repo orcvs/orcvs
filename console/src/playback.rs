@@ -202,6 +202,25 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     }
 }
 
+impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<B>> {
+    pub fn midi_destinations(
+        &mut self,
+    ) -> Result<Vec<crate::midi::MidiDestination>, crate::midi::MidiError> {
+        self.adapter.destinations()
+    }
+
+    pub fn select_midi_destination(
+        &mut self,
+        destination_id: &str,
+    ) -> Result<(), crate::midi::MidiError> {
+        self.adapter.select(destination_id)
+    }
+
+    pub fn selected_midi_destination_id(&self) -> Option<&str> {
+        self.adapter.selected_destination_id()
+    }
+}
+
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     pub fn start_clock(engine: Arc<Mutex<Self>>, tick_period: Duration) -> JoinHandle<()> {
         let (generation, cancellation) = {
