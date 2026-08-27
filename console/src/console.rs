@@ -11,7 +11,6 @@ use crate::{
 /// ConsoleApp handles the egui presentation concerns
 /// App owns the underlying logic
 ///
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Console {
     app: App,
 }

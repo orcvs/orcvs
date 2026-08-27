@@ -17,5 +17,8 @@ Implementation issues are tracked under `issues/`.
 - Self-overwriting results are unreachable because Expressions remain row-confined and results target the row below. [Issue 13](issues/13-discard-tick-results-that-overwrite-their-own-expression.md)
 - Occupied Cells always publish a Source-derived Glyph before the renderer observes them. [Issue 15](issues/15-render-a-cell-that-has-no-glyph.md)
 - Background Marker, Highlight, and Space classifications remain distinct through rendering. [Issue 16](issues/16-construct-the-highlight-and-space-glyphs.md)
+- Marker spacing is a validated positive whole-Cell value shared by placement and block geometry. [Issue 17](issues/17-measure-marker-spacing-in-whole-cells.md)
+- Source persistence stores only canonical Grid dimensions and Cells, validates them at ingress, and rebuilds derived state. [Issue 18](issues/18-repair-the-persistence-feature.md)
+- Positions carry allocation-free Grid identity, and Grid queries refuse positions minted elsewhere. [Issue 19](issues/19-give-a-position-its-grid-identity.md)
 
 ## Fog

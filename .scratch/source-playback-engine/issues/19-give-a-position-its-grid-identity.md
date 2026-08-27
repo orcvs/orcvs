@@ -4,13 +4,17 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] A Position records the Grid that minted it, and a Grid can tell its own Positions from another Grid's.
-- [ ] Asking a Grid about a Position it did not mint is either unexpressible or refused — not silently answered.
-- [ ] The doc comments on `index` and `fits`, which state the single-Grid invariant as a convention, say what the type enforces instead.
-- [ ] A test covers a Grid refusing a Position another Grid minted. Nothing is left to invert: the two tests that exercised foreign Positions were deleted when the single-Grid invariant was adopted.
-- [ ] A Grid stays cheap to copy and a Position stays a plain value: no allocation, no registry, no runtime lookup on the render path, which asks for a Position per Cell per Render Frame.
+- [x] A Position records the Grid that minted it, and a Grid can tell its own Positions from another Grid's.
+- [x] Asking a Grid about a Position it did not mint is either unexpressible or refused — not silently answered.
+- [x] The doc comments on `index` and `fits`, which state the single-Grid invariant as a convention, say what the type enforces instead.
+- [x] A test covers a Grid refusing a Position another Grid minted. Nothing is left to invert: the two tests that exercised foreign Positions were deleted when the single-Grid invariant was adopted.
+- [x] A Grid stays cheap to copy and a Position stays a plain value: no allocation, no registry, no runtime lookup on the render path, which asks for a Position per Cell per Render Frame.
+
+## Answer
+
+Every Grid receives an allocation-free atomic identity at construction, and every Position carries the identity that minted it. All Grid queries accepting a Position now share one ownership guard and refuse foreign values. Copying a Grid preserves its identity; deserializing one creates a fresh identity. Tests cover foreign refusal and copied ownership without adding a registry, allocation, or render-path lookup.
 
 ## Notes
 

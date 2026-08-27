@@ -76,7 +76,6 @@ pub struct TickResult {
 /// The Cells of one Orca program. The Source is the contents; the Grid it is
 /// built from is the shape, and answers every question about that shape.
 ///
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct Source {
     grid: Grid,
     inner: String,
@@ -84,6 +83,60 @@ pub struct Source {
     glyphs: Vec<Option<Glyph>>,
     parsed: Vec<Option<Atoms>>,
     diagnostics: Vec<Option<Diagnostic>>,
+}
+
+#[cfg(feature = "persistence")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedSource {
+    grid: Grid,
+    inner: String,
+}
+
+#[cfg(feature = "persistence")]
+impl serde::Serialize for Source {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serde::Serialize::serialize(
+            &PersistedSource {
+                grid: self.grid,
+                inner: self.inner.clone(),
+            },
+            serializer,
+        )
+    }
+}
+
+#[cfg(feature = "persistence")]
+impl<'de> serde::Deserialize<'de> for Source {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let persisted = <PersistedSource as serde::Deserialize>::deserialize(deserializer)?;
+        if persisted.inner.len() != persisted.grid.count() {
+            return Err(D::Error::custom(
+                "persisted Source Cell count does not match its Grid",
+            ));
+        }
+        if !persisted
+            .inner
+            .bytes()
+            .all(|byte| (0x20..=0x7e).contains(&byte))
+        {
+            return Err(D::Error::custom(
+                "persisted Source contains a non-Cell character",
+            ));
+        }
+
+        let mut source = Source::new(persisted.grid);
+        source.inner = persisted.inner;
+        source.rebuild_derived_state();
+        Ok(source)
+    }
 }
 
 impl Source {
@@ -640,6 +693,56 @@ mod test {
             }
         );
         assert_eq!(src.snapshot(), before);
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_source_round_trip_restores_shape_contents_and_derived_state() {
+        let grid = Grid::new(10, 3);
+        let mut source = Source::new(grid);
+        for (idx, content) in "++0102".chars().enumerate() {
+            source.set(idx, &content.to_string()).unwrap();
+        }
+        source.set(15, "x").unwrap();
+
+        let encoded = serde_json::to_string(&source).unwrap();
+        let mut restored: Source = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(restored.snapshot(), source.snapshot());
+        assert_eq!(restored.grid.count(), 30);
+        assert!(restored.grid.position(9, 2).is_some());
+        assert!(restored.grid.position(10, 2).is_none());
+        assert_eq!(
+            (0..grid.count())
+                .map(|idx| restored.get_glyph_at(idx))
+                .collect::<Vec<_>>(),
+            (0..grid.count())
+                .map(|idx| source.get_glyph_at(idx))
+                .collect::<Vec<_>>()
+        );
+
+        restored.execute();
+        assert_eq!(restored.get(10), Some("0".to_string()));
+        assert_eq!(restored.get(11), Some("3".to_string()));
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_source_deserialization_rejects_an_empty_grid() {
+        let encoded = r#"{"grid":{"cols":0,"rows":3},"inner":""}"#;
+
+        assert!(serde_json::from_str::<Source>(encoded).is_err());
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_source_deserialization_rejects_overflowing_grid_dimensions() {
+        let encoded = format!(
+            r#"{{"grid":{{"cols":{},"rows":2}},"inner":""}}"#,
+            usize::MAX / 2 + 1
+        );
+
+        assert!(serde_json::from_str::<Source>(&encoded).is_err());
     }
 
     #[test]

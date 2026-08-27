@@ -14,7 +14,6 @@ const DEFAULT_GLYPH_SELECTED_FONT_COLOR: Color32 = DEFAULT_GLYPH_FONT_COLOR;
 
 const DEFAULT_VISUAL_SELECTED_STROKE_COLOR_BLINK: Color32 = Color::rgb(192, 222, 255).build();
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlyphString {
     s: Option<String>,
@@ -126,7 +125,6 @@ impl GlyphString {
     }
 }
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Glyph {
     Char,

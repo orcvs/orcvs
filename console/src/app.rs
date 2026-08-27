@@ -4,7 +4,7 @@ use std::time::Duration;
 use tracing::error;
 
 use crate::glyph::GlyphString;
-use crate::opts::Opts;
+use crate::opts::{MarkerSpacing, Opts};
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
@@ -46,7 +46,6 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// assert_eq!((position.x(), position.y()), (15, 15));
 /// ```
 ///
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
     pub opts: Opts,
     pub cursor: Cursor,
@@ -149,10 +148,10 @@ impl App {
     }
 
     ///
-    /// Moves the Cursor to `position`. The Grid minted it, so there is nothing
-    /// left to validate here.
+    /// Moves the Cursor to `position`, refusing one minted by another Grid.
     ///
     pub fn select(&mut self, position: Position) {
+        self.grid.assert_owns(position);
         self.cursor.select(position);
     }
 
@@ -275,8 +274,8 @@ impl App {
         let (x, y) = (position.x(), position.y());
 
         // Markers
-        if x as f32 % self.opts.marker_spacing == 0.0 && y as f32 % self.opts.marker_spacing == 0.0
-        {
+        let marker_spacing = self.opts.marker_spacing.cells();
+        if x % marker_spacing == 0 && y % marker_spacing == 0 {
             return GlyphString::marker();
         }
 
@@ -318,22 +317,19 @@ impl App {
 /// True when `target` falls inside the marker block containing `cursor`.
 /// Purely visual: `spacing` is the marker spacing, not a Source dimension.
 ///
-fn in_marker_block(cursor: Position, target: Position, spacing: f32) -> bool {
-    let x = target.x() as i32;
-    let y = target.y() as i32;
-    let cursor_x = cursor.x() as i32;
-    let cursor_y = cursor.y() as i32;
-    // Narrowed first: a spacing between 0 and 1 truncates to zero, and so does
-    // NaN, so this is the value the divisions below actually use
-    let spacing = spacing as i32;
-    assert!(spacing > 0, "marker spacing must be at least one Cell");
+fn in_marker_block(cursor: Position, target: Position, spacing: MarkerSpacing) -> bool {
+    let x = target.x();
+    let y = target.y();
+    let cursor_x = cursor.x();
+    let cursor_y = cursor.y();
+    let spacing = spacing.cells();
 
-    let min_x = ((cursor_x / spacing) * spacing) - 1;
-    let max_x = (1 + (cursor_x / spacing)) * spacing;
-    let min_y = ((cursor_y / spacing) * spacing) - 1;
-    let max_y = (1 + (cursor_y / spacing)) * spacing;
+    let min_x = cursor_x / spacing * spacing;
+    let max_x = (cursor_x / spacing + 1).saturating_mul(spacing);
+    let min_y = cursor_y / spacing * spacing;
+    let max_y = (cursor_y / spacing + 1).saturating_mul(spacing);
 
-    x > min_x && (x) <= max_x && y > min_y && (y) <= max_y
+    x >= min_x && x <= max_x && y >= min_y && y <= max_y
 }
 
 #[cfg(test)]
@@ -343,13 +339,13 @@ mod test {
     use crate::{
         glyph::{Glyph, GlyphString},
         grid::Grid,
-        opts::DEFAULT_MARKER_SPACING,
+        opts::{MarkerSpacing, DEFAULT_MARKER_SPACING},
         test::trace,
     };
 
     fn app() -> App {
         let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
-        let cols = 1 * (DEFAULT_MARKER_SPACING as usize);
+        let cols = DEFAULT_MARKER_SPACING;
 
         App::new(cols, rows)
     }
@@ -529,18 +525,43 @@ mod test {
         assert_eq!(g, GlyphString::highlight());
     }
 
+    #[tokio::test]
+    async fn test_marker_placement_uses_one_whole_cell_spacing() {
+        let mut app = App::new(7, 3);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(6, 2));
+        app.opts.marker_spacing = MarkerSpacing::new(2).unwrap();
+
+        assert_eq!(
+            (0..7).map(|x| app.get(at(x, 0))).collect::<Vec<_>>(),
+            vec![
+                GlyphString::marker(),
+                GlyphString::space(),
+                GlyphString::marker(),
+                GlyphString::space(),
+                GlyphString::marker(),
+                GlyphString::space(),
+                GlyphString::marker(),
+            ]
+        );
+
+        app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
+        assert!((0..7).all(|x| app.get(at(x, 0)) == GlyphString::marker()));
+    }
+
     #[test]
     fn test_in_marker_block() {
         trace();
-        let spacing = 8.0;
+        let spacing = MarkerSpacing::new(8).unwrap();
         // Rectangular, and large enough to mint every position probed below
         let grid = Grid::new(64, 60);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         let selected = at(5, 5);
         assert!(!in_marker_block(selected, at(10, 10), spacing));
-        for x in 0..spacing as usize {
-            for y in 0..spacing as usize {
+        for x in 0..spacing.cells() {
+            for y in 0..spacing.cells() {
                 assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
@@ -548,8 +569,8 @@ mod test {
         let selected = at(8, 8);
         assert!(!in_marker_block(selected, at(1, 1), spacing));
 
-        for x in 8..=16 as usize {
-            for y in 8..=16 as usize {
+        for x in 8..=16 {
+            for y in 8..=16 {
                 assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
@@ -557,12 +578,24 @@ mod test {
         // Marker block X 5 Y 6
         let selected = at(42, 51);
         assert!(!in_marker_block(selected, at(1, 1), spacing));
-        for x in 0..=spacing as usize {
-            for y in 0..=spacing as usize {
+        for x in 0..=spacing.cells() {
+            for y in 0..=spacing.cells() {
                 let x = x + 40;
                 let y = y + 48;
                 assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
+    }
+
+    #[test]
+    fn test_marker_block_accepts_the_largest_whole_cell_spacing() {
+        let grid = Grid::new(2, 2);
+        let origin = grid.origin();
+
+        assert!(in_marker_block(
+            origin,
+            origin,
+            MarkerSpacing::new(usize::MAX).unwrap()
+        ));
     }
 }

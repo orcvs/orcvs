@@ -4,12 +4,16 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] Marker spacing is a whole number of Cells, validated once where it is configured rather than asserted on every Cell of every render frame.
-- [ ] Marker placement and the cursor's marker block derive from the same value, and cannot disagree.
-- [ ] No assertion runs in the per-Cell render path.
-- [ ] Rendering at the default spacing is unchanged.
+- [x] Marker spacing is a whole number of Cells, validated once where it is configured rather than asserted on every Cell of every render frame.
+- [x] Marker placement and the cursor's marker block derive from the same value, and cannot disagree.
+- [x] No assertion runs in the per-Cell render path.
+- [x] Rendering at the default spacing is unchanged.
+
+## Answer
+
+`MarkerSpacing` is a positive whole-Cell value backed by `NonZeroUsize`. Marker placement and marker-block geometry consume that same value without narrowing it, including at `usize::MAX`, and the render path contains no spacing assertion. Regression tests cover validation, exact one/two-Cell placement, the default block behavior, and the largest accepted spacing.
 
 ## Notes
 
