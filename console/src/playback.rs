@@ -33,6 +33,27 @@ pub enum PlaybackDiagnostic {
     OutputFailure(OutputAdapterError),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScheduledTick {
+    pub scheduled_at: Duration,
+    pub observed_at: Duration,
+    pub period: Duration,
+}
+
+impl ScheduledTick {
+    pub fn new(scheduled_at: Duration, observed_at: Duration, period: Duration) -> Self {
+        Self {
+            scheduled_at,
+            observed_at,
+            period,
+        }
+    }
+
+    fn is_overrun(self) -> bool {
+        self.observed_at >= self.scheduled_at + self.period
+    }
+}
+
 #[derive(Default)]
 struct InMemoryOutputState {
     command_lists: Vec<Vec<PlayCommand>>,
@@ -82,6 +103,7 @@ pub struct PlaybackEngine<A> {
     connected: bool,
     diagnostics: Vec<PlaybackDiagnostic>,
     generation: u64,
+    cancellation: Option<CancellationToken>,
 }
 
 impl<A: OutputAdapter> PlaybackEngine<A> {
@@ -93,10 +115,14 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
             connected: true,
             diagnostics: Vec::new(),
             generation: 0,
+            cancellation: None,
         }
     }
 
     pub fn start(&mut self) {
+        if let Some(previous) = self.cancellation.take() {
+            previous.cancel();
+        }
         self.generation = self.generation.wrapping_add(1);
         self.playing = true;
     }
@@ -110,6 +136,9 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     }
 
     pub fn stop(&mut self) {
+        if let Some(cancellation) = self.cancellation.take() {
+            cancellation.cancel();
+        }
         if self.playing {
             if self.connected {
                 self.send_all_notes_off();
@@ -132,19 +161,14 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
         }
     }
 
-    pub fn clock_tick(
-        &mut self,
-        scheduled_at: Duration,
-        observed_at: Duration,
-        tick_period: Duration,
-    ) -> Option<TickResult> {
+    pub fn clock_tick(&mut self, scheduled_tick: ScheduledTick) -> Option<TickResult> {
         if !self.playing {
             return None;
         }
-        if observed_at >= scheduled_at + tick_period {
+        if scheduled_tick.is_overrun() {
             self.diagnostics.push(PlaybackDiagnostic::Overrun {
-                scheduled_at,
-                observed_at,
+                scheduled_at: scheduled_tick.scheduled_at,
+                observed_at: scheduled_tick.observed_at,
             });
             return None;
         }
@@ -162,15 +186,13 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     fn clock_tick_for_generation(
         &mut self,
         generation: u64,
-        scheduled_at: Duration,
-        observed_at: Duration,
-        tick_period: Duration,
+        scheduled_tick: ScheduledTick,
     ) -> Option<TickResult> {
         if self.generation != generation {
             return None;
         }
 
-        self.clock_tick(scheduled_at, observed_at, tick_period)
+        self.clock_tick(scheduled_tick)
     }
 
     fn stop_generation(&mut self, generation: u64) {
@@ -181,15 +203,13 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
 }
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
-    pub fn start_clock(
-        engine: Arc<Mutex<Self>>,
-        tick_period: Duration,
-        cancellation: CancellationToken,
-    ) -> JoinHandle<()> {
-        let generation = {
+    pub fn start_clock(engine: Arc<Mutex<Self>>, tick_period: Duration) -> JoinHandle<()> {
+        let (generation, cancellation) = {
             let mut engine = engine.lock().unwrap();
             engine.start();
-            engine.generation
+            let cancellation = CancellationToken::new();
+            engine.cancellation = Some(cancellation.clone());
+            (engine.generation, cancellation)
         };
 
         tokio::spawn(async move {
@@ -206,11 +226,14 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                     scheduled = interval.tick() => {
                         let scheduled_at = scheduled.duration_since(epoch);
                         let observed_at = time::Instant::now().duration_since(epoch);
-                        engine.lock().unwrap().clock_tick_for_generation(
-                            generation,
+                        let scheduled_tick = ScheduledTick::new(
                             scheduled_at,
                             observed_at,
                             tick_period,
+                        );
+                        engine.lock().unwrap().clock_tick_for_generation(
+                            generation,
+                            scheduled_tick,
                         );
                     }
                 }
@@ -260,6 +283,10 @@ mod tests {
         }
     }
 
+    fn scheduled(scheduled_at: Duration, observed_at: Duration) -> ScheduledTick {
+        ScheduledTick::new(scheduled_at, observed_at, Duration::from_secs(1))
+    }
+
     #[test]
     fn clock_tick_commits_source_before_submitting_play_commands() {
         let source = SourceCommander::new(Grid::new(10, 4));
@@ -270,7 +297,7 @@ mod tests {
         engine.start();
 
         let tick = engine
-            .clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1))
+            .clock_tick(scheduled(Duration::ZERO, Duration::ZERO))
             .expect("scheduled Tick runs");
 
         assert_eq!(&engine.adapter.source_at_submission[0][10..12], "03");
@@ -286,13 +313,9 @@ mod tests {
         let mut engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.start();
 
-        engine.clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1));
+        engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
         source.set(5, "D").unwrap();
-        engine.clock_tick(
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        );
+        engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
         assert_eq!(adapter.command_lists().len(), 2);
         assert_eq!(adapter.command_lists()[0][0].note, 60);
@@ -307,12 +330,8 @@ mod tests {
         let mut engine = PlaybackEngine::new(source, adapter.clone());
         engine.start();
 
-        engine.clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1));
-        engine.clock_tick(
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        );
+        engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
+        engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
         assert_eq!(adapter.command_lists().len(), 2);
         assert_eq!(adapter.command_lists()[0], adapter.command_lists()[1]);
@@ -326,16 +345,8 @@ mod tests {
         let mut engine = PlaybackEngine::new(source, adapter.clone());
         engine.start();
 
-        let missed = engine.clock_tick(
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-            Duration::from_secs(1),
-        );
-        let resumed = engine.clock_tick(
-            Duration::from_secs(3),
-            Duration::from_secs(3),
-            Duration::from_secs(1),
-        );
+        let missed = engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(2)));
+        let resumed = engine.clock_tick(scheduled(Duration::from_secs(3), Duration::from_secs(3)));
 
         assert!(missed.is_none());
         assert!(resumed.is_some());
@@ -355,12 +366,7 @@ mod tests {
         write(&source, 0, ">>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = Arc::new(Mutex::new(PlaybackEngine::new(source, adapter.clone())));
-        let cancellation = CancellationToken::new();
-        let clock = PlaybackEngine::start_clock(
-            engine.clone(),
-            Duration::from_secs(1),
-            cancellation.clone(),
-        );
+        let clock = PlaybackEngine::start_clock(engine.clone(), Duration::from_secs(1));
 
         tokio::task::yield_now().await;
         time::advance(Duration::from_secs(3)).await;
@@ -371,7 +377,7 @@ mod tests {
         assert_eq!(adapter.command_lists().len(), 2);
         assert_eq!(engine.lock().unwrap().diagnostics().len(), 2);
 
-        cancellation.cancel();
+        engine.lock().unwrap().stop();
         clock.await.unwrap();
 
         assert!(!engine.lock().unwrap().is_playing());
@@ -385,33 +391,23 @@ mod tests {
         let adapter = InMemoryOutputAdapter::default();
         let engine = Arc::new(Mutex::new(PlaybackEngine::new(source, adapter.clone())));
 
-        let old_cancellation = CancellationToken::new();
-        let old_clock = PlaybackEngine::start_clock(
-            engine.clone(),
-            Duration::from_secs(1),
-            old_cancellation.clone(),
-        );
+        let old_clock = PlaybackEngine::start_clock(engine.clone(), Duration::from_secs(1));
         tokio::task::yield_now().await;
         assert_eq!(adapter.command_lists().len(), 1);
 
-        old_cancellation.cancel();
-        let new_cancellation = CancellationToken::new();
-        let new_clock = PlaybackEngine::start_clock(
-            engine.clone(),
-            Duration::from_secs(1),
-            new_cancellation.clone(),
-        );
+        engine.lock().unwrap().stop();
+        let new_clock = PlaybackEngine::start_clock(engine.clone(), Duration::from_secs(1));
         old_clock.await.unwrap();
         tokio::task::yield_now().await;
 
         assert!(engine.lock().unwrap().is_playing());
         assert_eq!(adapter.command_lists().len(), 2);
-        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(adapter.all_notes_off_count(), 1);
 
-        new_cancellation.cancel();
+        engine.lock().unwrap().stop();
         new_clock.await.unwrap();
         assert!(!engine.lock().unwrap().is_playing());
-        assert_eq!(adapter.all_notes_off_count(), 1);
+        assert_eq!(adapter.all_notes_off_count(), 2);
     }
 
     #[test]
@@ -425,7 +421,7 @@ mod tests {
         engine.start();
 
         let failed_dispatch = engine
-            .clock_tick(Duration::ZERO, Duration::ZERO, Duration::from_secs(1))
+            .clock_tick(scheduled(Duration::ZERO, Duration::ZERO))
             .expect("Source Tick still succeeds");
 
         assert_eq!(&source.snapshot()[10..12], "03");
@@ -438,11 +434,7 @@ mod tests {
             ))]
         );
 
-        engine.clock_tick(
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        );
+        engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
         assert_eq!(adapter.command_lists().len(), 1);
     }
 

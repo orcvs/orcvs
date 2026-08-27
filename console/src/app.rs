@@ -2,7 +2,6 @@ use egui::{Event, Key};
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use crate::glyph::GlyphString;
@@ -42,7 +41,6 @@ pub struct App {
     pub cursor: Cursor,
     pub grid: Grid,
 
-    token: Option<CancellationToken>,
     source: SourceCommander,
     playback: Arc<Mutex<PlaybackEngine<InMemoryOutputAdapter>>>,
 }
@@ -65,7 +63,6 @@ impl App {
             opts,
             source,
             playback,
-            token: None,
         }
     }
 
@@ -213,25 +210,17 @@ impl App {
     }
 
     fn playing(&self) -> bool {
-        self.token.is_some()
+        self.playback.lock().unwrap().is_playing()
     }
 
     fn stop(&mut self) {
-        if let Some(token) = &self.token {
-            token.cancel();
-            self.token = None;
-        }
         self.playback.lock().unwrap().stop();
     }
 
     fn play(&mut self) {
-        let token = CancellationToken::new();
-        let cln_token = token.clone();
-        self.token = Some(token);
-
         let ms = self.opts.bpm.delay_ms();
         let playback = self.playback.clone();
-        PlaybackEngine::start_clock(playback, Duration::from_millis(ms), cln_token);
+        PlaybackEngine::start_clock(playback, Duration::from_millis(ms));
     }
 }
 

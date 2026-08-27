@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Keep Expressions horizontal and diagnosable.
 
-**Resolution:** implemented
+**Status:** resolved
 
 - [x] Every Tick evaluates all Expressions from the same pre-Tick Source snapshot.
 - [x] Cell writes commit together only after interpretation completes; earlier writes cannot change another Expression's input within that Tick.
