@@ -160,7 +160,7 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
 mod tests {
     use super::*;
     use crate::grid::Grid;
-    use crate::playback::{OutputAdapter, PlaybackEngine, ScheduledTick};
+    use crate::playback::{OutputAdapter, PlaybackEngine};
     use crate::source::{PlayCommand, SourceCommander};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -315,8 +315,8 @@ mod tests {
         assert_eq!(messages.last(), Some(&vec![0xbf, 123, 0]));
     }
 
-    #[test]
-    fn selecting_a_destination_after_disconnect_restores_output() {
+    #[tokio::test(start_paused = true)]
+    async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let source = SourceCommander::new(Grid::new(10, 2));
         for (index, content) in ">>07FC4".chars().enumerate() {
@@ -325,21 +325,17 @@ mod tests {
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        let mut playback = PlaybackEngine::new(source, adapter);
+        let playback = PlaybackEngine::new(source, adapter);
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
-        playback.start();
+        playback.start(Duration::from_secs(1)).unwrap();
         playback.disconnect();
 
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
-        playback.clock_tick(ScheduledTick::new(
-            Duration::ZERO,
-            Duration::ZERO,
-            Duration::from_secs(1),
-        ));
+        tokio::task::yield_now().await;
 
         assert_eq!(
             state.lock().unwrap().messages.last(),
@@ -354,7 +350,7 @@ mod tests {
             state: state.clone(),
         });
         let source = SourceCommander::new(Grid::new(1, 1));
-        let mut playback = PlaybackEngine::new(source, adapter);
+        let playback = PlaybackEngine::new(source, adapter);
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
@@ -365,13 +361,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(state.lock().unwrap().connection_count, 2);
+        let observation = playback.observe();
         assert_eq!(
-            playback.output_failure(),
-            Some(&OutputAdapterError::new("device lost"))
-        );
-        assert_eq!(
-            playback.diagnostics(),
-            &[crate::playback::PlaybackDiagnostic::OutputFailure(
+            observation.diagnostics,
+            vec![crate::playback::PlaybackDiagnostic::OutputFailure(
                 OutputAdapterError::new("device lost")
             )]
         );

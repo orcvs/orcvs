@@ -11,5 +11,6 @@ Implementation issues are tracked under `issues/`.
 - Root Play Functions emit ordered Play Commands without Cell writes or inferred timing. [Issue 04](issues/04-interpret-terminal-play-functions-into-play-commands.md)
 - The Playback Engine owns lifecycle, musical time, Tick orchestration, and exact output dispatch. [Issue 05](issues/05-run-live-editing-through-the-playback-engine.md)
 - Native MIDI delivery is isolated behind Playback Engine destination configuration and a target-gated `midir` backend; raw delivery behavior is hardware-independently regression tested. [Issue 06](issues/06-deliver-play-commands-to-native-midi-output.md)
+- Playback Engine owns its lifecycle concurrency behind a cloneable handle and transfers ordered diagnostics through one atomic observation. [Issue 20](issues/20-deepen-playback-lifecycle-module.md)
 
 ## Fog

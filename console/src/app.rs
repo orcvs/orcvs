@@ -1,6 +1,5 @@
 use egui::{Event, Key};
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::error;
 
@@ -11,7 +10,7 @@ use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::playback::InMemoryOutputAdapter;
-use crate::playback::PlaybackEngine;
+use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
 use crate::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -54,7 +53,8 @@ pub struct App {
     pub grid: Grid,
 
     source: SourceCommander,
-    playback: Arc<Mutex<PlaybackEngine<AppOutputAdapter>>>,
+    playback: PlaybackEngine<AppOutputAdapter>,
+    playback_state: PlaybackState,
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     midi_destinations: Vec<MidiDestination>,
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -72,7 +72,7 @@ impl App {
         let adapter = NativeMidiOutputAdapter::new(MidirBackend);
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let adapter = InMemoryOutputAdapter::default();
-        let playback = Arc::new(Mutex::new(PlaybackEngine::new(source.clone(), adapter)));
+        let playback = PlaybackEngine::new(source.clone(), adapter);
 
         Self {
             cursor: Cursor::new(grid.origin(), opts.cursor_delay),
@@ -80,6 +80,7 @@ impl App {
             opts,
             source,
             playback,
+            playback_state: PlaybackState::Stopped,
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             midi_destinations: Vec::new(),
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -89,7 +90,7 @@ impl App {
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn refresh_midi_destinations(&mut self) {
-        match self.playback.lock().unwrap().midi_destinations() {
+        match self.playback.midi_destinations() {
             Ok(destinations) => {
                 self.midi_destinations = destinations;
                 self.midi_status = None;
@@ -105,8 +106,7 @@ impl App {
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn select_midi_destination(&mut self, destination_id: &MidiDestinationId) {
-        let mut playback = self.playback.lock().unwrap();
-        match playback.select_midi_destination(destination_id) {
+        match self.playback.select_midi_destination(destination_id) {
             Ok(()) => self.midi_status = None,
             Err(error) => self.midi_status = Some(error.message),
         }
@@ -114,20 +114,38 @@ impl App {
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn selected_midi_destination_id(&self) -> Option<MidiDestinationId> {
-        self.playback
-            .lock()
-            .unwrap()
-            .selected_midi_destination_id()
-            .cloned()
+        self.playback.selected_midi_destination_id()
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn midi_status(&self) -> Option<String> {
-        if let Some(message) = &self.midi_status {
-            return Some(message.clone());
+        self.midi_status.clone()
+    }
+
+    pub fn observe_playback(&mut self) {
+        let observation = self.playback.observe();
+        self.playback_state = observation.state;
+        for diagnostic in observation.diagnostics {
+            match diagnostic {
+                PlaybackDiagnostic::OutputFailure(error) => {
+                    self.record_playback_failure(error.message)
+                }
+                PlaybackDiagnostic::ClockFailure { message } => {
+                    self.record_playback_failure(message)
+                }
+                PlaybackDiagnostic::Overrun { .. } => {}
+            }
         }
-        let playback = self.playback.lock().unwrap();
-        playback.output_failure().map(|error| error.message.clone())
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    fn record_playback_failure(&mut self, message: String) {
+        self.midi_status = Some(message);
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    fn record_playback_failure(&mut self, message: String) {
+        error!("Playback failure: {message}");
     }
 
     ///
@@ -274,25 +292,25 @@ impl App {
     }
 
     fn playing(&self) -> bool {
-        self.playback.lock().unwrap().is_playing()
+        self.playback_state == PlaybackState::Playing
     }
 
     fn stop(&mut self) {
-        self.playback.lock().unwrap().stop();
+        self.playback.stop();
+        self.observe_playback();
     }
 
     fn play(&mut self) {
         let ms = self.opts.bpm.delay_ms();
-        let playback = self.playback.clone();
-        PlaybackEngine::start_clock(playback, Duration::from_millis(ms));
-    }
-}
-
-impl Drop for App {
-    fn drop(&mut self) {
-        if let Ok(mut playback) = self.playback.lock() {
-            playback.stop();
+        if let Err(error) = self.playback.start(Duration::from_millis(ms)) {
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            {
+                self.midi_status = Some(error.to_string());
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+            error!("Playback did not start: {error}");
         }
+        self.observe_playback();
     }
 }
 
@@ -378,17 +396,6 @@ mod test {
         let position = app.grid.position(5, 3).expect("inside the grid");
         let idx = app.index(position);
         assert_eq!(idx, 35);
-    }
-
-    #[test]
-    fn dropping_the_app_stops_playback() {
-        let app = App::new(10, 4);
-        let playback = app.playback.clone();
-        playback.lock().unwrap().start();
-
-        drop(app);
-
-        assert!(!playback.lock().unwrap().is_playing());
     }
 
     #[tokio::test]

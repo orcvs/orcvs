@@ -61,6 +61,7 @@ impl eframe::App for Console {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.app.observe_playback();
         let top_panel = egui::TopBottomPanel::top("top_panel")
             .resizable(true)
             .min_height(32.0);
