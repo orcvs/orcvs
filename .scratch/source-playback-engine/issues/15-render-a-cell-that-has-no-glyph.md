@@ -6,10 +6,10 @@
 
 **Status:** resolved
 
-- [ ] A Cell holding a character renders that character, whether or not the Cell has a glyph classification.
-- [ ] A Cell holding no character continues to render the background: marker, highlight, or space.
-- [ ] Typing one character and then a second, completing a Function, shows the first character throughout — it never disappears and reappear.
-- [ ] A test covers a Cell with content and no glyph, through the interface the renderer uses.
+- [x] A Cell holding a character renders that character; Source gives otherwise-unclassified occupied Cells `Glyph::Char` before publication.
+- [x] A Cell holding no character continues to render the background: marker, highlight, or space.
+- [x] Typing one character and then a second, completing a Function, shows the first character throughout — it never disappears and reappears.
+- [x] Superseded by the stronger invariant: the renderer-facing interface cannot observe a Cell with content and no glyph; Source and App tests cover the formerly failing lone-character state.
 
 ## Notes
 

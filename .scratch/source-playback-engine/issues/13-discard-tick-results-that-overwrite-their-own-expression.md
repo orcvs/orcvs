@@ -6,9 +6,9 @@
 
 **Status:** resolved
 
-- [ ] A result whose destination Cells overlap its own Expression is discarded and reported, never committed.
-- [ ] The discard is observable as a diagnostic, not only as a log line.
-- [ ] Tests cover an Expression wide enough for its result destination to fall within its own extent.
+- [x] Superseded by the stronger invariant: a row-confined Expression and its below-row result cannot overlap, so such a result is never produced or committed.
+- [x] Superseded: because self-overlap is structurally unreachable, there is no discard event requiring a diagnostic.
+- [x] Row-edge behavior tests prove Expressions cannot become wide enough for a result destination to fall within their own extent.
 
 ## Notes
 

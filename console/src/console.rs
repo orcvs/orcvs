@@ -1,4 +1,4 @@
-use egui::{EventFilter, Rounding, Vec2};
+use egui::{CornerRadius, EventFilter, Vec2};
 
 use crate::{
     app::App,
@@ -18,7 +18,8 @@ pub struct Console {
 impl Console {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let style = style();
-        cc.egui_ctx.set_style(style);
+        cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
+        cc.egui_ctx.set_theme(egui::Theme::Dark);
 
         // Start with the default fonts (we will be adding to them rather than replacing them).
         let mut fonts = egui::FontDefinitions::default();
@@ -27,7 +28,7 @@ impl Console {
         // .ttf and .otf files supported.
         fonts.font_data.insert(
             key.to_owned(),
-            egui::FontData::from_static(include_bytes!("../assets/ServerMono-Regular.otf")),
+            egui::FontData::from_static(include_bytes!("../assets/ServerMono-Regular.otf")).into(),
         );
 
         fonts
@@ -59,18 +60,17 @@ impl eframe::App for Console {
     // }
 
     /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = root.ctx().clone();
         self.app.observe_playback();
-        let top_panel = egui::TopBottomPanel::top("top_panel")
-            .resizable(true)
-            .min_height(32.0);
+        let top_panel = egui::Panel::top("top_panel").resizable(true).min_size(32.0);
 
         // let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
         //     .resizable(false)
         //     .min_height(0.0);
 
-        top_panel.show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+        top_panel.show(root, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
                 if !is_web {
@@ -116,13 +116,13 @@ impl eframe::App for Console {
         let events = ctx.input(|i| i.filtered_events(&event_filter));
         self.app.event_handler(events);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(root, |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(0.0);
             ui.spacing_mut().button_padding = Vec2::splat(2.5);
 
             // button background colour
             // ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
-            ui.style_mut().visuals.widgets.inactive.rounding = Rounding::default();
+            ui.style_mut().visuals.widgets.inactive.corner_radius = CornerRadius::default();
 
             // The Grid yields the Positions to render and their order, so the
             // render path states no bound of its own and cannot swap an axis.
