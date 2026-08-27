@@ -15,6 +15,10 @@
 - [x] Stopping Playback or disconnecting the adapter sends all-notes-off as the sole transport-safety exception.
 - [x] Playback timing and dispatch behavior are testable without sleeping in wall-clock time.
 
+## Answer
+
+The Playback Engine owns lifecycle and scheduled musical time, requests and commits one fresh Tick Plan per accepted Tick, then dispatches its exact ordered Play Command list. Live Editing, overruns, restart safety, adapter failures, and all-notes-off behavior are covered with deterministic adapters and paused time.
+
 ## Comments
 
 **2026-08-26 — implemented (agent)**

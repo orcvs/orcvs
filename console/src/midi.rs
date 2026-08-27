@@ -2,13 +2,38 @@ use crate::playback::{OutputAdapter, OutputAdapterError};
 use crate::source::PlayCommand;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MidiDestinationId(String);
+
+impl MidiDestinationId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for MidiDestinationId {
+    fn from(id: String) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<&str> for MidiDestinationId {
+    fn from(id: &str) -> Self {
+        Self::new(id)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MidiDestination {
-    pub id: String,
+    pub id: MidiDestinationId,
     pub name: String,
 }
 
 impl MidiDestination {
-    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn new(id: impl Into<MidiDestinationId>, name: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
@@ -35,13 +60,26 @@ pub trait MidiConnection: Send {
 
 pub trait MidiBackend: Send {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError>;
-    fn connect(&mut self, destination_id: &str) -> Result<Box<dyn MidiConnection>, MidiError>;
+    fn connect(
+        &mut self,
+        destination_id: &MidiDestinationId,
+    ) -> Result<Box<dyn MidiConnection>, MidiError>;
+}
+
+pub struct MidiSelection {
+    safety_failure: Option<MidiError>,
+}
+
+impl MidiSelection {
+    pub fn safety_failure(self) -> Option<MidiError> {
+        self.safety_failure
+    }
 }
 
 pub struct MidiOutputAdapter<B> {
     backend: B,
     connection: Option<Box<dyn MidiConnection>>,
-    selected_destination_id: Option<String>,
+    selected_destination_id: Option<MidiDestinationId>,
 }
 
 impl<B: MidiBackend> MidiOutputAdapter<B> {
@@ -57,18 +95,23 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
         self.backend.destinations()
     }
 
-    pub fn select(&mut self, destination_id: &str) -> Result<(), MidiError> {
-        if self.connection.is_some() {
-            let _ = self.send_all_notes_off();
-        }
+    pub fn select(
+        &mut self,
+        destination_id: &MidiDestinationId,
+    ) -> Result<MidiSelection, MidiError> {
+        let safety_failure = self
+            .connection
+            .is_some()
+            .then(|| self.send_all_notes_off().err())
+            .flatten();
         let connection = self.backend.connect(destination_id)?;
         self.connection = Some(connection);
-        self.selected_destination_id = Some(destination_id.to_owned());
-        Ok(())
+        self.selected_destination_id = Some(destination_id.clone());
+        Ok(MidiSelection { safety_failure })
     }
 
-    pub fn selected_destination_id(&self) -> Option<&str> {
-        self.selected_destination_id.as_deref()
+    pub fn selected_destination_id(&self) -> Option<&MidiDestinationId> {
+        self.selected_destination_id.as_ref()
     }
 
     fn send_all_notes_off(&mut self) -> Result<(), MidiError> {
@@ -116,9 +159,11 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::playback::OutputAdapter;
-    use crate::source::PlayCommand;
+    use crate::grid::Grid;
+    use crate::playback::{OutputAdapter, PlaybackEngine, ScheduledTick};
+    use crate::source::{PlayCommand, SourceCommander};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     #[derive(Default)]
     struct FakeState {
@@ -136,7 +181,10 @@ mod tests {
             Ok(vec![MidiDestination::new("one", "Synth")])
         }
 
-        fn connect(&mut self, _destination_id: &str) -> Result<Box<dyn MidiConnection>, MidiError> {
+        fn connect(
+            &mut self,
+            _destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
             self.state.lock().unwrap().connection_count += 1;
             Ok(Box::new(FakeConnection {
                 state: self.state.clone(),
@@ -166,7 +214,7 @@ mod tests {
         let mut adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        adapter.select("one").unwrap();
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
 
         adapter
             .submit(&[
@@ -200,10 +248,21 @@ mod tests {
             adapter.destinations().unwrap(),
             vec![MidiDestination::new("one", "Synth")]
         );
-        adapter.select("one").unwrap();
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
 
-        assert_eq!(adapter.selected_destination_id(), Some("one"));
+        assert_eq!(
+            adapter.selected_destination_id(),
+            Some(&MidiDestinationId::new("one"))
+        );
         assert_eq!(state.lock().unwrap().connection_count, 1);
+    }
+
+    #[test]
+    fn destination_identity_is_distinct_from_its_display_name() {
+        let destination = MidiDestination::new("core-midi:17", "Studio Synth");
+
+        assert_eq!(destination.id, MidiDestinationId::new("core-midi:17"));
+        assert_eq!(destination.name, "Studio Synth");
     }
 
     #[test]
@@ -212,7 +271,7 @@ mod tests {
         let mut adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        adapter.select("one").unwrap();
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
         state.lock().unwrap().fail_next_send = true;
 
         let error = adapter
@@ -226,7 +285,7 @@ mod tests {
         assert_eq!(error, OutputAdapterError::new("device lost"));
         assert_eq!(state.lock().unwrap().messages.len(), 16);
 
-        adapter.select("one").unwrap();
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
         adapter
             .submit(&[PlayCommand {
                 channel: 1,
@@ -246,7 +305,7 @@ mod tests {
         let mut adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        adapter.select("one").unwrap();
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
 
         adapter.all_notes_off().unwrap();
 
@@ -254,5 +313,67 @@ mod tests {
         assert_eq!(messages.len(), 16);
         assert_eq!(messages.first(), Some(&vec![0xb0, 123, 0]));
         assert_eq!(messages.last(), Some(&vec![0xbf, 123, 0]));
+    }
+
+    #[test]
+    fn selecting_a_destination_after_disconnect_restores_output() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let source = SourceCommander::new(Grid::new(10, 2));
+        for (index, content) in ">>07FC4".chars().enumerate() {
+            source.set(index, &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let mut playback = PlaybackEngine::new(source, adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        playback.start();
+        playback.disconnect();
+
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        playback.clock_tick(ScheduledTick::new(
+            Duration::ZERO,
+            Duration::ZERO,
+            Duration::from_secs(1),
+        ));
+
+        assert_eq!(
+            state.lock().unwrap().messages.last(),
+            Some(&vec![0x90, 60, 0x7f])
+        );
+    }
+
+    #[test]
+    fn reselection_reports_safety_failure_and_connects_new_destination() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let source = SourceCommander::new(Grid::new(1, 1));
+        let mut playback = PlaybackEngine::new(source, adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        state.lock().unwrap().fail_next_send = true;
+
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+
+        assert_eq!(state.lock().unwrap().connection_count, 2);
+        assert_eq!(
+            playback.output_failure(),
+            Some(&OutputAdapterError::new("device lost"))
+        );
+        assert_eq!(
+            playback.diagnostics(),
+            &[crate::playback::PlaybackDiagnostic::OutputFailure(
+                OutputAdapterError::new("device lost")
+            )]
+        );
     }
 }

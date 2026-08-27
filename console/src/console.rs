@@ -88,7 +88,7 @@ impl eframe::App for Console {
                     }
                     let selected = self.app.selected_midi_destination_id();
                     for destination in self.app.midi_destinations().to_vec() {
-                        let is_selected = selected.as_deref() == Some(destination.id.as_str());
+                        let is_selected = selected.as_ref() == Some(&destination.id);
                         if ui.selectable_label(is_selected, destination.name).clicked() {
                             self.app.select_midi_destination(&destination.id);
                         }

@@ -102,6 +102,7 @@ pub struct PlaybackEngine<A> {
     playing: bool,
     connected: bool,
     diagnostics: Vec<PlaybackDiagnostic>,
+    output_failure: Option<OutputAdapterError>,
     generation: u64,
     cancellation: Option<CancellationToken>,
 }
@@ -114,6 +115,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
             playing: false,
             connected: true,
             diagnostics: Vec::new(),
+            output_failure: None,
             generation: 0,
             cancellation: None,
         }
@@ -133,6 +135,10 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
 
     pub fn diagnostics(&self) -> &[PlaybackDiagnostic] {
         &self.diagnostics
+    }
+
+    pub fn output_failure(&self) -> Option<&OutputAdapterError> {
+        self.output_failure.as_ref()
     }
 
     pub fn stop(&mut self) {
@@ -156,9 +162,14 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
 
     fn send_all_notes_off(&mut self) {
         if let Err(error) = self.adapter.all_notes_off() {
-            self.diagnostics
-                .push(PlaybackDiagnostic::OutputFailure(error));
+            self.record_output_failure(error);
         }
+    }
+
+    fn record_output_failure(&mut self, error: OutputAdapterError) {
+        self.output_failure = Some(error.clone());
+        self.diagnostics
+            .push(PlaybackDiagnostic::OutputFailure(error));
     }
 
     pub fn clock_tick(&mut self, scheduled_tick: ScheduledTick) -> Option<TickResult> {
@@ -176,8 +187,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
         let tick = self.source.execute();
         if self.connected {
             if let Err(error) = self.adapter.submit(&tick.plan.play_commands) {
-                self.diagnostics
-                    .push(PlaybackDiagnostic::OutputFailure(error));
+                self.record_output_failure(error);
             }
         }
         Some(tick)
@@ -211,12 +221,18 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
 
     pub fn select_midi_destination(
         &mut self,
-        destination_id: &str,
+        destination_id: &crate::midi::MidiDestinationId,
     ) -> Result<(), crate::midi::MidiError> {
-        self.adapter.select(destination_id)
+        let selection = self.adapter.select(destination_id)?;
+        self.output_failure = None;
+        if let Some(error) = selection.safety_failure() {
+            self.record_output_failure(OutputAdapterError::new(error.message));
+        }
+        self.connected = true;
+        Ok(())
     }
 
-    pub fn selected_midi_destination_id(&self) -> Option<&str> {
+    pub fn selected_midi_destination_id(&self) -> Option<&crate::midi::MidiDestinationId> {
         self.adapter.selected_destination_id()
     }
 }

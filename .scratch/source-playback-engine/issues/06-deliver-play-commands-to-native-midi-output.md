@@ -24,3 +24,4 @@ Desktop builds now use a target-gated `midir` backend behind a device-independen
 - Regression tests use a fake MIDI backend and assert raw ordered bytes, zero velocity, enumeration and selection, all-notes-off, delivery failure, and reconnection without MIDI hardware.
 - `cargo test --workspace` and `cargo check -p console` pass. The WebAssembly dependency graph contains no `midir` package.
 - Strict workspace Clippy remains blocked by pre-existing warnings in `lang` (`needless_borrow`, `new_without_default`, `len_without_is_empty`, and `useless_conversion`).
+- Review regressions now cover restoring dispatch after disconnect/reselection and retaining an all-notes-off failure as visible Playback status while the new destination still connects.

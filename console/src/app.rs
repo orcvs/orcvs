@@ -11,13 +11,11 @@ use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::playback::InMemoryOutputAdapter;
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::playback::PlaybackDiagnostic;
 use crate::playback::PlaybackEngine;
 use crate::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::midi::MidiDestination;
+use crate::midi::{MidiDestination, MidiDestinationId};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
 
@@ -61,8 +59,6 @@ pub struct App {
     midi_destinations: Vec<MidiDestination>,
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     midi_status: Option<String>,
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    acknowledged_output_failures: usize,
 }
 
 impl App {
@@ -88,8 +84,6 @@ impl App {
             midi_destinations: Vec::new(),
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             midi_status: None,
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            acknowledged_output_failures: 0,
         }
     }
 
@@ -110,28 +104,21 @@ impl App {
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn select_midi_destination(&mut self, destination_id: &str) {
+    pub fn select_midi_destination(&mut self, destination_id: &MidiDestinationId) {
         let mut playback = self.playback.lock().unwrap();
         match playback.select_midi_destination(destination_id) {
-            Ok(()) => {
-                self.acknowledged_output_failures = playback
-                    .diagnostics()
-                    .iter()
-                    .filter(|diagnostic| matches!(diagnostic, PlaybackDiagnostic::OutputFailure(_)))
-                    .count();
-                self.midi_status = None;
-            }
+            Ok(()) => self.midi_status = None,
             Err(error) => self.midi_status = Some(error.message),
         }
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn selected_midi_destination_id(&self) -> Option<String> {
+    pub fn selected_midi_destination_id(&self) -> Option<MidiDestinationId> {
         self.playback
             .lock()
             .unwrap()
             .selected_midi_destination_id()
-            .map(str::to_owned)
+            .cloned()
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -140,14 +127,7 @@ impl App {
             return Some(message.clone());
         }
         let playback = self.playback.lock().unwrap();
-        playback
-            .diagnostics()
-            .iter()
-            .filter_map(|diagnostic| match diagnostic {
-                PlaybackDiagnostic::OutputFailure(error) => Some(error.message.clone()),
-                PlaybackDiagnostic::Overrun { .. } => None,
-            })
-            .nth(self.acknowledged_output_failures)
+        playback.output_failure().map(|error| error.message.clone())
     }
 
     ///

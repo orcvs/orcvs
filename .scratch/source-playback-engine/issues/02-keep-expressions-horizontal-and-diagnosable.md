@@ -14,6 +14,10 @@
 - [x] Tests no longer require public access to Expression range maintenance merely to verify Source behavior.
 - [x] Every Tick test that currently records a wrapped Expression as expected-for-now asserts the row-confined outcome instead, so no test still encodes the wrap.
 
+## Answer
+
+Expression grouping is confined to each Grid row. Source edits preserve incomplete and invalid content while synchronously rebuilding classification and range-addressed diagnostics for the visible revision; joining, splitting, replacing, deleting, rectangular grids, and row edges are covered through Source behavior tests.
+
 ## Comments
 
 **2026-08-26 — root cause and repro for the row wrap (review)**

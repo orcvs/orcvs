@@ -15,6 +15,10 @@
 - [x] The returned snapshot and change set describe the fully committed post-Tick Source revision.
 - [x] A Tick Plan commits its Cell writes through a path that does not reparse per character, so no Expression is reparsed and no parse state is mutated part-way through a Tick.
 
+## Answer
+
+Each Tick now interprets one pre-Tick Source snapshot into a deterministic Tick Plan, resolves writes in Source order, commits them together through a single derived-state rebuild, and returns the committed snapshot and changes. Complete multi-Cell results and range-addressed failures are preserved without partial reparsing.
+
 ## Comments
 
 **2026-08-26 — partially satisfied ahead of schedule while fixing review findings (agent)**
