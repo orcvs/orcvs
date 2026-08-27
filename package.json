@@ -1,0 +1,12 @@
+{
+  "name": "orcvs",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "roadmap": "node scripts/roadmap.ts",
+    "roadmap:html": "node scripts/roadmap.ts --html --open"
+  }
+}

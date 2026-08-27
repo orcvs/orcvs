@@ -15,6 +15,7 @@ Implementation issues are tracked under `issues/`.
 - Source rebuilds all derived Cell classifications from each accepted revision, including row-confined operand hints and raw occupied Cells. [Issue 11](issues/11-invalidate-operand-slot-hints-on-edit.md)
 - Source rejects Expressions beyond parser capacity atomically, while parsing remains panic-free for non-edit ingress. [Issue 12](issues/12-bound-expression-length-instead-of-panicking.md)
 - Self-overwriting results are unreachable because Expressions remain row-confined and results target the row below. [Issue 13](issues/13-discard-tick-results-that-overwrite-their-own-expression.md)
+- Marker highlight blocks are exactly one marker spacing in each dimension, with non-overlapping exclusive upper boundaries. [Issue 14](issues/14-decide-the-marker-block-size.md)
 - Occupied Cells always publish a Source-derived Glyph before the renderer observes them. [Issue 15](issues/15-render-a-cell-that-has-no-glyph.md)
 - Background Marker, Highlight, and Space classifications remain distinct through rendering. [Issue 16](issues/16-construct-the-highlight-and-space-glyphs.md)
 - Marker spacing is a validated positive whole-Cell value shared by placement and block geometry. [Issue 17](issues/17-measure-marker-spacing-in-whole-cells.md)

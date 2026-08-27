@@ -325,11 +325,11 @@ fn in_marker_block(cursor: Position, target: Position, spacing: MarkerSpacing) -
     let spacing = spacing.cells();
 
     let min_x = cursor_x / spacing * spacing;
-    let max_x = (cursor_x / spacing + 1).saturating_mul(spacing);
+    let end_x = (cursor_x / spacing + 1).saturating_mul(spacing);
     let min_y = cursor_y / spacing * spacing;
-    let max_y = (cursor_y / spacing + 1).saturating_mul(spacing);
+    let end_y = (cursor_y / spacing + 1).saturating_mul(spacing);
 
-    x >= min_x && x <= max_x && y >= min_y && y <= max_y
+    x >= min_x && x < end_x && y >= min_y && y < end_y
 }
 
 #[cfg(test)]
@@ -550,6 +550,17 @@ mod test {
         assert!((0..7).all(|x| app.get(at(x, 0)) == GlyphString::marker()));
     }
 
+    #[tokio::test]
+    async fn test_highlight_does_not_reach_into_the_next_marker_block() {
+        let mut app = App::new(24, 16);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(8, 8));
+
+        assert_eq!(app.get(at(14, 10)), GlyphString::highlight());
+        assert_eq!(app.get(at(16, 10)), GlyphString::space());
+    }
+
     #[test]
     fn test_in_marker_block() {
         trace();
@@ -569,22 +580,24 @@ mod test {
         let selected = at(8, 8);
         assert!(!in_marker_block(selected, at(1, 1), spacing));
 
-        for x in 8..=16 {
-            for y in 8..=16 {
+        for x in 8..16 {
+            for y in 8..16 {
                 assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
+        assert!(!in_marker_block(selected, at(16, 16), spacing));
 
         // Marker block X 5 Y 6
         let selected = at(42, 51);
         assert!(!in_marker_block(selected, at(1, 1), spacing));
-        for x in 0..=spacing.cells() {
-            for y in 0..=spacing.cells() {
+        for x in 0..spacing.cells() {
+            for y in 0..spacing.cells() {
                 let x = x + 40;
                 let y = y + 48;
                 assert!(in_marker_block(selected, at(x, y), spacing));
             }
         }
+        assert!(!in_marker_block(selected, at(48, 56), spacing));
     }
 
     #[test]
