@@ -288,6 +288,14 @@ impl App {
     }
 }
 
+impl Drop for App {
+    fn drop(&mut self) {
+        if let Ok(mut playback) = self.playback.lock() {
+            playback.stop();
+        }
+    }
+}
+
 ///
 /// True when `target` falls inside the marker block containing `cursor`.
 /// Purely visual: `spacing` is the marker spacing, not a Source dimension.
@@ -370,6 +378,17 @@ mod test {
         let position = app.grid.position(5, 3).expect("inside the grid");
         let idx = app.index(position);
         assert_eq!(idx, 35);
+    }
+
+    #[test]
+    fn dropping_the_app_stops_playback() {
+        let app = App::new(10, 4);
+        let playback = app.playback.clone();
+        playback.lock().unwrap().start();
+
+        drop(app);
+
+        assert!(!playback.lock().unwrap().is_playing());
     }
 
     #[tokio::test]
