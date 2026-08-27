@@ -55,6 +55,9 @@ pub enum SyntaxError {
 
     #[error("unexpected trailing content {0:?}")]
     UnexpectedTrailingContent(String),
+
+    #[error("expression exceeds the parser capacity of {capacity} atoms")]
+    ExpressionTooLong { capacity: usize },
 }
 
 #[derive(Error, Debug)]

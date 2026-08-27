@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A Cell holding a character renders that character, whether or not the Cell has a glyph classification.
 - [ ] A Cell holding no character continues to render the background: marker, highlight, or space.
@@ -18,3 +18,7 @@ Found while implementing ticket 09, not yet triaged by a human.
 The Source is right: an edit reports the Cell with `content: Some('+')` and `glyph: None`, and an existing Source test asserts exactly that. The loss is in the render path, which treats an absent glyph as "nothing here" and falls through to the background, discarding the content it was handed.
 
 Reproduces at any Source size and in any Cell; it is not a row-edge case. A lone `+`, a lone digit, and the first character of any Function you are part-way through typing are all invisible.
+
+## Answer
+
+Superseded by Issue 11. Source now assigns `Glyph::Char` to every occupied Cell that has no parser classification before publishing an accepted revision. `SourceCommander::get` reads content and Glyph under the same lock, so the renderer-facing `App::get` seam cannot observe content without a Glyph. Existing Source and App regressions cover lone-character visibility and reclassification when a Function is completed.

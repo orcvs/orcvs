@@ -36,14 +36,14 @@ impl GlyphString {
     pub fn highlight() -> GlyphString {
         Self {
             s: None,
-            t: Glyph::Marker,
+            t: Glyph::Highlight,
         }
     }
 
     pub fn space() -> GlyphString {
         Self {
             s: None,
-            t: Glyph::Marker,
+            t: Glyph::Space,
         }
     }
 
@@ -210,7 +210,24 @@ impl Glyph {
 
 #[cfg(test)]
 mod test {
-    use crate::glyph::Glyph;
+    use crate::glyph::{Glyph, GlyphString};
+
+    #[test]
+    fn background_glyphs_remain_distinct() {
+        let marker = GlyphString::marker();
+        let highlight = GlyphString::highlight();
+        let space = GlyphString::space();
+
+        assert_eq!(marker, GlyphString::new(None, Glyph::Marker));
+        assert_eq!(highlight, GlyphString::new(None, Glyph::Highlight));
+        assert_eq!(space, GlyphString::new(None, Glyph::Space));
+        assert_ne!(marker, highlight);
+        assert_ne!(marker, space);
+        assert_ne!(highlight, space);
+        assert_eq!(marker.to_string(), "+");
+        assert_eq!(highlight.to_string(), ".");
+        assert_eq!(space.to_string(), " ");
+    }
 
     // #[test]
     // fn test_is_terminator() {

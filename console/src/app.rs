@@ -510,7 +510,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_terminator() {
+    async fn test_empty_source_exposes_marker_space_and_highlight_glyphs() {
         trace();
 
         let mut app = app();
@@ -519,13 +519,13 @@ mod test {
 
         app.select_or_panic(7, 0);
 
-        let g = app.terminator(at(0, 0));
+        let g = app.get(at(0, 0));
         assert_eq!(g, GlyphString::marker());
 
-        let g = app.terminator(at(1, 0));
+        let g = app.get(at(1, 0));
         assert_eq!(g, GlyphString::space());
 
-        let g = app.terminator(at(2, 0));
+        let g = app.get(at(2, 0));
         assert_eq!(g, GlyphString::highlight());
     }
 

@@ -1,4 +1,7 @@
-use lang::{Atom, Atoms, Expression, Interpretation, Interpreter, Parser};
+use lang::{
+    Atom, Atoms, Error as LangError, Expression, Interpretation, Interpreter, Parser, SyntaxError,
+    EXP_LEN,
+};
 use std::{collections::BTreeMap, fmt};
 use tracing::debug;
 
@@ -124,6 +127,7 @@ impl Source {
         debug!("set {idx}: {s}");
         self.check_idx(idx)?;
         let byte = Self::check_content(s)?;
+        self.check_expression_capacity(idx, byte)?;
 
         Ok(self.edit(idx, byte))
     }
@@ -180,6 +184,43 @@ impl Source {
             _ => Err(SourceError::InvalidCell {
                 content: s.to_string(),
             }),
+        }
+    }
+
+    fn check_expression_capacity(&self, idx: usize, byte: u8) -> Result<(), SourceError> {
+        if byte == SPACE_BYTE {
+            return Ok(());
+        }
+
+        let mut prospective = self.inner.as_bytes().to_vec();
+        prospective[idx] = byte;
+
+        let mut start = idx;
+        while start > 0
+            && prospective[start - 1] != SPACE_BYTE
+            && self.indices_share_a_row(idx, start - 1)
+        {
+            start -= 1;
+        }
+        let mut end = idx;
+        while end + 1 < prospective.len()
+            && prospective[end + 1] != SPACE_BYTE
+            && self.indices_share_a_row(idx, end + 1)
+        {
+            end += 1;
+        }
+
+        let mut expression = String::from_utf8(prospective[start..=end].to_vec())
+            .expect("Source Cells contain ASCII");
+        match Parser::from(&mut expression).parse() {
+            Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
+                Err(SourceError::ExpressionTooLong {
+                    start,
+                    end,
+                    capacity: EXP_LEN,
+                })
+            }
+            _ => Ok(()),
         }
     }
 
@@ -406,7 +447,21 @@ impl Source {
                 end: start + src.len() - 1,
                 message: error.to_string(),
             });
-        let mut parsed: Expression = Parser::from(&mut src).parse();
+        let parsed = Parser::from(&mut src).parse();
+
+        let mut parsed: Expression = match parsed {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                self.parsed[start] = None;
+                self.diagnostics[start] = Some(Diagnostic {
+                    start,
+                    end,
+                    message: error.to_string(),
+                });
+                self.glyphs[start..=end].fill(None);
+                return;
+            }
+        };
 
         let glyphs = Glyph::to_glyphs(parsed.take_tokens());
         let atoms = parsed.take_atoms();
@@ -625,6 +680,37 @@ mod test {
             assert_eq!(src.snapshot(), before);
             assert_eq!(src.get(5), Some("x".to_string()));
         }
+    }
+
+    #[test]
+    fn test_set_rejects_an_expression_beyond_parser_capacity_without_mutation() {
+        let mut src = SourceUnderTest::new(Grid::new(80, 1));
+        src.write(0, &"id".repeat(31));
+        src.set(62, "i").unwrap();
+        let before = src.snapshot();
+        let before_diagnostics = src.diagnostics();
+        let before_glyphs = (0..src.count())
+            .map(|idx| src.get_glyph_at(idx))
+            .collect::<Vec<_>>();
+
+        let result = src.set(63, "d");
+
+        assert_eq!(
+            result,
+            Err(SourceError::ExpressionTooLong {
+                start: 0,
+                end: 63,
+                capacity: 32,
+            })
+        );
+        assert_eq!(src.snapshot(), before);
+        assert_eq!(src.diagnostics(), before_diagnostics);
+        assert_eq!(
+            (0..src.count())
+                .map(|idx| src.get_glyph_at(idx))
+                .collect::<Vec<_>>(),
+            before_glyphs
+        );
     }
 
     #[test]

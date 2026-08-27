@@ -10,6 +10,12 @@ pub enum SourceError {
     OutOfRange { idx: usize, len: usize },
     /// A Cell holds exactly one printable single-byte ASCII character.
     InvalidCell { content: String },
+    /// The accepted edit would create an Expression the parser cannot hold.
+    ExpressionTooLong {
+        start: usize,
+        end: usize,
+        capacity: usize,
+    },
 }
 
 impl fmt::Display for SourceError {
@@ -24,6 +30,14 @@ impl fmt::Display for SourceError {
                     "a Cell holds exactly one printable single-byte ASCII character, got {content:?}"
                 )
             }
+            SourceError::ExpressionTooLong {
+                start,
+                end,
+                capacity,
+            } => write!(
+                f,
+                "Expression at Cells {start}..={end} exceeds the parser capacity of {capacity} atoms"
+            ),
         }
     }
 }
