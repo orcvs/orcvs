@@ -40,7 +40,7 @@ pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
 
 #[inline(always)]
 pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
-    let n = str_to_num(&s)?;
+    let n = str_to_num(s)?;
     Ok(Atom::Number(n))
 }
 

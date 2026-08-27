@@ -579,7 +579,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::Grid,
-        source::{source::Cell, PlayCommand, Source, SourceError},
+        source::{Cell, PlayCommand, Source, SourceError},
         test::trace,
     };
 

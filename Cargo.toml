@@ -5,10 +5,6 @@ resolver = "2"
 
 members = ["console", "lang"]
 
-[workspace.package]
-name = "orcvs"
-default-run = "orcvs"
-
 [profile.dev]
 opt-level = 1
 debug = true

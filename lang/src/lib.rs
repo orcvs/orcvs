@@ -34,7 +34,7 @@ pub fn str_to_num(s: &str) -> Result<u8, Error> {
         return Err(TypeError::Number(s.to_string()).into());
     }
 
-    match u8::from_str_radix(&s, 16) {
+    match u8::from_str_radix(s, 16) {
         Ok(n) => Ok(n),
         Err(_) => Err(TypeError::Number(s.to_string()).into()),
     }

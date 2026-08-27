@@ -159,7 +159,7 @@ impl App {
     /// writes s to the current cursor position
     /// triggers parse of expression
     ///
-    pub fn write(&mut self, s: &String) {
+    pub fn write(&mut self, s: &str) {
         let idx = self.cursor_index();
 
         match self.source.set(idx, s) {
@@ -254,12 +254,11 @@ impl App {
                         self.play();
                     }
                 }
-                Event::Text(text_to_insert) => {
-                    if text_to_insert.len() == 1 && text_to_insert != " " {
-                        self.write(text_to_insert);
-
-                        repaint = true;
-                    }
+                Event::Text(text_to_insert)
+                    if text_to_insert.len() == 1 && text_to_insert != " " =>
+                {
+                    self.write(text_to_insert);
+                    repaint = true;
                 }
                 _ => {
                     // info!("Pressed");
@@ -305,7 +304,7 @@ mod test {
     #[test]
     fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
         let mut app = App::new(2, 1);
-        app.write(&"x".to_string());
+        app.write("x");
 
         let frame = app.render_frame();
 
@@ -379,7 +378,7 @@ mod test {
 
         pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
             self.select_or_panic(x, y);
-            self.write(&s.to_owned());
+            self.write(s);
         }
     }
 
@@ -484,7 +483,7 @@ mod test {
         let mut app = app();
         app.select_or_panic(0, 0);
 
-        app.write(&"+".to_string());
+        app.write("+");
 
         assert_eq!(app.cursor.position(), app.grid.position(1, 0).unwrap());
     }

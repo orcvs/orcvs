@@ -38,6 +38,12 @@ impl<const N: usize> Stack<N> {
     }
 }
 
+impl<const N: usize> Default for Stack<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Deref for MaybeAtom {
     type Target = Option<Atom>;
 
@@ -114,6 +120,6 @@ impl TryFrom<&str> for Function {
 fn map_arity(err: Error, expected: usize, found: usize) -> Error {
     match err {
         Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
-        _ => err.into(),
+        _ => err,
     }
 }

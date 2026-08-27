@@ -59,6 +59,16 @@ impl Expression {
     pub fn len(&self) -> usize {
         self.tokens.len().max(self.atoms.len())
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty() && self.atoms.is_empty()
+    }
+}
+
+impl Default for Expression {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Token {
@@ -68,6 +78,10 @@ impl Token {
             Token::Char => DEFAULT_CHAR_TOKEN_LEN,
             _ => DEFAULT_TOKEN_LEN,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

@@ -154,10 +154,10 @@ mod test {
 
         let b = "+".as_bytes();
         let t = Glyph::is_terminator_bytes(b[0]);
-        assert!(t == false);
+        assert!(!t);
 
         let b = "!".as_bytes();
         let t = Glyph::is_terminator_bytes(b[0]);
-        assert!(t == false);
+        assert!(!t);
     }
 }
