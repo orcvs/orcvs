@@ -10,6 +10,7 @@ pub mod midi;
 pub mod native_midi;
 pub mod opts;
 pub mod playback;
+pub mod render_frame;
 pub mod source;
 pub mod style;
 

@@ -1,11 +1,65 @@
-use egui::{CornerRadius, EventFilter, Vec2};
+use egui::{Color32, CornerRadius, EventFilter, FontId, Vec2};
 
 use crate::{
     app::App,
-    glyph::CURSOR_VISUALS,
+    glyph::{Glyph, GlyphString},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
+    opts::DEFAULT_FONT_SIZE,
     style::style,
+    Color,
 };
+
+const DEFAULT_GLYPH_FONT_COLOR: Color32 = Color::rgb(164, 166, 169).build();
+
+struct GlyphStyle {
+    bg_fill: Color32,
+    stroke_color: Color32,
+    font_color: Color32,
+}
+
+const CURSOR_VISUALS: GlyphStyle = GlyphStyle {
+    bg_fill: Color32::TRANSPARENT,
+    stroke_color: Color::rgb(192, 222, 255).build(),
+    font_color: DEFAULT_GLYPH_FONT_COLOR,
+};
+
+fn glyph_style(glyph: Glyph, selected: bool) -> GlyphStyle {
+    let default = GlyphStyle {
+        bg_fill: Color32::TRANSPARENT,
+        stroke_color: Color32::TRANSPARENT,
+        font_color: DEFAULT_GLYPH_FONT_COLOR,
+    };
+    let default_selected = GlyphStyle {
+        bg_fill: Color::rgb(0, 92, 128).build(),
+        stroke_color: DEFAULT_GLYPH_FONT_COLOR,
+        font_color: DEFAULT_GLYPH_FONT_COLOR,
+    };
+
+    match (glyph, selected) {
+        (Glyph::Function, true) => GlyphStyle {
+            bg_fill: Color::rgb(200, 75, 255).build(),
+            ..default_selected
+        },
+        (Glyph::Function, false) => GlyphStyle {
+            bg_fill: Color::rgb(255, 0, 230).build(),
+            stroke_color: Color::rgb(0, 0, 0).build(),
+            font_color: Color::rgb(255, 255, 255).build(),
+        },
+        (Glyph::Number | Glyph::Note | Glyph::Char, true)
+        | (Glyph::Space | Glyph::Marker | Glyph::Highlight, true) => default_selected,
+        (Glyph::Note, false) => GlyphStyle {
+            bg_fill: Color::rgb(25, 150, 135).build(),
+            stroke_color: Color::rgb(33, 33, 33).build(),
+            font_color: Color::rgb(200, 200, 200).build(),
+        },
+        (Glyph::Char, false) => GlyphStyle {
+            bg_fill: Color::rgb(125, 225, 220).build(),
+            stroke_color: Color::rgb(33, 33, 33).build(),
+            font_color: Color::rgb(200, 200, 200).build(),
+        },
+        (Glyph::Number | Glyph::Space | Glyph::Marker | Glyph::Highlight, false) => default,
+    }
+}
 
 /// ConsoleApp wraps the inner App
 /// ConsoleApp handles the egui presentation concerns
@@ -13,6 +67,7 @@ use crate::{
 ///
 pub struct Console {
     app: App,
+    font_id: FontId,
 }
 
 impl Console {
@@ -49,7 +104,10 @@ impl Console {
         let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         app.refresh_midi_destinations();
-        Self { app }
+        Self {
+            app,
+            font_id: FontId::monospace(DEFAULT_FONT_SIZE),
+        }
     }
 }
 
@@ -115,6 +173,8 @@ impl eframe::App for Console {
 
         let events = ctx.input(|i| i.filtered_events(&event_filter));
         self.app.event_handler(events);
+        self.app.advance_cursor_blink();
+        let frame = self.app.render_frame();
 
         egui::CentralPanel::default().show(root, |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(0.0);
@@ -124,17 +184,16 @@ impl eframe::App for Console {
             // ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
             ui.style_mut().visuals.widgets.inactive.corner_radius = CornerRadius::default();
 
-            // The Grid yields the Positions to render and their order, so the
-            // render path states no bound of its own and cannot swap an axis.
-            let grid = self.app.grid;
-
-            for row in grid.rows() {
+            for row in frame.rows() {
                 ui.horizontal(|ui| {
-                    for position in row {
-                        let glyph = self.app.get(position);
-                        let selected = self.app.cursor.is_at(position);
+                    for cell in row {
+                        let glyph = GlyphString::new(
+                            cell.content().map(|content| content.to_string()),
+                            cell.glyph(),
+                        );
+                        let selected = cell.selected();
 
-                        let visuals = glyph.style(selected);
+                        let visuals = glyph_style(cell.glyph(), selected);
 
                         ui.style_mut().visuals.widgets.inactive.weak_bg_fill = visuals.bg_fill;
 
@@ -149,9 +208,7 @@ impl eframe::App for Console {
                         ui.style_mut().visuals.widgets.inactive.bg_fill = visuals.stroke_color;
 
                         if selected {
-                            self.app.cursor.blink();
-
-                            if self.app.cursor.on {
+                            if cell.cursor_visible() {
                                 ui.style_mut().visuals.selection.bg_fill = CURSOR_VISUALS.bg_fill;
                                 ui.style_mut().visuals.selection.stroke.color =
                                     CURSOR_VISUALS.stroke_color;
@@ -162,8 +219,8 @@ impl eframe::App for Console {
                             }
                         }
 
-                        let button_text = egui::RichText::new(glyph.to_string())
-                            .font(self.app.opts.font_id.clone());
+                        let button_text =
+                            egui::RichText::new(glyph.to_string()).font(self.font_id.clone());
                         // .background_color(bg_color);
                         // .color(text_color);
                         // .extra_letter_spacing(0.4);
@@ -175,8 +232,7 @@ impl eframe::App for Console {
                             .frame(true);
 
                         if ui.add(button).clicked() {
-                            // the Grid minted this Position: it needs no re-validating
-                            self.app.select(position);
+                            self.app.select(cell.position());
                         }
                     }
                 });

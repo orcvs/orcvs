@@ -3,14 +3,14 @@ use egui::{Event, Key};
 use std::time::Duration;
 use tracing::error;
 
-use crate::glyph::GlyphString;
-use crate::opts::{MarkerSpacing, Opts};
+use crate::opts::Opts;
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::playback::InMemoryOutputAdapter;
 use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
+use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -47,9 +47,9 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// ```
 ///
 pub struct App {
-    pub opts: Opts,
-    pub cursor: Cursor,
-    pub grid: Grid,
+    opts: Opts,
+    cursor: Cursor,
+    grid: Grid,
 
     source: SourceCommander,
     playback: PlaybackEngine<AppOutputAdapter>,
@@ -190,18 +190,20 @@ impl App {
         self.grid.index(position)
     }
 
-    ///
-    /// The GlyphString rendered at `position`. Total: a Position can only come
-    /// from a Grid, so every Position names a Cell that exists.
-    ///
-    pub fn get(&self, position: Position) -> GlyphString {
-        let idx = self.index(position);
+    pub fn render_frame(&self) -> RenderFrame {
+        RenderFrame::derive(
+            self.source.read_revision_cells(),
+            self.cursor.position(),
+            self.cursor.on,
+            RenderFrameConfig {
+                marker_spacing: self.opts.marker_spacing,
+                highlight_dot_spacing: self.opts.highlight_dot_spacing,
+            },
+        )
+    }
 
-        let (s, g) = self.source.get(idx);
-        match g {
-            Some(g) => GlyphString::new(s, g),
-            None => self.terminator(position),
-        }
+    pub fn advance_cursor_blink(&mut self) {
+        self.cursor.blink();
     }
 
     ///
@@ -267,29 +269,6 @@ impl App {
         repaint
     }
 
-    ///
-    /// The purely visual GlyphString for a Cell the Source leaves empty.
-    ///
-    fn terminator(&self, position: Position) -> GlyphString {
-        let (x, y) = (position.x(), position.y());
-
-        // Markers
-        let marker_spacing = self.opts.marker_spacing.cells();
-        if x % marker_spacing == 0 && y % marker_spacing == 0 {
-            return GlyphString::marker();
-        }
-
-        // Highlight
-        if in_marker_block(self.cursor.position(), position, self.opts.marker_spacing) {
-            if x % self.opts.highlight_dot_spacing == 0 && y % self.opts.highlight_dot_spacing == 0
-            {
-                return GlyphString::highlight();
-            }
-        }
-
-        return GlyphString::space();
-    }
-
     fn playing(&self) -> bool {
         self.playback_state == PlaybackState::Playing
     }
@@ -313,41 +292,65 @@ impl App {
     }
 }
 
-///
-/// True when `target` falls inside the marker block containing `cursor`.
-/// Purely visual: `spacing` is the marker spacing, not a Source dimension.
-///
-fn in_marker_block(cursor: Position, target: Position, spacing: MarkerSpacing) -> bool {
-    let x = target.x();
-    let y = target.y();
-    let cursor_x = cursor.x();
-    let cursor_y = cursor.y();
-    let spacing = spacing.cells();
-
-    let min_x = cursor_x / spacing * spacing;
-    let end_x = (cursor_x / spacing + 1).saturating_mul(spacing);
-    let min_y = cursor_y / spacing * spacing;
-    let end_y = (cursor_y / spacing + 1).saturating_mul(spacing);
-
-    x >= min_x && x < end_x && y >= min_y && y < end_y
-}
-
 #[cfg(test)]
 mod test {
 
-    use super::{in_marker_block, App};
+    use super::App;
     use crate::{
         glyph::{Glyph, GlyphString},
-        grid::Grid,
         opts::{MarkerSpacing, DEFAULT_MARKER_SPACING},
         test::trace,
     };
+
+    #[test]
+    fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
+        let mut app = App::new(2, 1);
+        app.write(&"x".to_string());
+
+        let frame = app.render_frame();
+
+        assert_eq!(frame.rows().len(), 1);
+        assert_eq!(frame.rows()[0].len(), 2);
+        assert_eq!(frame.rows()[0][0].content(), Some('x'));
+        assert_eq!(
+            frame.rows()[0][1].position(),
+            app.grid.position(1, 0).unwrap()
+        );
+        assert!(frame.rows()[0][1].selected());
+    }
+
+    #[test]
+    fn deriving_a_render_frame_does_not_advance_cursor_blink_state() {
+        let mut app = App::new(2, 1);
+        app.cursor.on = true;
+
+        let first = app.render_frame();
+        let second = app.render_frame();
+
+        assert!(first.rows()[0][0].cursor_visible());
+        assert!(second.rows()[0][0].cursor_visible());
+        assert!(app.cursor.on);
+    }
 
     fn app() -> App {
         let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
         let cols = DEFAULT_MARKER_SPACING;
 
         App::new(cols, rows)
+    }
+
+    fn rendered(app: &App, position: crate::grid::Position) -> GlyphString {
+        let frame = app.render_frame();
+        let cell = frame
+            .rows()
+            .iter()
+            .flatten()
+            .find(|cell| cell.position() == position)
+            .expect("Render Frame contains every Grid Position");
+        GlyphString::new(
+            cell.content().map(|content| content.to_string()),
+            cell.glyph(),
+        )
     }
 
     impl App {
@@ -408,8 +411,8 @@ mod test {
         app.set_at(1, 1, "+");
 
         let written = GlyphString::new(Some("+".to_string()), Glyph::Function);
-        assert_eq!(app.get(at(0, 1)), written);
-        assert_eq!(app.get(at(1, 1)), written);
+        assert_eq!(rendered(&app, at(0, 1)), written);
+        assert_eq!(rendered(&app, at(1, 1)), written);
 
         // and it is those Cells' content, not another's
         for row in grid.rows() {
@@ -418,7 +421,7 @@ mod test {
                     continue;
                 }
                 assert_ne!(
-                    app.get(position),
+                    rendered(&app, position),
                     written,
                     "({}, {}) holds no written Cell",
                     position.x(),
@@ -441,8 +444,8 @@ mod test {
 
         // the accepted edits are observable as soon as write returns
         let expected = GlyphString::new(Some("+".to_string()), Glyph::Function);
-        assert_eq!(app.get(at(0, 0)), expected);
-        assert_eq!(app.get(at(1, 0)), expected);
+        assert_eq!(rendered(&app, at(0, 0)), expected);
+        assert_eq!(rendered(&app, at(1, 0)), expected);
     }
 
     #[tokio::test]
@@ -457,7 +460,7 @@ mod test {
         app.set_at(5, 0, "x");
 
         assert_eq!(
-            app.get(position),
+            rendered(&app, position),
             GlyphString::new(Some("x".to_string()), Glyph::Char)
         );
     }
@@ -500,7 +503,7 @@ mod test {
 
         assert_eq!(app.cursor.position(), grid.position(0, 0).unwrap());
         assert_eq!(
-            app.get(grid.position(1, 0).expect("inside the grid")),
+            rendered(&app, grid.position(1, 0).expect("inside the grid")),
             GlyphString::space()
         );
     }
@@ -515,13 +518,13 @@ mod test {
 
         app.select_or_panic(7, 0);
 
-        let g = app.get(at(0, 0));
+        let g = rendered(&app, at(0, 0));
         assert_eq!(g, GlyphString::marker());
 
-        let g = app.get(at(1, 0));
+        let g = rendered(&app, at(1, 0));
         assert_eq!(g, GlyphString::space());
 
-        let g = app.get(at(2, 0));
+        let g = rendered(&app, at(2, 0));
         assert_eq!(g, GlyphString::highlight());
     }
 
@@ -534,7 +537,7 @@ mod test {
         app.opts.marker_spacing = MarkerSpacing::new(2).unwrap();
 
         assert_eq!(
-            (0..7).map(|x| app.get(at(x, 0))).collect::<Vec<_>>(),
+            (0..7).map(|x| rendered(&app, at(x, 0))).collect::<Vec<_>>(),
             vec![
                 GlyphString::marker(),
                 GlyphString::space(),
@@ -547,7 +550,7 @@ mod test {
         );
 
         app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
-        assert!((0..7).all(|x| app.get(at(x, 0)) == GlyphString::marker()));
+        assert!((0..7).all(|x| rendered(&app, at(x, 0)) == GlyphString::marker()));
     }
 
     #[tokio::test]
@@ -557,58 +560,7 @@ mod test {
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(8, 8));
 
-        assert_eq!(app.get(at(14, 10)), GlyphString::highlight());
-        assert_eq!(app.get(at(16, 10)), GlyphString::space());
-    }
-
-    #[test]
-    fn test_in_marker_block() {
-        trace();
-        let spacing = MarkerSpacing::new(8).unwrap();
-        // Rectangular, and large enough to mint every position probed below
-        let grid = Grid::new(64, 60);
-        let at = |x, y| grid.position(x, y).expect("inside the grid");
-
-        let selected = at(5, 5);
-        assert!(!in_marker_block(selected, at(10, 10), spacing));
-        for x in 0..spacing.cells() {
-            for y in 0..spacing.cells() {
-                assert!(in_marker_block(selected, at(x, y), spacing));
-            }
-        }
-
-        let selected = at(8, 8);
-        assert!(!in_marker_block(selected, at(1, 1), spacing));
-
-        for x in 8..16 {
-            for y in 8..16 {
-                assert!(in_marker_block(selected, at(x, y), spacing));
-            }
-        }
-        assert!(!in_marker_block(selected, at(16, 16), spacing));
-
-        // Marker block X 5 Y 6
-        let selected = at(42, 51);
-        assert!(!in_marker_block(selected, at(1, 1), spacing));
-        for x in 0..spacing.cells() {
-            for y in 0..spacing.cells() {
-                let x = x + 40;
-                let y = y + 48;
-                assert!(in_marker_block(selected, at(x, y), spacing));
-            }
-        }
-        assert!(!in_marker_block(selected, at(48, 56), spacing));
-    }
-
-    #[test]
-    fn test_marker_block_accepts_the_largest_whole_cell_spacing() {
-        let grid = Grid::new(2, 2);
-        let origin = grid.origin();
-
-        assert!(in_marker_block(
-            origin,
-            origin,
-            MarkerSpacing::new(usize::MAX).unwrap()
-        ));
+        assert_eq!(rendered(&app, at(14, 10)), GlyphString::highlight());
+        assert_eq!(rendered(&app, at(16, 10)), GlyphString::space());
     }
 }

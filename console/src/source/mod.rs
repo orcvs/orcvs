@@ -11,6 +11,11 @@ pub struct SourceCommander {
     inner: Arc<RwLock<Source>>,
 }
 
+pub(crate) struct SourceRevisionCells {
+    pub(crate) grid: Grid,
+    pub(crate) cells: Vec<Cell>,
+}
+
 impl SourceCommander {
     pub fn new(grid: Grid) -> Self {
         let source = Arc::new(RwLock::new(Source::new(grid)));
@@ -49,6 +54,17 @@ impl SourceCommander {
 
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         self.inner.read().unwrap().diagnostics()
+    }
+
+    ///
+    /// Every Cell and its Source-derived Glyph from one Source revision.
+    ///
+    pub(crate) fn read_revision_cells(&self) -> SourceRevisionCells {
+        let source = self.inner.read().unwrap();
+        SourceRevisionCells {
+            grid: source.grid(),
+            cells: source.cells(),
+        }
     }
 
     pub(crate) fn execute(&self) -> TickResult {
@@ -122,5 +138,23 @@ mod tests {
         assert_eq!(source.get(199).0, Some("x".to_string()));
         assert_eq!(source.get(170).0, Some("0".to_string()));
         assert_eq!(source.get(171).0, Some("3".to_string()));
+    }
+
+    #[test]
+    fn coherent_read_pairs_every_cell_with_its_source_derived_glyph() {
+        let grid = Grid::new(4, 2);
+        let source = SourceCommander::new(grid);
+        source.set(0, "+").unwrap();
+        source.set(1, "+").unwrap();
+
+        let read = source.read_revision_cells();
+
+        assert_eq!(read.grid, grid);
+        assert_eq!(read.cells.len(), 8);
+        assert_eq!(read.cells[0].content, Some('+'));
+        assert_eq!(read.cells[0].glyph, Some(crate::glyph::Glyph::Function));
+        assert_eq!(read.cells[1].content, Some('+'));
+        assert_eq!(read.cells[1].glyph, Some(crate::glyph::Glyph::Function));
+        assert!(read.cells[2..].iter().all(|cell| cell.content.is_none()));
     }
 }

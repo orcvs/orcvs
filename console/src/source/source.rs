@@ -140,6 +140,10 @@ impl<'de> serde::Deserialize<'de> for Source {
 }
 
 impl Source {
+    pub(crate) fn grid(&self) -> Grid {
+        self.grid
+    }
+
     ///
     /// A Source of empty Cells, one per Position of `grid`. A Grid has at
     /// least one column and one row, so a Source always has Cells.
@@ -305,6 +309,18 @@ impl Source {
             SPACE_BYTE => None,
             _ => Some((b as char).to_string()),
         }
+    }
+
+    pub(crate) fn cells(&self) -> Vec<Cell> {
+        self.inner
+            .bytes()
+            .enumerate()
+            .map(|(idx, byte)| Cell {
+                idx,
+                content: (byte != SPACE_BYTE).then_some(byte as char),
+                glyph: self.glyphs[idx],
+            })
+            .collect()
     }
 
     ///
