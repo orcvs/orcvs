@@ -86,6 +86,7 @@ impl ExpressionMap {
         self.set_inner(idx, true)
     }
 
+    #[cfg(test)]
     pub fn unset(&mut self, idx: usize) {
         self.set_inner(idx, false);
     }

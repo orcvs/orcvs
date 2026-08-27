@@ -450,6 +450,23 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty() {
+        trace();
+
+        let mut app = App::new(10, 1);
+        let position = app.grid.position(5, 0).expect("inside the grid");
+        app.set_at(0, 0, "+");
+        app.set_at(1, 0, "+");
+
+        app.set_at(5, 0, "x");
+
+        assert_eq!(
+            app.get(position),
+            GlyphString::new(Some("x".to_string()), Glyph::Char)
+        );
+    }
+
+    #[tokio::test]
     async fn test_select_moves_the_cursor_to_the_position() {
         trace();
 

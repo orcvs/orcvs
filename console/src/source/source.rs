@@ -145,14 +145,8 @@ impl Source {
         let before_cells = self.inner.as_bytes().to_vec();
         let before_glyphs = self.glyphs.clone();
 
-        let span = self.unparse_around(idx);
         self.set_source(idx, byte);
-        if byte == SPACE_BYTE {
-            self.map.unset(idx);
-        } else {
-            self.map.set(idx);
-        }
-        self.reparse_span(span);
+        self.rebuild_derived_state();
 
         let cells = self.changed_cells(&before_cells, &before_glyphs);
 
@@ -186,47 +180,6 @@ impl Source {
             _ => Err(SourceError::InvalidCell {
                 content: s.to_string(),
             }),
-        }
-    }
-
-    ///
-    /// Clears the derived state (glyphs, parsed Atoms) of every Expression
-    /// adjacent to `idx`, and returns the span of Cells that must be
-    /// reparsed once the edit is applied.
-    ///
-    /// An edit at `idx` can join, split, extend, or shrink the Expressions
-    /// beside it, so all of them are invalidated before the map changes.
-    ///
-    fn unparse_around(&mut self, idx: usize) -> Range {
-        // A Grid has at least one Cell, so the last index is not an underflow
-        let last = self.grid.count() - 1;
-        let mut span = Range {
-            start: idx.saturating_sub(1),
-            end: (idx + 1).min(last),
-        };
-
-        for start in self.expression_starts(span.start, span.end) {
-            let cleared_to = self.unset_glyphs(start);
-            self.parsed[start] = None;
-            self.diagnostics[start] = None;
-
-            span.start = span.start.min(start);
-            span.end = span.end.max(cleared_to);
-        }
-
-        span
-    }
-
-    ///
-    /// Reparses every Expression that intersects `span`, restoring glyphs and
-    /// parsed Atoms for the current revision. This covers the edited
-    /// Expression and any neighbour whose derived state was cleared with it.
-    ///
-    fn reparse_span(&mut self, span: Range) {
-        for start in self.expression_starts(span.start, span.end) {
-            if let Some(range) = self.map.get(start) {
-                self.parse_range(range);
-            }
         }
     }
 
@@ -415,6 +368,11 @@ impl Source {
             let range = self.map.get(start).expect("Expression starts have a range");
             self.parse_range(range);
         }
+        for (idx, byte) in self.inner.bytes().enumerate() {
+            if byte != SPACE_BYTE && self.glyphs[idx].is_none() {
+                self.glyphs[idx] = Some(Glyph::Char);
+            }
+        }
     }
 
     fn get_exp_src(&self, range: Range) -> String {
@@ -437,6 +395,7 @@ impl Source {
 
     fn parse_range(&mut self, exp_range: Range) {
         let start = exp_range.start;
+        let end = exp_range.end;
         let mut src = self.get_exp_src(exp_range);
         let mut strict_src = src.clone();
         let diagnostic = Parser::from(&mut strict_src)
@@ -454,6 +413,7 @@ impl Source {
 
         self.parsed[start] = Some(atoms);
         self.diagnostics[start] = diagnostic;
+        self.glyphs[start..=end].fill(None);
         self.set_glyphs(start, glyphs);
     }
 
@@ -471,30 +431,6 @@ impl Source {
             }
             self.glyphs[idx] = Some(*g);
         }
-    }
-
-    ///
-    /// Clears the contiguous run of glyphs beginning at `start` and returns
-    /// the last Cell cleared. Operand-slot hints painted past an Expression's
-    /// end are contiguous with it, so they are cleared by the same walk.
-    ///
-    fn unset_glyphs(&mut self, start: usize) -> usize {
-        let mut last = start;
-
-        for i in start..self.glyphs.len() {
-            if !self.indices_share_a_row(start, i) {
-                break;
-            }
-            match self.glyphs[i] {
-                Some(_) => {
-                    self.glyphs[i] = None;
-                    last = i;
-                }
-                None => break,
-            };
-        }
-
-        last
     }
 
     fn indices_share_a_row(&self, first: usize, second: usize) -> bool {
@@ -703,7 +639,7 @@ mod test {
             vec![Cell {
                 idx: 0,
                 content: Some('+'),
-                glyph: None,
+                glyph: Some(Glyph::Char),
             }]
         );
 
@@ -742,7 +678,8 @@ mod test {
         src.set(0, "+").unwrap();
         src.set(1, "+").unwrap();
 
-        // deleting half the Function unclassifies it and clears the operand-slot hints
+        // deleting half the Function restores its raw character classification and
+        // clears the operand-slot hints
         let change = src.unset(1).unwrap();
 
         let cleared = |idx: usize, content: Option<char>| Cell {
@@ -753,7 +690,11 @@ mod test {
         assert_eq!(
             change.cells,
             vec![
-                cleared(0, Some('+')),
+                Cell {
+                    idx: 0,
+                    content: Some('+'),
+                    glyph: Some(Glyph::Char),
+                },
                 cleared(1, None),
                 cleared(2, None),
                 cleared(3, None),
@@ -777,6 +718,109 @@ mod test {
         assert_eq!(change.cells.len(), 2);
         assert_eq!(src.get_glyph_at(58), Some(Glyph::Function));
         assert_eq!(src.get_glyph_at(59), Some(Glyph::Function));
+    }
+
+    #[test]
+    fn test_editing_an_operand_slot_hint_restores_the_current_glyphs() {
+        let mut src = SourceUnderTest::new(Grid::new(10, 1));
+        src.set(0, "+").unwrap();
+        src.set(1, "+").unwrap();
+        assert_eq!(src.get_glyph_at(5), Some(Glyph::Number));
+
+        let change = src.set(5, "x").unwrap();
+        assert_eq!(src.get(5), Some("x".to_string()));
+        assert_eq!(src.get_glyph_at(5), Some(Glyph::Char));
+        assert_eq!(
+            change.cells,
+            vec![Cell {
+                idx: 5,
+                content: Some('x'),
+                glyph: Some(Glyph::Char),
+            }]
+        );
+
+        let change = src.unset(5).unwrap();
+        assert_eq!(src.get(5), None);
+        assert_eq!(src.get_glyph_at(5), Some(Glyph::Number));
+        assert_eq!(
+            change.cells,
+            vec![Cell {
+                idx: 5,
+                content: None,
+                glyph: Some(Glyph::Number),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_editing_an_operand_slot_matches_a_source_rebuilt_from_its_snapshot() {
+        let grid = Grid::new(10, 2);
+        let mut src = SourceUnderTest::new(grid);
+        src.write(0, "++");
+        src.write(10, "++0102");
+        src.set(5, "x").unwrap();
+
+        let mut rebuilt = Source::new(grid);
+        for (idx, content) in src.snapshot().chars().enumerate() {
+            if content != ' ' {
+                rebuilt.set(idx, &content.to_string()).unwrap();
+            }
+        }
+
+        assert_eq!(rebuilt.snapshot(), src.snapshot());
+        assert_eq!(
+            (0..grid.count())
+                .map(|idx| rebuilt.get_glyph_at(idx))
+                .collect::<Vec<_>>(),
+            (0..grid.count())
+                .map(|idx| src.get_glyph_at(idx))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_operand_hints_and_invalidation_stop_at_the_row_edge() {
+        let mut src = SourceUnderTest::new(Grid::new(10, 2));
+        src.write(10, "++0102");
+        src.set(8, "+").unwrap();
+
+        let change = src.set(9, "+").unwrap();
+        assert_eq!(
+            change.cells,
+            vec![
+                Cell {
+                    idx: 8,
+                    content: Some('+'),
+                    glyph: Some(Glyph::Function),
+                },
+                Cell {
+                    idx: 9,
+                    content: Some('+'),
+                    glyph: Some(Glyph::Function),
+                },
+            ]
+        );
+        assert_eq!(src.get_glyph_at(10), Some(Glyph::Function));
+        assert_eq!(src.get_glyph_at(11), Some(Glyph::Function));
+
+        let change = src.unset(9).unwrap();
+        assert_eq!(
+            change.cells,
+            vec![
+                Cell {
+                    idx: 8,
+                    content: Some('+'),
+                    glyph: Some(Glyph::Char),
+                },
+                Cell {
+                    idx: 9,
+                    content: None,
+                    glyph: None,
+                },
+            ]
+        );
+        assert_eq!(src.get_glyph_at(10), Some(Glyph::Function));
+        assert_eq!(src.get_glyph_at(11), Some(Glyph::Function));
     }
 
     #[test]
@@ -813,14 +857,14 @@ mod test {
         src.set(9, "+").unwrap();
         let change = src.set(10, "+").unwrap();
 
-        assert_eq!(src.get_glyph_at(9), None);
-        assert_eq!(src.get_glyph_at(10), None);
+        assert_eq!(src.get_glyph_at(9), Some(Glyph::Char));
+        assert_eq!(src.get_glyph_at(10), Some(Glyph::Char));
         assert_eq!(
             change.cells,
             vec![Cell {
                 idx: 10,
                 content: Some('+'),
-                glyph: None,
+                glyph: Some(Glyph::Char),
             }]
         );
     }
@@ -969,12 +1013,12 @@ mod test {
                 Cell {
                     idx: 10,
                     content: Some('0'),
-                    glyph: None,
+                    glyph: Some(Glyph::Char),
                 },
                 Cell {
                     idx: 11,
                     content: Some('3'),
-                    glyph: None,
+                    glyph: Some(Glyph::Char),
                 },
             ]
         );

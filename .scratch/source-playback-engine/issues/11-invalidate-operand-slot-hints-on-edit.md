@@ -4,14 +4,14 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Editing a Cell carrying an operand-slot hint invalidates and reparses the Expression that painted it.
-- [ ] A Source built incrementally through edits has the same glyph classification, Cell for Cell, as a Source rebuilt from its own snapshot.
-- [ ] A Cell holding a character never renders as empty because its glyph was cleared.
-- [ ] The change set an edit returns reports exactly the Cells whose content or classification differ from the previous revision.
-- [ ] Operand-slot hints stop at the row edge: a Function near the end of a row neither paints hints into the next row nor clears a neighbouring row's glyphs when its own Cells are emptied.
-- [ ] Behaviour tests cover a Function at a row edge, not only one at the last Cells of the Grid.
+- [x] Editing a Cell carrying an operand-slot hint invalidates and reparses the Expression that painted it.
+- [x] A Source built incrementally through edits has the same glyph classification, Cell for Cell, as a Source rebuilt from its own snapshot.
+- [x] A Cell holding a character never renders as empty because its glyph was cleared.
+- [x] The change set an edit returns reports exactly the Cells whose content or classification differ from the previous revision.
+- [x] Operand-slot hints stop at the row edge: a Function near the end of a row neither paints hints into the next row nor clears a neighbouring row's glyphs when its own Cells are emptied.
+- [x] Behaviour tests cover a Function at a row edge, not only one at the last Cells of the Grid.
 
 ## Notes
 
@@ -34,3 +34,7 @@ Concrete repro on a 10 x 6 Grid: write `++` at indices 8 and 9. The completed Fu
 `Source::unset_glyphs` (lines 383-397) has the mirror problem: it walks `start..self.glyphs.len()` clearing every contiguous glyph, so a walk that reaches the last Cell of a row keeps going into the next one. Since it is what `unparse_around` uses to decide how far to invalidate, emptying a Cell near a row edge can clear the glyphs of a neighbouring row's Expression.
 
 Missing coverage: the only test in this area is `test_set_near_grid_end_truncates_operand_hints` (line 562), and it writes `++` at indices 58 and 59 — the last two Cells of the Grid, where the store's own length happens to stop the run. Nothing exercises a Function at a row edge in the middle of the Grid, which is where the truncation is actually absent, and nothing exercises the clearing walk crossing a row edge at all.
+
+## Answer
+
+Source edits now rebuild their complete derived state from the accepted contents. Parsing clears each occupied Expression extent before painting its own glyphs, then Source classifies any remaining occupied Cells as `Char`; App only renders the classification Source provides. Operand hints remain confined to their row. Regression coverage verifies hint overwrite/delete restoration, exact change sets, equality with a snapshot rebuild, visible occupied Cells, and invalidation at a middle row edge without disturbing the neighbouring row.
