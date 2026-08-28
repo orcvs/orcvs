@@ -7,7 +7,7 @@ mod parser;
 mod portal;
 mod stack;
 
-pub use atom::{to_atom_note, to_atom_num, Atom, Atoms, Function};
+pub use atom::{Atom, Atoms, Function, to_atom_note, to_atom_num};
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};

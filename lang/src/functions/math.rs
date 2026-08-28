@@ -1,4 +1,4 @@
-use crate::{interpreter::Context, Atom, Error};
+use crate::{Atom, Error, interpreter::Context};
 
 #[inline(always)]
 pub fn add(ctx: &mut Context) -> Result<Atom, Error> {

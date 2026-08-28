@@ -22,3 +22,33 @@ alias = 'tl'
 description = "Lang tests"
 env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
+
+[tasks.check]
+description = "Full repository verification gate"
+run = '''
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo nextest run --workspace --profile ci --locked
+cargo test --workspace --doc --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+'''
+
+[tasks.test_persistence]
+description = "Test the console persistence feature"
+run = 'cargo nextest run --package console --all-targets --features persistence --locked'
+
+[tasks.check_wasm]
+description = "Check and build the WASM application"
+run = '''
+cargo check --package console --lib --target wasm32-unknown-unknown --features persistence --locked
+cd console
+trunk build --locked
+'''
+
+[tasks.audit_deps]
+description = "Audit advisories, licenses, sources, and duplicate dependencies"
+run = '''
+cargo tree --workspace --all-features -e features
+cargo deny check
+'''

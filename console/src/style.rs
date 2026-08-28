@@ -3,11 +3,12 @@
 use eframe::egui;
 
 use egui::{
+    Color32, CornerRadius, Margin, Stroke, Style, Vec2, Visuals,
     epaint::Shadow,
     style::{
         HandleShape, Interaction, NumericColorSpace, Selection, Spacing, WidgetVisuals, Widgets,
     },
-    vec2, Color32, CornerRadius, Margin, Stroke, Style, Vec2, Visuals,
+    vec2,
 };
 
 use crate::Color;

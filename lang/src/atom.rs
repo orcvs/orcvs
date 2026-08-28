@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use std::fmt;
 
-use crate::{midi_note_to_number, midi_number_to_note, str_to_num, Error, TypeError, EXP_LEN};
+use crate::{EXP_LEN, Error, TypeError, midi_note_to_number, midi_number_to_note, str_to_num};
 
 pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 
@@ -92,7 +92,7 @@ impl fmt::Display for Atom {
                 None => write!(f, "{n}"),
             },
             Atom::Char(c) => write!(f, "{c}"),
-            Atom::Function(ref fun) => write!(f, "{fun}"),
+            Atom::Function(fun) => write!(f, "{fun}"),
             Atom::Empty => write!(f, "_"),
         }
     }
@@ -100,7 +100,7 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
-    use super::{to_atom_num, Atom, Function};
+    use super::{Atom, Function, to_atom_num};
 
     #[test]
     fn test_number_displays_as_two_uppercase_hex_digits() {

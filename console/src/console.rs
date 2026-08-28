@@ -1,12 +1,12 @@
 use egui::{Color32, CornerRadius, EventFilter, FontId, Vec2};
 
 use crate::{
+    Color,
     app::App,
     glyph::{Glyph, GlyphString},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
     style::style,
-    Color,
 };
 
 const DEFAULT_GLYPH_FONT_COLOR: Color32 = Color::rgb(164, 166, 169).build();
@@ -101,7 +101,9 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let mut app = app;
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         app.refresh_midi_destinations();
         Self {

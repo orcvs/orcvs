@@ -1,5 +1,5 @@
 pub(crate) mod math;
-use crate::{interpreter::Context, Atom, Error, InterpretationError, PlayCommand};
+use crate::{Atom, Error, InterpretationError, PlayCommand, interpreter::Context};
 
 #[inline(always)]
 pub fn ident(ctx: &mut Context) -> Result<Atom, Error> {
@@ -30,7 +30,7 @@ fn play_impl(channel: u8, velocity: u8, note: u8) -> Result<PlayCommand, Error> 
 #[cfg(test)]
 mod test {
     use super::play;
-    use crate::{interpreter::Context, ArgumentError, Atom, Error, PlayCommand};
+    use crate::{ArgumentError, Atom, Error, PlayCommand, interpreter::Context};
 
     /// Pins the Play arity contract before issue 04 replaces the placeholder.
     /// See `.scratch/source-playback-engine/issues/04-interpret-terminal-play-functions-into-play-commands.md`

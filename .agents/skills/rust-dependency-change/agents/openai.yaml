@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Dependency Change"
+  short_description: "Audit Rust dependencies and feature changes"
+  default_prompt: "Use $rust-dependency-change to make and audit this dependency change."

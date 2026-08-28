@@ -1,6 +1,6 @@
 use crate::{
-    functions::{self, math},
     Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Stack,
+    functions::{self, math},
 };
 
 pub type Args = Stack<16>;
@@ -60,7 +60,7 @@ impl Interpreter {
 mod test {
 
     use crate::{
-        interpreter::Interpreter, trace, ArgumentError, Atom, Error, Function, Parser, TypeError,
+        ArgumentError, Atom, Error, Function, Parser, TypeError, interpreter::Interpreter, trace,
     };
     use tracing::{error, info};
 

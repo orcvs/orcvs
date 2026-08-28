@@ -1,4 +1,4 @@
-use crate::{char_to_num, ArgumentError, Atom, Error, Function, SyntaxError, TypeError};
+use crate::{ArgumentError, Atom, Error, Function, SyntaxError, TypeError, char_to_num};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 

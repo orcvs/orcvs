@@ -186,10 +186,10 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             return None;
         }
         let tick = self.source.execute();
-        if self.connected {
-            if let Err(error) = self.adapter.submit(&tick.plan.play_commands) {
-                self.record_output_failure(error);
-            }
+        if self.connected
+            && let Err(error) = self.adapter.submit(&tick.plan.play_commands)
+        {
+            self.record_output_failure(error);
         }
         Some(tick)
     }
@@ -391,7 +391,7 @@ mod tests {
     use super::*;
     use crate::grid::Grid;
     use std::sync::atomic::AtomicBool;
-    use std::sync::{mpsc, Condvar};
+    use std::sync::{Condvar, mpsc};
 
     #[derive(Default)]
     struct RecordingAdapter {

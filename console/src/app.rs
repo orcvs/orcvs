@@ -297,7 +297,7 @@ mod test {
     use super::App;
     use crate::{
         glyph::{Glyph, GlyphString},
-        opts::{MarkerSpacing, DEFAULT_MARKER_SPACING},
+        opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
         test::trace,
     };
 

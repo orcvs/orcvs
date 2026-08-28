@@ -1,4 +1,4 @@
-use crate::{Atom, Atoms, Function, SyntaxError, EXP_LEN};
+use crate::{Atom, Atoms, EXP_LEN, Function, SyntaxError};
 use arrayvec::ArrayVec;
 use std::mem;
 
