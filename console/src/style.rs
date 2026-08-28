@@ -2,7 +2,7 @@ use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
 
-use crate::glyph::Glyph;
+use crate::glyph::{Glyph, SemanticGlyph};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
@@ -46,16 +46,13 @@ pub(crate) fn cell_visuals(
     selected: bool,
     cursor_visible: bool,
 ) -> CellVisuals {
-    let foreground = if content == Some('*') {
-        PALETTE.bang
-    } else {
-        match glyph {
-            Glyph::Function => PALETTE.function,
-            Glyph::Number => PALETTE.number,
-            Glyph::Note => PALETTE.note,
-            Glyph::Marker | Glyph::Highlight => PALETTE.marker,
-            Glyph::Char | Glyph::Space => PALETTE.ordinary,
-        }
+    let foreground = match glyph.semantic(content) {
+        SemanticGlyph::Bang => PALETTE.bang,
+        SemanticGlyph::Function => PALETTE.function,
+        SemanticGlyph::Number => PALETTE.number,
+        SemanticGlyph::Note => PALETTE.note,
+        SemanticGlyph::Marker | SemanticGlyph::Highlight => PALETTE.marker,
+        SemanticGlyph::Char | SemanticGlyph::Space => PALETTE.ordinary,
     };
     let meaningful_selection = selected || cursor_visible;
     CellVisuals {

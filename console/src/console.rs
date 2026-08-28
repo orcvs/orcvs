@@ -9,22 +9,27 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ConsoleLayout {
-    pub viewport: Rect,
-    pub cell_size: Vec2,
+pub(crate) struct ConsoleLayout {
+    pub(crate) viewport: Rect,
+    pub(crate) grid: Rect,
+    pub(crate) cell_size: Vec2,
 }
 
 impl ConsoleLayout {
-    pub fn new(available: Rect, cells_per_side: usize) -> Self {
-        assert!(
-            cells_per_side > 0,
-            "a Grid side must contain at least one Cell"
-        );
+    pub(crate) fn new(available: Rect, cols: usize, rows: usize) -> Self {
+        assert!(cols > 0, "a Grid must contain at least one column");
+        assert!(rows > 0, "a Grid must contain at least one row");
         let side = available.width().min(available.height()).max(0.0);
         let viewport = Rect::from_center_size(available.center(), Vec2::splat(side));
+        let cell_side = (side / cols as f32).min(side / rows as f32);
+        let grid = Rect::from_center_size(
+            viewport.center(),
+            Vec2::new(cell_side * cols as f32, cell_side * rows as f32),
+        );
         Self {
             viewport,
-            cell_size: Vec2::splat(side / cells_per_side as f32),
+            grid,
+            cell_size: Vec2::splat(cell_side),
         }
     }
 }
@@ -145,13 +150,15 @@ impl eframe::App for Console {
         egui::CentralPanel::default().show(root, |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(0.0);
             let available = ui.available_rect_before_wrap();
-            let layout = ConsoleLayout::new(available, DEFAULT_COL_COUNT);
+            let rows = frame.rows().len();
+            let cols = frame.rows().first().map_or(0, Vec::len);
+            let layout = ConsoleLayout::new(available, cols, rows);
             ui.painter()
                 .rect_filled(layout.viewport, 0.0, PALETTE.source);
 
             ui.scope_builder(
                 UiBuilder::new()
-                    .max_rect(layout.viewport)
+                    .max_rect(layout.grid)
                     .layout(Layout::top_down(Align::Min)),
                 |ui| {
                     ui.spacing_mut().item_spacing = Vec2::ZERO;
@@ -212,7 +219,7 @@ mod tests {
     fn source_grid_viewport_is_square_and_cells_cannot_stretch() {
         for available_size in [Vec2::new(1200.0, 600.0), Vec2::new(600.0, 1200.0)] {
             let available = Rect::from_min_size(Pos2::ZERO, available_size);
-            let layout = ConsoleLayout::new(available, 64);
+            let layout = ConsoleLayout::new(available, 64, 64);
 
             assert_eq!(layout.viewport.width(), layout.viewport.height());
             assert_eq!(layout.cell_size.x, layout.cell_size.y);
@@ -226,6 +233,7 @@ mod tests {
         let wide = ConsoleLayout::new(
             Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(1000.0, 600.0)),
             64,
+            64,
         );
         assert_eq!(wide.viewport.min, Pos2::new(210.0, 20.0));
         assert_eq!(wide.viewport.max, Pos2::new(810.0, 620.0));
@@ -233,8 +241,20 @@ mod tests {
         let tall = ConsoleLayout::new(
             Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(600.0, 1000.0)),
             64,
+            64,
         );
         assert_eq!(tall.viewport.min, Pos2::new(10.0, 220.0));
         assert_eq!(tall.viewport.max, Pos2::new(610.0, 820.0));
+    }
+
+    #[test]
+    fn rectangular_grid_uses_square_cells_centred_inside_square_viewport() {
+        let available = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let layout = ConsoleLayout::new(available, 4, 2);
+
+        assert_eq!(layout.viewport.size(), Vec2::splat(600.0));
+        assert_eq!(layout.cell_size, Vec2::splat(150.0));
+        assert_eq!(layout.grid.size(), Vec2::new(600.0, 300.0));
+        assert_eq!(layout.grid.center(), layout.viewport.center());
     }
 }
