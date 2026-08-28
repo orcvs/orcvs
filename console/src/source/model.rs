@@ -393,6 +393,10 @@ impl Source {
                 }
             };
             let encoded = result.to_string();
+            assert!(
+                encoded.is_ascii(),
+                "Interpreter Cell results must preserve the Source ASCII invariant"
+            );
             let origin = self
                 .grid
                 .position_at(start)

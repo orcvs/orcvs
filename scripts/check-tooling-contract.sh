@@ -40,6 +40,10 @@ assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_wasm
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run test_wasm$'
 assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@[0-9]'
 assert_not_contains "$root_dir/.github/workflows/test.yml" 'taiki-e/install-action'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v4$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v3$'
 
 assert_not_contains "$root_dir/Cargo.toml" '^[[:space:]]*criterion[[:space:]]*='
 assert_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
