@@ -61,7 +61,7 @@ impl From<Token> for Glyph {
 
 impl fmt::Display for GlyphString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self.t {
+        let s = self.s.clone().unwrap_or_else(|| match self.t {
             Glyph::Char => "c".to_string(),
             Glyph::Function => "F".to_string(),
             Glyph::Highlight => ".".to_string(),
@@ -69,7 +69,7 @@ impl fmt::Display for GlyphString {
             Glyph::Note => "n".to_string(),
             Glyph::Number => "h".to_string(),
             Glyph::Space => " ".to_string(),
-        };
+        });
 
         write!(f, "{}", s)
     }
@@ -122,6 +122,22 @@ mod test {
         assert_eq!(marker.to_string(), "+");
         assert_eq!(highlight.to_string(), ".");
         assert_eq!(space.to_string(), " ");
+    }
+
+    #[test]
+    fn occupied_glyphs_display_their_source_content() {
+        assert_eq!(
+            GlyphString::new(Some("+".to_string()), Glyph::Function).to_string(),
+            "+"
+        );
+        assert_eq!(
+            GlyphString::new(Some("A".to_string()), Glyph::Number).to_string(),
+            "A"
+        );
+        assert_eq!(
+            GlyphString::new(Some("*".to_string()), Glyph::Char).to_string(),
+            "*"
+        );
     }
 
     // #[test]

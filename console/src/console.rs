@@ -1,63 +1,31 @@
-use egui::{Color32, CornerRadius, EventFilter, FontId, Vec2};
+use egui::{Align, EventFilter, FontId, Layout, Rect, Stroke, UiBuilder, Vec2};
 
 use crate::{
-    Color,
     app::App,
-    glyph::{Glyph, GlyphString},
+    glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
-    style::style,
+    style::{PALETTE, cell_visuals, style},
 };
 
-const DEFAULT_GLYPH_FONT_COLOR: Color32 = Color::rgb(164, 166, 169).build();
-
-struct GlyphStyle {
-    bg_fill: Color32,
-    stroke_color: Color32,
-    font_color: Color32,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConsoleLayout {
+    pub viewport: Rect,
+    pub cell_size: Vec2,
 }
 
-const CURSOR_VISUALS: GlyphStyle = GlyphStyle {
-    bg_fill: Color32::TRANSPARENT,
-    stroke_color: Color::rgb(192, 222, 255).build(),
-    font_color: DEFAULT_GLYPH_FONT_COLOR,
-};
-
-fn glyph_style(glyph: Glyph, selected: bool) -> GlyphStyle {
-    let default = GlyphStyle {
-        bg_fill: Color32::TRANSPARENT,
-        stroke_color: Color32::TRANSPARENT,
-        font_color: DEFAULT_GLYPH_FONT_COLOR,
-    };
-    let default_selected = GlyphStyle {
-        bg_fill: Color::rgb(0, 92, 128).build(),
-        stroke_color: DEFAULT_GLYPH_FONT_COLOR,
-        font_color: DEFAULT_GLYPH_FONT_COLOR,
-    };
-
-    match (glyph, selected) {
-        (Glyph::Function, true) => GlyphStyle {
-            bg_fill: Color::rgb(200, 75, 255).build(),
-            ..default_selected
-        },
-        (Glyph::Function, false) => GlyphStyle {
-            bg_fill: Color::rgb(255, 0, 230).build(),
-            stroke_color: Color::rgb(0, 0, 0).build(),
-            font_color: Color::rgb(255, 255, 255).build(),
-        },
-        (Glyph::Number | Glyph::Note | Glyph::Char, true)
-        | (Glyph::Space | Glyph::Marker | Glyph::Highlight, true) => default_selected,
-        (Glyph::Note, false) => GlyphStyle {
-            bg_fill: Color::rgb(25, 150, 135).build(),
-            stroke_color: Color::rgb(33, 33, 33).build(),
-            font_color: Color::rgb(200, 200, 200).build(),
-        },
-        (Glyph::Char, false) => GlyphStyle {
-            bg_fill: Color::rgb(125, 225, 220).build(),
-            stroke_color: Color::rgb(33, 33, 33).build(),
-            font_color: Color::rgb(200, 200, 200).build(),
-        },
-        (Glyph::Number | Glyph::Space | Glyph::Marker | Glyph::Highlight, false) => default,
+impl ConsoleLayout {
+    pub fn new(available: Rect, cells_per_side: usize) -> Self {
+        assert!(
+            cells_per_side > 0,
+            "a Grid side must contain at least one Cell"
+        );
+        let side = available.width().min(available.height()).max(0.0);
+        let viewport = Rect::from_center_size(available.center(), Vec2::splat(side));
+        Self {
+            viewport,
+            cell_size: Vec2::splat(side / cells_per_side as f32),
+        }
     }
 }
 
@@ -67,7 +35,7 @@ fn glyph_style(glyph: Glyph, selected: bool) -> GlyphStyle {
 ///
 pub struct Console {
     app: App,
-    font_id: FontId,
+    font_family: egui::FontFamily,
 }
 
 impl Console {
@@ -105,7 +73,7 @@ impl Console {
         app.refresh_midi_destinations();
         Self {
             app,
-            font_id: FontId::monospace(DEFAULT_FONT_SIZE),
+            font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
         }
     }
 }
@@ -176,67 +144,97 @@ impl eframe::App for Console {
 
         egui::CentralPanel::default().show(root, |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(0.0);
-            ui.spacing_mut().button_padding = Vec2::splat(2.5);
+            let available = ui.available_rect_before_wrap();
+            let layout = ConsoleLayout::new(available, DEFAULT_COL_COUNT);
+            ui.painter()
+                .rect_filled(layout.viewport, 0.0, PALETTE.source);
 
-            // button background colour
-            // ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
-            ui.style_mut().visuals.widgets.inactive.corner_radius = CornerRadius::default();
+            ui.scope_builder(
+                UiBuilder::new()
+                    .max_rect(layout.viewport)
+                    .layout(Layout::top_down(Align::Min)),
+                |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::ZERO;
+                    ui.spacing_mut().button_padding = Vec2::ZERO;
+                    ui.spacing_mut().interact_size = Vec2::ZERO;
+                    for row in frame.rows() {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::ZERO;
+                            ui.spacing_mut().button_padding = Vec2::ZERO;
+                            ui.spacing_mut().interact_size = Vec2::ZERO;
+                            for cell in row {
+                                let glyph = GlyphString::new(
+                                    cell.content().map(|content| content.to_string()),
+                                    cell.glyph(),
+                                );
+                                let selected = cell.selected();
+                                let visuals = cell_visuals(
+                                    cell.glyph(),
+                                    cell.content(),
+                                    selected,
+                                    cell.cursor_visible(),
+                                );
 
-            for row in frame.rows() {
-                ui.horizontal(|ui| {
-                    for cell in row {
-                        let glyph = GlyphString::new(
-                            cell.content().map(|content| content.to_string()),
-                            cell.glyph(),
-                        );
-                        let selected = cell.selected();
+                                let button_text = egui::RichText::new(glyph.to_string())
+                                    .font(FontId::new(
+                                        (layout.cell_size.y * 0.65).min(DEFAULT_FONT_SIZE),
+                                        self.font_family.clone(),
+                                    ))
+                                    .color(visuals.foreground);
 
-                        let visuals = glyph_style(cell.glyph(), selected);
+                                let button = egui::Button::new(button_text)
+                                    .fill(visuals.background)
+                                    .stroke(Stroke::new(1.0, visuals.border))
+                                    .corner_radius(0.0)
+                                    .frame(true);
 
-                        ui.style_mut().visuals.widgets.inactive.weak_bg_fill = visuals.bg_fill;
-
-                        // font
-                        ui.style_mut().visuals.widgets.inactive.fg_stroke.color =
-                            visuals.font_color;
-
-                        // frame stroke
-                        ui.style_mut().visuals.widgets.inactive.bg_stroke.color =
-                            visuals.stroke_color;
-
-                        ui.style_mut().visuals.widgets.inactive.bg_fill = visuals.stroke_color;
-
-                        if selected {
-                            if cell.cursor_visible() {
-                                ui.style_mut().visuals.selection.bg_fill = CURSOR_VISUALS.bg_fill;
-                                ui.style_mut().visuals.selection.stroke.color =
-                                    CURSOR_VISUALS.stroke_color;
-                            } else {
-                                ui.style_mut().visuals.selection.bg_fill = visuals.bg_fill;
-                                ui.style_mut().visuals.selection.stroke.color =
-                                    visuals.stroke_color;
+                                if ui.add_sized(layout.cell_size, button).clicked() {
+                                    self.app.select(cell.position());
+                                }
                             }
-                        }
-
-                        let button_text =
-                            egui::RichText::new(glyph.to_string()).font(self.font_id.clone());
-                        // .background_color(bg_color);
-                        // .color(text_color);
-                        // .extra_letter_spacing(0.4);
-
-                        let button = egui::Button::new(button_text)
-                            // .stroke(stroke)
-                            // .small()
-                            .selected(selected)
-                            .frame(true);
-
-                        if ui.add(button).clicked() {
-                            self.app.select(cell.position());
-                        }
+                        });
                     }
-                });
-            }
+                },
+            );
 
             ctx.request_repaint();
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Pos2, Rect, Vec2};
+
+    use super::ConsoleLayout;
+
+    #[test]
+    fn source_grid_viewport_is_square_and_cells_cannot_stretch() {
+        for available_size in [Vec2::new(1200.0, 600.0), Vec2::new(600.0, 1200.0)] {
+            let available = Rect::from_min_size(Pos2::ZERO, available_size);
+            let layout = ConsoleLayout::new(available, 64);
+
+            assert_eq!(layout.viewport.width(), layout.viewport.height());
+            assert_eq!(layout.cell_size.x, layout.cell_size.y);
+            assert_eq!(layout.viewport.width(), 600.0);
+            assert_eq!(layout.cell_size.x, 600.0 / 64.0);
+        }
+    }
+
+    #[test]
+    fn surplus_rectangular_space_is_centred_as_letterboxing() {
+        let wide = ConsoleLayout::new(
+            Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(1000.0, 600.0)),
+            64,
+        );
+        assert_eq!(wide.viewport.min, Pos2::new(210.0, 20.0));
+        assert_eq!(wide.viewport.max, Pos2::new(810.0, 620.0));
+
+        let tall = ConsoleLayout::new(
+            Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(600.0, 1000.0)),
+            64,
+        );
+        assert_eq!(tall.viewport.min, Pos2::new(10.0, 220.0));
+        assert_eq!(tall.viewport.max, Pos2::new(610.0, 820.0));
     }
 }

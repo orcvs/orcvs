@@ -1,3 +1,22 @@
+## Console palette
+
+The egui console uses the prototype-inspired palette declared in `style.rs`:
+
+- Page: `#101417` (`rgb(16, 20, 23)`)
+- Source: `#0B1013` (`rgb(11, 16, 19)`)
+- Cell grid line: `#1E292F` (`rgb(30, 41, 47)`)
+- Ordinary Glyph: `#B9C5CA` (`rgb(185, 197, 202)`)
+- Function: `#63D5B3` (`rgb(99, 213, 179)`)
+- Bang and error: `#FF8585` (`rgb(255, 133, 133)`)
+- Number: `#8FA7D8` (`rgb(143, 167, 216)`)
+- Note: `#AE9FCD` (`rgb(174, 159, 205)`)
+- Marker and Highlight: `#344149` (`rgb(52, 65, 73)`)
+- Selection fill: `#11302A` (`rgb(17, 48, 42)`)
+- Selection and Cursor stroke: `#63D5B3` (`rgb(99, 213, 179)`)
+
+The historical base16 palette below is retained as design context; it is not the
+console's rendering source of truth.
+
 base00: | #22273b | rgb(34, 39, 59)
 base01: | #414f60 | rgb(65, 79, 96)
 base02: | #5a8380 | rgb(90, 131, 128)
