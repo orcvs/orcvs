@@ -48,6 +48,10 @@ _Avoid_: Uppercase Function, Always wrapper, automatic mode
 An unsigned byte encoded as exactly two uppercase hexadecimal Cells from `00` through `FF`. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
 _Avoid_: Base-36 value, decimal literal, single-glyph number
 
+**Note**:
+A pitched Atom encoded in two-Cell musical note notation and carrying the corresponding MIDI value from `00` through `7F`. Naturals use an uppercase pitch letter, sharps use its lowercase form, `/` denotes the octave below zero, and `0` through `9` denote numbered octaves, giving the complete range `C/` through `G9`. Numeric Functions preserve Note identity and wrap Note results at the MIDI boundary; converting a Note to a Number explicitly discards its musical identity.
+_Avoid_: Number, note-shaped Number, MIDI event
+
 **Pattern**:
 A flat ordered sequence of Atoms produced and consumed as one language value. Atomic Functions extend pervasively across compatible Patterns, while Pattern-specific Functions transform the sequence itself.
 _Avoid_: Cell batch, write list, string
