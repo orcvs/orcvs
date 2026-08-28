@@ -1,0 +1,3 @@
+# Source Snapshot is the complete language state
+
+Every Tick interprets a Source Snapshot that is both a complete executable Orcvs program and the accumulated output of preceding Ticks. Functions may observe the current Tick but keep no hidden persistent state in the Interpreter or Playback Engine; stateful behaviour must remain reproducible from the Source Snapshot and Tick, preserving live inspectability and tracker-style self-modification. A Function Atom returned at Tick T is generated code written into the Source, and becomes executable—including as a nested Function—only when parsed from a later Source Snapshot; returning it does not invoke it again during Tick T.

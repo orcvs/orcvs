@@ -42,8 +42,8 @@ impl Position {
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
 ///
-pub const DEFAULT_COL_COUNT: usize = 16;
-pub const DEFAULT_ROW_COUNT: usize = 16;
+pub const DEFAULT_COL_COUNT: usize = 64;
+pub const DEFAULT_ROW_COUNT: usize = 64;
 
 ///
 /// The fixed rectangular shape a Source occupies: its column and row counts,
