@@ -27,6 +27,7 @@ assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:
 assert_contains "$root_dir/mise.toml" '^"cargo:trunk"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:wasm-pack"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" 'cargo deny check'
+assert_contains "$root_dir/mise.toml" 'cargo tree --workspace --all-features -e features --locked'
 assert_contains "$root_dir/mise.toml" 'cargo clippy --package console --all-targets --features persistence --locked -- -D warnings'
 assert_contains "$root_dir/mise.toml" 'cargo nextest run --package console --all-targets --features persistence --profile ci --locked'
 assert_contains "$root_dir/mise.toml" 'cargo test --package console --doc --features persistence --locked'

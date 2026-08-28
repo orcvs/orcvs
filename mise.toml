@@ -1,6 +1,7 @@
 
 
 
+# Pinned for reproducible local and CI gates. See docs/tooling.md.
 [tools]
 "cargo:cargo-nextest" = "0.9.137"
 "cargo:cargo-deny" = "0.20.2"
@@ -66,6 +67,6 @@ run = 'wasm-pack test --headless --firefox console --test wasm'
 [tasks.audit_deps]
 description = "Audit advisories, licenses, sources, and duplicate dependencies"
 run = '''
-cargo tree --workspace --all-features -e features
+cargo tree --workspace --all-features -e features --locked
 cargo deny check
 '''
