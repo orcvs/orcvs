@@ -25,7 +25,7 @@ The complete Source observed for one Tick. It is simultaneously an executable Or
 _Avoid_: Program state, runtime state
 
 **Expression**:
-A contiguous horizontal run of occupied Cells in one Source row that is parsed and evaluated as one Orcvs language expression. An Expression never wraps across rows.
+A contiguous horizontal run of occupied Cells in one Source row that is parsed as one Orcvs language expression. Its first Function is the root Function; activating that root evaluates every nested Function needed by the Expression. An Expression never wraps across rows.
 _Avoid_: Formula, statement
 
 **Function**:
@@ -37,8 +37,12 @@ A Function whose result may depend on Cells outside its explicit operands or may
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
-A pulse Atom encoded as `**`, distinct from every Number and Function, that may be accepted or returned by a Function.
+A one-Tick pulse Atom encoded as `**`, distinct from every Number and Function. A Bang participates in activation routing for exactly one Tick and is then removed by that Tick's atomic commit. When its Portal lands on the root Function of an Expression, it activates that complete Expression without overwriting the Function's Cells.
 _Avoid_: Boolean, trigger flag
+
+**Always Function**:
+One of the four self-scheduled directional Functions `@^`, `@v`, `@<`, and `@>`. Every Tick, an Always Function sends activation through empty Cells in its direction to the first occupied Cell; that Cell must be an Expression's root Function or it blocks the path and diagnoses. Always activates only that first Expression and produces no value of its own. Every other root Expression, including a time or Bang-producing Function, is inert without a landed Bang or directional Always activation.
+_Avoid_: Uppercase Function, Always wrapper, automatic mode
 
 **Number**:
 An unsigned byte encoded as exactly two uppercase hexadecimal Cells from `00` through `FF`. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
@@ -61,7 +65,7 @@ One playback step that evaluates every Expression from the same Source snapshot 
 _Avoid_: Cycle, frame
 
 **Tick Plan**:
-The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including Source writes, ordered Play Commands, and diagnostics.
+The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including activation routing, Source writes, ordered Play Commands, and diagnostics. A Bang produced onto a root Function activates it within the same Tick Plan, and each root Expression evaluates at most once even when multiple Bangs or Always rays target it.
 _Avoid_: Play sequence, command batch
 
 **Playback**:
@@ -69,7 +73,7 @@ The time-driven process that requests a new Tick Plan for each Tick and dispatch
 _Avoid_: Player, sequencer
 
 **Playback Engine**:
-The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source, interpret musical intent, or infer note lifetime; stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
+The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. Stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
 **Live Editing**:
@@ -77,12 +81,16 @@ Changing the Source while Playback continues. An edit affects the next Tick whos
 _Avoid_: Hot reload, live coding
 
 **Play Command**:
-One interpreted MIDI Note On instruction emitted by a Play Function for delivery during a Tick. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
+One interpreted MIDI instruction emitted by a Play Function for delivery during a Tick. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
 _Avoid_: Performance command, MIDI event
 
 **Play Function**:
-The terminal `>>` language Function that interprets a hexadecimal MIDI channel, velocity, and note as one Play Command. It is valid only at the root of an Expression, not where another Function requires a value, and it never writes a Cell result.
+The terminal `>>` Function that interprets a hexadecimal MIDI channel, velocity, and note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
 _Avoid_: Note output, MIDI Function
+
+**Timed Play Function**:
+The terminal `>?` Function that interprets a hexadecimal MIDI channel, velocity, note, and Tick length as a Timed Play Command. Its fixed arity distinguishes it from raw Play without optional operands or overloading.
+_Avoid_: Play overload, optional-length Play
 
 **Cursor**:
 The one Cell the console is editing: a Position, plus the blink state that draws it. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.

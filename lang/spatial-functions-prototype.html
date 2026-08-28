@@ -35,30 +35,30 @@
   </section>
   <section class="panel">
     <h2>Prototype contracts</h2>
-    <p><code>rt**</code> and <code>dn**</code> move their complete Expression one Cell. A collision leaves it in place and emits Bang <code>**</code> below its origin. <code>jh06</code> reads six Cells immediately west and carries that Pattern beyond consecutive <code>jh06</code> Expressions. <code>hldl0201</code> suppresses the Expression at its ordinary result Portal only when nested delay <code>dl</code> returns Bang.</p>
+    <p><code>@&gt;</code> rays east through empty Cells to activate move-right <code>&gt;*</code> each Tick. A collision leaves the movement Expression in place and emits one-Tick Bang <code>**</code> below its origin. Jumper chains carry a horizontal Pattern beyond consecutive jumper Expressions. A Delay Portal can land Bang on <code>!*</code>, activating Halt without becoming an operand or overwriting its Cells.</p>
   </section>
 <script>
 const C=20,R=8, blank=()=>Array.from({length:C*R},()=>({ch:" ",changed:false}));
 function src(entries){const g=blank();for(const [r,c,t,changed=false] of entries)[...t].forEach((ch,i)=>g[r*C+c+i]={ch,changed});return g}
 const scenarios=[
- {name:"Self movement",description:"The complete rt** Expression moves east as one atomic Source change.",frames:[
-  {g:src([[2,2,"rt**"]]),d:"rt received a literal Bang and resolved an eastward movement Portal.",c:"Ready at column 02."},
-  {g:src([[2,3,"rt**",true]]),d:"The destination span was empty; the Tick Plan erased the old span and wrote the complete Expression at column 03.",c:"rt** moved one Cell east."},
-  {g:src([[2,4,"rt**",true]]),d:"Movement is recalculated from the new Source Snapshot, not retained as hidden state.",c:"rt** moved one Cell east again."}
+ {name:"Self movement",description:"Directional Always repeatedly reaches a moving root Expression across its changing empty span.",frames:[
+  {g:src([[2,0,"@>"],[2,4,">*"]]),d:"@> self-schedules and rays east through two empty Cells to the move-right root.",c:"Move-right is ready at column 04."},
+  {g:src([[2,0,"@>"],[2,5,">*",true]]),d:"The destination was empty; the Tick Plan moved the complete target Expression while @> remained fixed.",c:">* moved one Cell east."},
+  {g:src([[2,0,"@>"],[2,6,">*",true]]),d:"The activation ray lengthened with the empty span and reached the first occupied root again.",c:">* moved one Cell east again."}
  ]},
  {name:"Collision Bang",description:"A blocked move becomes a musical signal without destroying the moving Expression.",frames:[
-  {g:src([[2,2,"rt**"],[2,8,"+.0000"]]),d:"rt** can move twice before its destination overlaps a real arithmetic Expression.",c:"Ready."},
-  {g:src([[2,3,"rt**",true],[2,8,"+.0000"]]),d:"The first destination span was empty.",c:"Expression moved east."},
-  {g:src([[2,4,"rt**",true],[2,8,"+.0000"],[3,4,"**",true]]),d:"Destination overlaps +.0000. Movement was rejected atomically and a collision Bang was sent through the ordinary result Portal.",c:"Expression stayed intact; Bang appeared below it.",warn:true}
+  {g:src([[2,0,"@>"],[2,5,">*"],[2,8,"+.0000"]]),d:"@> reaches move-right first; the movement Expression has room for one move before it meets arithmetic Source.",c:"Ready."},
+  {g:src([[2,0,"@>"],[2,6,">*",true],[2,8,"+.0000"]]),d:"The first destination was empty.",c:"Expression moved east."},
+  {g:src([[2,0,"@>"],[2,6,">*",true],[2,8,"+.0000"],[3,6,"**",true]]),d:"The next destination overlaps +.0000. Movement was rejected atomically and emitted a one-Tick collision Bang through its result Portal.",c:"Expression stayed intact; Bang appeared below it for this Tick only.",warn:true}
  ]},
  {name:"Jumper chain",description:"Repeated jumper Expressions are visible wiring. The transported Pattern remains intact until its destination Portal.",frames:[
   {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"]]),d:"010203 is currently diagnosed as missing a Function, but remains Source content available to a Source-reading jumper.",c:"Two jh06 Expressions form a horizontal Portal chain.",warn:true},
   {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"],[4,12,"010203",true]]),d:"The first jumper read six Cells west; the chain resolved one output Portal below its final member and carried one intact Pattern.",c:"The complete Pattern arrived after the visible chain."}
  ]},
  {name:"Spatial Halt",description:"Halt participates in a pre-evaluation control phase, so every Expression still observes one Source Snapshot.",frames:[
-  {g:src([[1,2,"hldl0201"],[2,2,"++0102"]]),d:"At Tick 00, dl0201 returns Bang. hl marks the Expression at its ordinary result Portal as suppressed before ordinary evaluation begins.",c:"++0102 is present but suppressed."},
-  {g:src([[1,2,"hldl0201"],[2,2,"++0102"]]),d:"The suppressed Expression planned no result at Tick 00; suppression itself did not modify Source.",c:"No 03 was written."},
-  {g:src([[1,2,"hldl0201"],[2,2,"++0102"],[3,2,"03",true]]),d:"At Tick 01, dl0201 returns no Bang. hl suppresses nothing and ++0102 evaluates normally.",c:"03 committed below the arithmetic Expression."}
+  {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"]]),d:"At Tick 00, @v activates Delay, whose Bang lands on !*. Activated Halt suppresses the arithmetic root below while @> also targets it.",c:"+.0102 is present but suppressed."},
+  {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"]]),d:"The one-Tick Bang is consumed as Halt activation; suppression itself does not modify Source.",c:"No 03 was written."},
+  {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"],[4,4,"03",true]]),d:"At Tick 01, Delay produces no Bang, so Halt is inert. @> activates +.0102 and its own result Portal commits 03.",c:"03 committed below the arithmetic Expression."}
  ]}
 ];
 let si=0,fi=0;

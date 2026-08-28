@@ -20,24 +20,24 @@ const make=(entries)=>{const g=blank();entries.forEach(e=>put(g,...e));return g}
 const paletteDefs=[
  {name:"J-like digraphs",key:"j",map:[
   ["Arithmetic","++","add"],["Arithmetic","--","subtract"],["Arithmetic","**","multiply"],["Arithmetic","//","divide"],["Arithmetic","<.","minimum"],["Arithmetic",">.","maximum"],["Arithmetic","|-","absolute difference"],["Comparison","=.","equality Bang"],
-  ["Time","..","clock"],["Time",".*","delay Bang"],["Time",":*","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+.","increment"],["Feedback","~.","interpolate"],
+  ["Activation","@^","always north"],["Activation","@v","always south"],["Activation","@<","always west"],["Activation","@>","always east"],["Time","..","clock"],["Time",".*","delay Bang"],["Time",":*","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+.","increment"],["Feedback","~.","interpolate"],
   ["Pattern","i.","range Pattern"],["Pattern","|.","reverse Pattern"],["Pattern",",+","concatenate Patterns"],["Pattern","@.","select Atom"],["Pattern","}.","replace Atom"],
   ["Portal","@<","Source read"],["Portal","@>","Source write"],["Spatial","^*","move up"],["Spatial","v*","move down"],["Spatial","<*","move left"],["Spatial",">*","move right"],["Spatial","|^","vertical jumper"],["Spatial","->","horizontal jumper"],["Spatial","!.","halt"],
-  ["Signal","*","Bang Atom"],["Output",">>","Play"],["Source","#","row comment"]
+  ["Signal","*","Bang Atom"],["Output",">>","raw Play"],["Output",">?","timed Play"],["Source","#","row comment"]
  ]},
  {name:"Geometric pairs",key:"g",map:[
   ["Arithmetic","++","add"],["Arithmetic","--","subtract"],["Arithmetic","**","multiply"],["Arithmetic","//","divide"],["Arithmetic","<<","minimum"],["Arithmetic",">>","maximum"],["Arithmetic","||","absolute difference"],["Comparison","<>","equality Bang"],
-  ["Time","::","clock"],["Time",":*","delay Bang"],["Time","**","Euclidean Bang"],["Time","??","deterministic random"],["Feedback","+>","increment"],["Feedback","~>","interpolate"],
+  ["Activation","@^","always north"],["Activation","@v","always south"],["Activation","@<","always west"],["Activation","@>","always east"],["Time","::","clock"],["Time",":*","delay Bang"],["Time","**","Euclidean Bang"],["Time","??","deterministic random"],["Feedback","+>","increment"],["Feedback","~>","interpolate"],
   ["Pattern","..","range Pattern"],["Pattern","><","reverse Pattern"],["Pattern","++","concatenate Patterns"],["Pattern","[]","select Atom"],["Pattern","{}","replace Atom"],
   ["Portal","<-","Source read"],["Portal","->","Source write"],["Spatial","^^","move up"],["Spatial","vv","move down"],["Spatial","<<","move left"],["Spatial",">>","move right"],["Spatial","||","vertical jumper"],["Spatial","==","horizontal jumper"],["Spatial","XX","halt"],
-  ["Signal","*","Bang Atom"],["Output",">>","Play"],["Source","#","row comment"]
+  ["Signal","*","Bang Atom"],["Output",">>","raw Play"],["Output",">?","timed Play"],["Source","#","row comment"]
  ]},
  {name:"Orcvs grammar",key:"o",map:[
   ["Arithmetic","+.","add"],["Arithmetic","-.","subtract"],["Arithmetic","x.","multiply"],["Arithmetic","/.","divide"],["Arithmetic","%.","modulo"],["Arithmetic","<.","minimum"],["Arithmetic",">.","maximum"],["Arithmetic","|.","absolute difference"],["Comparison","=.","equality Bang"],
-  ["Time",".~","clock"],["Time","*~","delay Bang"],["Time",":~","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+~","increment"],["Feedback",">~","interpolate"],
+  ["Activation","@^","always north"],["Activation","@v","always south"],["Activation","@<","always west"],["Activation","@>","always east"],["Time",".~","clock"],["Time","*~","delay Bang"],["Time",":~","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+~","increment"],["Feedback",">~","interpolate"],
   ["Pattern","i:","range Pattern"],["Pattern","|:","reverse Pattern"],["Pattern","+:","concatenate Patterns"],["Pattern","@:","select Atom"],["Pattern","}:","replace Atom"],
   ["Portal","@<","Source read"],["Portal","@>","Source write"],["Spatial","^*","move up"],["Spatial","v*","move down"],["Spatial","<*","move left"],["Spatial",">*","move right"],["Spatial","^:","vertical jumper"],["Spatial",">:","horizontal jumper"],["Spatial","!*","halt"],
-  ["Signal","**","Bang Atom"],["Output",">>","Play"],["Source","#","row comment"]
+  ["Signal","**","Bang Atom"],["Output",">>","raw Play"],["Output",">?","timed Play"],["Source","#","row comment"]
  ]}
 ];
 const symbol=(...meanings)=>paletteDefs[pi].map.find(x=>meanings.some(meaning=>x[2].toLowerCase().includes(meaning.toLowerCase())))[1];
@@ -59,13 +59,14 @@ const scenarioDefs=[
    {g:make([[0,0,rd+"AA03"],[2,0,wr+"*AA03rg0103"]]),d:"AA is a placeholder address operand only; actual infinite-canvas addressing remains deferred."},
    {g:make([[0,0,rd+"AA03"],[1,0,"010203",true],[2,0,wr+"*AA03rg0103"]]),d:"Read returned one raw Cell Pattern; write planned one intact Pattern through the opposing Portal operation."}
  ]}},
- {name:"Play and time",desc:"A time Function produces Bang for terminal Play; comments remain inert Source context.",frames:()=>{const dl=symbol("delay Bang"),pl=symbol("play");return[
-   {g:make([[0,0,pl+dl+"0201"+"07FC4"],[2,0,"#kick on even ticks"]]),d:"At Tick 00 the nested delay returns Bang, so Play emits channel 0, velocity 7F, note C4. The row comment does not join an Expression."},
-   {g:make([[0,0,pl+dl+"0201"+"07FC4"],[2,0,"#kick on even ticks"]]),d:"At Tick 01 delay returns no Bang; terminal Play emits no command and never writes a Cell result."}
+ {name:"Play and time",desc:"Directional Always schedules a time Function whose one-Tick Bang lands on terminal Play.",frames:()=>{const dl=symbol("delay Bang"),pl=symbol("raw Play"),pt=symbol("timed Play"),av=symbol("always south");return[
+   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick on even ticks"]]),d:"Tick 00: @v rays south to the first occupied root and activates Delay. Delay's Bang Portal lands on raw Play, which emits channel 00, velocity 7F, note C4."},
+   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick on even ticks"]]),d:"Tick 01: @v activates Delay, which produces no Bang. Raw Play is inert, emits no command, and its Source remains unchanged."},
+   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pt+"007FC404"],[4,0,"#timed kick, 04 ticks"]]),d:"Replacing >> with >? selects a different fixed-arity Function. At Tick 02 its landed Bang emits C4 with an explicit 04-Tick lifetime."}
  ]}},
- {name:"Spatial score",desc:"Directional effects and jumper glyphs should read like a miniature animated score.",frames:()=>{const rt=symbol("move right"),jv=symbol("vertical jumper"),hl=symbol("halt"),bang=symbol("Bang Atom");return[
-   {g:make([[0,0,rt+bang],[2,5,jv],[4,5,hl+bang]]),d:"Move, jumper, and Halt are separate terminal spatial effects resolved from one Source Snapshot."},
-   {g:make([[0,1,rt+bang,true],[2,5,jv],[4,5,hl+bang]]),d:"The complete movement Expression moved one Cell; jumper and Halt retained their visible positions."}
+ {name:"Spatial score",desc:"Directional Always replaces Orca uppercase scheduling with visible activation rays.",frames:()=>{const rt=symbol("move right"),jv=symbol("vertical jumper"),hl=symbol("halt"),ar=symbol("always east"),av=symbol("always south");return[
+   {g:make([[0,0,ar],[0,4,rt],[2,5,jv],[3,5,av],[5,5,hl]]),d:"@> rays through empty Cells to the move-right root; @v targets the first occupied root south, Halt. Each target retains its own result Portal."},
+   {g:make([[0,0,ar],[0,5,rt,true],[2,5,jv],[3,5,av],[5,5,hl]]),d:"The movement Expression moved east, and @> will still reach it next Tick through the longer empty span. Always itself produced no value."}
  ]}}
 ];
 let pi=0,si=0,fi=0;
