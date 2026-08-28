@@ -98,6 +98,9 @@ impl App {
         }
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    pub fn refresh_midi_destinations(&mut self) {}
+
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn midi_destinations(&self) -> &[MidiDestination] {
         &self.midi_destinations

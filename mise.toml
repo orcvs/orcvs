@@ -5,6 +5,7 @@
 "cargo:cargo-nextest" = "0.9.137"
 "cargo:cargo-deny" = "0.20.2"
 "cargo:trunk" = "0.21.14"
+"cargo:wasm-pack" = "0.15.0"
 
 [tasks.run]
 alias = 'r'
@@ -43,15 +44,24 @@ cargo deny check
 
 [tasks.test_persistence]
 description = "Test the console persistence feature"
-run = 'cargo nextest run --package console --all-targets --features persistence --locked'
+run = '''
+cargo clippy --package console --all-targets --features persistence --locked -- -D warnings
+cargo nextest run --package console --all-targets --features persistence --profile ci --locked
+cargo test --package console --doc --features persistence --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --features persistence --locked
+'''
 
 [tasks.check_wasm]
 description = "Check and build the WASM application"
 run = '''
 cargo check --package console --lib --target wasm32-unknown-unknown --features persistence --locked
 cd console
-trunk build --locked
+env -u NO_COLOR trunk build --locked
 '''
+
+[tasks.test_wasm]
+description = "Run browser regressions in headless Firefox"
+run = 'wasm-pack test --headless --firefox console --test wasm'
 
 [tasks.audit_deps]
 description = "Audit advisories, licenses, sources, and duplicate dependencies"

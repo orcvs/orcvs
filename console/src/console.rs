@@ -101,10 +101,7 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        let mut app = app;
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         app.refresh_midi_destinations();
         Self {
             app,
