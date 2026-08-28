@@ -59,7 +59,7 @@ pub(crate) fn cell_visuals(
     };
     let meaningful_selection = selected || cursor_visible;
     CellVisuals {
-        background: if meaningful_selection {
+        background: if selected && !cursor_visible {
             PALETTE.selection_fill
         } else {
             PALETTE.source
@@ -139,6 +139,8 @@ mod tests {
         assert_eq!(ordinary.border, PALETTE.grid_line);
         assert_eq!(selected.background, PALETTE.selection_fill);
         assert_eq!(selected.border, PALETTE.selection_stroke);
-        assert_eq!(cursor, selected);
+        assert_eq!(cursor.background, PALETTE.source);
+        assert_eq!(cursor.border, PALETTE.selection_stroke);
+        assert_ne!(cursor, selected);
     }
 }
