@@ -1,6 +1,11 @@
 
 
 
+[tools]
+"cargo:cargo-nextest" = "0.9.137"
+"cargo:cargo-deny" = "0.20.2"
+"cargo:trunk" = "0.21.14"
+
 [tasks.run]
 alias = 'r'
 description = "run"
@@ -26,12 +31,14 @@ run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="t
 [tasks.check]
 description = "Full repository verification gate"
 run = '''
+bash scripts/check-tooling-contract.sh
 cargo fmt --all -- --check
 cargo check --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --profile ci --locked
 cargo test --workspace --doc --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo deny check
 '''
 
 [tasks.test_persistence]

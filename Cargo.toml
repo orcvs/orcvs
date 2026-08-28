@@ -10,7 +10,6 @@ rust-version = "1.98"
 
 [workspace.dependencies]
 arrayvec = { version = "0.7.4", default-features = false }
-criterion = { version = "0.5.1", default-features = false }
 thiserror = "1.0.64"
 tracing = { version = "0.1.40", default-features = false }
 
@@ -39,11 +38,6 @@ opt-level = 3
 codegen-units = 1
 strip = "symbols"
 lto = true
-
-[profile.ci]
-inherits = "dev"
-debug = false
-incremental = false
 
 [profile.profiling]
 inherits = "release"
