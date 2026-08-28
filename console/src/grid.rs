@@ -42,8 +42,8 @@ impl Position {
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
 ///
-pub const DEFAULT_COL_COUNT: usize = 32;
-pub const DEFAULT_ROW_COUNT: usize = 32;
+pub const DEFAULT_COL_COUNT: usize = 64;
+pub const DEFAULT_ROW_COUNT: usize = 64;
 
 ///
 /// The fixed rectangular shape a Source occupies: its column and row counts,
@@ -271,14 +271,9 @@ impl Grid {
 mod test {
 
     use crate::{
-        grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
+        grid::{Grid, Position},
         test::trace,
     };
-
-    #[test]
-    fn default_grid_is_readable_at_typical_console_sizes() {
-        assert_eq!((DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT), (32, 32));
-    }
 
     #[test]
     fn test_grid_yields_its_rows_in_render_order() {

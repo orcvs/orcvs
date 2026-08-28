@@ -197,7 +197,6 @@ mod test {
 
     use crate::{Atom, Atoms, Error, Function, SyntaxError, TypeError, parser::Parser, trace};
     use arrayvec::ArrayVec;
-    use tracing::error;
 
     fn try_parse(exp: &mut str) -> Result<Atoms, Error> {
         let parser = Parser::from(exp);
@@ -243,12 +242,6 @@ mod test {
     fn test_try_parse_with_invalid() {
         trace();
 
-        // let mut s = String::from("id");
-        // let result = try_parse(&mut s);
-
-        // let error = result.unwrap_err();
-        // assert!(matches!(error, Error::Syntax(SyntaxError::ExpectedToken)));
-
         let mut s = String::from("+");
         let result = try_parse(&mut s);
 
@@ -271,20 +264,6 @@ mod test {
     }
 
     #[test]
-    fn test_parse_id_function() {
-        trace();
-
-        let mut s = String::from("idA");
-        let parsed = try_parse(&mut s).unwrap();
-
-        let v = vec![Atom::Function(Function::Id), Atom::Char('A')];
-        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
-        v.into_iter().for_each(|a| expected.push(a));
-
-        assert_eq!(parsed, expected);
-    }
-
-    #[test]
     fn test_parse_play_function() {
         trace();
 
@@ -296,91 +275,6 @@ mod test {
             Atom::Number(1),
             Atom::Number(10),
             Atom::Note(60),
-        ];
-
-        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
-        v.into_iter().for_each(|a| expected.push(a));
-
-        assert_eq!(parsed, expected);
-    }
-
-    #[test]
-    fn test_with_function_parameter() {
-        trace();
-
-        let mut s = String::from("++id0Aid01");
-
-        let parsed = try_parse(&mut s);
-
-        error!("{:?}", parsed);
-        // let expected = vec!([
-        //     Token::Function,
-        //     Token::Function,
-        //     Token::String,
-        //     Token::Function,
-        //     Token::String,
-        // ]);
-
-        // let result = parser.take_tokens();
-        // assert_eq!(result, expected);
-
-        // let v = vec![
-        //     Atom::Function(Function::Add),
-        //     Atom::Function(Function::Id),
-        //     Atom::String("0A".to_string()),
-        //     Atom::Function(Function::Id),
-        //     Atom::String("01".to_string()),
-        // ];
-        // let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
-        // v.into_iter().for_each(|a| expected.push(a));
-
-        // assert_eq!(parsed, expected);
-
-        // let mut s = String::from("++id0A01");
-        // let parsed = try_parse(&mut s).unwrap();
-
-        // let v = vec![
-        //     Atom::Function(Function::Add),
-        //     Atom::Function(Function::Id),
-        //     Atom::String("0A".to_string()),
-        //     Atom::Number(1),
-        // ];
-        // let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
-        // v.into_iter().for_each(|a| expected.push(a));
-
-        // assert_eq!(parsed, expected);
-    }
-
-    #[test]
-    fn test_parse_recursive_function() {
-        trace();
-
-        let mut s = String::from("idididA");
-        let parsed = try_parse(&mut s).unwrap();
-
-        let v = vec![
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
-            Atom::Char('A'),
-        ];
-
-        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
-        v.into_iter().for_each(|a| expected.push(a));
-
-        assert_eq!(parsed, expected);
-
-        let mut s = String::from("++idididA01");
-        let parsed = try_parse(&mut s).unwrap();
-        // assert_eq!(result, expected);
-
-        let v = vec![
-            Atom::Function(Function::Add),
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
-            Atom::Function(Function::Id),
-            Atom::Char('A'),
-            Atom::Number(1),
         ];
 
         let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();

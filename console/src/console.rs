@@ -1,38 +1,15 @@
-use egui::{Align, EventFilter, FontId, Layout, Rect, Stroke, UiBuilder, Vec2};
+use egui::{EventFilter, FontId, Rect, Stroke, Vec2};
 
 use crate::{
     app::App,
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
+    render_frame::RenderFrame,
     style::{PALETTE, cell_visuals, style},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ConsoleLayout {
-    pub(crate) viewport: Rect,
-    pub(crate) grid: Rect,
-    pub(crate) cell_size: Vec2,
-}
-
-impl ConsoleLayout {
-    pub(crate) fn new(available: Rect, cols: usize, rows: usize) -> Self {
-        assert!(cols > 0, "a Grid must contain at least one column");
-        assert!(rows > 0, "a Grid must contain at least one row");
-        let side = available.width().min(available.height()).max(0.0);
-        let viewport = Rect::from_center_size(available.center(), Vec2::splat(side));
-        let cell_side = (side / cols as f32).min(side / rows as f32);
-        let grid = Rect::from_center_size(
-            viewport.center(),
-            Vec2::new(cell_side * cols as f32, cell_side * rows as f32),
-        );
-        Self {
-            viewport,
-            grid,
-            cell_size: Vec2::splat(cell_side),
-        }
-    }
-}
+const CELL_SIZE: f32 = 25.0;
 
 /// ConsoleApp wraps the inner App
 /// ConsoleApp handles the egui presentation concerns
@@ -41,6 +18,8 @@ impl ConsoleLayout {
 pub struct Console {
     app: App,
     font_family: egui::FontFamily,
+    /// The visible region of the egui Scene containing the Source.
+    source_view_rect: Rect,
 }
 
 impl Console {
@@ -79,8 +58,52 @@ impl Console {
         Self {
             app,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
+            source_view_rect: Rect::ZERO,
         }
     }
+}
+
+fn show_source(
+    ui: &mut egui::Ui,
+    app: &mut App,
+    frame: &RenderFrame,
+    font_family: &egui::FontFamily,
+) -> Rect {
+    ui.spacing_mut().item_spacing = Vec2::ZERO;
+    ui.spacing_mut().button_padding = Vec2::splat(2.5);
+    ui.spacing_mut().interact_size = Vec2::ZERO;
+
+    for row in frame.rows() {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::ZERO;
+            for cell in row {
+                let glyph = GlyphString::new(
+                    cell.content().map(|content| content.to_string()),
+                    cell.glyph(),
+                );
+                let visuals = cell_visuals(
+                    cell.glyph(),
+                    cell.content(),
+                    cell.selected(),
+                    cell.cursor_visible(),
+                );
+                let button_text = egui::RichText::new(glyph.to_string())
+                    .font(FontId::new(DEFAULT_FONT_SIZE, font_family.clone()))
+                    .color(visuals.foreground);
+                let button = egui::Button::new(button_text)
+                    .fill(visuals.background)
+                    .stroke(Stroke::new(1.0, visuals.border))
+                    .corner_radius(0.0)
+                    .frame(true);
+
+                if ui.add_sized(Vec2::splat(CELL_SIZE), button).clicked() {
+                    app.select(cell.position());
+                }
+            }
+        });
+    }
+
+    ui.min_rect()
 }
 
 impl eframe::App for Console {
@@ -148,113 +171,28 @@ impl eframe::App for Console {
         let frame = self.app.render_frame();
 
         egui::CentralPanel::default().show(root, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(0.0);
-            let available = ui.available_rect_before_wrap();
-            let rows = frame.rows().len();
-            let cols = frame.rows().first().map_or(0, Vec::len);
-            let layout = ConsoleLayout::new(available, cols, rows);
             ui.painter()
-                .rect_filled(layout.viewport, 0.0, PALETTE.source);
+                .rect_filled(ui.available_rect_before_wrap(), 0.0, PALETTE.source);
+            let scene = egui::Scene::new()
+                .zoom_range(0.25..=2.0)
+                .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE);
+            let mut source_rect = Rect::NAN;
+            let Console {
+                app,
+                font_family,
+                source_view_rect,
+            } = self;
+            let response = scene
+                .show(ui, source_view_rect, |ui| {
+                    source_rect = show_source(ui, app, &frame, font_family);
+                })
+                .response;
 
-            ui.scope_builder(
-                UiBuilder::new()
-                    .max_rect(layout.grid)
-                    .layout(Layout::top_down(Align::Min)),
-                |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::ZERO;
-                    ui.spacing_mut().button_padding = Vec2::ZERO;
-                    ui.spacing_mut().interact_size = Vec2::ZERO;
-                    for row in frame.rows() {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing = Vec2::ZERO;
-                            ui.spacing_mut().button_padding = Vec2::ZERO;
-                            ui.spacing_mut().interact_size = Vec2::ZERO;
-                            for cell in row {
-                                let glyph = GlyphString::new(
-                                    cell.content().map(|content| content.to_string()),
-                                    cell.glyph(),
-                                );
-                                let selected = cell.selected();
-                                let visuals = cell_visuals(
-                                    cell.glyph(),
-                                    cell.content(),
-                                    selected,
-                                    cell.cursor_visible(),
-                                );
-
-                                let button_text = egui::RichText::new(glyph.to_string())
-                                    .font(FontId::new(
-                                        (layout.cell_size.y * 0.65).min(DEFAULT_FONT_SIZE),
-                                        self.font_family.clone(),
-                                    ))
-                                    .color(visuals.foreground);
-
-                                let button = egui::Button::new(button_text)
-                                    .fill(visuals.background)
-                                    .stroke(Stroke::new(1.0, visuals.border))
-                                    .corner_radius(0.0)
-                                    .frame(true);
-
-                                if ui.add_sized(layout.cell_size, button).clicked() {
-                                    self.app.select(cell.position());
-                                }
-                            }
-                        });
-                    }
-                },
-            );
+            if response.double_clicked() && source_rect.is_finite() {
+                *source_view_rect = source_rect;
+            }
 
             ctx.request_repaint();
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use egui::{Pos2, Rect, Vec2};
-
-    use super::ConsoleLayout;
-
-    #[test]
-    fn source_grid_viewport_is_square_and_cells_cannot_stretch() {
-        for available_size in [Vec2::new(1200.0, 600.0), Vec2::new(600.0, 1200.0)] {
-            let available = Rect::from_min_size(Pos2::ZERO, available_size);
-            let layout = ConsoleLayout::new(available, 32, 32);
-
-            assert_eq!(layout.viewport.width(), layout.viewport.height());
-            assert_eq!(layout.cell_size.x, layout.cell_size.y);
-            assert_eq!(layout.viewport.width(), 600.0);
-            assert_eq!(layout.cell_size.x, 600.0 / 32.0);
-        }
-    }
-
-    #[test]
-    fn surplus_rectangular_space_is_centred_as_letterboxing() {
-        let wide = ConsoleLayout::new(
-            Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(1000.0, 600.0)),
-            32,
-            32,
-        );
-        assert_eq!(wide.viewport.min, Pos2::new(210.0, 20.0));
-        assert_eq!(wide.viewport.max, Pos2::new(810.0, 620.0));
-
-        let tall = ConsoleLayout::new(
-            Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(600.0, 1000.0)),
-            32,
-            32,
-        );
-        assert_eq!(tall.viewport.min, Pos2::new(10.0, 220.0));
-        assert_eq!(tall.viewport.max, Pos2::new(610.0, 820.0));
-    }
-
-    #[test]
-    fn rectangular_grid_uses_square_cells_centred_inside_square_viewport() {
-        let available = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
-        let layout = ConsoleLayout::new(available, 4, 2);
-
-        assert_eq!(layout.viewport.size(), Vec2::splat(600.0));
-        assert_eq!(layout.cell_size, Vec2::splat(150.0));
-        assert_eq!(layout.grid.size(), Vec2::new(600.0, 300.0));
-        assert_eq!(layout.grid.center(), layout.viewport.center());
     }
 }

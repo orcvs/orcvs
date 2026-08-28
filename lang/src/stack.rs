@@ -108,7 +108,6 @@ impl TryFrom<&str> for Function {
         match s {
             "++" => Ok(Function::Add),
             "//" => Ok(Function::Divide),
-            "id" => Ok(Function::Id),
             "**" => Ok(Function::Multiply),
             ">>" => Ok(Function::Play),
             "--" => Ok(Function::Subtract),

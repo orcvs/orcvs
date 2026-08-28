@@ -75,3 +75,7 @@ Triage uses the five default canonical label strings. See `docs/agents/triage-la
 ### Domain docs
 
 Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
+
+### Syntax prototypes
+
+Syntax and evaluation prototypes use Tick-by-Tick Orcvs Source Grids with diagnostic context. See `docs/agents/syntax-prototypes.md`.

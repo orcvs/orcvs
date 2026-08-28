@@ -37,8 +37,20 @@ A Function whose result may depend on Cells outside its explicit operands or may
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
-A pulse Atom that is distinct from every Number and may be accepted or returned by a Function.
+A pulse Atom encoded as `**`, distinct from every Number and Function, that may be accepted or returned by a Function.
 _Avoid_: Boolean, trigger flag
+
+**Number**:
+An unsigned byte encoded as exactly two uppercase hexadecimal Cells from `00` through `FF`. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
+_Avoid_: Base-36 value, decimal literal, single-glyph number
+
+**Pattern**:
+A flat ordered sequence of Atoms produced and consumed as one language value. Atomic Functions extend pervasively across compatible Patterns, while Pattern-specific Functions transform the sequence itself.
+_Avoid_: Cell batch, write list, string
+
+**Portal**:
+One destination resolved while interpreting a Source Snapshot, through which an Atom or Pattern enters the Tick Plan as Source writes. A Portal is neither Source content nor persistent language state.
+_Avoid_: Port, address value, output coordinate
 
 **Comment**:
 Source text beginning with `#` and continuing to the end of its row, excluded from Expressions and evaluation.
