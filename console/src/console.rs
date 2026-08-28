@@ -219,12 +219,12 @@ mod tests {
     fn source_grid_viewport_is_square_and_cells_cannot_stretch() {
         for available_size in [Vec2::new(1200.0, 600.0), Vec2::new(600.0, 1200.0)] {
             let available = Rect::from_min_size(Pos2::ZERO, available_size);
-            let layout = ConsoleLayout::new(available, 32, 32);
+            let layout = ConsoleLayout::new(available, 64, 64);
 
             assert_eq!(layout.viewport.width(), layout.viewport.height());
             assert_eq!(layout.cell_size.x, layout.cell_size.y);
             assert_eq!(layout.viewport.width(), 600.0);
-            assert_eq!(layout.cell_size.x, 600.0 / 32.0);
+            assert_eq!(layout.cell_size.x, 600.0 / 64.0);
         }
     }
 
@@ -232,16 +232,16 @@ mod tests {
     fn surplus_rectangular_space_is_centred_as_letterboxing() {
         let wide = ConsoleLayout::new(
             Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(1000.0, 600.0)),
-            32,
-            32,
+            64,
+            64,
         );
         assert_eq!(wide.viewport.min, Pos2::new(210.0, 20.0));
         assert_eq!(wide.viewport.max, Pos2::new(810.0, 620.0));
 
         let tall = ConsoleLayout::new(
             Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(600.0, 1000.0)),
-            32,
-            32,
+            64,
+            64,
         );
         assert_eq!(tall.viewport.min, Pos2::new(10.0, 220.0));
         assert_eq!(tall.viewport.max, Pos2::new(610.0, 820.0));
