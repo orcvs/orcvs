@@ -1,10 +1,5 @@
 pub(crate) mod math;
-use crate::{Atom, Error, InterpretationError, PlayCommand, interpreter::Context};
-
-#[inline(always)]
-pub fn ident(ctx: &mut Context) -> Result<Atom, Error> {
-    Ok(ctx.stack.pop().into())
-}
+use crate::{Error, InterpretationError, PlayCommand, interpreter::Context};
 
 #[inline(always)]
 pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {

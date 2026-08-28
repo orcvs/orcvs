@@ -91,7 +91,6 @@ impl From<&Function> for Tokens {
         let tokens = match f {
             Function::Add => vec![T::Number, T::Number],
             Function::Divide => vec![T::Number, T::Number],
-            Function::Id => vec![T::Char],
             Function::Play => vec![T::NumberN(1), T::Number, T::Note],
             Function::Multiply => vec![T::Number, T::Number],
             Function::Subtract => vec![T::Number, T::Number],

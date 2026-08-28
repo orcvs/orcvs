@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PROTOTYPE — Orcvs Symbolic Vocabulary</title>
+  <style>
+    :root{color-scheme:dark;font:15px/1.45 system-ui,sans-serif;background:#101417;color:#d9e2e8}body{max-width:1180px;margin:auto;padding:30px 20px 70px}h1,h2,h3{color:#f3f7f9}h1{margin:.2rem 0}code{color:#9fe3ce}.tag{color:#63d5b3;font-weight:700;letter-spacing:.08em}.panel{background:#182025;border:1px solid #2d3a41;border-radius:10px;padding:17px;margin:18px 0}button{background:#244c41;color:#f1fff9;border:1px solid #397463;border-radius:6px;padding:9px 12px;margin:4px;cursor:pointer}button:hover,button.active{background:#397463}button:disabled{opacity:.4}.layout{display:grid;grid-template-columns:minmax(0,462px) minmax(0,1fr);gap:20px}.grid{display:grid;grid-template-columns:repeat(20,minmax(0,1fr));grid-auto-rows:clamp(18px,3vw,25px);width:min(100%,440px);background:#0b1013;border:1px solid #344149;padding:5px}.cell{display:grid;place-items:center;box-sizing:border-box;border-right:1px solid #1e292f;border-bottom:1px solid #1e292f;font:14px/1 monospace;color:#b9c5ca}.fn{color:#63d5b3;background:#11241f}.num{color:#ffd479}.bang{color:#ff8585}.changed{outline:1px solid #63d5b3;outline-offset:-1px}.diag{padding:10px 12px;background:#101619;border-left:3px solid #63d5b3}.map{display:grid;grid-template-columns:max-content 1fr;gap:5px 12px}.map code{font-size:17px}.map .group{grid-column:1/-1;color:#ffd479;font-weight:700;margin-top:10px;border-bottom:1px solid #344149}.collision{color:#ff8f8f}.tick{color:#ffd479;font-weight:700}@media(max-width:850px){.layout{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="tag">THROWAWAY SYNTAX PROTOTYPE</div><h1>What should Orcvs symbols feel like?</h1>
+  <p class="panel">Three ASCII digraph palettes express the same Orcvs capabilities. Switch palette and scenario, then advance the Tick. The Orcvs grammar palette reflects the current decision; the others remain comparison candidates.</p>
+  <section class="panel"><h2>Palette</h2><div id="palettes"></div><h2>Walkthrough</h2><div id="scenarios"></div><p id="description"></p><button id="reset">Reset</button><button id="next">Run next Tick</button></section>
+  <section class="panel layout"><div><div class="tick" id="tick"></div><div class="grid" id="grid"></div></div><div><h2 id="paletteName"></h2><div class="map" id="mapping"></div><h2>Diagnostic context</h2><div class="diag" id="diagnostic"></div></div></section>
+  <section class="panel"><h2>Judge the grammar</h2><p>Which palette makes an unfamiliar symbol feel inferable after learning two or three neighbours? Individual glyphs can move between palettes; this prototype is testing the organizing idea.</p></section>
+<script>
+const C=20,R=8,blank=()=>Array.from({length:C*R},()=>({ch:" ",changed:false}));
+const put=(g,r,c,t,changed=false)=>[...t].forEach((ch,i)=>g[r*C+c+i]={ch,changed});
+const make=(entries)=>{const g=blank();entries.forEach(e=>put(g,...e));return g};
+const paletteDefs=[
+ {name:"J-like digraphs",key:"j",map:[
+  ["Arithmetic","++","add"],["Arithmetic","--","subtract"],["Arithmetic","**","multiply"],["Arithmetic","//","divide"],["Arithmetic","<.","minimum"],["Arithmetic",">.","maximum"],["Arithmetic","|-","absolute difference"],["Comparison","=.","equality Bang"],
+  ["Time","..","clock"],["Time",".*","delay Bang"],["Time",":*","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+.","increment"],["Feedback","~.","interpolate"],
+  ["Pattern","i.","range Pattern"],["Pattern","|.","reverse Pattern"],["Pattern",",+","concatenate Patterns"],["Pattern","@.","select Atom"],["Pattern","}.","replace Atom"],
+  ["Portal","@<","Source read"],["Portal","@>","Source write"],["Spatial","^*","move up"],["Spatial","v*","move down"],["Spatial","<*","move left"],["Spatial",">*","move right"],["Spatial","|^","vertical jumper"],["Spatial","->","horizontal jumper"],["Spatial","!.","halt"],
+  ["Signal","*","Bang Atom"],["Output",">>","Play"],["Source","#","row comment"]
+ ]},
+ {name:"Geometric pairs",key:"g",map:[
+  ["Arithmetic","++","add"],["Arithmetic","--","subtract"],["Arithmetic","**","multiply"],["Arithmetic","//","divide"],["Arithmetic","<<","minimum"],["Arithmetic",">>","maximum"],["Arithmetic","||","absolute difference"],["Comparison","<>","equality Bang"],
+  ["Time","::","clock"],["Time",":*","delay Bang"],["Time","**","Euclidean Bang"],["Time","??","deterministic random"],["Feedback","+>","increment"],["Feedback","~>","interpolate"],
+  ["Pattern","..","range Pattern"],["Pattern","><","reverse Pattern"],["Pattern","++","concatenate Patterns"],["Pattern","[]","select Atom"],["Pattern","{}","replace Atom"],
+  ["Portal","<-","Source read"],["Portal","->","Source write"],["Spatial","^^","move up"],["Spatial","vv","move down"],["Spatial","<<","move left"],["Spatial",">>","move right"],["Spatial","||","vertical jumper"],["Spatial","==","horizontal jumper"],["Spatial","XX","halt"],
+  ["Signal","*","Bang Atom"],["Output",">>","Play"],["Source","#","row comment"]
+ ]},
+ {name:"Orcvs grammar",key:"o",map:[
+  ["Arithmetic","+.","add"],["Arithmetic","-.","subtract"],["Arithmetic","x.","multiply"],["Arithmetic","/.","divide"],["Arithmetic","%.","modulo"],["Arithmetic","<.","minimum"],["Arithmetic",">.","maximum"],["Arithmetic","|.","absolute difference"],["Comparison","=.","equality Bang"],
+  ["Time",".~","clock"],["Time","*~","delay Bang"],["Time",":~","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+~","increment"],["Feedback",">~","interpolate"],
+  ["Pattern","i:","range Pattern"],["Pattern","|:","reverse Pattern"],["Pattern","+:","concatenate Patterns"],["Pattern","@:","select Atom"],["Pattern","}:","replace Atom"],
+  ["Portal","@<","Source read"],["Portal","@>","Source write"],["Spatial","^*","move up"],["Spatial","v*","move down"],["Spatial","<*","move left"],["Spatial",">*","move right"],["Spatial","^:","vertical jumper"],["Spatial",">:","horizontal jumper"],["Spatial","!*","halt"],
+  ["Signal","**","Bang Atom"],["Output",">>","Play"],["Source","#","row comment"]
+ ]}
+];
+const symbol=(...meanings)=>paletteDefs[pi].map.find(x=>meanings.some(meaning=>x[2].toLowerCase().includes(meaning.toLowerCase())))[1];
+const scenarioDefs=[
+ {name:"Atomic comparison",desc:"Minimum, absolute difference, and equality operate on Atoms.",frames:()=>{
+   const mn=symbol("minimum"),df=symbol("absolute"),eq=symbol("equality"),bang=symbol("Bang Atom");return[
+    {g:make([[0,0,mn+"0AFF"],[2,0,df+"0205"],[4,0,eq+"0A0A"]]),d:"Three symbolic Functions are ready in one Source Snapshot."},
+    {g:make([[0,0,mn+"0AFF"],[1,0,"0A",true],[2,0,df+"0205"],[3,0,"03",true],[4,0,eq+"0A0A"],[5,0,bang,true]]),d:"Minimum produced 0A, absolute difference produced 03, and equality produced Bang."}
+   ]}},
+ {name:"Pervasive Pattern",desc:"Atomic addition extends across a Pattern; no separate Pattern-add name exists.",frames:()=>{const add=symbol("add");return[
+   {g:make([[0,0,add+"rg010301"]]),d:"Hypothetical rg returns Pattern [01,02,03]; atomic add pairs each element with scalar 01."},
+   {g:make([[0,0,add+"rg010301"],[1,0,"020304",true]]),d:"One pervasive operation returned Pattern [02,03,04]. Equal-length Pattern pairs would combine element-wise; incompatible lengths diagnose."}
+ ]}},
+ {name:"Pattern grammar",desc:"Pattern punctuation should look related without pretending Pattern operations are scalar arithmetic.",frames:()=>{const rv=symbol("reverse"),ct=symbol("concatenate"),at=symbol("select");return[
+   {g:make([[0,0,rv+"rg0103"],[2,0,ct+"rg0102rg0304"],[4,0,at+"01rg0A0C"]]),d:"Reverse, concatenate, and select consume explicit Pattern values."},
+   {g:make([[0,0,rv+"rg0103"],[1,0,"030201",true],[2,0,ct+"rg0102rg0304"],[3,0,"01020304",true],[4,0,at+"01rg0A0C"],[5,0,"0B",true]]),d:"The results reveal whether the symbols form a memorable family when seen in a live Grid."}
+ ]}},
+ {name:"Portal grammar",desc:"Read and write should visually oppose one another while sharing an addressing family.",frames:()=>{const rd=symbol("source read","read through"),wr=symbol("source write","write through");return[
+   {g:make([[0,0,rd+"AA03"],[2,0,wr+"*AA03rg0103"]]),d:"AA is a placeholder address operand only; actual infinite-canvas addressing remains deferred."},
+   {g:make([[0,0,rd+"AA03"],[1,0,"010203",true],[2,0,wr+"*AA03rg0103"]]),d:"Read returned one raw Cell Pattern; write planned one intact Pattern through the opposing Portal operation."}
+ ]}},
+ {name:"Play and time",desc:"A time Function produces Bang for terminal Play; comments remain inert Source context.",frames:()=>{const dl=symbol("delay Bang"),pl=symbol("play");return[
+   {g:make([[0,0,pl+dl+"0201"+"07FC4"],[2,0,"#kick on even ticks"]]),d:"At Tick 00 the nested delay returns Bang, so Play emits channel 0, velocity 7F, note C4. The row comment does not join an Expression."},
+   {g:make([[0,0,pl+dl+"0201"+"07FC4"],[2,0,"#kick on even ticks"]]),d:"At Tick 01 delay returns no Bang; terminal Play emits no command and never writes a Cell result."}
+ ]}},
+ {name:"Spatial score",desc:"Directional effects and jumper glyphs should read like a miniature animated score.",frames:()=>{const rt=symbol("move right"),jv=symbol("vertical jumper"),hl=symbol("halt"),bang=symbol("Bang Atom");return[
+   {g:make([[0,0,rt+bang],[2,5,jv],[4,5,hl+bang]]),d:"Move, jumper, and Halt are separate terminal spatial effects resolved from one Source Snapshot."},
+   {g:make([[0,1,rt+bang,true],[2,5,jv],[4,5,hl+bang]]),d:"The complete movement Expression moved one Cell; jumper and Halt retained their visible positions."}
+ ]}}
+];
+let pi=0,si=0,fi=0;
+function cls(x){if(x.ch==="*")return"cell bang"+(x.changed?" changed":"");if(/[0-9A-F]/.test(x.ch))return"cell num"+(x.changed?" changed":"");if(x.ch!==" ")return"cell fn"+(x.changed?" changed":"");return"cell"}
+function collisions(def){const uses={};def.map.forEach(x=>(uses[x[1]]??=[]).push(x[2]));return Object.entries(uses).filter(x=>x[1].length>1)}
+function mappingMarkup(def){const clashes=new Set(collisions(def).map(x=>x[0]));let group="";return def.map.map(x=>{const heading=x[0]===group?"":`<div class="group">${x[0]}</div>`;group=x[0];return `${heading}<code class="${clashes.has(x[1])?'collision':''}">${x[1]}</code><span>${x[2]}</span>`}).join("")}
+function render(){const frames=scenarioDefs[si].frames(),f=frames[fi],def=paletteDefs[pi],clash=collisions(def);document.querySelector("#palettes").innerHTML=paletteDefs.map((p,i)=>`<button data-palette="${i}" class="${i===pi?'active':''}">${p.name}</button>`).join("");document.querySelector("#scenarios").innerHTML=scenarioDefs.map((s,i)=>`<button data-scenario="${i}" class="${i===si?'active':''}">${s.name}</button>`).join("");document.querySelector("#description").textContent=scenarioDefs[si].desc;document.querySelector("#tick").textContent=`Source after Tick ${fi}`;document.querySelector("#grid").innerHTML=f.g.map(x=>`<span class="${cls(x)}">${x.ch===' '?'·':x.ch}</span>`).join("");document.querySelector("#paletteName").textContent=def.name;document.querySelector("#mapping").innerHTML=mappingMarkup(def);document.querySelector("#diagnostic").textContent=f.d+(clash.length?` Vocabulary collision: ${clash.map(x=>x[0]+" means "+x[1].join(", ")).join("; ")}.`:" Vocabulary has no duplicate Function spelling.");document.querySelector("#next").disabled=fi===frames.length-1}
+document.addEventListener("click",e=>{if(e.target.dataset.palette!==undefined){pi=Number(e.target.dataset.palette);fi=0}if(e.target.dataset.scenario!==undefined){si=Number(e.target.dataset.scenario);fi=0}if(e.target.id==="reset")fi=0;if(e.target.id==="next")fi=Math.min(fi+1,scenarioDefs[si].frames().length-1);render()});render();
+</script>
+</body>
+</html>

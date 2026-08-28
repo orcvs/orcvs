@@ -1,0 +1,3 @@
+# General arithmetic wraps over bytes
+
+General Orcvs addition `+.`, subtraction `-.`, and multiplication `x.` wrap modulo 256 across the full `00`–`FF` Number range instead of saturating at its boundaries. Cyclic byte arithmetic fits hexadecimal tracker workflows and keeps sequences moving, while Functions for MIDI and other narrower domains validate or clamp at their own boundaries; symmetric absolute difference is the separate `|.` Function rather than the semantics of ordered subtraction. Division `/.` by zero has no cyclic interpretation, so it produces a diagnostic and no result rather than inventing a Number.

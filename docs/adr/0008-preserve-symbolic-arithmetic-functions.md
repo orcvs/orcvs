@@ -1,0 +1,3 @@
+# Develop a symbolic ASCII Function vocabulary
+
+Orcvs develops Functions from two-Cell ASCII digraphs rather than descriptive mnemonics or aliases. The second glyph forms a domain grammar: `.` marks atomic Functions that extend pervasively across compatible Patterns, `:` marks Pattern structure, `~` marks Tick and feedback behaviour, and `*` marks spatial or triggered effects; a leading glyph may recur across these domains, such as `|.` for absolute difference and `|:` for Pattern reversal. Arithmetic migrates from `++`, `--`, `**`, and `//` to `+.`, `-.`, `x.`, and `/.`; `=.` produces Bang on equality, while `**` is the Bang Atom. Unicode remains deferred because Cells are currently single-byte ASCII.
