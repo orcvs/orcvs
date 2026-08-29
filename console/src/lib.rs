@@ -14,29 +14,6 @@ pub mod render_frame;
 pub mod source;
 pub mod style;
 
-use egui::Color32;
-
-pub struct Color(Color32);
-
-impl Color {
-    const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(Color32::from_rgba_premultiplied(r, g, b, 255))
-    }
-
-    const fn with_alpha(self, a: u8) -> Self {
-        Self(Color32::from_rgba_premultiplied(
-            self.0.r(),
-            self.0.g(),
-            self.0.b(),
-            a,
-        ))
-    }
-
-    const fn build(self) -> Color32 {
-        self.0
-    }
-}
-
 #[cfg(test)]
 mod test {
 

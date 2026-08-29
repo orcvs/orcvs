@@ -511,7 +511,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_empty_source_exposes_marker_space_and_highlight_glyphs() {
+    async fn test_empty_source_cells_remain_empty_without_marker_glyphs() {
         trace();
 
         let mut app = app();
@@ -520,49 +520,50 @@ mod test {
 
         app.select_or_panic(7, 0);
 
-        let g = rendered(&app, at(0, 0));
-        assert_eq!(g, GlyphString::marker());
-
-        let g = rendered(&app, at(1, 0));
-        assert_eq!(g, GlyphString::space());
-
-        let g = rendered(&app, at(2, 0));
-        assert_eq!(g, GlyphString::highlight());
+        assert!((0..=2).all(|x| rendered(&app, at(x, 0)) == GlyphString::space()));
     }
 
     #[tokio::test]
-    async fn test_marker_placement_uses_one_whole_cell_spacing() {
+    async fn test_sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
         let mut app = App::new(7, 3);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(6, 2));
         app.opts.marker_spacing = MarkerSpacing::new(2).unwrap();
 
+        let frame = app.render_frame();
         assert_eq!(
-            (0..7).map(|x| rendered(&app, at(x, 0))).collect::<Vec<_>>(),
-            vec![
-                GlyphString::marker(),
-                GlyphString::space(),
-                GlyphString::marker(),
-                GlyphString::space(),
-                GlyphString::marker(),
-                GlyphString::space(),
-                GlyphString::marker(),
-            ]
+            frame.rows()[0]
+                .iter()
+                .map(|cell| cell.sector_left_strength().is_some())
+                .collect::<Vec<_>>(),
+            vec![false, false, true, false, true, false, true]
+        );
+        assert!(
+            frame.rows()[0]
+                .iter()
+                .all(|cell| cell.glyph() == Glyph::Space)
         );
 
         app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
-        assert!((0..7).all(|x| rendered(&app, at(x, 0)) == GlyphString::marker()));
+        let frame = app.render_frame();
+        assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
+        assert!(
+            frame.rows()[0][1..]
+                .iter()
+                .all(|cell| cell.sector_left_strength().is_some())
+        );
     }
 
     #[tokio::test]
-    async fn test_highlight_does_not_reach_into_the_next_marker_block() {
+    async fn test_empty_cells_between_markers_remain_spaces() {
         let mut app = App::new(24, 16);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(8, 8));
 
-        assert_eq!(rendered(&app, at(14, 10)), GlyphString::highlight());
+        assert_eq!(rendered(&app, at(14, 10)), GlyphString::space());
         assert_eq!(rendered(&app, at(16, 10)), GlyphString::space());
+        assert_eq!(rendered(&app, at(17, 10)), GlyphString::space());
     }
 }

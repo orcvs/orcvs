@@ -45,6 +45,18 @@ pub enum Glyph {
     Note,
     Space,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SemanticGlyph {
+    Bang,
+    Char,
+    Function,
+    Highlight,
+    Marker,
+    Number,
+    Note,
+    Space,
+}
 pub type G = Glyph;
 
 impl From<Token> for Glyph {
@@ -61,7 +73,7 @@ impl From<Token> for Glyph {
 
 impl fmt::Display for GlyphString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self.t {
+        let s = self.s.clone().unwrap_or_else(|| match self.t {
             Glyph::Char => "c".to_string(),
             Glyph::Function => "F".to_string(),
             Glyph::Highlight => ".".to_string(),
@@ -69,13 +81,28 @@ impl fmt::Display for GlyphString {
             Glyph::Note => "n".to_string(),
             Glyph::Number => "h".to_string(),
             Glyph::Space => " ".to_string(),
-        };
+        });
 
         write!(f, "{}", s)
     }
 }
 
 impl Glyph {
+    pub(crate) fn semantic(self, content: Option<char>) -> SemanticGlyph {
+        if content == Some('*') {
+            return SemanticGlyph::Bang;
+        }
+        match self {
+            Glyph::Char => SemanticGlyph::Char,
+            Glyph::Function => SemanticGlyph::Function,
+            Glyph::Highlight => SemanticGlyph::Highlight,
+            Glyph::Marker => SemanticGlyph::Marker,
+            Glyph::Number => SemanticGlyph::Number,
+            Glyph::Note => SemanticGlyph::Note,
+            Glyph::Space => SemanticGlyph::Space,
+        }
+    }
+
     pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
         tokens
             .into_iter()
@@ -122,6 +149,31 @@ mod test {
         assert_eq!(marker.to_string(), "+");
         assert_eq!(highlight.to_string(), ".");
         assert_eq!(space.to_string(), " ");
+    }
+
+    #[test]
+    fn occupied_glyphs_display_their_source_content() {
+        assert_eq!(
+            GlyphString::new(Some("+".to_string()), Glyph::Function).to_string(),
+            "+"
+        );
+        assert_eq!(
+            GlyphString::new(Some("A".to_string()), Glyph::Number).to_string(),
+            "A"
+        );
+        assert_eq!(
+            GlyphString::new(Some("*".to_string()), Glyph::Char).to_string(),
+            "*"
+        );
+    }
+
+    #[test]
+    fn bang_is_a_semantic_paint_classification_without_changing_source_glyphs() {
+        assert_eq!(Glyph::Char.semantic(Some('*')), super::SemanticGlyph::Bang);
+        assert_eq!(
+            Glyph::Function.semantic(Some('+')),
+            super::SemanticGlyph::Function
+        );
     }
 
     // #[test]
