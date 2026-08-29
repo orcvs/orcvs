@@ -151,7 +151,7 @@ impl Source {
     pub fn new(grid: Grid) -> Self {
         let size = grid.count();
         let inner = SPACE.to_string().repeat(size);
-        let map = ExpressionMap::new(grid);
+        let map = ExpressionMap::build(grid, inner.as_bytes());
 
         let glyphs = vec![None; size];
         let parsed = vec![None; size];
@@ -249,26 +249,14 @@ impl Source {
             return Ok(());
         }
 
-        let mut prospective = self.inner.as_bytes().to_vec();
-        prospective[idx] = byte;
+        let range = ExpressionMap::prospective_range(self.grid, self.inner.as_bytes(), idx, byte)
+            .expect("an occupied prospective Cell belongs to one Expression");
+        let start = range.start();
+        let end = range.end();
 
-        let mut start = idx;
-        while start > 0
-            && prospective[start - 1] != SPACE_BYTE
-            && self.indices_share_a_row(idx, start - 1)
-        {
-            start -= 1;
-        }
-        let mut end = idx;
-        while end + 1 < prospective.len()
-            && prospective[end + 1] != SPACE_BYTE
-            && self.indices_share_a_row(idx, end + 1)
-        {
-            end += 1;
-        }
-
-        let mut expression = String::from_utf8(prospective[start..=end].to_vec())
+        let mut expression = String::from_utf8(self.inner.as_bytes()[start..=end].to_vec())
             .expect("Source Cells contain ASCII");
+        expression.replace_range(idx - start..=idx - start, &(byte as char).to_string());
         match Parser::from(&mut expression).parse() {
             Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
                 Err(SourceError::ExpressionTooLong {
@@ -290,10 +278,10 @@ impl Source {
         let mut i = from;
         while i <= to {
             if let Some(range) = self.map.get(i) {
-                if !starts.contains(&range.start) {
-                    starts.push(range.start);
+                if !starts.contains(&range.start()) {
+                    starts.push(range.start());
                 }
-                i = range.end + 1;
+                i = range.end() + 1;
             } else {
                 i += 1;
             }
@@ -385,8 +373,8 @@ impl Source {
                 }
                 Err(error) => {
                     diagnostics.push(Diagnostic {
-                        start: range.start,
-                        end: range.end,
+                        start: range.start(),
+                        end: range.end(),
                         message: error.to_string(),
                     });
                     continue;
@@ -403,16 +391,16 @@ impl Source {
                 .expect("parsed holds one entry per Cell");
             let Some(target) = self.grid.below(origin) else {
                 diagnostics.push(Diagnostic {
-                    start: range.start,
-                    end: range.end,
+                    start: range.start(),
+                    end: range.end(),
                     message: format!("result {encoded:?} falls below the Source"),
                 });
                 continue;
             };
             if !self.grid.fits(target, encoded.chars().count()) {
                 diagnostics.push(Diagnostic {
-                    start: range.start,
-                    end: range.end,
+                    start: range.start(),
+                    end: range.end(),
                     message: format!("result {encoded:?} crosses the row edge"),
                 });
                 continue;
@@ -468,16 +456,11 @@ impl Source {
     }
 
     fn rebuild_derived_state(&mut self) {
-        self.map = ExpressionMap::new(self.grid);
+        self.map = ExpressionMap::build(self.grid, self.inner.as_bytes());
         self.glyphs.fill(None);
         self.parsed.fill(None);
         self.diagnostics.fill(None);
 
-        for (idx, byte) in self.inner.bytes().enumerate() {
-            if byte != SPACE_BYTE {
-                self.map.set(idx);
-            }
-        }
         for start in self.expression_starts(0, self.grid.count() - 1) {
             let range = self.map.get(start).expect("Expression starts have a range");
             self.parse_range(range);
@@ -491,7 +474,7 @@ impl Source {
 
     fn get_exp_src(&self, range: Range) -> String {
         // Ranges come from the ExpressionMap, which only holds in-bounds indices
-        self.inner[range.start..=range.end].to_owned()
+        self.inner[range.start()..=range.end()].to_owned()
     }
 
     ///
@@ -508,8 +491,8 @@ impl Source {
     }
 
     fn parse_range(&mut self, exp_range: Range) {
-        let start = exp_range.start;
-        let end = exp_range.end;
+        let start = exp_range.start();
+        let end = exp_range.end();
         let mut src = self.get_exp_src(exp_range);
         let mut strict_src = src.clone();
         let diagnostic = Parser::from(&mut strict_src)

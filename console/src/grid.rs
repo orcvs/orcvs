@@ -254,6 +254,14 @@ impl Grid {
     }
 
     ///
+    /// How many Cells occupy each row of this finite Grid.
+    ///
+    #[inline]
+    pub(crate) fn cols(&self) -> usize {
+        self.cols
+    }
+
+    ///
     /// How many Cells this Grid has: one per Position it yields.
     ///
     #[inline]

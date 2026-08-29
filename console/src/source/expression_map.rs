@@ -1,365 +1,180 @@
-use std::{
-    ops::Deref,
-    sync::{Arc, RwLock},
-};
-
 use crate::grid::Grid;
+
+const SPACE_BYTE: u8 = b' ';
 
 #[derive(Clone, Debug)]
 pub struct ExpressionMap {
-    grid: Grid,
-    inner: Vec<Option<ExpressionRange>>,
+    inner: Vec<Option<Range>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Range {
-    pub start: usize,
-    pub end: usize,
+    start: usize,
+    end: usize,
 }
 
-#[derive(Clone, Debug)]
-pub struct ExpressionRange(Arc<RwLock<Range>>);
-
-impl ExpressionRange {
+impl Range {
     fn new(start: usize, end: usize) -> Self {
-        ExpressionRange(Arc::new(RwLock::new(Range { start, end })))
+        assert!(
+            start <= end,
+            "Expression range start must not exceed its end"
+        );
+        Self { start, end }
     }
 
-    fn set_end(&self, end: usize) {
-        let mut lock = self.write().unwrap();
-        lock.end = end;
+    pub fn start(self) -> usize {
+        self.start
     }
 
-    fn end(&self) -> usize {
-        let lock = self.read().unwrap();
-        lock.end
-    }
-
-    fn set_start(&self, start: usize) {
-        let mut lock = self.write().unwrap();
-        lock.start = start;
-    }
-
-    fn range(&self) -> Range {
-        let lock = self.read().unwrap();
-        lock.clone()
-    }
-
-    fn append(&self, idx: usize) {
-        self.set_end(idx);
-    }
-
-    fn prepend(&self, idx: usize) {
-        self.set_start(idx);
-    }
-}
-
-impl Deref for ExpressionRange {
-    type Target = Arc<RwLock<Range>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn end(self) -> usize {
+        self.end
     }
 }
 
 impl ExpressionMap {
-    pub fn new(grid: Grid) -> Self {
-        Self {
-            grid,
-            inner: vec![None; grid.count()],
+    ///
+    /// Derives every Cell's Expression extent from one complete Source.
+    /// Expressions are contiguous occupied Cells confined to one Grid row.
+    ///
+    pub fn build(grid: Grid, bytes: &[u8]) -> Self {
+        assert_eq!(
+            bytes.len(),
+            grid.count(),
+            "ExpressionMap Source length must match its Grid"
+        );
+
+        let mut inner = Vec::with_capacity(bytes.len());
+        for (row_number, row) in bytes.chunks_exact(grid.cols()).enumerate() {
+            inner.extend(row_extents(row_number * grid.cols(), row));
         }
+
+        Self { inner }
+    }
+
+    ///
+    /// Answers the Expression extent that would contain `idx` after replacing
+    /// that Cell with `byte`, without cloning or scanning any other row.
+    ///
+    pub fn prospective_range(grid: Grid, bytes: &[u8], idx: usize, byte: u8) -> Option<Range> {
+        assert_eq!(
+            bytes.len(),
+            grid.count(),
+            "ExpressionMap Source length must match its Grid"
+        );
+        assert!(
+            idx < bytes.len(),
+            "prospective Cell must belong to the Source"
+        );
+
+        let cols = grid.cols();
+        let row_start = (idx / cols) * cols;
+        let mut row = bytes[row_start..row_start + cols].to_vec();
+        let row_idx = idx - row_start;
+        row[row_idx] = byte;
+
+        row_extents(row_start, &row)[row_idx]
     }
 
     pub fn get(&self, idx: usize) -> Option<Range> {
-        self.inner[idx].as_ref().map(ExpressionRange::range)
-    }
-
-    pub fn set(&mut self, idx: usize) {
-        self.set_inner(idx, true)
-    }
-
-    #[cfg(test)]
-    pub fn unset(&mut self, idx: usize) {
-        self.set_inner(idx, false);
-    }
-
-    fn set_exp(&mut self, idx: usize, exp: &ExpressionRange) {
-        self.inner[idx] = Some(exp.clone());
-    }
-
-    fn set_from(&mut self, start: usize, end: usize, exp: &ExpressionRange) {
-        for i in start..(end + 1) {
-            self.inner[i] = Some(exp.clone());
-        }
-    }
-
-    fn remove(&mut self, idx: usize) {
-        self.inner[idx] = None;
-    }
-
-    fn join_exp(&mut self, idx: usize, lft_exp: &ExpressionRange, rgt_exp: &ExpressionRange) {
-        let idx_exp = &self.inner[idx];
-        if idx_exp.is_none() {
-            // In some cases lft and rgt may refer to the same expression
-            // We cannot have multiple mutable borrows in the same scope
-            // So we split the borrows into separate scopes
-
-            // Right must be first as we want to preserve the end idx
-            // The left expression will be modified
-            let end = rgt_exp.end();
-            {
-                lft_exp.set_end(end);
-            }
-            // Iterate the map until the rgt end and set the lft expression
-            self.set_from(idx, end, lft_exp);
-        }
-    }
-
-    fn split_exp(
-        &mut self,
-        lft_idx: usize,
-        lft_exp: &ExpressionRange,
-        rgt_idx: usize,
-        rgt_exp: &ExpressionRange,
-    ) {
-        {
-            // lft and rgt often refer to the same expression
-            // We cannot have multiple mutable borrows in the same scope
-            // So we split the borrows into separate scopes
-            // Right must be first as we want to capture the end value before modifying the left value
-            // let rgt = rgt_exp.borrow();
-            let rgt_end = rgt_exp.end();
-            let exp = ExpressionRange::new(rgt_idx, rgt_end);
-            self.set_from(rgt_idx, rgt_end, &exp);
-        }
-        // Update A-1 (Left)
-        // Expression now ends at A-1 (Left)
-        // self.end_exp(lft_idx, &lft_exp);
-        lft_exp.set_end(lft_idx);
-    }
-
-    fn set_inner(&mut self, idx: usize, glyph: bool) {
-        let position = self
-            .grid
-            .position_at(idx)
-            .expect("ExpressionMap indices belong to its Grid");
-
-        let (lft_idx, lft_exp) = if position.x() > 0 {
-            let idx = idx - 1;
-            let exp = self.inner[idx].clone();
-            (idx, exp)
-        } else {
-            // Index 0 has no left expression
-            (0, None)
-        };
-
-        let (rgt_idx, rgt_exp) = if self.grid.right(position) != position {
-            let idx = idx + 1;
-            let exp = self.inner[idx].clone();
-            (idx, exp)
-        } else {
-            // Last index  has no right expression
-            (self.inner.len(), None)
-        };
-
-        if !glyph {
-            self.remove(idx);
-        }
-
-        match (lft_exp, rgt_exp) {
-            (Some(lft_exp), Some(ref mut rgt_exp)) => {
-                if glyph {
-                    self.join_exp(idx, &lft_exp, rgt_exp);
-                } else {
-                    self.split_exp(lft_idx, &lft_exp, rgt_idx, rgt_exp);
-                }
-            }
-            (Some(lft_exp), None) => {
-                if glyph {
-                    lft_exp.append(idx);
-                    self.set_exp(idx, &lft_exp);
-                } else {
-                    lft_exp.set_end(lft_idx);
-                }
-            }
-            (None, Some(rgt_exp)) => {
-                if glyph {
-                    rgt_exp.prepend(idx);
-                    self.set_exp(idx, &rgt_exp);
-                } else {
-                    rgt_exp.set_start(rgt_idx);
-                }
-            }
-            (None, None) => {
-                if glyph {
-                    let exp = ExpressionRange::new(idx, idx);
-                    self.set_exp(idx, &exp);
-                }
-            }
-        }
+        self.inner[idx]
     }
 }
 
+///
+/// The one rule for Expression extent. A future Comment implementation belongs
+/// here and must exclude the entire `#` suffix of a row from Expressions.
+///
+fn row_extents(row_start: usize, row: &[u8]) -> Vec<Option<Range>> {
+    let mut extents = vec![None; row.len()];
+    let mut local_start = 0;
+
+    while local_start < row.len() {
+        if row[local_start] == SPACE_BYTE {
+            local_start += 1;
+            continue;
+        }
+
+        let local_end = row[local_start..]
+            .iter()
+            .position(|&byte| byte == SPACE_BYTE)
+            .map_or(row.len() - 1, |offset| local_start + offset - 1);
+        let range = Range::new(row_start + local_start, row_start + local_end);
+        extents[local_start..=local_end].fill(Some(range));
+        local_start = local_end + 1;
+    }
+
+    extents
+}
+
 #[cfg(test)]
-mod test {
+mod tests {
+    use crate::{grid::Grid, source::expression_map::Range};
 
-    use crate::{
-        grid::Grid,
-        source::expression_map::{ExpressionMap, Range},
-        test::trace,
-    };
+    use super::ExpressionMap;
 
-    impl ExpressionMap {
-        fn assert_range(&self, start: usize, end: usize) {
-            for i in start..end {
-                let exp = self.get(i).unwrap();
-                assert_eq!(exp, Range { start, end });
-            }
-        }
-
-        fn assert_none(&self, idx: usize) {
-            let exp = self.get(idx).is_none();
-            assert!(exp);
+    fn assert_range(map: &ExpressionMap, start: usize, end: usize) {
+        for idx in start..=end {
+            assert_eq!(map.get(idx), Some(Range::new(start, end)));
         }
     }
 
     #[test]
-    fn test_expression_join() {
-        trace();
+    fn build_leaves_empty_rows_without_expressions() {
+        let map = ExpressionMap::build(Grid::new(5, 1), b"     ");
 
-        let mut map = ExpressionMap::new(Grid::new(10, 1));
-
-        map.set(0);
-        map.set(1);
-        map.set(3);
-
-        map.assert_range(0, 1);
-        map.assert_none(2);
-        map.assert_range(3, 3);
-
-        map.set(2);
-
-        map.assert_range(0, 3);
+        for idx in 0..5 {
+            assert_eq!(map.get(idx), None);
+        }
     }
 
     #[test]
-    fn test_expression_split() {
-        trace();
+    fn build_maps_every_cell_in_one_run_to_its_inclusive_extent() {
+        let map = ExpressionMap::build(Grid::new(5, 1), b" id1 ");
 
-        let mut map = ExpressionMap::new(Grid::new(10, 1));
-
-        // {++AABB}
-        map.set(0);
-        map.set(1);
-        map.set(2);
-        map.set(3);
-        map.set(4);
-        map.set(5);
-
-        map.assert_range(0, 5);
-
-        // {++ ABB}
-        map.unset(2);
-
-        map.assert_range(0, 1);
-        map.assert_none(2);
-        map.assert_range(3, 5);
+        assert_eq!(map.get(0), None);
+        assert_range(&map, 1, 3);
+        assert_eq!(map.get(4), None);
     }
 
     #[test]
-    fn test_expression_prepend() {
-        trace();
+    fn build_separates_multiple_runs_in_one_row() {
+        let map = ExpressionMap::build(Grid::new(8, 1), b"id  ++  ");
 
-        let mut map = ExpressionMap::new(Grid::new(10, 1));
-
-        // {     IDAA}
-        map.set(6);
-        map.set(7);
-        map.set(8);
-        map.set(9);
-
-        map.assert_range(6, 9);
-
-        // {    XIDAA}
-        map.set(5);
-
-        map.assert_range(5, 9);
+        assert_range(&map, 0, 1);
+        assert_eq!(map.get(2), None);
+        assert_eq!(map.get(3), None);
+        assert_range(&map, 4, 5);
+        assert_eq!(map.get(6), None);
+        assert_eq!(map.get(7), None);
     }
 
     #[test]
-    fn test_expression_replace() {
-        trace();
+    fn build_keeps_edge_touching_runs_inside_their_rows() {
+        let map = ExpressionMap::build(Grid::new(4, 2), b"  id++  ");
 
-        let mut map = ExpressionMap::new(Grid::new(10, 1));
-
-        // {IDAA       }
-        map.set(0);
-        map.set(1);
-        map.set(2);
-        map.set(3);
-
-        map.assert_range(0, 3);
-
-        // {ID0A       }
-        map.set(2);
-
-        map.assert_range(0, 3);
+        assert_range(&map, 2, 3);
+        assert_range(&map, 4, 5);
+        assert_ne!(map.get(3), map.get(4));
     }
 
     #[test]
-    fn test_expression_delete_last() {
-        trace();
+    fn prospective_range_scans_only_the_edited_row() {
+        let grid = Grid::new(5, 2);
+        let bytes = b"id   ++   ";
 
-        let mut map = ExpressionMap::new(Grid::new(10, 1));
-
-        map.set(8);
-        map.set(9);
-
-        map.assert_range(8, 9);
-
-        // {          A}
-        map.unset(8);
-
-        map.assert_range(9, 9);
-
-        // {          A}
-        map.unset(9);
-
-        map.assert_none(8);
-        map.assert_none(9);
+        assert_eq!(
+            ExpressionMap::prospective_range(grid, bytes, 2, b'1'),
+            Some(Range::new(0, 2))
+        );
+        assert_eq!(
+            ExpressionMap::prospective_range(grid, bytes, 7, b'0'),
+            Some(Range::new(5, 7))
+        );
     }
 
     #[test]
-    fn test_expression_edit() {
-        trace();
-
-        let mut map = ExpressionMap::new(Grid::new(10, 1));
-
-        // {x          }
-        map.set(0);
-
-        let exp = map.get(0).unwrap();
-        assert_eq!(exp, Range { start: 0, end: 0 });
-
-        // {x          }
-        map.unset(0);
-
-        map.assert_none(0);
-
-        // {xxxxx      }
-        map.set(0);
-        map.set(1);
-        map.set(2);
-        map.set(3);
-        map.set(4);
-
-        map.assert_range(0, 4);
-
-        // {xx xx      }
-        map.unset(2);
-
-        map.assert_none(2);
-        map.assert_range(0, 1);
-        map.assert_range(3, 4);
+    #[should_panic(expected = "ExpressionMap Source length must match its Grid")]
+    fn build_rejects_source_content_with_the_wrong_length() {
+        let _ = ExpressionMap::build(Grid::new(5, 1), b"    ");
     }
 }
