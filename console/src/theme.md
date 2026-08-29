@@ -1,4 +1,4 @@
-## Console palette
+# Console palette
 
 The egui console uses the prototype-inspired palette declared in `style.rs`:
 

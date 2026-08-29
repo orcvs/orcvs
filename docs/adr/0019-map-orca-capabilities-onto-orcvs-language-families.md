@@ -6,7 +6,7 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | --- | --- | --- | --- | --- |
 | Addition | `A` | Retain | `.+` | ADR 0011 |
 | Ordered subtraction | — | Add | `.-` | ADR 0011 |
-| Absolute difference | `B` | Retain separately from subtraction | `.` followed by `&#124;` | ADR 0011 |
+| Absolute difference | `B` | Retain separately from subtraction | `.\|` | ADR 0011 |
 | Multiplication | `M` | Retain | `.x` | ADR 0011 |
 | Division | — | Add | `./` | ADR 0011 |
 | Modulo | — | Add | `.%` | ADR 0011 |
@@ -42,7 +42,7 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | UDP | `;` | Defer until Orcvs has a text or message value | `!u` reserved | ADRs 0008 and 0016 |
 | OSC | `=` | Defer until Orcvs has a text or message value | `!o` reserved | ADRs 0008 and 0016 |
 | Orca self command | `$` | Retain as an Orcvs Application Command with no shell or process execution | `!$`; value encoding deferred | ADR 0008 |
-| Identity Test | prior Orcvs `==` | Retire; use Equality or ordinary value flow | — | ADR 0015 |
+| Identity Test | prior Orcvs `id` | Retire; use Equality or ordinary value flow | — | ADR 0015 |
 
 The canonical families are arithmetic `.`, Tick and feedback `~`, activation `*`, address `&`, Source `@`, Sequence `:`, and terminal output `!` (ADR 0008). Numbers and Notes are interchangeable numeric operands, with sticky Note results wrapping modulo 128 and all-Number results wrapping modulo 256 (ADRs 0010 and 0011); Sequence broadcasting and structural behavior follow ADR 0007; editing remains a one-character Cell Grid with semantic behavior derived through the Language Map (ADR 0018).
 

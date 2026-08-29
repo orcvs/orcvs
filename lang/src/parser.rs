@@ -264,6 +264,54 @@ mod test {
     }
 
     #[test]
+    fn test_parse_nested_arithmetic_expression() {
+        trace();
+
+        // Add(Add(Multiply(02, 03), 04), 05) — three levels of prefix nesting,
+        // replacing the identity-wrapped cases retired by ADR 0015.
+        let mut s = String::from("++++**02030405");
+        let parsed = try_parse(&mut s).unwrap();
+
+        let v = vec![
+            Atom::Function(Function::Add),
+            Atom::Function(Function::Add),
+            Atom::Function(Function::Multiply),
+            Atom::Number(2),
+            Atom::Number(3),
+            Atom::Number(4),
+            Atom::Number(5),
+        ];
+
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn test_parse_function_in_either_operand_slot() {
+        trace();
+
+        // A nested Function is valid in the right operand slot as well as the
+        // left, so the recursive descent must not assume left-only nesting.
+        let mut s = String::from("--0A//0402");
+        let parsed = try_parse(&mut s).unwrap();
+
+        let v = vec![
+            Atom::Function(Function::Subtract),
+            Atom::Number(10),
+            Atom::Function(Function::Divide),
+            Atom::Number(4),
+            Atom::Number(2),
+        ];
+
+        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        v.into_iter().for_each(|a| expected.push(a));
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
     fn test_parse_play_function() {
         trace();
 

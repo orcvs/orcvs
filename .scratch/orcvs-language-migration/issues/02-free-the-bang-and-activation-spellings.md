@@ -1,0 +1,19 @@
+# 02 — Free the `**` and `>>` spellings for Bang and Activation
+
+**What to build:** `**` denotes the Bang Atom and `>>` denotes the east Activation Character, as
+`CONTEXT.md` and ADR 0006 define. Raw Play moves to `!>` per ADR 0016.
+
+**Blocked by:** 01
+
+**Status:** ready-for-agent
+
+- [ ] `**` is no longer parsed as Multiplication and `>>` is no longer parsed as Play.
+- [ ] `!>` parses as Raw Play and round-trips through `Display`.
+- [ ] `console/tests/wasm.rs` dispatches MIDI through `!>` rather than `>>`.
+- [ ] `console/src/glyph.rs` classifies Bang from the two-Cell Atom rather than a bare `*`.
+
+## Comments
+
+Until this lands, `**` and `>>` keep parsing as the pre-audit Functions, so Source written against
+the documented language is misinterpreted silently rather than diagnosed. The `glyph.rs` criterion
+supersedes the interim fix that merely excludes `Glyph::Function` from the `*` Bang test.
