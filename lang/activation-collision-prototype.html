@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PROTOTYPE — Activation Character Collision</title>
+  <style>
+    :root{color-scheme:dark;font:15px/1.45 system-ui,sans-serif;background:#101417;color:#d9e2e8}body{max-width:1000px;margin:auto;padding:28px 20px 60px}h1,h2{color:#f3f7f9}.tag{color:#63d5b3;font-weight:700;letter-spacing:.08em}.panel{background:#182025;border:1px solid #2d3a41;border-radius:9px;padding:16px;margin:16px 0}.stage{display:grid;grid-template-columns:max-content 1fr;gap:20px;align-items:start}.grid{display:grid;grid-template-columns:repeat(16,25px);grid-auto-rows:25px;padding:5px;background:#0b1013;border:1px solid #344149}.cell{display:grid;place-items:center;box-sizing:border-box;border-right:1px solid #1e292f;border-bottom:1px solid #1e292f;font:14px/1 monospace;color:#7f8d94}.occupied{color:#ffd479}.activation{color:#75d8ff;background:#10232c}.root{color:#63d5b3;background:#11241f}.bang{color:#ff8585;background:#2a1719}.leading{outline:1px solid #ffbf69;outline-offset:-2px}.hit{background:#342518}.legend{display:flex;gap:14px;flex-wrap:wrap}.legend span:before{content:"■";margin-right:5px}.l-activation:before{color:#75d8ff}.l-leading:before{color:#ffbf69}.l-root:before{color:#63d5b3}.l-bang:before{color:#ff8585}button{background:#244c41;color:#f1fff9;border:1px solid #397463;border-radius:6px;padding:9px 12px;margin:4px;cursor:pointer}button.active,button:hover{background:#397463}button:disabled{opacity:.4}.state{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px}.state strong{color:#ffd479}.verdict{border-left:3px solid #63d5b3;padding:10px 12px;background:#101619}.tabs{display:flex;flex-wrap:wrap}@media(max-width:760px){.stage{grid-template-columns:1fr}.grid{grid-template-columns:repeat(16,minmax(18px,25px));width:min-content}}
+  </style>
+</head>
+<body>
+  <div class="tag">THROWAWAY LOGIC PROTOTYPE</div>
+  <h1>What does a two-character collision hit?</h1>
+  <p class="panel">This prototype tests one question in Orcvs syntax: when <code>^^</code>, <code>vv</code>, <code>&lt;&lt;</code>, or <code>&gt;&gt;</code> advances by one character Cell, which occupied Cells count as blockers and which Expression root receives activation?</p>
+
+  <section class="panel">
+    <h2>Guided cases</h2>
+    <div class="tabs" id="tabs"></div>
+    <p id="description"></p>
+    <button id="reset">Reset</button><button id="next">Run next Tick</button>
+  </section>
+
+  <section class="panel stage">
+    <div><div id="tick"></div><div class="grid" id="grid"></div></div>
+    <div>
+      <h2>Complete state</h2><div class="state" id="state"></div>
+      <h2>What happened</h2><p class="verdict" id="verdict"></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Candidate rule</h2>
+    <p>Translate the complete two-Cell Footprint by one character Cell. Test only <em>newly entered</em> Cells, so horizontal movement does not collide with itself. Complete aligned contact with a root is a valid collision and can activate it. Contact with only part of a Language Unit is invalid alignment: diagnose, produce <code>**</code>, and activate nothing.</p>
+    <div class="legend"><span class="l-activation">Activation Character</span><span class="l-leading">newly entered Cell</span><span class="l-root">Expression root</span><span class="l-bang">collision Bang</span></div>
+  </section>
+
+<script>
+const CollisionModel=(()=>{
+  const W=16,H=7,index=(r,c)=>r*W+c;
+  const empty=()=>Array.from({length:W*H},()=>({ch:" ",kind:"empty",leading:false,hit:false}));
+  const put=(g,r,c,text,kind="occupied")=>[...text].forEach((ch,i)=>g[index(r,c+i)]={ch,kind,leading:false,hit:false});
+  const mark=(g,cells,key)=>cells.forEach(([r,c])=>g[index(r,c)][key]=true);
+  const cases=[
+    {name:"East: self-overlap",description:"The right-hand > overlaps its old footprint. Only the newly entered Cell is tested.",direction:"east",arrow:[[3,5],[3,6]],leading:[[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
+    {name:"North: empty",description:"Both Cells on the north leading edge are newly entered and empty.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
+    {name:"North: root",description:"The leading edge meets the complete root spelling .+. The move is blocked.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[4,6],[4,7]],outcome:"bang",activation:".+ root"},
+    {name:"North: misaligned",description:"The leading edge meets only part of Number 0A and only part of .+. This is invalid alignment, not a valid activation target.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,".+0102","root")},after:[[4,6],[4,7]],outcome:"bang + alignment diagnostic",activation:"none"},
+    {name:"North: non-roots",description:"Both leading Cells are occupied, but neither is an Expression root anchor. Collision occurs with no activation target.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,"C4")},after:[[4,6],[4,7]],outcome:"bang",activation:"none"}
+  ];
+  function frame(caseIndex,step){const c=cases[caseIndex],g=empty();c.source(g);const glyph=c.direction==="east"?">>":"^^";if(step===0){put(g,c.arrow[0][0],c.arrow[0][1],glyph,"activation");mark(g,c.leading,"leading")}else if(c.outcome==="move"){put(g,c.after[0][0],c.after[0][1],glyph,"activation")}else{put(g,c.after[0][0],c.after[0][1],"**","bang");mark(g,c.leading,"hit")}return{grid:g,case:c,step,outcome:step===0?"pending":c.outcome,activation:step===0?"pending":c.activation}}
+  return{cases,frame};
+})();
+
+let current=0,step=0;
+function render(){const f=CollisionModel.frame(current,step);tabs.innerHTML=CollisionModel.cases.map((c,i)=>`<button data-case="${i}" class="${i===current?'active':''}">${c.name}</button>`).join("");description.textContent=f.case.description;tick.textContent=`Source ${step===0?'before':'after'} Tick`;grid.innerHTML=f.grid.map(x=>`<span class="cell ${x.kind} ${x.leading?'leading':''} ${x.hit?'hit':''}">${x.ch===' '?'·':x.ch}</span>`).join("");state.innerHTML=`<strong>Direction</strong><span>${f.case.direction}</span><strong>Attempted leading Cells</strong><span>${f.case.leading.map(x=>`(${x[1]}, ${x[0]})`).join(" and ")}</span><strong>Result</strong><span>${f.outcome}</span><strong>Activated root</strong><span>${f.activation}</span>`;verdict.textContent=step===0?"The outlined Cell or Cells are the only new occupancy tested by this move.":f.outcome==="move"?"No newly entered Cell was occupied, so the complete glyph moved atomically.":`At least one newly entered Cell was occupied, so the complete glyph became **. Activation target: ${f.activation}.`;next.disabled=step===1}
+document.addEventListener("click",e=>{if(e.target.dataset.case!==undefined){current=Number(e.target.dataset.case);step=0}if(e.target.id==="reset")step=0;if(e.target.id==="next")step=1;render()});render();
+</script>
+</body>
+</html>

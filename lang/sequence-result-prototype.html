@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PROTOTYPE — Pattern Results in Orcvs Source</title>
+  <title>PROTOTYPE — Sequence Results in Orcvs Source</title>
   <style>
     :root { color-scheme: dark; font: 15px/1.45 system-ui, sans-serif; background: #101417; color: #d9e2e8; }
     body { max-width: 1180px; margin: auto; padding: 30px 20px 70px; }
@@ -30,8 +30,8 @@
 </head>
 <body>
   <div class="tag">THROWAWAY LOGIC PROTOTYPE</div>
-  <h1>Should an Orcvs Function return a Pattern?</h1>
-  <p class="panel">Each walkthrough shows actual Orcvs-shaped Source: a 16×6 Grid, contiguous two-Cell prefix Functions, evaluation from one Source Snapshot, and results beginning directly below the Expression. <code>rg</code> (range), <code>rv</code> (reverse Pattern), and <code>jo</code> (join Pattern) are hypothetical names used only to test result shape.</p>
+  <h1>Should an Orcvs Function return a Sequence?</h1>
+  <p class="panel"><strong>Superseded exploration.</strong> This prototype records the comparison that led to first-class Sequences. Its hypothetical names and alternative terminal-write model do not state the current language contract. See ADR 0007 and the Orca-to-Orcvs capability map for the recorded decision.</p>
 
   <section class="panel">
     <h2>Choose a walkthrough</h2>
@@ -42,11 +42,11 @@
 
   <section class="models">
     <article class="panel model">
-      <h2>First-class Pattern</h2>
-      <p class="legend">A Pattern may be consumed by a parent Function before any Cells are written.</p>
-      <div class="tick" id="patternTick"></div>
-      <div class="grid" id="patternGrid"></div>
-      <div class="diag" id="patternDiag"></div>
+      <h2>First-class Sequence</h2>
+      <p class="legend">A Sequence may be consumed by a parent Function before any Cells are written.</p>
+      <div class="tick" id="sequenceTick"></div>
+      <div class="grid" id="sequenceGrid"></div>
+      <div class="diag" id="sequenceDiag"></div>
     </article>
     <article class="panel model">
       <h2>Terminal multi-write</h2>
@@ -59,7 +59,7 @@
 
   <section class="panel">
     <h2>Function contracts used by this prototype</h2>
-    <p><code>rg0103</code> produces the Number Atoms <code>01 02 03</code>. <code>rvrg0103</code> reverses that result. <code>jorg0103</code> joins the Pattern into generated source text <code>+.0102</code> for the next Tick. None of these names or signatures is proposed for production yet.</p>
+    <p><code>rg0103</code> produces the Number Atoms <code>01 02 03</code>. <code>rvrg0103</code> reverses that result. <code>jorg0103</code> joins the Sequence into generated source text <code>+.0102</code> for the next Tick. None of these names or signatures is proposed for production yet.</p>
     <p><strong>Question:</strong> Is transforming a group of Atoms within Tick T valuable, or should every multi-cell capability be a terminal write whose output can only participate in Tick T+1?</p>
   </section>
 
@@ -77,23 +77,23 @@ const scenarios = [
     description: "Both designs can produce 01 02 03 below the root Expression. Advance once to commit the result, then again to show that literals do not compute.",
     frames: [
       { p: source([0,0,"rg0103"]), w: source([0,0,"rg0103"]), pd: "Ready: rg will evaluate against the Tick 0 Source Snapshot.", wd: "Ready: rg will evaluate as a terminal multi-write." },
-      { p: source([0,0,"rg0103"],[1,0,"010203",true]), w: source([0,0,"rg0103"],[1,0,"010203",true]), pd: "Tick Plan committed one Pattern encoding to six Cells; the current parser now diagnoses that occupied run as missing a Function.", wd: "Tick Plan committed six planned Cell writes; the current parser now diagnoses that occupied run as missing a Function.", pe: true, we: true },
-      { p: source([0,0,"rg0103"],[1,0,"010203"]), w: source([0,0,"rg0103"],[1,0,"010203"]), pd: "Current behaviour: 010203 is inert but diagnosed as expected Function. Pattern-aware literal parsing is unresolved.", wd: "Current behaviour: 010203 is inert but diagnosed as expected Function. Pattern-aware literal parsing is unresolved.", pe: true, we: true }
+      { p: source([0,0,"rg0103"],[1,0,"010203",true]), w: source([0,0,"rg0103"],[1,0,"010203",true]), pd: "Tick Plan committed one Sequence encoding to six Cells; the current parser now diagnoses that occupied run as missing a Function.", wd: "Tick Plan committed six planned Cell writes; the current parser now diagnoses that occupied run as missing a Function.", pe: true, we: true },
+      { p: source([0,0,"rg0103"],[1,0,"010203"]), w: source([0,0,"rg0103"],[1,0,"010203"]), pd: "Current behaviour: 010203 is inert but diagnosed as expected Function. Sequence-aware literal parsing is unresolved.", wd: "Current behaviour: 010203 is inert but diagnosed as expected Function. Sequence-aware literal parsing is unresolved.", pe: true, we: true }
     ]
   },
   {
     name: "Nest a transform",
-    description: "rv consumes the output of rg during the same Tick. This is the capability only a first-class Pattern provides.",
+    description: "rv consumes the output of rg during the same Tick. This is the capability only a first-class Sequence provides.",
     frames: [
-      { p: source([0,0,"rvrg0103"]), w: source([0,0,"rvrg0103"]), pd: "Ready: nested rg produces a Pattern for rv.", wd: "Diagnostic pending: terminal rg appears where rv requires a value." },
+      { p: source([0,0,"rvrg0103"]), w: source([0,0,"rvrg0103"]), pd: "Ready: nested rg produces a Sequence for rv.", wd: "Diagnostic pending: terminal rg appears where rv requires a value." },
       { p: source([0,0,"rvrg0103"],[1,0,"030201",true]), w: source([0,0,"rvrg0103"]), pd: "rv received [01, 02, 03] and returned [03, 02, 01].", wd: "Cannot nest terminal Source Function rg inside rv; no Tick writes were planned.", we: true }
     ]
   },
   {
     name: "Generate code",
-    description: "A Pattern can be converted into Function source. The generated +. Expression executes only after it belongs to the next Source Snapshot.",
+    description: "A Sequence can be converted into Function source. The generated +. Expression executes only after it belongs to the next Source Snapshot.",
     frames: [
-      { p: source([0,0,"jorg0103"]), w: source([0,0,"jorg0103"]), pd: "Ready: jo will turn a Pattern into +.0102.", wd: "Diagnostic pending: terminal rg cannot supply jo with a value." },
+      { p: source([0,0,"jorg0103"]), w: source([0,0,"jorg0103"]), pd: "Ready: jo will turn a Sequence into +.0102.", wd: "Diagnostic pending: terminal rg cannot supply jo with a value." },
       { p: source([0,0,"jorg0103"],[1,0,"+.0102",true]), w: source([0,0,"jorg0103"]), pd: "Generated code committed. It was not executed again during Tick 0.", wd: "Cannot nest terminal Source Function rg inside jo; no generated code was written.", we: true },
       { p: source([0,0,"jorg0103"],[1,0,"+.0102"],[2,0,"03",true]), w: source([0,0,"jorg0103"]), pd: "At Tick 1, +.0102 belonged to the Source Snapshot and produced 03.", wd: "The invalid Expression remains diagnosable and inert.", we: true }
     ]
@@ -117,10 +117,10 @@ function render() {
   const item = scenarios[scenario], current = item.frames[frame];
   document.querySelector("#tabs").innerHTML = scenarios.map((s,i) => `<button class="${i===scenario?"active":""}" data-tab="${i}">${s.name}</button>`).join("");
   document.querySelector("#description").textContent = item.description;
-  document.querySelector("#patternTick").textContent = `Source after Tick ${frame}`;
+  document.querySelector("#sequenceTick").textContent = `Source after Tick ${frame}`;
   document.querySelector("#writeTick").textContent = `Source after Tick ${frame}`;
-  draw("#patternGrid", current.p); draw("#writeGrid", current.w);
-  const pd = document.querySelector("#patternDiag"), wd = document.querySelector("#writeDiag");
+  draw("#sequenceGrid", current.p); draw("#writeGrid", current.w);
+  const pd = document.querySelector("#sequenceDiag"), wd = document.querySelector("#writeDiag");
   pd.textContent = `Diagnostic context: ${current.pd}`; wd.textContent = `Diagnostic context: ${current.wd}`;
   pd.className = `diag ${current.pe ? "error" : "ok"}`; wd.className = `diag ${current.we ? "error" : "ok"}`;
   document.querySelector("#next").disabled = frame === item.frames.length - 1;

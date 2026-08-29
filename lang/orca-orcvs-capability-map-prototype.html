@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orca and Orcvs Function Map</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.5 Arial, sans-serif; background: #121619; color: #edf1f2; }
+    body { max-width: 1200px; margin: auto; padding: 32px 20px 70px; }
+    h1 { margin-bottom: 6px; }
+    h2 { margin-top: 42px; padding-bottom: 6px; border-bottom: 2px solid #526067; }
+    h3 { margin: 28px 0 6px; color: #9ee2c8; }
+    p, li { max-width: 85ch; }
+    code { color: #ffe19c; font: 700 .95em Consolas, monospace; }
+    .important { padding: 12px 15px; border-left: 4px solid #e8b968; background: #202529; }
+    .example { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0 28px; }
+    .example div { padding: 12px; border: 1px solid #526067; background: #1a2023; }
+    .example strong { display: block; margin-bottom: 5px; }
+    .table-wrap { overflow-x: auto; border: 1px solid #526067; }
+    table { width: 100%; border-collapse: collapse; min-width: 1180px; }
+    th, td { padding: 9px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid #394348; }
+    th { background: #293236; color: white; }
+    tbody tr:nth-child(even) { background: #191f22; }
+    .family td { background: #303a3e; color: #9ee2c8; font-weight: 700; }
+    .state { display: block; margin-top: 2px; color: #b7c1c5; font-size: .82rem; }
+    .review { color: #f0c27b; }
+    .gap { color: #ff9999; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 8px 0 20px; }
+    .pair section { padding: 12px 14px; background: #1a2023; border: 1px solid #394348; }
+    .pair h4 { margin: 0 0 7px; }
+    .pair p { margin: 5px 0; }
+    @media (max-width: 700px) { .pair, .example { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>Orca and Orcvs Function Map</h1>
+  <p>This document maps each Orca Operator to an Orcvs Function. It also shows the Functions that exist only in Orcvs.</p>
+  <p class="important"><strong>Prefix families:</strong> <code>.</code> arithmetic, <code>~</code> time, <code>*</code> activation, <code>&amp;</code> address, <code>@</code> Source read/write, <code>:</code> Sequence structure, and <code>!</code> terminal output. The suffix column records the earlier proposal.</p>
+
+  <h2>Function index</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Behavior</th><th>Orca Operator</th><th>Orcvs Function</th><th>Current Rust</th><th>J-like</th><th>Geometric</th><th>Suffix proposal</th><th>Prefix example</th></tr></thead>
+      <tbody>
+        <tr class="family"><td colspan="9">Arithmetic and comparison</td></tr>
+        <tr><td>Add</td><td>Add two values.</td><td><code>A</code></td><td>Addition <span class="state">Implemented</span></td><td><code>++</code></td><td><code>++</code></td><td><code>++</code></td><td><code>+.</code></td><td><code>.+</code></td></tr>
+        <tr><td>Subtract</td><td>Subtract the right value from the left value.</td><td>None</td><td>Subtraction <span class="state">Implemented</span></td><td><code>--</code></td><td><code>--</code></td><td><code>--</code></td><td><code>-.</code></td><td><code>.-</code></td></tr>
+        <tr><td>Absolute difference</td><td>Calculate the positive difference between two values.</td><td><code>B</code></td><td>Absolute Difference <span class="state">Recorded</span></td><td>—</td><td><code>|-</code></td><td><code>||</code></td><td><code>|.</code></td><td><code>.|</code></td></tr>
+        <tr><td>Multiply</td><td>Multiply two values.</td><td><code>M</code></td><td>Multiplication <span class="state">Implemented</span></td><td><code>**</code></td><td><code>**</code></td><td><code>**</code></td><td><code>x.</code></td><td><code>.x</code></td></tr>
+        <tr><td>Divide</td><td>Divide the left value by the right value.</td><td>None</td><td>Division <span class="state">Implemented</span></td><td><code>//</code></td><td><code>//</code></td><td><code>//</code></td><td><code>/.</code></td><td><code>./</code></td></tr>
+        <tr><td>Modulo</td><td>Return the remainder of a division.</td><td>None</td><td>Modulo <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td><code>%.</code></td><td><code>.%</code></td></tr>
+        <tr><td>Minimum</td><td>Return the smaller value.</td><td><code>L</code></td><td>Minimum <span class="state">Recorded</span></td><td>—</td><td><code>&lt;.</code></td><td><code>&lt;&lt;</code></td><td><code>&lt;.</code></td><td><code>.&lt;</code></td></tr>
+        <tr><td>Maximum</td><td>Return the larger value.</td><td>None</td><td>Maximum <span class="state">Recorded</span></td><td>—</td><td><code>&gt;.</code></td><td><code>&gt;&gt;</code></td><td><code>&gt;.</code></td><td><code>.&gt;</code></td></tr>
+        <tr><td>Equal</td><td>Make a Bang when two values are equal.</td><td><code>F</code></td><td>Equality <span class="state">Recorded</span></td><td>—</td><td><code>=.</code></td><td><code>&lt;&gt;</code></td><td><code>=.</code></td><td><code>.=</code></td></tr>
+
+        <tr class="family"><td colspan="9">Time, rhythm, randomness, and feedback</td></tr>
+        <tr><td>Clock</td><td>Return the current step in a Tick cycle.</td><td><code>C</code></td><td>Clock <span class="state">Recorded</span></td><td>—</td><td><code>..</code></td><td><code>::</code></td><td><code>.~</code></td><td><code>~.</code></td></tr>
+        <tr><td>Delay</td><td>Make a Bang when a Tick cycle starts.</td><td><code>D</code></td><td>Delay <span class="state">Recorded</span></td><td>—</td><td><code>.*</code></td><td><code>:*</code></td><td><code>*~</code></td><td><code>~*</code></td></tr>
+        <tr><td>Increment</td><td>Add a step to the prior visible result.</td><td><code>I</code></td><td>Increment <span class="state">Recorded</span></td><td>—</td><td><code>+.</code></td><td><code>+&gt;</code></td><td><code>+~</code></td><td><code>~+</code></td></tr>
+        <tr><td>Random</td><td>Return a deterministic value in a range.</td><td><code>R</code></td><td>Random <span class="state">Recorded</span></td><td>—</td><td><code>?~</code></td><td><code>??</code></td><td><code>?~</code></td><td><code>~?</code></td></tr>
+        <tr><td>Euclidean</td><td>Make Bangs with a Euclidean distribution.</td><td><code>U</code></td><td>Euclidean <span class="state">Recorded</span></td><td>—</td><td><code>:*</code></td><td><code>**</code></td><td><code>:~</code></td><td><code>~%</code></td></tr>
+        <tr><td>Interpolate</td><td>Move the prior visible result towards a target.</td><td><code>Z</code></td><td>Interpolation <span class="state">Recorded</span></td><td>—</td><td><code>~.</code></td><td><code>~&gt;</code></td><td><code>&gt;~</code></td><td><code>~&gt;</code></td></tr>
+
+        <tr class="family"><td colspan="9">Orca self-movement mapping</td></tr>
+        <tr><td>Move north</td><td>Move the Operator glyph one Cell north, or replace it with a Bang on collision.</td><td><code>N</code></td><td>Bang North <span class="state">Recorded</span></td><td>—</td><td><code>^*</code></td><td><code>^^</code></td><td><code>^*</code></td><td><code>*^</code></td></tr>
+        <tr><td>Move south</td><td>Move the Operator glyph one Cell south, or replace it with a Bang on collision.</td><td><code>S</code></td><td>Bang South <span class="state">Recorded</span></td><td>—</td><td><code>v*</code></td><td><code>vv</code></td><td><code>v*</code></td><td><code>*v</code></td></tr>
+        <tr><td>Move west</td><td>Move the Operator glyph one Cell west, or replace it with a Bang on collision.</td><td><code>W</code></td><td>Bang West <span class="state">Recorded</span></td><td>—</td><td><code>&lt;*</code></td><td><code>&lt;&lt;</code></td><td><code>&lt;*</code></td><td><code>*&lt;</code></td></tr>
+        <tr><td>Move east</td><td>Move the Operator glyph one Cell east, or replace it with a Bang on collision.</td><td><code>E</code></td><td>Bang East <span class="state">Recorded</span></td><td>—</td><td><code>&gt;*</code></td><td><code>&gt;&gt;</code></td><td><code>&gt;*</code></td><td><code>*&gt;</code></td></tr>
+
+        <tr class="family"><td colspan="9">Address and directional Jump</td></tr>
+        <tr><td>Jump north</td><td>Copy one complete Language Unit north through a consecutive Jump chain.</td><td>None</td><td>Jump North <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>&amp;^</code></td></tr>
+        <tr><td>Jump south</td><td>Copy one complete Language Unit south through a consecutive Jump chain.</td><td><code>J</code></td><td>Jump South <span class="state">Recorded</span></td><td>—</td><td><code>|^</code></td><td><code>||</code></td><td><code>^:</code></td><td><code>&amp;v</code></td></tr>
+        <tr><td>Jump west</td><td>Copy one complete Language Unit west through a consecutive Jump chain.</td><td>None</td><td>Jump West <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>&amp;&lt;</code></td></tr>
+        <tr><td>Jump east</td><td>Copy one complete Language Unit east through a consecutive Jump chain.</td><td><code>Y</code></td><td>Jump East <span class="state">Recorded</span></td><td>—</td><td><code>-&gt;</code></td><td><code>==</code></td><td><code>&gt;:</code></td><td><code>&amp;&gt;</code></td></tr>
+
+        <tr class="family"><td colspan="9">Sequence structure</td></tr>
+        <tr><td>Range</td><td>Make an inclusive Number or Note Sequence from ordered bounds.</td><td>None</td><td>Range <span class="state">Recorded</span></td><td>—</td><td><code>i.</code></td><td><code>..</code></td><td><code>i:</code></td><td><code>:-</code></td></tr>
+        <tr><td>Reverse</td><td>Reverse the Atom order in a Sequence.</td><td>None</td><td>Reverse <span class="state">Recorded</span></td><td>—</td><td><code>|.</code></td><td><code>&gt;&lt;</code></td><td><code>|:</code></td><td><code>:&lt;</code></td></tr>
+        <tr><td>Concatenate</td><td>Return the left Atoms followed by the right Atoms.</td><td>None</td><td>Concatenate <span class="state">Recorded</span></td><td>—</td><td><code>,+</code></td><td><code>++</code></td><td><code>+:</code></td><td><code>:&amp;</code></td></tr>
+        <tr><td>Select</td><td>Return one Atom by zero-based modulo index.</td><td><code>T</code></td><td>Sequence Selection <span class="state">Recorded</span></td><td>—</td><td><code>@.</code></td><td><code>[]</code></td><td><code>@:</code></td><td><code>:?</code></td></tr>
+        <tr><td>Replace</td><td>Return a same-length Sequence with one Atom replaced.</td><td><code>P</code></td><td>Sequence Replacement <span class="state">Recorded</span></td><td>—</td><td><code>}.</code></td><td><code>{}</code></td><td><code>}:</code></td><td><code>:=</code></td></tr>
+
+        <tr class="family"><td colspan="9">Source read and write</td></tr>
+        <tr><td>Read Source</td><td>Read one or more Cells from Source.</td><td><code>O Q</code></td><td>Source Read <span class="state">Address form is deferred</span></td><td>—</td><td><code>@&lt;</code></td><td><code>&lt;-</code></td><td><code>@&lt;</code></td><td><code>@&lt;</code></td></tr>
+        <tr><td>Write Source</td><td>Write a value to Source.</td><td><code>X</code></td><td>Source Write <span class="state">Address form is deferred</span></td><td>—</td><td><code>@&gt;</code></td><td><code>-&gt;</code></td><td><code>@&gt;</code></td><td><code>@&gt;</code></td></tr>
+        <tr><td>Generate</td><td>Copy eastward glyphs to an offset.</td><td><code>G</code></td><td>Source Read followed by Source Write <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td>Konkat</td><td>Read a group of values from hidden variables.</td><td><code>K</code></td><td>Source Read from visible Source <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td>Variable</td><td>Read or write a hidden named value.</td><td><code>V</code></td><td>None <span class="state">Omitted</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+
+        <tr class="family"><td colspan="9">Activation and Source text</td></tr>
+        <tr><td>Halt</td><td>Lock the Expression root directly south before its Source-order turn.</td><td><code>H</code></td><td>Halt <span class="state">Recorded</span></td><td>—</td><td><code>!.</code></td><td><code>XX</code></td><td><code>!*</code></td><td><code>*!</code></td></tr>
+        <tr><td>Bang north</td><td>Move an activation character north by one Cell per Tick.</td><td>Uppercase case</td><td>Bang North <span class="state">Recorded</span></td><td>—</td><td><code>@^</code></td><td><code>@^</code></td><td><code>@^</code></td><td><code>*^</code></td></tr>
+        <tr><td>Bang south</td><td>Move an activation character south by one Cell per Tick.</td><td>Uppercase case</td><td>Bang South <span class="state">Recorded</span></td><td>—</td><td><code>@v</code></td><td><code>@v</code></td><td><code>@v</code></td><td><code>*v</code></td></tr>
+        <tr><td>Bang west</td><td>Move an activation character west by one Cell per Tick.</td><td>Uppercase case</td><td>Bang West <span class="state">Recorded</span></td><td>—</td><td><code>@&lt;</code></td><td><code>@&lt;</code></td><td><code>@&lt;</code></td><td><code>*&lt;</code></td></tr>
+        <tr><td>Bang east</td><td>Move an activation character east by one Cell per Tick.</td><td>Uppercase case</td><td>Bang East <span class="state">Recorded</span></td><td>—</td><td><code>@&gt;</code></td><td><code>@&gt;</code></td><td><code>@&gt;</code></td><td><code>*&gt;</code></td></tr>
+        <tr><td>Bang</td><td>Activate a root Function for one Tick.</td><td><code>*</code> and lowercase case</td><td>Bang Atom <span class="state">Recorded</span></td><td>—</td><td><code>*</code></td><td><code>*</code></td><td><code>**</code></td><td><code>**</code></td></tr>
+        <tr><td>Comment</td><td>Exclude the rest of a row from evaluation.</td><td><code>#</code></td><td>Comment <span class="state">Recorded</span></td><td>—</td><td><code>#</code></td><td><code>#</code></td><td><code>#</code></td><td><code>#</code></td></tr>
+
+        <tr class="family"><td colspan="9">MIDI output</td></tr>
+        <tr><td>Raw Play</td><td>Send a MIDI note without a scheduled Note Off.</td><td><code>:</code></td><td>Raw Play <span class="state">Implemented</span></td><td><code>&gt;&gt;</code></td><td><code>&gt;&gt;</code></td><td><code>&gt;&gt;</code></td><td><code>&gt;&gt;</code></td><td><code>!&gt;</code></td></tr>
+        <tr><td>Timed Play</td><td>Send a MIDI note with a Tick life.</td><td><code>:</code></td><td>Timed Play <span class="state">Recorded</span></td><td>—</td><td><code>&gt;?</code></td><td><code>&gt;?</code></td><td><code>&gt;?</code></td><td><code>!~</code></td></tr>
+        <tr><td>Monophonic Play</td><td>Replace the prior Mono-owned note on one adapter and channel.</td><td><code>%</code></td><td>Monophonic Play <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>!%</code></td></tr>
+        <tr><td>Control Change</td><td>Send direct hexadecimal channel, controller, and value bytes.</td><td><code>!</code></td><td>Control Change <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>!c</code></td></tr>
+        <tr><td>Pitch Bend</td><td>Send direct hexadecimal channel, LSB, and MSB bytes.</td><td><code>?</code></td><td>Pitch Bend <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>!b</code></td></tr>
+
+        <tr class="family"><td colspan="9">Messages and host control</td></tr>
+        <tr><td>UDP</td><td>Send eastward Source text as a UDP message.</td><td><code>;</code></td><td>UDP <span class="state">Deferred</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>!u</code></td></tr>
+        <tr><td>OSC</td><td>Send an OSC path and message.</td><td><code>=</code></td><td>OSC <span class="state">Deferred</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>!o</code></td></tr>
+        <tr><td>Application command</td><td>Send a command to the application's explicit command dispatcher.</td><td><code>$</code></td><td>Application Command <span class="state">Encoding is deferred</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>!$</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Behavior details</h2>
+
+  <h3>Arithmetic and comparison</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>A</code> adds two base-36 values.</p><p><code>B</code> calculates the absolute difference. It does not do ordered subtraction.</p><p><code>F</code> compares two glyphs.</p><p><code>L</code> selects the smaller value.</p><p><code>M</code> multiplies two values.</p></section><section><h4>Orcvs</h4><p>Orcvs uses byte Numbers.</p><p>Orcvs separates ordered subtraction from absolute difference.</p><p>Orcvs has Division. Orca does not have this Operator.</p><p>Numbers and Notes are interchangeable numeric operands.</p><p>Any Note operand makes a value result a Note.</p><p>Note results wrap modulo 128.</p><p>Number results wrap modulo 256.</p></section></div>
+
+  <h3>Time, rhythm, and feedback</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>C</code> reads the current frame.</p><p><code>D</code> makes a Bang at a frame interval.</p><p><code>I</code> reads and changes its south output Cell.</p><p><code>R</code> uses hidden random state.</p><p><code>U</code> makes a Euclidean rhythm.</p><p><code>Z</code> moves its south value towards a target.</p></section><section><h4>Orcvs</h4><p>Clock, Delay, and Euclidean read the Tick.</p><p>Increment and Interpolation read their prior visible result.</p><p>Random uses an explicit seed.</p><p>Random gives the same result for the same Source Snapshot and Tick.</p></section></div>
+
+  <h3>Move</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>E</code>, <code>N</code>, <code>S</code>, and <code>W</code> move their own Operator glyph.</p><p>Each move has a distance of one Cell.</p><p>A blocked Operator replaces itself with a Bang.</p></section><section><h4>Orcvs</h4><p>Orcvs does not have a separate Move Function.</p><p>An Activation Character occupies two Source Cells.</p><p><code>^^</code>, <code>vv</code>, <code>&lt;&lt;</code>, and <code>&gt;&gt;</code> retain its direction.</p><p>The complete encoding advances by one Cell per Tick.</p><p>A blocked or out-of-Grid move changes it to <code>**</code>.</p><p>An occupied collision target receives the Bang activation in the same Tick.</p><p>Unrelated neighbours do not receive it.</p><p>This follows Orca's collision rule.</p></section></div>
+
+  <h3>Jump and Halt</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>J</code> reads one glyph immediately north.</p><p><code>J</code> writes the glyph below a vertical chain of <code>J</code> Operators.</p><p><code>Y</code> reads one glyph immediately west.</p><p><code>Y</code> writes the glyph after a horizontal chain of <code>Y</code> Operators.</p><p><code>H</code> stops the Operator in the Cell immediately south.</p></section><section><h4>Orcvs</h4><p>The Address family uses the <code>&amp;</code> prefix.</p><p>Orcvs has Jump Functions for north, south, west, and east.</p><p>A chain copies one complete adjacent Language Unit to the Cell beyond the final Jump.</p><p>More complex Cell addresses are deferred.</p><p>Halt <code>*!</code> is an Activation Function.</p></section></div>
+
+  <h3>Source read, write, and selection</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>O</code> reads one glyph at an offset.</p><p><code>X</code> writes one glyph at an offset.</p><p><code>G</code> copies a group of eastward glyphs to an offset.</p><p><code>Q</code> reads a group of glyphs at an offset.</p><p><code>T</code> selects one eastward glyph.</p><p><code>P</code> writes one glyph to a selected output Cell.</p><p><code>K</code> reads values from the Variable table.</p><p><code>V</code> reads or writes the hidden Variable table.</p></section><section><h4>Orcvs</h4><p>Query becomes Source Read returning one Sequence.</p><p>Generate becomes Source Read followed by Source Write.</p><p>Track becomes Sequence Select.</p><p>Push becomes Sequence Replace followed by Source Write.</p><p>Konkat becomes Source Read from visible Source.</p><p>Orcvs does not use a hidden Variable table.</p><p>Orcvs keeps persistent state in Source.</p><p>The Source address form is deferred.</p></section></div>
+
+  <h3>Activation</h3>
+  <div class="pair"><section><h4>Orca</h4><p>An uppercase Operator runs on each frame.</p><p>A lowercase Operator runs when it is next to a Bang.</p><p>A Bang has a life of one frame.</p></section><section><h4>Orcvs</h4><p>Each Function has one form.</p><p>A Bang can activate a root Function.</p><p>A directional Bang Function emits a traveling activation character.</p><p>The character becomes a Bang when it reaches an occupied Cell.</p><p>Halt belongs to this family.</p></section></div>
+
+  <h3>MIDI output</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>:</code> sends a MIDI note.</p><p>The operands include an optional note life.</p><p><code>%</code> stops the prior note before it sends the next note.</p><p><code>!</code> sends a MIDI control change.</p><p><code>?</code> sends two pitch-bend bytes.</p></section><section><h4>Orcvs</h4><p>Raw Play sends a note without a note life.</p><p>Timed Play sends a note with a Tick life.</p><p>Monophonic Play owns one note per adapter and channel.</p><p>Control Change and Pitch Bend use direct hexadecimal MIDI bytes.</p></section></div>
+
+  <h3>Messages and host control</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>;</code> sends eastward glyphs as a UDP message.</p><p><code>=</code> sends an OSC path and message.</p><p><code>$</code> sends a command to the Orca host.</p></section><section><h4>Orcvs</h4><p>UDP <code>!u</code> and OSC <code>!o</code> are deferred.</p><p>Orcvs needs a text or message value first.</p><p>Application Command <code>!$</code> sends only to the application's explicit command dispatcher.</p><p>It never invokes a shell or arbitrary executable.</p><p>Its command value encoding is deferred.</p></section></div>
+
+  <h3>Orcvs value and interpretation model</h3>
+  <div class="pair"><section><h4>Orca</h4><p>Most values use one base-36 glyph.</p><p>An Operator usually writes directly to an output Cell.</p><p>Group Operators read or write separate Cells.</p></section><section><h4>Orcvs</h4><p>A Number uses two hexadecimal Cells.</p><p>A Note uses two Cells.</p><p>A Sequence is a flat group of Atoms.</p><p>A Portal identifies a planned destination.</p><p>A Tick Plan contains all Source changes and output commands for one Tick.</p><p>Sequence Functions operate on complete Language Units.</p></section></div>
+
+  <p>Sources: upstream Orca <a href="https://github.com/hundredrabbits/Orca/blob/main/desktop/sources/scripts/core/library.js">Operator implementation</a>, Orcvs Rust, and Orcvs ADRs 0001 through 0020. ADR 0019 is the authoritative audit index.</p>
+</body>
+</html>

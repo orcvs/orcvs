@@ -24,7 +24,7 @@
 <body>
   <div class="tag">THROWAWAY SYNTAX PROTOTYPE</div>
   <h1>Spatial Functions as an Orcvs instrument</h1>
-  <p class="panel">Advance one Tick at a time through proposed Orcvs syntax. Every frame is a 20×8 Source Grid. Hypothetical Functions are <code>rt</code>/<code>dn</code> (move Expression), <code>jh</code>/<code>jv</code> (Pattern jumper), and <code>hl</code> (Halt). These names and signatures are exploratory.</p>
+  <p class="panel"><strong>Superseded exploration.</strong> These walkthroughs preserve the rejected Always-ray and Expression-movement model. They do not state the current language contract. See the Orca-to-Orcvs capability map and ADRs for recorded Directional Bang, Jump, and Halt behavior.</p>
   <section class="panel">
     <div id="tabs"></div><p id="description"></p>
     <button id="reset">Reset</button><button id="next">Run next Tick</button>
@@ -35,7 +35,7 @@
   </section>
   <section class="panel">
     <h2>Prototype contracts</h2>
-    <p><code>@&gt;</code> rays east through empty Cells to activate move-right <code>&gt;*</code> each Tick. A collision leaves the movement Expression in place and emits one-Tick Bang <code>**</code> below its origin. Jumper chains carry a horizontal Pattern beyond consecutive jumper Expressions. A Delay Portal can land Bang on <code>!*</code>, activating Halt without becoming an operand or overwriting its Cells.</p>
+    <p><code>@&gt;</code> rays east through empty Cells to activate move-right <code>&gt;*</code> each Tick. A collision leaves the movement Expression in place and emits one-Tick Bang <code>**</code> below its origin. Jumper chains carry a horizontal Sequence beyond consecutive jumper Expressions. A Delay Portal can land Bang on <code>!*</code>, activating Halt without becoming an operand or overwriting its Cells.</p>
   </section>
 <script>
 const C=20,R=8, blank=()=>Array.from({length:C*R},()=>({ch:" ",changed:false}));
@@ -51,9 +51,9 @@ const scenarios=[
   {g:src([[2,0,"@>"],[2,6,">*",true],[2,8,"+.0000"]]),d:"The first destination was empty.",c:"Expression moved east."},
   {g:src([[2,0,"@>"],[2,6,">*",true],[2,8,"+.0000"],[3,6,"**",true]]),d:"The next destination overlaps +.0000. Movement was rejected atomically and emitted a one-Tick collision Bang through its result Portal.",c:"Expression stayed intact; Bang appeared below it for this Tick only.",warn:true}
  ]},
- {name:"Jumper chain",description:"Repeated jumper Expressions are visible wiring. The transported Pattern remains intact until its destination Portal.",frames:[
+ {name:"Jumper chain",description:"Repeated jumper Expressions are visible wiring. The transported Sequence remains intact until its destination Portal.",frames:[
   {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"]]),d:"010203 is currently diagnosed as missing a Function, but remains Source content available to a Source-reading jumper.",c:"Two jh06 Expressions form a horizontal Portal chain.",warn:true},
-  {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"],[4,12,"010203",true]]),d:"The first jumper read six Cells west; the chain resolved one output Portal below its final member and carried one intact Pattern.",c:"The complete Pattern arrived after the visible chain."}
+  {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"],[4,12,"010203",true]]),d:"The first jumper read six Cells west; the chain resolved one output Portal below its final member and carried one intact Sequence.",c:"The complete Sequence arrived after the visible chain."}
  ]},
  {name:"Spatial Halt",description:"Halt participates in a pre-evaluation control phase, so every Expression still observes one Source Snapshot.",frames:[
   {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"]]),d:"At Tick 00, @v activates Delay, whose Bang lands on !*. Activated Halt suppresses the arithmetic root below while @> also targets it.",c:"+.0102 is present but suppressed."},

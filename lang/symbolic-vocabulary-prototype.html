@@ -9,7 +9,7 @@
 </head>
 <body>
   <div class="tag">THROWAWAY SYNTAX PROTOTYPE</div><h1>What should Orcvs symbols feel like?</h1>
-  <p class="panel">Three ASCII digraph palettes express the same Orcvs capabilities. Switch palette and scenario, then advance the Tick. The Orcvs grammar palette reflects the current decision; the others remain comparison candidates.</p>
+  <p class="panel"><strong>Superseded exploration.</strong> Three ASCII digraph palettes preserve an earlier comparison. They do not state the current language contract. See the Orca-to-Orcvs capability map and ADRs for recorded decisions.</p>
   <section class="panel"><h2>Palette</h2><div id="palettes"></div><h2>Walkthrough</h2><div id="scenarios"></div><p id="description"></p><button id="reset">Reset</button><button id="next">Run next Tick</button></section>
   <section class="panel layout"><div><div class="tick" id="tick"></div><div class="grid" id="grid"></div></div><div><h2 id="paletteName"></h2><div class="map" id="mapping"></div><h2>Diagnostic context</h2><div class="diag" id="diagnostic"></div></div></section>
   <section class="panel"><h2>Judge the grammar</h2><p>Which palette makes an unfamiliar symbol feel inferable after learning two or three neighbours? Individual glyphs can move between palettes; this prototype is testing the organizing idea.</p></section>
@@ -21,21 +21,21 @@ const paletteDefs=[
  {name:"J-like digraphs",key:"j",map:[
   ["Arithmetic","++","add"],["Arithmetic","--","subtract"],["Arithmetic","**","multiply"],["Arithmetic","//","divide"],["Arithmetic","<.","minimum"],["Arithmetic",">.","maximum"],["Arithmetic","|-","absolute difference"],["Comparison","=.","equality Bang"],
   ["Activation","@^","always north"],["Activation","@v","always south"],["Activation","@<","always west"],["Activation","@>","always east"],["Time","..","clock"],["Time",".*","delay Bang"],["Time",":*","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+.","increment"],["Feedback","~.","interpolate"],
-  ["Pattern","i.","range Pattern"],["Pattern","|.","reverse Pattern"],["Pattern",",+","concatenate Patterns"],["Pattern","@.","select Atom"],["Pattern","}.","replace Atom"],
+  ["Sequence","i.","range Sequence"],["Sequence","|.","reverse Sequence"],["Sequence",",+","concatenate Sequences"],["Sequence","@.","select Atom"],["Sequence","}.","replace Atom"],
   ["Portal","@<","Source read"],["Portal","@>","Source write"],["Spatial","^*","move up"],["Spatial","v*","move down"],["Spatial","<*","move left"],["Spatial",">*","move right"],["Spatial","|^","vertical jumper"],["Spatial","->","horizontal jumper"],["Spatial","!.","halt"],
   ["Signal","*","Bang Atom"],["Output",">>","raw Play"],["Output",">?","timed Play"],["Source","#","row comment"]
  ]},
  {name:"Geometric pairs",key:"g",map:[
   ["Arithmetic","++","add"],["Arithmetic","--","subtract"],["Arithmetic","**","multiply"],["Arithmetic","//","divide"],["Arithmetic","<<","minimum"],["Arithmetic",">>","maximum"],["Arithmetic","||","absolute difference"],["Comparison","<>","equality Bang"],
   ["Activation","@^","always north"],["Activation","@v","always south"],["Activation","@<","always west"],["Activation","@>","always east"],["Time","::","clock"],["Time",":*","delay Bang"],["Time","**","Euclidean Bang"],["Time","??","deterministic random"],["Feedback","+>","increment"],["Feedback","~>","interpolate"],
-  ["Pattern","..","range Pattern"],["Pattern","><","reverse Pattern"],["Pattern","++","concatenate Patterns"],["Pattern","[]","select Atom"],["Pattern","{}","replace Atom"],
+  ["Sequence","..","range Sequence"],["Sequence","><","reverse Sequence"],["Sequence","++","concatenate Sequences"],["Sequence","[]","select Atom"],["Sequence","{}","replace Atom"],
   ["Portal","<-","Source read"],["Portal","->","Source write"],["Spatial","^^","move up"],["Spatial","vv","move down"],["Spatial","<<","move left"],["Spatial",">>","move right"],["Spatial","||","vertical jumper"],["Spatial","==","horizontal jumper"],["Spatial","XX","halt"],
   ["Signal","*","Bang Atom"],["Output",">>","raw Play"],["Output",">?","timed Play"],["Source","#","row comment"]
  ]},
- {name:"Orcvs grammar",key:"o",map:[
+ {name:"Earlier Orcvs grammar",key:"o",map:[
   ["Arithmetic","+.","add"],["Arithmetic","-.","subtract"],["Arithmetic","x.","multiply"],["Arithmetic","/.","divide"],["Arithmetic","%.","modulo"],["Arithmetic","<.","minimum"],["Arithmetic",">.","maximum"],["Arithmetic","|.","absolute difference"],["Comparison","=.","equality Bang"],
   ["Activation","@^","always north"],["Activation","@v","always south"],["Activation","@<","always west"],["Activation","@>","always east"],["Time",".~","clock"],["Time","*~","delay Bang"],["Time",":~","Euclidean Bang"],["Time","?~","deterministic random"],["Feedback","+~","increment"],["Feedback",">~","interpolate"],
-  ["Pattern","i:","range Pattern"],["Pattern","|:","reverse Pattern"],["Pattern","+:","concatenate Patterns"],["Pattern","@:","select Atom"],["Pattern","}:","replace Atom"],
+  ["Sequence","i:","range Sequence"],["Sequence","|:","reverse Sequence"],["Sequence","+:","concatenate Sequences"],["Sequence","@:","select Atom"],["Sequence","}:","replace Atom"],
   ["Portal","@<","Source read"],["Portal","@>","Source write"],["Spatial","^*","move up"],["Spatial","v*","move down"],["Spatial","<*","move left"],["Spatial",">*","move right"],["Spatial","^:","vertical jumper"],["Spatial",">:","horizontal jumper"],["Spatial","!*","halt"],
   ["Signal","**","Bang Atom"],["Output",">>","raw Play"],["Output",">?","timed Play"],["Source","#","row comment"]
  ]}
@@ -47,17 +47,17 @@ const scenarioDefs=[
     {g:make([[0,0,mn+"0AFF"],[2,0,df+"0205"],[4,0,eq+"0A0A"]]),d:"Three symbolic Functions are ready in one Source Snapshot."},
     {g:make([[0,0,mn+"0AFF"],[1,0,"0A",true],[2,0,df+"0205"],[3,0,"03",true],[4,0,eq+"0A0A"],[5,0,bang,true]]),d:"Minimum produced 0A, absolute difference produced 03, and equality produced Bang."}
    ]}},
- {name:"Pervasive Pattern",desc:"Atomic addition extends across a Pattern; no separate Pattern-add name exists.",frames:()=>{const add=symbol("add");return[
-   {g:make([[0,0,add+"rg010301"]]),d:"Hypothetical rg returns Pattern [01,02,03]; atomic add pairs each element with scalar 01."},
-   {g:make([[0,0,add+"rg010301"],[1,0,"020304",true]]),d:"One pervasive operation returned Pattern [02,03,04]. Equal-length Pattern pairs would combine element-wise; incompatible lengths diagnose."}
+ {name:"Pervasive Sequence",desc:"Atomic addition extends across a Sequence; no separate Sequence-add name exists.",frames:()=>{const add=symbol("add");return[
+   {g:make([[0,0,add+"rg010301"]]),d:"Hypothetical rg returns Sequence [01,02,03]; atomic add pairs each element with scalar 01."},
+   {g:make([[0,0,add+"rg010301"],[1,0,"020304",true]]),d:"One pervasive operation returned Sequence [02,03,04]. Equal-length Sequence pairs would combine element-wise; incompatible lengths diagnose."}
  ]}},
- {name:"Pattern grammar",desc:"Pattern punctuation should look related without pretending Pattern operations are scalar arithmetic.",frames:()=>{const rv=symbol("reverse"),ct=symbol("concatenate"),at=symbol("select");return[
-   {g:make([[0,0,rv+"rg0103"],[2,0,ct+"rg0102rg0304"],[4,0,at+"01rg0A0C"]]),d:"Reverse, concatenate, and select consume explicit Pattern values."},
+ {name:"Sequence grammar",desc:"Sequence punctuation should look related without pretending Sequence operations are scalar arithmetic.",frames:()=>{const rv=symbol("reverse"),ct=symbol("concatenate"),at=symbol("select");return[
+   {g:make([[0,0,rv+"rg0103"],[2,0,ct+"rg0102rg0304"],[4,0,at+"01rg0A0C"]]),d:"Reverse, concatenate, and select consume explicit Sequence values."},
    {g:make([[0,0,rv+"rg0103"],[1,0,"030201",true],[2,0,ct+"rg0102rg0304"],[3,0,"01020304",true],[4,0,at+"01rg0A0C"],[5,0,"0B",true]]),d:"The results reveal whether the symbols form a memorable family when seen in a live Grid."}
  ]}},
  {name:"Portal grammar",desc:"Read and write should visually oppose one another while sharing an addressing family.",frames:()=>{const rd=symbol("source read","read through"),wr=symbol("source write","write through");return[
    {g:make([[0,0,rd+"AA03"],[2,0,wr+"*AA03rg0103"]]),d:"AA is a placeholder address operand only; actual infinite-canvas addressing remains deferred."},
-   {g:make([[0,0,rd+"AA03"],[1,0,"010203",true],[2,0,wr+"*AA03rg0103"]]),d:"Read returned one raw Cell Pattern; write planned one intact Pattern through the opposing Portal operation."}
+   {g:make([[0,0,rd+"AA03"],[1,0,"010203",true],[2,0,wr+"*AA03rg0103"]]),d:"Read returned one raw Cell Sequence; write planned one intact Sequence through the opposing Portal operation."}
  ]}},
  {name:"Play and time",desc:"Directional Always schedules a time Function whose one-Tick Bang lands on terminal Play.",frames:()=>{const dl=symbol("delay Bang"),pl=symbol("raw Play"),pt=symbol("timed Play"),av=symbol("always south");return[
    {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick on even ticks"]]),d:"Tick 00: @v rays south to the first occupied root and activates Delay. Delay's Bang Portal lands on raw Play, which emits channel 00, velocity 7F, note C4."},
