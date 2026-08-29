@@ -115,7 +115,7 @@ fn bloom_colours(bloom: CursorBloom) -> (Color32, Color32) {
 
 pub(crate) fn sector_line(strength_percent: u8) -> Color32 {
     let [red, green, blue, base_alpha] = PALETTE.sector_line.to_srgba_unmultiplied();
-    let alpha = u16::from(base_alpha) * u16::from(strength_percent) / 100;
+    let alpha = u16::from(base_alpha) * u16::from(strength_percent.min(100)) / 100;
     Color32::from_rgba_unmultiplied(red, green, blue, alpha as u8)
 }
 
@@ -194,6 +194,7 @@ mod tests {
         assert!(blue.abs_diff(86) <= 2);
         assert_eq!(alpha, 55);
         assert_eq!(sector_line(8).a(), 8);
+        assert_eq!(sector_line(255), PALETTE.sector_line);
     }
 
     #[test]

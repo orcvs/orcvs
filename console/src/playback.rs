@@ -75,6 +75,20 @@ impl TickTiming {
     }
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
+fn next_scheduled_at(
+    scheduled_at: Duration,
+    observed_at: Duration,
+    tick_period: Duration,
+) -> Duration {
+    let next = scheduled_at.saturating_add(tick_period);
+    if next <= observed_at {
+        observed_at.saturating_add(tick_period)
+    } else {
+        next
+    }
+}
+
 impl fmt::Display for PlaybackStartError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -384,7 +398,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                     },
                 );
 
-                scheduled_at = scheduled_at.saturating_add(tick_period);
+                scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
                 let delay = scheduled_at.saturating_sub(epoch.elapsed());
                 if !delay.is_zero() {
                     let delay_ms = delay
@@ -572,6 +586,18 @@ mod tests {
             observed_at,
             period: Duration::from_secs(1),
         }
+    }
+
+    #[test]
+    fn resumed_wasm_clock_discards_tick_debt_before_scheduling_again() {
+        assert_eq!(
+            super::next_scheduled_at(
+                Duration::from_secs(1),
+                Duration::from_secs(60),
+                Duration::from_secs(1),
+            ),
+            Duration::from_secs(61)
+        );
     }
 
     #[tokio::test]

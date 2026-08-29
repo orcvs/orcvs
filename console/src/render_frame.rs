@@ -141,8 +141,9 @@ fn signal_breakup(position: Position, distance: usize, radius: usize) -> usize {
     usize::from(broken)
 }
 
-fn cell_hash(position: Position) -> usize {
-    let mut hash = position.x().wrapping_mul(0x9E37_79B1) ^ position.y().wrapping_mul(0x85EB_CA77);
+fn cell_hash(position: Position) -> u32 {
+    let mut hash = (position.x() as u32).wrapping_mul(0x9E37_79B1)
+        ^ (position.y() as u32).wrapping_mul(0x85EB_CA77);
     hash ^= hash >> 16;
     hash = hash.wrapping_mul(0xC2B2_AE3D);
     hash ^= hash >> 13;
@@ -207,6 +208,15 @@ mod tests {
             .flatten()
             .find(|cell| cell.position() == position)
             .expect("Render Frame contains every Grid Position")
+    }
+
+    #[test]
+    fn cell_noise_uses_the_wasm32_integer_domain_on_every_target() {
+        let grid = Grid::new(8, 8);
+        let position = grid.position(7, 5).unwrap();
+
+        assert_eq!(super::cell_hash(position), 0xea1e_857c);
+        assert_eq!(std::mem::size_of_val(&super::cell_hash(position)), 4);
     }
 
     #[test]

@@ -3,6 +3,8 @@ name: rust-dependency-change
 description: Change or review Rust dependencies, features, Cargo.lock, build scripts, proc macros, registries, git sources, or cargo-deny policy in this repository. Combine with rust-change for implementation and rust-review for independent review.
 ---
 
+# Rust dependency change
+
 1. State the dependency or feature need and why existing code or dependencies cannot meet it.
 2. Inspect release notes, MSRV, maintenance, advisories, licenses, default features, build scripts, proc macros, and source registry.
 3. Select the narrowest explicit feature set and preserve the supported native and WASM targets.
