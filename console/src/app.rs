@@ -409,11 +409,14 @@ mod test {
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
         // written into the second row
-        app.set_at(0, 1, "+");
+        app.set_at(0, 1, ".");
         app.set_at(1, 1, "+");
 
+        assert_eq!(
+            rendered(&app, at(0, 1)),
+            GlyphString::new(Some(".".to_string()), Glyph::Function)
+        );
         let written = GlyphString::new(Some("+".to_string()), Glyph::Function);
-        assert_eq!(rendered(&app, at(0, 1)), written);
         assert_eq!(rendered(&app, at(1, 1)), written);
 
         // and it is those Cells' content, not another's
@@ -441,13 +444,18 @@ mod test {
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        app.set_at(0, 0, "+");
+        app.set_at(0, 0, ".");
         app.set_at(1, 0, "+");
 
         // the accepted edits are observable as soon as write returns
-        let expected = GlyphString::new(Some("+".to_string()), Glyph::Function);
-        assert_eq!(rendered(&app, at(0, 0)), expected);
-        assert_eq!(rendered(&app, at(1, 0)), expected);
+        assert_eq!(
+            rendered(&app, at(0, 0)),
+            GlyphString::new(Some(".".to_string()), Glyph::Function)
+        );
+        assert_eq!(
+            rendered(&app, at(1, 0)),
+            GlyphString::new(Some("+".to_string()), Glyph::Function)
+        );
     }
 
     #[tokio::test]
@@ -456,7 +464,7 @@ mod test {
 
         let mut app = App::new(10, 1);
         let position = app.grid.position(5, 0).expect("inside the grid");
-        app.set_at(0, 0, "+");
+        app.set_at(0, 0, ".");
         app.set_at(1, 0, "+");
 
         app.set_at(5, 0, "x");

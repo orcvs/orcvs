@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn rejected_overlong_expression_does_not_poison_source_access() {
         let source = SourceCommander::new(Grid::new(80, 3));
-        let at_capacity = "++".repeat(15) + &"00".repeat(16);
+        let at_capacity = ".+".repeat(15) + &"00".repeat(16);
         for (offset, content) in at_capacity.chars().enumerate() {
             source.set(offset + 2, &content.to_string()).unwrap();
         }
@@ -88,7 +88,7 @@ mod tests {
         let before = source.snapshot();
 
         assert_eq!(
-            source.set(0, "+"),
+            source.set(0, "."),
             Err(SourceError::ExpressionTooLong {
                 start: 0,
                 end: 63,
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(source.snapshot(), before);
 
         source.unset(1).unwrap();
-        source.set(150, "+").unwrap();
+        source.set(150, ".").unwrap();
         source.set(151, "+").unwrap();
         source.set(152, "0").unwrap();
         source.set(153, "1").unwrap();
@@ -107,17 +107,17 @@ mod tests {
         let tick = source.execute();
 
         assert!(tick.plan.diagnostics.is_empty());
-        assert_eq!(source.get(150).0, Some("+".to_string()));
+        assert_eq!(source.get(150).0, Some(".".to_string()));
     }
 
     #[test]
     fn tick_suppresses_an_overlong_expression_created_by_its_writes() {
         let source = SourceCommander::new(Grid::new(100, 3));
-        for (offset, content) in "++".repeat(15).chars().enumerate() {
+        for (offset, content) in ".+".repeat(15).chars().enumerate() {
             source.set(100 + offset, &content.to_string()).unwrap();
             source.set(132 + offset, &content.to_string()).unwrap();
         }
-        for (offset, content) in "++0102".chars().enumerate() {
+        for (offset, content) in ".+0102".chars().enumerate() {
             source.set(30 + offset, &content.to_string()).unwrap();
             source.set(70 + offset, &content.to_string()).unwrap();
         }
@@ -146,14 +146,14 @@ mod tests {
     fn coherent_read_pairs_every_cell_with_its_source_derived_glyph() {
         let grid = Grid::new(4, 2);
         let source = SourceCommander::new(grid);
-        source.set(0, "+").unwrap();
+        source.set(0, ".").unwrap();
         source.set(1, "+").unwrap();
 
         let read = source.read_revision_cells();
 
         assert_eq!(read.grid, grid);
         assert_eq!(read.cells.len(), 8);
-        assert_eq!(read.cells[0].content, Some('+'));
+        assert_eq!(read.cells[0].content, Some('.'));
         assert_eq!(read.cells[0].glyph, Some(crate::glyph::Glyph::Function));
         assert_eq!(read.cells[1].content, Some('+'));
         assert_eq!(read.cells[1].glyph, Some(crate::glyph::Glyph::Function));

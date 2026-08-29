@@ -4,6 +4,8 @@ use std::ops::Deref;
 
 pub struct MaybeAtom(pub Option<Atom>);
 
+pub(crate) struct NumberValue(pub u8);
+
 #[derive(Debug)]
 pub struct Stack<const N: usize> {
     inner: ArrayVec<Atom, N>,
@@ -76,6 +78,19 @@ impl TryFrom<MaybeAtom> for u8 {
     }
 }
 
+impl TryFrom<MaybeAtom> for NumberValue {
+    type Error = Error;
+
+    #[inline(always)]
+    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
+        match maybe_atom.0 {
+            Some(Atom::Number(n)) => Ok(Self(n)),
+            Some(atom) => Err(TypeError::Number(atom.into()).into()),
+            None => Err(ArgumentError::Expected.into()),
+        }
+    }
+}
+
 impl TryFrom<MaybeAtom> for String {
     type Error = Error;
 
@@ -106,11 +121,11 @@ impl TryFrom<&str> for Function {
     #[inline(always)]
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
-            "++" => Ok(Function::Add),
-            "//" => Ok(Function::Divide),
-            "**" => Ok(Function::Multiply),
+            ".+" => Ok(Function::Add),
+            "./" => Ok(Function::Divide),
+            ".x" => Ok(Function::Multiply),
             ">>" => Ok(Function::Play),
-            "--" => Ok(Function::Subtract),
+            ".-" => Ok(Function::Subtract),
             s => Err(SyntaxError::UnknownFunction(s.to_string()).into()),
         }
     }

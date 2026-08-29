@@ -577,7 +577,7 @@ mod tests {
     #[tokio::test]
     async fn clock_tick_commits_source_before_submitting_play_commands() {
         let source = SourceCommander::new(Grid::new(10, 4));
-        write(&source, 0, "++0102");
+        write(&source, 0, ".+0102");
         write(&source, 20, ">>07FC4");
         let engine =
             PlaybackEngine::new(source.clone(), RecordingAdapter::observing(source.clone()));
@@ -700,7 +700,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_failure_does_not_roll_back_source_or_stop_playback() {
         let source = SourceCommander::new(Grid::new(10, 4));
-        write(&source, 0, "++0102");
+        write(&source, 0, ".+0102");
         write(&source, 20, ">>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("output unavailable");

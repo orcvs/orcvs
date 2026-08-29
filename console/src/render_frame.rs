@@ -407,7 +407,7 @@ mod tests {
     fn concurrent_ticks_cannot_mix_source_revisions_within_a_render_frame() {
         let grid = Grid::new(8, 2);
         let source = SourceCommander::new(grid);
-        for (idx, content) in "++010E".chars().enumerate() {
+        for (idx, content) in ".+010E".chars().enumerate() {
             source.set(idx, &content.to_string()).unwrap();
         }
         source.execute();

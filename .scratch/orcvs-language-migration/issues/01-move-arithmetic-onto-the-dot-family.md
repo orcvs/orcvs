@@ -6,14 +6,19 @@ maps `.+`, `.-`, `.x`, and `./` to Addition, Subtraction, Multiplication, and Di
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `.+`, `.-`, `.x`, and `./` parse to their Functions and round-trip through `Display`.
-- [ ] The retired `++`, `--`, `**`, and `//` spellings no longer parse as Functions.
-- [ ] Parser and interpreter tests, including the nested cases, use the new spellings.
-- [ ] `console/tests/wasm.rs` and any Source fixtures are updated.
+- [x] `.+`, `.-`, `.x`, and `./` parse to their Functions and round-trip through `Display`.
+- [x] The retired `++`, `--`, `**`, and `//` spellings no longer parse as Functions.
+- [x] Parser and interpreter tests, including the nested cases, use the new spellings.
+- [x] `console/tests/wasm.rs` and any Source fixtures are updated.
 
 ## Comments
 
 Canonical forms are given by ADR 0011 and the ADR 0019 capability index. Freeing `**` is a
 prerequisite for issue 02, since Bang needs that spelling.
+
+Implemented the four audited spellings in Function parsing and display, added rejection coverage
+for every retired spelling, migrated nested/parser/interpreter and console Source fixtures, and
+added a WASM playback fixture for `.+`. Verified with both crate scoped gates, `mise run
+check_wasm`, and `mise run check`.

@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn build_separates_multiple_runs_in_one_row() {
-        let map = ExpressionMap::build(Grid::new(8, 1), b"id  ++  ");
+        let map = ExpressionMap::build(Grid::new(8, 1), b"id  .+  ");
 
         assert_range(&map, 0, 1);
         assert_eq!(map.get(2), None);
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn build_keeps_edge_touching_runs_inside_their_rows() {
-        let map = ExpressionMap::build(Grid::new(4, 2), b"  id++  ");
+        let map = ExpressionMap::build(Grid::new(4, 2), b"  id.+  ");
 
         assert_range(&map, 2, 3);
         assert_range(&map, 4, 5);
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn prospective_range_scans_only_the_edited_row() {
         let grid = Grid::new(5, 2);
-        let bytes = b"id   ++   ";
+        let bytes = b"id   .+   ";
 
         assert_eq!(
             ExpressionMap::prospective_range(grid, bytes, 2, b'1'),

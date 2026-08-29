@@ -59,7 +59,8 @@ impl Interpreter {
 mod test {
 
     use crate::{
-        ArgumentError, Atom, Error, Function, Parser, TypeError, interpreter::Interpreter, trace,
+        ArgumentError, Atom, Error, Function, InterpretationError, Parser, TypeError,
+        interpreter::Interpreter, trace,
     };
     use tracing::info;
 
@@ -88,7 +89,7 @@ mod test {
     fn test_add_function() {
         trace();
 
-        let s = String::from("++0102");
+        let s = String::from(".+0102");
         let result = interpret(s);
 
         let expected = Atom::Number(3);
@@ -96,53 +97,53 @@ mod test {
     }
 
     #[test]
-    fn test_add_saturates_at_255_on_overflow() {
+    fn test_add_wraps_over_the_byte_domain() {
         trace();
 
-        // 0xFF + 0xFF would overflow u8; saturates at 255 rather than panicking
-        let s = String::from("++FFFF");
+        // 0xFF + 0xFF wraps modulo 256.
+        let s = String::from(".+FFFF");
         let result = interpret(s);
-        assert_eq!(result, Atom::Number(255));
+        assert_eq!(result, Atom::Number(254));
 
-        // Exact boundary: 0xFF + 0x01 is the first value that cannot be represented
-        let s = String::from("++FF01");
+        // Exact boundary: 0xFF + 0x01 wraps to zero.
+        let s = String::from(".+FF01");
         let result = interpret(s);
-        assert_eq!(result, Atom::Number(255));
+        assert_eq!(result, Atom::Number(0));
 
         // Just below the boundary still computes normally
-        let s = String::from("++FE01");
+        let s = String::from(".+FE01");
         let result = interpret(s);
         assert_eq!(result, Atom::Number(255));
 
-        let s = String::from("++FD01");
+        let s = String::from(".+FD01");
         let result = interpret(s);
         assert_eq!(result, Atom::Number(254));
     }
 
     #[test]
-    fn test_multiply_saturates_at_255_on_overflow() {
+    fn test_multiply_wraps_over_the_byte_domain() {
         trace();
 
-        // 0x99 * 0x99 == 153 * 153 == 23409; saturates at 255 rather than panicking
-        let s = String::from("**9999");
+        // 0x99 * 0x99 == 23409, whose low byte is 0x71.
+        let s = String::from(".x9999");
         let result = interpret(s);
-        assert_eq!(result, Atom::Number(255));
+        assert_eq!(result, Atom::Number(113));
 
-        let s = String::from("**FFFF");
+        let s = String::from(".xFFFF");
         let result = interpret(s);
-        assert_eq!(result, Atom::Number(255));
+        assert_eq!(result, Atom::Number(1));
 
-        // Exact boundary: 0x10 * 0x10 == 256 is the first product that cannot be represented
-        let s = String::from("**1010");
+        // Exact boundary: 0x10 * 0x10 wraps to zero.
+        let s = String::from(".x1010");
         let result = interpret(s);
-        assert_eq!(result, Atom::Number(255));
+        assert_eq!(result, Atom::Number(0));
 
         // Largest exactly-representable product is computed, not saturated
-        let s = String::from("**0F11");
+        let s = String::from(".x0F11");
         let result = interpret(s);
         assert_eq!(result, Atom::Number(255));
 
-        let s = String::from("**0F10");
+        let s = String::from(".x0F10");
         let result = interpret(s);
         assert_eq!(result, Atom::Number(240));
     }
@@ -151,16 +152,16 @@ mod test {
     fn test_sub_function() {
         trace();
 
-        let s = String::from("--0201");
+        let s = String::from(".-0201");
         let result = interpret(s);
 
         let expected = Atom::Number(1);
         assert_eq!(result, expected);
 
-        let s = String::from("--0102");
+        let s = String::from(".-0102");
         let result = interpret(s);
 
-        let expected = Atom::Number(0);
+        let expected = Atom::Number(255);
         assert_eq!(result, expected);
     }
 
@@ -168,13 +169,13 @@ mod test {
     fn test_multiply_function() {
         trace();
 
-        let s = String::from("**0201");
+        let s = String::from(".x0201");
         let result = interpret(s);
 
         let expected = Atom::Number(2);
         assert_eq!(result, expected);
 
-        let s = String::from("**0002");
+        let s = String::from(".x0002");
         let result = interpret(s);
 
         let expected = Atom::Number(0);
@@ -185,24 +186,25 @@ mod test {
     fn test_divide() {
         trace();
 
-        let s = String::from("//0402");
+        let s = String::from("./0402");
         let result = interpret(s);
 
         let expected = Atom::Number(2);
         assert_eq!(result, expected);
 
-        let s = String::from("//0100");
-        let result = interpret(s);
-
-        let expected = Atom::Number(0);
-        assert_eq!(result, expected);
+        let mut exp = String::from("./0100");
+        let parsed = Parser::from(&mut exp).try_parse().unwrap();
+        assert!(matches!(
+            Interpreter::execute(&parsed),
+            Err(Error::Interpretation(InterpretationError::DivisionByZero))
+        ));
     }
 
     #[test]
     fn test_recursive() {
         trace();
 
-        let s = String::from("++++0101--0A05");
+        let s = String::from(".+.+0101.-0A05");
         let result = interpret(s);
 
         let expected = Atom::Number(7);
@@ -246,5 +248,52 @@ mod test {
         let error = result.unwrap_err();
 
         assert!(matches!(error, Error::Type(TypeError::Number(_))));
+    }
+
+    #[test]
+    fn general_arithmetic_rejects_note_operands() {
+        for function in [
+            Function::Add,
+            Function::Subtract,
+            Function::Multiply,
+            Function::Divide,
+        ] {
+            let result = interpret_stack(vec![
+                Atom::Function(function),
+                Atom::Note(60),
+                Atom::Number(1),
+            ]);
+            assert!(matches!(result, Err(Error::Type(TypeError::Number(_)))));
+        }
+    }
+
+    #[test]
+    fn general_arithmetic_wraps_for_every_pair_of_bytes() {
+        for left in 0..=u8::MAX {
+            for right in 0..=u8::MAX {
+                for (function, expected) in [
+                    (Function::Add, (u16::from(left) + u16::from(right)) as u8),
+                    (
+                        Function::Subtract,
+                        (i16::from(left) - i16::from(right)).rem_euclid(256) as u8,
+                    ),
+                    (
+                        Function::Multiply,
+                        (u16::from(left) * u16::from(right)) as u8,
+                    ),
+                ] {
+                    assert_eq!(
+                        interpret_stack(vec![
+                            Atom::Function(function),
+                            Atom::Number(left),
+                            Atom::Number(right),
+                        ])
+                        .unwrap(),
+                        Atom::Number(expected),
+                        "{function:?}({left:02X}, {right:02X})",
+                    );
+                }
+            }
+        }
     }
 }
