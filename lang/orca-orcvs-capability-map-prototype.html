@@ -42,7 +42,7 @@
     <table>
       <thead><tr><th>Name</th><th>Behavior</th><th>Orca Operator</th><th>Orcvs Function</th><th>Current Rust</th><th>J-like</th><th>Geometric</th><th>Suffix proposal</th><th>Prefix example</th></tr></thead>
       <tbody>
-        <tr class="family"><td colspan="9">Arithmetic and comparison</td></tr>
+        <tr class="family"><td colspan="9">Numeric conversion, arithmetic, and comparison</td></tr>
         <tr><td>Add</td><td>Add two values.</td><td><code>A</code></td><td>Addition <span class="state">Implemented</span></td><td><code>++</code></td><td><code>++</code></td><td><code>++</code></td><td><code>+.</code></td><td><code>.+</code></td></tr>
         <tr><td>Subtract</td><td>Subtract the right value from the left value.</td><td>None</td><td>Subtraction <span class="state">Implemented</span></td><td><code>--</code></td><td><code>--</code></td><td><code>--</code></td><td><code>-.</code></td><td><code>.-</code></td></tr>
         <tr><td>Absolute difference</td><td>Calculate the positive difference between two values.</td><td><code>B</code></td><td>Absolute Difference <span class="state">Recorded</span></td><td>—</td><td><code>|-</code></td><td><code>||</code></td><td><code>|.</code></td><td><code>.|</code></td></tr>
@@ -52,6 +52,8 @@
         <tr><td>Minimum</td><td>Return the smaller value.</td><td><code>L</code></td><td>Minimum <span class="state">Recorded</span></td><td>—</td><td><code>&lt;.</code></td><td><code>&lt;&lt;</code></td><td><code>&lt;.</code></td><td><code>.&lt;</code></td></tr>
         <tr><td>Maximum</td><td>Return the larger value.</td><td>None</td><td>Maximum <span class="state">Recorded</span></td><td>—</td><td><code>&gt;.</code></td><td><code>&gt;&gt;</code></td><td><code>&gt;.</code></td><td><code>.&gt;</code></td></tr>
         <tr><td>Equal</td><td>Make a Bang when two values are equal.</td><td><code>F</code></td><td>Equality <span class="state">Recorded</span></td><td>—</td><td><code>=.</code></td><td><code>&lt;&gt;</code></td><td><code>=.</code></td><td><code>.=</code></td></tr>
+        <tr><td>To Number</td><td>Return the underlying Number with a fixed result type.</td><td>None</td><td>Numeric Conversion <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>.v</code></td></tr>
+        <tr><td>To Note</td><td>Return a Note or diagnose a Number above <code>7F</code>.</td><td>None</td><td>Numeric Conversion <span class="state">Recorded</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><code>.^</code></td></tr>
 
         <tr class="family"><td colspan="9">Time, rhythm, randomness, and feedback</td></tr>
         <tr><td>Clock</td><td>Return the current step in a Tick cycle.</td><td><code>C</code></td><td>Clock <span class="state">Recorded</span></td><td>—</td><td><code>..</code></td><td><code>::</code></td><td><code>.~</code></td><td><code>~.</code></td></tr>
@@ -113,8 +115,8 @@
 
   <h2>Behavior details</h2>
 
-  <h3>Arithmetic and comparison</h3>
-  <div class="pair"><section><h4>Orca</h4><p><code>A</code> adds two base-36 values.</p><p><code>B</code> calculates the absolute difference. It does not do ordered subtraction.</p><p><code>F</code> compares two glyphs.</p><p><code>L</code> selects the smaller value.</p><p><code>M</code> multiplies two values.</p></section><section><h4>Orcvs</h4><p>Orcvs uses byte Numbers.</p><p>Orcvs separates ordered subtraction from absolute difference.</p><p>Orcvs has Division. Orca does not have this Operator.</p><p>Numbers and Notes are interchangeable numeric operands.</p><p>Any Note operand makes a value result a Note.</p><p>Note results wrap modulo 128.</p><p>Number results wrap modulo 256.</p></section></div>
+  <h3>Numeric conversion, arithmetic, and comparison</h3>
+  <div class="pair"><section><h4>Orca</h4><p><code>A</code> adds two base-36 values.</p><p><code>B</code> calculates the absolute difference. It does not do ordered subtraction.</p><p><code>F</code> compares two glyphs.</p><p><code>L</code> selects the smaller value.</p><p><code>M</code> multiplies two values.</p></section><section><h4>Orcvs</h4><p>Orcvs uses byte Numbers.</p><p>General arithmetic accepts and returns Numbers predictably.</p><p>Orcvs separates ordered subtraction from absolute difference.</p><p>Orcvs has Division. Orca does not have this Operator.</p><p><code>.v</code> explicitly converts a Note to its underlying Number.</p><p><code>.^</code> explicitly converts an in-range Number to a Note.</p><p>Function-specific coercion may be added later; no global sticky-Note rule exists.</p></section></div>
 
   <h3>Time, rhythm, and feedback</h3>
   <div class="pair"><section><h4>Orca</h4><p><code>C</code> reads the current frame.</p><p><code>D</code> makes a Bang at a frame interval.</p><p><code>I</code> reads and changes its south output Cell.</p><p><code>R</code> uses hidden random state.</p><p><code>U</code> makes a Euclidean rhythm.</p><p><code>Z</code> moves its south value towards a target.</p></section><section><h4>Orcvs</h4><p>Clock, Delay, and Euclidean read the Tick.</p><p>Increment and Interpolation read their prior visible result.</p><p>Random uses an explicit seed.</p><p>Random gives the same result for the same Source Snapshot and Tick.</p></section></div>

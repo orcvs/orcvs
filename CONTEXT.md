@@ -73,8 +73,12 @@ An unsigned byte encoded as exactly two uppercase hexadecimal Cells from `00` th
 _Avoid_: Base-36 value, decimal literal, single-glyph number
 
 **Note**:
-A pitched Atom encoded in two-Cell musical note notation and carrying the corresponding MIDI value from `00` through `7F`. Naturals use an uppercase pitch letter, sharps use its lowercase form, `/` denotes the octave below zero, and `0` through `9` denote numbered octaves, giving the complete range `C/` through `G9`. Numbers and Notes are interchangeable operands in numeric Functions. Any Note operand makes a value result a Note that wraps modulo 128; all-Number inputs produce a Number that wraps modulo 256. Orcvs has no conversion Function between Number and Note arithmetic.
-_Avoid_: Number, note-shaped Number, MIDI event
+A pitched Atom carrying one MIDI note value from `00` through `7F`. Its canonical Source encoding is disjoint from every Number encoding, so a Source revision determines the Atom type without operand context; the exact two-Cell ASCII spelling remains to be selected.
+_Avoid_: Number, note-shaped Number, contextual pitch
+
+**Numeric Conversion Function**:
+One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. `.v` always returns a Number, while `.^` always returns a Note or diagnoses when a Number lies outside `00` through `7F`; applying either Function to its result type is an identity.
+_Avoid_: Cast, implicit coercion, sticky Note
 
 **Sequence**:
 A flat ordered sequence of Atoms produced and consumed as one language value. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
@@ -133,11 +137,11 @@ One interpreted MIDI instruction emitted by a Play Function for delivery during 
 _Avoid_: Performance command, MIDI event
 
 **Play Function**:
-The terminal `!>` Function that interprets a hexadecimal MIDI channel, velocity, and note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
+The terminal `!> channel velocity note` Function that interprets a hexadecimal Number channel, a hexadecimal Number velocity, and a Note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
 _Avoid_: Note output, MIDI Function
 
 **Timed Play Function**:
-The terminal `!~ channel velocity note length` Function. Channel is a Number `00`–`0F`, velocity is a Number `00`–`7F`, note is a Number or Note with underlying value `00`–`7F`, and length is a Number `00`–`FF`. Velocity `00` explicitly stops the specified note and schedules no expiry. Otherwise, length `00` emits no MIDI output, while a positive length starts the note in the current Tick and schedules Note Off at the beginning of Tick `T + length`. Its fixed arity distinguishes it from Raw Play without optional operands or overloading.
+The terminal `!~ channel velocity note length` Function. Channel is a Number `00`–`0F`, velocity is a Number `00`–`7F`, note is a Note, and length is a Number `00`–`FF`. Velocity `00` explicitly stops the specified note and schedules no expiry. Otherwise, length `00` emits no MIDI output, while a positive length starts the note in the current Tick and schedules Note Off at the beginning of Tick `T + length`. Its fixed arity distinguishes it from Raw Play without optional operands or overloading.
 _Avoid_: Play overload, optional-length Play
 
 **Control Change Function**:

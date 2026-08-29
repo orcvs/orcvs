@@ -13,6 +13,8 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Minimum | `L` | Retain | `.<` | ADR 0011 |
 | Maximum | — | Add | `.>` | ADR 0011 |
 | Equality | `F` | Retain as Bang-producing comparison | `.=` | ADRs 0006 and 0011 |
+| Note to Number | — | Add explicit, total conversion | `.v` | ADR 0021 |
+| Number to Note | — | Add explicit, checked conversion | `.^` | ADR 0021 |
 | Clock | `C` | Retain with explicit Tick input | `~.` | ADR 0012 |
 | Delay | `D` | Retain with explicit Tick input | `~*` | ADR 0012 |
 | Increment | `I` | Retain with visible feedback | `~+` | ADR 0012 |
@@ -44,6 +46,6 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Orca self command | `$` | Retain as an Orcvs Application Command with no shell or process execution | `!$`; value encoding deferred | ADR 0008 |
 | Identity Test | prior Orcvs `id` | Retire; use Equality or ordinary value flow | — | ADR 0015 |
 
-The canonical families are arithmetic `.`, Tick and feedback `~`, activation `*`, address `&`, Source `@`, Sequence `:`, and terminal output `!` (ADR 0008). Numbers and Notes are interchangeable numeric operands, with sticky Note results wrapping modulo 128 and all-Number results wrapping modulo 256 (ADRs 0010 and 0011); Sequence broadcasting and structural behavior follow ADR 0007; editing remains a one-character Cell Grid with semantic behavior derived through the Language Map (ADR 0018).
+The canonical families are numeric `.`, Tick and feedback `~`, activation `*`, address `&`, Source `@`, Sequence `:`, and terminal output `!` (ADR 0008). General arithmetic takes and returns Numbers; `.v` and `.^` explicitly convert between Number and Note with fixed result types (ADRs 0010, 0011, and 0021). Sequence broadcasting and structural behavior follow ADR 0007; editing remains a one-character Cell Grid with semantic behavior derived through the Language Map (ADR 0018).
 
-Two design boundaries remain intentionally deferred rather than unresolved in this audit: the concrete Source address form beyond directional Jump (ADR 0005), and the text or message value encoding required by UDP, OSC, and Application Command. The Orca-to-Orcvs capability map is a presentation and implementation-tracking view of this decision, not a separate source of language truth.
+Three design boundaries remain intentionally deferred rather than unresolved in this audit: the concrete Source address form beyond directional Jump (ADR 0005), the disjoint two-Cell Source encoding for Notes (ADR 0021), and the text or message value encoding required by UDP, OSC, and Application Command. The Orca-to-Orcvs capability map is a presentation and implementation-tracking view of this decision, not a separate source of language truth.
