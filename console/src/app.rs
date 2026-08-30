@@ -1,17 +1,27 @@
 use egui::{Event, Key};
 
 use std::time::Duration;
-use tokio::sync::mpsc::Sender;
-use tokio::{task, time};
-use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::error;
 
 use crate::glyph::GlyphString;
 use crate::opts::Opts;
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
-use crate::source::{Command, SourceCommander};
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+use crate::playback::InMemoryOutputAdapter;
+use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
+use crate::source::SourceCommander;
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::midi::{MidiDestination, MidiDestinationId};
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+type AppOutputAdapter = NativeMidiOutputAdapter;
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+type AppOutputAdapter = InMemoryOutputAdapter;
 
 ///
 /// The console's editing state: the Grid that is the Source's shape, the
@@ -42,8 +52,13 @@ pub struct App {
     pub cursor: Cursor,
     pub grid: Grid,
 
-    token: Option<CancellationToken>,
     source: SourceCommander,
+    playback: PlaybackEngine<AppOutputAdapter>,
+    playback_state: PlaybackState,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    midi_destinations: Vec<MidiDestination>,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    midi_status: Option<String>,
 }
 
 impl App {
@@ -52,15 +67,85 @@ impl App {
 
         let opts = Opts::new();
 
-        let source = SourceCommander::spawn(grid);
+        let source = SourceCommander::new(grid);
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let adapter = NativeMidiOutputAdapter::new(MidirBackend);
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let adapter = InMemoryOutputAdapter::default();
+        let playback = PlaybackEngine::new(source.clone(), adapter);
 
         Self {
             cursor: Cursor::new(grid.origin(), opts.cursor_delay),
             grid,
             opts,
             source,
-            token: None,
+            playback,
+            playback_state: PlaybackState::Stopped,
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            midi_destinations: Vec::new(),
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            midi_status: None,
         }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn refresh_midi_destinations(&mut self) {
+        match self.playback.midi_destinations() {
+            Ok(destinations) => {
+                self.midi_destinations = destinations;
+                self.midi_status = None;
+            }
+            Err(error) => self.midi_status = Some(error.message),
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn midi_destinations(&self) -> &[MidiDestination] {
+        &self.midi_destinations
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn select_midi_destination(&mut self, destination_id: &MidiDestinationId) {
+        match self.playback.select_midi_destination(destination_id) {
+            Ok(()) => self.midi_status = None,
+            Err(error) => self.midi_status = Some(error.message),
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn selected_midi_destination_id(&self) -> Option<MidiDestinationId> {
+        self.playback.selected_midi_destination_id()
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn midi_status(&self) -> Option<String> {
+        self.midi_status.clone()
+    }
+
+    pub fn observe_playback(&mut self) {
+        let observation = self.playback.observe();
+        self.playback_state = observation.state;
+        for diagnostic in observation.diagnostics {
+            match diagnostic {
+                PlaybackDiagnostic::OutputFailure(error) => {
+                    self.record_playback_failure(error.message)
+                }
+                PlaybackDiagnostic::ClockFailure { message } => {
+                    self.record_playback_failure(message)
+                }
+                PlaybackDiagnostic::Overrun { .. } => {}
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    fn record_playback_failure(&mut self, message: String) {
+        self.midi_status = Some(message);
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    fn record_playback_failure(&mut self, message: String) {
+        error!("Playback failure: {message}");
     }
 
     ///
@@ -207,59 +292,25 @@ impl App {
     }
 
     fn playing(&self) -> bool {
-        self.token.is_some()
-    }
-
-    // TODO(issue 05): unwired — no input reaches it, and it cancels the token
-    // without clearing `self.token`, so `playing()` still reports true afterwards.
-    // Playback lifecycle belongs to the Playback Engine.
-    // See .scratch/source-playback-engine/issues/05-run-live-editing-through-the-playback-engine.md
-    fn pause(&mut self) {
-        if let Some(token) = &self.token {
-            token.cancel();
-        }
+        self.playback_state == PlaybackState::Playing
     }
 
     fn stop(&mut self) {
-        if let Some(token) = &self.token {
-            token.cancel();
-            self.token = None;
-        }
+        self.playback.stop();
+        self.observe_playback();
     }
 
     fn play(&mut self) {
-        let token = CancellationToken::new();
-        let cln_token = token.clone();
-        self.token = Some(token);
-
         let ms = self.opts.bpm.delay_ms();
-
-        let snd = self.source.sender();
-
-        task::spawn(async move {
-            tokio::select! {
-                _ = cln_token.cancelled() => {
-                    info!("cancelled");
-                }
-                _ = Self::ticker(ms, snd) => {
-                    info!("done");
-                }
+        if let Err(error) = self.playback.start(Duration::from_millis(ms)) {
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            {
+                self.midi_status = Some(error.to_string());
             }
-        });
-    }
-
-    async fn ticker(ms: u64, snd: Sender<Command>) {
-        let mut interval = time::interval(Duration::from_millis(ms));
-        info!("ticker");
-        loop {
-            match snd.send(Command::Tick).await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("error {e:?}");
-                }
-            }
-            interval.tick().await;
+            #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+            error!("Playback did not start: {error}");
         }
+        self.observe_playback();
     }
 }
 

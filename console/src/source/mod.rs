@@ -5,41 +5,16 @@ use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;
 pub use source::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
 use std::sync::{Arc, RwLock};
-use tokio::{
-    sync::mpsc::{self, Receiver, Sender},
-    task,
-};
-use tracing::info;
 
+#[derive(Clone)]
 pub struct SourceCommander {
     inner: Arc<RwLock<Source>>,
-    sender: Sender<Command>,
 }
 
 impl SourceCommander {
-    pub fn spawn(grid: Grid) -> Self {
-        let (sender, mut receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel(16);
-
+    pub fn new(grid: Grid) -> Self {
         let source = Arc::new(RwLock::new(Source::new(grid)));
-        let clone = source.clone();
-
-        task::spawn(async move {
-            while let Some(cmd) = receiver.recv().await {
-                match cmd {
-                    Command::Tick => {
-                        info!("Command::Tick");
-
-                        let mut src = clone.write().unwrap();
-                        src.execute();
-                    }
-                }
-            }
-        });
-
-        Self {
-            inner: source,
-            sender,
-        }
+        Self { inner: source }
     }
 
     ///
@@ -56,10 +31,6 @@ impl SourceCommander {
     ///
     pub fn unset(&self, idx: usize) -> Result<Change, SourceError> {
         self.inner.write().unwrap().unset(idx)
-    }
-
-    pub fn sender(&self) -> Sender<Command> {
-        self.sender.clone()
     }
 
     pub fn get(&self, idx: usize) -> (Option<String>, Option<Glyph>) {
@@ -79,8 +50,8 @@ impl SourceCommander {
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         self.inner.read().unwrap().diagnostics()
     }
-}
 
-pub enum Command {
-    Tick,
+    pub(crate) fn execute(&self) -> TickResult {
+        self.inner.write().unwrap().execute()
+    }
 }

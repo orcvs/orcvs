@@ -38,6 +38,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "std",
 ] }
 
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+midir = "0.11"
+
 
 [dev-dependencies]
 tokio = { version = "1.39.2", features = ["full", "test-util"] }

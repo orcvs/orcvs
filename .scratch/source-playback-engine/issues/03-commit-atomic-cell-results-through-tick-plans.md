@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Keep Expressions horizontal and diagnosable.
 
-**Resolution:** implemented
+**Status:** resolved
 
 - [x] Every Tick evaluates all Expressions from the same pre-Tick Source snapshot.
 - [x] Cell writes commit together only after interpretation completes; earlier writes cannot change another Expression's input within that Tick.
@@ -14,6 +14,10 @@
 - [x] An Expression evaluation failure suppresses only that Expression's result, records its diagnostic, and does not block unrelated results.
 - [x] The returned snapshot and change set describe the fully committed post-Tick Source revision.
 - [x] A Tick Plan commits its Cell writes through a path that does not reparse per character, so no Expression is reparsed and no parse state is mutated part-way through a Tick.
+
+## Answer
+
+Each Tick now interprets one pre-Tick Source snapshot into a deterministic Tick Plan, resolves writes in Source order, commits them together through a single derived-state rebuild, and returns the committed snapshot and changes. Complete multi-Cell results and range-addressed failures are preserved without partial reparsing.
 
 ## Comments
 

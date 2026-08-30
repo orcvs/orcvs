@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Make Source edits synchronous and consistent; 10 — Source derives no grid arithmetic.
 
-**Resolution:** implemented
+**Status:** resolved
 
 - [x] An Expression is confined to one row and never joins the last occupied Cell of one row to the first occupied Cell of the next.
 - [x] Incomplete and invalid Expressions preserve their Cells and receive observable diagnostics instead of rejecting intermediate edits.
@@ -13,6 +13,10 @@
 - [x] Behavior tests cover joining, splitting, replacing, and deleting Expressions through Source edits, including rectangular grids and row edges.
 - [x] Tests no longer require public access to Expression range maintenance merely to verify Source behavior.
 - [x] Every Tick test that currently records a wrapped Expression as expected-for-now asserts the row-confined outcome instead, so no test still encodes the wrap.
+
+## Answer
+
+Expression grouping is confined to each Grid row. Source edits preserve incomplete and invalid content while synchronously rebuilding classification and range-addressed diagnostics for the visible revision; joining, splitting, replacing, deleting, rectangular grids, and row edges are covered through Source behavior tests.
 
 ## Comments
 

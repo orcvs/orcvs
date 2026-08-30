@@ -14,6 +14,10 @@
 - [x] Play Commands retain Expression order, and identical commands from consecutive Ticks remain present for exact repeated dispatch.
 - [x] Interpretation tests assert Tick Plan outcomes without requiring MIDI hardware.
 
+## Answer
+
+A valid root Play Function emits one ordered Play Command and no Cell result. Nested Play Functions and out-of-range velocities produce diagnostics, velocity `00` remains explicit, and repeated Ticks retain identical commands without MIDI hardware in interpretation tests.
+
 ## Comments
 
 **2026-08-26 — implemented (agent)**
