@@ -62,7 +62,7 @@ env -u NO_COLOR trunk build --locked
 
 [tasks.test_wasm]
 description = "Run browser regressions in headless Firefox"
-run = 'wasm-pack test --headless --firefox console --test wasm'
+run = 'wasm-pack test --headless --firefox console --test wasm --locked'
 
 [tasks.audit_deps]
 description = "Audit advisories, licenses, sources, and duplicate dependencies"

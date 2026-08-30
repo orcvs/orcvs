@@ -4,7 +4,9 @@ use console::app::App;
 use console::grid::Grid;
 use console::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
 use console::source::SourceCommander;
+use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
+use lang::PlayCommand;
 use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -27,8 +29,21 @@ fn web_app_constructs_and_advances_the_cursor_without_panicking() {
     assert_eq!(app.render_frame().rows().len(), 1);
 }
 
+#[wasm_bindgen_test]
+fn missing_canvas_reports_an_in_page_startup_error_without_panicking() {
+    let document = web_sys::window()
+        .and_then(|window| window.document())
+        .expect("browser test has a document");
+    let loading_text = document
+        .create_element("div")
+        .expect("browser can create a loading element");
+
+    assert!(canvas_or_report(None, Some(loading_text.clone())).is_none());
+    assert_eq!(loading_text.inner_html(), MISSING_CANVAS_MESSAGE);
+}
+
 #[wasm_bindgen_test(async)]
-async fn web_playback_starts_and_dispatches_ticks_without_a_tokio_runtime() {
+async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling() {
     let source = SourceCommander::new(Grid::new(10, 1));
     write(&source, "!>07FC4");
     let adapter = InMemoryOutputAdapter::default();
@@ -40,7 +55,12 @@ async fn web_playback_starts_and_dispatches_ticks_without_a_tokio_runtime() {
     TimeoutFuture::new(20).await;
 
     assert_eq!(engine.observe().state, PlaybackState::Playing);
-    assert!(!adapter.command_lists().is_empty());
+    assert!(adapter.command_lists().iter().any(|commands| commands
+        == &[PlayCommand {
+            channel: 0,
+            velocity: 0x7F,
+            note: 60,
+        }]));
     engine.stop();
 }
 

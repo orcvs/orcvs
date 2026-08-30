@@ -15,6 +15,8 @@ pub struct Expression {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
+    Activation,
+    Bang,
     Function,
     Note,
     Number,

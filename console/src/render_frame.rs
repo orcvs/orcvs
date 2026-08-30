@@ -82,31 +82,28 @@ impl RenderFrame {
             .grid
             .rows()
             .map(|row| {
-                let mut cells = row
-                    .map(|position| {
-                        let cell = &source.cells[source.grid.index(position)];
-                        let is_selected = position == selected;
-                        let marker_spacing = config.marker_spacing.cells();
-                        RenderCell {
-                            position,
-                            content: cell.content,
-                            glyph: cell.glyph.unwrap_or(Glyph::Space),
-                            cursor_bloom: cursor_bloom(position, selected, config),
-                            sector_left_strength: (position.x() > 0
-                                && position.x().is_multiple_of(marker_spacing))
-                            .then(|| sector_seam_strength(position.y(), marker_spacing, position))
-                            .flatten(),
-                            sector_top_strength: (position.y() > 0
-                                && position.y().is_multiple_of(marker_spacing))
-                            .then(|| sector_seam_strength(position.x(), marker_spacing, position))
-                            .flatten(),
-                            selected: is_selected,
-                            cursor_visible: is_selected && cursor_visible,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                classify_complete_bangs(&mut cells);
-                cells
+                row.map(|position| {
+                    let cell = &source.cells[source.grid.index(position)];
+                    let is_selected = position == selected;
+                    let marker_spacing = config.marker_spacing.cells();
+                    RenderCell {
+                        position,
+                        content: cell.content,
+                        glyph: cell.glyph.unwrap_or(Glyph::Space),
+                        cursor_bloom: cursor_bloom(position, selected, config),
+                        sector_left_strength: (position.x() > 0
+                            && position.x().is_multiple_of(marker_spacing))
+                        .then(|| sector_seam_strength(position.y(), marker_spacing, position))
+                        .flatten(),
+                        sector_top_strength: (position.y() > 0
+                            && position.y().is_multiple_of(marker_spacing))
+                        .then(|| sector_seam_strength(position.x(), marker_spacing, position))
+                        .flatten(),
+                        selected: is_selected,
+                        cursor_visible: is_selected && cursor_visible,
+                    }
+                })
+                .collect::<Vec<_>>()
             })
             .collect();
         Self { rows }
@@ -114,23 +111,6 @@ impl RenderFrame {
 
     pub fn rows(&self) -> &[Vec<RenderCell>] {
         &self.rows
-    }
-}
-
-fn classify_complete_bangs(row: &mut [RenderCell]) {
-    let mut index = 0;
-    while index + 1 < row.len() {
-        if row[index].content == Some('*')
-            && row[index + 1].content == Some('*')
-            && row[index].glyph != Glyph::Function
-            && row[index + 1].glyph != Glyph::Function
-        {
-            row[index].glyph = Glyph::Bang;
-            row[index + 1].glyph = Glyph::Bang;
-            index += 2;
-        } else {
-            index += 1;
-        }
     }
 }
 
@@ -176,10 +156,7 @@ fn sector_seam_strength(offset: usize, spacing: usize, position: Position) -> Op
     let offset = offset % spacing;
     let distance_from_corner = offset.min(spacing - 1 - offset);
     let half_spacing = spacing.div_ceil(2);
-    let index = distance_from_corner
-        .saturating_mul(SECTOR_SEAM_STRENGTHS.len())
-        .checked_div(half_spacing)
-        .unwrap_or_default()
+    let index = (distance_from_corner.saturating_mul(SECTOR_SEAM_STRENGTHS.len()) / half_spacing)
         .min(SECTOR_SEAM_STRENGTHS.len() - 1);
 
     // Preserve a legible four-arm registration mark, then let only the
@@ -295,6 +272,27 @@ mod tests {
         assert_eq!(frame.rows()[0][1].glyph(), Glyph::Bang);
         assert_eq!(frame.rows()[0][2].glyph(), Glyph::Char);
         assert_eq!(frame.rows()[0][3].glyph(), Glyph::Char);
+    }
+
+    #[test]
+    fn east_activation_is_not_classified_as_a_function() {
+        let grid = Grid::new(2, 1);
+        let source = SourceCommander::new(grid);
+        source.set(0, ">").unwrap();
+        source.set(1, ">").unwrap();
+
+        let frame = RenderFrame::derive(
+            source.read_revision_cells(),
+            grid.origin(),
+            false,
+            RenderFrameConfig {
+                marker_spacing: MarkerSpacing::new(2).unwrap(),
+                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+            },
+        );
+
+        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Char);
+        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Char);
     }
 
     #[test]

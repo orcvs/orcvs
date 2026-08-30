@@ -1,6 +1,8 @@
 # Order Tick effects by Source Position
 
-Tick planning follows Orca's single row-major pass over the Language Map derived from the Source Snapshot. Every actionable Language Unit and Expression root has one producer Position—its anchor—and all Cell effects, activation deliveries, locks, diagnostics, and terminal commands are ordered first by that producer's row-major Position and then by the order the producer emits them; later Cell effects win conflicts at each Cell independently.
+At the beginning of each executed Tick, the Playback Engine dispatches scheduled expiries due for that Tick before any new Play Commands from its Tick Plan. Those expiries are time-owned playback work rather than Language Units in the new Source Snapshot, so they do not inherit the original Play Function's Source Position.
+
+Tick planning then follows Orca's single row-major pass over the Language Map derived from the Source Snapshot. Every actionable Language Unit and Expression root has one producer Position—its anchor—and all Cell effects, activation deliveries, locks, diagnostics, and terminal commands are ordered first by that producer's row-major Position and then by the order the producer emits them; later Cell effects win conflicts at each Cell independently.
 
 Only units present in the Source Snapshot receive turns. A Source-resident Bang is visible to cardinally adjacent roots at their turns and plans its own expiry from its anchor. An Activation Character plans movement from its anchor. An Expression uses its root anchor, and a Jump chain uses its head anchor. Planned writes never gain a turn in the same Tick.
 

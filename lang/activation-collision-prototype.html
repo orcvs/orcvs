@@ -42,12 +42,16 @@ const CollisionModel=(()=>{
   const mark=(g,cells,key)=>cells.forEach(([r,c])=>g[index(r,c)][key]=true);
   const cases=[
     {name:"East: self-overlap",description:"The right-hand > overlaps its old footprint. Only the newly entered Cell is tested.",direction:"east",arrow:[[3,5],[3,6]],leading:[[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
+    {name:"West: blocked",description:"The newly entered west Cell is occupied, so the complete Activation Character becomes a Bang.",direction:"west",arrow:[[3,7],[3,8]],leading:[[3,6]],source:g=>put(g,3,6,"0A"),after:[[3,7],[3,8]],outcome:"bang",activation:"none"},
     {name:"North: empty",description:"Both Cells on the north leading edge are newly entered and empty.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
+    {name:"South: root",description:"The south leading edge meets the complete root spelling .+. The move is blocked.",direction:"south",arrow:[[2,6],[2,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[2,6],[2,7]],outcome:"bang",activation:".+ root"},
     {name:"North: root",description:"The leading edge meets the complete root spelling .+. The move is blocked.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[4,6],[4,7]],outcome:"bang",activation:".+ root"},
     {name:"North: misaligned",description:"The leading edge meets only part of Number 0A and only part of .+. This is invalid alignment, not a valid activation target.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,".+0102","root")},after:[[4,6],[4,7]],outcome:"bang + alignment diagnostic",activation:"none"},
     {name:"North: non-roots",description:"Both leading Cells are occupied, but neither is an Expression root anchor. Collision occurs with no activation target.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,"C4")},after:[[4,6],[4,7]],outcome:"bang",activation:"none"}
   ];
-  function frame(caseIndex,step){const c=cases[caseIndex],g=empty();c.source(g);const glyph=c.direction==="east"?">>":"^^";if(step===0){put(g,c.arrow[0][0],c.arrow[0][1],glyph,"activation");mark(g,c.leading,"leading")}else if(c.outcome==="move"){put(g,c.after[0][0],c.after[0][1],glyph,"activation")}else{put(g,c.after[0][0],c.after[0][1],"**","bang");mark(g,c.leading,"hit")}return{grid:g,case:c,step,outcome:step===0?"pending":c.outcome,activation:step===0?"pending":c.activation}}
+  const coveredDirections=new Set(cases.map(testCase=>testCase.direction));
+  if(["north","south","east","west"].some(direction=>!coveredDirections.has(direction)))throw new Error("collision cases must cover all four directions");
+  function frame(caseIndex,step){const c=cases[caseIndex],g=empty();c.source(g);const glyph={north:"^^",south:"vv",east:">>",west:"<<"}[c.direction];if(step===0){put(g,c.arrow[0][0],c.arrow[0][1],glyph,"activation");mark(g,c.leading,"leading")}else if(c.outcome==="move"){put(g,c.after[0][0],c.after[0][1],glyph,"activation")}else{put(g,c.after[0][0],c.after[0][1],"**","bang");mark(g,c.leading,"hit")}return{grid:g,case:c,step,outcome:step===0?"pending":c.outcome,activation:step===0?"pending":c.activation}}
   return{cases,frame};
 })();
 

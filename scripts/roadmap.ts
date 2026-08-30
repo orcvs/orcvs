@@ -85,10 +85,10 @@ export interface ReleaseScope {
 const STATUS_PATTERN = /^\*{0,2}status:\*{0,2}[ \t]+(.+)$/iu;
 const BLOCKED_PATTERN = /^\*{0,2}blocked by:?\*{0,2}[ \t]*(.*)$/iu;
 const TAGS_PATTERN = /^\*{0,2}tags:\*{0,2}[ \t]+(.+)$/iu;
-const RELEASE_TAG_PATTERN = /^tag:[ \t]+(.+)$/iu;
-const RELEASE_GOAL_PATTERN = /^goal:[ \t]+(.+)$/iu;
-const RELEASE_DEFINITION_PATTERN = /^definition:[ \t]+(.+)$/iu;
-const RELEASE_GATE_PATTERN = /^gate:[ \t]+(.+)$/iu;
+const RELEASE_TAG_PATTERN = /^\*{0,2}tag:\*{0,2}[ \t]+(.+)$/iu;
+const RELEASE_GOAL_PATTERN = /^\*{0,2}goal:\*{0,2}[ \t]+(.+)$/iu;
+const RELEASE_DEFINITION_PATTERN = /^\*{0,2}definition:\*{0,2}[ \t]+(.+)$/iu;
+const RELEASE_GATE_PATTERN = /^\*{0,2}gate:\*{0,2}[ \t]+(.+)$/iu;
 const HEADING_PATTERN = /^#[ \t]+(.+?)[ \t]*$/u;
 const NUMBERED_TITLE_PATTERN = /^\d{2}[ \t]*[—–-][ \t]*/u;
 const FILE_NUMBER_PATTERN = /^(\d{2})-/u;
@@ -323,9 +323,27 @@ export const buildRoadmap = (root: string): Roadmap => {
 const readMetadata = (lines: readonly string[], pattern: RegExp): string | null => {
   for (const line of lines) {
     const matched = pattern.exec(line);
-    if (matched !== null) return (matched[1] ?? '').trim();
+    if (matched !== null) return (matched[1] ?? '').replace(/\*+$/u, '').trim() || null;
   }
   return null;
+};
+
+const releaseDefinition = (lines: readonly string[]): string | null => {
+  const definition = readMetadata(lines, RELEASE_DEFINITION_PATTERN);
+  if (definition === null) return null;
+  const relativeBase = new URL('https://roadmap.invalid/');
+  let resolved: URL;
+  try {
+    resolved = new URL(definition, relativeBase);
+  } catch {
+    throw new Error('ROADMAP.md `Definition:` must be a relative path or HTTPS URL.');
+  }
+  const isRelative = resolved.origin === relativeBase.origin;
+  const isHttps = definition.toLowerCase().startsWith('https://');
+  if (!isRelative && !isHttps) {
+    throw new Error('ROADMAP.md `Definition:` must be a relative path or HTTPS URL.');
+  }
+  return definition;
 };
 
 /** `ROADMAP.md` declares the release collection that the issue scan renders. */
@@ -342,7 +360,7 @@ export const readReleaseScope = (root: string): ReleaseScope | null => {
     title: readTitle(lines, 'Release scope'),
     tag,
     goal,
-    definition: readMetadata(lines, RELEASE_DEFINITION_PATTERN),
+    definition: releaseDefinition(lines),
     gate: readMetadata(lines, RELEASE_GATE_PATTERN),
   };
 };
