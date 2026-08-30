@@ -207,7 +207,7 @@ impl App {
     }
 
     pub(crate) fn remaining_cursor_blink_delay(&self) -> Duration {
-        self.cursor.blink_delay_remaining()
+        self.cursor.remaining_blink_delay()
     }
 
     ///

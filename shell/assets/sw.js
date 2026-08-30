@@ -3,7 +3,7 @@ var filesToCache = [
   './',
   './index.html',
   './shell.js',
-  './console_bg.wasm',
+  './shell_bg.wasm',
 ];
 
 /* Start the service worker and cache all of the app's content */

@@ -15,11 +15,12 @@ trap cleanup EXIT
 make_fixture() {
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
-  mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/shell" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$fixture_dir/shell/"
   cp "$repo_root/shell/check.sh" "$fixture_dir/shell/"
+  cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
   cp "$repo_root/.github/workflows/test.yml" "$fixture_dir/.github/workflows/"
@@ -61,6 +62,12 @@ test_unlocked_wasm_pack_is_rejected() {
   make_fixture
   perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm/' "$fixture_dir/mise.toml"
   assert_rejected "an unlocked wasm-pack test invocation"
+}
+
+test_stale_wasm_artifact_name_is_rejected() {
+  make_fixture
+  perl -pi -e 's/shell_bg[.]wasm/console_bg.wasm/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a stale WASM artifact name in the service worker cache"
 }
 
 test_persistence_command_in_wrong_task_is_rejected() {
@@ -126,6 +133,7 @@ case "${1:-all}" in
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
+  stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
@@ -139,6 +147,7 @@ case "${1:-all}" in
     test_unlocked_check_deny_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
+    test_stale_wasm_artifact_name_is_rejected
     test_persistence_command_in_wrong_task_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected

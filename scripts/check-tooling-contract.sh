@@ -83,6 +83,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAG
 assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --locked.$'
 assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
+assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$'
