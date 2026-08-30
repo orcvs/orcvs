@@ -26,7 +26,12 @@ persistence = ["dep:serde", "eframe/persistence"]
 [dependencies]
 lang = { path = "../lang", version = "0.1.0" }
 arrayvec.workspace = true
-eframe = { version = "0.36.1", default-features = false, features = ["glow"] }
+# Keep both Linux window backends explicit because disabling eframe defaults removes them.
+eframe = { version = "0.36.1", default-features = false, features = [
+    "glow",
+    "wayland",
+    "x11",
+] }
 egui = { version = "0.36.1", default-features = false }
 nohash-hasher = "0.2.0"
 serde = { version = "1", default-features = false, features = [

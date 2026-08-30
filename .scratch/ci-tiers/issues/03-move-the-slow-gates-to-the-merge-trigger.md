@@ -7,14 +7,14 @@ Ubuntu job by check type.
 
 **Blocked by:** 02 — Remove the redundant check pass.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A pull-request tier task runs fmt, clippy, workspace tests, and doctests.
-- [ ] A merge tier task runs `test_persistence`, `check_wasm`, `test_wasm`, `cargo deny`, and rustdoc.
-- [ ] `mise run check` remains the aggregate that runs every tier locally.
-- [ ] The workflow jobs invoke the mise tasks and hold no verification commands of their own.
-- [ ] The merge tier runs on `push` to main and is a required check.
-- [ ] `docs/tooling.md` describes the tiers and stays accurate.
+- [x] A pull-request tier task runs fmt, clippy, workspace tests, and doctests.
+- [x] A merge tier task runs `test_persistence`, `check_wasm`, `test_wasm`, `cargo deny`, and rustdoc.
+- [x] `mise run check` remains the aggregate that runs every tier locally.
+- [x] The workflow jobs invoke the mise tasks and hold no verification commands of their own.
+- [x] The merge tier runs on `push` to main and is a required check.
+- [x] `docs/tooling.md` describes the tiers and stays accurate.
 
 ## Comments
 
@@ -29,3 +29,7 @@ Keep `RUSTFLAGS` identical across every step. A different value invalidates the 
 `RUSTDOCFLAGS` is safe, because it affects rustdoc units alone.
 
 Accept the consequence: a WASM break is now found after merge, not before it.
+
+PR 2 confirmed that `full-gate` and `macos` run the pull-request tier while `wasm` skips. Main now
+requires the `full-gate`, `macos`, and `wasm` status contexts with strict branch protection. The
+same contexts run the merge components after a push to `main`.

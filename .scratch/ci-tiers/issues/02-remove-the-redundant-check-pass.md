@@ -6,12 +6,12 @@ produces no signal that clippy does not already produce.
 
 **Blocked by:** 01 — Restore the Linux build.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The `check` task runs fmt, clippy, nextest, doctests, rustdoc, and `cargo deny`.
-- [ ] `cargo check` no longer appears in any mise task.
-- [ ] `mise run check` still fails on a clippy warning, a test failure, and a rustdoc warning.
-- [ ] `scripts/check-tooling-contract.sh` still passes.
+- [x] The `check` task runs fmt, clippy, nextest, doctests, rustdoc, and `cargo deny`.
+- [x] `cargo check` no longer appears in any mise task.
+- [x] `mise run check` still fails on a clippy warning, a test failure, and a rustdoc warning.
+- [x] `scripts/check-tooling-contract.sh` still passes.
 
 ## Comments
 
@@ -20,3 +20,6 @@ costs 1 second, because clippy reuses every dependency artefact and only re-chec
 crates. Delete the step because it is redundant, not because it is a lever.
 
 The 48 seconds moves to clippy rather than disappearing.
+
+`mise run check` and `bash scripts/tests/check-tooling-contract.sh` passed before the PR. The
+pull-request tier also passed twice in hosted CI.
