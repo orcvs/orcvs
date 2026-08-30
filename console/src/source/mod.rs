@@ -3,7 +3,7 @@ mod expression_map;
 pub mod source;
 use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;
-pub use source::{Cell, Change, Diagnostic, Source};
+pub use source::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
 use std::sync::{Arc, RwLock};
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},

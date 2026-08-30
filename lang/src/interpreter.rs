@@ -1,11 +1,17 @@
 use crate::{
     functions::{self, math},
-    Atom, Atoms, Error, Function, Stack,
+    Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Stack,
 };
 
 pub type Args = Stack<16>;
 
 pub struct Interpreter {}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Interpretation {
+    Cell(Atom),
+    Play(PlayCommand),
+}
 
 pub struct Context {
     pub stack: Args,
@@ -19,10 +25,10 @@ impl Context {
 
 impl Interpreter {
     #[inline(always)]
-    pub fn execute(atoms: &Atoms) -> Result<Atom, Error> {
+    pub fn execute(atoms: &Atoms) -> Result<Interpretation, Error> {
         let mut ctx = Context::new();
 
-        for atom in atoms.iter().rev() {
+        for (index, atom) in atoms.iter().enumerate().rev() {
             // info!("atoms: {:?}", atoms);
             // info!("stack: {:?}", stack);
             let atom = match atom {
@@ -32,7 +38,10 @@ impl Interpreter {
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
                     Function::Id => functions::ident(&mut ctx)?,
-                    Function::Play => functions::play(&mut ctx)?,
+                    Function::Play if index == 0 => {
+                        return Ok(Interpretation::Play(functions::play(&mut ctx)?));
+                    }
+                    Function::Play => return Err(InterpretationError::NestedPlay.into()),
                     _ => Atom::Function(Function::Empty),
                 },
                 atom => *atom,
@@ -40,12 +49,10 @@ impl Interpreter {
             ctx.stack.push(atom);
         }
 
-        // Final element in the stack is the result.
-        // TODO(issue 03): the result destination belongs in a Tick Plan rather than
-        // being hardcoded by the caller.
-        // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
+        // A non-terminal Expression leaves one Cell value on the stack. Source
+        // decides where that value belongs when it builds the Tick Plan.
         let atom = ctx.stack.pop().into();
-        Ok(atom)
+        Ok(Interpretation::Cell(atom))
     }
 }
 
@@ -64,13 +71,18 @@ mod test {
 
         info!("Parsed: {:?}", parsed);
 
-        let result = Interpreter::execute(&parsed);
-        result.unwrap()
+        match Interpreter::execute(&parsed).unwrap() {
+            super::Interpretation::Cell(atom) => atom,
+            super::Interpretation::Play(_) => panic!("expected a Cell result"),
+        }
     }
 
     fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
         let atoms = exp.into_iter().collect();
-        Interpreter::execute(&atoms)
+        Interpreter::execute(&atoms).map(|result| match result {
+            super::Interpretation::Cell(atom) => atom,
+            super::Interpretation::Play(_) => panic!("expected a Cell result"),
+        })
     }
 
     #[test]

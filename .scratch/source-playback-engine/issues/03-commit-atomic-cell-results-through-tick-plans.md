@@ -4,16 +4,16 @@
 
 **Blocked by:** 02 — Keep Expressions horizontal and diagnosable.
 
-**Status:** ready-for-agent
+**Resolution:** implemented
 
 - [x] Every Tick evaluates all Expressions from the same pre-Tick Source snapshot.
-- [ ] Cell writes commit together only after interpretation completes; earlier writes cannot change another Expression's input within that Tick.
+- [x] Cell writes commit together only after interpretation completes; earlier writes cannot change another Expression's input within that Tick.
 - [x] Multi-Cell values write their complete encoding horizontally, with no first-byte truncation.
-- [ ] A multi-Cell value that cannot fit entirely before the row edge is discarded and reported; an output below the bottom row is likewise discarded and reported.
-- [ ] Overlapping results are applied at Cell granularity in Source order, so later Expressions win only the Cells they overlap.
-- [ ] An Expression evaluation failure suppresses only that Expression's result, records its diagnostic, and does not block unrelated results.
-- [ ] The returned snapshot and change set describe the fully committed post-Tick Source revision.
-- [ ] A Tick Plan commits its Cell writes through a path that does not reparse per character, so no Expression is reparsed and no parse state is mutated part-way through a Tick.
+- [x] A multi-Cell value that cannot fit entirely before the row edge is discarded and reported; an output below the bottom row is likewise discarded and reported.
+- [x] Overlapping results are applied at Cell granularity in Source order, so later Expressions win only the Cells they overlap.
+- [x] An Expression evaluation failure suppresses only that Expression's result, records its diagnostic, and does not block unrelated results.
+- [x] The returned snapshot and change set describe the fully committed post-Tick Source revision.
+- [x] A Tick Plan commits its Cell writes through a path that does not reparse per character, so no Expression is reparsed and no parse state is mutated part-way through a Tick.
 
 ## Comments
 
@@ -49,3 +49,9 @@ The precomputation claim was checked rather than assumed: lines 256-264 build `r
 So this is not a wrong-output defect today; it is cost and fragility. The cost is O(characters x reparse) per Tick. The fragility is that atomicity rests entirely on the precomputation: a later change that made any result depend on state read during the write loop would break it silently, with no test failing, because nothing in the commit path enforces that a Tick reads only the snapshot.
 
 The Tick Plan is the place to fix it — a plan is already the complete set of writes, so committing it needs a path that applies Cells and reparses once for the whole Tick, not the per-character public `set`.
+
+**2026-08-26 — implemented (agent)**
+
+`Source::execute` now returns a `TickResult`: its deterministic `TickPlan`, the fully committed Source snapshot, and the Cells whose content or glyph classification changed. Interpretation builds the entire plan from the pre-Tick parsed state. Cell writes are resolved by target index in Source order, so a later Expression replaces only overlapping Cells, then every final write is applied directly before derived Expression state is rebuilt once. The plan includes its ordered Play Command list as required by the domain model; it remains empty until issue 04 adds Play Function interpretation.
+
+Evaluation failures and out-of-Source results are range-addressed diagnostics in the plan. A below-bottom result is covered through the public Source seam together with its empty change set; the row-edge guard remains defensive because, after issue 02 confined Expressions to rows, no current complete Expression can start late enough for its at-most-two-Cell result to cross an edge. The same current width and spacing constraints make overlapping results unreachable, while the plan's per-Cell ordered insertion defines the required outcome when the language can produce one.
