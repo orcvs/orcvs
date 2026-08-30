@@ -1,9 +1,9 @@
 use std::num::NonZeroUsize;
 
-pub const DEFAULT_FONT_SIZE: f32 = 20.0;
+pub const DEFAULT_FONT_SIZE: f32 = 18.0;
 pub const DEFAULT_MARKER_SPACING: usize = 8;
 
-pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 2;
+pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 7;
 
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
@@ -86,7 +86,16 @@ impl Default for Opts {
 
 #[cfg(test)]
 mod tests {
-    use super::{HighlightSpacing, MarkerSpacing};
+    use super::{DEFAULT_HIGHLIGHT_DOT_SPACING, HighlightSpacing, MarkerSpacing, Opts};
+
+    #[test]
+    fn default_cursor_field_reaches_seven_cells_from_the_cursor() {
+        assert_eq!(
+            Opts::default().highlight_dot_spacing.cells(),
+            DEFAULT_HIGHLIGHT_DOT_SPACING
+        );
+        assert_eq!(DEFAULT_HIGHLIGHT_DOT_SPACING, 7);
+    }
 
     #[test]
     fn marker_spacing_accepts_only_whole_positive_cell_counts() {
