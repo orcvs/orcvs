@@ -4,11 +4,15 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] The intended block size is recorded: either the spacing itself, or the spacing plus its closing marker Cell.
-- [ ] The predicate matches that decision, and the test asserts the decided size rather than the current behaviour.
-- [ ] Highlight dots no longer appear in a Cell belonging to the next marker block, if that is the decision.
+- [x] The intended block size is the spacing itself: 8×8 Cells at the default spacing; the closing marker Cell starts the next block.
+- [x] The predicate uses an exclusive upper boundary, and its test asserts exactly one spacing in each dimension.
+- [x] Highlight dots no longer appear in a Cell belonging to the next marker block.
+
+## Answer
+
+A cursor's marker block is exactly one marker spacing wide and tall. Its lower bounds are inclusive and its upper bounds are exclusive, so adjacent blocks do not overlap. At the default spacing, a block beginning at `(8, 8)` contains coordinates `8..16` on each axis; `(16, 16)` belongs to the next block. Predicate and renderer-facing tests cover the boundary, including a highlight-eligible Cell in the neighbouring block.
 
 ## Notes
 

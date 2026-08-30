@@ -7,7 +7,7 @@ use egui::{
     style::{
         HandleShape, Interaction, NumericColorSpace, Selection, Spacing, WidgetVisuals, Widgets,
     },
-    vec2, Color32, Margin, Rounding, Stroke, Style, Vec2, Visuals,
+    vec2, Color32, CornerRadius, Margin, Stroke, Style, Vec2, Visuals,
 };
 
 use crate::Color;
@@ -28,23 +28,24 @@ pub fn style() -> Style {
         spacing: Spacing {
             item_spacing: Vec2 { x: 8.0, y: 3.0 },
             window_margin: Margin {
-                left: 6.0,
-                right: 6.0,
-                top: 6.0,
-                bottom: 6.0,
+                left: 6,
+                right: 6,
+                top: 6,
+                bottom: 6,
             },
             button_padding: Vec2 { x: 4.0, y: 1.0 },
             menu_margin: Margin {
-                left: 6.0,
-                right: 6.0,
-                top: 6.0,
-                bottom: 6.0,
+                left: 6,
+                right: 6,
+                top: 6,
+                bottom: 6,
             },
             indent: 18.0,
             interact_size: Vec2 { x: 40.0, y: 18.0 },
             slider_width: 100.0,
             combo_width: 100.0,
             text_edit_width: 280.0,
+            extra_text_line_spacing: 0.0,
             icon_width: 14.0,
             icon_width_inner: 8.0,
             icon_spacing: 4.0,
@@ -78,11 +79,11 @@ pub fn style() -> Style {
                         width: 1.0,
                         color: Color32::from_rgba_premultiplied(60, 60, 60, 255),
                     },
-                    rounding: Rounding {
-                        nw: 2.0,
-                        ne: 2.0,
-                        sw: 2.0,
-                        se: 2.0,
+                    corner_radius: CornerRadius {
+                        nw: 2,
+                        ne: 2,
+                        sw: 2,
+                        se: 2,
                     },
                     fg_stroke: Stroke {
                         width: 1.0,
@@ -98,11 +99,11 @@ pub fn style() -> Style {
                         width: 1.0,
                         color: Color32::TRANSPARENT,
                     },
-                    rounding: Rounding {
-                        nw: 1.0,
-                        ne: 1.0,
-                        sw: 1.0,
-                        se: 1.0,
+                    corner_radius: CornerRadius {
+                        nw: 1,
+                        ne: 1,
+                        sw: 1,
+                        se: 1,
                     },
                     fg_stroke: Stroke {
                         width: 1.0,
@@ -117,11 +118,11 @@ pub fn style() -> Style {
                         width: 1.0,
                         color: Color32::from_rgba_premultiplied(150, 150, 150, 255),
                     },
-                    rounding: Rounding {
-                        nw: 3.0,
-                        ne: 3.0,
-                        sw: 3.0,
-                        se: 3.0,
+                    corner_radius: CornerRadius {
+                        nw: 3,
+                        ne: 3,
+                        sw: 3,
+                        se: 3,
                     },
                     fg_stroke: Stroke {
                         width: 1.5,
@@ -136,11 +137,11 @@ pub fn style() -> Style {
                         width: 1.0,
                         color: Color::rgb(255, 255, 255).build(),
                     },
-                    rounding: Rounding {
-                        nw: 2.0,
-                        ne: 2.0,
-                        sw: 2.0,
-                        se: 2.0,
+                    corner_radius: CornerRadius {
+                        nw: 2,
+                        ne: 2,
+                        sw: 2,
+                        se: 2,
                     },
                     fg_stroke: Stroke {
                         width: 2.0,
@@ -155,11 +156,11 @@ pub fn style() -> Style {
                         width: 1.0,
                         color: Color32::from_rgba_premultiplied(60, 60, 60, 255),
                     },
-                    rounding: Rounding {
-                        nw: 2.0,
-                        ne: 2.0,
-                        sw: 2.0,
-                        se: 2.0,
+                    corner_radius: CornerRadius {
+                        nw: 2,
+                        ne: 2,
+                        sw: 2,
+                        se: 2,
                     },
                     fg_stroke: Stroke {
                         width: 1.0,
@@ -182,18 +183,18 @@ pub fn style() -> Style {
             code_bg_color: Color32::from_rgba_premultiplied(64, 64, 64, 255),
             warn_fg_color: Color32::from_rgba_premultiplied(255, 143, 0, 255),
             error_fg_color: Color32::from_rgba_premultiplied(255, 0, 0, 255),
-            window_rounding: Rounding {
-                nw: 6.0,
-                ne: 6.0,
-                sw: 6.0,
-                se: 6.0,
+            window_corner_radius: CornerRadius {
+                nw: 6,
+                ne: 6,
+                sw: 6,
+                se: 6,
             },
             window_shadow: Shadow {
                 // extrusion: 32.0,
                 color: Color32::from_rgba_premultiplied(0, 0, 0, 96),
-                offset: Vec2 { x: 3.0, y: 3.0 },
-                blur: 3.0,
-                spread: 3.0,
+                offset: [3, 3],
+                blur: 3,
+                spread: 3,
             },
             // window_fill: Color32::from_rgba_premultiplied(27, 27, 27, 255),
             window_fill: Color32::from_rgba_premultiplied(0, 0, 0, 255),
@@ -202,24 +203,23 @@ pub fn style() -> Style {
                 width: 1.0,
                 color: Color32::from_rgba_premultiplied(60, 60, 60, 255),
             },
-            menu_rounding: Rounding {
-                nw: 6.0,
-                ne: 6.0,
-                sw: 6.0,
-                se: 6.0,
+            menu_corner_radius: CornerRadius {
+                nw: 6,
+                ne: 6,
+                sw: 6,
+                se: 6,
             },
             panel_fill: Color32::from_rgba_premultiplied(27, 27, 27, 255),
             popup_shadow: Shadow {
                 // extrusion: 16.0,
                 color: Color32::from_rgba_premultiplied(0, 0, 0, 96),
-                offset: Vec2 { x: 3.0, y: 3.0 },
-                blur: 3.0,
-                spread: 3.0,
+                offset: [3, 3],
+                blur: 3,
+                spread: 3,
             },
             resize_corner_size: 12.0,
             // text_cursor_width: 2.0,
             // text_cursor_preview: false,
-            clip_rect_margin: 3.0,
             button_frame: true,
             collapsing_header_frame: false,
             indent_has_left_vline: true,
@@ -232,6 +232,7 @@ pub fn style() -> Style {
             interact_cursor: None,
             image_loading_spinners: true,
             numeric_color_space: NumericColorSpace::GammaByte,
+            ..Visuals::dark()
         },
         animation_time: 0.0833333358168602,
         explanation_tooltips: false,

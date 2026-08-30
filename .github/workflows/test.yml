@@ -48,6 +48,9 @@ jobs:
       - name: Build
         run: cargo build --profile ci --workspace
 
+      - name: Build persistence feature
+        run: cargo build --profile ci --package console --features persistence
+
       - name: Clippy
         run: cargo clippy --workspace --no-deps --tests
 

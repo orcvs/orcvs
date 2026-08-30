@@ -48,11 +48,13 @@ impl<'a> Parser<'a> {
     ///
     /// parse will return a boolean indicating success or failure
     ///
-    pub fn parse(mut self) -> Expression {
+    pub fn parse(mut self) -> Result<Expression, Error> {
         self.check = true;
         self.invalid = false;
-        let _ = self.take_function();
-        self.expression
+        match self.take_function() {
+            Err(error @ Error::Syntax(SyntaxError::ExpressionTooLong { .. })) => Err(error),
+            _ => Ok(self.expression),
+        }
     }
 
     pub fn take(self) -> Expression {
@@ -74,7 +76,7 @@ impl<'a> Parser<'a> {
 
                 let tokens = match result {
                     Ok(f) => {
-                        self.add(Token::Function, Atom::from(f));
+                        self.add(Token::Function, Atom::from(f))?;
                         Tokens::from(&f)
                     }
                     Err(e) => {
@@ -88,7 +90,7 @@ impl<'a> Parser<'a> {
                         self.take_function()?;
                     } else {
                         let a = self.take_token(&t)?;
-                        self.add(t, a);
+                        self.add(t, a)?;
                     }
                 }
                 Ok(())
@@ -152,8 +154,9 @@ impl<'a> Parser<'a> {
     }
 
     #[inline(always)]
-    fn add(&mut self, t: Token, a: Atom) {
-        self.expression.add(t, a);
+    fn add(&mut self, t: Token, a: Atom) -> Result<(), Error> {
+        self.expression.add(t, a)?;
+        Ok(())
     }
 
     #[inline(always)]
@@ -203,7 +206,7 @@ mod test {
 
     fn parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
         let parser = Parser::from(exp);
-        let a = parser.parse().take_atoms();
+        let a = parser.parse()?.take_atoms();
         Ok(a.into_iter().collect())
     }
 

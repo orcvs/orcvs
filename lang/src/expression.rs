@@ -1,4 +1,4 @@
-use crate::{Atom, Atoms, Function, EXP_LEN};
+use crate::{Atom, Atoms, Function, SyntaxError, EXP_LEN};
 use arrayvec::ArrayVec;
 use std::mem;
 
@@ -36,9 +36,14 @@ impl Expression {
     /// Adds a token and atom to the expression
     /// Should always be added together to keep collections in sync
     ///
-    pub fn add(&mut self, t: Token, a: Atom) {
-        self.tokens.push(t);
-        self.atoms.push(a);
+    pub fn add(&mut self, t: Token, a: Atom) -> Result<(), SyntaxError> {
+        self.tokens
+            .try_push(t)
+            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })?;
+        self.atoms
+            .try_push(a)
+            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })?;
+        Ok(())
     }
 
     pub fn take_atoms(&mut self) -> Atoms {

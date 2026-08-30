@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A Cell holding a character renders that character, whether or not the Cell has a glyph classification.
-- [ ] A Cell holding no character continues to render the background: marker, highlight, or space.
-- [ ] Typing one character and then a second, completing a Function, shows the first character throughout — it never disappears and reappear.
-- [ ] A test covers a Cell with content and no glyph, through the interface the renderer uses.
+- [x] A Cell holding a character renders that character; Source gives otherwise-unclassified occupied Cells `Glyph::Char` before publication.
+- [x] A Cell holding no character continues to render the background: marker, highlight, or space.
+- [x] Typing one character and then a second, completing a Function, shows the first character throughout — it never disappears and reappears.
+- [x] Superseded by the stronger invariant: the renderer-facing interface cannot observe a Cell with content and no glyph; Source and App tests cover the formerly failing lone-character state.
 
 ## Notes
 
@@ -18,3 +18,7 @@ Found while implementing ticket 09, not yet triaged by a human.
 The Source is right: an edit reports the Cell with `content: Some('+')` and `glyph: None`, and an existing Source test asserts exactly that. The loss is in the render path, which treats an absent glyph as "nothing here" and falls through to the background, discarding the content it was handed.
 
 Reproduces at any Source size and in any Cell; it is not a row-edge case. A lone `+`, a lone digit, and the first character of any Function you are part-way through typing are all invisible.
+
+## Answer
+
+Superseded by Issue 11. Source now assigns `Glyph::Char` to every occupied Cell that has no parser classification before publishing an accepted revision. `SourceCommander::get` reads content and Glyph under the same lock, so the renderer-facing `App::get` seam cannot observe content without a Glyph. Existing Source and App regressions cover lone-character visibility and reclassification when a Function is completed.

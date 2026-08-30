@@ -1,3 +1,5 @@
 /target
 .mise.local.toml
 **/.DS_Store
+.scratch/roadmap.html
+.claude/worktrees/

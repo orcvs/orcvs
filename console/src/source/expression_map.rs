@@ -5,21 +5,18 @@ use std::{
 
 use crate::grid::Grid;
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct ExpressionMap {
     grid: Grid,
     inner: Vec<Option<ExpressionRange>>,
 }
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Range {
     pub start: usize,
     pub end: usize,
 }
 
-#[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct ExpressionRange(Arc<RwLock<Range>>);
 
@@ -86,6 +83,7 @@ impl ExpressionMap {
         self.set_inner(idx, true)
     }
 
+    #[cfg(test)]
     pub fn unset(&mut self, idx: usize) {
         self.set_inner(idx, false);
     }

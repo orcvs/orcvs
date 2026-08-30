@@ -4,13 +4,26 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] `cargo build --features persistence` compiles with no errors.
-- [ ] `Grid` carries the feature's derive, so the `Source` and `App` fields that hold one can be derived at all.
-- [ ] Every other field type a `cfg_attr` derive reaches either carries the derive or is deliberately excluded, decided type by type and written down — a runtime handle is not state worth persisting.
-- [ ] CI builds the feature, so the next break is a red build rather than a discovery months later.
-- [ ] A round-trip test: a Source serialized and deserialized holds the same Cells and the same shape.
+- [x] `cargo build --features persistence` compiles with no errors.
+- [x] `Grid` carries the feature's derive, so the `Source` and `App` fields that hold one can be derived at all.
+- [x] Every other field type a `cfg_attr` derive reaches either carries the derive or is deliberately excluded, decided type by type and written down — a runtime handle is not state worth persisting.
+- [x] CI builds the feature, so the next break is a red build rather than a discovery months later.
+- [x] A round-trip test: a Source serialized and deserialized holds the same Cells and the same shape.
+
+## Answer
+
+Persistence now has one supported root: `Source`. Its canonical state is `Grid + inner Cells`; deserialization validates non-zero, non-overflowing dimensions, exact Cell count, and printable Cell bytes, then rebuilds glyphs, diagnostics, parsed expressions, observations, and edit bookkeeping.
+
+The type-by-type decisions are:
+
+- `Grid` persists its dimensions and receives a fresh runtime identity when restored; `Position` is not persisted independently.
+- `Source` uses a custom canonical representation. Its `ExpressionMap`, parsed atoms, glyphs, diagnostics, observations, pending edit, and tick result are derived or transient and deliberately excluded.
+- `App` and `Console` are runtime coordinators, so their cursor, commander, cancellation token, playback/output handles, options, and UI state are deliberately excluded.
+- `Opts`, `Mode`, `GlyphString`, `Glyph`, `ExpressionMap`, `Range`, and `ExpressionRange` no longer advertise standalone persistence because none is a supported persistence root.
+
+CI now builds `console` with `persistence`; feature-gated tests round-trip a non-square edited Source and reject malformed Grid dimensions.
 
 ## Notes
 

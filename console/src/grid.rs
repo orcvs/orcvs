@@ -1,9 +1,26 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_GRID_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GridId(u64);
+
+impl GridId {
+    fn new() -> Self {
+        let id = NEXT_GRID_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("Grid identity space exhausted");
+        Self(id)
+    }
+}
+
 ///
 /// A valid position within a Grid. A Position can only be obtained from the
 /// Grid that contains it, so a Position outside its Grid cannot exist.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Position {
+    grid_id: GridId,
     x: usize,
     y: usize,
 }
@@ -33,10 +50,49 @@ pub const DEFAULT_ROW_COUNT: usize = 16;
 /// and the valid positions within them. The Grid is the shape; the Source is
 /// the contents.
 ///
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "persistence",
+    serde(try_from = "PersistedGrid", into = "PersistedGrid")
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Grid {
+    id: GridId,
     cols: usize,
     rows: usize,
+}
+
+#[cfg(feature = "persistence")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedGrid {
+    cols: usize,
+    rows: usize,
+}
+
+#[cfg(feature = "persistence")]
+impl From<Grid> for PersistedGrid {
+    fn from(grid: Grid) -> Self {
+        Self {
+            cols: grid.cols,
+            rows: grid.rows,
+        }
+    }
+}
+
+#[cfg(feature = "persistence")]
+impl TryFrom<PersistedGrid> for Grid {
+    type Error = &'static str;
+
+    fn try_from(grid: PersistedGrid) -> Result<Self, Self::Error> {
+        if grid.cols == 0 || grid.rows == 0 {
+            return Err("persisted Grid dimensions must be greater than zero");
+        }
+        if grid.cols.checked_mul(grid.rows).is_none() {
+            return Err("persisted Grid Cell count is too large");
+        }
+
+        Ok(Self::new(grid.cols, grid.rows))
+    }
 }
 
 impl Grid {
@@ -46,8 +102,16 @@ impl Grid {
     pub fn new(cols: usize, rows: usize) -> Self {
         assert!(cols > 0, "cols must be greater than zero");
         assert!(rows > 0, "rows must be greater than zero");
+        assert!(
+            cols.checked_mul(rows).is_some(),
+            "Grid Cell count is too large"
+        );
 
-        Self { cols, rows }
+        Self {
+            id: GridId::new(),
+            cols,
+            rows,
+        }
     }
 
     ///
@@ -55,7 +119,11 @@ impl Grid {
     ///
     pub fn position(&self, x: usize, y: usize) -> Option<Position> {
         if x < self.cols && y < self.rows {
-            Some(Position { x, y })
+            Some(Position {
+                grid_id: self.id,
+                x,
+                y,
+            })
         } else {
             None
         }
@@ -66,20 +134,28 @@ impl Grid {
     ///
     #[inline]
     pub fn origin(&self) -> Position {
-        Position { x: 0, y: 0 }
+        Position {
+            grid_id: self.id,
+            x: 0,
+            y: 0,
+        }
     }
 
     ///
     /// The linear index of a Position in this Grid.
     ///
-    /// Total under the console's single-Grid invariant: the application owns
-    /// one authoritative Grid, and every runtime Position is minted from it.
-    /// Position deliberately carries no Grid identity; constructing multiple
-    /// Grids and mixing their Positions is outside the supported domain.
+    /// A foreign Position is refused: its identity names the Grid that minted it.
     ///
     #[inline]
     pub fn index(&self, pos: Position) -> usize {
+        self.assert_owns(pos);
         pos.y * self.cols + pos.x
+    }
+
+    /// Whether `pos` was minted by this Grid or one of its copies.
+    #[inline]
+    pub fn owns(&self, pos: Position) -> bool {
+        self.id == pos.grid_id
     }
 
     ///
@@ -98,6 +174,7 @@ impl Grid {
     ///
     #[inline]
     pub fn below(&self, pos: Position) -> Option<Position> {
+        self.assert_owns(pos);
         self.position(pos.x, pos.y + 1)
     }
 
@@ -106,14 +183,11 @@ impl Grid {
     /// as its first Cell. A row is the whole horizontal extent there is:
     /// nothing continues onto the next one.
     ///
-    /// Total under the console's single-Grid invariant, as `index` is: every
-    /// runtime Position is minted from the one authoritative Grid. The
-    /// subtraction saturates so the question is always answerable, but mixing
-    /// Positions between Grids is outside the supported domain and this
-    /// answers nothing meaningful for one.
+    /// A foreign Position is refused: its identity names the Grid that minted it.
     ///
     #[inline]
     pub fn fits(&self, pos: Position, width: usize) -> bool {
+        self.assert_owns(pos);
         width <= self.cols.saturating_sub(pos.x)
     }
 
@@ -122,7 +196,9 @@ impl Grid {
     ///
     #[inline]
     pub fn up(&self, pos: Position) -> Position {
+        self.assert_owns(pos);
         Position {
+            grid_id: self.id,
             x: pos.x,
             y: pos.y.saturating_sub(1),
         }
@@ -143,7 +219,9 @@ impl Grid {
     ///
     #[inline]
     pub fn left(&self, pos: Position) -> Position {
+        self.assert_owns(pos);
         Position {
+            grid_id: self.id,
             x: pos.x.saturating_sub(1),
             y: pos.y,
         }
@@ -154,7 +232,9 @@ impl Grid {
     ///
     #[inline]
     pub fn right(&self, pos: Position) -> Position {
+        self.assert_owns(pos);
         Position {
+            grid_id: self.id,
             x: (pos.x + 1).min(self.cols - 1),
             y: pos.y,
         }
@@ -166,11 +246,11 @@ impl Grid {
     /// path states no bound of its own, so a swapped axis is not expressible.
     ///
     pub fn rows(&self) -> impl Iterator<Item = impl Iterator<Item = Position>> {
-        // Captured by value: a Grid is Copy and a Position is plain usizes, so
-        // the returned iterators borrow nothing.
-        let (cols, rows) = (self.cols, self.rows);
+        // Captured by value: Grid and Position are allocation-free Copy values,
+        // so the returned iterators borrow nothing.
+        let (id, cols, rows) = (self.id, self.cols, self.rows);
 
-        (0..rows).map(move |y| (0..cols).map(move |x| Position { x, y }))
+        (0..rows).map(move |y| (0..cols).map(move |x| Position { grid_id: id, x, y }))
     }
 
     ///
@@ -179,6 +259,11 @@ impl Grid {
     #[inline]
     pub fn count(&self) -> usize {
         self.cols * self.rows
+    }
+
+    #[inline]
+    pub(crate) fn assert_owns(&self, pos: Position) {
+        assert!(self.owns(pos), "Position belongs to another Grid");
     }
 }
 
@@ -281,6 +366,26 @@ mod test {
         assert_eq!(index(3, 0), 3);
         assert_eq!(index(0, 1), 4);
         assert_eq!(index(3, 1), 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "Position belongs to another Grid")]
+    fn test_grid_refuses_a_position_minted_by_another_grid() {
+        let first = Grid::new(4, 2);
+        let second = Grid::new(4, 2);
+        let foreign = first.position(1, 0).expect("inside the first Grid");
+
+        second.index(foreign);
+    }
+
+    #[test]
+    fn test_grid_identity_survives_copying() {
+        let grid = Grid::new(4, 2);
+        let copied = grid;
+        let position = grid.position(1, 0).expect("inside the Grid");
+
+        assert!(copied.owns(position));
+        assert_eq!(copied.index(position), 1);
     }
 
     #[test]
