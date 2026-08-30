@@ -1,29 +1,22 @@
 
 
 
+  ++0102
+  03
+
+
+
+  ++++010202
+  05
+
+
+
 
 
 
 
 ### Notes
 
-
-
-
-App
-
-  update
-    -> source.update
-
-  -> Source
-
-    -> source expressions
-    -> parsed expressions
-    -> glyphs
-
-  [thread]
-  on_interval
-    -> execute
 
 
 

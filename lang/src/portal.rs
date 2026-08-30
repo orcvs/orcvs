@@ -1,6 +1,8 @@
-use arrayvec::ArrayVec;
-
 use crate::Atom;
+
+// TODO: Portal is currently unused. `Interpreter::execute` returns a bare
+// Atom and the roadmap (issues 03-05) has Tick Plans subsume result destinations, so
+// this module is retained pending that work rather than removed.
 
 #[derive(Clone, Debug)]
 pub struct Portal {
@@ -8,9 +10,6 @@ pub struct Portal {
     pub x: usize,
     pub y: usize,
 }
-
-#[derive(Clone, Debug)]
-pub struct Coord(pub usize, pub usize);
 
 impl Portal {
     pub fn new(atom: Atom, x: usize, y: usize) -> Self {

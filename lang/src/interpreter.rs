@@ -1,126 +1,52 @@
-use crate::{Atom, Atoms, Error, Function, Portal, Stack};
-use arrayvec::ArrayVec;
-use tracing::{error, info};
+use crate::{
+    functions::{self, math},
+    Atom, Atoms, Error, Function, Stack,
+};
 
 pub type Args = Stack<16>;
 
 pub struct Interpreter {}
 
+pub struct Context {
+    pub stack: Args,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        Self { stack: Args::new() }
+    }
+}
+
 impl Interpreter {
     #[inline(always)]
-    pub fn execute(atoms: &Atoms) -> Result<Portal, Error> {
-        let mut stack = Stack::new();
-
-        let f = match atoms.first() {
-            Some(Atom::Function(f)) => *f,
-            _ => Function::Empty,
-        };
+    pub fn execute(atoms: &Atoms) -> Result<Atom, Error> {
+        let mut ctx = Context::new();
 
         for atom in atoms.iter().rev() {
             // info!("atoms: {:?}", atoms);
             // info!("stack: {:?}", stack);
             let atom = match atom {
                 Atom::Function(fun) => match fun {
-                    Function::Add => add(&mut stack)?,
-                    Function::Divide => divide(&mut stack)?,
-                    Function::Multiply => multiply(&mut stack)?,
-                    Function::Subtract => subtract(&mut stack)?,
-                    Function::Id => ident(&mut stack)?,
-                    Function::Play => play(&mut stack)?,
+                    Function::Add => math::add(&mut ctx)?,
+                    Function::Divide => math::divide(&mut ctx)?,
+                    Function::Multiply => math::multiply(&mut ctx)?,
+                    Function::Subtract => math::subtract(&mut ctx)?,
+                    Function::Id => functions::ident(&mut ctx)?,
+                    Function::Play => functions::play(&mut ctx)?,
                     _ => Atom::Function(Function::Empty),
                 },
                 atom => *atom,
             };
-            stack.push(atom);
+            ctx.stack.push(atom);
         }
 
-        let portal = Portal::new(stack.pop().into(), 0, 0);
-
-        // Final element in stack is the result
-        // let atom = stack.pop().into();
-        Ok(portal)
+        // Final element in the stack is the result.
+        // TODO(issue 03): the result destination belongs in a Tick Plan rather than
+        // being hardcoded by the caller.
+        // See .scratch/source-playback-engine/issues/03-commit-atomic-cell-results-through-tick-plans.md
+        let atom = ctx.stack.pop().into();
+        Ok(atom)
     }
-}
-
-fn ident(stack: &mut Args) -> Result<Atom, Error> {
-    Ok(stack.pop().into())
-}
-
-#[inline(always)]
-fn add(stack: &mut Args) -> Result<Atom, Error> {
-    let arg_1 = stack.try_pop(2, 0)?;
-    let arg_2 = stack.try_pop(2, 1)?;
-    Ok(add_impl(arg_1, arg_2))
-}
-
-#[inline(always)]
-fn add_impl(a: u8, b: u8) -> Atom {
-    let res: u8 = a + b;
-    Atom::Number(res)
-}
-
-#[inline(always)]
-fn divide(stack: &mut Args) -> Result<Atom, Error> {
-    let arg_1 = stack.try_pop(2, 0)?;
-    let arg_2 = stack.try_pop(2, 1)?;
-
-    Ok(divide_impl(arg_1, arg_2))
-}
-
-#[inline(always)]
-fn divide_impl(a: u8, b: u8) -> Atom {
-    // Divide by zero is zero, which is terribly incorrect
-    if b == 0 {
-        return Atom::Number(0);
-    }
-    let res = a / b;
-    Atom::Number(res)
-}
-
-#[inline(always)]
-fn multiply(stack: &mut Args) -> Result<Atom, Error> {
-    let arg_1 = stack.try_pop(2, 0)?;
-    let arg_2 = stack.try_pop(2, 1)?;
-    Ok(multiply_impl(arg_1, arg_2))
-}
-
-#[inline(always)]
-fn multiply_impl(a: u8, b: u8) -> Atom {
-    error!("a: {:?}", a);
-    error!("b: {:?}", b);
-    let res = a * b;
-    Atom::Number(res)
-}
-
-#[inline(always)]
-fn subtract(stack: &mut Args) -> Result<Atom, Error> {
-    let arg_1 = stack.try_pop(2, 0)?;
-    let arg_2 = stack.try_pop(2, 1)?;
-    Ok(subtract_impl(arg_1, arg_2))
-}
-
-#[inline(always)]
-fn subtract_impl(a: u8, b: u8) -> Atom {
-    // No negative numbers
-    if a < b {
-        return Atom::Number(0);
-    }
-    let res = a - b;
-    Atom::Number(res)
-}
-
-#[inline(always)]
-fn play(stack: &mut Args) -> Result<Atom, Error> {
-    let arg_1 = stack.try_pop(3, 0)?;
-    let arg_2 = stack.try_pop(3, 1)?;
-    let arg_3 = stack.try_pop(3, 2)?;
-    Ok(play_impl(arg_1, arg_2, arg_3))
-}
-
-#[inline(always)]
-fn play_impl(c: u8, v: u8, n: u8) -> Atom {
-    info!("Play: c: {}, v: {}, n: {}", c, v, n);
-    Atom::Number(0)
 }
 
 #[cfg(test)]
@@ -131,8 +57,6 @@ mod test {
     };
     use tracing::{error, info};
 
-    use super::Portal;
-
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
         let parser = Parser::from(&mut exp);
@@ -141,10 +65,10 @@ mod test {
         info!("Parsed: {:?}", parsed);
 
         let result = Interpreter::execute(&parsed);
-        result.unwrap().atom
+        result.unwrap()
     }
 
-    fn interpret_stack(exp: Vec<Atom>) -> Result<Portal, Error> {
+    fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
         let atoms = exp.into_iter().collect();
         Interpreter::execute(&atoms)
     }
@@ -170,6 +94,58 @@ mod test {
 
         let expected = Atom::Number(11);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_add_saturates_at_255_on_overflow() {
+        trace();
+
+        // 0xFF + 0xFF would overflow u8; saturates at 255 rather than panicking
+        let s = String::from("++FFFF");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Exact boundary: 0xFF + 0x01 is the first value that cannot be represented
+        let s = String::from("++FF01");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Just below the boundary still computes normally
+        let s = String::from("++FE01");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        let s = String::from("++FD01");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(254));
+    }
+
+    #[test]
+    fn test_multiply_saturates_at_255_on_overflow() {
+        trace();
+
+        // 0x99 * 0x99 == 153 * 153 == 23409; saturates at 255 rather than panicking
+        let s = String::from("**9999");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        let s = String::from("**FFFF");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Exact boundary: 0x10 * 0x10 == 256 is the first product that cannot be represented
+        let s = String::from("**1010");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        // Largest exactly-representable product is computed, not saturated
+        let s = String::from("**0F11");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(255));
+
+        let s = String::from("**0F10");
+        let result = interpret(s);
+        assert_eq!(result, Atom::Number(240));
     }
 
     #[test]

@@ -1,6 +1,11 @@
 use egui::{EventFilter, Rounding, Vec2};
 
-use crate::{app::App, glyph::CURSOR_VISUALS, opts, style::style};
+use crate::{
+    app::App,
+    glyph::CURSOR_VISUALS,
+    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
+    style::style,
+};
 
 /// ConsoleApp wraps the inner App
 /// ConsoleApp handles the egui presentation concerns
@@ -42,7 +47,7 @@ impl Console {
         cc.egui_ctx.set_fonts(fonts);
 
         Self {
-            app: App::new(opts::DEFAULT_COL_COUNT, opts::DEFAULT_ROW_COUNT),
+            app: App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
         }
     }
 }
@@ -98,11 +103,15 @@ impl eframe::App for Console {
             // ui.style_mut().visuals.widgets.inactive.weak_bg_fill = DEFAULT_VISUAL_BG_COLOR;
             ui.style_mut().visuals.widgets.inactive.rounding = Rounding::default();
 
-            for y in 0..self.app.opts.cols {
+            // The Grid yields the Positions to render and their order, so the
+            // render path states no bound of its own and cannot swap an axis.
+            let grid = self.app.grid;
+
+            for row in grid.rows() {
                 ui.horizontal(|ui| {
-                    for x in 0..self.app.opts.rows {
-                        let glyph = self.app.get(x, y);
-                        let selected = self.app.cursor.is_at(x, y);
+                    for position in row {
+                        let glyph = self.app.get(position);
+                        let selected = self.app.cursor.is_at(position);
 
                         let visuals = glyph.style(selected);
 
@@ -145,7 +154,8 @@ impl eframe::App for Console {
                             .frame(true);
 
                         if ui.add(button).clicked() {
-                            self.app.cursor.select_at(x, y);
+                            // the Grid minted this Position: it needs no re-validating
+                            self.app.select(position);
                         }
                     }
                 });

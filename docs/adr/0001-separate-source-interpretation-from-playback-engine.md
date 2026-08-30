@@ -1,0 +1,3 @@
+# Separate Source interpretation from the Playback Engine
+
+Source interpretation produces a deterministic Tick Plan and commits its Source writes before handing the ordered Play Commands to the Playback Engine. The Playback Engine owns playback timing, lifecycle, and output adapters, but never parses Source or infers musical intent: it dispatches every Play Command exactly as supplied, including repeats, while note lifetime remains under explicit Source control. This seam preserves deterministic interpretation and testing while preventing timing and external-delivery concerns from leaking into the Source module; all-notes-off on Playback stop or adapter disconnect is the sole transport-safety exception.

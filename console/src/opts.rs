@@ -1,34 +1,37 @@
 use egui::FontId;
 
 pub const DEFAULT_FONT_SIZE: f32 = 20.0;
-pub const DEFAULT_GRID_SIZE: f32 = 8.0;
+pub const DEFAULT_MARKER_SPACING: f32 = 8.0;
 
-pub const DEFAULT_COL_COUNT: usize = 2 * (DEFAULT_GRID_SIZE as usize);
-pub const DEFAULT_ROW_COUNT: usize = 2 * (DEFAULT_GRID_SIZE as usize);
-
-pub const DEFAULT_GRID_SELECTED_DOT_SPACING: usize = 2;
+pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 2;
 
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
+///
+/// How the console presents and plays a Source. Nothing in this file is a
+/// Source dimension: column and row counts belong to the Grid, which is the
+/// only thing that states them. `marker_spacing` is a visual rhythm drawn
+/// over the Cells, not a count of them.
+///
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
 pub struct Opts {
     pub bpm: Bpm,
-    pub cols: usize,
     pub cursor_delay: u64,
     pub font_id: FontId,
-    pub grid_selected_dot_spacing: usize,
-    pub grid_size: f32,
+    pub highlight_dot_spacing: usize,
+    pub marker_spacing: f32,
     pub mode: Mode,
-    pub rows: usize,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub enum Mode {
     Insert,
     Command,
 }
 
+#[derive(Clone, Debug)]
 pub struct Bpm(usize);
 
 impl Bpm {
@@ -39,20 +42,20 @@ impl Bpm {
 }
 
 impl Opts {
-    pub fn new(cols: usize, rows: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             bpm: Bpm(20),
-            cols,
             cursor_delay: DEFAULT_CURSOR_DELAY,
             font_id: egui::FontId::monospace(DEFAULT_FONT_SIZE),
-            grid_selected_dot_spacing: DEFAULT_GRID_SELECTED_DOT_SPACING,
-            grid_size: DEFAULT_GRID_SIZE,
+            highlight_dot_spacing: DEFAULT_HIGHLIGHT_DOT_SPACING,
+            marker_spacing: DEFAULT_MARKER_SPACING,
             mode: Mode::Insert,
-            rows,
         }
     }
+}
 
-    pub fn count(&self) -> usize {
-        self.rows * self.cols
+impl Default for Opts {
+    fn default() -> Self {
+        Self::new()
     }
 }

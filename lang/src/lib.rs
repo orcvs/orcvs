@@ -1,6 +1,7 @@
 mod atom;
 mod error;
 mod expression;
+mod functions;
 mod interpreter;
 mod parser;
 mod portal;
@@ -11,7 +12,7 @@ pub use error::{ArgumentError, Error, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::Interpreter;
 pub use parser::Parser;
-pub use portal::{Coord, Portal};
+pub use portal::Portal;
 pub use stack::Stack;
 
 use std::sync::Once;
@@ -20,6 +21,12 @@ pub const EXP_LEN: usize = 32;
 
 #[inline(always)]
 pub fn str_to_num(s: &str) -> Result<u8, Error> {
+    // `from_str_radix` accepts a leading sign, but a Cell holds a hexadecimal
+    // digit and nothing else — a `+` is a Function character, not an operand
+    if s.is_empty() || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(TypeError::Number(s.to_string()).into());
+    }
+
     match u8::from_str_radix(&s, 16) {
         Ok(n) => Ok(n),
         Err(_) => Err(TypeError::Number(s.to_string()).into()),
@@ -273,5 +280,28 @@ fn midi_number_to_note(note: u8) -> Option<&'static str> {
         126 => Some("f9"),
         127 => Some("G9"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::str_to_num;
+
+    #[test]
+    fn test_str_to_num_rejects_a_leading_sign() {
+        // `u8::from_str_radix` accepts a leading `+`, which would let a stray
+        // `+` prepended to an Expression parse as a valid operand instead of
+        // failing: `+++0101` would read its first operand as `+0` == 0
+        assert!(str_to_num("+0").is_err());
+        assert!(str_to_num("+F").is_err());
+        assert!(str_to_num("-1").is_err());
+    }
+
+    #[test]
+    fn test_str_to_num_accepts_hexadecimal_digits() {
+        assert_eq!(str_to_num("00").unwrap(), 0);
+        assert_eq!(str_to_num("0A").unwrap(), 10);
+        assert_eq!(str_to_num("A").unwrap(), 10);
+        assert_eq!(str_to_num("FF").unwrap(), 255);
     }
 }

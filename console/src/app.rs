@@ -1,26 +1,46 @@
 use egui::{Event, Key};
 
-use lang::{Atom, Atoms, Parser, Portal};
-use lang::{Expression, Interpreter};
-use tokio::sync::oneshot;
-
-use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tokio::{task, time};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::glyph::GlyphString;
 use crate::opts::Opts;
 
-use crate::source::{source, Command, Source, SourceCommander};
-use crate::{coord::Coord, cursor::Cursor, glyph::Glyph};
+use crate::cursor::Cursor;
+use crate::grid::{Grid, Position};
+use crate::source::{Command, SourceCommander};
 
+///
+/// The console's editing state: the Grid that is the Source's shape, the
+/// Cursor selecting one of its Positions, and the commander that owns the
+/// Source itself.
+///
+/// Selection names a Position, and only a Grid mints one. A pair outside the
+/// Grid never becomes a Position at all, so `select` has no rejection to make
+/// and cannot silently leave the Cursor on the Cell it was already on and send
+/// the next write there:
+///
+/// ```
+/// use console::grid::Grid;
+///
+/// let grid = Grid::new(16, 16);
+///
+/// // the Grid refuses a pair outside itself, so there is no Position to select
+/// assert_eq!(grid.position(99, 99), None);
+///
+/// // every Position `select` can be handed is one the Grid minted
+/// let position = grid.position(15, 15).expect("inside the grid");
+/// assert_eq!((position.x(), position.y()), (15, 15));
+/// ```
+///
 #[cfg_attr(feature = "persistence", derive(Serialize, Deserialize))]
 pub struct App {
     pub opts: Opts,
     pub cursor: Cursor,
+    pub grid: Grid,
 
     token: Option<CancellationToken>,
     source: SourceCommander,
@@ -28,19 +48,27 @@ pub struct App {
 
 impl App {
     pub fn new(cols: usize, rows: usize) -> Self {
-        assert!(cols > 0, "cols must be greater than zero");
-        assert!(rows > 0, "rows must be greater than zero");
+        let grid = Grid::new(cols, rows);
 
-        let opts = Opts::new(cols, rows);
+        let opts = Opts::new();
 
-        let source = SourceCommander::spawn(opts.count());
+        let source = SourceCommander::spawn(grid);
 
         Self {
-            cursor: Cursor::new(cols, rows, opts.cursor_delay),
+            cursor: Cursor::new(grid.origin(), opts.cursor_delay),
+            grid,
             opts,
             source,
             token: None,
         }
+    }
+
+    ///
+    /// Moves the Cursor to `position`. The Grid minted it, so there is nothing
+    /// left to validate here.
+    ///
+    pub fn select(&mut self, position: Position) {
+        self.cursor.select(position);
     }
 
     ///
@@ -49,49 +77,46 @@ impl App {
     ///
     pub fn write(&mut self, s: &String) {
         let idx = self.cursor_index();
-        let cmd = Command::Set {
-            idx,
-            s: s.to_owned(),
-        };
 
-        self.source.send(cmd);
-        self.cursor.right();
+        match self.source.set(idx, s) {
+            Ok(_) => self.cursor.select(self.grid.right(self.cursor.position())),
+            Err(e) => error!("rejected edit: {e}"),
+        }
     }
 
     fn delete(&mut self) {
         let idx = self.cursor_index();
-        let cmd = Command::Unset { idx };
 
-        self.source.send(cmd);
-        self.cursor.left();
+        match self.source.unset(idx) {
+            Ok(_) => self.cursor.select(self.grid.left(self.cursor.position())),
+            Err(e) => error!("rejected delete: {e}"),
+        }
     }
 
     pub fn cursor_index(&self) -> usize {
-        self.index(self.cursor.coord)
+        self.index(self.cursor.position())
     }
 
     ///
-    /// Convert x, y coordinates to a linear index
-    /// panic if the index is out of bounds
+    /// Convert a Position into a linear index.
+    /// Total: a Position can only come from a Grid, so it is in range for the
+    /// Grid that minted it.
     ///
-    pub fn index(&self, coord: Coord) -> usize {
-        let idx = coord.y * self.opts.cols + coord.x;
-        assert!(
-            idx <= self.opts.cols * self.opts.rows,
-            "index {idx} out of bounds for [{},{}]",
-            coord.x,
-            coord.y,
-        );
-        idx
+    pub fn index(&self, position: Position) -> usize {
+        self.grid.index(position)
     }
 
-    pub fn get(&self, x: usize, y: usize) -> GlyphString {
-        let idx = self.index(Coord::new(x, y));
+    ///
+    /// The GlyphString rendered at `position`. Total: a Position can only come
+    /// from a Grid, so every Position names a Cell that exists.
+    ///
+    pub fn get(&self, position: Position) -> GlyphString {
+        let idx = self.index(position);
 
         let (s, g) = self.source.get(idx);
         match g {
             Some(g) => GlyphString::new(s, g),
-            None => self.terminator(x, y),
+            None => self.terminator(position),
         }
     }
 
@@ -106,22 +131,22 @@ impl App {
                     key: Key::ArrowDown,
                     pressed: true,
                     ..
-                } => self.cursor.down(),
+                } => self.cursor.select(self.grid.down(self.cursor.position())),
                 Event::Key {
                     key: Key::ArrowLeft,
                     pressed: true,
                     ..
-                } => self.cursor.left(),
+                } => self.cursor.select(self.grid.left(self.cursor.position())),
                 Event::Key {
                     key: Key::ArrowRight,
                     pressed: true,
                     ..
-                } => self.cursor.right(),
+                } => self.cursor.select(self.grid.right(self.cursor.position())),
                 Event::Key {
                     key: Key::ArrowUp,
                     pressed: true,
                     ..
-                } => self.cursor.up(),
+                } => self.cursor.select(self.grid.up(self.cursor.position())),
                 Event::Key {
                     key: Key::Backspace,
                     pressed: true,
@@ -158,16 +183,21 @@ impl App {
         repaint
     }
 
-    fn terminator(&self, x: usize, y: usize) -> GlyphString {
-        // Grid markers
-        if x as f32 % self.opts.grid_size == 0.0 && y as f32 % self.opts.grid_size == 0.0 {
+    ///
+    /// The purely visual GlyphString for a Cell the Source leaves empty.
+    ///
+    fn terminator(&self, position: Position) -> GlyphString {
+        let (x, y) = (position.x(), position.y());
+
+        // Markers
+        if x as f32 % self.opts.marker_spacing == 0.0 && y as f32 % self.opts.marker_spacing == 0.0
+        {
             return GlyphString::marker();
         }
 
         // Highlight
-        if self.cursor.coord.in_grid(x, y, self.opts.grid_size) {
-            if x % self.opts.grid_selected_dot_spacing == 0
-                && y % self.opts.grid_selected_dot_spacing == 0
+        if in_marker_block(self.cursor.position(), position, self.opts.marker_spacing) {
+            if x % self.opts.highlight_dot_spacing == 0 && y % self.opts.highlight_dot_spacing == 0
             {
                 return GlyphString::highlight();
             }
@@ -180,6 +210,10 @@ impl App {
         self.token.is_some()
     }
 
+    // TODO(issue 05): unwired — no input reaches it, and it cancels the token
+    // without clearing `self.token`, so `playing()` still reports true afterwards.
+    // Playback lifecycle belongs to the Playback Engine.
+    // See .scratch/source-playback-engine/issues/05-run-live-editing-through-the-playback-engine.md
     fn pause(&mut self) {
         if let Some(token) = &self.token {
             token.cancel();
@@ -229,17 +263,42 @@ impl App {
     }
 }
 
+///
+/// True when `target` falls inside the marker block containing `cursor`.
+/// Purely visual: `spacing` is the marker spacing, not a Source dimension.
+///
+fn in_marker_block(cursor: Position, target: Position, spacing: f32) -> bool {
+    let x = target.x() as i32;
+    let y = target.y() as i32;
+    let cursor_x = cursor.x() as i32;
+    let cursor_y = cursor.y() as i32;
+    // Narrowed first: a spacing between 0 and 1 truncates to zero, and so does
+    // NaN, so this is the value the divisions below actually use
+    let spacing = spacing as i32;
+    assert!(spacing > 0, "marker spacing must be at least one Cell");
+
+    let min_x = ((cursor_x / spacing) * spacing) - 1;
+    let max_x = (1 + (cursor_x / spacing)) * spacing;
+    let min_y = ((cursor_y / spacing) * spacing) - 1;
+    let max_y = (1 + (cursor_y / spacing)) * spacing;
+
+    x > min_x && (x) <= max_x && y > min_y && (y) <= max_y
+}
+
 #[cfg(test)]
 mod test {
 
-    use super::App;
-    use crate::{coord::Coord, glyph::GlyphString, opts::DEFAULT_GRID_SIZE, test::trace};
-    use std::time::Duration;
-    use tokio::time::sleep;
+    use super::{in_marker_block, App};
+    use crate::{
+        glyph::{Glyph, GlyphString},
+        grid::Grid,
+        opts::DEFAULT_MARKER_SPACING,
+        test::trace,
+    };
 
     fn app() -> App {
-        let rows = 1; // * (DEFAULT_GRID_SIZE as usize);
-        let cols = 1 * (DEFAULT_GRID_SIZE as usize);
+        let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
+        let cols = 1 * (DEFAULT_MARKER_SPACING as usize);
 
         App::new(cols, rows)
     }
@@ -251,218 +310,191 @@ mod test {
             }
         }
 
+        /// The one place a test turns coordinates into a Position. It panics
+        /// rather than ignoring a pair the Grid refuses: a test that silently
+        /// wrote to the previously selected Cell would assert nothing about the
+        /// Cell it named.
+        fn select_or_panic(&mut self, x: usize, y: usize) {
+            let position = self
+                .grid
+                .position(x, y)
+                .unwrap_or_else(|| panic!("test position ({x}, {y}) is outside the Grid"));
+            self.cursor.select(position);
+        }
+
         pub fn delete_at(&mut self, x: usize, y: usize) {
-            self.cursor.select_at(x, y);
+            self.select_or_panic(x, y);
             self.delete()
         }
 
         pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
-            self.cursor.select_at(x, y);
+            self.select_or_panic(x, y);
             self.write(&s.to_owned());
-        }
-    }
-
-    impl From<(usize, usize)> for Coord {
-        fn from((x, y): (usize, usize)) -> Self {
-            Coord::new(x, y)
         }
     }
 
     #[tokio::test]
     async fn test_to_idx() {
         trace();
-        let app = App::new(10, 10);
+        let app = App::new(10, 4);
 
-        let coord = Coord::new(0, 0);
-        let idx = app.index(coord);
+        let position = app.grid.position(0, 0).expect("inside the grid");
+        let idx = app.index(position);
         assert_eq!(idx, 0);
 
-        let coord = Coord::new(5, 5);
-        let idx = app.index(coord);
-        assert_eq!(idx, 55);
+        let position = app.grid.position(5, 3).expect("inside the grid");
+        let idx = app.index(position);
+        assert_eq!(idx, 35);
     }
 
     #[tokio::test]
-    #[should_panic(expected = "index 121 out of bounds for [11,11]")]
-    async fn test_to_idx_out_of_bounds() {
+    async fn test_get_reads_the_cell_at_the_position() {
         trace();
-        let app = App::new(10, 10);
 
-        let coord = Coord::new(11, 11);
+        // 4 columns, 2 rows: transposing the axes addresses a different Cell.
+        let mut app = App::new(4, 2);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        let _ = app.index(coord);
+        // written into the second row
+        app.set_at(0, 1, "+");
+        app.set_at(1, 1, "+");
+
+        let written = GlyphString::new(Some("+".to_string()), Glyph::Function);
+        assert_eq!(app.get(at(0, 1)), written);
+        assert_eq!(app.get(at(1, 1)), written);
+
+        // and it is those Cells' content, not another's
+        for row in grid.rows() {
+            for position in row {
+                if position == at(0, 1) || position == at(1, 1) {
+                    continue;
+                }
+                assert_ne!(
+                    app.get(position),
+                    written,
+                    "({}, {}) holds no written Cell",
+                    position.x(),
+                    position.y()
+                );
+            }
+        }
     }
 
-    // #[tokio::test(start_paused = true)]
     #[tokio::test]
-    async fn test_play() {
+    async fn test_write_renders_cell_and_glyph_immediately() {
         trace();
 
         let mut app = app();
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        for (x, c) in "++0101".chars().enumerate() {
-            app.set_at(x, 0, &c.to_string());
-        }
+        app.set_at(0, 0, "+");
+        app.set_at(1, 0, "+");
 
-        let ms = 100;
-        // let exp = app.exp.clone();
-        // App::ticker(ms, exp)
-
-        // App::ticker(ms, exp).await;
-
-        let handle = tokio::spawn(async move {
-            // App::ticker(ms, exp).await;
-        });
-
-        sleep(Duration::from_millis(1)).await;
-        handle.abort();
+        // the accepted edits are observable as soon as write returns
+        let expected = GlyphString::new(Some("+".to_string()), Glyph::Function);
+        assert_eq!(app.get(at(0, 0)), expected);
+        assert_eq!(app.get(at(1, 0)), expected);
     }
 
-    // #[test]
-    // fn test_edit_complex() {
-    //     trace();
+    #[tokio::test]
+    async fn test_select_moves_the_cursor_to_the_position() {
+        trace();
 
-    //     let mut app = app();
+        let mut app = app();
+        let target = app.grid.position(3, 0).expect("inside the grid");
 
-    //     app.set_at(2, 0, "+");
-    //     assert_eq!(app.src.inner, "  +     ");
+        app.select(target);
 
-    //     // `+` is not a function (yet)
-    //     let glyph = app.get_glyph_at((2, 0).into());
-    //     assert_eq!(glyph, Glyph::default());
+        assert_eq!(app.cursor.position(), target);
+    }
 
-    //     app.set_at(3, 0, "+");
-    //     assert_eq!(app.src.inner, "  ++    ");
+    #[tokio::test]
+    async fn test_write_moves_cursor_right() {
+        trace();
 
-    //     // `++` is a function
-    //     // let exp = app.exp.get(2).unwrap();
-    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
+        let mut app = app();
+        app.select_or_panic(0, 0);
 
-    //     let glyph = app.get_glyph_at((2, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
+        app.write(&"+".to_string());
 
-    //     let glyph = app.get_glyph_at((3, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
+        assert_eq!(app.cursor.position(), app.grid.position(1, 0).unwrap());
+    }
 
-    //     let glyph = app.get_glyph_at((4, 0).into());
-    //     assert_eq!(glyph, Glyph::Number);
+    #[tokio::test]
+    async fn test_delete_clears_cell_and_moves_cursor_left() {
+        trace();
 
-    //     app.set_at(4, 0, "0");
-    //     assert_eq!(app.src.inner, "  ++0   ");
+        let mut app = app();
+        let grid = app.grid;
 
-    //     app.set_at(5, 0, "1");
-    //     assert_eq!(app.src.inner, "  ++01  ");
+        app.set_at(0, 0, "+");
+        app.set_at(1, 0, "+");
 
-    //     app.set_at(6, 0, "0");
-    //     assert_eq!(app.src.inner, "  ++010 ");
-    //     app.set_at(7, 0, "2");
-    //     assert_eq!(app.src.inner, "  ++0102");
+        app.delete_at(1, 0);
 
-    //     // let exp = app.exp.get(2).unwrap();
-    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
-    //     // assert_eq!(exp[1], Atom::Number(1));
-    //     // assert_eq!(exp[2], Atom::Number(2));
-
-    //     // Invalidate the function
-    //     app.delete_at(3, 0);
-    //     assert_eq!(app.src.inner, "  + 0102");
-
-    //     // assert!(app.glyphs.iter().all(|g| *g == Glyph::default()));
-
-    //     // Recreate the function
-    //     app.set_at(3, 0, "+");
-    //     assert_eq!(app.src.inner, "  ++0102");
-
-    //     // `++` is a function
-    //     // let exp = app.exp.get(2).unwrap();
-    //     // assert_eq!(exp[0], Atom::Function(Function::Add));
-    // }
-
-    // #[test]
-    // fn test_edit_simple() {
-    //     trace();
-
-    //     let mut app = app();
-
-    //     app.set_at(0, 0, "i");
-    //     assert!(app.src.inner.starts_with('i'));
-
-    //     // `i` is not a function yet
-    //     let glyph = app.get_glyph_at((0, 0).into());
-    //     assert_eq!(glyph, Glyph::default());
-
-    //     // id
-    //     app.set_at(1, 0, "d");
-    //     assert!(app.src.inner.starts_with("id"));
-
-    //     let glyph = app.get_glyph_at((0, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
-
-    //     let glyph = app.get_glyph_at((1, 0).into());
-    //     assert_eq!(glyph, Glyph::Function);
-
-    //     let glyph = app.get_glyph_at((2, 0).into());
-    //     assert_eq!(glyph, Glyph::Char);
-
-    //     // Delete invalidates expression, and resets glyphs
-    //     app.delete_at(0, 0);
-    //     for x in 0..3 {
-    //         let glyph = app.get_glyph_at((x, 0).into());
-    //         assert_eq!(glyph, Glyph::default());
-    //     }
-    // }
+        assert_eq!(app.cursor.position(), grid.position(0, 0).unwrap());
+        assert_eq!(
+            app.get(grid.position(1, 0).expect("inside the grid")),
+            GlyphString::space()
+        );
+    }
 
     #[tokio::test]
     async fn test_terminator() {
         trace();
 
         let mut app = app();
-        app.cursor.select_at(7, 0);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        let g = app.terminator(0, 0);
+        app.select_or_panic(7, 0);
+
+        let g = app.terminator(at(0, 0));
         assert_eq!(g, GlyphString::marker());
 
-        let g = app.terminator(1, 0);
+        let g = app.terminator(at(1, 0));
         assert_eq!(g, GlyphString::space());
 
-        let g = app.terminator(2, 0);
+        let g = app.terminator(at(2, 0));
         assert_eq!(g, GlyphString::highlight());
     }
-}
 
-/*
-    fn source_from(s: &str) -> Source {
-        let mut source = source(10, 1);
+    #[test]
+    fn test_in_marker_block() {
+        trace();
+        let spacing = 8.0;
+        // Rectangular, and large enough to mint every position probed below
+        let grid = Grid::new(64, 60);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        let y = 0;
-
-        for (x, c) in s.chars().enumerate() {
-            source.set_at(x, y, &c.to_string());
-
-            //
-            // I ACTUALLY UNDERSTAND THIS
-            //
-            // Reference to Option (the Map owns the data)
-            //
-            let opt_exp: &Option<std::rc::Rc<std::cell::RefCell<Expression>>> = &source.map[0];
-            // Get Reference to the RC the Option is wrapping
-            // Swap for Option<&RC>
-            opt_exp
-                .as_ref()
-                // and map Option to get the &RC
-                .map(|exp: &std::rc::Rc<std::cell::RefCell<Expression>>| {
-                    // Now we can borrow the actual Exp we are interested in.
-                    let end = exp.borrow().end;
-                    assert_eq!(end, x);
-                });
+        let selected = at(5, 5);
+        assert!(!in_marker_block(selected, at(10, 10), spacing));
+        for x in 0..spacing as usize {
+            for y in 0..spacing as usize {
+                assert!(in_marker_block(selected, at(x, y), spacing));
+            }
         }
 
-        // append '.' to s to fil the source to len 10
-        let l = s.len();
-        let mut expected = String::from(s);
-        expected.push_str(&".".repeat(10 - l));
+        let selected = at(8, 8);
+        assert!(!in_marker_block(selected, at(1, 1), spacing));
 
-        assert_eq!(source.inner, expected);
-        source
+        for x in 8..=16 as usize {
+            for y in 8..=16 as usize {
+                assert!(in_marker_block(selected, at(x, y), spacing));
+            }
+        }
+
+        // Marker block X 5 Y 6
+        let selected = at(42, 51);
+        assert!(!in_marker_block(selected, at(1, 1), spacing));
+        for x in 0..=spacing as usize {
+            for y in 0..=spacing as usize {
+                let x = x + 40;
+                let y = y + 48;
+                assert!(in_marker_block(selected, at(x, y), spacing));
+            }
+        }
     }
-*/
+}

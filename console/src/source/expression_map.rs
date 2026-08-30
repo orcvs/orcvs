@@ -1,5 +1,5 @@
 use std::{
-    ops::{Deref, RangeInclusive},
+    ops::Deref,
     sync::{Arc, RwLock},
 };
 
@@ -38,11 +38,6 @@ impl ExpressionRange {
     fn set_start(&self, start: usize) {
         let mut lock = self.write().unwrap();
         lock.start = start;
-    }
-
-    fn start(&self) -> usize {
-        let lock = self.read().unwrap();
-        lock.start
     }
 
     fn range(&self) -> Range {
@@ -207,7 +202,7 @@ impl ExpressionMap {
 mod test {
 
     use crate::{
-        source::{expression_map::Range, ExpressionMap},
+        source::expression_map::{ExpressionMap, Range},
         test::trace,
     };
 
