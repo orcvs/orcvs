@@ -209,6 +209,10 @@ impl App {
         self.cursor.blink();
     }
 
+    pub fn remaining_cursor_blink_delay(&self) -> Duration {
+        self.cursor.remaining_blink_delay()
+    }
+
     ///
     /// Handles event and returns boolean indicating if repating is required
     ///

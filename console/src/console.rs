@@ -1,12 +1,10 @@
-use std::time::Duration;
-
 use egui::{EventFilter, FontId, Pos2, Rect, Stroke, Vec2};
 
 use crate::{
     app::App,
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
-    opts::{DEFAULT_CURSOR_DELAY, DEFAULT_FONT_SIZE},
+    opts::DEFAULT_FONT_SIZE,
     render_frame::RenderFrame,
     style::{PALETTE, cell_visuals, sector_line, style},
 };
@@ -112,10 +110,6 @@ fn scene_zoom(viewport_size: Vec2, source_view_rect: Rect) -> Option<f32> {
         (viewport_size.x / source_view_rect.width())
             .min(viewport_size.y / source_view_rect.height())
     })
-}
-
-fn next_repaint_after(cursor_delay_ms: u64) -> Duration {
-    Duration::from_millis(cursor_delay_ms)
 }
 
 fn show_diagnostics(
@@ -347,7 +341,7 @@ impl eframe::App for Console {
                     *source_view_rect = source_rect;
                 }
 
-                ctx.request_repaint_after(next_repaint_after(DEFAULT_CURSOR_DELAY));
+                ctx.request_repaint_after(self.app.remaining_cursor_blink_delay());
             });
 
         if self.diagnostics_open {
@@ -364,17 +358,10 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Pos2, Rect, Vec2};
-    use std::time::Duration;
-
     use crate::app::App;
+    use egui::{Pos2, Rect, Vec2};
 
     use super::{frames_per_second, scene_zoom, source_bounds, top_right_source_view};
-
-    #[test]
-    fn idle_repaint_policy_waits_for_the_cursor_blink_deadline() {
-        assert_eq!(super::next_repaint_after(500), Duration::from_millis(500));
-    }
 
     #[test]
     fn diagnostics_derive_frame_rate_and_scene_zoom_from_view_state() {

@@ -34,6 +34,18 @@ test_commented_requirement_is_rejected() {
   assert_rejected "a commented-out required setting"
 }
 
+test_unlocked_check_deny_is_rejected() {
+  make_fixture
+  perl -pi -e 'if (!$done && s/cargo deny --locked check/cargo deny check/) { $done = 1 }' "$fixture_dir/mise.toml"
+  assert_rejected "an unlocked cargo-deny invocation in the repository check task"
+}
+
+test_unlocked_audit_deny_is_rejected() {
+  make_fixture
+  perl -pi -e 'if (/cargo deny --locked check/ && ++$seen == 2) { s/cargo deny --locked check/cargo deny check/ }' "$fixture_dir/mise.toml"
+  assert_rejected "an unlocked cargo-deny invocation in the dependency audit task"
+}
+
 test_dotted_dependency_version_is_rejected() {
   make_fixture
   perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/tokio.workspace = true\ntokio.version = "9.0.0"/) { $done = 1 }' "$fixture_dir/console/Cargo.toml"
@@ -67,6 +79,8 @@ test_invalid_fresh_fixture_is_rejected() {
 
 case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
+  unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
+  unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
@@ -75,6 +89,8 @@ case "${1:-all}" in
   all)
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
+    test_unlocked_check_deny_is_rejected
+    test_unlocked_audit_deny_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected
     test_commented_dependency_table_version_is_rejected

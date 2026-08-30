@@ -41,12 +41,29 @@ assert_toml_table_not_contains() {
   fi
 }
 
+assert_toml_task_contains() {
+  local file="$1"
+  local task="$2"
+  local pattern="$3"
+  if ! awk -v task="$task" -v pattern="$pattern" '
+    /^[[:space:]]*#/ { next }
+    $0 == "[tasks." task "]" { in_task = 1; next }
+    in_task && /^\[.*\]$/ { in_task = 0 }
+    in_task && $0 ~ pattern { found = 1 }
+    END { exit !found }
+  ' "$file"; then
+    echo "expected $file task $task to match: $pattern" >&2
+    exit 1
+  fi
+}
+
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:trunk"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:wasm-pack"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
-assert_contains "$root_dir/mise.toml" 'cargo deny check'
+assert_toml_task_contains "$root_dir/mise.toml" 'check' '^cargo deny --locked check$'
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo deny --locked check$'
 assert_contains "$root_dir/mise.toml" 'cargo tree --workspace --all-features -e features --locked'
 assert_contains "$root_dir/mise.toml" 'cargo clippy --package console --all-targets --features persistence --locked -- -D warnings'
 assert_contains "$root_dir/mise.toml" 'cargo nextest run --package console --all-targets --features persistence --profile ci --locked'

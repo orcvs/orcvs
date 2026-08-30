@@ -30,6 +30,10 @@ impl Cursor {
         }
     }
 
+    pub fn remaining_blink_delay(&self) -> Duration {
+        Duration::from_millis(self.delay_ms).saturating_sub(self.at.elapsed())
+    }
+
     #[inline]
     pub fn position(&self) -> Position {
         self.position
@@ -50,6 +54,8 @@ impl Cursor {
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use crate::{cursor::Cursor, grid::Grid, test::trace};
 
     #[test]
@@ -95,5 +101,19 @@ mod test {
             cursor.select(grid.up(cursor.position()));
         }
         assert_eq!(cursor.position().y(), 0);
+    }
+
+    #[test]
+    fn remaining_blink_delay_uses_the_configured_non_default_delay() {
+        let grid = Grid::new(10, 4);
+        let cursor = Cursor::new(grid.origin(), 1_000);
+
+        let remaining = cursor.remaining_blink_delay();
+
+        assert!(
+            remaining > Duration::from_millis(800),
+            "remaining: {remaining:?}"
+        );
+        assert!(remaining <= Duration::from_millis(1_000));
     }
 }

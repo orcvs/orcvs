@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn signal_breakup_chips_each_fibonacci_band_edge_outward() {
+    fn cursor_bloom_bands_have_cumulative_radii_of_one_two_four_and_seven() {
         use super::{CursorBloom, classify_cursor_bloom};
 
         assert_eq!(classify_cursor_bloom(1, 7), Some(CursorBloom::Core));
