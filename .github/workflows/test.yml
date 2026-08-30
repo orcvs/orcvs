@@ -1,82 +1,49 @@
-name: Test
+name: Rust
+
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - console/**
-      - lang/**
-      - .github/workflows/test.yml
-      - "!**/benches/**"
+    branches: [main]
   pull_request:
-    branches:
-      - main
-    paths:
-      - console/**
-      - lang/**
-      - .github/workflows/test.yml
-      - "!**/benches/**"
+    branches: [main]
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
-defaults:
-  run:
-    shell: bash -l {0}
-
 jobs:
-  build:
+  full-gate:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust 1.78
-        uses: dtolnay/rust-toolchain@1.78.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
-          components: clippy, rustfmt
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - run: mise run check
+      - run: mise run test_persistence
 
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Build
-        run: cargo build --profile ci --workspace
-
-      - name: Build persistence feature
-        run: cargo build --profile ci --package console --features persistence
-
-      - name: Clippy
-        run: cargo clippy --workspace --no-deps --tests
-
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-
+  macos:
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo check --workspace --all-targets --locked
 
-      - name: Setup Rust 1.78
-        uses: dtolnay/rust-toolchain@1.78.0
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Build
-        run: cargo build --profile ci --workspace
-
-      - name: lang
-        run: cargo nextest run --package lang --no-fail-fast
-
-      - name: console
-        run: cargo nextest run --package console --no-fail-fast
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - run: mise run check_wasm
+      - run: mise run test_wasm

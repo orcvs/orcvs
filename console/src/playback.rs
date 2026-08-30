@@ -2,6 +2,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
@@ -186,10 +187,10 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             return None;
         }
         let tick = self.source.execute();
-        if self.connected {
-            if let Err(error) = self.adapter.submit(&tick.plan.play_commands) {
-                self.record_output_failure(error);
-            }
+        if self.connected
+            && let Err(error) = self.adapter.submit(&tick.plan.play_commands)
+        {
+            self.record_output_failure(error);
         }
         Some(tick)
     }
@@ -289,6 +290,7 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
 }
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
             return Err(PlaybackStartError::ZeroTickPeriod);
@@ -333,6 +335,63 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                             period: tick_period,
                         });
                     }
+                }
+            }
+        });
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
+        if tick_period.is_zero() {
+            return Err(PlaybackStartError::ZeroTickPeriod);
+        }
+        if lock_recover(&self.inner).playing {
+            return Ok(());
+        }
+
+        let (generation, cancellation, weak) = {
+            let mut inner = lock_recover(&self.inner);
+            if inner.playing {
+                return Ok(());
+            }
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.playing = true;
+            let cancellation = CancellationToken::new();
+            inner.cancellation = Some(cancellation.clone());
+            (inner.generation, cancellation, Arc::downgrade(&self.inner))
+        };
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut guard = ClockRunGuard::new(weak.clone(), generation);
+            let epoch = web_time::Instant::now();
+            let mut scheduled_at = Duration::ZERO;
+
+            loop {
+                if cancellation.is_cancelled() {
+                    guard.finish();
+                    break;
+                }
+
+                let observed_at = epoch.elapsed();
+                let Some(inner) = weak.upgrade() else { break };
+                lock_recover(&inner).tick(
+                    generation,
+                    TickTiming {
+                        scheduled_at,
+                        observed_at,
+                        period: tick_period,
+                    },
+                );
+
+                scheduled_at = scheduled_at.saturating_add(tick_period);
+                let delay = scheduled_at.saturating_sub(epoch.elapsed());
+                if !delay.is_zero() {
+                    let delay_ms = delay
+                        .as_nanos()
+                        .div_ceil(1_000_000)
+                        .clamp(1, u128::from(u32::MAX)) as u32;
+                    gloo_timers::future::TimeoutFuture::new(delay_ms).await;
                 }
             }
         });
@@ -390,8 +449,10 @@ impl<A: OutputAdapter> Drop for PlaybackEngine<A> {
 mod tests {
     use super::*;
     use crate::grid::Grid;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::{mpsc, Condvar};
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::sync::{Condvar, atomic::AtomicBool, mpsc};
+    #[cfg(target_arch = "wasm32")]
+    use tokio::time;
 
     #[derive(Default)]
     struct RecordingAdapter {
@@ -423,6 +484,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Default)]
     struct BlockingOutputState {
         delivery_started: bool,
@@ -430,11 +492,13 @@ mod tests {
         all_notes_off_count: usize,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Clone, Default)]
     struct BlockingOutputControl {
         state: Arc<(Mutex<BlockingOutputState>, Condvar)>,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl BlockingOutputControl {
         fn wait_for_delivery(&self) {
             let (lock, changed) = &*self.state;
@@ -455,14 +519,17 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     struct BlockingOutputAdapter {
         control: BlockingOutputControl,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     struct PanickingOutputAdapter {
         delivery_started: Arc<AtomicBool>,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for PanickingOutputAdapter {
         fn submit(&mut self, _commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
             self.delivery_started.store(true, Ordering::SeqCst);
@@ -474,6 +541,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for BlockingOutputAdapter {
         fn submit(&mut self, _commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
             let (lock, changed) = &*self.control.state;
@@ -765,6 +833,7 @@ mod tests {
         assert_eq!(adapter.all_notes_off_count(), 1);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_the_final_handle_during_a_tick_completes_playback_safety() {
         let source = SourceCommander::new(Grid::new(10, 1));
@@ -793,6 +862,7 @@ mod tests {
         assert_eq!(control.all_notes_off_count(), 1);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn clock_failure_remains_observable_after_output_panics() {
         let source = SourceCommander::new(Grid::new(10, 1));

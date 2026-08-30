@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Review"
+  short_description: "Review repository Rust changes without edits"
+  default_prompt: "Use $rust-review to review these Rust changes without editing them."

@@ -1,23 +1,18 @@
 [package]
 name = "lang"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
 
-[features]
-benchmark = []
+[lints]
+workspace = true
 
 [dependencies]
-arrayvec = { version = "0.7.4", default-features = false }
-# serde = { version = "1.0.203", default-features = false }
-# miette = { version = "7.2.0", features = ["fancy"] }
-# miette = { version = "7.2.0" }
-thiserror = "1.0.64"
-tracing = { version = "0.1.40", default-features = false }
+arrayvec.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = [
     "fmt",
 ], default-features = false }
-criterion = { version = "0.5.1", default-features = false, feature = [
-    "benchmark",
-] }
-
-[dev-dependencies]

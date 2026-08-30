@@ -1,12 +1,12 @@
 use egui::{Color32, CornerRadius, EventFilter, FontId, Vec2};
 
 use crate::{
+    Color,
     app::App,
     glyph::{Glyph, GlyphString},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
     style::style,
-    Color,
 };
 
 const DEFAULT_GLYPH_FONT_COLOR: Color32 = Color::rgb(164, 166, 169).build();
@@ -102,7 +102,6 @@ impl Console {
         cc.egui_ctx.set_fonts(fonts);
 
         let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         app.refresh_midi_destinations();
         Self {
             app,
@@ -112,11 +111,10 @@ impl Console {
 }
 
 impl eframe::App for Console {
-    /// Called by the frame work to save state before shutdown.
+    // Called by the framework to save state before shutdown.
     // fn save(&mut self, storage: &mut dyn eframe::Storage) {
     //     eframe::set_value(storage, eframe::APP_KEY, self);
     // }
-
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = root.ctx().clone();

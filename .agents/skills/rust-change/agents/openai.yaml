@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Change"
+  short_description: "Implement and verify repository Rust changes"
+  default_prompt: "Use $rust-change to implement and verify this Rust change."

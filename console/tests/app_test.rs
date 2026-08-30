@@ -1,7 +1,5 @@
 pub mod common;
 
-use console::app::App;
-
 // #[test]
 // fn test_terminator() {
 //     common::trace();

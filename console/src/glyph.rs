@@ -79,7 +79,7 @@ impl Glyph {
     pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
         tokens
             .into_iter()
-            .flat_map(|t| iter::repeat(Glyph::from(t)).take(t.len()))
+            .flat_map(|t| iter::repeat_n(Glyph::from(t), t.len()))
             .collect()
     }
 
@@ -154,10 +154,10 @@ mod test {
 
         let b = "+".as_bytes();
         let t = Glyph::is_terminator_bytes(b[0]);
-        assert!(t == false);
+        assert!(!t);
 
         let b = "!".as_bytes();
         let t = Glyph::is_terminator_bytes(b[0]);
-        assert!(t == false);
+        assert!(!t);
     }
 }

@@ -1,6 +1,13 @@
 
 
 
+# Pinned for reproducible local and CI gates. See docs/tooling.md.
+[tools]
+"cargo:cargo-nextest" = "0.9.137"
+"cargo:cargo-deny" = "0.20.2"
+"cargo:trunk" = "0.21.14"
+"cargo:wasm-pack" = "0.15.0"
+
 [tasks.run]
 alias = 'r'
 description = "run"
@@ -22,3 +29,44 @@ alias = 'tl'
 description = "Lang tests"
 env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
+
+[tasks.check]
+description = "Full repository verification gate"
+run = '''
+bash scripts/check-tooling-contract.sh
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo nextest run --workspace --profile ci --locked
+cargo test --workspace --doc --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo deny check
+'''
+
+[tasks.test_persistence]
+description = "Test the console persistence feature"
+run = '''
+cargo clippy --package console --all-targets --features persistence --locked -- -D warnings
+cargo nextest run --package console --all-targets --features persistence --profile ci --locked
+cargo test --package console --doc --features persistence --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --features persistence --locked
+'''
+
+[tasks.check_wasm]
+description = "Check and build the WASM application"
+run = '''
+cargo check --package console --lib --target wasm32-unknown-unknown --features persistence --locked
+cd console
+env -u NO_COLOR trunk build --locked
+'''
+
+[tasks.test_wasm]
+description = "Run browser regressions in headless Firefox"
+run = 'wasm-pack test --headless --firefox console --test wasm'
+
+[tasks.audit_deps]
+description = "Audit advisories, licenses, sources, and duplicate dependencies"
+run = '''
+cargo tree --workspace --all-features -e features --locked
+cargo deny check
+'''

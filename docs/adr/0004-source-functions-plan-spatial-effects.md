@@ -1,0 +1,3 @@
+# Source Functions plan spatial effects
+
+Orcvs adapts Orca's spatial read, write, and generation capabilities as Source Functions rather than reducing every Function to its explicit operands. A Source Function reads Cells only from the current Source Snapshot and contributes valid-position writes to the Tick Plan, so overlapping writes retain Source-order resolution and no Expression observes another Expression's changes until the following Tick. Source-reading Functions may be nested, while Source-writing and external-output Functions are valid only at an Expression root and produce effects rather than values.

@@ -1,9 +1,9 @@
 pub mod error;
 mod expression_map;
-pub mod source;
+mod model;
 use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;
-pub use source::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
+pub use model::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]

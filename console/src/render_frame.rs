@@ -85,12 +85,16 @@ impl RenderFrame {
 
 fn background_glyph(position: Position, selected: Position, config: RenderFrameConfig) -> Glyph {
     let spacing = config.marker_spacing.cells();
-    if position.x() % spacing == 0 && position.y() % spacing == 0 {
+    if position.x().is_multiple_of(spacing) && position.y().is_multiple_of(spacing) {
         return Glyph::Marker;
     }
     if in_marker_block(selected, position, config.marker_spacing)
-        && position.x() % config.highlight_dot_spacing.cells() == 0
-        && position.y() % config.highlight_dot_spacing.cells() == 0
+        && position
+            .x()
+            .is_multiple_of(config.highlight_dot_spacing.cells())
+        && position
+            .y()
+            .is_multiple_of(config.highlight_dot_spacing.cells())
     {
         return Glyph::Highlight;
     }

@@ -1,6 +1,6 @@
 use lang::{
-    Atom, Atoms, Error as LangError, Expression, Interpretation, Interpreter, Parser, SyntaxError,
-    EXP_LEN,
+    Atom, Atoms, EXP_LEN, Error as LangError, Expression, Interpretation, Interpreter, Parser,
+    SyntaxError,
 };
 use std::{collections::BTreeMap, fmt};
 use tracing::debug;
@@ -8,8 +8,8 @@ use tracing::debug;
 use crate::glyph::Glyph;
 use crate::grid::Grid;
 
-use super::expression_map::{ExpressionMap, Range};
 use super::SourceError;
+use super::expression_map::{ExpressionMap, Range};
 
 pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
@@ -393,6 +393,10 @@ impl Source {
                 }
             };
             let encoded = result.to_string();
+            assert!(
+                encoded.is_ascii(),
+                "Interpreter Cell results must preserve the Source ASCII invariant"
+            );
             let origin = self
                 .grid
                 .position_at(start)
@@ -579,7 +583,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::Grid,
-        source::{source::Cell, PlayCommand, Source, SourceError},
+        source::{Cell, PlayCommand, Source, SourceError},
         test::trace,
     };
 

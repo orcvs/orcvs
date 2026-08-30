@@ -7,7 +7,7 @@ mod parser;
 mod portal;
 mod stack;
 
-pub use atom::{to_atom_note, to_atom_num, Atom, Atoms, Function};
+pub use atom::{Atom, Atoms, Function, to_atom_note, to_atom_num};
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
@@ -34,7 +34,7 @@ pub fn str_to_num(s: &str) -> Result<u8, Error> {
         return Err(TypeError::Number(s.to_string()).into());
     }
 
-    match u8::from_str_radix(&s, 16) {
+    match u8::from_str_radix(s, 16) {
         Ok(n) => Ok(n),
         Err(_) => Err(TypeError::Number(s.to_string()).into()),
     }

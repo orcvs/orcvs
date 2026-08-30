@@ -71,12 +71,7 @@ impl ExpressionMap {
     }
 
     pub fn get(&self, idx: usize) -> Option<Range> {
-        if let Some(exp) = &self.inner[idx] {
-            // let exp = *exp.borrow();
-            Some(exp.range())
-        } else {
-            None
-        }
+        self.inner[idx].as_ref().map(ExpressionRange::range)
     }
 
     pub fn set(&mut self, idx: usize) {
@@ -174,9 +169,9 @@ impl ExpressionMap {
         match (lft_exp, rgt_exp) {
             (Some(lft_exp), Some(ref mut rgt_exp)) => {
                 if glyph {
-                    self.join_exp(idx, &lft_exp, &rgt_exp);
+                    self.join_exp(idx, &lft_exp, rgt_exp);
                 } else {
-                    self.split_exp(lft_idx, &lft_exp, rgt_idx, &rgt_exp);
+                    self.split_exp(lft_idx, &lft_exp, rgt_idx, rgt_exp);
                 }
             }
             (Some(lft_exp), None) => {
@@ -224,7 +219,7 @@ mod test {
 
         fn assert_none(&self, idx: usize) {
             let exp = self.get(idx).is_none();
-            assert_eq!(exp, true);
+            assert!(exp);
         }
     }
 

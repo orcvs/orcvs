@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Unsafe"
+  short_description: "Verify unsafe Rust boundaries and invariants"
+  default_prompt: "Use $rust-unsafe to verify this unsafe Rust change and its invariants."

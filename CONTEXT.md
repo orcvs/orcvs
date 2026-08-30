@@ -5,7 +5,7 @@ Orcvs is a grid-based environment for composing and executing compact musical ex
 ## Language
 
 **Source**:
-The rectangular grid that holds the current Orca program as Cells.
+The rectangular grid that holds the current Orcvs program as Cells.
 _Avoid_: Document, buffer
 
 **Grid**:
@@ -20,16 +20,36 @@ _Avoid_: Coord, coordinate, point
 One position in the Source, containing exactly one single-byte ASCII character; a space represents an empty Cell.
 _Avoid_: Character slot, text position
 
+**Source Snapshot**:
+The complete Source observed for one Tick. It is simultaneously an executable Orcvs program and the accumulated output of all preceding Ticks, so no persistent language state exists outside it.
+_Avoid_: Program state, runtime state
+
 **Expression**:
-A contiguous horizontal run of occupied Cells in one Source row that is parsed and evaluated as one Orca language expression. An Expression never wraps across rows.
+A contiguous horizontal run of occupied Cells in one Source row that is parsed and evaluated as one Orcvs language expression. An Expression never wraps across rows.
 _Avoid_: Formula, statement
+
+**Function**:
+A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility.
+_Avoid_: Operator, command
+
+**Source Function**:
+A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond the ordinary result position. Its reads observe the current Source Snapshot and its changes become part of the Tick Plan.
+_Avoid_: Spatial operator, grid function
+
+**Bang**:
+A pulse Atom that is distinct from every Number and may be accepted or returned by a Function.
+_Avoid_: Boolean, trigger flag
+
+**Comment**:
+Source text beginning with `#` and continuing to the end of its row, excluded from Expressions and evaluation.
+_Avoid_: Comment Function, halted Expression
 
 **Tick**:
 One playback step that evaluates every Expression from the same Source snapshot and commits all resulting Cell changes atomically. When results target the same Cell, the result from the later Expression in Source order wins; results outside the Source are discarded.
 _Avoid_: Cycle, frame
 
 **Tick Plan**:
-The complete deterministic outcome of interpreting one Source snapshot for a Tick, including Source writes, ordered Play Commands, and diagnostics.
+The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including Source writes, ordered Play Commands, and diagnostics.
 _Avoid_: Play sequence, command batch
 
 **Playback**:

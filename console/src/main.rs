@@ -1,13 +1,16 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Once;
 
+#[cfg(not(target_arch = "wasm32"))]
 static INIT: Once = Once::new();
 
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [800.0, 600.0];
 pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
 
+#[cfg(not(target_arch = "wasm32"))]
 fn trace() {
     INIT.call_once(|| {
         use tracing_subscriber::FmtSubscriber;
@@ -53,17 +56,25 @@ async fn main() -> eframe::Result {
 // When compiling to web using trunk:
 #[cfg(target_arch = "wasm32")]
 fn main() {
+    use console::console::Console;
+    use wasm_bindgen::JsCast;
+
     // Redirect `log` message to `console.log` and friends:
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
     let web_options = eframe::WebOptions::default();
+    let canvas = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("the_canvas_id"))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+        .expect("the_canvas_id is an HTML canvas");
 
     wasm_bindgen_futures::spawn_local(async {
         let start_result = eframe::WebRunner::new()
             .start(
-                "the_canvas_id",
+                canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(eframe_template::TemplateApp::new(cc)))),
+                Box::new(|cc| Ok(Box::new(Console::new(cc)))),
             )
             .await;
 

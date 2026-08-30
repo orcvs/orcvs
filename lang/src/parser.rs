@@ -1,6 +1,3 @@
-use crate::atom::to_atom_char;
-use crate::to_atom_note;
-use crate::to_atom_num;
 use crate::Atom;
 use crate::Atoms;
 use crate::Error;
@@ -9,6 +6,9 @@ use crate::Function;
 use crate::SyntaxError;
 use crate::Token;
 use crate::Tokens;
+use crate::atom::to_atom_char;
+use crate::to_atom_note;
+use crate::to_atom_num;
 use std::ops::Not;
 
 pub struct Parser<'a> {
@@ -195,7 +195,7 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use crate::{parser::Parser, trace, Atom, Atoms, Error, Function, SyntaxError, TypeError};
+    use crate::{Atom, Atoms, Error, Function, SyntaxError, TypeError, parser::Parser, trace};
     use arrayvec::ArrayVec;
     use tracing::error;
 

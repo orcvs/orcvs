@@ -1,4 +1,4 @@
-use crate::{char_to_num, ArgumentError, Atom, Error, Function, SyntaxError, TypeError};
+use crate::{ArgumentError, Atom, Error, Function, SyntaxError, TypeError, char_to_num};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
@@ -35,6 +35,12 @@ impl<const N: usize> Stack<N> {
         self.pop()
             .try_into()
             .map_err(|err| map_arity(err, expected, count))
+    }
+}
+
+impl<const N: usize> Default for Stack<N> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -114,6 +120,6 @@ impl TryFrom<&str> for Function {
 fn map_arity(err: Error, expected: usize, found: usize) -> Error {
     match err {
         Error::Argument(ArgumentError::Expected) => ArgumentError::Arity { expected, found }.into(),
-        _ => err.into(),
+        _ => err,
     }
 }

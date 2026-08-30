@@ -1,0 +1,68 @@
+#![cfg(target_arch = "wasm32")]
+
+use console::app::App;
+use console::grid::Grid;
+use console::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
+use console::source::SourceCommander;
+use gloo_timers::future::TimeoutFuture;
+use std::time::Duration;
+use wasm_bindgen_test::wasm_bindgen_test;
+
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+fn write(source: &SourceCommander, content: &str) {
+    for (index, cell) in content.chars().enumerate() {
+        source
+            .set(index, &cell.to_string())
+            .expect("valid Source cell");
+    }
+}
+
+#[wasm_bindgen_test]
+fn web_app_constructs_and_advances_the_cursor_without_panicking() {
+    let mut app = App::new(2, 1);
+
+    app.advance_cursor_blink();
+
+    assert_eq!(app.render_frame().rows().len(), 1);
+}
+
+#[wasm_bindgen_test(async)]
+async fn web_playback_starts_and_dispatches_ticks_without_a_tokio_runtime() {
+    let source = SourceCommander::new(Grid::new(10, 1));
+    write(&source, ">>07FC4");
+    let adapter = InMemoryOutputAdapter::default();
+    let engine = PlaybackEngine::new(source, adapter.clone());
+
+    engine
+        .start(Duration::from_millis(10))
+        .expect("browser playback does not require a Tokio runtime");
+    TimeoutFuture::new(20).await;
+
+    assert_eq!(engine.observe().state, PlaybackState::Playing);
+    assert!(!adapter.command_lists().is_empty());
+    engine.stop();
+}
+
+#[wasm_bindgen_test(async)]
+async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
+    let source = SourceCommander::new(Grid::new(10, 1));
+    write(&source, ">>07FC4");
+    let adapter = InMemoryOutputAdapter::default();
+    let engine = PlaybackEngine::new(source, adapter.clone());
+
+    engine.start(Duration::from_millis(10)).unwrap();
+    TimeoutFuture::new(20).await;
+    engine.stop();
+    let stopped_count = adapter.command_lists().len();
+
+    TimeoutFuture::new(20).await;
+    assert_eq!(engine.observe().state, PlaybackState::Stopped);
+    assert_eq!(adapter.command_lists().len(), stopped_count);
+
+    engine.start(Duration::from_millis(10)).unwrap();
+    TimeoutFuture::new(20).await;
+    assert_eq!(engine.observe().state, PlaybackState::Playing);
+    assert!(adapter.command_lists().len() > stopped_count);
+    engine.stop();
+}

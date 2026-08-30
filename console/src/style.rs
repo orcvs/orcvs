@@ -3,11 +3,12 @@
 use eframe::egui;
 
 use egui::{
+    Color32, CornerRadius, Margin, Stroke, Style, Vec2, Visuals,
     epaint::Shadow,
     style::{
         HandleShape, Interaction, NumericColorSpace, Selection, Spacing, WidgetVisuals, Widgets,
     },
-    vec2, Color32, CornerRadius, Margin, Stroke, Style, Vec2, Visuals,
+    vec2,
 };
 
 use crate::Color;
@@ -234,7 +235,7 @@ pub fn style() -> Style {
             numeric_color_space: NumericColorSpace::GammaByte,
             ..Visuals::dark()
         },
-        animation_time: 0.0833333358168602,
+        animation_time: 0.083_333_336,
         explanation_tooltips: false,
         ..Default::default()
     }
