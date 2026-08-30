@@ -20,8 +20,8 @@ pub struct Parser<'a> {
 
 ///
 /// #[inline(always)]
-/// Inline on take_language_unit and inner_take improves performance by 5%
-/// Additional inlines do not improve performance
+/// Inline on take_language_unit and inner_take improves performance.
+/// Additional inlines do not improve performance.
 ///
 impl<'a> Parser<'a> {
     pub fn from(source: &'a mut str) -> Self {
