@@ -1,6 +1,5 @@
 use lang::{
-    Atom, Atoms, EXP_LEN, Error as LangError, Expression, Interpretation, Interpreter, Parser,
-    SyntaxError,
+    Atom, Atoms, EXP_LEN, Error as LangError, Interpretation, Interpreter, Parser, SyntaxError,
 };
 use std::{collections::BTreeMap, fmt};
 use tracing::debug;
@@ -9,7 +8,7 @@ use crate::glyph::Glyph;
 use crate::grid::Grid;
 
 use super::SourceError;
-use super::expression_map::{ExpressionMap, Range};
+use super::language_map::LanguageMap;
 
 pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
@@ -79,10 +78,7 @@ pub struct TickResult {
 pub struct Source {
     grid: Grid,
     inner: String,
-    map: ExpressionMap,
-    glyphs: Vec<Option<Glyph>>,
-    parsed: Vec<Option<Atoms>>,
-    diagnostics: Vec<Option<Diagnostic>>,
+    language_map: LanguageMap,
 }
 
 #[cfg(feature = "persistence")]
@@ -151,19 +147,12 @@ impl Source {
     pub fn new(grid: Grid) -> Self {
         let size = grid.count();
         let inner = SPACE.to_string().repeat(size);
-        let map = ExpressionMap::build(grid, inner.as_bytes());
-
-        let glyphs = vec![None; size];
-        let parsed = vec![None; size];
-        let diagnostics = vec![None; size];
+        let language_map = LanguageMap::build(grid, inner.as_bytes());
 
         Self {
             grid,
             inner,
-            map,
-            glyphs,
-            parsed,
-            diagnostics,
+            language_map,
         }
     }
 
@@ -204,12 +193,11 @@ impl Source {
     ///
     fn edit(&mut self, idx: usize, byte: u8) -> Change {
         let before_cells = self.inner.as_bytes().to_vec();
-        let before_glyphs = self.glyphs.clone();
 
         self.set_source(idx, byte);
-        self.rebuild_derived_state();
+        let before_language_map = self.rebuild_derived_state();
 
-        let cells = self.changed_cells(&before_cells, &before_glyphs);
+        let cells = self.changed_cells(&before_cells, &before_language_map);
 
         Change { idx, cells }
     }
@@ -249,8 +237,9 @@ impl Source {
             return Ok(());
         }
 
-        let range = ExpressionMap::prospective_range(self.grid, self.inner.as_bytes(), idx, byte)
-            .expect("an occupied prospective Cell belongs to one Expression");
+        let range =
+            LanguageMap::prospective_expression_range(self.grid, self.inner.as_bytes(), idx, byte)
+                .expect("an occupied prospective Cell belongs to one Expression");
         let start = range.start();
         let end = range.end();
 
@@ -269,27 +258,6 @@ impl Source {
         }
     }
 
-    ///
-    /// The unique Expression start positions within `from..=to`.
-    ///
-    fn expression_starts(&self, from: usize, to: usize) -> Vec<usize> {
-        let mut starts = Vec::new();
-
-        let mut i = from;
-        while i <= to {
-            if let Some(range) = self.map.get(i) {
-                if !starts.contains(&range.start()) {
-                    starts.push(range.start());
-                }
-                i = range.end() + 1;
-            } else {
-                i += 1;
-            }
-        }
-
-        starts
-    }
-
     pub fn get(&self, idx: usize) -> Option<String> {
         let b = *self.inner.as_bytes().get(idx)?;
 
@@ -306,7 +274,7 @@ impl Source {
             .map(|(idx, byte)| Cell {
                 idx,
                 content: (byte != SPACE_BYTE).then_some(byte as char),
-                glyph: self.glyphs[idx],
+                glyph: self.language_map.glyph_at(idx),
             })
             .collect()
     }
@@ -315,7 +283,7 @@ impl Source {
     /// Problems with Expressions in the current revision, in Source order.
     ///
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        self.diagnostics.iter().flatten().cloned().collect()
+        self.language_map.diagnostics().cloned().collect()
     }
 
     ///
@@ -355,14 +323,15 @@ impl Source {
         let mut play_commands = Vec::new();
         let mut diagnostics = Vec::new();
 
-        for (start, atoms) in self.parsed.iter().enumerate() {
-            let Some(atoms) = atoms.as_ref().filter(|atoms| Self::is_computation(atoms)) else {
+        for expression in self.language_map.expressions() {
+            let Some(atoms) = expression
+                .atoms()
+                .filter(|atoms| Self::is_computation(atoms))
+            else {
                 continue;
             };
-            let range = self
-                .map
-                .get(start)
-                .expect("parsed Expressions have a Source range");
+            let range = expression.range();
+            let start = range.start();
 
             let result = match Interpreter::execute(atoms) {
                 Ok(Interpretation::Cell(Atom::Empty)) => continue,
@@ -429,52 +398,37 @@ impl Source {
 
     fn commit_tick(&mut self, plan: &TickPlan) -> Vec<Cell> {
         let before_cells = self.inner.as_bytes().to_vec();
-        let before_glyphs = self.glyphs.clone();
 
         // Commit every planned Cell before rebuilding any derived state.
         for write in &plan.writes {
             self.set_source(write.idx, write.content as u8);
         }
-        self.rebuild_derived_state();
+        let before_language_map = self.rebuild_derived_state();
 
-        self.changed_cells(&before_cells, &before_glyphs)
+        self.changed_cells(&before_cells, &before_language_map)
     }
 
-    fn changed_cells(&self, before_cells: &[u8], before_glyphs: &[Option<Glyph>]) -> Vec<Cell> {
+    fn changed_cells(&self, before_cells: &[u8], before_language_map: &LanguageMap) -> Vec<Cell> {
         self.inner
             .bytes()
             .enumerate()
             .filter(|&(idx, byte)| {
-                byte != before_cells[idx] || self.glyphs[idx] != before_glyphs[idx]
+                byte != before_cells[idx]
+                    || self
+                        .language_map
+                        .presentation_differs_at(before_language_map, idx)
             })
             .map(|(idx, byte)| Cell {
                 idx,
                 content: (byte != SPACE_BYTE).then_some(byte as char),
-                glyph: self.glyphs[idx],
+                glyph: self.language_map.glyph_at(idx),
             })
             .collect()
     }
 
-    fn rebuild_derived_state(&mut self) {
-        self.map = ExpressionMap::build(self.grid, self.inner.as_bytes());
-        self.glyphs.fill(None);
-        self.parsed.fill(None);
-        self.diagnostics.fill(None);
-
-        for start in self.expression_starts(0, self.grid.count() - 1) {
-            let range = self.map.get(start).expect("Expression starts have a range");
-            self.parse_range(range);
-        }
-        for (idx, byte) in self.inner.bytes().enumerate() {
-            if byte != SPACE_BYTE && self.glyphs[idx].is_none() {
-                self.glyphs[idx] = Some(Glyph::Char);
-            }
-        }
-    }
-
-    fn get_exp_src(&self, range: Range) -> String {
-        // Ranges come from the ExpressionMap, which only holds in-bounds indices
-        self.inner[range.start()..=range.end()].to_owned()
+    fn rebuild_derived_state(&mut self) -> LanguageMap {
+        let language_map = LanguageMap::build(self.grid, self.inner.as_bytes());
+        std::mem::replace(&mut self.language_map, language_map)
     }
 
     ///
@@ -490,65 +444,8 @@ impl Source {
         }
     }
 
-    fn parse_range(&mut self, exp_range: Range) {
-        let start = exp_range.start();
-        let end = exp_range.end();
-        let mut src = self.get_exp_src(exp_range);
-        let mut strict_src = src.clone();
-        let diagnostic = Parser::from(&mut strict_src)
-            .try_parse()
-            .err()
-            .map(|error| Diagnostic {
-                start,
-                end: start + src.len() - 1,
-                message: error.to_string(),
-            });
-        let parsed = Parser::from(&mut src).parse();
-
-        let mut parsed: Expression = match parsed {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                self.parsed[start] = None;
-                self.diagnostics[start] = Some(Diagnostic {
-                    start,
-                    end,
-                    message: error.to_string(),
-                });
-                self.glyphs[start..=end].fill(None);
-                return;
-            }
-        };
-
-        let glyphs = Glyph::to_glyphs(parsed.take_tokens());
-        let atoms = parsed.take_atoms();
-
-        self.parsed[start] = Some(atoms);
-        self.diagnostics[start] = diagnostic;
-        self.glyphs[start..=end].fill(None);
-        self.set_glyphs(start, glyphs);
-    }
-
     pub fn get_glyph_at(&self, idx: usize) -> Option<Glyph> {
-        self.glyphs.get(idx).copied().flatten()
-    }
-
-    fn set_glyphs(&mut self, start: usize, glyphs: Vec<Glyph>) {
-        for (i, g) in glyphs.iter().enumerate() {
-            let idx = start + i;
-            // Operand-slot hints can extend beyond their Expression, but an
-            // Expression is horizontal: hints stop at the same row edge.
-            if !self.indices_share_a_row(start, idx) {
-                break;
-            }
-            self.glyphs[idx] = Some(*g);
-        }
-    }
-
-    fn indices_share_a_row(&self, first: usize, second: usize) -> bool {
-        match (self.grid.position_at(first), self.grid.position_at(second)) {
-            (Some(first), Some(second)) => first.y() == second.y(),
-            _ => false,
-        }
+        self.language_map.glyph_at(idx)
     }
 }
 
