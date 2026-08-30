@@ -137,7 +137,7 @@ One interpreted MIDI instruction emitted by a Play Function for delivery during 
 _Avoid_: Performance command, MIDI event
 
 **Play Function**:
-The terminal `!> channel velocity note` Function that interprets a hexadecimal Number channel, a hexadecimal Number velocity, and a Note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
+The terminal `!> channel velocity note` Function that interprets a hexadecimal Number channel `00`–`0F`, a hexadecimal Number velocity `00`–`7F`, and a Note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
 _Avoid_: Note output, MIDI Function
 
 **Timed Play Function**:

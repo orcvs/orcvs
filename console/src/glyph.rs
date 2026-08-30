@@ -90,8 +90,7 @@ impl fmt::Display for GlyphString {
 }
 
 impl Glyph {
-    pub(crate) fn semantic(self, content: Option<char>) -> SemanticGlyph {
-        let _ = content;
+    pub(crate) fn semantic(self) -> SemanticGlyph {
         match self {
             Glyph::Bang => SemanticGlyph::Bang,
             Glyph::Char => SemanticGlyph::Char,
@@ -170,16 +169,13 @@ mod test {
 
     #[test]
     fn a_complete_bang_has_its_own_semantic_paint_classification() {
-        assert_eq!(Glyph::Bang.semantic(Some('*')), super::SemanticGlyph::Bang);
-        assert_eq!(
-            Glyph::Function.semantic(Some('+')),
-            super::SemanticGlyph::Function
-        );
+        assert_eq!(Glyph::Bang.semantic(), super::SemanticGlyph::Bang);
+        assert_eq!(Glyph::Function.semantic(), super::SemanticGlyph::Function);
     }
 
     #[test]
     fn a_lone_asterisk_remains_an_ordinary_character() {
-        assert_eq!(Glyph::Char.semantic(Some('*')), super::SemanticGlyph::Char);
+        assert_eq!(Glyph::Char.semantic(), super::SemanticGlyph::Char);
     }
 
     #[test]
@@ -187,10 +183,7 @@ mod test {
         // A Function spelling may contain `*` (for example the future Delay
         // Function `~*`), so the Parser's Function classification must win.
         // The retired `**` arithmetic spelling no longer supplies this case.
-        assert_eq!(
-            Glyph::Function.semantic(Some('*')),
-            super::SemanticGlyph::Function
-        );
+        assert_eq!(Glyph::Function.semantic(), super::SemanticGlyph::Function);
     }
 
     // #[test]

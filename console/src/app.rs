@@ -209,7 +209,7 @@ impl App {
         self.cursor.blink();
     }
 
-    pub fn remaining_cursor_blink_delay(&self) -> Duration {
+    pub(crate) fn remaining_cursor_blink_delay(&self) -> Duration {
         self.cursor.remaining_blink_delay()
     }
 

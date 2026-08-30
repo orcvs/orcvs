@@ -196,7 +196,6 @@ fn show_source(
                 );
                 let visuals = cell_visuals(
                     cell.glyph(),
-                    cell.content(),
                     cell.cursor_bloom(),
                     cell.selected(),
                     cell.cursor_visible(),

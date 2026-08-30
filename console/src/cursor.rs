@@ -30,7 +30,7 @@ impl Cursor {
         }
     }
 
-    pub fn remaining_blink_delay(&self) -> Duration {
+    pub(crate) fn remaining_blink_delay(&self) -> Duration {
         Duration::from_millis(self.delay_ms).saturating_sub(self.at.elapsed())
     }
 
