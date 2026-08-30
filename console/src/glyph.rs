@@ -63,6 +63,8 @@ pub type G = Glyph;
 impl From<Token> for Glyph {
     fn from(t: Token) -> Self {
         match t {
+            Token::Bang => G::Bang,
+            Token::Activation => G::Char,
             Token::Function => G::Function,
             Token::Note => G::Note,
             Token::Number => G::Number,
@@ -169,6 +171,7 @@ mod test {
 
     #[test]
     fn a_complete_bang_has_its_own_semantic_paint_classification() {
+        assert_eq!(Glyph::from(lang::Token::Bang), Glyph::Bang);
         assert_eq!(Glyph::Bang.semantic(), super::SemanticGlyph::Bang);
         assert_eq!(Glyph::Function.semantic(), super::SemanticGlyph::Function);
     }
@@ -176,14 +179,6 @@ mod test {
     #[test]
     fn a_lone_asterisk_remains_an_ordinary_character() {
         assert_eq!(Glyph::Char.semantic(), super::SemanticGlyph::Char);
-    }
-
-    #[test]
-    fn function_classification_takes_precedence_over_bang_paint() {
-        // A Function spelling may contain `*` (for example the future Delay
-        // Function `~*`), so the Parser's Function classification must win.
-        // The retired `**` arithmetic spelling no longer supplies this case.
-        assert_eq!(Glyph::Function.semantic(), super::SemanticGlyph::Function);
     }
 
     // #[test]

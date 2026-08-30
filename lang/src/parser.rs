@@ -20,7 +20,7 @@ pub struct Parser<'a> {
 
 ///
 /// #[inline(always)]
-/// Inline on take_function and inner_take improves performance by 5%
+/// Inline on take_language_unit and inner_take improves performance by 5%
 /// Additional inlines do not improve performance
 ///
 impl<'a> Parser<'a> {
@@ -37,7 +37,7 @@ impl<'a> Parser<'a> {
     /// try_parse will error if the parse fails
     ///
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
-        self.take_function()?;
+        self.take_language_unit()?;
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
@@ -51,7 +51,7 @@ impl<'a> Parser<'a> {
     pub fn parse(mut self) -> Result<Expression, Error> {
         self.check = true;
         self.invalid = false;
-        match self.take_function() {
+        match self.take_language_unit() {
             Err(error @ Error::Syntax(SyntaxError::ExpressionTooLong { .. })) => Err(error),
             _ => Ok(self.expression),
         }
@@ -66,12 +66,22 @@ impl<'a> Parser<'a> {
     }
 
     ///
-    /// Functions are slightly magical
-    /// A function can be evaluated as any other Atom type
+    /// A Language Unit may be a Function or a standalone Atom.
     #[inline(always)]
-    fn take_function(&mut self) -> Result<(), Error> {
+    fn take_language_unit(&mut self) -> Result<(), Error> {
         match self.next_token(2) {
             Some(t) => {
+                match t {
+                    "**" => {
+                        self.add(Token::Bang, Atom::Bang)?;
+                        return Ok(());
+                    }
+                    ">>" => {
+                        self.add(Token::Activation, Atom::Activation(crate::Activation::East))?;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
                 let result = Function::try_from(t);
 
                 let tokens = match result {
@@ -87,7 +97,7 @@ impl<'a> Parser<'a> {
 
                 for t in tokens {
                     if self.is_function_next() {
-                        self.take_function()?;
+                        self.take_language_unit()?;
                     } else {
                         let a = self.take_token(&t)?;
                         self.add(t, a)?;
@@ -114,7 +124,7 @@ impl<'a> Parser<'a> {
                 Token::Number => to_atom_num(s)?,
                 Token::NumberN(_) => to_atom_num(s)?,
                 Token::Char => to_atom_char(s)?,
-                Token::Function => unreachable!(),
+                Token::Activation | Token::Bang | Token::Function => unreachable!(),
             },
             None => self
                 .check_atom()
@@ -313,13 +323,25 @@ mod test {
 
     #[test]
     fn retired_arithmetic_spellings_do_not_parse_as_functions() {
-        for spelling in ["++", "--", "**", "//"] {
+        for spelling in ["++", "--", "//"] {
             let error = try_parse(&mut spelling.to_owned()).unwrap_err();
             assert!(
                 matches!(error, Error::Syntax(SyntaxError::UnknownFunction(ref found)) if found == spelling),
                 "{spelling} produced {error:?}"
             );
         }
+    }
+
+    #[test]
+    fn bang_and_east_activation_parse_as_complete_language_units() {
+        assert_eq!(
+            try_parse(&mut "**".to_owned()).unwrap().as_slice(),
+            &[Atom::Bang]
+        );
+        assert_eq!(
+            try_parse(&mut ">>".to_owned()).unwrap().as_slice(),
+            &[Atom::Activation(crate::Activation::East)]
+        );
     }
 
     #[test]
@@ -340,14 +362,5 @@ mod test {
         v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
-    }
-
-    #[test]
-    fn legacy_play_spelling_does_not_parse_as_a_function() {
-        let error = try_parse(&mut ">>10AC4".to_owned()).unwrap_err();
-        assert!(
-            matches!(error, Error::Syntax(SyntaxError::UnknownFunction(ref found)) if found == ">>"),
-            "legacy Raw Play spelling produced {error:?}"
-        );
     }
 }

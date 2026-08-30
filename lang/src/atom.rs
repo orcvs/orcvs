@@ -8,11 +8,18 @@ pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
+    Activation(Activation),
+    Bang,
     Char(char),
     Empty,
     Function(Function),
     Note(u8),
     Number(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Activation {
+    East,
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
@@ -82,6 +89,8 @@ impl fmt::Display for Function {
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Atom::Activation(Activation::East) => write!(f, ">>"),
+            Atom::Bang => write!(f, "**"),
             // Numbers are hexadecimal: rendered results are written back into the
             // Source and re-parsed as two Cells, so they must round trip as hex
             Atom::Number(n) => write!(f, "{:02X}", n),
@@ -98,7 +107,7 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
-    use super::{Atom, Function, to_atom_num};
+    use super::{Activation, Atom, Function, to_atom_num};
 
     #[test]
     fn test_number_displays_as_two_uppercase_hex_digits() {
@@ -169,6 +178,12 @@ mod test {
     #[test]
     fn play_function_displays_with_the_terminal_output_family_spelling() {
         assert_eq!(Function::Play.to_string(), "!>");
+    }
+
+    #[test]
+    fn bang_and_activation_display_with_their_complete_spellings() {
+        assert_eq!(Atom::Bang.to_string(), "**");
+        assert_eq!(Atom::Activation(Activation::East).to_string(), ">>");
     }
 
     #[test]

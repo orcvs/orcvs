@@ -5,12 +5,12 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `**` is no longer parsed as Multiplication and `>>` is no longer parsed as Play.
-- [ ] `!>` parses as Raw Play and round-trips through `Display`.
-- [ ] `console/tests/wasm.rs` dispatches MIDI through `!>` rather than `>>`.
-- [ ] `console/src/glyph.rs` classifies Bang from the two-Cell Atom rather than a bare `*`.
+- [x] `**` is no longer parsed as Multiplication and `>>` is no longer parsed as Play.
+- [x] `!>` parses as Raw Play and round-trips through `Display`.
+- [x] `console/tests/wasm.rs` dispatches MIDI through `!>` rather than `>>`.
+- [x] `console/src/glyph.rs` classifies Bang from the two-Cell Atom rather than a bare `*`.
 
 ## Comments
 
