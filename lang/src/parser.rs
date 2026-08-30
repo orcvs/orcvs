@@ -326,7 +326,7 @@ mod test {
     fn test_parse_play_function() {
         trace();
 
-        let mut s = String::from(">>10AC4");
+        let mut s = String::from("!>10AC4");
         let parsed = try_parse(&mut s).unwrap();
 
         let v = vec![
@@ -340,5 +340,14 @@ mod test {
         v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn legacy_play_spelling_does_not_parse_as_a_function() {
+        let error = try_parse(&mut ">>10AC4".to_owned()).unwrap_err();
+        assert!(
+            matches!(error, Error::Syntax(SyntaxError::UnknownFunction(ref found)) if found == ">>"),
+            "legacy Raw Play spelling produced {error:?}"
+        );
     }
 }

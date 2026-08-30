@@ -1,4 +1,6 @@
 use std::fmt;
+#[cfg(any(test, target_arch = "wasm32"))]
+use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -86,6 +88,17 @@ fn next_scheduled_at(
         observed_at.saturating_add(tick_period)
     } else {
         next
+    }
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+async fn wait_for_tick_or_cancellation<F>(delay: F, cancellation: &CancellationToken) -> bool
+where
+    F: Future<Output = ()>,
+{
+    tokio::select! {
+        () = delay => true,
+        () = cancellation.cancelled() => false,
     }
 }
 
@@ -405,7 +418,15 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                         .as_nanos()
                         .div_ceil(1_000_000)
                         .clamp(1, u128::from(u32::MAX)) as u32;
-                    gloo_timers::future::TimeoutFuture::new(delay_ms).await;
+                    if !wait_for_tick_or_cancellation(
+                        gloo_timers::future::TimeoutFuture::new(delay_ms),
+                        &cancellation,
+                    )
+                    .await
+                    {
+                        guard.finish();
+                        break;
+                    }
                 }
             }
         });
@@ -467,6 +488,22 @@ mod tests {
     use std::sync::{Condvar, atomic::AtomicBool, mpsc};
     #[cfg(target_arch = "wasm32")]
     use tokio::time;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn tick_wait_exits_as_soon_as_playback_is_cancelled() {
+        let cancellation = CancellationToken::new();
+        let waiting = wait_for_tick_or_cancellation(std::future::pending(), &cancellation);
+        let cancellation_trigger = cancellation.clone();
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            cancellation_trigger.cancel();
+        });
+
+        let result = time::timeout(Duration::from_millis(100), waiting).await;
+
+        assert_eq!(result, Ok(false));
+    }
 
     #[derive(Default)]
     struct RecordingAdapter {
@@ -604,7 +641,7 @@ mod tests {
     async fn clock_tick_commits_source_before_submitting_play_commands() {
         let source = SourceCommander::new(Grid::new(10, 4));
         write(&source, 0, ".+0102");
-        write(&source, 20, ">>07FC4");
+        write(&source, 20, "!>07FC4");
         let engine =
             PlaybackEngine::new(source.clone(), RecordingAdapter::observing(source.clone()));
         engine.activate_for_test();
@@ -622,7 +659,7 @@ mod tests {
     #[tokio::test]
     async fn live_editing_changes_the_next_unsampled_tick() {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -639,7 +676,7 @@ mod tests {
     #[tokio::test]
     async fn repeated_commands_are_dispatched_as_exact_tick_lists() {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -654,7 +691,7 @@ mod tests {
     #[tokio::test]
     async fn missed_deadline_is_dropped_and_the_next_scheduled_tick_runs() {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -677,7 +714,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn playback_clock_reports_each_overrun_and_resumes_without_wall_clock_sleep() {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.start(Duration::from_secs(1)).unwrap();
@@ -701,7 +738,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn cancelled_clock_cannot_stop_or_tick_restarted_playback() {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
 
@@ -727,7 +764,7 @@ mod tests {
     async fn adapter_failure_does_not_roll_back_source_or_stop_playback() {
         let source = SourceCommander::new(Grid::new(10, 4));
         write(&source, 0, ".+0102");
-        write(&source, 20, ">>07FC4");
+        write(&source, 20, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("output unavailable");
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
@@ -821,7 +858,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn start_is_idempotent_and_observation_drains_diagnostics() {
         let source = SourceCommander::new(Grid::new(10, 2));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("device lost");
         let engine = PlaybackEngine::new(source, adapter.clone());
@@ -863,7 +900,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_the_final_handle_during_a_tick_completes_playback_safety() {
         let source = SourceCommander::new(Grid::new(10, 1));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let control = BlockingOutputControl::default();
         let engine = PlaybackEngine::new(
             source,
@@ -892,7 +929,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn clock_failure_remains_observable_after_output_panics() {
         let source = SourceCommander::new(Grid::new(10, 1));
-        write(&source, 0, ">>07FC4");
+        write(&source, 0, "!>07FC4");
         let delivery_started = Arc::new(AtomicBool::new(false));
         let engine = PlaybackEngine::new(
             source,

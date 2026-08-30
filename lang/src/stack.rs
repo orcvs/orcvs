@@ -124,7 +124,7 @@ impl TryFrom<&str> for Function {
             ".+" => Ok(Function::Add),
             "./" => Ok(Function::Divide),
             ".x" => Ok(Function::Multiply),
-            ">>" => Ok(Function::Play),
+            "!>" => Ok(Function::Play),
             ".-" => Ok(Function::Subtract),
             s => Err(SyntaxError::UnknownFunction(s.to_string()).into()),
         }

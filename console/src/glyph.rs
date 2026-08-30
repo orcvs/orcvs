@@ -37,6 +37,7 @@ impl GlyphString {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Glyph {
+    Bang,
     Char,
     Function,
     Highlight,
@@ -74,6 +75,7 @@ impl From<Token> for Glyph {
 impl fmt::Display for GlyphString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = self.s.clone().unwrap_or_else(|| match self.t {
+            Glyph::Bang => "*".to_string(),
             Glyph::Char => "c".to_string(),
             Glyph::Function => "F".to_string(),
             Glyph::Highlight => ".".to_string(),
@@ -89,12 +91,9 @@ impl fmt::Display for GlyphString {
 
 impl Glyph {
     pub(crate) fn semantic(self, content: Option<char>) -> SemanticGlyph {
-        // Bang is not a Function: a `*` the Parser classified as part of a
-        // Function spelling keeps the Function paint.
-        if content == Some('*') && self != Glyph::Function {
-            return SemanticGlyph::Bang;
-        }
+        let _ = content;
         match self {
+            Glyph::Bang => SemanticGlyph::Bang,
             Glyph::Char => SemanticGlyph::Char,
             Glyph::Function => SemanticGlyph::Function,
             Glyph::Highlight => SemanticGlyph::Highlight,
@@ -170,8 +169,8 @@ mod test {
     }
 
     #[test]
-    fn bang_is_a_semantic_paint_classification_without_changing_source_glyphs() {
-        assert_eq!(Glyph::Char.semantic(Some('*')), super::SemanticGlyph::Bang);
+    fn a_complete_bang_has_its_own_semantic_paint_classification() {
+        assert_eq!(Glyph::Bang.semantic(Some('*')), super::SemanticGlyph::Bang);
         assert_eq!(
             Glyph::Function.semantic(Some('+')),
             super::SemanticGlyph::Function
@@ -179,9 +178,15 @@ mod test {
     }
 
     #[test]
-    fn a_function_cell_spelled_with_an_asterisk_paints_as_a_function() {
-        // `**` is Multiply in the shipped vocabulary, so its Cells are
-        // Glyph::Function and must not borrow the Bang paint.
+    fn a_lone_asterisk_remains_an_ordinary_character() {
+        assert_eq!(Glyph::Char.semantic(Some('*')), super::SemanticGlyph::Char);
+    }
+
+    #[test]
+    fn function_classification_takes_precedence_over_bang_paint() {
+        // A Function spelling may contain `*` (for example the future Delay
+        // Function `~*`), so the Parser's Function classification must win.
+        // The retired `**` arithmetic spelling no longer supplies this case.
         assert_eq!(
             Glyph::Function.semantic(Some('*')),
             super::SemanticGlyph::Function

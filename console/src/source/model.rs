@@ -1221,7 +1221,7 @@ mod test {
     #[test]
     fn test_root_play_function_emits_one_play_command_without_a_cell_write() {
         let mut src = source();
-        src.write(0, ">>07FC4");
+        src.write(0, "!>07FC4");
 
         let tick = src.execute();
 
@@ -1241,7 +1241,7 @@ mod test {
     #[test]
     fn test_play_preserves_zero_velocity_as_an_explicit_command() {
         let mut src = source();
-        src.write(0, ">>F00A0");
+        src.write(0, "!>F00A0");
 
         let tick = src.execute();
 
@@ -1259,7 +1259,7 @@ mod test {
     #[test]
     fn test_play_velocity_above_midi_range_is_diagnosed() {
         let mut src = source();
-        src.write(0, ">>080C4");
+        src.write(0, "!>080C4");
 
         let tick = src.execute();
 
@@ -1277,7 +1277,7 @@ mod test {
     #[test]
     fn test_nested_play_is_diagnosed_without_emitting_a_command() {
         let mut src = SourceUnderTest::new(Grid::new(12, 3));
-        src.write(0, ".+>>07FC401");
+        src.write(0, ".+!>07FC401");
 
         let tick = src.execute();
 
@@ -1293,8 +1293,8 @@ mod test {
     #[test]
     fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
         let mut src = source();
-        src.write(0, ">>001C4");
-        src.write(10, ">>17FA4");
+        src.write(0, "!>001C4");
+        src.write(10, "!>17FA4");
 
         let first = src.execute();
         let second = src.execute();

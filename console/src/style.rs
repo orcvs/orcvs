@@ -163,7 +163,7 @@ mod tests {
         let number = cell_visuals(Glyph::Number, Some('A'), None, false, false);
         let note = cell_visuals(Glyph::Note, Some('C'), None, false, false);
         let ordinary = cell_visuals(Glyph::Char, Some('x'), None, false, false);
-        let bang = cell_visuals(Glyph::Char, Some('*'), None, false, false);
+        let bang = cell_visuals(Glyph::Bang, Some('*'), None, false, false);
 
         assert_eq!(function.foreground, PALETTE.function);
         assert_eq!(number.foreground, PALETTE.number);

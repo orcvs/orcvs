@@ -28,7 +28,9 @@ assert_toml_table_not_contains() {
   if awk -v table_pattern="$table_pattern" -v field_pattern="$field_pattern" '
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*\[/ {
-      in_table = ($0 ~ table_pattern)
+      line = $0
+      sub(/[[:space:]]*#.*/, "", line)
+      in_table = (line ~ table_pattern)
       next
     }
     in_table && $0 ~ field_pattern { found = 1 }

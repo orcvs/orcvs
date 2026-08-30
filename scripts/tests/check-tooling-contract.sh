@@ -42,6 +42,12 @@ test_dependency_table_version_is_rejected() {
   assert_rejected "a crate-local dependency version in TOML table syntax"
 }
 
+test_commented_dependency_table_version_is_rejected() {
+  make_fixture
+  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/[dependencies.tokio] # local override\nworkspace = true\nversion = "9.0.0"/) { $done = 1 }' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a crate-local dependency version in a TOML table with a trailing comment"
+}
+
 test_prohibited_action_main_ref_is_rejected() {
   make_fixture
   printf '\n      - uses: taiki-e/install-action@main\n' >> "$fixture_dir/.github/workflows/test.yml"
@@ -52,11 +58,13 @@ case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
+  commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   all)
     test_commented_requirement_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected
+    test_commented_dependency_table_version_is_rejected
     test_prohibited_action_main_ref_is_rejected
     ;;
   *) echo "unknown test: $1" >&2; exit 2 ;;

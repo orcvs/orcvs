@@ -82,28 +82,31 @@ impl RenderFrame {
             .grid
             .rows()
             .map(|row| {
-                row.map(|position| {
-                    let cell = &source.cells[source.grid.index(position)];
-                    let is_selected = position == selected;
-                    let marker_spacing = config.marker_spacing.cells();
-                    RenderCell {
-                        position,
-                        content: cell.content,
-                        glyph: cell.glyph.unwrap_or(Glyph::Space),
-                        cursor_bloom: cursor_bloom(position, selected, config),
-                        sector_left_strength: (position.x() > 0
-                            && position.x().is_multiple_of(marker_spacing))
-                        .then(|| sector_seam_strength(position.y(), marker_spacing, position))
-                        .flatten(),
-                        sector_top_strength: (position.y() > 0
-                            && position.y().is_multiple_of(marker_spacing))
-                        .then(|| sector_seam_strength(position.x(), marker_spacing, position))
-                        .flatten(),
-                        selected: is_selected,
-                        cursor_visible: is_selected && cursor_visible,
-                    }
-                })
-                .collect()
+                let mut cells = row
+                    .map(|position| {
+                        let cell = &source.cells[source.grid.index(position)];
+                        let is_selected = position == selected;
+                        let marker_spacing = config.marker_spacing.cells();
+                        RenderCell {
+                            position,
+                            content: cell.content,
+                            glyph: cell.glyph.unwrap_or(Glyph::Space),
+                            cursor_bloom: cursor_bloom(position, selected, config),
+                            sector_left_strength: (position.x() > 0
+                                && position.x().is_multiple_of(marker_spacing))
+                            .then(|| sector_seam_strength(position.y(), marker_spacing, position))
+                            .flatten(),
+                            sector_top_strength: (position.y() > 0
+                                && position.y().is_multiple_of(marker_spacing))
+                            .then(|| sector_seam_strength(position.x(), marker_spacing, position))
+                            .flatten(),
+                            selected: is_selected,
+                            cursor_visible: is_selected && cursor_visible,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                classify_complete_bangs(&mut cells);
+                cells
             })
             .collect();
         Self { rows }
@@ -111,6 +114,23 @@ impl RenderFrame {
 
     pub fn rows(&self) -> &[Vec<RenderCell>] {
         &self.rows
+    }
+}
+
+fn classify_complete_bangs(row: &mut [RenderCell]) {
+    let mut index = 0;
+    while index + 1 < row.len() {
+        if row[index].content == Some('*')
+            && row[index + 1].content == Some('*')
+            && row[index].glyph != Glyph::Function
+            && row[index + 1].glyph != Glyph::Function
+        {
+            row[index].glyph = Glyph::Bang;
+            row[index + 1].glyph = Glyph::Bang;
+            index += 2;
+        } else {
+            index += 1;
+        }
     }
 }
 
@@ -254,6 +274,30 @@ mod tests {
     }
 
     #[test]
+    fn only_complete_bang_units_receive_bang_glyphs() {
+        let grid = Grid::new(4, 1);
+        let source = SourceCommander::new(grid);
+        for (index, content) in "***x".chars().enumerate() {
+            source.set(index, &content.to_string()).unwrap();
+        }
+
+        let frame = RenderFrame::derive(
+            source.read_revision_cells(),
+            grid.origin(),
+            false,
+            RenderFrameConfig {
+                marker_spacing: MarkerSpacing::new(2).unwrap(),
+                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+            },
+        );
+
+        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Bang);
+        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Bang);
+        assert_eq!(frame.rows()[0][2].glyph(), Glyph::Char);
+        assert_eq!(frame.rows()[0][3].glyph(), Glyph::Char);
+    }
+
+    #[test]
     fn occupied_glyphs_win_over_sector_presentation() {
         let grid = Grid::new(2, 2);
         let source = SourceCommander::new(grid);
@@ -384,8 +428,14 @@ mod tests {
             .filter(|&position| super::signal_breakup(position, 7, 7) == 1)
             .count();
 
-        assert!((460..=564).contains(&inner_breaks), "inner: {inner_breaks}");
-        assert!((614..=738).contains(&outer_breaks), "outer: {outer_breaks}");
+        assert!(
+            (460..=564).contains(&inner_breaks),
+            "expected the inner break count in 460..=564, observed {inner_breaks}"
+        );
+        assert!(
+            (614..=738).contains(&outer_breaks),
+            "expected the outer break count in 614..=738, observed {outer_breaks}"
+        );
     }
 
     #[test]

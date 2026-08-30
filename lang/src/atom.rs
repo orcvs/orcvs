@@ -73,7 +73,7 @@ impl fmt::Display for Function {
             Function::Empty => write!(f, "__"),
             Function::Divide => write!(f, "./"),
             Function::Multiply => write!(f, ".x"),
-            Function::Play => write!(f, ">>"),
+            Function::Play => write!(f, "!>"),
             Function::Subtract => write!(f, ".-"),
         }
     }
@@ -164,6 +164,11 @@ mod test {
         assert_eq!(Function::Subtract.to_string(), ".-");
         assert_eq!(Function::Multiply.to_string(), ".x");
         assert_eq!(Function::Divide.to_string(), "./");
+    }
+
+    #[test]
+    fn play_function_displays_with_the_terminal_output_family_spelling() {
+        assert_eq!(Function::Play.to_string(), "!>");
     }
 
     #[test]
