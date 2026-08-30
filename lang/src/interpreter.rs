@@ -37,7 +37,6 @@ impl Interpreter {
                     Function::Divide => math::divide(&mut ctx)?,
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
-                    Function::Id => functions::ident(&mut ctx)?,
                     Function::Play if index == 0 => {
                         return Ok(Interpretation::Play(functions::play(&mut ctx)?));
                     }
@@ -62,7 +61,7 @@ mod test {
     use crate::{
         ArgumentError, Atom, Error, Function, Parser, TypeError, interpreter::Interpreter, trace,
     };
-    use tracing::{error, info};
+    use tracing::info;
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
@@ -93,18 +92,6 @@ mod test {
         let result = interpret(s);
 
         let expected = Atom::Number(3);
-        assert_eq!(result, expected);
-
-        let s = String::from("++idA01");
-        let result = interpret(s);
-
-        let expected = Atom::Number(11);
-        assert_eq!(result, expected);
-
-        let s = String::from("++idAid1");
-        let result = interpret(s);
-
-        let expected = Atom::Number(11);
         assert_eq!(result, expected);
     }
 
@@ -192,27 +179,6 @@ mod test {
 
         let expected = Atom::Number(0);
         assert_eq!(result, expected);
-
-        let s = String::from("**idAidA");
-        let result = interpret(s);
-
-        error!("Result: {:?}", result);
-
-        let expected = Atom::Number(100);
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_id_function() {
-        trace();
-
-        let s = String::from("id1");
-        let result = interpret(s);
-
-        // error!("Result: {:?}", result);
-
-        let expected = Atom::Char('1');
-        assert_eq!(result, expected);
     }
 
     #[test]
@@ -235,12 +201,6 @@ mod test {
     #[test]
     fn test_recursive() {
         trace();
-
-        let s = String::from("++ididid901");
-        let result = interpret(s);
-
-        let expected = Atom::Number(10);
-        assert_eq!(result, expected);
 
         let s = String::from("++++0101--0A05");
         let result = interpret(s);

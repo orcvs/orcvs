@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Spatial Orcvs Functions</title>
+  <style>
+    :root { color-scheme: dark; font: 15px/1.45 system-ui,sans-serif; background:#101417; color:#d9e2e8 }
+    body { max-width:1100px; margin:auto; padding:30px 20px 70px }
+    h1,h2 { color:#f3f7f9 } h1 { margin:.2rem 0 }
+    code { color:#9fe3ce } .tag { color:#63d5b3; font-weight:700; letter-spacing:.08em }
+    .panel { background:#182025; border:1px solid #2d3a41; border-radius:10px; padding:17px; margin:18px 0 }
+    button { background:#244c41; color:#f1fff9; border:1px solid #397463; border-radius:6px; padding:9px 12px; margin:4px; cursor:pointer }
+    button:hover,button.active { background:#397463 } button:disabled { opacity:.4; cursor:default }
+    .stage { display:grid; grid-template-columns:minmax(0,440px) minmax(0,1fr); gap:20px; align-items:start }
+    .grid { display:grid; grid-template-columns:repeat(20,minmax(0,1fr)); grid-auto-rows:clamp(18px,3vw,25px); width:min(100%,440px); background:#0b1013; border:1px solid #344149; padding:5px }
+    .cell { display:grid; place-items:center; box-sizing:border-box; border-right:1px solid #1e292f; border-bottom:1px solid #1e292f; font:14px/1 monospace; color:#b9c5ca }
+    .function { color:#63d5b3; background:#11241f }.number { color:#ffd479 }.bang { color:#ff8585 }.changed { outline:1px solid #63d5b3; outline-offset:-1px }
+    .diag { padding:10px 12px; margin:8px 0; background:#101619; border-left:3px solid #63d5b3 }.warn { border-color:#ff7272; color:#ffd0d0 }
+    .tick { color:#ffd479; font-weight:700 }.legend { color:#aebbc2 }
+    @media(max-width:850px){.stage{grid-template-columns:minmax(0,1fr)}}
+  </style>
+</head>
+<body>
+  <div class="tag">THROWAWAY SYNTAX PROTOTYPE</div>
+  <h1>Spatial Functions as an Orcvs instrument</h1>
+  <p class="panel"><strong>Superseded exploration.</strong> These walkthroughs preserve the rejected Always-ray and Expression-movement model. They do not state the current language contract. See the Orca-to-Orcvs capability map and ADRs for recorded Directional Bang, Jump, and Halt behavior.</p>
+  <section class="panel">
+    <div id="tabs"></div><p id="description"></p>
+    <button id="reset">Reset</button><button id="next">Run next Tick</button>
+  </section>
+  <section class="panel stage">
+    <div><div class="tick" id="tick"></div><div class="grid" id="grid"></div></div>
+    <div><h2>Diagnostic context</h2><div class="diag" id="diagnostic"></div><h2>What changed</h2><p id="change"></p></div>
+  </section>
+  <section class="panel">
+    <h2>Prototype contracts</h2>
+    <p><code>@&gt;</code> rays east through empty Cells to activate move-right <code>&gt;*</code> each Tick. A collision leaves the movement Expression in place and emits one-Tick Bang <code>**</code> below its origin. Jumper chains carry a horizontal Sequence beyond consecutive jumper Expressions. A Delay Portal can land Bang on <code>!*</code>, activating Halt without becoming an operand or overwriting its Cells.</p>
+  </section>
+<script>
+const C=20,R=8, blank=()=>Array.from({length:C*R},()=>({ch:" ",changed:false}));
+function src(entries){const g=blank();for(const [r,c,t,changed=false] of entries)[...t].forEach((ch,i)=>g[r*C+c+i]={ch,changed});return g}
+const scenarios=[
+ {name:"Self movement",description:"Directional Always repeatedly reaches a moving root Expression across its changing empty span.",frames:[
+  {g:src([[2,0,"@>"],[2,4,">*"]]),d:"@> self-schedules and rays east through two empty Cells to the move-right root.",c:"Move-right is ready at column 04."},
+  {g:src([[2,0,"@>"],[2,5,">*",true]]),d:"The destination was empty; the Tick Plan moved the complete target Expression while @> remained fixed.",c:">* moved one Cell east."},
+  {g:src([[2,0,"@>"],[2,6,">*",true]]),d:"The activation ray lengthened with the empty span and reached the first occupied root again.",c:">* moved one Cell east again."}
+ ]},
+ {name:"Collision Bang",description:"A blocked move becomes a musical signal without destroying the moving Expression.",frames:[
+  {g:src([[2,0,"@>"],[2,5,">*"],[2,8,"+.0000"]]),d:"@> reaches move-right first; the movement Expression has room for one move before it meets arithmetic Source.",c:"Ready."},
+  {g:src([[2,0,"@>"],[2,6,">*",true],[2,8,"+.0000"]]),d:"The first destination was empty.",c:"Expression moved east."},
+  {g:src([[2,0,"@>"],[2,6,">*",true],[2,8,"+.0000"],[3,6,"**",true]]),d:"The next destination overlaps +.0000. Movement was rejected atomically and emitted a one-Tick collision Bang through its result Portal.",c:"Expression stayed intact; Bang appeared below it for this Tick only.",warn:true}
+ ]},
+ {name:"Jumper chain",description:"Repeated jumper Expressions are visible wiring. The transported Sequence remains intact until its destination Portal.",frames:[
+  {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"]]),d:"010203 is currently diagnosed as missing a Function, but remains Source content available to a Source-reading jumper.",c:"Two jh06 Expressions form a horizontal Portal chain.",warn:true},
+  {g:src([[3,0,"010203"],[3,7,"jh06"],[3,12,"jh06"],[4,12,"010203",true]]),d:"The first jumper read six Cells west; the chain resolved one output Portal below its final member and carried one intact Sequence.",c:"The complete Sequence arrived after the visible chain."}
+ ]},
+ {name:"Spatial Halt",description:"Halt participates in a pre-evaluation control phase, so every Expression still observes one Source Snapshot.",frames:[
+  {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"]]),d:"At Tick 00, @v activates Delay, whose Bang lands on !*. Activated Halt suppresses the arithmetic root below while @> also targets it.",c:"+.0102 is present but suppressed."},
+  {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"]]),d:"The one-Tick Bang is consumed as Halt activation; suppression itself does not modify Source.",c:"No 03 was written."},
+  {g:src([[0,4,"@v"],[1,4,"*~0201"],[2,4,"!*"],[3,0,"@>"],[3,4,"+.0102"],[4,4,"03",true]]),d:"At Tick 01, Delay produces no Bang, so Halt is inert. @> activates +.0102 and its own result Portal commits 03.",c:"03 committed below the arithmetic Expression."}
+ ]}
+];
+let si=0,fi=0;
+function cls(cell,i,g){const ch=cell.ch,changed=cell.changed?" changed":"";if(ch==="*")return"cell bang"+changed;if(/[0-9A-F]/.test(ch))return"cell number"+changed;const prev=i%C?g[i-1].ch:" ";if(/[a-z+*/>-]/.test(ch)||/[a-z+*/>-]/.test(prev))return"cell function"+changed;return"cell"+changed}
+function render(){const s=scenarios[si],f=s.frames[fi];tabs.innerHTML=scenarios.map((x,i)=>`<button data-tab="${i}" class="${i===si?'active':''}">${x.name}</button>`).join("");description.textContent=s.description;tick.textContent=`Source after Tick ${fi}`;grid.innerHTML=f.g.map((x,i)=>`<span class="${cls(x,i,f.g)}">${x.ch===' '?'·':x.ch}</span>`).join("");diagnostic.textContent=f.d;diagnostic.className=`diag ${f.warn?'warn':''}`;change.textContent=f.c;next.disabled=fi===s.frames.length-1}
+document.addEventListener("click",e=>{if(e.target.dataset.tab!==undefined){si=Number(e.target.dataset.tab);fi=0}if(e.target.id==="reset")fi=0;if(e.target.id==="next")fi=Math.min(fi+1,scenarios[si].frames.length-1);render()});render();
+</script>
+</body>
+</html>

@@ -89,7 +89,9 @@ impl fmt::Display for GlyphString {
 
 impl Glyph {
     pub(crate) fn semantic(self, content: Option<char>) -> SemanticGlyph {
-        if content == Some('*') {
+        // Bang is not a Function: a `*` the Parser classified as part of a
+        // Function spelling keeps the Function paint.
+        if content == Some('*') && self != Glyph::Function {
             return SemanticGlyph::Bang;
         }
         match self {
@@ -172,6 +174,16 @@ mod test {
         assert_eq!(Glyph::Char.semantic(Some('*')), super::SemanticGlyph::Bang);
         assert_eq!(
             Glyph::Function.semantic(Some('+')),
+            super::SemanticGlyph::Function
+        );
+    }
+
+    #[test]
+    fn a_function_cell_spelled_with_an_asterisk_paints_as_a_function() {
+        // `**` is Multiply in the shipped vocabulary, so its Cells are
+        // Glyph::Function and must not borrow the Bang paint.
+        assert_eq!(
+            Glyph::Function.semantic(Some('*')),
             super::SemanticGlyph::Function
         );
     }

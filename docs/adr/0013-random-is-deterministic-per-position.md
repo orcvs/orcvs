@@ -1,0 +1,11 @@
+# Random is deterministic per Position
+
+The Random Function `~? seed minimum maximum` accepts Number and Note numeric operands and selects an underlying value inclusively between normalized bounds, so reversed bounds describe the same range and equal bounds return that value. Its result follows the ordinary sticky-Note rule. It derives each result from the explicit seed's underlying value, absolute Tick, Function Position, and Sequence index rather than activation history. Identical Source Snapshots interpreted at the same Tick therefore produce identical Tick Plans; skipped activations skip those Tick samples, Functions at different Positions have independent reproducible streams, and moving one intentionally changes its stream.
+
+Random uses the specified ChaCha8 stream implemented by `rand_chacha::ChaCha8Rng`, not `StdRng` or a hand-written generator. For each scalar result, Orcvs constructs a fresh 32-byte ChaCha seed initialized to zero: byte `0` is the explicit seed's underlying byte; bytes `1..9` are absolute Tick as little-endian `u64`; bytes `9..17` are the Function column as little-endian `i64`; bytes `17..25` are the Function row as little-endian `i64`; bytes `25..29` are the zero-based Sequence index as little-endian `u32`; bytes `29..32` remain zero. A scalar call uses Sequence index zero. Orcvs takes the first `u64` from that ChaCha8 stream.
+
+Let `low` and `high` be the normalized underlying bounds and `width = high - low + 1`. The selected underlying value is `low + (word % width)`. The small documented modulo bias is accepted for ranges no wider than 256 values. Golden vectors pin the seed layout, ChaCha8 output, and range mapping so dependency upgrades cannot silently change language behavior.
+
+The Rust implementation uses `rand_chacha` with default features disabled and no OS-randomness dependency; this preserves native and `wasm32-unknown-unknown` behavior. Version 0.10 has MSRV 1.85, is licensed MIT OR Apache-2.0, has no build script, and introduces no proc macro with Serde disabled. The dependency belongs in the language crate only when Random is implemented.
+
+Random follows ordinary Sequence broadcasting. Sequence bounds produce element-wise results, and Sequence index participates in each element's deterministic identity so equal bounds in different positions do not accidentally share a stream.

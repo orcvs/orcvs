@@ -80,14 +80,15 @@ mod tests {
     #[test]
     fn rejected_overlong_expression_does_not_poison_source_access() {
         let source = SourceCommander::new(Grid::new(80, 3));
-        for (idx, content) in "id".repeat(31).chars().enumerate() {
-            source.set(idx, &content.to_string()).unwrap();
+        let at_capacity = "++".repeat(15) + &"00".repeat(16);
+        for (offset, content) in at_capacity.chars().enumerate() {
+            source.set(offset + 2, &content.to_string()).unwrap();
         }
-        source.set(62, "i").unwrap();
+        source.set(1, "+").unwrap();
         let before = source.snapshot();
 
         assert_eq!(
-            source.set(63, "d"),
+            source.set(0, "+"),
             Err(SourceError::ExpressionTooLong {
                 start: 0,
                 end: 63,
@@ -96,6 +97,7 @@ mod tests {
         );
         assert_eq!(source.snapshot(), before);
 
+        source.unset(1).unwrap();
         source.set(150, "+").unwrap();
         source.set(151, "+").unwrap();
         source.set(152, "0").unwrap();

@@ -20,12 +20,24 @@ _Avoid_: Coord, coordinate, point
 One position in the Source, containing exactly one single-byte ASCII character; a space represents an empty Cell.
 _Avoid_: Character slot, text position
 
+**Language Unit**:
+One semantic value or operation recognized in a Source revision, such as a Function, Atom, or Activation Character. A Language Unit has one anchor Position and a footprint of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit.
+_Avoid_: Logical Cell, token Cell, glyph
+
+**Footprint**:
+The character Cells occupied by one Language Unit in a Source revision. Spatial behavior moves, replaces, or tests the complete Footprint while every Position remains a Position in the character Grid.
+_Avoid_: Cell structure, semantic Grid, bounding box
+
+**Language Map**:
+The semantic view derived from one Source revision. It identifies Expressions, roots, Language Units, their anchor Positions, and their Footprints without adding stored program state or a second coordinate system. It partitions each row from left to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that complete Footprint, and an unmatched character diagnoses without participating in an overlapping unit.
+_Avoid_: Overlay Grid, parsed Source state, semantic Source
+
 **Source Snapshot**:
 The complete Source observed for one Tick. It is simultaneously an executable Orcvs program and the accumulated output of all preceding Ticks, so no persistent language state exists outside it.
 _Avoid_: Program state, runtime state
 
 **Expression**:
-A contiguous horizontal run of occupied Cells in one Source row that is parsed and evaluated as one Orcvs language expression. An Expression never wraps across rows.
+A contiguous horizontal run of occupied Cells in one Source row that is parsed as one Orcvs language expression. Its first Function is the root Function; activating that root evaluates every nested Function needed by the Expression. An Expression never wraps across rows.
 _Avoid_: Formula, statement
 
 **Function**:
@@ -37,19 +49,71 @@ A Function whose result may depend on Cells outside its explicit operands or may
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
-A pulse Atom that is distinct from every Number and may be accepted or returned by a Function.
+A one-Tick pulse Atom encoded as `**`, distinct from every Number and Function. For a Bang anchored at `(x, y)`, its aligned cardinal root anchors are north `(x, y-1)`, south `(x, y+1)`, west `(x-2, y)`, and east `(x+2, y)`; only complete Expression roots at those anchors activate when their Source-order turns occur. A Bang present in the Source Snapshot is removed by that Tick's atomic commit. A Bang generated during planning is written at the current commit, remains visible in the next Source Snapshot, and is removed by that next Tick's commit. Direct same-Tick delivery to a root is an activation event separate from the stored glyph; it does not overwrite the Function and applies only if the root's turn has not passed.
 _Avoid_: Boolean, trigger flag
+
+**Directional Bang Function**:
+One of the four activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Activation Character into the two Cells immediately outside its own two-Cell footprint in the selected direction. The Activation Character advances by one Cell per Tick. It becomes a Bang when its next move is blocked or would leave the Grid and activates the blocking Cell when that Cell is an Expression root.
+_Avoid_: Always Function, movement Function, automatic mode
+
+**Activation Character**:
+One of the Language Units `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. Its two-Cell Footprint retains its direction and advances by one Cell per Tick. A blocked or out-of-Grid move changes its current Footprint to the Bang `**`. Complete aligned contact with an Expression root delivers Bang activation when that root's Source-order turn has not passed. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. An Activation Character is not a Function.
+_Avoid_: Arrow Function, moving Bang, projectile
+
+**Halt Function**:
+The Activation Function `*!`. When active at its Source-order turn, it locks the Expression root directly south before that root's later turn. Orcvs does not revisit a Halt Function after its turn, and a Halt Function suppressed by another Halt Function does not lock its own target.
+_Avoid_: Stop Function, control phase, retroactive suppression
+
+**Jump Function**:
+One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies exactly one aligned two-Cell Language Unit from the side opposite its direction to the far side of a consecutive chain with the same spelling. The chain head is the member adjacent to the input; only the head relays, while later members produce no effect. Horizontal members have touching Footprints with anchors two columns apart; vertical members share an anchor column on adjacent rows. A gap, misalignment, or different spelling ends the chain. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Footprint. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump reads only the Source Snapshot, but its Bang output can activate a later root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
+_Avoid_: Jumper, Jymper, Sequence transport
+
+**Number**:
+An unsigned byte encoded as exactly two uppercase hexadecimal Cells from `00` through `FF`. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
+_Avoid_: Base-36 value, decimal literal, single-glyph number
+
+**Note**:
+A pitched Atom encoded in two-Cell musical note notation and carrying the corresponding MIDI value from `00` through `7F`. Naturals use an uppercase pitch letter, sharps use its lowercase form, `/` denotes the octave below zero, and `0` through `9` denote numbered octaves, giving the complete range `C/` through `G9`. Numbers and Notes are interchangeable operands in numeric Functions. Any Note operand makes a value result a Note that wraps modulo 128; all-Number inputs produce a Number that wraps modulo 256. Orcvs has no conversion Function between Number and Note arithmetic.
+_Avoid_: Number, note-shaped Number, MIDI event
+
+**Sequence**:
+A flat ordered sequence of Atoms produced and consumed as one language value. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+_Avoid_: Pattern, Cell batch, write list, string
+
+**Range Function**:
+The Sequence Function `:-`. It returns an inclusive, unit-step Sequence between two Numbers or two Notes. Bound order selects ascending or descending output, and equal bounds return a singleton. Number and Note bounds cannot mix.
+_Avoid_: Sequence generator, interval, mixed range
+
+**Reverse Function**:
+The Sequence Function `:<`. It reverses Atom order while preserving each Atom's complete encoding and type. A singleton and an empty Sequence remain unchanged.
+_Avoid_: Character reversal, encoding reversal
+
+**Concatenate Function**:
+The Sequence Function `:&`. It promotes each Atom operand to a singleton Sequence and returns the left operand's Atoms followed by the right operand's Atoms. Output is flat, preserves Atom types and encodings, and treats an empty Sequence as the identity.
+_Avoid_: Join Function, nested Sequence, append mutation
+
+**Select Function**:
+The Sequence Function `:?`. It uses a zero-based Number index modulo the length of a non-empty Sequence and returns the selected Atom with its type and encoding preserved. An empty Sequence or non-Number index diagnoses.
+_Avoid_: Track Function, subsequence, broadcast selection
+
+**Replace Function**:
+The Sequence Function `:=`. It uses a zero-based Number index modulo the length of a non-empty Sequence and returns a new same-length Sequence with that Atom replaced. The replacement is one Atom and may have a different type. The input Sequence remains unchanged.
+_Avoid_: Push Function, Sequence replacement operand, mutation
+
+**Portal**:
+One destination resolved while interpreting a Source Snapshot, through which an Atom or Sequence enters the Tick Plan as Source writes. A Portal is neither Source content nor persistent language state.
+_Avoid_: Port, address value, output coordinate
 
 **Comment**:
 Source text beginning with `#` and continuing to the end of its row, excluded from Expressions and evaluation.
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:
-One playback step that evaluates every Expression from the same Source snapshot and commits all resulting Cell changes atomically. When results target the same Cell, the result from the later Expression in Source order wins; results outside the Source are discarded.
+One playback step that visits every actionable Language Unit and Expression root exactly once in row-major anchor order, evaluates only roots active and unlocked at their turn, and commits all resulting Cell changes atomically. Activation produced during the pass can affect a later root, but a root whose turn has passed is never revisited. Every effect is ordered by producer anchor and then emission order; later Cell effects win conflicts independently. A complete result that does not fit diagnoses and plans no partial write.
 _Avoid_: Cycle, frame
 
 **Tick Plan**:
-The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including Source writes, ordered Play Commands, and diagnostics.
+The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including activation routing, Source writes, ordered Play Commands, and diagnostics. Interpretation uses Orca's single row-major pass: a Bang produced onto a root Function activates it in the same Tick Plan only when that root's Source-order turn has not passed. Each root Expression has one turn and evaluates at most once even when multiple Bangs target it. Autonomous movement, Bang expiry, Expression effects, and terminal commands share the same producer-anchor and emission-order key.
 _Avoid_: Play sequence, command batch
 
 **Playback**:
@@ -57,7 +121,7 @@ The time-driven process that requests a new Tick Plan for each Tick and dispatch
 _Avoid_: Player, sequencer
 
 **Playback Engine**:
-The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source, interpret musical intent, or infer note lifetime; stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
+The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. Stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
 **Live Editing**:
@@ -65,12 +129,32 @@ Changing the Source while Playback continues. An edit affects the next Tick whos
 _Avoid_: Hot reload, live coding
 
 **Play Command**:
-One interpreted MIDI Note On instruction emitted by a Play Function for delivery during a Tick. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
+One interpreted MIDI instruction emitted by a Play Function for delivery during a Tick. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
 _Avoid_: Performance command, MIDI event
 
 **Play Function**:
-The terminal `>>` language Function that interprets a hexadecimal MIDI channel, velocity, and note as one Play Command. It is valid only at the root of an Expression, not where another Function requires a value, and it never writes a Cell result.
+The terminal `!>` Function that interprets a hexadecimal MIDI channel, velocity, and note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
 _Avoid_: Note output, MIDI Function
+
+**Timed Play Function**:
+The terminal `!~ channel velocity note length` Function. Channel is a Number `00`–`0F`, velocity is a Number `00`–`7F`, note is a Number or Note with underlying value `00`–`7F`, and length is a Number `00`–`FF`. Velocity `00` explicitly stops the specified note and schedules no expiry. Otherwise, length `00` emits no MIDI output, while a positive length starts the note in the current Tick and schedules Note Off at the beginning of Tick `T + length`. Its fixed arity distinguishes it from Raw Play without optional operands or overloading.
+_Avoid_: Play overload, optional-length Play
+
+**Control Change Function**:
+The terminal `!c channel controller value` Function. It accepts hexadecimal Number bytes, requires channel `00`–`0F` and controller and value `00`–`7F`, and sends them without scaling. Invalid operands diagnose and emit no MIDI output.
+_Avoid_: CC scaling, normalized controller value, optional value
+
+**Pitch Bend Function**:
+The terminal `!b channel lsb msb` Function. It accepts hexadecimal Number bytes, requires channel `00`–`0F` and each data byte `00`–`7F`, and sends the MIDI wire bytes without scaling. Invalid operands diagnose and emit no MIDI output.
+_Avoid_: PB scaling, normalized bend value, combined integer bend
+
+**Monophonic Play Function**:
+The terminal `!% channel velocity note length` Function with the same operand domains as Timed Play. Each output adapter owns one Mono voice per MIDI channel. Every command stops the prior Mono-owned note on that channel first. Velocity `00` or length `00` then starts nothing, replacing the voice with silence. Otherwise, a positive length starts the replacement and schedules its Note Off at Tick `T + length`; a later replacement cancels that expiry. Raw Play and Timed Play notes do not enter Mono ownership.
+_Avoid_: Global Mono voice, Play-wide voice stealing, implicit channel sharing
+
+**Application Command Function**:
+The terminal `!$` Function that sends a command to the Orcvs host application. It can invoke only commands that the application explicitly provides; it never invokes an operating-system shell or arbitrary executable. Its command value encoding is deferred until Orcvs defines a suitable text or message value.
+_Avoid_: Host Command, shell command, process execution
 
 **Cursor**:
 The one Cell the console is editing: a Position, plus the blink state that draws it. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.

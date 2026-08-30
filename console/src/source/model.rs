@@ -808,15 +808,18 @@ mod test {
     #[test]
     fn test_set_rejects_an_expression_beyond_parser_capacity_without_mutation() {
         let mut src = SourceUnderTest::new(Grid::new(80, 1));
-        src.write(0, &"id".repeat(31));
-        src.set(62, "i").unwrap();
+        // Fifteen nested additions plus sixteen operands occupy 31 parser
+        // atoms. Prefixing one more binary Function would also require an
+        // empty second operand, exceeding the 32-atom parser capacity.
+        src.write(2, &("++".repeat(15) + &"00".repeat(16)));
+        src.set(1, "+").unwrap();
         let before = src.snapshot();
         let before_diagnostics = src.diagnostics();
         let before_glyphs = (0..src.count())
             .map(|idx| src.get_glyph_at(idx))
             .collect::<Vec<_>>();
 
-        let result = src.set(63, "d");
+        let result = src.set(0, "+");
 
         assert_eq!(
             result,
@@ -1131,19 +1134,18 @@ mod test {
 
         let mut src = source();
 
-        // `++0101` starting at Cell 2; a Tick would write its result one row below
+        // `++0101` starting at Cell 4; a Tick would write its result one row below
         for (i, c) in "++0101".chars().enumerate() {
-            src.set(i + 2, &c.to_string()).unwrap();
+            src.set(i + 4, &c.to_string()).unwrap();
         }
 
-        // prepending joins everything into one Expression starting at Cell 0;
-        // the old Expression starting at Cell 2 no longer exists
-        src.set(1, "d").unwrap();
-        src.set(0, "i").unwrap();
+        // Prepending `++00` joins everything into one Expression at Cell 0;
+        // the old Expression starting at Cell 4 no longer exists.
+        src.write(0, "++00");
         src.execute();
 
-        // `id++0101` commits `02` across Cells 10 and 11. The stale Expression
-        // at Cell 2 would commit its own `02` over Cells 12 and 13, so the row
+        // `++00++0101` commits `02` across Cells 10 and 11. The stale Expression
+        // at Cell 4 would commit its own `02` over Cells 14 and 15, so the row
         // is asserted whole: only the joined Expression's result may appear.
         assert_eq!(src.row(1), "02        ");
     }
@@ -1472,10 +1474,9 @@ mod test {
 
         let mut src = source();
 
-        // `id` with no operand does contain a Function, but the Interpreter
-        // has nothing to identify: the empty result is the absence of a value
-        // and must never reach a Cell
-        src.write(0, "id");
+        // `++` with no operands contains a Function, but the Interpreter has
+        // no value to add. An empty result must never reach a Cell.
+        src.write(0, "++");
 
         src.execute();
 
@@ -1488,13 +1489,13 @@ mod test {
 
         let mut src = source();
 
-        // `id1` is a computation — suppressing literals must not suppress a
-        // Function applied to one
-        src.write(0, "id1");
+        // `++0102` is a computation — suppressing literals must not suppress
+        // a Function applied to them.
+        src.write(0, "++0102");
 
         src.execute();
 
-        assert_eq!(src.row(1), "1         ");
+        assert_eq!(src.row(1), "03        ");
     }
 
     #[test]

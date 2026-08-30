@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Sequence Results in Orcvs Source</title>
+  <style>
+    :root { color-scheme: dark; font: 15px/1.45 system-ui, sans-serif; background: #101417; color: #d9e2e8; }
+    body { max-width: 1180px; margin: auto; padding: 30px 20px 70px; }
+    h1, h2, h3 { color: #f3f7f9; } h1 { margin: 4px 0; }
+    code { color: #9fe3ce; } button { background: #244c41; color: #f1fff9; border: 1px solid #397463; border-radius: 6px; padding: 9px 12px; margin: 4px; cursor: pointer; }
+    button:hover, button.active { background: #397463; }
+    .tag { color: #63d5b3; font-weight: 700; letter-spacing: .08em; }
+    .panel { background: #182025; border: 1px solid #2d3a41; border-radius: 10px; padding: 17px; margin: 18px 0; }
+    .models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .model { min-width: 0; }
+    .grid { display: grid; grid-template-columns: repeat(16, 22px); grid-auto-rows: 25px; width: max-content; background: #0b1013; border: 1px solid #344149; padding: 5px; }
+    .cell { display: grid; place-items: center; box-sizing: border-box; border-right: 1px solid #1e292f; border-bottom: 1px solid #1e292f; font: 14px/1 monospace; color: #b9c5ca; }
+    .cell.function { color: #63d5b3; background: #11241f; }
+    .cell.number { color: #ffd479; }
+    .cell.bang { color: #ff8585; }
+    .cell.result { outline: 1px solid #397463; outline-offset: -1px; }
+    .diag { min-height: 3.5em; margin-top: 9px; padding: 9px 11px; border-left: 3px solid #66747b; background: #11171a; }
+    .diag.error { border-color: #ff7272; color: #ffd0d0; }
+    .diag.ok { border-color: #63d5b3; }
+    .legend { color: #aebbc2; } .tick { color: #ffd479; font-weight: 700; }
+    .steps button.done { opacity: .5; }
+    @media (max-width: 850px) { .models { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="tag">THROWAWAY LOGIC PROTOTYPE</div>
+  <h1>Should an Orcvs Function return a Sequence?</h1>
+  <p class="panel"><strong>Superseded exploration.</strong> This prototype records the comparison that led to first-class Sequences. Its hypothetical names and alternative terminal-write model do not state the current language contract. See ADR 0007 and the Orca-to-Orcvs capability map for the recorded decision.</p>
+
+  <section class="panel">
+    <h2>Choose a walkthrough</h2>
+    <div id="tabs"></div>
+    <p id="description"></p>
+    <div class="steps"><button id="reset">Reset</button><button id="next">Run next Tick</button></div>
+  </section>
+
+  <section class="models">
+    <article class="panel model">
+      <h2>First-class Sequence</h2>
+      <p class="legend">A Sequence may be consumed by a parent Function before any Cells are written.</p>
+      <div class="tick" id="sequenceTick"></div>
+      <div class="grid" id="sequenceGrid"></div>
+      <div class="diag" id="sequenceDiag"></div>
+    </article>
+    <article class="panel model">
+      <h2>Terminal multi-write</h2>
+      <p class="legend">A multi-cell Function is an Expression-root effect and cannot supply a nested value.</p>
+      <div class="tick" id="writeTick"></div>
+      <div class="grid" id="writeGrid"></div>
+      <div class="diag" id="writeDiag"></div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Function contracts used by this prototype</h2>
+    <p><code>rg0103</code> produces the Number Atoms <code>01 02 03</code>. <code>rvrg0103</code> reverses that result. <code>jorg0103</code> joins the Sequence into generated source text <code>+.0102</code> for the next Tick. None of these names or signatures is proposed for production yet.</p>
+    <p><strong>Question:</strong> Is transforming a group of Atoms within Tick T valuable, or should every multi-cell capability be a terminal write whose output can only participate in Tick T+1?</p>
+  </section>
+
+<script>
+const COLS = 16, ROWS = 6;
+const blank = () => Array(COLS * ROWS).fill(" ");
+const put = (grid, row, col, text, result = false) => {
+  [...text].forEach((char, offset) => { if (col + offset < COLS) grid[row * COLS + col + offset] = { char, result }; });
+};
+const source = (...entries) => { const grid = blank(); entries.forEach(e => put(grid, ...e)); return grid; };
+
+const scenarios = [
+  {
+    name: "Produce Cells",
+    description: "Both designs can produce 01 02 03 below the root Expression. Advance once to commit the result, then again to show that literals do not compute.",
+    frames: [
+      { p: source([0,0,"rg0103"]), w: source([0,0,"rg0103"]), pd: "Ready: rg will evaluate against the Tick 0 Source Snapshot.", wd: "Ready: rg will evaluate as a terminal multi-write." },
+      { p: source([0,0,"rg0103"],[1,0,"010203",true]), w: source([0,0,"rg0103"],[1,0,"010203",true]), pd: "Tick Plan committed one Sequence encoding to six Cells; the current parser now diagnoses that occupied run as missing a Function.", wd: "Tick Plan committed six planned Cell writes; the current parser now diagnoses that occupied run as missing a Function.", pe: true, we: true },
+      { p: source([0,0,"rg0103"],[1,0,"010203"]), w: source([0,0,"rg0103"],[1,0,"010203"]), pd: "Current behaviour: 010203 is inert but diagnosed as expected Function. Sequence-aware literal parsing is unresolved.", wd: "Current behaviour: 010203 is inert but diagnosed as expected Function. Sequence-aware literal parsing is unresolved.", pe: true, we: true }
+    ]
+  },
+  {
+    name: "Nest a transform",
+    description: "rv consumes the output of rg during the same Tick. This is the capability only a first-class Sequence provides.",
+    frames: [
+      { p: source([0,0,"rvrg0103"]), w: source([0,0,"rvrg0103"]), pd: "Ready: nested rg produces a Sequence for rv.", wd: "Diagnostic pending: terminal rg appears where rv requires a value." },
+      { p: source([0,0,"rvrg0103"],[1,0,"030201",true]), w: source([0,0,"rvrg0103"]), pd: "rv received [01, 02, 03] and returned [03, 02, 01].", wd: "Cannot nest terminal Source Function rg inside rv; no Tick writes were planned.", we: true }
+    ]
+  },
+  {
+    name: "Generate code",
+    description: "A Sequence can be converted into Function source. The generated +. Expression executes only after it belongs to the next Source Snapshot.",
+    frames: [
+      { p: source([0,0,"jorg0103"]), w: source([0,0,"jorg0103"]), pd: "Ready: jo will turn a Sequence into +.0102.", wd: "Diagnostic pending: terminal rg cannot supply jo with a value." },
+      { p: source([0,0,"jorg0103"],[1,0,"+.0102",true]), w: source([0,0,"jorg0103"]), pd: "Generated code committed. It was not executed again during Tick 0.", wd: "Cannot nest terminal Source Function rg inside jo; no generated code was written.", we: true },
+      { p: source([0,0,"jorg0103"],[1,0,"+.0102"],[2,0,"03",true]), w: source([0,0,"jorg0103"]), pd: "At Tick 1, +.0102 belonged to the Source Snapshot and produced 03.", wd: "The invalid Expression remains diagnosable and inert.", we: true }
+    ]
+  }
+];
+
+let scenario = 0, frame = 0;
+const glyphClass = (cell, index, grid) => {
+  const value = typeof cell === "string" ? cell : cell.char;
+  const result = typeof cell === "object" && cell.result ? " result" : "";
+  if (value === "*") return "cell bang" + result;
+  if (/[0-9A-F]/.test(value)) return "cell number" + result;
+  const previous = index % COLS ? (typeof grid[index - 1] === "string" ? grid[index - 1] : grid[index - 1].char) : " ";
+  if (/[a-z+*/>-]/.test(value) || /[a-z+*/>-]/.test(previous)) return "cell function" + result;
+  return "cell" + result;
+};
+function draw(id, grid) {
+  document.querySelector(id).innerHTML = grid.map((cell, i) => `<span class="${glyphClass(cell, i, grid)}">${(typeof cell === "string" ? cell : cell.char) === " " ? "·" : (typeof cell === "string" ? cell : cell.char)}</span>`).join("");
+}
+function render() {
+  const item = scenarios[scenario], current = item.frames[frame];
+  document.querySelector("#tabs").innerHTML = scenarios.map((s,i) => `<button class="${i===scenario?"active":""}" data-tab="${i}">${s.name}</button>`).join("");
+  document.querySelector("#description").textContent = item.description;
+  document.querySelector("#sequenceTick").textContent = `Source after Tick ${frame}`;
+  document.querySelector("#writeTick").textContent = `Source after Tick ${frame}`;
+  draw("#sequenceGrid", current.p); draw("#writeGrid", current.w);
+  const pd = document.querySelector("#sequenceDiag"), wd = document.querySelector("#writeDiag");
+  pd.textContent = `Diagnostic context: ${current.pd}`; wd.textContent = `Diagnostic context: ${current.wd}`;
+  pd.className = `diag ${current.pe ? "error" : "ok"}`; wd.className = `diag ${current.we ? "error" : "ok"}`;
+  document.querySelector("#next").disabled = frame === item.frames.length - 1;
+}
+document.addEventListener("click", event => {
+  if (event.target.dataset.tab !== undefined) { scenario = Number(event.target.dataset.tab); frame = 0; }
+  if (event.target.id === "reset") frame = 0;
+  if (event.target.id === "next") frame = Math.min(frame + 1, scenarios[scenario].frames.length - 1);
+  render();
+});
+render();
+</script>
+</body>
+</html>
