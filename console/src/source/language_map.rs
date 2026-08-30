@@ -104,6 +104,7 @@ impl LanguageMap {
     }
 
     pub(super) fn presentation_differs_at(&self, previous: &Self, idx: usize) -> bool {
+        debug_assert_eq!(self.glyphs.len(), previous.glyphs.len());
         self.glyphs[idx] != previous.glyphs[idx]
     }
 
@@ -125,7 +126,7 @@ impl LanguageMap {
                 .err()
                 .map(|error| Diagnostic {
                     start,
-                    end: start + source.len() - 1,
+                    end,
                     message: error.to_string(),
                 })
         };
