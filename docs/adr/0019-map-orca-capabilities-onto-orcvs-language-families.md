@@ -30,10 +30,10 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Concatenate | — | Add as a first-class Sequence Function | `:&` | ADR 0007 |
 | Track | `T` | Replace with Sequence Select | `:?` | ADRs 0007 and 0017 |
 | Push | `P` | Replace with Sequence Replace followed by Source Write | `:=` then `@>` | ADRs 0007 and 0017 |
-| Read and Query | `O Q` | Replace with Source Read returning an Atom or Sequence | `@<` | ADRs 0005 and 0017 |
-| Write | `X` | Replace with Source Write through a Portal | `@>` | ADRs 0004, 0005, and 0009 |
-| Generator | `G` | Compose Source Read and Source Write | `@<` then `@>` | ADR 0017 |
-| Konkat | `K` | Replace hidden-variable lookup with Source Read from visible Source | `@<` | ADRs 0003 and 0017 |
+| Read and Query | `O Q` | Replace with Source Read returning an Atom or Sequence | `@<` reserved; operands deferred | ADRs 0005 and 0017 |
+| Write | `X` | Replace with Source Write through a Portal | `@>` reserved; operands deferred | ADRs 0004, 0005, 0009, and 0017 |
+| Generator | `G` | Compose Source Read and Source Write | reserved `@<` then `@>`; operands deferred | ADR 0017 |
+| Konkat | `K` | Replace hidden-variable lookup with Source Read from visible Source | `@<` reserved; operands deferred | ADRs 0003 and 0017 |
 | Variable | `V` | Omit the hidden named table; persistent language state remains in Source | — | ADRs 0003 and 0017 |
 | Comment | `#` | Retain | `#` | Existing language contract |
 | Raw MIDI note | `:` | Retain without an implicit lifetime | `!>` | ADR 0016 |

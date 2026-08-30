@@ -2,9 +2,19 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+fixture_dirs=()
+
+cleanup() {
+  local dir
+  for dir in "${fixture_dirs[@]}"; do
+    rm -rf "$dir"
+  done
+}
+trap cleanup EXIT
 
 make_fixture() {
   fixture_dir="$(mktemp -d)"
+  fixture_dirs+=("$fixture_dir")
   mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/console" "$fixture_dir/lang"
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
@@ -52,6 +62,13 @@ test_unlocked_wasm_pack_is_rejected() {
   assert_rejected "an unlocked wasm-pack test invocation"
 }
 
+test_persistence_command_in_wrong_task_is_rejected() {
+  make_fixture
+  perl -0pi -e 's/(\[tasks\.test_persistence\].*?)cargo clippy --package console --all-targets --features persistence --locked -- -D warnings\n/$1/s' "$fixture_dir/mise.toml"
+  printf '\ncargo clippy --package console --all-targets --features persistence --locked -- -D warnings\n' >> "$fixture_dir/mise.toml"
+  assert_rejected "a persistence command outside test_persistence"
+}
+
 test_dotted_dependency_version_is_rejected() {
   make_fixture
   perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/tokio.workspace = true\ntokio.version = "9.0.0"/) { $done = 1 }' "$fixture_dir/console/Cargo.toml"
@@ -93,12 +110,14 @@ case "${1:-all}" in
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
+  misplaced-persistence) test_persistence_command_in_wrong_task_is_rejected ;;
   all)
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
     test_unlocked_check_deny_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
+    test_persistence_command_in_wrong_task_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected
     test_commented_dependency_table_version_is_rejected

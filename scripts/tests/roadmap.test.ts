@@ -28,3 +28,23 @@ test('readReleaseScope rejects an executable Definition of Done URL', () => {
     rmSync(root, { recursive: true });
   }
 });
+
+test('readReleaseScope accepts emphasized release metadata', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    writeFileSync(
+      join(root, 'ROADMAP.md'),
+      '# Release\n\n**Tag:** release\n**Goal:** ship\n**Definition:** docs/done.md\n**Gate:** feature/01\n',
+    );
+
+    assert.deepEqual(readReleaseScope(root), {
+      title: 'Release',
+      tag: 'release',
+      goal: 'ship',
+      definition: 'docs/done.md',
+      gate: 'feature/01',
+    });
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});

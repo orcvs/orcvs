@@ -104,16 +104,12 @@ mod test {
     }
 
     #[test]
-    fn remaining_blink_delay_uses_the_configured_non_default_delay() {
+    fn remaining_blink_delay_saturates_at_zero() {
         let grid = Grid::new(10, 4);
-        let cursor = Cursor::new(grid.origin(), 1_000);
+        let cursor = Cursor::new(grid.origin(), 0);
 
         let remaining = cursor.remaining_blink_delay();
 
-        assert!(
-            remaining > Duration::from_millis(800),
-            "remaining: {remaining:?}"
-        );
-        assert!(remaining <= Duration::from_millis(1_000));
+        assert_eq!(remaining, Duration::ZERO);
     }
 }

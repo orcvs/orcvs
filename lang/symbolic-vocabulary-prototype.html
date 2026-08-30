@@ -63,9 +63,9 @@ const scenarioDefs=[
    {g:make([[0,0,rd+"AA03"],[1,0,"010203",true],[2,0,wr+"*AA03rg0103"]]),d:"Read returned one raw Cell Sequence; write planned one intact Sequence through the opposing Portal operation."}
  ]}},
  {name:"Play and time",desc:"Directional Always schedules a time Function whose one-Tick Bang lands on terminal Play.",frames:()=>{const dl=symbol("delay Bang"),pl=symbol("raw Play"),pt=symbol("timed Play"),av=symbol("always south");return[
-   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick on even ticks"]]),d:"Tick 00: @v rays south to the first occupied root and activates Delay. Delay's Bang Portal lands on raw Play, which emits channel 00, velocity 7F, note C4."},
-   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick on even ticks"]]),d:"Tick 01: @v activates Delay, which produces no Bang. Raw Play is inert, emits no command, and its Source remains unchanged."},
-   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pt+"007FC404"],[4,0,"#timed kick, 04 ticks"]]),d:"Replacing >> with >? selects a different fixed-arity Function. At Tick 02 its landed Bang emits C4 with an explicit 04-Tick lifetime."}
+   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick, even"]]),d:"Tick 00: @v rays south to the first occupied root and activates Delay. Delay's Bang Portal lands on raw Play, which emits channel 00, velocity 7F, note C4."},
+   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pl+"007FC4"],[4,0,"#raw kick, even"]]),d:"Tick 01: @v activates Delay, which produces no Bang. Raw Play is inert, emits no command, and its Source remains unchanged."},
+   {g:make([[0,0,av],[1,0,dl+"0201"],[2,0,pt+"007FC404"],[4,0,"#timed kick, 04"]]),d:"Replacing >> with >? selects a different fixed-arity Function. At Tick 02 its landed Bang emits C4 with an explicit 04-Tick lifetime."}
  ]}},
  {name:"Spatial score",desc:"Directional Always replaces Orca uppercase scheduling with visible activation rays.",frames:()=>{const rt=symbol("move right"),jv=symbol("vertical jumper"),hl=symbol("halt"),ar=symbol("always east"),av=symbol("always south");return[
    {g:make([[0,0,ar],[0,4,rt],[2,5,jv],[3,5,av],[5,5,hl]]),d:"@> rays through empty Cells to the move-right root; @v targets the first occupied root south, Halt. Each target retains its own result Portal."},

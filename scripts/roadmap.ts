@@ -85,10 +85,10 @@ export interface ReleaseScope {
 const STATUS_PATTERN = /^\*{0,2}status:\*{0,2}[ \t]+(.+)$/iu;
 const BLOCKED_PATTERN = /^\*{0,2}blocked by:?\*{0,2}[ \t]*(.*)$/iu;
 const TAGS_PATTERN = /^\*{0,2}tags:\*{0,2}[ \t]+(.+)$/iu;
-const RELEASE_TAG_PATTERN = /^tag:[ \t]+(.+)$/iu;
-const RELEASE_GOAL_PATTERN = /^goal:[ \t]+(.+)$/iu;
-const RELEASE_DEFINITION_PATTERN = /^definition:[ \t]+(.+)$/iu;
-const RELEASE_GATE_PATTERN = /^gate:[ \t]+(.+)$/iu;
+const RELEASE_TAG_PATTERN = /^\*{0,2}tag:\*{0,2}[ \t]+(.+)$/iu;
+const RELEASE_GOAL_PATTERN = /^\*{0,2}goal:\*{0,2}[ \t]+(.+)$/iu;
+const RELEASE_DEFINITION_PATTERN = /^\*{0,2}definition:\*{0,2}[ \t]+(.+)$/iu;
+const RELEASE_GATE_PATTERN = /^\*{0,2}gate:\*{0,2}[ \t]+(.+)$/iu;
 const HEADING_PATTERN = /^#[ \t]+(.+?)[ \t]*$/u;
 const NUMBERED_TITLE_PATTERN = /^\d{2}[ \t]*[—–-][ \t]*/u;
 const FILE_NUMBER_PATTERN = /^(\d{2})-/u;

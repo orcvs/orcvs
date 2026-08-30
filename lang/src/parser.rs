@@ -18,11 +18,6 @@ pub struct Parser<'a> {
     invalid: bool,
 }
 
-///
-/// #[inline(always)]
-/// Inline on take_language_unit and inner_take improves performance.
-/// Additional inlines do not improve performance.
-///
 impl<'a> Parser<'a> {
     pub fn from(source: &'a mut str) -> Self {
         Self {
@@ -145,7 +140,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Inlining causes performance regression
     #[inline(always)]
     fn is_function_next(&self) -> bool {
         let peek = self.peek_next();
@@ -190,7 +184,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-// Inlining causes performance regression
 #[inline(always)]
 fn is_function(s: Option<&str>) -> bool {
     // s.map_or(false, |t| Function::try_from(t).is_ok())
