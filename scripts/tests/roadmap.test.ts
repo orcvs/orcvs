@@ -48,3 +48,17 @@ test('readReleaseScope accepts emphasized release metadata', () => {
     rmSync(root, { recursive: true });
   }
 });
+
+test('readReleaseScope treats whitespace-only metadata as absent', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    writeFileSync(
+      join(root, 'ROADMAP.md'),
+      '# Release\n\nTag: release\nGoal: ship\nGate:   \n',
+    );
+
+    assert.equal(readReleaseScope(root)?.gate, null);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});

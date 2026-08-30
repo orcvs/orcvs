@@ -53,21 +53,26 @@ async fn main() -> eframe::Result {
     )
 }
 
-// When compiling to web using trunk:
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use console::console::Console;
+    use console::web_startup::canvas_or_report;
     use wasm_bindgen::JsCast;
 
     // Redirect `log` message to `console.log` and friends:
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
     let web_options = eframe::WebOptions::default();
-    let canvas = web_sys::window()
-        .and_then(|window| window.document())
+    let document = web_sys::window().and_then(|window| window.document());
+    let canvas = document
+        .as_ref()
         .and_then(|document| document.get_element_by_id("the_canvas_id"))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlCanvasElement>().ok())
-        .expect("the_canvas_id is an HTML canvas");
+        .and_then(|element| element.dyn_into::<web_sys::HtmlCanvasElement>().ok());
+    let loading_text = document.and_then(|document| document.get_element_by_id("loading_text"));
+    let Some(canvas) = canvas_or_report(canvas, loading_text) else {
+        log::error!("the_canvas_id is missing or is not an HTML canvas");
+        return;
+    };
 
     wasm_bindgen_futures::spawn_local(async {
         let start_result = eframe::WebRunner::new()

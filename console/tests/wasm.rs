@@ -4,6 +4,7 @@ use console::app::App;
 use console::grid::Grid;
 use console::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
 use console::source::SourceCommander;
+use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::PlayCommand;
 use std::time::Duration;
@@ -26,6 +27,19 @@ fn web_app_constructs_and_advances_the_cursor_without_panicking() {
     app.advance_cursor_blink();
 
     assert_eq!(app.render_frame().rows().len(), 1);
+}
+
+#[wasm_bindgen_test]
+fn missing_canvas_reports_an_in_page_startup_error_without_panicking() {
+    let document = web_sys::window()
+        .and_then(|window| window.document())
+        .expect("browser test has a document");
+    let loading_text = document
+        .create_element("div")
+        .expect("browser can create a loading element");
+
+    assert!(canvas_or_report(None, Some(loading_text.clone())).is_none());
+    assert_eq!(loading_text.inner_html(), MISSING_CANVAS_MESSAGE);
 }
 
 #[wasm_bindgen_test(async)]

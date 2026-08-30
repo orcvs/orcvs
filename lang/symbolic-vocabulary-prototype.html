@@ -73,6 +73,8 @@ const scenarioDefs=[
  ]}}
 ];
 let pi=0,si=0,fi=0;
+// Executable fixture check: every guided frame must fit the prototype Grid.
+scenarioDefs.forEach(scenario=>scenario.frames());
 function cls(x){if(x.ch==="*")return"cell bang"+(x.changed?" changed":"");if(/[0-9A-F]/.test(x.ch))return"cell num"+(x.changed?" changed":"");if(x.ch!==" ")return"cell fn"+(x.changed?" changed":"");return"cell"}
 function collisions(def){const uses={};def.map.forEach(x=>(uses[x[1]]??=[]).push(x[2]));return Object.entries(uses).filter(x=>x[1].length>1)}
 function mappingMarkup(def){const clashes=new Set(collisions(def).map(x=>x[0]));let group="";return def.map.map(x=>{const heading=x[0]===group?"":`<div class="group">${x[0]}</div>`;group=x[0];return `${heading}<code class="${clashes.has(x[1])?'collision':''}">${x[1]}</code><span>${x[2]}</span>`}).join("")}

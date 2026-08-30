@@ -323,7 +323,7 @@ export const buildRoadmap = (root: string): Roadmap => {
 const readMetadata = (lines: readonly string[], pattern: RegExp): string | null => {
   for (const line of lines) {
     const matched = pattern.exec(line);
-    if (matched !== null) return (matched[1] ?? '').trim();
+    if (matched !== null) return (matched[1] ?? '').trim() || null;
   }
   return null;
 };
