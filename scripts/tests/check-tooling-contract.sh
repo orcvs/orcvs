@@ -12,6 +12,10 @@ make_fixture() {
   cp "$repo_root/console/check.sh" "$fixture_dir/console/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
   cp "$repo_root/.github/workflows/test.yml" "$fixture_dir/.github/workflows/"
+  if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
+    echo "fresh tooling-contract fixture does not satisfy the contract" >&2
+    return 1
+  fi
 }
 
 assert_rejected() {
@@ -54,13 +58,22 @@ test_prohibited_action_main_ref_is_rejected() {
   assert_rejected "a prohibited action using an unpinned ref"
 }
 
+test_invalid_fresh_fixture_is_rejected() {
+  if CHECKER_SOURCE="$repo_root/Cargo.toml" make_fixture 2>/dev/null; then
+    echo "expected fixture setup to reject an invalid fresh fixture" >&2
+    return 1
+  fi
+}
+
 case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
+  invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
   all)
+    test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected

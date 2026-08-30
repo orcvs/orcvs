@@ -92,6 +92,14 @@ fn next_scheduled_at(
 }
 
 #[cfg(any(test, target_arch = "wasm32"))]
+fn wasm_timeout_millis(delay: Duration) -> u32 {
+    delay
+        .as_nanos()
+        .div_ceil(1_000_000)
+        .min(u128::from(u32::MAX)) as u32
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
 async fn wait_for_tick_or_cancellation<F>(delay: F, cancellation: &CancellationToken) -> bool
 where
     F: Future<Output = ()>,
@@ -413,20 +421,15 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
 
                 scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
                 let delay = scheduled_at.saturating_sub(epoch.elapsed());
-                if !delay.is_zero() {
-                    let delay_ms = delay
-                        .as_nanos()
-                        .div_ceil(1_000_000)
-                        .clamp(1, u128::from(u32::MAX)) as u32;
-                    if !wait_for_tick_or_cancellation(
-                        gloo_timers::future::TimeoutFuture::new(delay_ms),
-                        &cancellation,
-                    )
-                    .await
-                    {
-                        guard.finish();
-                        break;
-                    }
+                let delay_ms = wasm_timeout_millis(delay);
+                if !wait_for_tick_or_cancellation(
+                    gloo_timers::future::TimeoutFuture::new(delay_ms),
+                    &cancellation,
+                )
+                .await
+                {
+                    guard.finish();
+                    break;
                 }
             }
         });
@@ -635,6 +638,11 @@ mod tests {
             ),
             Duration::from_secs(61)
         );
+    }
+
+    #[test]
+    fn zero_wasm_delay_still_schedules_a_browser_timer() {
+        assert_eq!(super::wasm_timeout_millis(Duration::ZERO), 0);
     }
 
     #[tokio::test]

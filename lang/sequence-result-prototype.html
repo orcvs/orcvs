@@ -107,7 +107,7 @@ const glyphClass = (cell, index, grid) => {
   if (value === "*") return "cell bang" + result;
   if (/[0-9A-F]/.test(value)) return "cell number" + result;
   const previous = index % COLS ? (typeof grid[index - 1] === "string" ? grid[index - 1] : grid[index - 1].char) : " ";
-  if (/[a-z+*/>-]/.test(value) || /[a-z+*/>-]/.test(previous)) return "cell function" + result;
+  if (/[.!a-z+*/>-]/.test(value) || /[.!a-z+*/>-]/.test(previous)) return "cell function" + result;
   return "cell" + result;
 };
 function draw(id, grid) {

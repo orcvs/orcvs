@@ -1,6 +1,6 @@
 # Orca Visual Synthesizer
 
-Orcvs is a grid-based environment for composing and executing compact musical expressions.
+Orcvs is a grid-based environment for composing and executing compact musical expressions. This glossary names the evolving pre-release language defined by the ADRs; it does not claim that every term's complete behavior is implemented yet.
 
 ## Language
 
@@ -113,11 +113,11 @@ Source text beginning with `#` and continuing to the end of its row, excluded fr
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:
-One playback step that visits every actionable Language Unit and Expression root exactly once in row-major anchor order, evaluates only roots active and unlocked at their turn, and commits all resulting Cell changes atomically. Activation produced during the pass can affect a later root, but a root whose turn has passed is never revisited. Every effect is ordered by producer anchor and then emission order; later Cell effects win conflicts independently. A complete result that does not fit diagnoses and plans no partial write.
+One discrete musical-time step that interprets a Source Snapshot and atomically applies its Tick Plan.
 _Avoid_: Cycle, frame
 
 **Tick Plan**:
-The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including activation routing, Source writes, ordered Play Commands, and diagnostics. Interpretation uses Orca's single row-major pass: a Bang produced onto a root Function activates it in the same Tick Plan only when that root's Source-order turn has not passed. Each root Expression has one turn and evaluates at most once even when multiple Bangs target it. Autonomous movement, Bang expiry, Expression effects, and terminal commands share the same producer-anchor and emission-order key.
+The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including activation routing, Source writes, ordered Play Commands, and diagnostics.
 _Avoid_: Play sequence, command batch
 
 **Playback**:
