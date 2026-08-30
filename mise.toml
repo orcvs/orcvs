@@ -34,11 +34,41 @@ run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="t
 description = "Full repository verification gate"
 run = '''
 bash scripts/check-tooling-contract.sh
+mise run check_pull_request
+mise run check_merge
+'''
+
+[tasks.check_pull_request]
+description = "Pull-request verification tier"
+run = '''
 cargo fmt --all -- --check
-cargo check --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --profile ci --locked
 cargo test --workspace --doc --locked
+'''
+
+[tasks.check_merge]
+description = "Merge verification tier"
+run = '''
+case "${ORCVS_MERGE_COMPONENT:-all}" in
+  native) mise run check_merge_native ;;
+  wasm)
+    mise run check_wasm
+    mise run test_wasm
+    ;;
+  all)
+    mise run check_merge_native
+    mise run check_wasm
+    mise run test_wasm
+    ;;
+  *) echo "unknown merge component: $ORCVS_MERGE_COMPONENT" >&2; exit 2 ;;
+esac
+'''
+
+[tasks.check_merge_native]
+description = "Native merge-only verification gates"
+run = '''
+mise run test_persistence
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 cargo deny --locked check
 '''
@@ -55,7 +85,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --features pers
 [tasks.check_wasm]
 description = "Check and build the WASM application"
 run = '''
-cargo check --package console --lib --target wasm32-unknown-unknown --features persistence --locked
+cargo clippy --package console --lib --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
 cd console
 env -u NO_COLOR trunk build --locked
 '''
