@@ -1,4 +1,4 @@
-use lang::{Atoms, Expression, Parser};
+use lang::{Activation, Atom, Atoms, Expression, Parser, Token};
 
 use crate::{glyph::Glyph, grid::Grid};
 
@@ -115,17 +115,22 @@ impl LanguageMap {
         self.glyphs[start..=end].fill(None);
         let mut source =
             String::from_utf8(bytes[start..=end].to_vec()).expect("Source Cells contain ASCII");
-        let mut strict_source = source.clone();
-        let strict_diagnostic = Parser::from(&mut strict_source)
-            .try_parse()
-            .err()
-            .map(|error| Diagnostic {
-                start,
-                end: start + source.len() - 1,
-                message: error.to_string(),
-            });
+        let standalone_run = parse_standalone_run(&source);
+        let strict_diagnostic = if standalone_run.is_some() {
+            None
+        } else {
+            let mut strict_source = source.clone();
+            Parser::from(&mut strict_source)
+                .try_parse()
+                .err()
+                .map(|error| Diagnostic {
+                    start,
+                    end: start + source.len() - 1,
+                    message: error.to_string(),
+                })
+        };
 
-        let parsed = match Parser::from(&mut source).parse() {
+        let parsed = match standalone_run.map_or_else(|| Parser::from(&mut source).parse(), Ok) {
             Ok(parsed) => parsed,
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
@@ -161,6 +166,23 @@ impl LanguageMap {
             self.glyphs[idx] = Some(glyph);
         }
     }
+}
+
+fn parse_standalone_run(source: &str) -> Option<Expression> {
+    if source.len() < 4 || !source.len().is_multiple_of(2) {
+        return None;
+    }
+
+    let mut expression = Expression::new();
+    for spelling in source.as_bytes().as_chunks::<2>().0 {
+        let (token, atom) = match spelling {
+            b"**" => (Token::Bang, Atom::Bang),
+            b">>" => (Token::Activation, Atom::Activation(Activation::East)),
+            _ => return None,
+        };
+        expression.add(token, atom).ok()?;
+    }
+    Some(expression)
 }
 
 fn expression_parts(mut expression: Expression) -> (Atoms, Vec<Glyph>) {
@@ -250,6 +272,8 @@ fn row_extents(row_start: usize, row: &[u8]) -> Vec<Option<Range>> {
 mod tests {
     use crate::{glyph::Glyph, grid::Grid};
 
+    use lang::{Activation, Atom};
+
     use super::{ExpressionMap, LanguageMap, Range};
 
     fn assert_range(map: &ExpressionMap, start: usize, end: usize) {
@@ -321,6 +345,39 @@ mod tests {
         assert_eq!(map.glyph_at(0), Some(Glyph::Function));
         assert_eq!(map.glyph_at(7), Some(Glyph::Char));
         assert_eq!(map.diagnostics().count(), 1);
+    }
+
+    #[test]
+    fn language_map_partitions_adjacent_standalone_units() {
+        let bangs = LanguageMap::build(Grid::new(4, 1), b"****");
+        let activations = LanguageMap::build(Grid::new(4, 1), b">>>>");
+
+        assert_eq!(
+            bangs
+                .expressions()
+                .next()
+                .unwrap()
+                .atoms()
+                .unwrap()
+                .as_slice(),
+            &[Atom::Bang, Atom::Bang]
+        );
+        assert!((0..4).all(|idx| bangs.glyph_at(idx) == Some(Glyph::Bang)));
+        assert_eq!(bangs.diagnostics().count(), 0);
+        assert_eq!(
+            activations
+                .expressions()
+                .next()
+                .unwrap()
+                .atoms()
+                .unwrap()
+                .as_slice(),
+            &[
+                Atom::Activation(Activation::East),
+                Atom::Activation(Activation::East)
+            ]
+        );
+        assert_eq!(activations.diagnostics().count(), 0);
     }
 
     #[test]
