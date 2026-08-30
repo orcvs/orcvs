@@ -22,3 +22,5 @@ thing, so they fail silently rather than diagnosing.
 - `issues/03-wrap-general-arithmetic-over-bytes.md`
 - `issues/04-select-a-disjoint-note-encoding.md`
 - `issues/05-add-explicit-numeric-conversions.md`
+- `issues/06-retire-the-identity-test-function.md`
+- `issues/07-complete-the-numeric-function-family.md`

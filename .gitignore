@@ -1,5 +1,9 @@
 /target
 .mise.local.toml
 **/.DS_Store
-.scratch/roadmap.html
+# The markdown issue tracker under .scratch/ is tracked; renders and generated
+# data living alongside it are working files.
+.scratch/**
+!.scratch/**/
+!.scratch/**/*.md
 .claude/worktrees/
