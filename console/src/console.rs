@@ -196,7 +196,6 @@ fn show_source(
                 );
                 let visuals = cell_visuals(
                     cell.glyph(),
-                    cell.content(),
                     cell.cursor_bloom(),
                     cell.selected(),
                     cell.cursor_visible(),
@@ -341,7 +340,7 @@ impl eframe::App for Console {
                     *source_view_rect = source_rect;
                 }
 
-                ctx.request_repaint();
+                ctx.request_repaint_after(self.app.remaining_cursor_blink_delay());
             });
 
         if self.diagnostics_open {
@@ -358,9 +357,8 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Pos2, Rect, Vec2};
-
     use crate::app::App;
+    use egui::{Pos2, Rect, Vec2};
 
     use super::{frames_per_second, scene_zoom, source_bounds, top_right_source_view};
 

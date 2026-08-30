@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PROTOTYPE — Number and Note Ambiguity</title>
+  <style>
+    :root{color-scheme:dark;font:15px/1.45 system-ui,sans-serif;background:#101417;color:#d9e2e8}body{max-width:1160px;margin:auto;padding:28px 20px 64px}h1,h2{color:#f3f7f9;margin-top:.35em}code{color:#9fe3ce}.tag{color:#63d5b3;font-weight:700;letter-spacing:.08em}.panel{background:#182025;border:1px solid #2d3a41;border-radius:10px;padding:17px;margin:17px 0}.tabs{display:flex;flex-wrap:wrap;gap:7px}button{background:#244c41;color:#f1fff9;border:1px solid #397463;border-radius:6px;padding:9px 12px;cursor:pointer}button.active,button:hover{background:#397463}button:disabled{opacity:.4}.controls{display:flex;gap:8px;margin-top:12px}.models{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.model{min-width:0}.number-title{color:#ffd479}.note-title{color:#75d8ff}.grid{display:grid;grid-template-columns:repeat(18,24px);grid-auto-rows:25px;width:max-content;max-width:100%;padding:5px;background:#0b1013;border:1px solid #344149}.cell{display:grid;place-items:center;box-sizing:border-box;border-right:1px solid #1e292f;border-bottom:1px solid #1e292f;font:14px/1 monospace;color:#748189}.function{color:#63d5b3;background:#11241f}.number{color:#ffd479;background:#2a2516}.note{color:#75d8ff;background:#10232c}.result{outline:2px solid #f3f7f9;outline-offset:-2px}.ambiguous{box-shadow:inset 0 -3px #ff8585}.tick{color:#aebbc2;font-weight:700;margin-bottom:6px}.diag{min-height:4.4em;margin-top:10px;padding:10px 12px;border-left:3px solid #63d5b3;background:#11171a}.diag.error{border-color:#ff7272;color:#ffd0d0}.state{display:grid;grid-template-columns:max-content 1fr;gap:5px 12px;margin-top:12px}.state strong{color:#aebbc2}.verdict{border-left:3px solid #ff7272;background:#261719;padding:12px}.legend{display:flex;gap:16px;flex-wrap:wrap;color:#aebbc2}.swatch:before{content:"■";margin-right:6px}.l-number:before{color:#ffd479}.l-note:before{color:#75d8ff}.l-function:before{color:#63d5b3}.l-collision:before{color:#ff8585}@media(max-width:920px){.models{grid-template-columns:1fr}.grid{grid-template-columns:repeat(18,minmax(17px,24px));width:min-content}}
+    .bang{color:#ff8585;background:#2a1719}
+  </style>
+</head>
+<body>
+  <div class="tag">THROWAWAY LOGIC PROTOTYPE</div>
+  <h1>What type is <code>C4</code>?</h1>
+  <p class="panel"><strong>Superseded exploration.</strong> This prototype demonstrates the ambiguity that led to ADR 0021. The overlapping <code>C4</code> spelling and sticky-Note arithmetic shown below are rejected designs, not the current language contract. Orcvs now requires disjoint Number and Note encodings and explicit <code>.v</code> / <code>.^</code> conversion.</p>
+
+  <section class="panel">
+    <h2>Guided walkthrough</h2>
+    <div class="tabs" id="tabs"></div>
+    <p id="description"></p>
+    <div class="controls"><button id="reset">Reset</button><button id="next">Advance one edit / Tick</button></div>
+  </section>
+
+  <section class="models">
+    <article class="panel model">
+      <h2 class="number-title">Interpretation A — Number</h2>
+      <div class="tick" id="numberTick"></div>
+      <div class="grid" id="numberGrid"></div>
+      <div class="state" id="numberState"></div>
+      <div class="diag" id="numberDiag"></div>
+    </article>
+    <article class="panel model">
+      <h2 class="note-title">Interpretation B — Note</h2>
+      <div class="tick" id="noteTick"></div>
+      <div class="grid" id="noteGrid"></div>
+      <div class="state" id="noteState"></div>
+      <div class="diag" id="noteDiag"></div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>Decision pressure</h2>
+    <p class="verdict" id="verdict"></p>
+    <div class="legend"><span class="swatch l-function">Function</span><span class="swatch l-number">Number</span><span class="swatch l-note">Note</span><span class="swatch l-collision">same bytes, competing types</span></div>
+    <p><strong>Rejected syntax under test:</strong> <code>.+ left right</code> is two-Cell prefix Addition; <code>C4</code> was proposed as both hexadecimal Number <code>0xC4</code> and musical Note MIDI 60. ADR 0021 rejects this overlap and the rule that any Note operand changes the result type.</p>
+  </section>
+
+<script>
+const W=18,H=6,index=(r,c)=>r*W+c;
+const empty=()=>Array.from({length:W*H},()=>({ch:" ",kind:"empty",result:false,ambiguous:false}));
+function put(g,r,c,text,kind,options={}){[...text].forEach((ch,i)=>g[index(r,c+i)]={ch,kind,result:!!options.result,ambiguous:!!options.ambiguous})}
+function make(entries){const g=empty();entries.forEach(e=>put(g,...e));return g}
+const commonSource=(kind)=>make([[0,1,".+","function"],[0,3,"C4",kind,{ambiguous:true}],[0,5,"01","number"]]);
+
+const cases=[
+  {
+    name:"Classify C4",
+    description:"Before evaluation, the Language Map must assign one type to the same two occupied Cells.",
+    frames:[
+      {ng:make([[2,7,"C4","number",{ambiguous:true}]]),tg:make([[2,7,"C4","note",{ambiguous:true}]]),nt:"Source revision",tt:"Source revision",ns:["Atom","Number(196)","Encoding","C4"],ts:["Atom","Note(60)","Encoding","C4"],nd:"Valid Number: both characters are uppercase hexadecimal digits.",td:"Valid Note: C is a natural pitch and 4 is its octave.",verdict:"The Language Map has two successful classifications and no source character with which to choose between them."}
+    ]
+  },
+  {
+    name:"Run .+ C4 01",
+    description:"Addition makes the lexical choice observable in both value and output spelling.",
+    frames:[
+      {ng:commonSource("number"),tg:commonSource("note"),nt:"Before Tick 0",tt:"Before Tick 0",ns:["Operands","Number(196), Number(1)","Rule","modulo 256"],ts:["Operands","Note(60), Number(1)","Rule","sticky Note, modulo 128"],nd:"Ready: .+ has two numeric operands.",td:"Ready: .+ has two numeric operands.",verdict:"Identical Source is accepted by both contracts; advance the Tick to see the split."},
+      {ng:make([[0,1,".+","function"],[0,3,"C4","number",{ambiguous:true}],[0,5,"01","number"],[1,1,"C5","number",{result:true,ambiguous:true}]]),tg:make([[0,1,".+","function"],[0,3,"C4","note",{ambiguous:true}],[0,5,"01","number"],[1,1,"c4","note",{result:true}]]),nt:"After Tick 0",tt:"After Tick 0",ns:["Calculation","196 + 1", "Result","Number(197) → C5"],ts:["Calculation","60 + 1", "Result","Note(61) → c4"],nd:"Success: wrote hexadecimal C5 below the root.",td:"Success: wrote the next chromatic Note c4 below the root.",verdict:"This is semantic ambiguity, not merely syntax highlighting: one program has two different results."}
+    ]
+  },
+  {
+    name:"Multiply .x C4 02",
+    description:"Multiplication exposes the different wrapping domains particularly clearly.",
+    frames:[
+      {ng:make([[0,1,".x","function"],[0,3,"C4","number",{ambiguous:true}],[0,5,"02","number"],[1,1,"88","number",{result:true}]]),tg:make([[0,1,".x","function"],[0,3,"C4","note",{ambiguous:true}],[0,5,"02","number"],[1,1,"C9","note",{result:true,ambiguous:true}]]),nt:"After Tick 0",tt:"After Tick 0",ns:["Calculation","196 × 2 mod 256","Result","Number(136) → 88"],ts:["Calculation","60 × 2 mod 128","Result","Note(120) → C9"],nd:"Success: Number arithmetic wrapped in the byte domain.",td:"Success: sticky-Note arithmetic wrapped in the MIDI domain.",verdict:"The lexical choice changes the arithmetic modulus: identical operands produce 88 or C9."}
+    ]
+  },
+  {
+    name:"Modulo .% C4 40",
+    description:"Modulo can preserve the ambiguous spelling on one path while producing a distinct Number on the other.",
+    frames:[
+      {ng:make([[0,1,".%","function"],[0,3,"C4","number",{ambiguous:true}],[0,5,"40","number"],[1,1,"04","number",{result:true}]]),tg:make([[0,1,".%","function"],[0,3,"C4","note",{ambiguous:true}],[0,5,"40","number"],[1,1,"C4","note",{result:true,ambiguous:true}]]),nt:"After Tick 0",tt:"After Tick 0",ns:["Calculation","196 % 64","Result","Number(4) → 04"],ts:["Calculation","60 % 64","Result","Note(60) → C4"],nd:"Success: hexadecimal remainder is 04.",td:"Success: MIDI 60 remains Note C4.",verdict:"One interpretation visibly changes the Source; the other writes the same ambiguous text back."}
+    ]
+  },
+  {
+    name:"Equality .= C4 3C",
+    description:"Comparison changes control flow: one interpretation emits no value, while the other emits a Bang.",
+    frames:[
+      {ng:make([[0,1,".=","function"],[0,3,"C4","number",{ambiguous:true}],[0,5,"3C","number"]]),tg:make([[0,1,".=","function"],[0,3,"C4","note",{ambiguous:true}],[0,5,"3C","number"],[1,1,"**","bang",{result:true}]]),nt:"After Tick 0",tt:"After Tick 0",ns:["Comparison","196 ≠ 60","Result","no value"],ts:["Comparison","MIDI 60 = 60","Result","Bang → **"],nd:"Success: inequality plans no result write.",td:"Success: equality writes a Bang for the next Tick.",verdict:"The ambiguity crosses from data into activation: the same Source either stays inert or creates a one-Tick pulse."}
+    ]
+  },
+  {
+    name:"Maximum .> C4 80",
+    description:"Sticky-Note coercion can make a maximum result smaller than both visible hexadecimal inputs.",
+    frames:[
+      {ng:make([[0,1,".>","function"],[0,3,"C4","number",{ambiguous:true}],[0,5,"80","number"],[1,1,"C4","number",{result:true,ambiguous:true}]]),tg:make([[0,1,".>","function"],[0,3,"C4","note",{ambiguous:true}],[0,5,"80","number"],[1,1,"C/","note",{result:true}]]),nt:"After Tick 0",tt:"After Tick 0",ns:["Maximum","max(196, 128)","Result","Number(196) → C4"],ts:["Maximum then coercion","max(60, 128) mod 128","Result","Note(0) → C/"],nd:"Success: C4 remains the larger Number.",td:"Success by the written sticky-Note rule, but the selected 128 wraps to MIDI 0.",verdict:"The collision reveals a second design pressure: mixed-type min/max needs a representability rule, not just generic sticky-Note wrapping."}
+    ]
+  },
+  {
+    name:"Range :- C4 C5",
+    description:"Range changes both values and output size; in this 18-column Grid, only one interpretation fits its Portal.",
+    frames:[
+      {ng:make([[0,1,":-","function"],[0,3,"C4","number",{ambiguous:true}],[0,5,"C5","number",{ambiguous:true}],[1,1,"C4C5","number",{result:true,ambiguous:true}]]),tg:make([[0,1,":-","function"],[0,3,"C4","note",{ambiguous:true}],[0,5,"C5","note",{ambiguous:true}]]),nt:"After Tick 0",tt:"After Tick 0",ns:["Bounds","196 through 197","Sequence","[C4, C5] — 4 Cells"],ts:["Bounds","MIDI 60 through 72","Sequence","13 Notes — 26 Cells"],nd:"Success: the two-Number Sequence fits and commits.",td:"Diagnostic: the complete chromatic Note Sequence does not fit; no partial write.",verdict:"The same six Source Cells can either commit a short Sequence or fail complete-fit validation."}
+    ]
+  },
+  {
+    name:"Play !> 00 7F C4",
+    description:"At a protocol boundary, classification determines whether Orcvs emits an external MIDI command.",
+    frames:[
+      {ng:make([[0,1,"!>","function"],[0,3,"00","number"],[0,5,"7F","number"],[0,7,"C4","number",{ambiguous:true}]]),tg:make([[0,1,"!>","function"],[0,3,"00","number"],[0,5,"7F","number"],[0,7,"C4","note",{ambiguous:true}]]),nt:"Tick 0 plan",tt:"Tick 0 plan",ns:["Note operand","Number(196)","Terminal effect","none"],ts:["Note operand","Note(60)","Terminal effect","Play MIDI note 60"],nd:"Diagnostic: numeric note 196 is outside MIDI 00–7F; emit nothing.",td:"Success: channel 00, velocity 7F, middle C; emit one Play Command.",verdict:"Identical Source can either diagnose safely or produce an irreversible external effect."}
+    ]
+  },
+  {
+    name:"Round-trip a Portal",
+    description:"A typed result is encoded into character Source. On the next revision, only those characters remain.",
+    frames:[
+      {ng:make([[1,7,"C4","number",{result:true,ambiguous:true}]]),tg:make([[1,7,"C4","note",{result:true,ambiguous:true}]]),nt:"Tick T commit",tt:"Tick T commit",ns:["Runtime value","Number(196)","Portal write","C4"],ts:["Runtime value","Note(60)","Portal write","C4"],nd:"Portal encoded the typed Number into two Cells.",td:"Portal encoded the typed Note into the same two Cells.",verdict:"At commit time the runtime still knows the type, but Source stores only C and 4."},
+      {ng:make([[1,7,"C4","number",{ambiguous:true}]]),tg:make([[1,7,"C4","note",{ambiguous:true}]]),nt:"Tick T+1 snapshot",tt:"Tick T+1 snapshot",ns:["Stored state","characters C, 4","Recovered type","Number(196)?"],ts:["Stored state","characters C, 4","Recovered type","Note(60)?"],nd:"No type tag survived the commit; Number is one valid reconstruction.",td:"No type tag survived the commit; Note is another valid reconstruction.",verdict:"The Source-only persistence invariant loses Atom identity unless the encoding itself becomes disjoint."}
+    ]
+  },
+  {
+    name:"Write a Sequence",
+    description:"A Sequence preserves Atom types in memory, but adjacent Source encodings erase every ambiguous element's type.",
+    frames:[
+      {ng:make([[1,6,"C4C4","number",{result:true,ambiguous:true}]]),tg:make([[1,6,"C4C4","note",{result:true,ambiguous:true}]]),nt:"After Sequence write",tt:"After Sequence write",ns:["Possible value","[Number(196), Number(196)]","Source","C4C4"],ts:["Possible value","[Note(60), Note(60)]","Source","C4C4"],nd:"Also compatible with either mixed Number/Note ordering.",td:"Also compatible with either mixed Number/Note ordering.",verdict:"Four characters admit four typed Sequences: NN, NNote, NoteN, and NoteNote. Flat ordering survives; element types do not."}
+    ]
+  }
+];
+
+let selected=0,step=0;
+function draw(id,g){document.querySelector(id).innerHTML=g.map(x=>`<span class="cell ${x.kind} ${x.result?'result':''} ${x.ambiguous?'ambiguous':''}">${x.ch===' '?'·':x.ch}</span>`).join("")}
+function state(id,items){document.querySelector(id).innerHTML=items.reduce((s,x,i)=>s+(i%2===0?`<strong>${x}</strong>`:`<span>${x}</span>`),"")}
+function render(){const item=cases[selected],f=item.frames[step];tabs.innerHTML=cases.map((x,i)=>`<button data-case="${i}" class="${i===selected?'active':''}">${x.name}</button>`).join("");description.textContent=item.description;draw("#numberGrid",f.ng);draw("#noteGrid",f.tg);numberTick.textContent=f.nt;noteTick.textContent=f.tt;state("#numberState",f.ns);state("#noteState",f.ts);numberDiag.textContent=`Diagnostic context: ${f.nd}`;noteDiag.textContent=`Diagnostic context: ${f.td}`;verdict.textContent=f.verdict;next.disabled=step===item.frames.length-1}
+document.addEventListener("click",e=>{if(e.target.dataset.case!==undefined){selected=Number(e.target.dataset.case);step=0}if(e.target.id==="reset")step=0;if(e.target.id==="next")step=Math.min(step+1,cases[selected].frames.length-1);render()});render();
+</script>
+</body>
+</html>

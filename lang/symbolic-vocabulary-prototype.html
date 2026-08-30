@@ -15,7 +15,10 @@
   <section class="panel"><h2>Judge the grammar</h2><p>Which palette makes an unfamiliar symbol feel inferable after learning two or three neighbours? Individual glyphs can move between palettes; this prototype is testing the organizing idea.</p></section>
 <script>
 const C=20,R=8,blank=()=>Array.from({length:C*R},()=>({ch:" ",changed:false}));
-const put=(g,r,c,t,changed=false)=>[...t].forEach((ch,i)=>g[r*C+c+i]={ch,changed});
+const put=(g,r,c,t,changed=false)=>{const chars=[...t];if(r<0||r>=R||c<0||c+chars.length>C)throw new RangeError("text must fit within one Grid row");chars.forEach((ch,i)=>g[r*C+c+i]={ch,changed})};
+let rejectedRowOverflow=false;
+try{put(blank(),0,C-1,"XX")}catch(error){rejectedRowOverflow=error instanceof RangeError}
+if(!rejectedRowOverflow)throw new Error("put must reject text that crosses a Grid row");
 const make=(entries)=>{const g=blank();entries.forEach(e=>put(g,...e));return g};
 const paletteDefs=[
  {name:"J-like digraphs",key:"j",map:[

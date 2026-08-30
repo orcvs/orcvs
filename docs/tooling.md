@@ -1,7 +1,8 @@
 # Build and verification tooling
 
-`mise.toml` is the single source of truth for tool versions and verification commands used both
-locally and in CI. Versions are pinned so the same checkout executes the same gates.
+`rust-toolchain.toml` is the source of truth for the Rust toolchain and compilation targets.
+`mise.toml` pins the additional tooling and defines verification commands used both locally and in
+CI, so the same checkout executes the same gates.
 
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
   profile, including non-fail-fast reporting.
@@ -9,5 +10,5 @@ locally and in CI. Versions are pinned so the same checkout executes the same ga
 - `trunk` builds the browser application and performs its WASM asset pipeline.
 - `wasm-pack` executes the browser regression suite through `wasm-bindgen-test`.
 
-Upgrade these pins deliberately in `mise.toml`, then run `mise run check`, the affected platform or
-feature gates, and `mise run audit_deps`.
+Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
+affected platform or feature gates, and `mise run audit_deps`.

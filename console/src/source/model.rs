@@ -151,7 +151,7 @@ impl Source {
     pub fn new(grid: Grid) -> Self {
         let size = grid.count();
         let inner = SPACE.to_string().repeat(size);
-        let map = ExpressionMap::new(grid);
+        let map = ExpressionMap::build(grid, inner.as_bytes());
 
         let glyphs = vec![None; size];
         let parsed = vec![None; size];
@@ -249,26 +249,14 @@ impl Source {
             return Ok(());
         }
 
-        let mut prospective = self.inner.as_bytes().to_vec();
-        prospective[idx] = byte;
+        let range = ExpressionMap::prospective_range(self.grid, self.inner.as_bytes(), idx, byte)
+            .expect("an occupied prospective Cell belongs to one Expression");
+        let start = range.start();
+        let end = range.end();
 
-        let mut start = idx;
-        while start > 0
-            && prospective[start - 1] != SPACE_BYTE
-            && self.indices_share_a_row(idx, start - 1)
-        {
-            start -= 1;
-        }
-        let mut end = idx;
-        while end + 1 < prospective.len()
-            && prospective[end + 1] != SPACE_BYTE
-            && self.indices_share_a_row(idx, end + 1)
-        {
-            end += 1;
-        }
-
-        let mut expression = String::from_utf8(prospective[start..=end].to_vec())
+        let mut expression = String::from_utf8(self.inner.as_bytes()[start..=end].to_vec())
             .expect("Source Cells contain ASCII");
+        expression.replace_range(idx - start..=idx - start, &(byte as char).to_string());
         match Parser::from(&mut expression).parse() {
             Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
                 Err(SourceError::ExpressionTooLong {
@@ -290,10 +278,10 @@ impl Source {
         let mut i = from;
         while i <= to {
             if let Some(range) = self.map.get(i) {
-                if !starts.contains(&range.start) {
-                    starts.push(range.start);
+                if !starts.contains(&range.start()) {
+                    starts.push(range.start());
                 }
-                i = range.end + 1;
+                i = range.end() + 1;
             } else {
                 i += 1;
             }
@@ -385,8 +373,8 @@ impl Source {
                 }
                 Err(error) => {
                     diagnostics.push(Diagnostic {
-                        start: range.start,
-                        end: range.end,
+                        start: range.start(),
+                        end: range.end(),
                         message: error.to_string(),
                     });
                     continue;
@@ -403,16 +391,16 @@ impl Source {
                 .expect("parsed holds one entry per Cell");
             let Some(target) = self.grid.below(origin) else {
                 diagnostics.push(Diagnostic {
-                    start: range.start,
-                    end: range.end,
+                    start: range.start(),
+                    end: range.end(),
                     message: format!("result {encoded:?} falls below the Source"),
                 });
                 continue;
             };
             if !self.grid.fits(target, encoded.chars().count()) {
                 diagnostics.push(Diagnostic {
-                    start: range.start,
-                    end: range.end,
+                    start: range.start(),
+                    end: range.end(),
                     message: format!("result {encoded:?} crosses the row edge"),
                 });
                 continue;
@@ -468,16 +456,11 @@ impl Source {
     }
 
     fn rebuild_derived_state(&mut self) {
-        self.map = ExpressionMap::new(self.grid);
+        self.map = ExpressionMap::build(self.grid, self.inner.as_bytes());
         self.glyphs.fill(None);
         self.parsed.fill(None);
         self.diagnostics.fill(None);
 
-        for (idx, byte) in self.inner.bytes().enumerate() {
-            if byte != SPACE_BYTE {
-                self.map.set(idx);
-            }
-        }
         for start in self.expression_starts(0, self.grid.count() - 1) {
             let range = self.map.get(start).expect("Expression starts have a range");
             self.parse_range(range);
@@ -491,7 +474,7 @@ impl Source {
 
     fn get_exp_src(&self, range: Range) -> String {
         // Ranges come from the ExpressionMap, which only holds in-bounds indices
-        self.inner[range.start..=range.end].to_owned()
+        self.inner[range.start()..=range.end()].to_owned()
     }
 
     ///
@@ -508,8 +491,8 @@ impl Source {
     }
 
     fn parse_range(&mut self, exp_range: Range) {
-        let start = exp_range.start;
-        let end = exp_range.end;
+        let start = exp_range.start();
+        let end = exp_range.end();
         let mut src = self.get_exp_src(exp_range);
         let mut strict_src = src.clone();
         let diagnostic = Parser::from(&mut strict_src)
@@ -688,7 +671,7 @@ mod test {
         // was never built from would name.
         let mut src = SourceUnderTest::new(Grid::new(8, 4));
 
-        src.write(0, "++0102");
+        src.write(0, ".+0102");
         src.execute();
 
         assert_eq!(src.row(1), "03      ");
@@ -720,7 +703,7 @@ mod test {
     fn test_source_round_trip_restores_shape_contents_and_derived_state() {
         let grid = Grid::new(10, 3);
         let mut source = Source::new(grid);
-        for (idx, content) in "++0102".chars().enumerate() {
+        for (idx, content) in ".+0102".chars().enumerate() {
             source.set(idx, &content.to_string()).unwrap();
         }
         source.set(15, "x").unwrap();
@@ -811,7 +794,7 @@ mod test {
         // Fifteen nested additions plus sixteen operands occupy 31 parser
         // atoms. Prefixing one more binary Function would also require an
         // empty second operand, exceeding the 32-atom parser capacity.
-        src.write(2, &("++".repeat(15) + &"00".repeat(16)));
+        src.write(2, &(".+".repeat(15) + &"00".repeat(16)));
         src.set(1, "+").unwrap();
         let before = src.snapshot();
         let before_diagnostics = src.diagnostics();
@@ -819,7 +802,7 @@ mod test {
             .map(|idx| src.get_glyph_at(idx))
             .collect::<Vec<_>>();
 
-        let result = src.set(0, "+");
+        let result = src.set(0, ".");
 
         assert_eq!(
             result,
@@ -845,23 +828,23 @@ mod test {
 
         let mut src = source();
 
-        let change = src.set(0, "+").unwrap();
+        let change = src.set(0, ".").unwrap();
         assert_eq!(
             change.cells,
             vec![Cell {
                 idx: 0,
-                content: Some('+'),
+                content: Some('.'),
                 glyph: Some(Glyph::Char),
             }]
         );
 
-        // completing the `++` Function reclassifies Cell 0 in the same change and
+        // completing the `.+` Function reclassifies Cell 0 in the same change and
         // marks the four empty operand-slot Cells (two 2-wide Numbers) as Number
         let change = src.set(1, "+").unwrap();
 
-        let function = |idx: usize| Cell {
+        let function = |idx: usize, content: char| Cell {
             idx,
-            content: Some('+'),
+            content: Some(content),
             glyph: Some(Glyph::Function),
         };
         let operand_slot = |idx: usize| Cell {
@@ -872,8 +855,8 @@ mod test {
         assert_eq!(
             change.cells,
             vec![
-                function(0),
-                function(1),
+                function(0, '.'),
+                function(1, '+'),
                 operand_slot(2),
                 operand_slot(3),
                 operand_slot(4),
@@ -887,7 +870,7 @@ mod test {
         trace();
 
         let mut src = source();
-        src.set(0, "+").unwrap();
+        src.set(0, ".").unwrap();
         src.set(1, "+").unwrap();
 
         // deleting half the Function restores its raw character classification and
@@ -904,7 +887,7 @@ mod test {
             vec![
                 Cell {
                     idx: 0,
-                    content: Some('+'),
+                    content: Some('.'),
                     glyph: Some(Glyph::Char),
                 },
                 cleared(1, None),
@@ -922,9 +905,9 @@ mod test {
 
         let mut src = source();
 
-        // `++` at the last two Cells wants four more operand-slot glyphs
+        // `.+` at the last two Cells wants four more operand-slot glyphs
         // than the Source has room for
-        src.set(58, "+").unwrap();
+        src.set(58, ".").unwrap();
         let change = src.set(59, "+").unwrap();
 
         assert_eq!(change.cells.len(), 2);
@@ -935,7 +918,7 @@ mod test {
     #[test]
     fn test_editing_an_operand_slot_hint_restores_the_current_glyphs() {
         let mut src = SourceUnderTest::new(Grid::new(10, 1));
-        src.set(0, "+").unwrap();
+        src.set(0, ".").unwrap();
         src.set(1, "+").unwrap();
         assert_eq!(src.get_glyph_at(5), Some(Glyph::Number));
 
@@ -968,8 +951,8 @@ mod test {
     fn test_editing_an_operand_slot_matches_a_source_rebuilt_from_its_snapshot() {
         let grid = Grid::new(10, 2);
         let mut src = SourceUnderTest::new(grid);
-        src.write(0, "++");
-        src.write(10, "++0102");
+        src.write(0, ".+");
+        src.write(10, ".+0102");
         src.set(5, "x").unwrap();
 
         let mut rebuilt = Source::new(grid);
@@ -993,8 +976,8 @@ mod test {
     #[test]
     fn test_operand_hints_and_invalidation_stop_at_the_row_edge() {
         let mut src = SourceUnderTest::new(Grid::new(10, 2));
-        src.write(10, "++0102");
-        src.set(8, "+").unwrap();
+        src.write(10, ".+0102");
+        src.set(8, ".").unwrap();
 
         let change = src.set(9, "+").unwrap();
         assert_eq!(
@@ -1002,7 +985,7 @@ mod test {
             vec![
                 Cell {
                     idx: 8,
-                    content: Some('+'),
+                    content: Some('.'),
                     glyph: Some(Glyph::Function),
                 },
                 Cell {
@@ -1021,7 +1004,7 @@ mod test {
             vec![
                 Cell {
                     idx: 8,
-                    content: Some('+'),
+                    content: Some('.'),
                     glyph: Some(Glyph::Char),
                 },
                 Cell {
@@ -1041,7 +1024,7 @@ mod test {
 
         let mut src = source();
 
-        for (i, c) in "++0101".chars().enumerate() {
+        for (i, c) in ".+0101".chars().enumerate() {
             src.set(i, &c.to_string()).unwrap();
         }
 
@@ -1057,7 +1040,7 @@ mod test {
                 Some(Glyph::Number),
             ]
         );
-        assert_eq!(src.row(0), "++0101    ");
+        assert_eq!(src.row(0), ".+0101    ");
     }
 
     #[test]
@@ -1066,7 +1049,7 @@ mod test {
 
         let mut src = source();
 
-        src.set(9, "+").unwrap();
+        src.set(9, ".").unwrap();
         let change = src.set(10, "+").unwrap();
 
         assert_eq!(src.get_glyph_at(9), Some(Glyph::Char));
@@ -1088,8 +1071,8 @@ mod test {
         let mut src = source();
 
         // The incomplete Function remains visible and is diagnosed immediately.
-        src.write(0, "++01");
-        assert_eq!(src.row(0), "++01      ");
+        src.write(0, ".+01");
+        assert_eq!(src.row(0), ".+01      ");
         assert_eq!(src.diagnostics().len(), 1);
         assert_eq!(src.diagnostics()[0].start, 0);
         assert_eq!(src.diagnostics()[0].end, 3);
@@ -1134,17 +1117,17 @@ mod test {
 
         let mut src = source();
 
-        // `++0101` starting at Cell 4; a Tick would write its result one row below
-        for (i, c) in "++0101".chars().enumerate() {
+        // `.+0101` starting at Cell 4; a Tick would write its result one row below
+        for (i, c) in ".+0101".chars().enumerate() {
             src.set(i + 4, &c.to_string()).unwrap();
         }
 
-        // Prepending `++00` joins everything into one Expression at Cell 0;
+        // Prepending `.+00` joins everything into one Expression at Cell 0;
         // the old Expression starting at Cell 4 no longer exists.
-        src.write(0, "++00");
+        src.write(0, ".+00");
         src.execute();
 
-        // `++00++0101` commits `02` across Cells 10 and 11. The stale Expression
+        // `.+00.+0101` commits `02` across Cells 10 and 11. The stale Expression
         // at Cell 4 would commit its own `02` over Cells 14 and 15, so the row
         // is asserted whole: only the joined Expression's result may appear.
         assert_eq!(src.row(1), "02        ");
@@ -1156,11 +1139,11 @@ mod test {
 
         let mut src = source();
 
-        for (i, c) in "xx++0101".chars().enumerate() {
+        for (i, c) in "xx.+0101".chars().enumerate() {
             src.set(i, &c.to_string()).unwrap();
         }
 
-        // deleting Cell 1 splits off a complete `++0101` Expression at Cell 2
+        // deleting Cell 1 splits off a complete `.+0101` Expression at Cell 2
         src.unset(1).unwrap();
 
         assert_eq!(src.get_glyph_at(1), None);
@@ -1203,8 +1186,8 @@ mod test {
 
         let mut src = source();
 
-        // The README example: `++0102` is 1 + 2, and a Number is two Cells wide
-        src.write(0, "++0102");
+        // The README example: `.+0102` is 1 + 2, and a Number is two Cells wide
+        src.write(0, ".+0102");
 
         let tick = src.execute();
 
@@ -1238,7 +1221,7 @@ mod test {
     #[test]
     fn test_root_play_function_emits_one_play_command_without_a_cell_write() {
         let mut src = source();
-        src.write(0, ">>07FC4");
+        src.write(0, "!>07FC4");
 
         let tick = src.execute();
 
@@ -1258,7 +1241,7 @@ mod test {
     #[test]
     fn test_play_preserves_zero_velocity_as_an_explicit_command() {
         let mut src = source();
-        src.write(0, ">>F00A0");
+        src.write(0, "!>F00A0");
 
         let tick = src.execute();
 
@@ -1276,7 +1259,7 @@ mod test {
     #[test]
     fn test_play_velocity_above_midi_range_is_diagnosed() {
         let mut src = source();
-        src.write(0, ">>080C4");
+        src.write(0, "!>080C4");
 
         let tick = src.execute();
 
@@ -1294,7 +1277,7 @@ mod test {
     #[test]
     fn test_nested_play_is_diagnosed_without_emitting_a_command() {
         let mut src = SourceUnderTest::new(Grid::new(12, 3));
-        src.write(0, "++>>07FC401");
+        src.write(0, ".+!>07FC401");
 
         let tick = src.execute();
 
@@ -1310,8 +1293,8 @@ mod test {
     #[test]
     fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
         let mut src = source();
-        src.write(0, ">>001C4");
-        src.write(10, ">>17FA4");
+        src.write(0, "!>001C4");
+        src.write(10, "!>17FA4");
 
         let first = src.execute();
         let second = src.execute();
@@ -1342,7 +1325,7 @@ mod test {
 
         // Numbers are hexadecimal, so 5 + 5 is `0A` — a Cell holding only the
         // leading `0` would be a truncated, and wrong, result
-        src.write(0, "++0505");
+        src.write(0, ".+0505");
 
         src.execute();
 
@@ -1358,12 +1341,12 @@ mod test {
         // An Expression in the bottom row has nowhere to write: its result
         // falls outside the Source and is discarded, never clamped onto a Cell
         // the user owns
-        src.write(50, "++0102");
+        src.write(50, ".+0102");
         src.write(59, "Z");
 
         let tick = src.execute();
 
-        assert_eq!(src.row(5), "++0102   Z");
+        assert_eq!(src.row(5), ".+0102   Z");
         assert_eq!(src.get(59), Some("Z".to_string()));
         assert!(tick.plan.writes.is_empty());
         assert_eq!(tick.plan.diagnostics.len(), 1);
@@ -1382,10 +1365,10 @@ mod test {
 
         let mut src = source();
 
-        // The last-column `+` is one incomplete Expression and `+0102` is an
+        // The last-column `.` is one incomplete Expression and `+0102` is an
         // invalid Expression in the next row. Neither can produce the `03`
-        // that their formerly wrapped `++0102` run produced.
-        src.write(9, "++0102");
+        // that their formerly wrapped `.+0102` run produced.
+        src.write(9, ".+0102");
 
         src.execute();
 
@@ -1399,10 +1382,10 @@ mod test {
 
         let mut src = source();
 
-        // The incomplete `++` occupies the last two Cells of row 0. Its four
+        // The incomplete `.+` occupies the last two Cells of row 0. Its four
         // operand-slot hints have no Cells left in that row, so they must not
         // classify Cells at the beginning of row 1.
-        src.write(8, "++");
+        src.write(8, ".+");
 
         assert_eq!(src.get_glyph_at(8), Some(Glyph::Function));
         assert_eq!(src.get_glyph_at(9), Some(Glyph::Function));
@@ -1417,10 +1400,10 @@ mod test {
 
         let mut src = source();
 
-        // This formerly parsed as one wrapped `++0102` Expression. It is now
-        // an incomplete `++` followed by a separate literal `0102`, neither
+        // This formerly parsed as one wrapped `.+0102` Expression. It is now
+        // an incomplete `.+` followed by a separate literal `0102`, neither
         // of which can produce the old `03` result.
-        src.write(8, "++0102");
+        src.write(8, ".+0102");
 
         src.execute();
 
@@ -1448,7 +1431,7 @@ mod test {
         trace();
 
         let mut src = source();
-        src.write(0, "++0102");
+        src.write(0, ".+0102");
 
         src.execute();
         let after_first_tick = src.snapshot();
@@ -1460,7 +1443,7 @@ mod test {
             assert_eq!(src.snapshot(), after_first_tick);
         }
 
-        assert_eq!(src.row(0), "++0102    ");
+        assert_eq!(src.row(0), ".+0102    ");
         assert_eq!(src.row(1), "03        ");
         // and every row below the one it wrote is still empty
         for r in 2..src.row_count() {
@@ -1474,9 +1457,9 @@ mod test {
 
         let mut src = source();
 
-        // `++` with no operands contains a Function, but the Interpreter has
+        // `.+` with no operands contains a Function, but the Interpreter has
         // no value to add. An empty result must never reach a Cell.
-        src.write(0, "++");
+        src.write(0, ".+");
 
         src.execute();
 
@@ -1489,9 +1472,9 @@ mod test {
 
         let mut src = source();
 
-        // `++0102` is a computation — suppressing literals must not suppress
+        // `.+0102` is a computation — suppressing literals must not suppress
         // a Function applied to them.
-        src.write(0, "++0102");
+        src.write(0, ".+0102");
 
         src.execute();
 
@@ -1504,10 +1487,10 @@ mod test {
 
         let mut src = source();
 
-        // `++` with no operands fails to evaluate; the `++0102` beside it is
+        // `.+` with no operands fails to evaluate; the `.+0102` beside it is
         // unrelated and must still commit its `03` in the same Tick
-        src.write(0, "++");
-        src.write(3, "++0102");
+        src.write(0, ".+");
+        src.write(3, ".+0102");
 
         let tick = src.execute();
 
@@ -1529,10 +1512,10 @@ mod test {
         let mut src = source();
 
         // The row 0 Expression commits `02` over the first two Cells of the
-        // row 1 Expression. Row 1 must still evaluate the `++0304` that was
+        // row 1 Expression. Row 1 must still evaluate the `.+0304` that was
         // there when the Tick began, not the `020304` the write leaves behind.
-        src.write(0, "++0101");
-        src.write(10, "++0304");
+        src.write(0, ".+0101");
+        src.write(10, ".+0304");
 
         src.execute();
 

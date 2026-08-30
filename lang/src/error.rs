@@ -17,6 +17,9 @@ pub enum Error {
 
 #[derive(Error, Debug)]
 pub enum InterpretationError {
+    #[error("cannot divide by zero")]
+    DivisionByZero,
+
     #[error("a Play Function is valid only at the root of an Expression")]
     NestedPlay,
 

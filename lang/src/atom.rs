@@ -69,12 +69,12 @@ impl From<Function> for Atom {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Function::Add => write!(f, "++"),
+            Function::Add => write!(f, ".+"),
             Function::Empty => write!(f, "__"),
-            Function::Divide => write!(f, "//"),
-            Function::Multiply => write!(f, "**"),
-            Function::Play => write!(f, ">>"),
-            Function::Subtract => write!(f, "--"),
+            Function::Divide => write!(f, "./"),
+            Function::Multiply => write!(f, ".x"),
+            Function::Play => write!(f, "!>"),
+            Function::Subtract => write!(f, ".-"),
         }
     }
 }
@@ -156,6 +156,19 @@ mod test {
         ] {
             assert_eq!(String::from(atom), atom.to_string(), "{atom:?}");
         }
+    }
+
+    #[test]
+    fn arithmetic_functions_display_with_the_dot_family_spellings() {
+        assert_eq!(Function::Add.to_string(), ".+");
+        assert_eq!(Function::Subtract.to_string(), ".-");
+        assert_eq!(Function::Multiply.to_string(), ".x");
+        assert_eq!(Function::Divide.to_string(), "./");
+    }
+
+    #[test]
+    fn play_function_displays_with_the_terminal_output_family_spelling() {
+        assert_eq!(Function::Play.to_string(), "!>");
     }
 
     #[test]

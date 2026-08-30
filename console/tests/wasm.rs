@@ -30,7 +30,7 @@ fn web_app_constructs_and_advances_the_cursor_without_panicking() {
 #[wasm_bindgen_test(async)]
 async fn web_playback_starts_and_dispatches_ticks_without_a_tokio_runtime() {
     let source = SourceCommander::new(Grid::new(10, 1));
-    write(&source, ">>07FC4");
+    write(&source, "!>07FC4");
     let adapter = InMemoryOutputAdapter::default();
     let engine = PlaybackEngine::new(source, adapter.clone());
 
@@ -45,9 +45,22 @@ async fn web_playback_starts_and_dispatches_ticks_without_a_tokio_runtime() {
 }
 
 #[wasm_bindgen_test(async)]
+async fn web_playback_evaluates_dot_family_arithmetic() {
+    let source = SourceCommander::new(Grid::new(10, 2));
+    write(&source, ".+0102");
+    let engine = PlaybackEngine::new(source.clone(), InMemoryOutputAdapter::default());
+
+    engine.start(Duration::from_millis(10)).unwrap();
+    TimeoutFuture::new(20).await;
+
+    assert_eq!(&source.snapshot()[10..12], "03");
+    engine.stop();
+}
+
+#[wasm_bindgen_test(async)]
 async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
     let source = SourceCommander::new(Grid::new(10, 1));
-    write(&source, ">>07FC4");
+    write(&source, "!>07FC4");
     let adapter = InMemoryOutputAdapter::default();
     let engine = PlaybackEngine::new(source, adapter.clone());
 

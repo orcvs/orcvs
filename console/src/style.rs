@@ -67,12 +67,11 @@ pub(crate) struct CellVisuals {
 
 pub(crate) fn cell_visuals(
     glyph: Glyph,
-    content: Option<char>,
     cursor_bloom: Option<CursorBloom>,
     selected: bool,
     cursor_visible: bool,
 ) -> CellVisuals {
-    let foreground = match glyph.semantic(content) {
+    let foreground = match glyph.semantic() {
         SemanticGlyph::Bang => PALETTE.bang,
         SemanticGlyph::Function => PALETTE.function,
         SemanticGlyph::Number => PALETTE.number,
@@ -115,7 +114,7 @@ fn bloom_colours(bloom: CursorBloom) -> (Color32, Color32) {
 
 pub(crate) fn sector_line(strength_percent: u8) -> Color32 {
     let [red, green, blue, base_alpha] = PALETTE.sector_line.to_srgba_unmultiplied();
-    let alpha = u16::from(base_alpha) * u16::from(strength_percent) / 100;
+    let alpha = u16::from(base_alpha) * u16::from(strength_percent.min(100)) / 100;
     Color32::from_rgba_unmultiplied(red, green, blue, alpha as u8)
 }
 
@@ -159,11 +158,11 @@ mod tests {
 
     #[test]
     fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {
-        let function = cell_visuals(Glyph::Function, Some('+'), None, false, false);
-        let number = cell_visuals(Glyph::Number, Some('A'), None, false, false);
-        let note = cell_visuals(Glyph::Note, Some('C'), None, false, false);
-        let ordinary = cell_visuals(Glyph::Char, Some('x'), None, false, false);
-        let bang = cell_visuals(Glyph::Char, Some('*'), None, false, false);
+        let function = cell_visuals(Glyph::Function, None, false, false);
+        let number = cell_visuals(Glyph::Number, None, false, false);
+        let note = cell_visuals(Glyph::Note, None, false, false);
+        let ordinary = cell_visuals(Glyph::Char, None, false, false);
+        let bang = cell_visuals(Glyph::Bang, None, false, false);
 
         assert_eq!(function.foreground, PALETTE.function);
         assert_eq!(number.foreground, PALETTE.number);
@@ -177,8 +176,8 @@ mod tests {
 
     #[test]
     fn local_highlights_are_distinct_from_global_markers() {
-        let marker = cell_visuals(Glyph::Marker, None, None, false, false);
-        let highlight = cell_visuals(Glyph::Highlight, None, None, false, false);
+        let marker = cell_visuals(Glyph::Marker, None, false, false);
+        let highlight = cell_visuals(Glyph::Highlight, None, false, false);
 
         assert_eq!(marker.foreground, PALETTE.marker);
         assert_eq!(highlight.foreground, PALETTE.highlight);
@@ -194,13 +193,14 @@ mod tests {
         assert!(blue.abs_diff(86) <= 2);
         assert_eq!(alpha, 55);
         assert_eq!(sector_line(8).a(), 8);
+        assert_eq!(sector_line(255), PALETTE.sector_line);
     }
 
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
-        let ordinary = cell_visuals(Glyph::Char, Some('x'), None, false, false);
-        let selected = cell_visuals(Glyph::Char, Some('x'), Some(CursorBloom::Core), true, false);
-        let cursor = cell_visuals(Glyph::Char, Some('x'), Some(CursorBloom::Core), true, true);
+        let ordinary = cell_visuals(Glyph::Char, None, false, false);
+        let selected = cell_visuals(Glyph::Char, Some(CursorBloom::Core), true, false);
+        let cursor = cell_visuals(Glyph::Char, Some(CursorBloom::Core), true, true);
 
         assert_eq!(ordinary.background, PALETTE.source);
         assert_eq!(ordinary.border, PALETTE.grid_line);
@@ -225,11 +225,11 @@ mod tests {
 
     #[test]
     fn cursor_bloom_grades_both_fill_and_grid_line() {
-        let core = cell_visuals(Glyph::Space, None, Some(CursorBloom::Core), false, false);
-        let inner = cell_visuals(Glyph::Space, None, Some(CursorBloom::Inner), false, false);
-        let mid = cell_visuals(Glyph::Space, None, Some(CursorBloom::Mid), false, false);
-        let outer = cell_visuals(Glyph::Space, None, Some(CursorBloom::Outer), false, false);
-        let distant = cell_visuals(Glyph::Space, None, None, false, false);
+        let core = cell_visuals(Glyph::Space, Some(CursorBloom::Core), false, false);
+        let inner = cell_visuals(Glyph::Space, Some(CursorBloom::Inner), false, false);
+        let mid = cell_visuals(Glyph::Space, Some(CursorBloom::Mid), false, false);
+        let outer = cell_visuals(Glyph::Space, Some(CursorBloom::Outer), false, false);
+        let distant = cell_visuals(Glyph::Space, None, false, false);
 
         assert_eq!(core.background, PALETTE.bloom_core_fill);
         assert_eq!(inner.background, PALETTE.bloom_inner_fill);

@@ -59,7 +59,7 @@
 
   <section class="panel">
     <h2>Function contracts used by this prototype</h2>
-    <p><code>rg0103</code> produces the Number Atoms <code>01 02 03</code>. <code>rvrg0103</code> reverses that result. <code>jorg0103</code> joins the Sequence into generated source text <code>+.0102</code> for the next Tick. None of these names or signatures is proposed for production yet.</p>
+    <p><code>rg0103</code> produces the Number Atoms <code>01 02 03</code>. <code>rvrg0103</code> reverses that result. <code>jorg0103</code> joins the Sequence into generated source text <code>.+0102</code> for the next Tick. None of these names or signatures is proposed for production yet.</p>
     <p><strong>Question:</strong> Is transforming a group of Atoms within Tick T valuable, or should every multi-cell capability be a terminal write whose output can only participate in Tick T+1?</p>
   </section>
 
@@ -91,11 +91,11 @@ const scenarios = [
   },
   {
     name: "Generate code",
-    description: "A Sequence can be converted into Function source. The generated +. Expression executes only after it belongs to the next Source Snapshot.",
+    description: "A Sequence can be converted into Function source. The generated .+ Expression executes only after it belongs to the next Source Snapshot.",
     frames: [
-      { p: source([0,0,"jorg0103"]), w: source([0,0,"jorg0103"]), pd: "Ready: jo will turn a Sequence into +.0102.", wd: "Diagnostic pending: terminal rg cannot supply jo with a value." },
-      { p: source([0,0,"jorg0103"],[1,0,"+.0102",true]), w: source([0,0,"jorg0103"]), pd: "Generated code committed. It was not executed again during Tick 0.", wd: "Cannot nest terminal Source Function rg inside jo; no generated code was written.", we: true },
-      { p: source([0,0,"jorg0103"],[1,0,"+.0102"],[2,0,"03",true]), w: source([0,0,"jorg0103"]), pd: "At Tick 1, +.0102 belonged to the Source Snapshot and produced 03.", wd: "The invalid Expression remains diagnosable and inert.", we: true }
+      { p: source([0,0,"jorg0103"]), w: source([0,0,"jorg0103"]), pd: "Ready: jo will turn a Sequence into .+0102.", wd: "Diagnostic pending: terminal rg cannot supply jo with a value." },
+      { p: source([0,0,"jorg0103"],[1,0,".+0102",true]), w: source([0,0,"jorg0103"]), pd: "Generated code committed. It was not executed again during Tick 0.", wd: "Cannot nest terminal Source Function rg inside jo; no generated code was written.", we: true },
+      { p: source([0,0,"jorg0103"],[1,0,".+0102"],[2,0,"03",true]), w: source([0,0,"jorg0103"]), pd: "At Tick 1, .+0102 belonged to the Source Snapshot and produced 03.", wd: "The invalid Expression remains diagnosable and inert.", we: true }
     ]
   }
 ];
@@ -107,7 +107,7 @@ const glyphClass = (cell, index, grid) => {
   if (value === "*") return "cell bang" + result;
   if (/[0-9A-F]/.test(value)) return "cell number" + result;
   const previous = index % COLS ? (typeof grid[index - 1] === "string" ? grid[index - 1] : grid[index - 1].char) : " ";
-  if (/[a-z+*/>-]/.test(value) || /[a-z+*/>-]/.test(previous)) return "cell function" + result;
+  if (/[.!a-z+*/>-]/.test(value) || /[.!a-z+*/>-]/.test(previous)) return "cell function" + result;
   return "cell" + result;
 };
 function draw(id, grid) {

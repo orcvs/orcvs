@@ -40,7 +40,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --profile ci --locked
 cargo test --workspace --doc --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
-cargo deny check
+cargo deny --locked check
 '''
 
 [tasks.test_persistence]
@@ -68,5 +68,5 @@ run = 'wasm-pack test --headless --firefox console --test wasm'
 description = "Audit advisories, licenses, sources, and duplicate dependencies"
 run = '''
 cargo tree --workspace --all-features -e features --locked
-cargo deny check
+cargo deny --locked check
 '''

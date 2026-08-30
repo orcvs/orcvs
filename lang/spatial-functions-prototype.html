@@ -62,7 +62,7 @@ const scenarios=[
  ]}
 ];
 let si=0,fi=0;
-function cls(cell,i,g){const ch=cell.ch,changed=cell.changed?" changed":"";if(ch==="*")return"cell bang"+changed;if(/[0-9A-F]/.test(ch))return"cell number"+changed;const prev=i%C?g[i-1].ch:" ";if(/[a-z+*/>-]/.test(ch)||/[a-z+*/>-]/.test(prev))return"cell function"+changed;return"cell"+changed}
+function cls(cell,i,g){const ch=cell.ch,changed=cell.changed?" changed":"";if(ch==="*")return"cell bang"+changed;if(/[0-9A-F]/.test(ch))return"cell number"+changed;const prev=i%C?g[i-1].ch:" ";if(/[a-z@+*/>-]/.test(ch)||/[a-z@+*/>-]/.test(prev))return"cell function"+changed;return"cell"+changed}
 function render(){const s=scenarios[si],f=s.frames[fi];tabs.innerHTML=scenarios.map((x,i)=>`<button data-tab="${i}" class="${i===si?'active':''}">${x.name}</button>`).join("");description.textContent=s.description;tick.textContent=`Source after Tick ${fi}`;grid.innerHTML=f.g.map((x,i)=>`<span class="${cls(x,i,f.g)}">${x.ch===' '?'·':x.ch}</span>`).join("");diagnostic.textContent=f.d;diagnostic.className=`diag ${f.warn?'warn':''}`;change.textContent=f.c;next.disabled=fi===s.frames.length-1}
 document.addEventListener("click",e=>{if(e.target.dataset.tab!==undefined){si=Number(e.target.dataset.tab);fi=0}if(e.target.id==="reset")fi=0;if(e.target.id==="next")fi=Math.min(fi+1,scenarios[si].frames.length-1);render()});render();
 </script>

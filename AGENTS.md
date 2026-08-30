@@ -9,6 +9,8 @@
 
 This is an internal application. Track current stable Rust deliberately; nightly is optional and
 non-blocking while known nightly regressions exist. Neither workspace crate is publishable.
+The Orcvs language is pre-release and has no public compatibility contract; classify vocabulary
+and semantics changes as active language design, not public-API breakage.
 
 ## Before editing
 
