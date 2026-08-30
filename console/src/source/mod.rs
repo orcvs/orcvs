@@ -3,7 +3,7 @@ mod expression_map;
 pub mod source;
 use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;
-pub use source::{Cell, Change, Source};
+pub use source::{Cell, Change, Diagnostic, Source};
 use std::sync::{Arc, RwLock};
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
@@ -74,6 +74,10 @@ impl SourceCommander {
     ///
     pub fn snapshot(&self) -> String {
         self.inner.read().unwrap().snapshot()
+    }
+
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        self.inner.read().unwrap().diagnostics()
     }
 }
 

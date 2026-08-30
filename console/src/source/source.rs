@@ -34,6 +34,18 @@ pub struct Change {
 }
 
 ///
+/// A problem with the Expression occupying `start..=end` in the current
+/// Source revision. Diagnostics describe accepted user content; they never
+/// reject an incomplete or invalid Live Edit.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct Diagnostic {
+    pub start: usize,
+    pub end: usize,
+    pub message: String,
+}
+
+///
 /// The Cells of one Orca program. The Source is the contents; the Grid it is
 /// built from is the shape, and answers every question about that shape.
 ///
@@ -44,6 +56,7 @@ pub struct Source {
     map: ExpressionMap,
     glyphs: Vec<Option<Glyph>>,
     parsed: Vec<Option<Atoms>>,
+    diagnostics: Vec<Option<Diagnostic>>,
 }
 
 impl Source {
@@ -54,10 +67,11 @@ impl Source {
     pub fn new(grid: Grid) -> Self {
         let size = grid.count();
         let inner = SPACE.to_string().repeat(size);
-        let map = ExpressionMap::new(size);
+        let map = ExpressionMap::new(grid);
 
         let glyphs = vec![None; size];
         let parsed = vec![None; size];
+        let diagnostics = vec![None; size];
 
         Self {
             grid,
@@ -65,6 +79,7 @@ impl Source {
             map,
             glyphs,
             parsed,
+            diagnostics,
         }
     }
 
@@ -179,6 +194,7 @@ impl Source {
         for start in self.expression_starts(span.start, span.end) {
             let cleared_to = self.unset_glyphs(start);
             self.parsed[start] = None;
+            self.diagnostics[start] = None;
 
             span.start = span.start.min(start);
             span.end = span.end.max(cleared_to);
@@ -228,6 +244,13 @@ impl Source {
             SPACE_BYTE => None,
             _ => Some((b as char).to_string()),
         }
+    }
+
+    ///
+    /// Problems with Expressions in the current revision, in Source order.
+    ///
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        self.diagnostics.iter().flatten().cloned().collect()
     }
 
     ///
@@ -355,12 +378,22 @@ impl Source {
     fn parse_range(&mut self, exp_range: Range) {
         let start = exp_range.start;
         let mut src = self.get_exp_src(exp_range);
+        let mut strict_src = src.clone();
+        let diagnostic = Parser::from(&mut strict_src)
+            .try_parse()
+            .err()
+            .map(|error| Diagnostic {
+                start,
+                end: start + src.len() - 1,
+                message: error.to_string(),
+            });
         let mut parsed: Expression = Parser::from(&mut src).parse();
 
         let glyphs = Glyph::to_glyphs(parsed.take_tokens());
         let atoms = parsed.take_atoms();
 
         self.parsed[start] = Some(atoms);
+        self.diagnostics[start] = diagnostic;
         self.set_glyphs(start, glyphs);
     }
 
@@ -370,12 +403,13 @@ impl Source {
 
     fn set_glyphs(&mut self, start: usize, glyphs: Vec<Glyph>) {
         for (i, g) in glyphs.iter().enumerate() {
-            let pos = start + i;
-            // Operand-slot hints can extend past the last Cell; drop those
-            if pos >= self.glyphs.len() {
+            let idx = start + i;
+            // Operand-slot hints can extend beyond their Expression, but an
+            // Expression is horizontal: hints stop at the same row edge.
+            if !self.indices_share_a_row(start, idx) {
                 break;
             }
-            self.glyphs[pos] = Some(*g);
+            self.glyphs[idx] = Some(*g);
         }
     }
 
@@ -388,6 +422,9 @@ impl Source {
         let mut last = start;
 
         for i in start..self.glyphs.len() {
+            if !self.indices_share_a_row(start, i) {
+                break;
+            }
             match self.glyphs[i] {
                 Some(_) => {
                     self.glyphs[i] = None;
@@ -398,6 +435,13 @@ impl Source {
         }
 
         last
+    }
+
+    fn indices_share_a_row(&self, first: usize, second: usize) -> bool {
+        match (self.grid.position_at(first), self.grid.position_at(second)) {
+            (Some(first), Some(second)) => first.y() == second.y(),
+            _ => false,
+        }
     }
 }
 
@@ -701,6 +745,74 @@ mod test {
     }
 
     #[test]
+    fn test_expressions_do_not_join_across_a_row_edge() {
+        trace();
+
+        let mut src = source();
+
+        src.set(9, "+").unwrap();
+        let change = src.set(10, "+").unwrap();
+
+        assert_eq!(src.get_glyph_at(9), None);
+        assert_eq!(src.get_glyph_at(10), None);
+        assert_eq!(
+            change.cells,
+            vec![Cell {
+                idx: 10,
+                content: Some('+'),
+                glyph: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_diagnostics_follow_the_visible_expression_revision() {
+        trace();
+
+        let mut src = source();
+
+        // The incomplete Function remains visible and is diagnosed immediately.
+        src.write(0, "++01");
+        assert_eq!(src.row(0), "++01      ");
+        assert_eq!(src.diagnostics().len(), 1);
+        assert_eq!(src.diagnostics()[0].start, 0);
+        assert_eq!(src.diagnostics()[0].end, 3);
+        assert_eq!(src.diagnostics()[0].message, "expected a token");
+
+        // Completing it removes the cause and therefore the diagnostic in the
+        // same accepted edit.
+        src.write(4, "02");
+        assert!(src.diagnostics().is_empty());
+
+        // A valid prefix does not make trailing content disappear from the
+        // Expression's diagnostic state.
+        src.set(6, "Z").unwrap();
+        assert_eq!(
+            src.diagnostics()[0].message,
+            "unexpected trailing content \"Z\""
+        );
+        src.unset(6).unwrap();
+        assert!(src.diagnostics().is_empty());
+
+        // Replacing a valid operand with invalid content creates a fresh
+        // diagnostic for the current Expression, without rejecting the edit.
+        src.set(4, "X").unwrap();
+        assert_eq!(src.get(4), Some("X".to_string()));
+        assert_eq!(src.diagnostics().len(), 1);
+        assert_eq!(
+            src.diagnostics()[0].message,
+            "expected a number, found \"X2\""
+        );
+
+        // Removing the Expression removes its diagnostic rather than leaving
+        // stale state attached to empty Cells.
+        for idx in 0..6 {
+            src.unset(idx).unwrap();
+        }
+        assert!(src.diagnostics().is_empty());
+    }
+
+    #[test]
     fn test_join_discards_stale_expression_state() {
         trace();
 
@@ -820,14 +932,14 @@ mod test {
     }
 
     #[test]
-    fn test_result_that_cannot_fit_before_the_row_edge_is_discarded() {
+    fn test_row_confined_expressions_do_not_produce_a_wrapped_result() {
         trace();
 
         let mut src = source();
 
-        // An Expression starting in the last column: its two-Cell result would
-        // have to wrap onto the following row, so the whole result is discarded
-        // rather than split. (The Expression itself still wraps — issue 02.)
+        // The last-column `+` is one incomplete Expression and `+0102` is an
+        // invalid Expression in the next row. Neither can produce the `03`
+        // that their formerly wrapped `++0102` run produced.
         src.write(9, "++0102");
 
         src.execute();
@@ -837,21 +949,38 @@ mod test {
     }
 
     #[test]
-    fn test_result_reaching_the_last_column_exactly_is_committed() {
+    fn test_operand_slot_hints_do_not_cross_a_row_edge() {
         trace();
 
         let mut src = source();
 
-        // An Expression starting one column further left: its two-Cell result
-        // ends on the last column of the row, using the Cells that are there
-        // and no more. A `fits` that did not count the target Cell as the
-        // result's own first Cell would discard this. (The Expression itself
-        // still wraps — issue 02.)
+        // The incomplete `++` occupies the last two Cells of row 0. Its four
+        // operand-slot hints have no Cells left in that row, so they must not
+        // classify Cells at the beginning of row 1.
+        src.write(8, "++");
+
+        assert_eq!(src.get_glyph_at(8), Some(Glyph::Function));
+        assert_eq!(src.get_glyph_at(9), Some(Glyph::Function));
+        for idx in 10..14 {
+            assert_eq!(src.get_glyph_at(idx), None);
+        }
+    }
+
+    #[test]
+    fn test_tick_does_not_evaluate_an_expression_across_a_row_edge() {
+        trace();
+
+        let mut src = source();
+
+        // This formerly parsed as one wrapped `++0102` Expression. It is now
+        // an incomplete `++` followed by a separate literal `0102`, neither
+        // of which can produce the old `03` result.
         src.write(8, "++0102");
 
         src.execute();
 
-        assert_eq!(src.row(1), "0102    03");
+        assert_eq!(src.row(1), "0102      ");
+        assert_eq!(src.row(2), "          ");
     }
 
     #[test]
