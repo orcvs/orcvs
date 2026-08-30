@@ -46,6 +46,12 @@ test_unlocked_audit_deny_is_rejected() {
   assert_rejected "an unlocked cargo-deny invocation in the dependency audit task"
 }
 
+test_unlocked_wasm_pack_is_rejected() {
+  make_fixture
+  perl -pi -e 's/wasm-pack test --headless --firefox console --test wasm --locked/wasm-pack test --headless --firefox console --test wasm/' "$fixture_dir/mise.toml"
+  assert_rejected "an unlocked wasm-pack test invocation"
+}
+
 test_dotted_dependency_version_is_rejected() {
   make_fixture
   perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/tokio.workspace = true\ntokio.version = "9.0.0"/) { $done = 1 }' "$fixture_dir/console/Cargo.toml"
@@ -81,6 +87,7 @@ case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
+  unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
@@ -91,6 +98,7 @@ case "${1:-all}" in
     test_commented_requirement_is_rejected
     test_unlocked_check_deny_is_rejected
     test_unlocked_audit_deny_is_rejected
+    test_unlocked_wasm_pack_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected
     test_commented_dependency_table_version_is_rejected

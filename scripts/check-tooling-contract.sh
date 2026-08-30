@@ -69,7 +69,7 @@ assert_contains "$root_dir/mise.toml" 'cargo clippy --package console --all-targ
 assert_contains "$root_dir/mise.toml" 'cargo nextest run --package console --all-targets --features persistence --profile ci --locked'
 assert_contains "$root_dir/mise.toml" 'cargo test --package console --doc --features persistence --locked'
 assert_contains "$root_dir/mise.toml" 'cargo doc --package console --no-deps --features persistence --locked'
-assert_contains "$root_dir/mise.toml" 'wasm-pack test --headless --firefox console --test wasm'
+assert_contains "$root_dir/mise.toml" 'wasm-pack test --headless --firefox console --test wasm --locked'
 assert_contains "$root_dir/console/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/console/check.sh" 'mise run test_persistence'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check$'

@@ -156,10 +156,7 @@ fn sector_seam_strength(offset: usize, spacing: usize, position: Position) -> Op
     let offset = offset % spacing;
     let distance_from_corner = offset.min(spacing - 1 - offset);
     let half_spacing = spacing.div_ceil(2);
-    let index = distance_from_corner
-        .saturating_mul(SECTOR_SEAM_STRENGTHS.len())
-        .checked_div(half_spacing)
-        .unwrap_or_default()
+    let index = (distance_from_corner.saturating_mul(SECTOR_SEAM_STRENGTHS.len()) / half_spacing)
         .min(SECTOR_SEAM_STRENGTHS.len() - 1);
 
     // Preserve a legible four-arm registration mark, then let only the

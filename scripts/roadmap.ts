@@ -328,6 +328,24 @@ const readMetadata = (lines: readonly string[], pattern: RegExp): string | null 
   return null;
 };
 
+const releaseDefinition = (lines: readonly string[]): string | null => {
+  const definition = readMetadata(lines, RELEASE_DEFINITION_PATTERN);
+  if (definition === null) return null;
+  const relativeBase = new URL('https://roadmap.invalid/');
+  let resolved: URL;
+  try {
+    resolved = new URL(definition, relativeBase);
+  } catch {
+    throw new Error('ROADMAP.md `Definition:` must be a relative path or HTTPS URL.');
+  }
+  const isRelative = resolved.origin === relativeBase.origin;
+  const isHttps = definition.toLowerCase().startsWith('https://');
+  if (!isRelative && !isHttps) {
+    throw new Error('ROADMAP.md `Definition:` must be a relative path or HTTPS URL.');
+  }
+  return definition;
+};
+
 /** `ROADMAP.md` declares the release collection that the issue scan renders. */
 export const readReleaseScope = (root: string): ReleaseScope | null => {
   const file = join(root, 'ROADMAP.md');
@@ -342,7 +360,7 @@ export const readReleaseScope = (root: string): ReleaseScope | null => {
     title: readTitle(lines, 'Release scope'),
     tag,
     goal,
-    definition: readMetadata(lines, RELEASE_DEFINITION_PATTERN),
+    definition: releaseDefinition(lines),
     gate: readMetadata(lines, RELEASE_GATE_PATTERN),
   };
 };
