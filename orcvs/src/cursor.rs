@@ -34,6 +34,10 @@ impl Cursor {
         Duration::from_millis(self.delay_ms).saturating_sub(self.at.elapsed())
     }
 
+    pub fn blink_delay_remaining(&self) -> Duration {
+        self.remaining_blink_delay()
+    }
+
     #[inline]
     pub fn position(&self) -> Position {
         self.position

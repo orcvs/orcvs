@@ -48,6 +48,7 @@ pub enum Glyph {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(test)]
 pub(crate) enum SemanticGlyph {
     Bang,
     Char,
@@ -92,6 +93,7 @@ impl fmt::Display for GlyphString {
 }
 
 impl Glyph {
+    #[cfg(test)]
     pub(crate) fn semantic(self) -> SemanticGlyph {
         match self {
             Glyph::Bang => SemanticGlyph::Bang,

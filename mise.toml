@@ -18,11 +18,11 @@ alias = 't'
 description = "All test"
 run = 'cargo nextest run --no-fail-fast --nocapture'
 
-[tasks.test_console]
+[tasks.test_shell]
 alias = 'tc'
-description = "Console tests"
+description = "Shell tests"
 env = { RUST_BACKTRACE = 'full' }
-run = 'cargo nextest run --package console --no-fail-fast --nocapture {{arg(name="test",default="")}}'
+run = 'cargo nextest run --package shell --no-fail-fast --nocapture {{arg(name="test",default="")}}'
 
 [tasks.test_lang]
 alias = 'tl'
@@ -74,25 +74,25 @@ cargo deny --locked check
 '''
 
 [tasks.test_persistence]
-description = "Test the console persistence feature"
+description = "Test persistence features"
 run = '''
-cargo clippy --package console --all-targets --features persistence --locked -- -D warnings
-cargo nextest run --package console --all-targets --features persistence --profile ci --locked
-cargo test --package console --doc --features persistence --locked
-RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --features persistence --locked
+cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
+cargo nextest run --workspace --all-targets --features persistence --profile ci --locked
+cargo test --workspace --doc --features persistence --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked
 '''
 
 [tasks.check_wasm]
 description = "Check and build the WASM application"
 run = '''
-cargo clippy --package console --lib --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
-cd console
+cargo clippy --workspace --lib --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
+cd shell
 env -u NO_COLOR trunk build --locked
 '''
 
 [tasks.test_wasm]
 description = "Run browser regressions in headless Firefox"
-run = 'wasm-pack test --headless --firefox console --test wasm --locked'
+run = 'wasm-pack test --headless --firefox shell --test wasm --locked'
 
 [tasks.audit_deps]
 description = "Audit advisories, licenses, sources, and duplicate dependencies"

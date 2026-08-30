@@ -30,7 +30,7 @@ fn trace() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> eframe::Result {
-    use console::console::Console;
+    use shell::console::Console;
 
     trace();
 
@@ -55,8 +55,8 @@ async fn main() -> eframe::Result {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    use console::console::Console;
-    use console::web_startup::canvas_or_report;
+    use shell::console::Console;
+    use shell::web_startup::canvas_or_report;
     use wasm_bindgen::JsCast;
 
     // Redirect `log` message to `console.log` and friends:

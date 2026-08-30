@@ -48,16 +48,33 @@ impl RenderCell {
         self.selected
     }
 
+    #[cfg(test)]
     pub(crate) fn cursor_bloom(&self) -> Option<CursorBloom> {
         self.cursor_bloom
     }
 
+    pub fn map_cursor_bloom<T>(&self, core: T, inner: T, mid: T, outer: T) -> Option<T> {
+        match self.cursor_bloom {
+            Some(CursorBloom::Core) => Some(core),
+            Some(CursorBloom::Inner) => Some(inner),
+            Some(CursorBloom::Mid) => Some(mid),
+            Some(CursorBloom::Outer) => Some(outer),
+            None => None,
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn sector_left_strength(&self) -> Option<u8> {
         self.sector_left_strength
     }
 
+    #[cfg(test)]
     pub(crate) fn sector_top_strength(&self) -> Option<u8> {
         self.sector_top_strength
+    }
+
+    pub fn sector_strengths(&self) -> (Option<u8>, Option<u8>) {
+        (self.sector_left_strength, self.sector_top_strength)
     }
 
     pub fn cursor_visible(&self) -> bool {

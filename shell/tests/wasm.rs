@@ -1,12 +1,12 @@
 #![cfg(target_arch = "wasm32")]
 
-use console::app::App;
-use console::grid::Grid;
-use console::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
-use console::source::SourceCommander;
-use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::PlayCommand;
+use orcvs::grid::Grid;
+use orcvs::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
+use orcvs::source::SourceCommander;
+use shell::app::App;
+use shell::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 

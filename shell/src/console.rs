@@ -2,11 +2,13 @@ use egui::{EventFilter, FontId, Pos2, Rect, Stroke, Vec2};
 
 use crate::{
     app::App,
+    style::{PALETTE, cell_visuals, sector_line, style},
+};
+use orcvs::{
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
     render_frame::RenderFrame,
-    style::{PALETTE, cell_visuals, sector_line, style},
 };
 
 const CELL_SIZE: f32 = 25.0;
@@ -196,7 +198,12 @@ fn show_source(
                 );
                 let visuals = cell_visuals(
                     cell.glyph(),
-                    cell.cursor_bloom(),
+                    cell.map_cursor_bloom(
+                        (PALETTE.bloom_core_fill, PALETTE.bloom_core_line),
+                        (PALETTE.bloom_inner_fill, PALETTE.bloom_inner_line),
+                        (PALETTE.bloom_mid_fill, PALETTE.bloom_mid_line),
+                        (PALETTE.bloom_outer_fill, PALETTE.bloom_outer_line),
+                    ),
                     cell.selected(),
                     cell.cursor_visible(),
                 );
@@ -212,13 +219,14 @@ fn show_source(
 
                 let response = ui.add_sized(Vec2::splat(CELL_SIZE), button);
                 if !cell.selected() {
-                    if let Some(strength) = cell.sector_left_strength() {
+                    let (left_strength, top_strength) = cell.sector_strengths();
+                    if let Some(strength) = left_strength {
                         ui.painter().line_segment(
                             [response.rect.left_top(), response.rect.left_bottom()],
                             Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
                         );
                     }
-                    if let Some(strength) = cell.sector_top_strength() {
+                    if let Some(strength) = top_strength {
                         ui.painter().line_segment(
                             [response.rect.left_top(), response.rect.right_top()],
                             Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
@@ -418,7 +426,7 @@ mod tests {
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.spacing_mut().button_padding = Vec2::splat(super::CELL_PADDING);
             let text = egui::RichText::new("+")
-                .font(egui::FontId::monospace(crate::opts::DEFAULT_FONT_SIZE));
+                .font(egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE));
             button_size = ui
                 .add_sized(Vec2::splat(super::CELL_SIZE), egui::Button::new(text))
                 .rect

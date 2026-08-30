@@ -2,10 +2,7 @@ use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
 
-use crate::{
-    glyph::{Glyph, SemanticGlyph},
-    render_frame::CursorBloom,
-};
+use orcvs::glyph::Glyph;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
@@ -67,18 +64,18 @@ pub(crate) struct CellVisuals {
 
 pub(crate) fn cell_visuals(
     glyph: Glyph,
-    cursor_bloom: Option<CursorBloom>,
+    cursor_bloom: Option<(Color32, Color32)>,
     selected: bool,
     cursor_visible: bool,
 ) -> CellVisuals {
-    let foreground = match glyph.semantic() {
-        SemanticGlyph::Bang => PALETTE.bang,
-        SemanticGlyph::Function => PALETTE.function,
-        SemanticGlyph::Number => PALETTE.number,
-        SemanticGlyph::Note => PALETTE.note,
-        SemanticGlyph::Marker => PALETTE.marker,
-        SemanticGlyph::Highlight => PALETTE.highlight,
-        SemanticGlyph::Char | SemanticGlyph::Space => PALETTE.ordinary,
+    let foreground = match glyph {
+        Glyph::Bang => PALETTE.bang,
+        Glyph::Function => PALETTE.function,
+        Glyph::Number => PALETTE.number,
+        Glyph::Note => PALETTE.note,
+        Glyph::Marker => PALETTE.marker,
+        Glyph::Highlight => PALETTE.highlight,
+        Glyph::Char | Glyph::Space => PALETTE.ordinary,
     };
     CellVisuals {
         background: if selected && !cursor_visible {
@@ -86,7 +83,7 @@ pub(crate) fn cell_visuals(
         } else if cursor_visible {
             PALETTE.source
         } else if let Some(bloom) = cursor_bloom {
-            bloom_colours(bloom).0
+            bloom.0
         } else {
             PALETTE.source
         },
@@ -95,20 +92,11 @@ pub(crate) fn cell_visuals(
         } else if selected {
             PALETTE.selection_stroke_rest
         } else if let Some(bloom) = cursor_bloom {
-            bloom_colours(bloom).1
+            bloom.1
         } else {
             PALETTE.grid_line
         },
         foreground,
-    }
-}
-
-fn bloom_colours(bloom: CursorBloom) -> (Color32, Color32) {
-    match bloom {
-        CursorBloom::Core => (PALETTE.bloom_core_fill, PALETTE.bloom_core_line),
-        CursorBloom::Inner => (PALETTE.bloom_inner_fill, PALETTE.bloom_inner_line),
-        CursorBloom::Mid => (PALETTE.bloom_mid_fill, PALETTE.bloom_mid_line),
-        CursorBloom::Outer => (PALETTE.bloom_outer_fill, PALETTE.bloom_outer_line),
     }
 }
 
@@ -154,7 +142,11 @@ pub fn style() -> Style {
 #[cfg(test)]
 mod tests {
     use super::{PALETTE, cell_visuals, sector_line};
-    use crate::{glyph::Glyph, render_frame::CursorBloom};
+    use orcvs::glyph::Glyph;
+
+    fn core() -> Option<(egui::Color32, egui::Color32)> {
+        Some((PALETTE.bloom_core_fill, PALETTE.bloom_core_line))
+    }
 
     #[test]
     fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {
@@ -199,8 +191,8 @@ mod tests {
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
         let ordinary = cell_visuals(Glyph::Char, None, false, false);
-        let selected = cell_visuals(Glyph::Char, Some(CursorBloom::Core), true, false);
-        let cursor = cell_visuals(Glyph::Char, Some(CursorBloom::Core), true, true);
+        let selected = cell_visuals(Glyph::Char, core(), true, false);
+        let cursor = cell_visuals(Glyph::Char, core(), true, true);
 
         assert_eq!(ordinary.background, PALETTE.source);
         assert_eq!(ordinary.border, PALETTE.grid_line);
@@ -225,10 +217,25 @@ mod tests {
 
     #[test]
     fn cursor_bloom_grades_both_fill_and_grid_line() {
-        let core = cell_visuals(Glyph::Space, Some(CursorBloom::Core), false, false);
-        let inner = cell_visuals(Glyph::Space, Some(CursorBloom::Inner), false, false);
-        let mid = cell_visuals(Glyph::Space, Some(CursorBloom::Mid), false, false);
-        let outer = cell_visuals(Glyph::Space, Some(CursorBloom::Outer), false, false);
+        let core = cell_visuals(Glyph::Space, core(), false, false);
+        let inner = cell_visuals(
+            Glyph::Space,
+            Some((PALETTE.bloom_inner_fill, PALETTE.bloom_inner_line)),
+            false,
+            false,
+        );
+        let mid = cell_visuals(
+            Glyph::Space,
+            Some((PALETTE.bloom_mid_fill, PALETTE.bloom_mid_line)),
+            false,
+            false,
+        );
+        let outer = cell_visuals(
+            Glyph::Space,
+            Some((PALETTE.bloom_outer_fill, PALETTE.bloom_outer_line)),
+            false,
+            false,
+        );
         let distant = cell_visuals(Glyph::Space, None, false, false);
 
         assert_eq!(core.background, PALETTE.bloom_core_fill);

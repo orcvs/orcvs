@@ -3,20 +3,20 @@ use egui::{Event, Key};
 use std::time::Duration;
 use tracing::error;
 
-use crate::opts::Opts;
+use orcvs::opts::Opts;
 
-use crate::cursor::Cursor;
-use crate::grid::{Grid, Position};
+use orcvs::cursor::Cursor;
+use orcvs::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-use crate::playback::InMemoryOutputAdapter;
-use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
-use crate::render_frame::{RenderFrame, RenderFrameConfig};
-use crate::source::SourceCommander;
+use orcvs::playback::InMemoryOutputAdapter;
+use orcvs::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
+use orcvs::render_frame::RenderFrame;
+use orcvs::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::midi::{MidiDestination, MidiDestinationId};
+use orcvs::midi::{MidiDestination, MidiDestinationId};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
+use orcvs::native_midi::{MidirBackend, NativeMidiOutputAdapter};
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 type AppOutputAdapter = NativeMidiOutputAdapter;
@@ -34,7 +34,7 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// the next write there:
 ///
 /// ```
-/// use console::grid::Grid;
+/// use orcvs::grid::Grid;
 ///
 /// let grid = Grid::new(16, 16);
 ///
@@ -154,7 +154,7 @@ impl App {
     /// Moves the Cursor to `position`, refusing one minted by another Grid.
     ///
     pub fn select(&mut self, position: Position) {
-        self.grid.assert_owns(position);
+        assert!(self.grid.owns(position), "Position belongs to another Grid");
         self.cursor.select(position);
     }
 
@@ -194,14 +194,11 @@ impl App {
     }
 
     pub fn render_frame(&self) -> RenderFrame {
-        RenderFrame::derive(
-            self.source.read_revision_cells(),
+        self.source.render_frame(
             self.cursor.position(),
             self.cursor.on,
-            RenderFrameConfig {
-                marker_spacing: self.opts.marker_spacing,
-                highlight_dot_spacing: self.opts.highlight_dot_spacing,
-            },
+            self.opts.marker_spacing,
+            self.opts.highlight_dot_spacing,
         )
     }
 
@@ -210,7 +207,7 @@ impl App {
     }
 
     pub(crate) fn remaining_cursor_blink_delay(&self) -> Duration {
-        self.cursor.remaining_blink_delay()
+        self.cursor.blink_delay_remaining()
     }
 
     ///
@@ -302,10 +299,10 @@ impl App {
 mod test {
 
     use super::App;
-    use crate::{
+    use crate::test::trace;
+    use orcvs::{
         glyph::{Glyph, GlyphString},
         opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
-        test::trace,
     };
 
     #[test]
@@ -345,7 +342,7 @@ mod test {
         App::new(cols, rows)
     }
 
-    fn rendered(app: &App, position: crate::grid::Position) -> GlyphString {
+    fn rendered(app: &App, position: orcvs::grid::Position) -> GlyphString {
         let frame = app.render_frame();
         let cell = frame
             .rows()
@@ -547,7 +544,7 @@ mod test {
         assert_eq!(
             frame.rows()[0]
                 .iter()
-                .map(|cell| cell.sector_left_strength().is_some())
+                .map(|cell| cell.sector_strengths().0.is_some())
                 .collect::<Vec<_>>(),
             vec![false, false, true, false, true, false, true]
         );
@@ -559,11 +556,11 @@ mod test {
 
         app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
         let frame = app.render_frame();
-        assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
+        assert_eq!(frame.rows()[0][0].sector_strengths().0, None);
         assert!(
             frame.rows()[0][1..]
                 .iter()
-                .all(|cell| cell.sector_left_strength().is_some())
+                .all(|cell| cell.sector_strengths().0.is_some())
         );
     }
 

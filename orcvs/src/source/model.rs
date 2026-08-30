@@ -161,7 +161,7 @@ impl Source {
     /// A space empties the Cell, equivalent to `unset`.
     ///
     /// ```
-    /// use console::{grid::Grid, source::Source};
+    /// use orcvs::{grid::Grid, source::Source};
     ///
     /// let mut source = Source::new(Grid::new(10, 10));
     /// source.set(33, "!").unwrap();
