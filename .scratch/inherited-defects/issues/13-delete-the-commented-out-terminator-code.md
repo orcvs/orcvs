@@ -4,9 +4,10 @@
 for it. Both sit beside the live `is_terminator_bytes` that replaced them.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] The commented-out function and its test are gone.
-- [ ] `is_terminator_bytes` and its test are unchanged.
+- [x] The commented-out function and its test are gone.
+- [x] `is_terminator_bytes` and its test are unchanged.
 
 ## Comments
 

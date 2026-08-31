@@ -5,10 +5,11 @@
 drops a failed start without a log, a panic, or a message.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] A failed `WebRunner::start` is always reported, with or without the loading element.
-- [ ] The loading element still shows the crash message when the element is present.
-- [ ] The loading element is still removed on a successful start.
+- [x] A failed `WebRunner::start` is always reported, with or without the loading element.
+- [x] The loading element still shows the crash message when the element is present.
+- [x] The loading element is still removed on a successful start.
 
 ## Comments
 

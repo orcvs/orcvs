@@ -4,10 +4,11 @@
 is written twice, so the two copies can also drift apart.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] The MIDI client name matches the project name.
-- [ ] The name is written once.
-- [ ] The port name is consistent with the client name.
+- [x] The MIDI client name matches the project name.
+- [x] The name is written once.
+- [x] The port name is consistent with the client name.
 
 ## Comments
 

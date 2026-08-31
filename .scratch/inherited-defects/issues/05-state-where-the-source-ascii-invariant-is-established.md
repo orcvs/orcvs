@@ -5,11 +5,12 @@ ASCII". It does not say where. One of the two callers validates several steps ea
 different function. A reader cannot check the claim from the comment.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] The SAFETY comment names the two callers and the check each one makes.
-- [ ] The comment names `plan_tick`'s assertion as the guard for the Tick path.
-- [ ] The `unsafe` block keeps its present size.
-- [ ] No behaviour changes.
+- [x] The SAFETY comment names the two callers and the check each one makes.
+- [x] The comment names `plan_tick`'s assertion as the guard for the Tick path.
+- [x] The `unsafe` block keeps its present size.
+- [x] No behaviour changes.
 
 ## Comments
 

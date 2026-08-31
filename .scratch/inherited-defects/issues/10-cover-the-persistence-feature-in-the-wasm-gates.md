@@ -4,10 +4,11 @@
 `test_wasm` also runs without it. A fault that only appears with the feature passes both gates.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] The WASM build and the browser tests agree with the WASM lint about features.
-- [ ] A persistence fault in the WASM build fails a gate.
-- [ ] The tooling contract asserts the chosen feature set.
+- [x] The WASM build and the browser tests agree with the WASM lint about features.
+- [x] A persistence fault in the WASM build fails a gate.
+- [x] The tooling contract asserts the chosen feature set.
 
 ## Comments
 

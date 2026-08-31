@@ -5,12 +5,13 @@
 warning.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] After a send failure, the adapter and the shell agree that no device is connected.
-- [ ] A later `submit` does not report success while it sends nothing.
-- [ ] The shell shows the user that the device is disconnected.
-- [ ] The user can reconnect the same device from the MIDI menu.
-- [ ] A test drives a backend that fails one send, then asserts the reported selection.
+- [x] After a send failure, the adapter and the shell agree that no device is connected.
+- [x] A later `submit` does not report success while it sends nothing.
+- [x] The shell shows the user that the device is disconnected.
+- [x] The user can reconnect the same device from the MIDI menu.
+- [x] A test drives a backend that fails one send, then asserts the reported selection.
 
 ## Comments
 

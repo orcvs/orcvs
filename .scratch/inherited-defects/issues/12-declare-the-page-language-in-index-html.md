@@ -4,9 +4,10 @@
 language and can use the wrong pronunciation rules.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] The `<html>` element declares a language.
-- [ ] The declared language matches the page content.
+- [x] The `<html>` element declares a language.
+- [x] The declared language matches the page content.
 
 ## Comments
 

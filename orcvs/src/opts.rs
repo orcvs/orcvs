@@ -7,6 +7,8 @@ pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 7;
 
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
+const MAX_BPM: usize = 60_000 / 4;
+
 ///
 /// How the console presents and plays a Source. Nothing in this file is a
 /// Source dimension: column and row counts belong to the Grid, which is the
@@ -59,7 +61,9 @@ impl MarkerSpacing {
 
 impl Bpm {
     pub fn new(beats_per_minute: usize) -> Option<Self> {
-        NonZeroUsize::new(beats_per_minute).map(Self)
+        NonZeroUsize::new(beats_per_minute)
+            .filter(|bpm| bpm.get() <= MAX_BPM)
+            .map(Self)
     }
 
     pub fn delay_ms(&self) -> u64 {
@@ -100,6 +104,7 @@ mod tests {
     fn bpm_accepts_only_positive_tick_rates() {
         assert_eq!(Bpm::new(20).map(|bpm| bpm.delay_ms()), Some(750));
         assert_eq!(Bpm::new(0), None);
+        assert_eq!(Bpm::new(15_001), None);
     }
 
     #[test]

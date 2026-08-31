@@ -4,11 +4,12 @@
 at `Bpm(20)`. `delay_ms` divides by that field, so a zero value would panic.
 
 **Status:** needs-triage
+**Implementation:** complete
 
-- [ ] The user can change the tempo.
-- [ ] `Bpm` refuses a zero value at construction, as `MarkerSpacing` does.
-- [ ] `delay_ms` cannot divide by zero.
-- [ ] A test asserts that `Bpm::new(0)` returns `None`.
+- [x] The user can change the tempo.
+- [x] `Bpm` refuses a zero value at construction, as `MarkerSpacing` does.
+- [x] `delay_ms` cannot divide by zero.
+- [x] A test asserts that `Bpm::new(0)` returns `None`.
 
 ## Comments
 

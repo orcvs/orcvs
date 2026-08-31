@@ -4,10 +4,11 @@
 poisons the lock. Every later read and write then panics, and the editor dies.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] A panic inside one `Source` method does not stop later reads and writes.
-- [ ] `SourceCommander` and `PlaybackEngine` treat lock poisoning the same way.
-- [ ] A test poisons the lock, then asserts that a later read still returns.
+- [x] A panic inside one `Source` method does not stop later reads and writes.
+- [x] `SourceCommander` and `PlaybackEngine` treat lock poisoning the same way.
+- [x] A test poisons the lock, then asserts that a later read still returns.
 
 ## Comments
 
