@@ -95,6 +95,12 @@ test_stale_script_artifact_name_is_rejected() {
   assert_rejected "a stale script artifact name in the service worker cache"
 }
 
+test_service_worker_without_cache_invalidation_is_rejected() {
+  make_fixture
+  perl -0pi -e "s/self[.]addEventListener[(]'activate'.*?^}[)];\n//ms" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker without versioned cache invalidation"
+}
+
 test_stale_debug_package_is_rejected() {
   make_fixture
   perl -pi -e 's/--package=shell/--package=vtha/' "$fixture_dir/.vscode/launch.json"
@@ -175,6 +181,7 @@ case "${1:-all}" in
   stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
   hashed-wasm-artifacts) test_hashed_wasm_artifacts_are_rejected ;;
   stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
+  service-worker-cache-invalidation) test_service_worker_without_cache_invalidation_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
   missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
@@ -195,6 +202,7 @@ case "${1:-all}" in
     test_stale_wasm_artifact_name_is_rejected
     test_hashed_wasm_artifacts_are_rejected
     test_stale_script_artifact_name_is_rejected
+    test_service_worker_without_cache_invalidation_is_rejected
     test_stale_debug_package_is_rejected
     test_missing_orcvs_persistence_check_is_rejected
     test_persistence_command_in_wrong_task_is_rejected

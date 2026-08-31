@@ -88,6 +88,13 @@ assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
+assert_contains "$root_dir/shell/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-9]+';$"
+assert_contains "$root_dir/shell/assets/sw.js" "self[.]addEventListener[(]'activate'"
+assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]keys[(][)]'
+assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]delete[(]name[)]'
+assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]open[(]cacheName[)]'
+assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]match[(]e[.]request[)]'
+assert_not_contains "$root_dir/shell/assets/sw.js" 'caches[.]match[(]e[.]request[)]'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
