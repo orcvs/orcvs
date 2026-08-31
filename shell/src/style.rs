@@ -2,10 +2,7 @@ use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
 
-use crate::{
-    glyph::{Glyph, SemanticGlyph},
-    render_frame::CursorBloom,
-};
+use orcvs::{glyph::Glyph, render_frame::CursorBloom};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
@@ -71,14 +68,14 @@ pub(crate) fn cell_visuals(
     selected: bool,
     cursor_visible: bool,
 ) -> CellVisuals {
-    let foreground = match glyph.semantic() {
-        SemanticGlyph::Bang => PALETTE.bang,
-        SemanticGlyph::Function => PALETTE.function,
-        SemanticGlyph::Number => PALETTE.number,
-        SemanticGlyph::Note => PALETTE.note,
-        SemanticGlyph::Marker => PALETTE.marker,
-        SemanticGlyph::Highlight => PALETTE.highlight,
-        SemanticGlyph::Char | SemanticGlyph::Space => PALETTE.ordinary,
+    let foreground = match glyph {
+        Glyph::Bang => PALETTE.bang,
+        Glyph::Function => PALETTE.function,
+        Glyph::Number => PALETTE.number,
+        Glyph::Note => PALETTE.note,
+        Glyph::Marker => PALETTE.marker,
+        Glyph::Highlight => PALETTE.highlight,
+        Glyph::Char | Glyph::Space => PALETTE.ordinary,
     };
     CellVisuals {
         background: if selected && !cursor_visible {
@@ -154,7 +151,7 @@ pub fn style() -> Style {
 #[cfg(test)]
 mod tests {
     use super::{PALETTE, cell_visuals, sector_line};
-    use crate::{glyph::Glyph, render_frame::CursorBloom};
+    use orcvs::{glyph::Glyph, render_frame::CursorBloom};
 
     #[test]
     fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {

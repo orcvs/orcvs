@@ -44,6 +44,9 @@ pub enum PlaybackDiagnostic {
     ClockFailure {
         message: String,
     },
+    StartFailure {
+        message: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,6 +177,60 @@ struct PlaybackInner<A> {
 pub struct PlaybackEngine<A: OutputAdapter> {
     inner: Arc<Mutex<PlaybackInner<A>>>,
     handle_count: Arc<AtomicUsize>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub struct MidiSelectionHandle<B: crate::midi::MidiBackend> {
+    inner: Weak<Mutex<PlaybackInner<crate::midi::MidiOutputAdapter<B>>>>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+impl<B: crate::midi::MidiBackend> MidiSelectionHandle<B> {
+    pub(crate) fn new(playback: &PlaybackEngine<crate::midi::MidiOutputAdapter<B>>) -> Self {
+        Self {
+            inner: Arc::downgrade(&playback.inner),
+        }
+    }
+
+    fn inner(
+        &self,
+    ) -> Result<Arc<Mutex<PlaybackInner<crate::midi::MidiOutputAdapter<B>>>>, crate::midi::MidiError>
+    {
+        self.inner
+            .upgrade()
+            .ok_or_else(|| crate::midi::MidiError::new("running Orcvs is no longer available"))
+    }
+
+    pub fn destinations(
+        &self,
+    ) -> Result<Vec<crate::midi::MidiDestination>, crate::midi::MidiError> {
+        let inner = self.inner()?;
+        lock_recover(&inner).adapter.destinations()
+    }
+
+    pub fn select(
+        &self,
+        destination_id: &crate::midi::MidiDestinationId,
+    ) -> Result<(), crate::midi::MidiError> {
+        let inner = self.inner()?;
+        let mut inner = lock_recover(&inner);
+        let selection = inner.adapter.select(destination_id)?;
+        if let Some(error) = selection.safety_failure() {
+            inner.record_output_failure(OutputAdapterError::new(error.message));
+        }
+        inner.connected = true;
+        Ok(())
+    }
+
+    pub fn selected_destination_id(
+        &self,
+    ) -> Result<Option<crate::midi::MidiDestinationId>, crate::midi::MidiError> {
+        let inner = self.inner()?;
+        Ok(lock_recover(&inner)
+            .adapter
+            .selected_destination_id()
+            .cloned())
+    }
 }
 
 impl<A: OutputAdapter> Clone for PlaybackEngine<A> {
@@ -325,16 +382,31 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
 }
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
+    ///
+    /// Records a start failure as a diagnostic so the shell can surface it, and
+    /// hands the error back for the caller to return. Every `start` failure path
+    /// goes through here; a caller that only returns the error leaves the user
+    /// with silence.
+    ///
+    fn report_start_error(&self, error: PlaybackStartError) -> PlaybackStartError {
+        lock_recover(&self.inner)
+            .diagnostics
+            .push(PlaybackDiagnostic::StartFailure {
+                message: error.to_string(),
+            });
+        error
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(PlaybackStartError::ZeroTickPeriod);
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
         }
         if lock_recover(&self.inner).playing {
             return Ok(());
         }
         let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|_| PlaybackStartError::RuntimeUnavailable)?;
+            .map_err(|_| self.report_start_error(PlaybackStartError::RuntimeUnavailable))?;
 
         let (generation, cancellation, weak) = {
             let mut inner = lock_recover(&self.inner);
@@ -379,7 +451,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     #[cfg(target_arch = "wasm32")]
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(PlaybackStartError::ZeroTickPeriod);
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
         }
         if lock_recover(&self.inner).playing {
             return Ok(());
@@ -838,6 +910,29 @@ mod tests {
     }
 
     #[test]
+    fn every_start_failure_is_reported_as_a_start_failure_diagnostic() {
+        let engine = PlaybackEngine::new(
+            SourceCommander::new(Grid::new(1, 1)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        assert!(engine.start(Duration::ZERO).is_err());
+        assert!(engine.start(Duration::from_secs(1)).is_err());
+
+        assert_eq!(
+            engine.observe().diagnostics,
+            vec![
+                PlaybackDiagnostic::StartFailure {
+                    message: "Tick period must be greater than zero".to_string(),
+                },
+                PlaybackDiagnostic::StartFailure {
+                    message: "Playback requires a Tokio runtime".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn unexpected_clock_termination_stops_playback_and_reports_failure() {
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
@@ -884,9 +979,12 @@ mod tests {
         assert_eq!(first.state, PlaybackState::Playing);
         assert_eq!(
             first.diagnostics,
-            vec![PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
-                "device lost"
-            ))]
+            vec![
+                PlaybackDiagnostic::StartFailure {
+                    message: "Tick period must be greater than zero".to_string(),
+                },
+                PlaybackDiagnostic::OutputFailure(OutputAdapterError::new("device lost")),
+            ]
         );
         assert!(engine.observe().diagnostics.is_empty());
         engine.stop();

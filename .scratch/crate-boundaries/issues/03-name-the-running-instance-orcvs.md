@@ -6,14 +6,14 @@ everywhere else.
 
 **Blocked by:** 02 — Replace the egui input types in the application state.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `App` is named `Orcvs` at every use site, including `console.rs` and the tests.
-- [ ] The type lives in the `orcvs` crate.
-- [ ] CONTEXT.md defines the running instance and lists what it owns.
-- [ ] The CONTEXT.md entry states no implementation detail and names no type field.
-- [ ] The entry carries an `_Avoid_` line, as every other entry does.
-- [ ] The existing doctest on the type still passes.
+- [x] `App` is named `Orcvs` at every use site, including `console.rs` and the tests.
+- [x] The type lives in the `orcvs` crate.
+- [x] CONTEXT.md defines the running instance and lists what it owns.
+- [x] The CONTEXT.md entry states no implementation detail and names no type field.
+- [x] The entry carries an `_Avoid_` line, as every other entry does.
+- [x] The existing doctest on the type still passes.
 
 ## Comments
 
@@ -30,3 +30,7 @@ distinguishable rather than leave the reader to guess.
 
 Do not add the entry before this rename lands. A glossary that describes a type which does not exist
 is the problem this effort is trying to avoid.
+
+Resolved by `e8bd51a`. Review found the implementation complete; issue 04 subsequently renamed the
+remaining shell field and locals from `app` to `orcvs` so the glossary's `_Avoid_` guidance is
+followed consistently.

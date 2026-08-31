@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'console'",
+            "name": "Debug unit tests in library 'orcvs'",
             "sourceLanguages": [
                 "rust"
             ],
@@ -16,31 +16,29 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=console",
+                    "--package=orcvs",
                 ],
                 "problemMatcher": "$rustc",
                 "filter": {
-                    "name": "console",
+                    "name": "orcvs",
                     "kind": "lib"
                 }
             },
-            "args": [
-                "test_simple_edit"
-            ],
+            "args": [],
             "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'console'",
+            "name": "Debug executable 'shell'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=console",
-                    "--package=console"
+                    "--bin=shell",
+                    "--package=shell"
                 ],
                 "filter": {
-                    "name": "console",
+                    "name": "shell",
                     "kind": "bin"
                 }
             },

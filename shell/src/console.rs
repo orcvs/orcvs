@@ -1,13 +1,17 @@
-use egui::{EventFilter, FontId, Pos2, Rect, Stroke, Vec2};
+use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
 
-use crate::{
-    app::App,
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::midi::MidiDeviceSelection;
+use crate::style::{PALETTE, cell_visuals, sector_line, style};
+use orcvs::{
+    app::{InputEvent, InputKey, Orcvs},
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
     render_frame::RenderFrame,
-    style::{PALETTE, cell_visuals, sector_line, style},
 };
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use orcvs::{midi::MidiOutputAdapter, native_midi::MidirBackend};
 
 const CELL_SIZE: f32 = 25.0;
 const CELL_PADDING: f32 = 0.5;
@@ -15,6 +19,27 @@ const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const INITIAL_ZOOM: f32 = 1.0;
 const INITIAL_SOURCE_X_OFFSET: f32 = 15.0;
+
+fn translate_event(event: Event) -> Option<InputEvent> {
+    match event {
+        Event::Key {
+            key, pressed: true, ..
+        } => match key {
+            Key::ArrowDown => Some(InputEvent::KeyPressed(InputKey::ArrowDown)),
+            Key::ArrowLeft => Some(InputEvent::KeyPressed(InputKey::ArrowLeft)),
+            Key::ArrowRight => Some(InputEvent::KeyPressed(InputKey::ArrowRight)),
+            Key::ArrowUp => Some(InputEvent::KeyPressed(InputKey::ArrowUp)),
+            Key::Backspace => Some(InputEvent::KeyPressed(InputKey::Backspace)),
+            Key::Delete => Some(InputEvent::KeyPressed(InputKey::Delete)),
+            Key::Space => Some(InputEvent::KeyPressed(InputKey::Space)),
+            _ => None,
+        },
+        Event::Text(text) => Some(InputEvent::Text(text)),
+        // The running Orcvs models only input it acts on; all other toolkit
+        // events remain presentation concerns and are dropped here.
+        _ => None,
+    }
+}
 
 fn top_right_source_view(
     source: Rect,
@@ -46,12 +71,12 @@ fn source_bounds(frame: &RenderFrame) -> Rect {
     )
 }
 
-/// ConsoleApp wraps the inner App
-/// ConsoleApp handles the egui presentation concerns
-/// App owns the underlying logic
+/// Console wraps the running Orcvs with egui presentation concerns.
 ///
 pub struct Console {
-    app: App,
+    orcvs: Orcvs,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    midi: MidiDeviceSelection<MidirBackend>,
     font_family: egui::FontFamily,
     /// The visible region of the egui Scene containing the Source.
     source_view_rect: Rect,
@@ -90,10 +115,22 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
-        app.refresh_midi_destinations();
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let orcvs = Orcvs::with_output_adapter(
+            DEFAULT_COL_COUNT,
+            DEFAULT_ROW_COUNT,
+            MidiOutputAdapter::new(MidirBackend),
+        );
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        midi.refresh_destinations();
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         Self {
-            app,
+            orcvs,
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view_rect: Rect::ZERO,
             diagnostics_open: false,
@@ -179,7 +216,7 @@ fn show_diagnostics(
 
 fn show_source(
     ui: &mut egui::Ui,
-    app: &mut App,
+    orcvs: &mut Orcvs,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
 ) -> Rect {
@@ -227,7 +264,7 @@ fn show_source(
                 }
 
                 if response.clicked() {
-                    app.select(cell.position());
+                    orcvs.select(cell.position());
                 }
             }
         });
@@ -248,7 +285,15 @@ impl eframe::App for Console {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
-        self.app.observe_playback();
+        let playback_diagnostics = self.orcvs.observe_playback();
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        self.midi.observe_diagnostics(playback_diagnostics);
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        for diagnostic in &playback_diagnostics {
+            if let Some(message) = crate::diagnostics::failure_message(diagnostic) {
+                tracing::error!("Playback failure: {message}");
+            }
+        }
         let top_panel = egui::Panel::top("top_panel").resizable(true).min_size(32.0);
 
         // let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
@@ -270,19 +315,19 @@ impl eframe::App for Console {
                 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
                 ui.menu_button("MIDI", |ui| {
                     if ui.button("Refresh destinations").clicked() {
-                        self.app.refresh_midi_destinations();
+                        self.midi.refresh_destinations();
                     }
-                    let selected = self.app.selected_midi_destination_id();
-                    for destination in self.app.midi_destinations().to_vec() {
+                    let selected = self.midi.selected_destination_id();
+                    for destination in self.midi.destinations().to_vec() {
                         let is_selected = selected.as_ref() == Some(&destination.id);
                         if ui.selectable_label(is_selected, destination.name).clicked() {
-                            self.app.select_midi_destination(&destination.id);
+                            self.midi.select_destination(&destination.id);
                         }
                     }
-                    if self.app.midi_destinations().is_empty() {
+                    if self.midi.destinations().is_empty() {
                         ui.label("No MIDI destinations found");
                     }
-                    if let Some(status) = self.app.midi_status() {
+                    if let Some(status) = self.midi.status() {
                         ui.separator();
                         ui.colored_label(ui.visuals().error_fg_color, status);
                     }
@@ -302,10 +347,15 @@ impl eframe::App for Console {
             escape: true,
         };
 
-        let events = ctx.input(|i| i.filtered_events(&event_filter));
-        self.app.event_handler(events);
-        self.app.advance_cursor_blink();
-        let frame = self.app.render_frame();
+        let events = ctx.input(|i| {
+            i.filtered_events(&event_filter)
+                .into_iter()
+                .filter_map(translate_event)
+                .collect()
+        });
+        self.orcvs.event_handler(events);
+        self.orcvs.advance_cursor_blink();
+        let frame = self.orcvs.render_frame();
 
         let mut viewport_size = Vec2::ZERO;
         egui::CentralPanel::default()
@@ -317,7 +367,9 @@ impl eframe::App for Console {
                     .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE);
                 let mut source_rect = Rect::NAN;
                 let Console {
-                    app,
+                    orcvs,
+                    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+                        midi: _,
                     font_family,
                     source_view_rect,
                     diagnostics_open: _,
@@ -332,7 +384,7 @@ impl eframe::App for Console {
                 }
                 let response = scene
                     .show(ui, source_view_rect, |ui| {
-                        source_rect = show_source(ui, app, &frame, font_family);
+                        source_rect = show_source(ui, orcvs, &frame, font_family);
                     })
                     .response;
 
@@ -340,7 +392,7 @@ impl eframe::App for Console {
                     *source_view_rect = source_rect;
                 }
 
-                ctx.request_repaint_after(self.app.remaining_cursor_blink_delay());
+                ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
             });
 
         if self.diagnostics_open {
@@ -357,10 +409,49 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::App;
-    use egui::{Pos2, Rect, Vec2};
+    use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
+    use orcvs::app::{InputEvent, InputKey, Orcvs};
 
-    use super::{frames_per_second, scene_zoom, source_bounds, top_right_source_view};
+    use super::{
+        frames_per_second, scene_zoom, source_bounds, top_right_source_view, translate_event,
+    };
+
+    fn key_event(key: Key, pressed: bool) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn toolkit_events_translate_only_the_input_orcvs_handles() {
+        let cases = [
+            (Key::ArrowDown, InputKey::ArrowDown),
+            (Key::ArrowLeft, InputKey::ArrowLeft),
+            (Key::ArrowRight, InputKey::ArrowRight),
+            (Key::ArrowUp, InputKey::ArrowUp),
+            (Key::Backspace, InputKey::Backspace),
+            (Key::Delete, InputKey::Delete),
+            (Key::Space, InputKey::Space),
+        ];
+        for (egui_key, orcvs_key) in cases {
+            assert_eq!(
+                translate_event(key_event(egui_key, true)),
+                Some(InputEvent::KeyPressed(orcvs_key))
+            );
+        }
+
+        assert_eq!(
+            translate_event(Event::Text("x".to_owned())),
+            Some(InputEvent::Text("x".to_owned()))
+        );
+        assert_eq!(translate_event(key_event(Key::Enter, true)), None);
+        assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
+        assert_eq!(translate_event(Event::Copy), None);
+    }
 
     #[test]
     fn diagnostics_derive_frame_rate_and_scene_zoom_from_view_state() {
@@ -388,8 +479,8 @@ mod tests {
 
     #[test]
     fn source_bounds_are_available_before_the_first_scene_render() {
-        let app = App::new(32, 16);
-        let bounds = source_bounds(&app.render_frame());
+        let orcvs = Orcvs::new(32, 16);
+        let bounds = source_bounds(&orcvs.render_frame());
 
         assert_eq!(
             bounds,
@@ -418,7 +509,7 @@ mod tests {
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.spacing_mut().button_padding = Vec2::splat(super::CELL_PADDING);
             let text = egui::RichText::new("+")
-                .font(egui::FontId::monospace(crate::opts::DEFAULT_FONT_SIZE));
+                .font(egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE));
             button_size = ui
                 .add_sized(Vec2::splat(super::CELL_SIZE), egui::Button::new(text))
                 .rect

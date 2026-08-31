@@ -1,12 +1,12 @@
 #![cfg(target_arch = "wasm32")]
 
-use console::app::App;
-use console::grid::Grid;
-use console::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
-use console::source::SourceCommander;
-use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::PlayCommand;
+use orcvs::app::Orcvs;
+use orcvs::grid::Grid;
+use orcvs::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
+use orcvs::source::SourceCommander;
+use shell::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -22,7 +22,7 @@ fn write(source: &SourceCommander, content: &str) {
 
 #[wasm_bindgen_test]
 fn web_app_constructs_and_advances_the_cursor_without_panicking() {
-    let mut app = App::new(2, 1);
+    let mut app = Orcvs::new(2, 1);
 
     app.advance_cursor_blink();
 

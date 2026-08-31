@@ -12,7 +12,7 @@ pub(crate) struct RenderFrameConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CursorBloom {
+pub enum CursorBloom {
     Core,
     Inner,
     Mid,
@@ -48,15 +48,15 @@ impl RenderCell {
         self.selected
     }
 
-    pub(crate) fn cursor_bloom(&self) -> Option<CursorBloom> {
+    pub fn cursor_bloom(&self) -> Option<CursorBloom> {
         self.cursor_bloom
     }
 
-    pub(crate) fn sector_left_strength(&self) -> Option<u8> {
+    pub fn sector_left_strength(&self) -> Option<u8> {
         self.sector_left_strength
     }
 
-    pub(crate) fn sector_top_strength(&self) -> Option<u8> {
+    pub fn sector_top_strength(&self) -> Option<u8> {
         self.sector_top_strength
     }
 

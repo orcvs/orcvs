@@ -1,5 +1,3 @@
-use egui::{Event, Key};
-
 use std::time::Duration;
 use tracing::error;
 
@@ -9,24 +7,38 @@ use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::playback::InMemoryOutputAdapter;
-use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
+use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackState};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::midi::{MidiDestination, MidiDestinationId};
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputKey {
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    Backspace,
+    Delete,
+    Space,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputEvent {
+    KeyPressed(InputKey),
+    Text(String),
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-type AppOutputAdapter = NativeMidiOutputAdapter;
+pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-type AppOutputAdapter = InMemoryOutputAdapter;
+pub type OrcvsOutputAdapter = InMemoryOutputAdapter;
 
 ///
-/// The console's editing state: the Grid that is the Source's shape, the
-/// Cursor selecting one of its Positions, and the commander that owns the
-/// Source itself.
+/// One running Orcvs: its options, Source and Grid, Cursor, and Playback
+/// lifecycle. Output-device discovery and selection belong to the shell.
 ///
 /// Selection names a Position, and only a Grid mints one. A pair outside the
 /// Grid never becomes a Position at all, so `select` has no rejection to make
@@ -34,8 +46,10 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// the next write there:
 ///
 /// ```
-/// use console::grid::Grid;
+/// use orcvs::app::Orcvs;
+/// use orcvs::grid::Grid;
 ///
+/// let orcvs = Orcvs::new(16, 16);
 /// let grid = Grid::new(16, 16);
 ///
 /// // the Grid refuses a pair outside itself, so there is no Position to select
@@ -44,33 +58,34 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// // every Position `select` can be handed is one the Grid minted
 /// let position = grid.position(15, 15).expect("inside the grid");
 /// assert_eq!((position.x(), position.y()), (15, 15));
+/// assert_eq!(orcvs.render_frame().rows().len(), 16);
 /// ```
 ///
-pub struct App {
+pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
     opts: Opts,
     cursor: Cursor,
     grid: Grid,
 
     source: SourceCommander,
-    playback: PlaybackEngine<AppOutputAdapter>,
+    playback: PlaybackEngine<A>,
     playback_state: PlaybackState,
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    midi_destinations: Vec<MidiDestination>,
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    midi_status: Option<String>,
 }
 
-impl App {
+impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Self {
-        let grid = Grid::new(cols, rows);
-
-        let opts = Opts::new();
-
-        let source = SourceCommander::new(grid);
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         let adapter = NativeMidiOutputAdapter::new(MidirBackend);
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let adapter = InMemoryOutputAdapter::default();
+        Self::with_output_adapter(cols, rows, adapter)
+    }
+}
+
+impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
+    pub fn with_output_adapter(cols: usize, rows: usize, adapter: A) -> Self {
+        let grid = Grid::new(cols, rows);
+        let opts = Opts::new();
+        let source = SourceCommander::new(grid);
         let playback = PlaybackEngine::new(source.clone(), adapter);
 
         Self {
@@ -80,74 +95,13 @@ impl App {
             source,
             playback,
             playback_state: PlaybackState::Stopped,
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            midi_destinations: Vec::new(),
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            midi_status: None,
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn refresh_midi_destinations(&mut self) {
-        match self.playback.midi_destinations() {
-            Ok(destinations) => {
-                self.midi_destinations = destinations;
-                self.midi_status = None;
-            }
-            Err(error) => self.midi_status = Some(error.message),
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    pub fn refresh_midi_destinations(&mut self) {}
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn midi_destinations(&self) -> &[MidiDestination] {
-        &self.midi_destinations
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn select_midi_destination(&mut self, destination_id: &MidiDestinationId) {
-        match self.playback.select_midi_destination(destination_id) {
-            Ok(()) => self.midi_status = None,
-            Err(error) => self.midi_status = Some(error.message),
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn selected_midi_destination_id(&self) -> Option<MidiDestinationId> {
-        self.playback.selected_midi_destination_id()
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn midi_status(&self) -> Option<String> {
-        self.midi_status.clone()
-    }
-
-    pub fn observe_playback(&mut self) {
+    pub fn observe_playback(&mut self) -> Vec<PlaybackDiagnostic> {
         let observation = self.playback.observe();
         self.playback_state = observation.state;
-        for diagnostic in observation.diagnostics {
-            match diagnostic {
-                PlaybackDiagnostic::OutputFailure(error) => {
-                    self.record_playback_failure(error.message)
-                }
-                PlaybackDiagnostic::ClockFailure { message } => {
-                    self.record_playback_failure(message)
-                }
-                PlaybackDiagnostic::Overrun { .. } => {}
-            }
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    fn record_playback_failure(&mut self, message: String) {
-        self.midi_status = Some(message);
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    fn record_playback_failure(&mut self, message: String) {
-        error!("Playback failure: {message}");
+        observation.diagnostics
     }
 
     ///
@@ -209,67 +163,44 @@ impl App {
         self.cursor.blink();
     }
 
-    pub(crate) fn remaining_cursor_blink_delay(&self) -> Duration {
+    pub fn remaining_cursor_blink_delay(&self) -> Duration {
         self.cursor.remaining_blink_delay()
     }
 
     ///
     /// Handles event and returns boolean indicating if repating is required
     ///
-    pub fn event_handler(&mut self, events: Vec<Event>) -> bool {
+    pub fn event_handler(&mut self, events: Vec<InputEvent>) -> bool {
         let mut repaint = false;
         for event in &events {
             match event {
-                Event::Key {
-                    key: Key::ArrowDown,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.down(self.cursor.position())),
-                Event::Key {
-                    key: Key::ArrowLeft,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.left(self.cursor.position())),
-                Event::Key {
-                    key: Key::ArrowRight,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.right(self.cursor.position())),
-                Event::Key {
-                    key: Key::ArrowUp,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.up(self.cursor.position())),
-                Event::Key {
-                    key: Key::Backspace,
-                    pressed: true,
-                    ..
-                } => self.delete(),
-                Event::Key {
-                    key: Key::Delete,
-                    pressed: true,
-                    ..
-                } => self.delete(),
-                Event::Key {
-                    key: Key::Space,
-                    pressed: true,
-                    ..
-                } => {
+                InputEvent::KeyPressed(InputKey::ArrowDown) => {
+                    self.cursor.select(self.grid.down(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::ArrowLeft) => {
+                    self.cursor.select(self.grid.left(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::ArrowRight) => {
+                    self.cursor.select(self.grid.right(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::ArrowUp) => {
+                    self.cursor.select(self.grid.up(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => self.delete(),
+                InputEvent::KeyPressed(InputKey::Space) => {
                     if self.playing() {
                         self.stop();
                     } else {
                         self.play();
                     }
                 }
-                Event::Text(text_to_insert)
+                InputEvent::Text(text_to_insert)
                     if text_to_insert.len() == 1 && text_to_insert != " " =>
                 {
                     self.write(text_to_insert);
                     repaint = true;
                 }
-                _ => {
-                    // info!("Pressed");
-                }
+                InputEvent::Text(_) => {}
             }
         }
         repaint
@@ -281,36 +212,78 @@ impl App {
 
     fn stop(&mut self) {
         self.playback.stop();
-        self.observe_playback();
+        self.playback_state = PlaybackState::Stopped;
     }
 
     fn play(&mut self) {
         let ms = self.opts.bpm.delay_ms();
-        if let Err(error) = self.playback.start(Duration::from_millis(ms)) {
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            {
-                self.midi_status = Some(error.to_string());
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-            error!("Playback did not start: {error}");
+        // A start failure is already recorded as a Playback diagnostic, which
+        // `observe_playback` hands to the shell; reporting it again here would
+        // put one failure on two channels.
+        if self.playback.start(Duration::from_millis(ms)).is_ok() {
+            self.playback_state = PlaybackState::Playing;
         }
-        self.observe_playback();
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter<B>> {
+    /// Returns the MIDI configuration capability without exposing Playback
+    /// lifecycle control.
+    ///
+    /// A running Orcvs does not hand its complete Playback Engine to callers:
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// let _playback = orcvs.playback_engine();
+    /// ```
+    ///
+    /// The MIDI selection handle cannot start Playback:
+    ///
+    /// ```compile_fail
+    /// use std::time::Duration;
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// orcvs
+    ///     .midi_selection_handle()
+    ///     .start(Duration::from_millis(100));
+    /// ```
+    ///
+    /// It cannot stop or disconnect Playback:
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// orcvs.midi_selection_handle().stop();
+    /// ```
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// orcvs.midi_selection_handle().disconnect();
+    /// ```
+    ///
+    /// It cannot observe Playback or drain its diagnostics:
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// let _observation = orcvs.midi_selection_handle().observe();
+    /// ```
+    pub fn midi_selection_handle(&self) -> crate::playback::MidiSelectionHandle<B> {
+        crate::playback::MidiSelectionHandle::new(&self.playback)
     }
 }
 
 #[cfg(test)]
 mod test {
 
-    use super::App;
+    use super::Orcvs;
+    use crate::test::trace;
     use crate::{
         glyph::{Glyph, GlyphString},
         opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
-        test::trace,
     };
 
     #[test]
     fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
-        let mut app = App::new(2, 1);
+        let mut app = Orcvs::new(2, 1);
         app.write("x");
 
         let frame = app.render_frame();
@@ -327,7 +300,7 @@ mod test {
 
     #[test]
     fn deriving_a_render_frame_does_not_advance_cursor_blink_state() {
-        let mut app = App::new(2, 1);
+        let mut app = Orcvs::new(2, 1);
         app.cursor.on = true;
 
         let first = app.render_frame();
@@ -338,14 +311,14 @@ mod test {
         assert!(app.cursor.on);
     }
 
-    fn app() -> App {
+    fn app() -> Orcvs {
         let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
         let cols = DEFAULT_MARKER_SPACING;
 
-        App::new(cols, rows)
+        Orcvs::new(cols, rows)
     }
 
-    fn rendered(app: &App, position: crate::grid::Position) -> GlyphString {
+    fn rendered(app: &Orcvs, position: crate::grid::Position) -> GlyphString {
         let frame = app.render_frame();
         let cell = frame
             .rows()
@@ -359,7 +332,7 @@ mod test {
         )
     }
 
-    impl App {
+    impl Orcvs {
         pub fn src(&mut self, src: &str) {
             for (i, c) in src.chars().enumerate() {
                 self.set_at(i, 0, &c.to_string())
@@ -392,7 +365,7 @@ mod test {
     #[tokio::test]
     async fn test_to_idx() {
         trace();
-        let app = App::new(10, 4);
+        let app = Orcvs::new(10, 4);
 
         let position = app.grid.position(0, 0).expect("inside the grid");
         let idx = app.index(position);
@@ -408,7 +381,7 @@ mod test {
         trace();
 
         // 4 columns, 2 rows: transposing the axes addresses a different Cell.
-        let mut app = App::new(4, 2);
+        let mut app = Orcvs::new(4, 2);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
@@ -466,7 +439,7 @@ mod test {
     async fn test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty() {
         trace();
 
-        let mut app = App::new(10, 1);
+        let mut app = Orcvs::new(10, 1);
         let position = app.grid.position(5, 0).expect("inside the grid");
         app.set_at(0, 0, ".");
         app.set_at(1, 0, "+");
@@ -537,7 +510,7 @@ mod test {
 
     #[tokio::test]
     async fn test_sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
-        let mut app = App::new(7, 3);
+        let mut app = Orcvs::new(7, 3);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(6, 2));
@@ -569,7 +542,7 @@ mod test {
 
     #[tokio::test]
     async fn test_empty_cells_between_markers_remain_spaces() {
-        let mut app = App::new(24, 16);
+        let mut app = Orcvs::new(24, 16);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(8, 8));
