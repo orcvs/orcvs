@@ -7,7 +7,7 @@ use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
-    opts::DEFAULT_FONT_SIZE,
+    opts::{Bpm, DEFAULT_FONT_SIZE},
     render_frame::RenderFrame,
 };
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -334,6 +334,22 @@ impl eframe::App for Console {
                 });
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
+                });
+                ui.menu_button("Tempo", |ui| {
+                    let mut beats_per_minute = self.orcvs.bpm().beats_per_minute();
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut beats_per_minute)
+                                .range(1..=999)
+                                .suffix(" BPM"),
+                        )
+                        .changed()
+                    {
+                        self.orcvs.set_bpm(
+                            Bpm::new(beats_per_minute)
+                                .expect("the tempo control has a positive range"),
+                        );
+                    }
                 });
                 // ui.label(format!("HELLO"));
                 // egui::widgets::global_dark_light_mode_buttons(ui);

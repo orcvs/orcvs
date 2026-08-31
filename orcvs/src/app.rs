@@ -1,7 +1,7 @@
 use std::time::Duration;
 use tracing::error;
 
-use crate::opts::Opts;
+use crate::opts::{Bpm, Opts};
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
@@ -102,6 +102,21 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
         let observation = self.playback.observe();
         self.playback_state = observation.state;
         observation.diagnostics
+    }
+
+    pub fn bpm(&self) -> Bpm {
+        self.opts.bpm
+    }
+
+    pub fn set_bpm(&mut self, bpm: Bpm) {
+        let was_playing = self.playing();
+        if was_playing {
+            self.stop();
+        }
+        self.opts.bpm = bpm;
+        if was_playing {
+            self.play();
+        }
     }
 
     ///
@@ -275,11 +290,22 @@ impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter
 mod test {
 
     use super::Orcvs;
+    use crate::opts::Bpm;
     use crate::test::trace;
     use crate::{
         glyph::{Glyph, GlyphString},
         opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
     };
+
+    #[test]
+    fn user_can_change_the_tempo() {
+        let mut orcvs =
+            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default());
+
+        orcvs.set_bpm(Bpm::new(120).unwrap());
+
+        assert_eq!(orcvs.bpm().beats_per_minute(), 120);
+    }
 
     #[test]
     fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {

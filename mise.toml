@@ -94,12 +94,12 @@ description = "Check and build the WASM application"
 run = '''
 cargo clippy --workspace --lib --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
 cd shell
-env -u NO_COLOR trunk build --locked
+env -u NO_COLOR trunk build --features persistence --locked
 '''
 
 [tasks.test_wasm]
 description = "Run browser regressions in headless Firefox"
-run = 'wasm-pack test --headless --firefox shell --test wasm --locked'
+run = 'wasm-pack test --headless --firefox shell --test wasm --features persistence --locked'
 
 [tasks.audit_deps]
 description = "Audit advisories, licenses, sources, and duplicate dependencies"

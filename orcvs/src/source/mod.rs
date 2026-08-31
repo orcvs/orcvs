@@ -4,7 +4,16 @@ mod model;
 use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;
 pub use model::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+fn read_recover<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn write_recover<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Clone)]
 pub struct SourceCommander {
@@ -27,7 +36,7 @@ impl SourceCommander {
     /// Source describes the new revision.
     ///
     pub fn set(&self, idx: usize, s: &str) -> Result<Change, SourceError> {
-        self.inner.write().unwrap().set(idx, s)
+        write_recover(&self.inner).set(idx, s)
     }
 
     ///
@@ -35,11 +44,11 @@ impl SourceCommander {
     /// Source describes the new revision.
     ///
     pub fn unset(&self, idx: usize) -> Result<Change, SourceError> {
-        self.inner.write().unwrap().unset(idx)
+        write_recover(&self.inner).unset(idx)
     }
 
     pub fn get(&self, idx: usize) -> (Option<String>, Option<Glyph>) {
-        let source = self.inner.read().unwrap();
+        let source = read_recover(&self.inner);
         let s = source.get(idx);
         let g = source.get_glyph_at(idx);
         (s, g)
@@ -49,18 +58,18 @@ impl SourceCommander {
     /// The full grid contents, read consistently at one revision.
     ///
     pub fn snapshot(&self) -> String {
-        self.inner.read().unwrap().snapshot()
+        read_recover(&self.inner).snapshot()
     }
 
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        self.inner.read().unwrap().diagnostics()
+        read_recover(&self.inner).diagnostics()
     }
 
     ///
     /// Every Cell and its Source-derived Glyph from one Source revision.
     ///
     pub(crate) fn read_revision_cells(&self) -> SourceRevisionCells {
-        let source = self.inner.read().unwrap();
+        let source = read_recover(&self.inner);
         SourceRevisionCells {
             grid: source.grid(),
             cells: source.cells(),
@@ -68,7 +77,7 @@ impl SourceCommander {
     }
 
     pub(crate) fn execute(&self) -> TickResult {
-        self.inner.write().unwrap().execute()
+        write_recover(&self.inner).execute()
     }
 }
 
@@ -76,6 +85,25 @@ impl SourceCommander {
 mod tests {
     use super::{SourceCommander, SourceError};
     use crate::grid::Grid;
+
+    #[test]
+    fn source_access_recovers_after_the_lock_is_poisoned() {
+        let source = SourceCommander::new(Grid::new(2, 1));
+        let poisoned = source.clone();
+
+        assert!(
+            std::thread::spawn(move || {
+                let _guard = poisoned.inner.write().unwrap();
+                panic!("poison the Source lock");
+            })
+            .join()
+            .is_err()
+        );
+
+        assert_eq!(source.snapshot(), "  ");
+        source.set(0, "x").unwrap();
+        assert_eq!(source.get(0).0.as_deref(), Some("x"));
+    }
 
     #[test]
     fn rejected_overlong_expression_does_not_poison_source_access() {

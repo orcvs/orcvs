@@ -18,7 +18,7 @@ make_fixture() {
   mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
-  cp "$repo_root/shell/Cargo.toml" "$fixture_dir/shell/"
+  cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
   cp "$repo_root/shell/check.sh" "$fixture_dir/shell/"
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
@@ -61,14 +61,32 @@ test_unlocked_audit_deny_is_rejected() {
 
 test_unlocked_wasm_pack_is_rejected() {
   make_fixture
-  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --features persistence/' "$fixture_dir/mise.toml"
   assert_rejected "an unlocked wasm-pack test invocation"
+}
+
+test_wasm_build_without_persistence_is_rejected() {
+  make_fixture
+  perl -pi -e 's/trunk build --features persistence --locked/trunk build --locked/' "$fixture_dir/mise.toml"
+  assert_rejected "a WASM build without the persistence feature"
+}
+
+test_wasm_test_without_persistence_is_rejected() {
+  make_fixture
+  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --locked/' "$fixture_dir/mise.toml"
+  assert_rejected "browser tests without the persistence feature"
 }
 
 test_stale_wasm_artifact_name_is_rejected() {
   make_fixture
   perl -pi -e 's/shell_bg[.]wasm/console_bg.wasm/' "$fixture_dir/shell/assets/sw.js"
   assert_rejected "a stale WASM artifact name in the service worker cache"
+}
+
+test_hashed_wasm_artifacts_are_rejected() {
+  make_fixture
+  perl -pi -e 's/filehash = false/filehash = true/' "$fixture_dir/shell/Trunk.toml"
+  assert_rejected "hashed WASM artifacts with fixed service-worker cache names"
 }
 
 test_stale_script_artifact_name_is_rejected() {
@@ -79,7 +97,7 @@ test_stale_script_artifact_name_is_rejected() {
 
 test_stale_debug_package_is_rejected() {
   make_fixture
-  perl -pi -e 's/--package=shell/--package=console/' "$fixture_dir/.vscode/launch.json"
+  perl -pi -e 's/--package=shell/--package=vtha/' "$fixture_dir/.vscode/launch.json"
   assert_rejected "a stale package name in the debugger configuration"
 }
 
@@ -152,7 +170,10 @@ case "${1:-all}" in
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
+  wasm-build-persistence) test_wasm_build_without_persistence_is_rejected ;;
+  wasm-test-persistence) test_wasm_test_without_persistence_is_rejected ;;
   stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
+  hashed-wasm-artifacts) test_hashed_wasm_artifacts_are_rejected ;;
   stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
   missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
@@ -169,7 +190,10 @@ case "${1:-all}" in
     test_unlocked_check_deny_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
+    test_wasm_build_without_persistence_is_rejected
+    test_wasm_test_without_persistence_is_rejected
     test_stale_wasm_artifact_name_is_rejected
+    test_hashed_wasm_artifacts_are_rejected
     test_stale_script_artifact_name_is_rejected
     test_stale_debug_package_is_rejected
     test_missing_orcvs_persistence_check_is_rejected

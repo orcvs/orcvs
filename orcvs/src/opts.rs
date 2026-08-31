@@ -28,8 +28,8 @@ pub enum Mode {
     Command,
 }
 
-#[derive(Clone, Debug)]
-pub struct Bpm(usize);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bpm(NonZeroUsize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MarkerSpacing(NonZeroUsize);
@@ -58,16 +58,24 @@ impl MarkerSpacing {
 }
 
 impl Bpm {
+    pub fn new(beats_per_minute: usize) -> Option<Self> {
+        NonZeroUsize::new(beats_per_minute).map(Self)
+    }
+
     pub fn delay_ms(&self) -> u64 {
-        let ms = (60000 / self.0) / 4;
+        let ms = (60000 / self.0.get()) / 4;
         ms as u64
+    }
+
+    pub fn beats_per_minute(self) -> usize {
+        self.0.get()
     }
 }
 
 impl Opts {
     pub fn new() -> Self {
         Self {
-            bpm: Bpm(20),
+            bpm: Bpm::new(20).expect("default tempo is positive"),
             cursor_delay: DEFAULT_CURSOR_DELAY,
             highlight_dot_spacing: HighlightSpacing::new(DEFAULT_HIGHLIGHT_DOT_SPACING)
                 .expect("default highlight spacing is positive"),
@@ -86,7 +94,13 @@ impl Default for Opts {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_HIGHLIGHT_DOT_SPACING, HighlightSpacing, MarkerSpacing, Opts};
+    use super::{Bpm, DEFAULT_HIGHLIGHT_DOT_SPACING, HighlightSpacing, MarkerSpacing, Opts};
+
+    #[test]
+    fn bpm_accepts_only_positive_tick_rates() {
+        assert_eq!(Bpm::new(20).map(|bpm| bpm.delay_ms()), Some(750));
+        assert_eq!(Bpm::new(0), None);
+    }
 
     #[test]
     fn default_cursor_field_reaches_seven_cells_from_the_cursor() {

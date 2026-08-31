@@ -47,7 +47,7 @@ async fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "[ o r c v s ]",
+        "Orcvs",
         native_options,
         Box::new(|cc| Ok(Box::new(Console::new(cc)))),
     )
@@ -87,17 +87,20 @@ fn main() {
         let loading_text = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id("loading_text"));
-        if let Some(loading_text) = loading_text {
-            match start_result {
-                Ok(_) => {
+        match start_result {
+            Ok(_) => {
+                if let Some(loading_text) = loading_text {
                     loading_text.remove();
                 }
-                Err(e) => {
+            }
+            Err(e) => {
+                log::error!("Failed to start eframe: {e:?}");
+                if let Some(loading_text) = loading_text {
                     loading_text.set_inner_html(
                         "<p> The app has crashed. See the developer console for details. </p>",
                     );
-                    panic!("Failed to start eframe: {e:?}");
                 }
+                panic!("Failed to start eframe: {e:?}");
             }
         }
     });

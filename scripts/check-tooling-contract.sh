@@ -81,14 +81,17 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clipp
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo test --workspace --doc --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
-assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --locked.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --features persistence --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --features persistence --locked.$'
 assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
+assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
 assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
+assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=vtha|parser_benchmark'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$'

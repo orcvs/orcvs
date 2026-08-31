@@ -88,15 +88,6 @@ impl Glyph {
             .collect()
     }
 
-    // #[inline]
-    // pub fn is_terminator(s: &str) -> bool {
-    //     match s {
-    //         "." => true,
-    //         " " => true,
-    //         _ => false,
-    //     }
-    // }
-
     #[inline]
     pub fn is_terminator_bytes(b: u8) -> bool {
         match b {
@@ -155,24 +146,6 @@ mod test {
     fn a_lone_asterisk_remains_an_ordinary_character() {
         assert_eq!(Glyph::from(lang::Token::Char), Glyph::Char);
     }
-
-    // #[test]
-    // fn test_is_terminator() {
-    //     let t = Glyph::is_terminator(".");
-    //     assert!(t);
-
-    //     let t = Glyph::is_terminator(" ");
-    //     assert!(t);
-
-    //     let t = Glyph::is_terminator("+");
-    //     assert!(t == false);
-
-    //     let t = Glyph::is_terminator("..");
-    //     assert!(t == false);
-
-    //     let t = Glyph::is_terminator("!");
-    //     assert!(t == false);
-    // }
 
     #[test]
     fn test_is_terminator_bytes() {
