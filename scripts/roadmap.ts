@@ -422,7 +422,7 @@ const issuesTagged = (roadmap: Roadmap, tag: string): readonly TaggedIssue[] =>
   );
 
 export const taggedReference = ({ feature, issue }: TaggedIssue): string => {
-  if (issue.number === null) throw new Error(`Tagged issue ${feature} must have a number.`);
+  if (issue.number === null) throw new Error(`Tagged issue ${issue.path} must have a number.`);
   return `${feature}/${issue.number}`;
 };
 

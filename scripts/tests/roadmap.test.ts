@@ -9,10 +9,13 @@ import { readReleaseScope, taggedReference } from '../roadmap.ts';
 test('taggedReference rejects an issue without a number', () => {
   const tagged = {
     feature: 'feature',
-    issue: { number: null },
+    issue: { number: null, path: '.scratch/feature/unnumbered.md' },
   } as Parameters<typeof taggedReference>[0];
 
-  assert.throws(() => taggedReference(tagged), /Tagged issue feature must have a number/u);
+  assert.throws(
+    () => taggedReference(tagged),
+    /Tagged issue \.scratch\/feature\/unnumbered\.md must have a number/u,
+  );
 });
 
 test('readReleaseScope rejects an executable Definition of Done URL', () => {

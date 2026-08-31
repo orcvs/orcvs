@@ -30,7 +30,7 @@
 
   <section class="panel">
     <h2>Candidate rule</h2>
-    <p>Translate the complete two-Cell Footprint by one character Cell. Test only <em>newly entered</em> Cells, so horizontal movement does not collide with itself. Complete aligned contact with a root is a valid collision and can activate it. Contact with only part of a Language Unit is invalid alignment: diagnose, produce <code>**</code>, and activate nothing.</p>
+    <p>Translate the complete two-Cell Footprint by one character Cell. Test only <em>newly entered</em> Cells, so horizontal movement does not collide with itself. Complete aligned contact with a two-Cell Function root encoding is valid and can activate that root. Partial contact with a root encoding or with an Atom encoding is invalid alignment: diagnose, produce <code>**</code>, and activate nothing.</p>
     <div class="legend"><span class="l-activation">Activation Character</span><span class="l-leading">newly entered Cell</span><span class="l-root">Expression root</span><span class="l-bang">collision Bang</span></div>
   </section>
 
@@ -46,7 +46,7 @@ const CollisionModel=(()=>{
     {name:"North: empty",description:"Both Cells on the north leading edge are newly entered and empty.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
     {name:"South: root",description:"The south leading edge meets the complete root spelling .+. The move is blocked.",direction:"south",arrow:[[2,6],[2,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[2,6],[2,7]],outcome:"bang",activation:".+ root"},
     {name:"North: root",description:"The leading edge meets the complete root spelling .+. The move is blocked.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[4,6],[4,7]],outcome:"bang",activation:".+ root"},
-    {name:"North: misaligned",description:"The leading edge meets only part of Number 0A and only part of .+. This is invalid alignment, not a valid activation target.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,".+0102","root")},after:[[4,6],[4,7]],outcome:"bang + alignment diagnostic",activation:"none"},
+    {name:"North: misaligned",description:"The leading edge partially contacts the Number Atom encoding 0A and the Function root encoding .+. This is invalid alignment, so it diagnoses with ** and activates nothing.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,".+0102","root")},after:[[4,6],[4,7]],outcome:"bang + alignment diagnostic",activation:"none"},
     {name:"North: non-roots",description:"Both leading Cells are occupied, but neither is an Expression root anchor. Collision occurs with no activation target.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{put(g,3,5,"0A");put(g,3,7,"C4")},after:[[4,6],[4,7]],outcome:"bang",activation:"none"}
   ];
   const coveredDirections=new Set(cases.map(testCase=>testCase.direction));
