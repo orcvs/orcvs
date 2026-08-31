@@ -76,6 +76,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^cargo den
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo deny --locked check$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo tree --workspace --all-features -e features --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo test --workspace --doc --features persistence --locked$'
@@ -83,7 +84,11 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAG
 assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --locked.$'
 assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
+assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
+assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
+assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
+assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$'

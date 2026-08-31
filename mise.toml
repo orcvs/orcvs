@@ -19,10 +19,16 @@ description = "All test"
 run = 'cargo nextest run --no-fail-fast --nocapture'
 
 [tasks.test_shell]
-alias = 'tc'
+alias = 'ts'
 description = "Shell tests"
 env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package shell --no-fail-fast --nocapture {{arg(name="test",default="")}}'
+
+[tasks.test_orcvs]
+alias = 'to'
+description = "Orcvs tests"
+env = { RUST_BACKTRACE = 'full' }
+run = 'cargo nextest run --package orcvs --no-fail-fast --nocapture {{arg(name="test",default="")}}'
 
 [tasks.test_lang]
 alias = 'tl'
@@ -76,6 +82,7 @@ cargo deny --locked check
 [tasks.test_persistence]
 description = "Test persistence features"
 run = '''
+cargo check --package orcvs --lib --features persistence --locked
 cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
 cargo nextest run --workspace --all-targets --features persistence --profile ci --locked
 cargo test --workspace --doc --features persistence --locked

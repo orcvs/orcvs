@@ -44,6 +44,9 @@ pub enum PlaybackDiagnostic {
     ClockFailure {
         message: String,
     },
+    StartFailure {
+        message: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -325,11 +328,16 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
 }
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
-    #[cfg(not(target_arch = "wasm32"))]
+    ///
+    /// Records a start failure as a diagnostic so the shell can surface it, and
+    /// hands the error back for the caller to return. Every `start` failure path
+    /// goes through here; a caller that only returns the error leaves the user
+    /// with silence.
+    ///
     fn report_start_error(&self, error: PlaybackStartError) -> PlaybackStartError {
         lock_recover(&self.inner)
             .diagnostics
-            .push(PlaybackDiagnostic::ClockFailure {
+            .push(PlaybackDiagnostic::StartFailure {
                 message: error.to_string(),
             });
         error
@@ -338,7 +346,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(PlaybackStartError::ZeroTickPeriod);
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
         }
         if lock_recover(&self.inner).playing {
             return Ok(());
@@ -389,7 +397,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     #[cfg(target_arch = "wasm32")]
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(PlaybackStartError::ZeroTickPeriod);
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
         }
         if lock_recover(&self.inner).playing {
             return Ok(());
@@ -848,6 +856,29 @@ mod tests {
     }
 
     #[test]
+    fn every_start_failure_is_reported_as_a_start_failure_diagnostic() {
+        let engine = PlaybackEngine::new(
+            SourceCommander::new(Grid::new(1, 1)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        assert!(engine.start(Duration::ZERO).is_err());
+        assert!(engine.start(Duration::from_secs(1)).is_err());
+
+        assert_eq!(
+            engine.observe().diagnostics,
+            vec![
+                PlaybackDiagnostic::StartFailure {
+                    message: "Tick period must be greater than zero".to_string(),
+                },
+                PlaybackDiagnostic::StartFailure {
+                    message: "Playback requires a Tokio runtime".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn unexpected_clock_termination_stops_playback_and_reports_failure() {
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
@@ -894,9 +925,12 @@ mod tests {
         assert_eq!(first.state, PlaybackState::Playing);
         assert_eq!(
             first.diagnostics,
-            vec![PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
-                "device lost"
-            ))]
+            vec![
+                PlaybackDiagnostic::StartFailure {
+                    message: "Tick period must be greater than zero".to_string(),
+                },
+                PlaybackDiagnostic::OutputFailure(OutputAdapterError::new("device lost")),
+            ]
         );
         assert!(engine.observe().diagnostics.is_empty());
         engine.stop();

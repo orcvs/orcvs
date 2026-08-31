@@ -233,12 +233,7 @@ fn show_source(
                 );
                 let visuals = cell_visuals(
                     cell.glyph(),
-                    cell.map_cursor_bloom(
-                        (PALETTE.bloom_core_fill, PALETTE.bloom_core_line),
-                        (PALETTE.bloom_inner_fill, PALETTE.bloom_inner_line),
-                        (PALETTE.bloom_mid_fill, PALETTE.bloom_mid_line),
-                        (PALETTE.bloom_outer_fill, PALETTE.bloom_outer_line),
-                    ),
+                    cell.cursor_bloom(),
                     cell.selected(),
                     cell.cursor_visible(),
                 );
@@ -254,14 +249,13 @@ fn show_source(
 
                 let response = ui.add_sized(Vec2::splat(CELL_SIZE), button);
                 if !cell.selected() {
-                    let (left_strength, top_strength) = cell.sector_strengths();
-                    if let Some(strength) = left_strength {
+                    if let Some(strength) = cell.sector_left_strength() {
                         ui.painter().line_segment(
                             [response.rect.left_top(), response.rect.left_bottom()],
                             Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
                         );
                     }
-                    if let Some(strength) = top_strength {
+                    if let Some(strength) = cell.sector_top_strength() {
                         ui.painter().line_segment(
                             [response.rect.left_top(), response.rect.right_top()],
                             Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
@@ -295,8 +289,10 @@ impl eframe::App for Console {
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         self.midi.observe_diagnostics(playback_diagnostics);
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        for diagnostic in playback_diagnostics {
-            tracing::error!(?diagnostic, "Playback failure");
+        for diagnostic in &playback_diagnostics {
+            if let Some(message) = crate::diagnostics::failure_message(diagnostic) {
+                tracing::error!("Playback failure: {message}");
+            }
         }
         let top_panel = egui::Panel::top("top_panel").resizable(true).min_size(32.0);
 

@@ -31,6 +31,6 @@ distinguishable rather than leave the reader to guess.
 Do not add the entry before this rename lands. A glossary that describes a type which does not exist
 is the problem this effort is trying to avoid.
 
-Resolved by `a022b2d`. Review found the implementation complete; issue 04 subsequently renamed the
+Resolved by `e8bd51a`. Review found the implementation complete; issue 04 subsequently renamed the
 remaining shell field and locals from `app` to `orcvs` so the glossary's `_Avoid_` guidance is
 followed consistently.

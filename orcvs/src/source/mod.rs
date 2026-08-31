@@ -2,11 +2,6 @@ pub mod error;
 mod language_map;
 mod model;
 use crate::{glyph::Glyph, grid::Grid};
-use crate::{
-    grid::Position,
-    opts::{HighlightSpacing, MarkerSpacing},
-    render_frame::{RenderFrame, RenderFrameConfig},
-};
 pub use error::SourceError;
 pub use model::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
 use std::sync::{Arc, RwLock};
@@ -22,23 +17,6 @@ pub(crate) struct SourceRevisionCells {
 }
 
 impl SourceCommander {
-    pub fn render_frame(
-        &self,
-        selected: Position,
-        cursor_visible: bool,
-        marker_spacing: MarkerSpacing,
-        highlight_dot_spacing: HighlightSpacing,
-    ) -> RenderFrame {
-        RenderFrame::derive(
-            self.read_revision_cells(),
-            selected,
-            cursor_visible,
-            RenderFrameConfig {
-                marker_spacing,
-                highlight_dot_spacing,
-            },
-        )
-    }
     pub fn new(grid: Grid) -> Self {
         let source = Arc::new(RwLock::new(Source::new(grid)));
         Self { inner: source }

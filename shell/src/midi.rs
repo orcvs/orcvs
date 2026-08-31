@@ -1,6 +1,8 @@
 use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiOutputAdapter};
 use orcvs::playback::{PlaybackDiagnostic, PlaybackEngine};
 
+use crate::diagnostics::failure_message;
+
 pub(crate) struct MidiDeviceSelection<B: MidiBackend> {
     playback: PlaybackEngine<MidiOutputAdapter<B>>,
     destinations: Vec<MidiDestination>,
@@ -47,10 +49,8 @@ impl<B: MidiBackend> MidiDeviceSelection<B> {
 
     pub(crate) fn observe_diagnostics(&mut self, diagnostics: Vec<PlaybackDiagnostic>) {
         for diagnostic in diagnostics {
-            match diagnostic {
-                PlaybackDiagnostic::OutputFailure(error) => self.status = Some(error.message),
-                PlaybackDiagnostic::ClockFailure { message } => self.status = Some(message),
-                PlaybackDiagnostic::Overrun { .. } => {}
+            if let Some(message) = failure_message(&diagnostic) {
+                self.status = Some(message);
             }
         }
     }

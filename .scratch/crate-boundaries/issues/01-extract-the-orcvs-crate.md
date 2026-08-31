@@ -28,8 +28,8 @@ widen any of them to make the move easier.
 `playback.rs` brings `tokio` and `midi.rs` brings `midir`. Both are light next to `eframe`. Do not
 split them out yet; ADR 0022 defers that until a measurement asks for it.
 
-Resolved on `feat/extract-orcvs-crate` by commits `fb44d1a` and `9848f9a`. Review follow-up
-`a022b2d` also completed the dependent input-boundary and running-instance moves from issues 02 and
+Resolved on `feat/extract-orcvs-crate` by commits `03f48d2` and `53d3b4e`. Review follow-up
+`e8bd51a` also completed the dependent input-boundary and running-instance moves from issues 02 and
 03 without introducing a toolkit dependency into `orcvs`.
 
 Verification passed for workspace formatting, checking, clippy, native/default tests, persistence,

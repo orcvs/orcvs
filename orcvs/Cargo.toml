@@ -15,9 +15,7 @@ persistence = ["dep:serde"]
 
 [dependencies]
 lang = { path = "../lang", version = "0.1.0" }
-arrayvec.workspace = true
-nohash-hasher = "0.2.0"
-serde = { version = "1", default-features = false, features = ["derive"], optional = true }
+serde = { version = "1", default-features = false, features = ["derive", "std"], optional = true }
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
 tokio-util = "0.7.11"
 tracing.workspace = true

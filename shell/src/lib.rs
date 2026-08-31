@@ -1,6 +1,7 @@
 #![warn(clippy::all)]
 
 pub mod console;
+mod diagnostics;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod midi;
 pub mod style;

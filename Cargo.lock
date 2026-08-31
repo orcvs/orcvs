@@ -1841,11 +1841,9 @@ dependencies = [
 name = "orcvs"
 version = "0.1.0"
 dependencies = [
- "arrayvec",
  "gloo-timers",
  "lang",
  "midir",
- "nohash-hasher",
  "serde",
  "serde_json",
  "tokio",

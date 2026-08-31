@@ -26,6 +26,6 @@ goal, and a partial copy that pretends to be general is worse than a small expli
 Make the translation total and visible. An event the shell silently drops is a keystroke the user
 will report as a bug later.
 
-Resolved by `a022b2d`. The shell translation has focused coverage for every handled key, text,
+Resolved by `e8bd51a`. The shell translation has focused coverage for every handled key, text,
 released keys, and explicitly dropped toolkit events. The combined issues 02–03 review found no
 spec defects; its MIDI-boundary standards finding was addressed by issue 04.

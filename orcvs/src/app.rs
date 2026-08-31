@@ -8,7 +8,7 @@ use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::playback::InMemoryOutputAdapter;
 use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackState};
-use crate::render_frame::RenderFrame;
+use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -112,7 +112,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// Moves the Cursor to `position`, refusing one minted by another Grid.
     ///
     pub fn select(&mut self, position: Position) {
-        assert!(self.grid.owns(position), "Position belongs to another Grid");
+        self.grid.assert_owns(position);
         self.cursor.select(position);
     }
 
@@ -152,11 +152,14 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 
     pub fn render_frame(&self) -> RenderFrame {
-        self.source.render_frame(
+        RenderFrame::derive(
+            self.source.read_revision_cells(),
             self.cursor.position(),
             self.cursor.on,
-            self.opts.marker_spacing,
-            self.opts.highlight_dot_spacing,
+            RenderFrameConfig {
+                marker_spacing: self.opts.marker_spacing,
+                highlight_dot_spacing: self.opts.highlight_dot_spacing,
+            },
         )
     }
 
@@ -218,9 +221,11 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
 
     fn play(&mut self) {
         let ms = self.opts.bpm.delay_ms();
-        match self.playback.start(Duration::from_millis(ms)) {
-            Ok(()) => self.playback_state = PlaybackState::Playing,
-            Err(error) => error!("Playback did not start: {error}"),
+        // A start failure is already recorded as a Playback diagnostic, which
+        // `observe_playback` hands to the shell; reporting it again here would
+        // put one failure on two channels.
+        if self.playback.start(Duration::from_millis(ms)).is_ok() {
+            self.playback_state = PlaybackState::Playing;
         }
     }
 }
@@ -474,7 +479,7 @@ mod test {
         assert_eq!(
             frame.rows()[0]
                 .iter()
-                .map(|cell| cell.sector_strengths().0.is_some())
+                .map(|cell| cell.sector_left_strength().is_some())
                 .collect::<Vec<_>>(),
             vec![false, false, true, false, true, false, true]
         );
@@ -486,11 +491,11 @@ mod test {
 
         app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
         let frame = app.render_frame();
-        assert_eq!(frame.rows()[0][0].sector_strengths().0, None);
+        assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
         assert!(
             frame.rows()[0][1..]
                 .iter()
-                .all(|cell| cell.sector_strengths().0.is_some())
+                .all(|cell| cell.sector_left_strength().is_some())
         );
     }
 

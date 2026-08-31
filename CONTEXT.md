@@ -3,7 +3,7 @@
 Orcvs is a grid-based environment for composing and executing compact musical expressions. This glossary names the evolving pre-release language defined by the ADRs; it does not claim that every term's complete behavior is implemented yet.
 
 **Orcvs (running instance)**:
-One active console session, owning its Source, Cursor, Playback lifecycle, presentation options, and MIDI connection state. The unqualified system name Orcvs still names the environment and language as a whole.
+One active console session, owning its Source and the Grid that shapes it, its Cursor, its Playback lifecycle, and its presentation options. Choosing an output device is console configuration rather than part of a running Orcvs. The unqualified system name Orcvs still names the environment and language as a whole.
 _Avoid_: App, Session, Instance, Machine
 
 ## Language

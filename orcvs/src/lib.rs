@@ -16,10 +16,8 @@ pub mod source;
 mod test {
     use std::sync::Once;
 
-    #[allow(dead_code)]
     static INIT: Once = Once::new();
 
-    #[allow(dead_code)]
     pub fn trace() {
         INIT.call_once(|| {
             tracing_subscriber::fmt()

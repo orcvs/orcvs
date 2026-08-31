@@ -15,7 +15,7 @@ trap cleanup EXIT
 make_fixture() {
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
-  mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$fixture_dir/shell/"
@@ -24,6 +24,7 @@ make_fixture() {
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
   cp "$repo_root/.github/workflows/test.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
     return 1
@@ -68,6 +69,24 @@ test_stale_wasm_artifact_name_is_rejected() {
   make_fixture
   perl -pi -e 's/shell_bg[.]wasm/console_bg.wasm/' "$fixture_dir/shell/assets/sw.js"
   assert_rejected "a stale WASM artifact name in the service worker cache"
+}
+
+test_stale_script_artifact_name_is_rejected() {
+  make_fixture
+  perl -pi -e "s|'./shell[.]js'|'./console.js'|" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a stale script artifact name in the service worker cache"
+}
+
+test_stale_debug_package_is_rejected() {
+  make_fixture
+  perl -pi -e 's/--package=shell/--package=console/' "$fixture_dir/.vscode/launch.json"
+  assert_rejected "a stale package name in the debugger configuration"
+}
+
+test_missing_orcvs_persistence_check_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^cargo check --package orcvs --lib --features persistence --locked\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a missing per-package orcvs persistence check"
 }
 
 test_persistence_command_in_wrong_task_is_rejected() {
@@ -134,6 +153,9 @@ case "${1:-all}" in
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
   stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
+  stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
+  stale-debug-package) test_stale_debug_package_is_rejected ;;
+  missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
@@ -148,6 +170,9 @@ case "${1:-all}" in
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
     test_stale_wasm_artifact_name_is_rejected
+    test_stale_script_artifact_name_is_rejected
+    test_stale_debug_package_is_rejected
+    test_missing_orcvs_persistence_check_is_rejected
     test_persistence_command_in_wrong_task_is_rejected
     test_dotted_dependency_version_is_rejected
     test_dependency_table_version_is_rejected
