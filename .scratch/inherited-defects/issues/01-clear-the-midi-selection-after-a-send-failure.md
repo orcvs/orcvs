@@ -4,8 +4,7 @@
 `selected_destination_id`. Playback then continues and sends nothing. The user gets no second
 warning.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] After a send failure, the adapter and the shell agree that no device is connected.
 - [x] A later `submit` does not report success while it sends nothing.

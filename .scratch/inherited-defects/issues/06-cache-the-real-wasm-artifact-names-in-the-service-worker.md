@@ -3,8 +3,7 @@
 **What to fix:** `sw.js` caches `./shell.js` and `./shell_bg.wasm`. Trunk writes hashed names. The
 two never match, `cache.addAll` rejects, and the service worker caches nothing.
 
-**Status:** needs-triage
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The install handler completes and fills the cache.
 - [x] The application starts with no network.
@@ -51,3 +50,18 @@ A third repair keeps both properties and costs more work. Let the build write th
 
 Whichever you choose, correct the contract assertions in the same change. An assertion that the
 build cannot satisfy is worse than no assertion.
+
+## Resolution
+
+The first repair was taken: `shell/Trunk.toml` sets `filehash = false`, so the build writes
+`shell.js` and `shell_bg.wasm` and the two entries in `filesToCache` name files that exist.
+`cache.addAll` now resolves and the install fills the cache.
+
+The cost that choice carries — a browser holding a stale script under a reused file name — is
+answered in `sw.js` rather than by hashing. The cache name is versioned (`orcvs-pwa-v2`); the
+`activate` handler deletes every earlier `orcvs-pwa`/`egui-template-pwa` cache; and the `fetch`
+handler serves navigations and the two WASM artifacts network-first with `cache: 'no-cache'`,
+falling back to the cache only when the network fails.
+
+`scripts/check-tooling-contract.sh:89-111` asserts `filehash = false` alongside every one of those
+service-worker properties, so the contract now asserts something the build satisfies.

@@ -3,8 +3,7 @@
 **What to fix:** `.vscode/launch.json` holds two configurations for a package called `vtha` and a
 benchmark called `parser_benchmark`. Neither exists.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] Every debug configuration names a package in the workspace.
 - [x] Every debug configuration names a target that the package builds.

@@ -3,8 +3,7 @@
 **What to fix:** The native MIDI backend registers itself as "Orca". The project is Orcvs. The name
 is written twice, so the two copies can also drift apart.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The MIDI client name matches the project name.
 - [x] The name is written once.

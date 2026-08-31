@@ -3,8 +3,7 @@
 **What to fix:** `README_EFRAME.md` gives instructions for renaming a fresh copy of the `eframe`
 template. It names files and identifiers that this repository does not have.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] No document tells a reader to edit a file that does not exist.
 - [x] Any kept content describes this repository.

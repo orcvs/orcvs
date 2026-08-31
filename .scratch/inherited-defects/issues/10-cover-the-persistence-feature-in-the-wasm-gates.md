@@ -3,8 +3,7 @@
 **What to fix:** `check_wasm` lints with `--features persistence`, then builds without it.
 `test_wasm` also runs without it. A fault that only appears with the feature passes both gates.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The WASM build and the browser tests agree with the WASM lint about features.
 - [x] A persistence fault in the WASM build fails a gate.

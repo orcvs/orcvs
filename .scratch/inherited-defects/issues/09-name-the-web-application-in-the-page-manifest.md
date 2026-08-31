@@ -3,8 +3,7 @@
 **What to fix:** `manifest.json` still names the `eframe` template. A user who installs the web
 application gets an icon labelled "egui Template PWA".
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The manifest names Orcvs.
 - [x] The installed application shows that name.

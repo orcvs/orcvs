@@ -3,8 +3,7 @@
 **What to fix:** `glyph.rs` holds a commented-out `is_terminator` function and a commented-out test
 for it. Both sit beside the live `is_terminator_bytes` that replaced them.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The commented-out function and its test are gone.
 - [x] `is_terminator_bytes` and its test are unchanged.

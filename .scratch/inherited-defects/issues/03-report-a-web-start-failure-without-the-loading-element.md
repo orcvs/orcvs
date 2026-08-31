@@ -4,8 +4,7 @@
 `if let Some(loading_text) = loading_text`. If the page has no `#loading_text` element, the shell
 drops a failed start without a log, a panic, or a message.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] A failed `WebRunner::start` is always reported, with or without the loading element.
 - [x] The loading element still shows the crash message when the element is present.
