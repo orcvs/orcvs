@@ -122,7 +122,7 @@ impl Console {
             MidiOutputAdapter::new(MidirBackend),
         );
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        let mut midi = MidiDeviceSelection::new(orcvs.playback_engine());
+        let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         midi.refresh_destinations();
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]

@@ -1,25 +1,25 @@
-use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiOutputAdapter};
-use orcvs::playback::{PlaybackDiagnostic, PlaybackEngine};
+use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId};
+use orcvs::playback::{MidiSelectionHandle, PlaybackDiagnostic};
 
 use crate::diagnostics::failure_message;
 
 pub(crate) struct MidiDeviceSelection<B: MidiBackend> {
-    playback: PlaybackEngine<MidiOutputAdapter<B>>,
+    selection: MidiSelectionHandle<B>,
     destinations: Vec<MidiDestination>,
     status: Option<String>,
 }
 
 impl<B: MidiBackend> MidiDeviceSelection<B> {
-    pub(crate) fn new(playback: PlaybackEngine<MidiOutputAdapter<B>>) -> Self {
+    pub(crate) fn new(selection: MidiSelectionHandle<B>) -> Self {
         Self {
-            playback,
+            selection,
             destinations: Vec::new(),
             status: None,
         }
     }
 
     pub(crate) fn refresh_destinations(&mut self) {
-        match self.playback.midi_destinations() {
+        match self.selection.destinations() {
             Ok(destinations) => {
                 self.destinations = destinations;
                 self.status = None;
@@ -33,14 +33,20 @@ impl<B: MidiBackend> MidiDeviceSelection<B> {
     }
 
     pub(crate) fn select_destination(&mut self, destination_id: &MidiDestinationId) {
-        match self.playback.select_midi_destination(destination_id) {
+        match self.selection.select(destination_id) {
             Ok(()) => self.status = None,
             Err(error) => self.status = Some(error.message),
         }
     }
 
-    pub(crate) fn selected_destination_id(&self) -> Option<MidiDestinationId> {
-        self.playback.selected_midi_destination_id()
+    pub(crate) fn selected_destination_id(&mut self) -> Option<MidiDestinationId> {
+        match self.selection.selected_destination_id() {
+            Ok(destination_id) => destination_id,
+            Err(error) => {
+                self.status = Some(error.message);
+                None
+            }
+        }
     }
 
     pub(crate) fn status(&self) -> Option<&str> {
@@ -59,22 +65,19 @@ impl<B: MidiBackend> MidiDeviceSelection<B> {
 #[cfg(test)]
 mod tests {
     use orcvs::app::{InputEvent, InputKey, Orcvs};
-    use orcvs::grid::Grid;
     use orcvs::midi::{
         MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError,
         MidiOutputAdapter,
     };
-    use orcvs::playback::PlaybackEngine;
-    use orcvs::source::SourceCommander;
 
     use super::MidiDeviceSelection;
 
-    fn selection_for<B: MidiBackend>(backend: B) -> MidiDeviceSelection<B> {
-        let playback = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(1, 1)),
-            MidiOutputAdapter::new(backend),
-        );
-        MidiDeviceSelection::new(playback)
+    fn selection_for<B: MidiBackend + 'static>(
+        backend: B,
+    ) -> (Orcvs<MidiOutputAdapter<B>>, MidiDeviceSelection<B>) {
+        let orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new(backend));
+        let midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
+        (orcvs, midi)
     }
 
     struct FakeBackend;
@@ -102,7 +105,7 @@ mod tests {
 
     #[test]
     fn refresh_discovers_destinations() {
-        let mut midi = selection_for(FakeBackend);
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
 
         midi.refresh_destinations();
 
@@ -114,7 +117,7 @@ mod tests {
 
     #[test]
     fn selecting_a_destination_reports_the_selected_identity() {
-        let mut midi = selection_for(FakeBackend);
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
 
         midi.select_destination(&MidiDestinationId::new("one"));
 
@@ -141,7 +144,7 @@ mod tests {
 
     #[test]
     fn backend_errors_are_exposed_as_status() {
-        let mut midi = selection_for(FailingBackend);
+        let (_orcvs, mut midi) = selection_for(FailingBackend);
 
         midi.refresh_destinations();
         assert_eq!(midi.status(), Some("device discovery failed"));
@@ -153,7 +156,7 @@ mod tests {
     #[test]
     fn playback_start_errors_are_exposed_as_status() {
         let mut orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new(FakeBackend));
-        let mut midi = MidiDeviceSelection::new(orcvs.playback_engine());
+        let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
 
         orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
         midi.observe_diagnostics(orcvs.observe_playback());

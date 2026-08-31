@@ -179,6 +179,60 @@ pub struct PlaybackEngine<A: OutputAdapter> {
     handle_count: Arc<AtomicUsize>,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub struct MidiSelectionHandle<B: crate::midi::MidiBackend> {
+    inner: Weak<Mutex<PlaybackInner<crate::midi::MidiOutputAdapter<B>>>>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+impl<B: crate::midi::MidiBackend> MidiSelectionHandle<B> {
+    pub(crate) fn new(playback: &PlaybackEngine<crate::midi::MidiOutputAdapter<B>>) -> Self {
+        Self {
+            inner: Arc::downgrade(&playback.inner),
+        }
+    }
+
+    fn inner(
+        &self,
+    ) -> Result<Arc<Mutex<PlaybackInner<crate::midi::MidiOutputAdapter<B>>>>, crate::midi::MidiError>
+    {
+        self.inner
+            .upgrade()
+            .ok_or_else(|| crate::midi::MidiError::new("running Orcvs is no longer available"))
+    }
+
+    pub fn destinations(
+        &self,
+    ) -> Result<Vec<crate::midi::MidiDestination>, crate::midi::MidiError> {
+        let inner = self.inner()?;
+        lock_recover(&inner).adapter.destinations()
+    }
+
+    pub fn select(
+        &self,
+        destination_id: &crate::midi::MidiDestinationId,
+    ) -> Result<(), crate::midi::MidiError> {
+        let inner = self.inner()?;
+        let mut inner = lock_recover(&inner);
+        let selection = inner.adapter.select(destination_id)?;
+        if let Some(error) = selection.safety_failure() {
+            inner.record_output_failure(OutputAdapterError::new(error.message));
+        }
+        inner.connected = true;
+        Ok(())
+    }
+
+    pub fn selected_destination_id(
+        &self,
+    ) -> Result<Option<crate::midi::MidiDestinationId>, crate::midi::MidiError> {
+        let inner = self.inner()?;
+        Ok(lock_recover(&inner)
+            .adapter
+            .selected_destination_id()
+            .cloned())
+    }
+}
+
 impl<A: OutputAdapter> Clone for PlaybackEngine<A> {
     fn clone(&self) -> Self {
         self.handle_count.fetch_add(1, Ordering::Relaxed);

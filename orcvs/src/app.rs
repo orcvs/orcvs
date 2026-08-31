@@ -98,10 +98,6 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
         }
     }
 
-    pub fn playback_engine(&self) -> PlaybackEngine<A> {
-        self.playback.clone()
-    }
-
     pub fn observe_playback(&mut self) -> Vec<PlaybackDiagnostic> {
         let observation = self.playback.observe();
         self.playback_state = observation.state;
@@ -227,6 +223,51 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
         if self.playback.start(Duration::from_millis(ms)).is_ok() {
             self.playback_state = PlaybackState::Playing;
         }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter<B>> {
+    /// Returns the MIDI configuration capability without exposing Playback
+    /// lifecycle control.
+    ///
+    /// A running Orcvs does not hand its complete Playback Engine to callers:
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// let _playback = orcvs.playback_engine();
+    /// ```
+    ///
+    /// The MIDI selection handle cannot start Playback:
+    ///
+    /// ```compile_fail
+    /// use std::time::Duration;
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// orcvs
+    ///     .midi_selection_handle()
+    ///     .start(Duration::from_millis(100));
+    /// ```
+    ///
+    /// It cannot stop or disconnect Playback:
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// orcvs.midi_selection_handle().stop();
+    /// ```
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// orcvs.midi_selection_handle().disconnect();
+    /// ```
+    ///
+    /// It cannot observe Playback or drain its diagnostics:
+    ///
+    /// ```compile_fail
+    /// let orcvs = orcvs::app::Orcvs::new(16, 16);
+    /// let _observation = orcvs.midi_selection_handle().observe();
+    /// ```
+    pub fn midi_selection_handle(&self) -> crate::playback::MidiSelectionHandle<B> {
+        crate::playback::MidiSelectionHandle::new(&self.playback)
     }
 }
 
