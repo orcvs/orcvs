@@ -1,5 +1,7 @@
 use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
 
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use crate::midi::MidiDeviceSelection;
 use crate::style::{PALETTE, cell_visuals, sector_line, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
@@ -8,6 +10,8 @@ use orcvs::{
     opts::DEFAULT_FONT_SIZE,
     render_frame::RenderFrame,
 };
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use orcvs::{midi::MidiOutputAdapter, native_midi::MidirBackend};
 
 const CELL_SIZE: f32 = 25.0;
 const CELL_PADDING: f32 = 0.5;
@@ -70,7 +74,9 @@ fn source_bounds(frame: &RenderFrame) -> Rect {
 /// Console wraps the running Orcvs with egui presentation concerns.
 ///
 pub struct Console {
-    app: Orcvs,
+    orcvs: Orcvs,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    midi: MidiDeviceSelection<MidirBackend>,
     font_family: egui::FontFamily,
     /// The visible region of the egui Scene containing the Source.
     source_view_rect: Rect,
@@ -109,10 +115,22 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let mut app = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
-        app.refresh_midi_destinations();
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let orcvs = Orcvs::with_output_adapter(
+            DEFAULT_COL_COUNT,
+            DEFAULT_ROW_COUNT,
+            MidiOutputAdapter::new(MidirBackend),
+        );
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        let mut midi = MidiDeviceSelection::new(orcvs.playback_engine());
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        midi.refresh_destinations();
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         Self {
-            app,
+            orcvs,
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view_rect: Rect::ZERO,
             diagnostics_open: false,
@@ -198,7 +216,7 @@ fn show_diagnostics(
 
 fn show_source(
     ui: &mut egui::Ui,
-    app: &mut Orcvs,
+    orcvs: &mut Orcvs,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
 ) -> Rect {
@@ -252,7 +270,7 @@ fn show_source(
                 }
 
                 if response.clicked() {
-                    app.select(cell.position());
+                    orcvs.select(cell.position());
                 }
             }
         });
@@ -273,7 +291,13 @@ impl eframe::App for Console {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
-        self.app.observe_playback();
+        let playback_diagnostics = self.orcvs.observe_playback();
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        self.midi.observe_diagnostics(playback_diagnostics);
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        for diagnostic in playback_diagnostics {
+            tracing::error!(?diagnostic, "Playback failure");
+        }
         let top_panel = egui::Panel::top("top_panel").resizable(true).min_size(32.0);
 
         // let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
@@ -295,19 +319,19 @@ impl eframe::App for Console {
                 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
                 ui.menu_button("MIDI", |ui| {
                     if ui.button("Refresh destinations").clicked() {
-                        self.app.refresh_midi_destinations();
+                        self.midi.refresh_destinations();
                     }
-                    let selected = self.app.selected_midi_destination_id();
-                    for destination in self.app.midi_destinations().to_vec() {
+                    let selected = self.midi.selected_destination_id();
+                    for destination in self.midi.destinations().to_vec() {
                         let is_selected = selected.as_ref() == Some(&destination.id);
                         if ui.selectable_label(is_selected, destination.name).clicked() {
-                            self.app.select_midi_destination(&destination.id);
+                            self.midi.select_destination(&destination.id);
                         }
                     }
-                    if self.app.midi_destinations().is_empty() {
+                    if self.midi.destinations().is_empty() {
                         ui.label("No MIDI destinations found");
                     }
-                    if let Some(status) = self.app.midi_status() {
+                    if let Some(status) = self.midi.status() {
                         ui.separator();
                         ui.colored_label(ui.visuals().error_fg_color, status);
                     }
@@ -333,9 +357,9 @@ impl eframe::App for Console {
                 .filter_map(translate_event)
                 .collect()
         });
-        self.app.event_handler(events);
-        self.app.advance_cursor_blink();
-        let frame = self.app.render_frame();
+        self.orcvs.event_handler(events);
+        self.orcvs.advance_cursor_blink();
+        let frame = self.orcvs.render_frame();
 
         let mut viewport_size = Vec2::ZERO;
         egui::CentralPanel::default()
@@ -347,7 +371,9 @@ impl eframe::App for Console {
                     .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE);
                 let mut source_rect = Rect::NAN;
                 let Console {
-                    app,
+                    orcvs,
+                    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+                        midi: _,
                     font_family,
                     source_view_rect,
                     diagnostics_open: _,
@@ -362,7 +388,7 @@ impl eframe::App for Console {
                 }
                 let response = scene
                     .show(ui, source_view_rect, |ui| {
-                        source_rect = show_source(ui, app, &frame, font_family);
+                        source_rect = show_source(ui, orcvs, &frame, font_family);
                     })
                     .response;
 
@@ -370,7 +396,7 @@ impl eframe::App for Console {
                     *source_view_rect = source_rect;
                 }
 
-                ctx.request_repaint_after(self.app.remaining_cursor_blink_delay());
+                ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
             });
 
         if self.diagnostics_open {
@@ -457,8 +483,8 @@ mod tests {
 
     #[test]
     fn source_bounds_are_available_before_the_first_scene_render() {
-        let app = Orcvs::new(32, 16);
-        let bounds = source_bounds(&app.render_frame());
+        let orcvs = Orcvs::new(32, 16);
+        let bounds = source_bounds(&orcvs.render_frame());
 
         assert_eq!(
             bounds,

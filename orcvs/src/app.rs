@@ -7,12 +7,10 @@ use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::playback::InMemoryOutputAdapter;
-use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
+use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackState};
 use crate::render_frame::RenderFrame;
 use crate::source::SourceCommander;
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::midi::{MidiDestination, MidiDestinationId};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
 
@@ -34,14 +32,13 @@ pub enum InputEvent {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-type OrcvsOutputAdapter = NativeMidiOutputAdapter;
+pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-type OrcvsOutputAdapter = InMemoryOutputAdapter;
+pub type OrcvsOutputAdapter = InMemoryOutputAdapter;
 
 ///
-/// The console's editing state: the Grid that is the Source's shape, the
-/// Cursor selecting one of its Positions, and the commander that owns the
-/// Source itself.
+/// One running Orcvs: its options, Source and Grid, Cursor, and Playback
+/// lifecycle. Output-device discovery and selection belong to the shell.
 ///
 /// Selection names a Position, and only a Grid mints one. A pair outside the
 /// Grid never becomes a Position at all, so `select` has no rejection to make
@@ -64,31 +61,31 @@ type OrcvsOutputAdapter = InMemoryOutputAdapter;
 /// assert_eq!(orcvs.render_frame().rows().len(), 16);
 /// ```
 ///
-pub struct Orcvs {
+pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
     opts: Opts,
     cursor: Cursor,
     grid: Grid,
 
     source: SourceCommander,
-    playback: PlaybackEngine<OrcvsOutputAdapter>,
+    playback: PlaybackEngine<A>,
     playback_state: PlaybackState,
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    midi_destinations: Vec<MidiDestination>,
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    midi_status: Option<String>,
 }
 
 impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Self {
-        let grid = Grid::new(cols, rows);
-
-        let opts = Opts::new();
-
-        let source = SourceCommander::new(grid);
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         let adapter = NativeMidiOutputAdapter::new(MidirBackend);
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let adapter = InMemoryOutputAdapter::default();
+        Self::with_output_adapter(cols, rows, adapter)
+    }
+}
+
+impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
+    pub fn with_output_adapter(cols: usize, rows: usize, adapter: A) -> Self {
+        let grid = Grid::new(cols, rows);
+        let opts = Opts::new();
+        let source = SourceCommander::new(grid);
         let playback = PlaybackEngine::new(source.clone(), adapter);
 
         Self {
@@ -98,74 +95,17 @@ impl Orcvs {
             source,
             playback,
             playback_state: PlaybackState::Stopped,
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            midi_destinations: Vec::new(),
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            midi_status: None,
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn refresh_midi_destinations(&mut self) {
-        match self.playback.midi_destinations() {
-            Ok(destinations) => {
-                self.midi_destinations = destinations;
-                self.midi_status = None;
-            }
-            Err(error) => self.midi_status = Some(error.message),
-        }
+    pub fn playback_engine(&self) -> PlaybackEngine<A> {
+        self.playback.clone()
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    pub fn refresh_midi_destinations(&mut self) {}
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn midi_destinations(&self) -> &[MidiDestination] {
-        &self.midi_destinations
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn select_midi_destination(&mut self, destination_id: &MidiDestinationId) {
-        match self.playback.select_midi_destination(destination_id) {
-            Ok(()) => self.midi_status = None,
-            Err(error) => self.midi_status = Some(error.message),
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn selected_midi_destination_id(&self) -> Option<MidiDestinationId> {
-        self.playback.selected_midi_destination_id()
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    pub fn midi_status(&self) -> Option<String> {
-        self.midi_status.clone()
-    }
-
-    pub fn observe_playback(&mut self) {
+    pub fn observe_playback(&mut self) -> Vec<PlaybackDiagnostic> {
         let observation = self.playback.observe();
         self.playback_state = observation.state;
-        for diagnostic in observation.diagnostics {
-            match diagnostic {
-                PlaybackDiagnostic::OutputFailure(error) => {
-                    self.record_playback_failure(error.message)
-                }
-                PlaybackDiagnostic::ClockFailure { message } => {
-                    self.record_playback_failure(message)
-                }
-                PlaybackDiagnostic::Overrun { .. } => {}
-            }
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    fn record_playback_failure(&mut self, message: String) {
-        self.midi_status = Some(message);
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    fn record_playback_failure(&mut self, message: String) {
-        error!("Playback failure: {message}");
+        observation.diagnostics
     }
 
     ///
@@ -273,20 +213,15 @@ impl Orcvs {
 
     fn stop(&mut self) {
         self.playback.stop();
-        self.observe_playback();
+        self.playback_state = PlaybackState::Stopped;
     }
 
     fn play(&mut self) {
         let ms = self.opts.bpm.delay_ms();
-        if let Err(error) = self.playback.start(Duration::from_millis(ms)) {
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-            {
-                self.midi_status = Some(error.to_string());
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-            error!("Playback did not start: {error}");
+        match self.playback.start(Duration::from_millis(ms)) {
+            Ok(()) => self.playback_state = PlaybackState::Playing,
+            Err(error) => error!("Playback did not start: {error}"),
         }
-        self.observe_playback();
     }
 }
 

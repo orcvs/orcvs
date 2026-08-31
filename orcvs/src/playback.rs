@@ -326,6 +326,16 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     #[cfg(not(target_arch = "wasm32"))]
+    fn report_start_error(&self, error: PlaybackStartError) -> PlaybackStartError {
+        lock_recover(&self.inner)
+            .diagnostics
+            .push(PlaybackDiagnostic::ClockFailure {
+                message: error.to_string(),
+            });
+        error
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
             return Err(PlaybackStartError::ZeroTickPeriod);
@@ -334,7 +344,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             return Ok(());
         }
         let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|_| PlaybackStartError::RuntimeUnavailable)?;
+            .map_err(|_| self.report_start_error(PlaybackStartError::RuntimeUnavailable))?;
 
         let (generation, cancellation, weak) = {
             let mut inner = lock_recover(&self.inner);
