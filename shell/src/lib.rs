@@ -1,6 +1,5 @@
 #![warn(clippy::all)]
 
-pub mod app;
 pub mod console;
 pub mod style;
 #[cfg(target_arch = "wasm32")]

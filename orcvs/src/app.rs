@@ -1,27 +1,42 @@
-use egui::{Event, Key};
-
 use std::time::Duration;
 use tracing::error;
 
-use orcvs::opts::Opts;
+use crate::opts::Opts;
 
-use orcvs::cursor::Cursor;
-use orcvs::grid::{Grid, Position};
+use crate::cursor::Cursor;
+use crate::grid::{Grid, Position};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-use orcvs::playback::InMemoryOutputAdapter;
-use orcvs::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
-use orcvs::render_frame::RenderFrame;
-use orcvs::source::SourceCommander;
+use crate::playback::InMemoryOutputAdapter;
+use crate::playback::{PlaybackDiagnostic, PlaybackEngine, PlaybackState};
+use crate::render_frame::RenderFrame;
+use crate::source::SourceCommander;
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use orcvs::midi::{MidiDestination, MidiDestinationId};
+use crate::midi::{MidiDestination, MidiDestinationId};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use orcvs::native_midi::{MidirBackend, NativeMidiOutputAdapter};
+use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputKey {
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    Backspace,
+    Delete,
+    Space,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputEvent {
+    KeyPressed(InputKey),
+    Text(String),
+}
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-type AppOutputAdapter = NativeMidiOutputAdapter;
+type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-type AppOutputAdapter = InMemoryOutputAdapter;
+type OrcvsOutputAdapter = InMemoryOutputAdapter;
 
 ///
 /// The console's editing state: the Grid that is the Source's shape, the
@@ -34,8 +49,10 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// the next write there:
 ///
 /// ```
+/// use orcvs::app::Orcvs;
 /// use orcvs::grid::Grid;
 ///
+/// let orcvs = Orcvs::new(16, 16);
 /// let grid = Grid::new(16, 16);
 ///
 /// // the Grid refuses a pair outside itself, so there is no Position to select
@@ -44,15 +61,16 @@ type AppOutputAdapter = InMemoryOutputAdapter;
 /// // every Position `select` can be handed is one the Grid minted
 /// let position = grid.position(15, 15).expect("inside the grid");
 /// assert_eq!((position.x(), position.y()), (15, 15));
+/// assert_eq!(orcvs.render_frame().rows().len(), 16);
 /// ```
 ///
-pub struct App {
+pub struct Orcvs {
     opts: Opts,
     cursor: Cursor,
     grid: Grid,
 
     source: SourceCommander,
-    playback: PlaybackEngine<AppOutputAdapter>,
+    playback: PlaybackEngine<OrcvsOutputAdapter>,
     playback_state: PlaybackState,
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     midi_destinations: Vec<MidiDestination>,
@@ -60,7 +78,7 @@ pub struct App {
     midi_status: Option<String>,
 }
 
-impl App {
+impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Self {
         let grid = Grid::new(cols, rows);
 
@@ -206,67 +224,44 @@ impl App {
         self.cursor.blink();
     }
 
-    pub(crate) fn remaining_cursor_blink_delay(&self) -> Duration {
+    pub fn remaining_cursor_blink_delay(&self) -> Duration {
         self.cursor.remaining_blink_delay()
     }
 
     ///
     /// Handles event and returns boolean indicating if repating is required
     ///
-    pub fn event_handler(&mut self, events: Vec<Event>) -> bool {
+    pub fn event_handler(&mut self, events: Vec<InputEvent>) -> bool {
         let mut repaint = false;
         for event in &events {
             match event {
-                Event::Key {
-                    key: Key::ArrowDown,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.down(self.cursor.position())),
-                Event::Key {
-                    key: Key::ArrowLeft,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.left(self.cursor.position())),
-                Event::Key {
-                    key: Key::ArrowRight,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.right(self.cursor.position())),
-                Event::Key {
-                    key: Key::ArrowUp,
-                    pressed: true,
-                    ..
-                } => self.cursor.select(self.grid.up(self.cursor.position())),
-                Event::Key {
-                    key: Key::Backspace,
-                    pressed: true,
-                    ..
-                } => self.delete(),
-                Event::Key {
-                    key: Key::Delete,
-                    pressed: true,
-                    ..
-                } => self.delete(),
-                Event::Key {
-                    key: Key::Space,
-                    pressed: true,
-                    ..
-                } => {
+                InputEvent::KeyPressed(InputKey::ArrowDown) => {
+                    self.cursor.select(self.grid.down(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::ArrowLeft) => {
+                    self.cursor.select(self.grid.left(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::ArrowRight) => {
+                    self.cursor.select(self.grid.right(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::ArrowUp) => {
+                    self.cursor.select(self.grid.up(self.cursor.position()))
+                }
+                InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => self.delete(),
+                InputEvent::KeyPressed(InputKey::Space) => {
                     if self.playing() {
                         self.stop();
                     } else {
                         self.play();
                     }
                 }
-                Event::Text(text_to_insert)
+                InputEvent::Text(text_to_insert)
                     if text_to_insert.len() == 1 && text_to_insert != " " =>
                 {
                     self.write(text_to_insert);
                     repaint = true;
                 }
-                _ => {
-                    // info!("Pressed");
-                }
+                InputEvent::Text(_) => {}
             }
         }
         repaint
@@ -298,16 +293,16 @@ impl App {
 #[cfg(test)]
 mod test {
 
-    use super::App;
+    use super::Orcvs;
     use crate::test::trace;
-    use orcvs::{
+    use crate::{
         glyph::{Glyph, GlyphString},
         opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
     };
 
     #[test]
     fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
-        let mut app = App::new(2, 1);
+        let mut app = Orcvs::new(2, 1);
         app.write("x");
 
         let frame = app.render_frame();
@@ -324,7 +319,7 @@ mod test {
 
     #[test]
     fn deriving_a_render_frame_does_not_advance_cursor_blink_state() {
-        let mut app = App::new(2, 1);
+        let mut app = Orcvs::new(2, 1);
         app.cursor.on = true;
 
         let first = app.render_frame();
@@ -335,14 +330,14 @@ mod test {
         assert!(app.cursor.on);
     }
 
-    fn app() -> App {
+    fn app() -> Orcvs {
         let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
         let cols = DEFAULT_MARKER_SPACING;
 
-        App::new(cols, rows)
+        Orcvs::new(cols, rows)
     }
 
-    fn rendered(app: &App, position: orcvs::grid::Position) -> GlyphString {
+    fn rendered(app: &Orcvs, position: crate::grid::Position) -> GlyphString {
         let frame = app.render_frame();
         let cell = frame
             .rows()
@@ -356,7 +351,7 @@ mod test {
         )
     }
 
-    impl App {
+    impl Orcvs {
         pub fn src(&mut self, src: &str) {
             for (i, c) in src.chars().enumerate() {
                 self.set_at(i, 0, &c.to_string())
@@ -389,7 +384,7 @@ mod test {
     #[tokio::test]
     async fn test_to_idx() {
         trace();
-        let app = App::new(10, 4);
+        let app = Orcvs::new(10, 4);
 
         let position = app.grid.position(0, 0).expect("inside the grid");
         let idx = app.index(position);
@@ -405,7 +400,7 @@ mod test {
         trace();
 
         // 4 columns, 2 rows: transposing the axes addresses a different Cell.
-        let mut app = App::new(4, 2);
+        let mut app = Orcvs::new(4, 2);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
@@ -463,7 +458,7 @@ mod test {
     async fn test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty() {
         trace();
 
-        let mut app = App::new(10, 1);
+        let mut app = Orcvs::new(10, 1);
         let position = app.grid.position(5, 0).expect("inside the grid");
         app.set_at(0, 0, ".");
         app.set_at(1, 0, "+");
@@ -534,7 +529,7 @@ mod test {
 
     #[tokio::test]
     async fn test_sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
-        let mut app = App::new(7, 3);
+        let mut app = Orcvs::new(7, 3);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(6, 2));
@@ -566,7 +561,7 @@ mod test {
 
     #[tokio::test]
     async fn test_empty_cells_between_markers_remain_spaces() {
-        let mut app = App::new(24, 16);
+        let mut app = Orcvs::new(24, 16);
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(8, 8));

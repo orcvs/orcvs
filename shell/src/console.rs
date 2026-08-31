@@ -1,10 +1,8 @@
-use egui::{EventFilter, FontId, Pos2, Rect, Stroke, Vec2};
+use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
 
-use crate::{
-    app::App,
-    style::{PALETTE, cell_visuals, sector_line, style},
-};
+use crate::style::{PALETTE, cell_visuals, sector_line, style};
 use orcvs::{
+    app::{InputEvent, InputKey, Orcvs},
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     opts::DEFAULT_FONT_SIZE,
@@ -17,6 +15,27 @@ const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const INITIAL_ZOOM: f32 = 1.0;
 const INITIAL_SOURCE_X_OFFSET: f32 = 15.0;
+
+fn translate_event(event: Event) -> Option<InputEvent> {
+    match event {
+        Event::Key {
+            key, pressed: true, ..
+        } => match key {
+            Key::ArrowDown => Some(InputEvent::KeyPressed(InputKey::ArrowDown)),
+            Key::ArrowLeft => Some(InputEvent::KeyPressed(InputKey::ArrowLeft)),
+            Key::ArrowRight => Some(InputEvent::KeyPressed(InputKey::ArrowRight)),
+            Key::ArrowUp => Some(InputEvent::KeyPressed(InputKey::ArrowUp)),
+            Key::Backspace => Some(InputEvent::KeyPressed(InputKey::Backspace)),
+            Key::Delete => Some(InputEvent::KeyPressed(InputKey::Delete)),
+            Key::Space => Some(InputEvent::KeyPressed(InputKey::Space)),
+            _ => None,
+        },
+        Event::Text(text) => Some(InputEvent::Text(text)),
+        // The running Orcvs models only input it acts on; all other toolkit
+        // events remain presentation concerns and are dropped here.
+        _ => None,
+    }
+}
 
 fn top_right_source_view(
     source: Rect,
@@ -48,12 +67,10 @@ fn source_bounds(frame: &RenderFrame) -> Rect {
     )
 }
 
-/// ConsoleApp wraps the inner App
-/// ConsoleApp handles the egui presentation concerns
-/// App owns the underlying logic
+/// Console wraps the running Orcvs with egui presentation concerns.
 ///
 pub struct Console {
-    app: App,
+    app: Orcvs,
     font_family: egui::FontFamily,
     /// The visible region of the egui Scene containing the Source.
     source_view_rect: Rect,
@@ -92,7 +109,7 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let mut app = App::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut app = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         app.refresh_midi_destinations();
         Self {
             app,
@@ -181,7 +198,7 @@ fn show_diagnostics(
 
 fn show_source(
     ui: &mut egui::Ui,
-    app: &mut App,
+    app: &mut Orcvs,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
 ) -> Rect {
@@ -310,7 +327,12 @@ impl eframe::App for Console {
             escape: true,
         };
 
-        let events = ctx.input(|i| i.filtered_events(&event_filter));
+        let events = ctx.input(|i| {
+            i.filtered_events(&event_filter)
+                .into_iter()
+                .filter_map(translate_event)
+                .collect()
+        });
         self.app.event_handler(events);
         self.app.advance_cursor_blink();
         let frame = self.app.render_frame();
@@ -365,10 +387,49 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::App;
-    use egui::{Pos2, Rect, Vec2};
+    use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
+    use orcvs::app::{InputEvent, InputKey, Orcvs};
 
-    use super::{frames_per_second, scene_zoom, source_bounds, top_right_source_view};
+    use super::{
+        frames_per_second, scene_zoom, source_bounds, top_right_source_view, translate_event,
+    };
+
+    fn key_event(key: Key, pressed: bool) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn toolkit_events_translate_only_the_input_orcvs_handles() {
+        let cases = [
+            (Key::ArrowDown, InputKey::ArrowDown),
+            (Key::ArrowLeft, InputKey::ArrowLeft),
+            (Key::ArrowRight, InputKey::ArrowRight),
+            (Key::ArrowUp, InputKey::ArrowUp),
+            (Key::Backspace, InputKey::Backspace),
+            (Key::Delete, InputKey::Delete),
+            (Key::Space, InputKey::Space),
+        ];
+        for (egui_key, orcvs_key) in cases {
+            assert_eq!(
+                translate_event(key_event(egui_key, true)),
+                Some(InputEvent::KeyPressed(orcvs_key))
+            );
+        }
+
+        assert_eq!(
+            translate_event(Event::Text("x".to_owned())),
+            Some(InputEvent::Text("x".to_owned()))
+        );
+        assert_eq!(translate_event(key_event(Key::Enter, true)), None);
+        assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
+        assert_eq!(translate_event(Event::Copy), None);
+    }
 
     #[test]
     fn diagnostics_derive_frame_rate_and_scene_zoom_from_view_state() {
@@ -396,7 +457,7 @@ mod tests {
 
     #[test]
     fn source_bounds_are_available_before_the_first_scene_render() {
-        let app = App::new(32, 16);
+        let app = Orcvs::new(32, 16);
         let bounds = source_bounds(&app.render_frame());
 
         assert_eq!(
