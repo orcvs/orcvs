@@ -7,7 +7,7 @@ use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
-    opts::DEFAULT_FONT_SIZE,
+    opts::{Bpm, DEFAULT_FONT_SIZE},
     render_frame::RenderFrame,
 };
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -71,6 +71,40 @@ fn source_bounds(frame: &RenderFrame) -> Rect {
     )
 }
 
+#[derive(Default)]
+struct TempoEdit {
+    pending: Option<Bpm>,
+}
+
+impl TempoEdit {
+    fn changed(&mut self, bpm: Bpm) {
+        self.pending = Some(bpm);
+    }
+
+    fn take_commit(&mut self, pointer_down: bool) -> Option<Bpm> {
+        if pointer_down {
+            None
+        } else {
+            self.pending.take()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tempo_edit_tests {
+    use super::TempoEdit;
+    use orcvs::opts::Bpm;
+
+    #[test]
+    fn a_dragged_tempo_commits_after_release_even_if_the_menu_closed() {
+        let mut edit = TempoEdit::default();
+        edit.changed(Bpm::new(120).unwrap());
+
+        assert_eq!(edit.take_commit(true), None);
+        assert_eq!(edit.take_commit(false), Bpm::new(120));
+    }
+}
+
 /// Console wraps the running Orcvs with egui presentation concerns.
 ///
 pub struct Console {
@@ -81,6 +115,7 @@ pub struct Console {
     /// The visible region of the egui Scene containing the Source.
     source_view_rect: Rect,
     diagnostics_open: bool,
+    tempo_edit: TempoEdit,
 }
 
 impl Console {
@@ -134,6 +169,7 @@ impl Console {
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view_rect: Rect::ZERO,
             diagnostics_open: false,
+            tempo_edit: TempoEdit::default(),
         }
     }
 }
@@ -335,10 +371,31 @@ impl eframe::App for Console {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
+                ui.menu_button("Tempo", |ui| {
+                    let mut beats_per_minute = self.orcvs.bpm().beats_per_minute();
+                    let tempo_response = ui.add(
+                        egui::DragValue::new(&mut beats_per_minute)
+                            .range(1..=999)
+                            .suffix(" BPM"),
+                    );
+                    if tempo_response.changed() {
+                        self.tempo_edit.changed(
+                            Bpm::new(beats_per_minute)
+                                .expect("the tempo control has a positive range"),
+                        );
+                    }
+                });
                 // ui.label(format!("HELLO"));
                 // egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
+
+        if let Some(bpm) = self
+            .tempo_edit
+            .take_commit(ctx.input(|input| input.pointer.primary_down()))
+        {
+            self.orcvs.set_bpm(bpm);
+        }
 
         let event_filter = EventFilter {
             tab: true,
@@ -373,6 +430,7 @@ impl eframe::App for Console {
                     font_family,
                     source_view_rect,
                     diagnostics_open: _,
+                    tempo_edit: _,
                 } = self;
                 if *source_view_rect == Rect::ZERO {
                     *source_view_rect = top_right_source_view(

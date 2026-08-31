@@ -4,10 +4,11 @@
 benchmark called `parser_benchmark`. Neither exists.
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] Every debug configuration names a package in the workspace.
-- [ ] Every debug configuration names a target that the package builds.
-- [ ] The tooling contract covers the package names.
+- [x] Every debug configuration names a package in the workspace.
+- [x] Every debug configuration names a target that the package builds.
+- [x] The tooling contract covers the package names.
 
 ## Comments
 

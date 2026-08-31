@@ -4,10 +4,11 @@
 two never match, `cache.addAll` rejects, and the service worker caches nothing.
 
 **Status:** needs-triage
+**Implementation:** complete
 
-- [ ] The install handler completes and fills the cache.
-- [ ] The application starts with no network.
-- [ ] The tooling contract asserts something the build can satisfy.
+- [x] The install handler completes and fills the cache.
+- [x] The application starts with no network.
+- [x] The tooling contract asserts something the build can satisfy.
 
 ## Comments
 

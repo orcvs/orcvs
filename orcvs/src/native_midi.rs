@@ -5,13 +5,14 @@ use crate::midi::{
 };
 
 pub type NativeMidiOutputAdapter = MidiOutputAdapter<MidirBackend>;
+const MIDI_CLIENT_NAME: &str = "Orcvs";
 
 #[derive(Default)]
 pub struct MidirBackend;
 
 impl MidiBackend for MidirBackend {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-        let output = MidiOutput::new("Orca").map_err(midi_error)?;
+        let output = MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?;
         output
             .ports()
             .into_iter()
@@ -26,13 +27,14 @@ impl MidiBackend for MidirBackend {
         &mut self,
         destination_id: &MidiDestinationId,
     ) -> Result<Box<dyn MidiConnection>, MidiError> {
-        let output = MidiOutput::new("Orca").map_err(midi_error)?;
+        let output = MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?;
         let port = output
             .find_port_by_id(destination_id.as_str())
             .ok_or_else(|| {
                 MidiError::new("the selected MIDI destination is no longer available")
             })?;
-        let connection = output.connect(&port, "Orca output").map_err(midi_error)?;
+        let port_name = format!("{MIDI_CLIENT_NAME} output");
+        let connection = output.connect(&port, &port_name).map_err(midi_error)?;
         Ok(Box::new(MidirConnection(connection)))
     }
 }

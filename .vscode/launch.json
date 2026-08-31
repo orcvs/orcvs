@@ -44,44 +44,6 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in library 'vtha'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=vtha"
-                ],
-                "filter": {
-                    "name": "vtha",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug benchmark 'parser_benchmark'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bench=parser_benchmark",
-                    "--package=vtha"
-                ],
-                "filter": {
-                    "name": "parser_benchmark",
-                    "kind": "bench"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
         }
     ]
 }

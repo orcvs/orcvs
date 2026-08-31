@@ -12,7 +12,8 @@ pub(crate) fn failure_message(diagnostic: &PlaybackDiagnostic) -> Option<String>
     match diagnostic {
         PlaybackDiagnostic::OutputFailure(error) => Some(error.message.clone()),
         PlaybackDiagnostic::ClockFailure { message }
-        | PlaybackDiagnostic::StartFailure { message } => Some(message.clone()),
+        | PlaybackDiagnostic::StartFailure { message }
+        | PlaybackDiagnostic::RetuneFailure { message } => Some(message.clone()),
         PlaybackDiagnostic::Overrun { .. } => None,
     }
 }

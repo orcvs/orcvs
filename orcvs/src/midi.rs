@@ -79,6 +79,7 @@ impl MidiSelection {
 pub struct MidiOutputAdapter<B> {
     backend: B,
     connection: Option<Box<dyn MidiConnection>>,
+    delivery_failure: Option<OutputAdapterError>,
     selected_destination_id: Option<MidiDestinationId>,
 }
 
@@ -87,6 +88,7 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
         Self {
             backend,
             connection: None,
+            delivery_failure: None,
             selected_destination_id: None,
         }
     }
@@ -106,6 +108,7 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
             .flatten();
         let connection = self.backend.connect(destination_id)?;
         self.connection = Some(connection);
+        self.delivery_failure = None;
         self.selected_destination_id = Some(destination_id.clone());
         Ok(MidiSelection { safety_failure })
     }
@@ -135,7 +138,7 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
 impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
     fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
         let Some(connection) = self.connection.as_mut() else {
-            return Ok(());
+            return self.delivery_failure.clone().map_or(Ok(()), Err);
         };
         for command in commands {
             if let Err(error) =
@@ -144,6 +147,8 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
                 let delivery_error = OutputAdapterError::new(error.message);
                 let _ = self.send_all_notes_off();
                 self.connection = None;
+                self.selected_destination_id = None;
+                self.delivery_failure = Some(delivery_error.clone());
                 return Err(delivery_error);
             }
         }
@@ -284,6 +289,17 @@ mod tests {
 
         assert_eq!(error, OutputAdapterError::new("device lost"));
         assert_eq!(state.lock().unwrap().messages.len(), 16);
+        assert_eq!(adapter.selected_destination_id(), None);
+        assert_eq!(
+            adapter
+                .submit(&[PlayCommand {
+                    channel: 0,
+                    velocity: 1,
+                    note: 60,
+                }])
+                .unwrap_err(),
+            OutputAdapterError::new("device lost")
+        );
 
         adapter.select(&MidiDestinationId::new("one")).unwrap();
         adapter
@@ -340,6 +356,37 @@ mod tests {
         assert_eq!(
             state.lock().unwrap().messages.last(),
             Some(&vec![0x90, 60, 0x7f])
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn disconnected_output_reports_delivery_failure_once() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let source = SourceCommander::new(Grid::new(10, 2));
+        for (index, content) in "!>07FC4".chars().enumerate() {
+            source.set(index, &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source, adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        state.lock().unwrap().fail_next_send = true;
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        for _ in 0..2 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            playback.observe().diagnostics,
+            vec![crate::playback::PlaybackDiagnostic::OutputFailure(
+                OutputAdapterError::new("device lost")
+            )]
         );
     }
 

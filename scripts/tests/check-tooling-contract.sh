@@ -18,7 +18,7 @@ make_fixture() {
   mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
-  cp "$repo_root/shell/Cargo.toml" "$fixture_dir/shell/"
+  cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
   cp "$repo_root/shell/check.sh" "$fixture_dir/shell/"
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
@@ -61,8 +61,26 @@ test_unlocked_audit_deny_is_rejected() {
 
 test_unlocked_wasm_pack_is_rejected() {
   make_fixture
-  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --features persistence/' "$fixture_dir/mise.toml"
   assert_rejected "an unlocked wasm-pack test invocation"
+}
+
+test_wasm_build_without_persistence_is_rejected() {
+  make_fixture
+  perl -pi -e 's/trunk build --features persistence --locked/trunk build --locked/' "$fixture_dir/mise.toml"
+  assert_rejected "a WASM build without the persistence feature"
+}
+
+test_missing_default_wasm_build_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^env -u NO_COLOR trunk build --locked\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a missing default-feature WASM build"
+}
+
+test_wasm_test_without_persistence_is_rejected() {
+  make_fixture
+  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --locked/' "$fixture_dir/mise.toml"
+  assert_rejected "browser tests without the persistence feature"
 }
 
 test_stale_wasm_artifact_name_is_rejected() {
@@ -71,16 +89,104 @@ test_stale_wasm_artifact_name_is_rejected() {
   assert_rejected "a stale WASM artifact name in the service worker cache"
 }
 
+test_hashed_wasm_artifacts_are_rejected() {
+  make_fixture
+  perl -pi -e 's/filehash = false/filehash = true/' "$fixture_dir/shell/Trunk.toml"
+  assert_rejected "hashed WASM artifacts with fixed service-worker cache names"
+}
+
 test_stale_script_artifact_name_is_rejected() {
   make_fixture
   perl -pi -e "s|'./shell[.]js'|'./console.js'|" "$fixture_dir/shell/assets/sw.js"
   assert_rejected "a stale script artifact name in the service worker cache"
 }
 
+test_service_worker_without_cache_invalidation_is_rejected() {
+  make_fixture
+  perl -0pi -e "s/self[.]addEventListener[(]'activate'.*?^}[)];\n//ms" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker without versioned cache invalidation"
+}
+
+test_service_worker_deleting_unrelated_caches_is_rejected() {
+  make_fixture
+  perl -pi -e 's/return isOrcvsCache && name !== cacheName;/return name !== cacheName;/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that deletes unrelated origin caches"
+}
+
+test_service_worker_without_legacy_cache_cleanup_is_rejected() {
+  make_fixture
+  perl -pi -e "s/egui-template-pwa/unrelated-pwa/" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that leaves its legacy cache behind"
+}
+
+test_service_worker_caching_error_responses_is_rejected() {
+  make_fixture
+  perl -pi -e 's/if [(]response[.]ok[)]/if (true)/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that caches HTTP error responses"
+}
+
+test_service_worker_discarding_live_response_on_cache_failure_is_rejected() {
+  make_fixture
+  perl -pi -e 's/cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch/cache.put(e.request, response.clone()).then/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that discards a live response when cache storage fails"
+}
+
+test_service_worker_without_explicit_offline_error_is_rejected() {
+  make_fixture
+  perl -pi -e 's/response [|][|] Response[.]error[(][)]/response/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker whose offline cache miss resolves without a response"
+}
+
+test_service_worker_without_immediate_activation_is_rejected() {
+  make_fixture
+  perl -pi -e 's/self[.]skipWaiting[(][)]/self.waitForOldClients()/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that waits for every old tab to close"
+}
+
+test_service_worker_without_immediate_control_is_rejected() {
+  make_fixture
+  perl -pi -e 's/self[.]clients[.]claim[(][)]/self.clients.waitForReload()/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that does not control existing tabs after activation"
+}
+
+test_service_worker_with_cache_first_navigation_is_rejected() {
+  make_fixture
+  perl -pi -e "s/e[.]request[.]mode === 'navigate'/e.request.mode === 'cached-navigation'/" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "cache-first navigation after a deploy"
+}
+
+test_service_worker_with_cache_first_stable_artifacts_is_rejected() {
+  make_fixture
+  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]|false|" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "cache-first stable JavaScript after an unchanged service-worker deploy"
+
+  make_fixture
+  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]|false|" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "cache-first stable WASM after an unchanged service-worker deploy"
+}
+
+test_service_worker_using_the_default_http_cache_is_rejected() {
+  make_fixture
+  perl -pi -e "s/fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]/fetch(e.request)/" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "network-first stable artifacts that can use the HTTP cache"
+}
+
 test_stale_debug_package_is_rejected() {
   make_fixture
-  perl -pi -e 's/--package=shell/--package=console/' "$fixture_dir/.vscode/launch.json"
+  perl -pi -e 's/("--package=shell")/$1,\n                    "--package=vtha"/' "$fixture_dir/.vscode/launch.json"
   assert_rejected "a stale package name in the debugger configuration"
+}
+
+test_stale_benchmark_is_rejected() {
+  make_fixture
+  perl -pi -e 's/("--package=shell")/$1,\n                    "--bin=parser_benchmark"/' "$fixture_dir/.vscode/launch.json"
+  assert_rejected "a retired parser benchmark in the debugger configuration"
+}
+
+test_console_debug_package_is_rejected() {
+  make_fixture
+  perl -pi -e 's/("--package=shell")/$1,\n                    "--package=console"/' "$fixture_dir/.vscode/launch.json"
+  assert_rejected "the retired console package in the debugger configuration"
 }
 
 test_missing_orcvs_persistence_check_is_rejected() {
@@ -152,9 +258,26 @@ case "${1:-all}" in
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
+  wasm-build-persistence) test_wasm_build_without_persistence_is_rejected ;;
+  missing-default-wasm-build) test_missing_default_wasm_build_is_rejected ;;
+  wasm-test-persistence) test_wasm_test_without_persistence_is_rejected ;;
   stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
+  hashed-wasm-artifacts) test_hashed_wasm_artifacts_are_rejected ;;
   stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
+  service-worker-cache-invalidation) test_service_worker_without_cache_invalidation_is_rejected ;;
+  service-worker-cache-scope) test_service_worker_deleting_unrelated_caches_is_rejected ;;
+  service-worker-legacy-cache) test_service_worker_without_legacy_cache_cleanup_is_rejected ;;
+  service-worker-error-response) test_service_worker_caching_error_responses_is_rejected ;;
+  service-worker-cache-write-failure) test_service_worker_discarding_live_response_on_cache_failure_is_rejected ;;
+  service-worker-offline-miss) test_service_worker_without_explicit_offline_error_is_rejected ;;
+  service-worker-immediate-activation) test_service_worker_without_immediate_activation_is_rejected ;;
+  service-worker-immediate-control) test_service_worker_without_immediate_control_is_rejected ;;
+  service-worker-navigation-strategy) test_service_worker_with_cache_first_navigation_is_rejected ;;
+  service-worker-stable-artifacts) test_service_worker_with_cache_first_stable_artifacts_is_rejected ;;
+  service-worker-http-cache) test_service_worker_using_the_default_http_cache_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
+  stale-debug-benchmark) test_stale_benchmark_is_rejected ;;
+  console-debug-package) test_console_debug_package_is_rejected ;;
   missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
@@ -169,9 +292,26 @@ case "${1:-all}" in
     test_unlocked_check_deny_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
+    test_wasm_build_without_persistence_is_rejected
+    test_missing_default_wasm_build_is_rejected
+    test_wasm_test_without_persistence_is_rejected
     test_stale_wasm_artifact_name_is_rejected
+    test_hashed_wasm_artifacts_are_rejected
     test_stale_script_artifact_name_is_rejected
+    test_service_worker_without_cache_invalidation_is_rejected
+    test_service_worker_deleting_unrelated_caches_is_rejected
+    test_service_worker_without_legacy_cache_cleanup_is_rejected
+    test_service_worker_caching_error_responses_is_rejected
+    test_service_worker_discarding_live_response_on_cache_failure_is_rejected
+    test_service_worker_without_explicit_offline_error_is_rejected
+    test_service_worker_without_immediate_activation_is_rejected
+    test_service_worker_without_immediate_control_is_rejected
+    test_service_worker_with_cache_first_navigation_is_rejected
+    test_service_worker_with_cache_first_stable_artifacts_is_rejected
+    test_service_worker_using_the_default_http_cache_is_rejected
     test_stale_debug_package_is_rejected
+    test_stale_benchmark_is_rejected
+    test_console_debug_package_is_rejected
     test_missing_orcvs_persistence_check_is_rejected
     test_persistence_command_in_wrong_task_is_rejected
     test_dotted_dependency_version_is_rejected

@@ -436,8 +436,11 @@ impl Source {
     /// recalculating Expressions.
     ///
     fn set_source(&mut self, idx: usize, byte: u8) {
-        // SAFETY: `byte` is validated as ASCII and `idx` is bounds-checked
-        // before any mutation, so the String stays valid UTF-8
+        // SAFETY: The `edit` caller receives `byte` only after `Source::set`
+        // validates it with `check_content`. The `commit_tick` caller receives
+        // bytes from a Tick Plan built by `plan_tick`, whose ASCII assertion
+        // also makes its character offsets valid byte offsets. Both callers
+        // bounds-check `idx` before mutation, so the String stays valid UTF-8.
         unsafe {
             let bytes = self.inner.as_bytes_mut();
             bytes[idx] = byte;

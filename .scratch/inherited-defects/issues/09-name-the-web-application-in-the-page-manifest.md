@@ -4,10 +4,11 @@
 application gets an icon labelled "egui Template PWA".
 
 **Status:** ready-for-agent
+**Implementation:** complete
 
-- [ ] The manifest names Orcvs.
-- [ ] The installed application shows that name.
-- [ ] The short name is consistent with the full name.
+- [x] The manifest names Orcvs.
+- [x] The installed application shows that name.
+- [x] The short name is consistent with the full name.
 
 ## Comments
 

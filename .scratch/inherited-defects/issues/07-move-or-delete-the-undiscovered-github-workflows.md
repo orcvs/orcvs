@@ -5,10 +5,11 @@ workflows only from the repository root. These three have never run, and each on
 binary that do not exist.
 
 **Status:** needs-triage
+**Implementation:** complete
 
-- [ ] Every workflow file in the repository either runs or is deleted.
-- [ ] No workflow names a binary or a directory that the build does not produce.
-- [ ] The tooling contract covers any workflow that is kept.
+- [x] Every workflow file in the repository either runs or is deleted.
+- [x] No workflow names a binary or a directory that the build does not produce.
+- [x] The tooling contract covers any workflow that is kept.
 
 ## Comments
 

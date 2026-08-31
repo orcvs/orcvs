@@ -1,7 +1,7 @@
 use std::time::Duration;
 use tracing::error;
 
-use crate::opts::Opts;
+use crate::opts::{Bpm, Opts};
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
@@ -102,6 +102,20 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
         let observation = self.playback.observe();
         self.playback_state = observation.state;
         observation.diagnostics
+    }
+
+    pub fn bpm(&self) -> Bpm {
+        self.opts.bpm
+    }
+
+    pub fn set_bpm(&mut self, bpm: Bpm) {
+        if self.playing()
+            && let Err(error) = self.playback.retune(Duration::from_millis(bpm.delay_ms()))
+        {
+            self.playback.report_retune_error(error);
+            return;
+        }
+        self.opts.bpm = bpm;
     }
 
     ///
@@ -273,13 +287,78 @@ impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
 
     use super::Orcvs;
+    use crate::opts::Bpm;
     use crate::test::trace;
     use crate::{
         glyph::{Glyph, GlyphString},
         opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
     };
+
+    #[test]
+    fn user_can_change_the_tempo() {
+        let mut orcvs =
+            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default());
+
+        orcvs.set_bpm(Bpm::new(120).unwrap());
+
+        assert_eq!(orcvs.bpm().beats_per_minute(), 120);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn repeated_tempo_changes_preserve_the_current_beat_phase() {
+        let adapter = crate::playback::InMemoryOutputAdapter::default();
+        let mut orcvs = Orcvs::with_output_adapter(2, 1, adapter.clone());
+        orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 1);
+
+        tokio::time::advance(Duration::from_millis(500)).await;
+        for _ in 0..5 {
+            orcvs.set_bpm(Bpm::new(20).unwrap());
+            tokio::time::advance(Duration::from_millis(40)).await;
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(adapter.command_lists().len(), 1);
+        orcvs.observe_playback();
+        assert!(orcvs.playing());
+
+        tokio::time::advance(Duration::from_millis(49)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 1);
+
+        tokio::time::advance(Duration::from_millis(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 2);
+    }
+
+    #[test]
+    fn failed_tempo_retune_keeps_existing_playback_running() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let adapter = crate::playback::InMemoryOutputAdapter::default();
+        let mut orcvs = Orcvs::with_output_adapter(2, 1, adapter.clone());
+        runtime.block_on(async {
+            orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+            tokio::task::yield_now().await;
+        });
+
+        orcvs.set_bpm(Bpm::new(120).unwrap());
+
+        let diagnostics = orcvs.observe_playback();
+        assert!(orcvs.playing());
+        assert_eq!(orcvs.bpm().beats_per_minute(), 20);
+        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(
+            diagnostics,
+            vec![crate::playback::PlaybackDiagnostic::RetuneFailure {
+                message: "Playback requires a Tokio runtime".to_owned(),
+            }]
+        );
+    }
 
     #[test]
     fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
