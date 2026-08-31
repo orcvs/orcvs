@@ -107,6 +107,30 @@ test_service_worker_without_cache_invalidation_is_rejected() {
   assert_rejected "a service worker without versioned cache invalidation"
 }
 
+test_service_worker_deleting_unrelated_caches_is_rejected() {
+  make_fixture
+  perl -pi -e 's/return isOrcvsCache && name !== cacheName;/return name !== cacheName;/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that deletes unrelated origin caches"
+}
+
+test_service_worker_caching_error_responses_is_rejected() {
+  make_fixture
+  perl -pi -e 's/if [(]response[.]ok[)]/if (true)/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that caches HTTP error responses"
+}
+
+test_service_worker_discarding_live_response_on_cache_failure_is_rejected() {
+  make_fixture
+  perl -pi -e 's/cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch/cache.put(e.request, response.clone()).then/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that discards a live response when cache storage fails"
+}
+
+test_service_worker_without_explicit_offline_error_is_rejected() {
+  make_fixture
+  perl -pi -e 's/response [|][|] Response[.]error[(][)]/response/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker whose offline cache miss resolves without a response"
+}
+
 test_service_worker_without_immediate_activation_is_rejected() {
   make_fixture
   perl -pi -e 's/self[.]skipWaiting[(][)]/self.waitForOldClients()/' "$fixture_dir/shell/assets/sw.js"
@@ -137,8 +161,14 @@ test_service_worker_with_cache_first_stable_artifacts_is_rejected() {
 
 test_stale_debug_package_is_rejected() {
   make_fixture
-  perl -pi -e 's/--package=shell/--package=vtha/' "$fixture_dir/.vscode/launch.json"
+  perl -pi -e 's/("--package=shell")/$1,\n                    "--package=vtha"/' "$fixture_dir/.vscode/launch.json"
   assert_rejected "a stale package name in the debugger configuration"
+}
+
+test_stale_benchmark_is_rejected() {
+  make_fixture
+  perl -pi -e 's/("--package=shell")/$1,\n                    "--bin=parser_benchmark"/' "$fixture_dir/.vscode/launch.json"
+  assert_rejected "a retired parser benchmark in the debugger configuration"
 }
 
 test_console_debug_package_is_rejected() {
@@ -223,11 +253,16 @@ case "${1:-all}" in
   hashed-wasm-artifacts) test_hashed_wasm_artifacts_are_rejected ;;
   stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
   service-worker-cache-invalidation) test_service_worker_without_cache_invalidation_is_rejected ;;
+  service-worker-cache-scope) test_service_worker_deleting_unrelated_caches_is_rejected ;;
+  service-worker-error-response) test_service_worker_caching_error_responses_is_rejected ;;
+  service-worker-cache-write-failure) test_service_worker_discarding_live_response_on_cache_failure_is_rejected ;;
+  service-worker-offline-miss) test_service_worker_without_explicit_offline_error_is_rejected ;;
   service-worker-immediate-activation) test_service_worker_without_immediate_activation_is_rejected ;;
   service-worker-immediate-control) test_service_worker_without_immediate_control_is_rejected ;;
   service-worker-navigation-strategy) test_service_worker_with_cache_first_navigation_is_rejected ;;
   service-worker-stable-artifacts) test_service_worker_with_cache_first_stable_artifacts_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
+  stale-debug-benchmark) test_stale_benchmark_is_rejected ;;
   console-debug-package) test_console_debug_package_is_rejected ;;
   missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
@@ -250,11 +285,16 @@ case "${1:-all}" in
     test_hashed_wasm_artifacts_are_rejected
     test_stale_script_artifact_name_is_rejected
     test_service_worker_without_cache_invalidation_is_rejected
+    test_service_worker_deleting_unrelated_caches_is_rejected
+    test_service_worker_caching_error_responses_is_rejected
+    test_service_worker_discarding_live_response_on_cache_failure_is_rejected
+    test_service_worker_without_explicit_offline_error_is_rejected
     test_service_worker_without_immediate_activation_is_rejected
     test_service_worker_without_immediate_control_is_rejected
     test_service_worker_with_cache_first_navigation_is_rejected
     test_service_worker_with_cache_first_stable_artifacts_is_rejected
     test_stale_debug_package_is_rejected
+    test_stale_benchmark_is_rejected
     test_console_debug_package_is_rejected
     test_missing_orcvs_persistence_check_is_rejected
     test_persistence_command_in_wrong_task_is_rejected

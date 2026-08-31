@@ -109,12 +109,15 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 
     pub fn set_bpm(&mut self, bpm: Bpm) {
-        self.opts.bpm = bpm;
-        if self.playing() {
-            let _ = self
+        if self.playing()
+            && self
                 .playback
-                .retune(Duration::from_millis(self.opts.bpm.delay_ms()));
+                .retune(Duration::from_millis(bpm.delay_ms()))
+                .is_err()
+        {
+            return;
         }
+        self.opts.bpm = bpm;
     }
 
     ///
@@ -307,22 +310,26 @@ mod test {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn changing_tempo_while_playing_preserves_output_and_waits_for_the_new_period() {
+    async fn repeated_tempo_changes_preserve_the_current_beat_phase() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
         let mut orcvs = Orcvs::with_output_adapter(2, 1, adapter.clone());
         orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
         tokio::task::yield_now().await;
         assert_eq!(adapter.command_lists().len(), 1);
 
-        orcvs.set_bpm(Bpm::new(120).unwrap());
-        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(500)).await;
+        for _ in 0..5 {
+            orcvs.set_bpm(Bpm::new(20).unwrap());
+            tokio::time::advance(Duration::from_millis(40)).await;
+            tokio::task::yield_now().await;
+        }
 
         assert_eq!(adapter.all_notes_off_count(), 0);
         assert_eq!(adapter.command_lists().len(), 1);
         orcvs.observe_playback();
         assert!(orcvs.playing());
 
-        tokio::time::advance(Duration::from_millis(124)).await;
+        tokio::time::advance(Duration::from_millis(49)).await;
         tokio::task::yield_now().await;
         assert_eq!(adapter.command_lists().len(), 1);
 
@@ -345,13 +352,9 @@ mod test {
 
         let diagnostics = orcvs.observe_playback();
         assert!(orcvs.playing());
+        assert_eq!(orcvs.bpm().beats_per_minute(), 20);
         assert_eq!(adapter.all_notes_off_count(), 0);
-        assert_eq!(
-            diagnostics,
-            vec![crate::playback::PlaybackDiagnostic::StartFailure {
-                message: "Playback requires a Tokio runtime".to_string(),
-            }]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

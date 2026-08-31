@@ -337,13 +337,13 @@ impl eframe::App for Console {
                 });
                 ui.menu_button("Tempo", |ui| {
                     let mut beats_per_minute = self.orcvs.bpm().beats_per_minute();
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut beats_per_minute)
-                                .range(1..=999)
-                                .suffix(" BPM"),
-                        )
-                        .changed()
+                    let tempo_response = ui.add(
+                        egui::DragValue::new(&mut beats_per_minute)
+                            .range(1..=999)
+                            .suffix(" BPM"),
+                    );
+                    if (tempo_response.changed() && !tempo_response.dragged())
+                        || tempo_response.drag_stopped()
                     {
                         self.orcvs.set_bpm(
                             Bpm::new(beats_per_minute)

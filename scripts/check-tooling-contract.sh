@@ -93,6 +93,9 @@ assert_contains "$root_dir/shell/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-
 assert_contains "$root_dir/shell/assets/sw.js" "self[.]addEventListener[(]'activate'"
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]keys[(][)]'
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]delete[(]name[)]'
+assert_contains "$root_dir/shell/assets/sw.js" "name === 'orcvs-pwa'"
+assert_contains "$root_dir/shell/assets/sw.js" "name[.]startsWith[(]'orcvs-pwa-'[)]"
+assert_contains "$root_dir/shell/assets/sw.js" 'return isOrcvsCache && name !== cacheName;'
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]open[(]cacheName[)]'
 assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]match[(]e[.]request[)]'
 assert_not_contains "$root_dir/shell/assets/sw.js" 'caches[.]match[(]e[.]request[)]'
@@ -101,10 +104,13 @@ assert_contains "$root_dir/shell/assets/sw.js" 'self[.]clients[.]claim[(][)]'
 assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]mode === 'navigate'"
 assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]"
 assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]"
+assert_contains "$root_dir/shell/assets/sw.js" 'response[.]ok'
+assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch'
+assert_contains "$root_dir/shell/assets/sw.js" 'response[[:space:]]*[|][|][[:space:]]*Response[.]error[(][)]'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
-assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=vtha|parser_benchmark'
+assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=(vtha|parser_benchmark)'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$'

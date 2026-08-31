@@ -5,8 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
-use tokio::time;
+use tokio::time::{self, Instant as ClockInstant};
 use tokio_util::sync::CancellationToken;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant as ClockInstant;
 
 use crate::source::{PlayCommand, SourceCommander, TickResult};
 
@@ -173,6 +175,7 @@ struct PlaybackInner<A> {
     last_output_failure: Option<OutputAdapterError>,
     generation: u64,
     cancellation: Option<CancellationToken>,
+    last_tick_at: Option<ClockInstant>,
 }
 
 pub struct PlaybackEngine<A: OutputAdapter> {
@@ -283,6 +286,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             });
             return None;
         }
+        self.last_tick_at = Some(ClockInstant::now());
         let tick = self.source.execute();
         if self.connected {
             match self.adapter.submit(&tick.plan.play_commands) {
@@ -306,6 +310,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
                 last_output_failure: None,
                 generation: 0,
                 cancellation: None,
+                last_tick_at: None,
             })),
             handle_count: Arc::new(AtomicUsize::new(1)),
         }
@@ -408,29 +413,40 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
+            return Err(PlaybackStartError::ZeroTickPeriod);
         }
         let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|_| self.report_start_error(PlaybackStartError::RuntimeUnavailable))?;
+            .map_err(|_| PlaybackStartError::RuntimeUnavailable)?;
 
-        let (generation, cancellation, weak) = {
+        let (generation, cancellation, weak, first_tick_at) = {
             let mut inner = lock_recover(&self.inner);
             if !inner.playing {
                 return Ok(());
             }
+            let now = ClockInstant::now();
+            let first_tick_at = inner
+                .last_tick_at
+                .and_then(|last_tick_at| last_tick_at.checked_add(tick_period))
+                .map_or(now, |scheduled_at| scheduled_at.max(now));
             if let Some(previous) = inner.cancellation.take() {
                 previous.cancel();
             }
             inner.generation = inner.generation.wrapping_add(1);
             let cancellation = CancellationToken::new();
             inner.cancellation = Some(cancellation.clone());
-            (inner.generation, cancellation, Arc::downgrade(&self.inner))
+            (
+                inner.generation,
+                cancellation,
+                Arc::downgrade(&self.inner),
+                first_tick_at,
+            )
         };
 
         runtime.spawn(async move {
             let mut guard = ClockRunGuard::new(weak.clone(), generation);
             let epoch = time::Instant::now();
-            let mut interval = time::interval_at(epoch + tick_period, tick_period);
+            let first_tick_delay = first_tick_at.saturating_duration_since(ClockInstant::now());
+            let mut interval = time::interval_at(epoch + first_tick_delay, tick_period);
             interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
 
             loop {
@@ -458,27 +474,39 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
+            return Err(PlaybackStartError::ZeroTickPeriod);
         }
 
-        let (generation, cancellation, weak) = {
+        let (generation, cancellation, weak, first_tick_delay) = {
             let mut inner = lock_recover(&self.inner);
             if !inner.playing {
                 return Ok(());
             }
+            let now = ClockInstant::now();
+            let first_tick_delay = inner
+                .last_tick_at
+                .and_then(|last_tick_at| last_tick_at.checked_add(tick_period))
+                .map_or(Duration::ZERO, |scheduled_at| {
+                    scheduled_at.saturating_duration_since(now)
+                });
             if let Some(previous) = inner.cancellation.take() {
                 previous.cancel();
             }
             inner.generation = inner.generation.wrapping_add(1);
             let cancellation = CancellationToken::new();
             inner.cancellation = Some(cancellation.clone());
-            (inner.generation, cancellation, Arc::downgrade(&self.inner))
+            (
+                inner.generation,
+                cancellation,
+                Arc::downgrade(&self.inner),
+                first_tick_delay,
+            )
         };
 
         wasm_bindgen_futures::spawn_local(async move {
             let mut guard = ClockRunGuard::new(weak.clone(), generation);
             let epoch = web_time::Instant::now();
-            let mut scheduled_at = tick_period;
+            let mut scheduled_at = first_tick_delay;
 
             loop {
                 let delay = scheduled_at.saturating_sub(epoch.elapsed());
@@ -526,6 +554,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             }
             inner.generation = inner.generation.wrapping_add(1);
             inner.playing = true;
+            inner.last_tick_at = None;
             let cancellation = CancellationToken::new();
             inner.cancellation = Some(cancellation.clone());
             (inner.generation, cancellation, Arc::downgrade(&self.inner))
@@ -575,6 +604,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             }
             inner.generation = inner.generation.wrapping_add(1);
             inner.playing = true;
+            inner.last_tick_at = None;
             let cancellation = CancellationToken::new();
             inner.cancellation = Some(cancellation.clone());
             (inner.generation, cancellation, Arc::downgrade(&self.inner))
@@ -949,6 +979,22 @@ mod tests {
         tokio::task::yield_now().await;
         assert_eq!(engine.observe().state, PlaybackState::Stopped);
         assert_eq!(adapter.all_notes_off_count(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retuning_a_restart_does_not_inherit_the_previous_runs_phase() {
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        engine.stop();
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        engine.retune(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+
+        assert_eq!(adapter.command_lists().len(), 2);
     }
 
     #[tokio::test]
