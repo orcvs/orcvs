@@ -110,11 +110,9 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
 
     pub fn set_bpm(&mut self, bpm: Bpm) {
         if self.playing()
-            && self
-                .playback
-                .retune(Duration::from_millis(bpm.delay_ms()))
-                .is_err()
+            && let Err(error) = self.playback.retune(Duration::from_millis(bpm.delay_ms()))
         {
+            self.playback.report_retune_error(error);
             return;
         }
         self.opts.bpm = bpm;
@@ -354,7 +352,12 @@ mod test {
         assert!(orcvs.playing());
         assert_eq!(orcvs.bpm().beats_per_minute(), 20);
         assert_eq!(adapter.all_notes_off_count(), 0);
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics,
+            vec![crate::playback::PlaybackDiagnostic::RetuneFailure {
+                message: "Playback requires a Tokio runtime".to_owned(),
+            }]
+        );
     }
 
     #[test]

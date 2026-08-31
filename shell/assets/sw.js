@@ -25,7 +25,9 @@ self.addEventListener('activate', function (e) {
         cacheNames
           .filter(function (name) {
             var isOrcvsCache =
-              name === 'orcvs-pwa' || name.startsWith('orcvs-pwa-');
+              name === 'egui-template-pwa' ||
+              name === 'orcvs-pwa' ||
+              name.startsWith('orcvs-pwa-');
             return isOrcvsCache && name !== cacheName;
           })
           .map(function (name) {
@@ -47,7 +49,7 @@ self.addEventListener('fetch', function (e) {
   ) {
     e.respondWith(
       caches.open(cacheName).then(function (cache) {
-        return fetch(e.request).then(function (response) {
+        return fetch(e.request, { cache: 'no-cache' }).then(function (response) {
           if (response.ok) {
             cache.put(e.request, response.clone()).catch(function () {
               // The live response is still usable when cache storage is full.

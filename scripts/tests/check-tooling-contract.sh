@@ -113,6 +113,12 @@ test_service_worker_deleting_unrelated_caches_is_rejected() {
   assert_rejected "a service worker that deletes unrelated origin caches"
 }
 
+test_service_worker_without_legacy_cache_cleanup_is_rejected() {
+  make_fixture
+  perl -pi -e "s/egui-template-pwa/unrelated-pwa/" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that leaves its legacy cache behind"
+}
+
 test_service_worker_caching_error_responses_is_rejected() {
   make_fixture
   perl -pi -e 's/if [(]response[.]ok[)]/if (true)/' "$fixture_dir/shell/assets/sw.js"
@@ -157,6 +163,12 @@ test_service_worker_with_cache_first_stable_artifacts_is_rejected() {
   make_fixture
   perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]|false|" "$fixture_dir/shell/assets/sw.js"
   assert_rejected "cache-first stable WASM after an unchanged service-worker deploy"
+}
+
+test_service_worker_using_the_default_http_cache_is_rejected() {
+  make_fixture
+  perl -pi -e "s/fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]/fetch(e.request)/" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "network-first stable artifacts that can use the HTTP cache"
 }
 
 test_stale_debug_package_is_rejected() {
@@ -254,6 +266,7 @@ case "${1:-all}" in
   stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
   service-worker-cache-invalidation) test_service_worker_without_cache_invalidation_is_rejected ;;
   service-worker-cache-scope) test_service_worker_deleting_unrelated_caches_is_rejected ;;
+  service-worker-legacy-cache) test_service_worker_without_legacy_cache_cleanup_is_rejected ;;
   service-worker-error-response) test_service_worker_caching_error_responses_is_rejected ;;
   service-worker-cache-write-failure) test_service_worker_discarding_live_response_on_cache_failure_is_rejected ;;
   service-worker-offline-miss) test_service_worker_without_explicit_offline_error_is_rejected ;;
@@ -261,6 +274,7 @@ case "${1:-all}" in
   service-worker-immediate-control) test_service_worker_without_immediate_control_is_rejected ;;
   service-worker-navigation-strategy) test_service_worker_with_cache_first_navigation_is_rejected ;;
   service-worker-stable-artifacts) test_service_worker_with_cache_first_stable_artifacts_is_rejected ;;
+  service-worker-http-cache) test_service_worker_using_the_default_http_cache_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
   stale-debug-benchmark) test_stale_benchmark_is_rejected ;;
   console-debug-package) test_console_debug_package_is_rejected ;;
@@ -286,6 +300,7 @@ case "${1:-all}" in
     test_stale_script_artifact_name_is_rejected
     test_service_worker_without_cache_invalidation_is_rejected
     test_service_worker_deleting_unrelated_caches_is_rejected
+    test_service_worker_without_legacy_cache_cleanup_is_rejected
     test_service_worker_caching_error_responses_is_rejected
     test_service_worker_discarding_live_response_on_cache_failure_is_rejected
     test_service_worker_without_explicit_offline_error_is_rejected
@@ -293,6 +308,7 @@ case "${1:-all}" in
     test_service_worker_without_immediate_control_is_rejected
     test_service_worker_with_cache_first_navigation_is_rejected
     test_service_worker_with_cache_first_stable_artifacts_is_rejected
+    test_service_worker_using_the_default_http_cache_is_rejected
     test_stale_debug_package_is_rejected
     test_stale_benchmark_is_rejected
     test_console_debug_package_is_rejected

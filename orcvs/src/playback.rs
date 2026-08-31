@@ -49,6 +49,9 @@ pub enum PlaybackDiagnostic {
     StartFailure {
         message: String,
     },
+    RetuneFailure {
+        message: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -408,6 +411,14 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                 message: error.to_string(),
             });
         error
+    }
+
+    pub(crate) fn report_retune_error(&self, error: PlaybackStartError) {
+        lock_recover(&self.inner)
+            .diagnostics
+            .push(PlaybackDiagnostic::RetuneFailure {
+                message: error.to_string(),
+            });
     }
 
     #[cfg(not(target_arch = "wasm32"))]

@@ -22,7 +22,6 @@ impl<B: MidiBackend> MidiDeviceSelection<B> {
         match self.selection.destinations() {
             Ok(destinations) => {
                 self.destinations = destinations;
-                self.status = None;
             }
             Err(error) => self.status = Some(error.message),
         }
@@ -162,5 +161,17 @@ mod tests {
         midi.observe_diagnostics(orcvs.observe_playback());
 
         assert_eq!(midi.status(), Some("Playback requires a Tokio runtime"));
+    }
+
+    #[test]
+    fn refreshing_destinations_does_not_hide_an_active_output_failure() {
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
+        midi.observe_diagnostics(vec![orcvs::playback::PlaybackDiagnostic::OutputFailure(
+            orcvs::playback::OutputAdapterError::new("device lost"),
+        )]);
+
+        midi.refresh_destinations();
+
+        assert_eq!(midi.status(), Some("device lost"));
     }
 }

@@ -94,6 +94,7 @@ assert_contains "$root_dir/shell/assets/sw.js" "self[.]addEventListener[(]'activ
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]keys[(][)]'
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]delete[(]name[)]'
 assert_contains "$root_dir/shell/assets/sw.js" "name === 'orcvs-pwa'"
+assert_contains "$root_dir/shell/assets/sw.js" "name === 'egui-template-pwa'"
 assert_contains "$root_dir/shell/assets/sw.js" "name[.]startsWith[(]'orcvs-pwa-'[)]"
 assert_contains "$root_dir/shell/assets/sw.js" 'return isOrcvsCache && name !== cacheName;'
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]open[(]cacheName[)]'
@@ -104,6 +105,7 @@ assert_contains "$root_dir/shell/assets/sw.js" 'self[.]clients[.]claim[(][)]'
 assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]mode === 'navigate'"
 assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]"
 assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]"
+assert_contains "$root_dir/shell/assets/sw.js" "fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]"
 assert_contains "$root_dir/shell/assets/sw.js" 'response[.]ok'
 assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch'
 assert_contains "$root_dir/shell/assets/sw.js" 'response[[:space:]]*[|][|][[:space:]]*Response[.]error[(][)]'
