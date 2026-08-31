@@ -170,6 +170,7 @@ struct PlaybackInner<A> {
     playing: bool,
     connected: bool,
     diagnostics: Vec<PlaybackDiagnostic>,
+    last_output_failure: Option<OutputAdapterError>,
     generation: u64,
     cancellation: Option<CancellationToken>,
 }
@@ -215,6 +216,7 @@ impl<B: crate::midi::MidiBackend> MidiSelectionHandle<B> {
         let inner = self.inner()?;
         let mut inner = lock_recover(&inner);
         let selection = inner.adapter.select(destination_id)?;
+        inner.last_output_failure = None;
         if let Some(error) = selection.safety_failure() {
             inner.record_output_failure(OutputAdapterError::new(error.message));
         }
@@ -263,8 +265,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     }
 
     fn record_output_failure(&mut self, error: OutputAdapterError) {
-        self.diagnostics
-            .push(PlaybackDiagnostic::OutputFailure(error));
+        if self.last_output_failure.as_ref() != Some(&error) {
+            self.diagnostics
+                .push(PlaybackDiagnostic::OutputFailure(error.clone()));
+            self.last_output_failure = Some(error);
+        }
     }
 
     fn tick(&mut self, generation: u64, timing: TickTiming) -> Option<TickResult> {
@@ -279,10 +284,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             return None;
         }
         let tick = self.source.execute();
-        if self.connected
-            && let Err(error) = self.adapter.submit(&tick.plan.play_commands)
-        {
-            self.record_output_failure(error);
+        if self.connected {
+            match self.adapter.submit(&tick.plan.play_commands) {
+                Ok(()) => self.last_output_failure = None,
+                Err(error) => self.record_output_failure(error),
+            }
         }
         Some(tick)
     }
@@ -297,6 +303,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
                 playing: false,
                 connected: true,
                 diagnostics: Vec::new(),
+                last_output_failure: None,
                 generation: 0,
                 cancellation: None,
             })),
@@ -366,6 +373,7 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
     ) -> Result<(), crate::midi::MidiError> {
         let mut inner = lock_recover(&self.inner);
         let selection = inner.adapter.select(destination_id)?;
+        inner.last_output_failure = None;
         if let Some(error) = selection.safety_failure() {
             inner.record_output_failure(OutputAdapterError::new(error.message));
         }
@@ -395,6 +403,109 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                 message: error.to_string(),
             });
         error
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
+        if tick_period.is_zero() {
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
+        }
+        let runtime = tokio::runtime::Handle::try_current()
+            .map_err(|_| self.report_start_error(PlaybackStartError::RuntimeUnavailable))?;
+
+        let (generation, cancellation, weak) = {
+            let mut inner = lock_recover(&self.inner);
+            if !inner.playing {
+                return Ok(());
+            }
+            if let Some(previous) = inner.cancellation.take() {
+                previous.cancel();
+            }
+            inner.generation = inner.generation.wrapping_add(1);
+            let cancellation = CancellationToken::new();
+            inner.cancellation = Some(cancellation.clone());
+            (inner.generation, cancellation, Arc::downgrade(&self.inner))
+        };
+
+        runtime.spawn(async move {
+            let mut guard = ClockRunGuard::new(weak.clone(), generation);
+            let epoch = time::Instant::now();
+            let mut interval = time::interval_at(epoch + tick_period, tick_period);
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
+
+            loop {
+                tokio::select! {
+                    _ = cancellation.cancelled() => {
+                        guard.finish();
+                        break;
+                    },
+                    scheduled = interval.tick() => {
+                        let scheduled_at = scheduled.duration_since(epoch);
+                        let observed_at = time::Instant::now().duration_since(epoch);
+                        let Some(inner) = weak.upgrade() else { break };
+                        lock_recover(&inner).tick(generation, TickTiming {
+                            scheduled_at,
+                            observed_at,
+                            period: tick_period,
+                        });
+                    }
+                }
+            }
+        });
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
+        if tick_period.is_zero() {
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
+        }
+
+        let (generation, cancellation, weak) = {
+            let mut inner = lock_recover(&self.inner);
+            if !inner.playing {
+                return Ok(());
+            }
+            if let Some(previous) = inner.cancellation.take() {
+                previous.cancel();
+            }
+            inner.generation = inner.generation.wrapping_add(1);
+            let cancellation = CancellationToken::new();
+            inner.cancellation = Some(cancellation.clone());
+            (inner.generation, cancellation, Arc::downgrade(&self.inner))
+        };
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut guard = ClockRunGuard::new(weak.clone(), generation);
+            let epoch = web_time::Instant::now();
+            let mut scheduled_at = tick_period;
+
+            loop {
+                let delay = scheduled_at.saturating_sub(epoch.elapsed());
+                if !wait_for_tick_or_cancellation(
+                    gloo_timers::future::TimeoutFuture::new(wasm_timeout_millis(delay)),
+                    &cancellation,
+                )
+                .await
+                {
+                    guard.finish();
+                    break;
+                }
+
+                let observed_at = epoch.elapsed();
+                let Some(inner) = weak.upgrade() else { break };
+                lock_recover(&inner).tick(
+                    generation,
+                    TickTiming {
+                        scheduled_at,
+                        observed_at,
+                        period: tick_period,
+                    },
+                );
+                scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
+            }
+        });
+        Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]

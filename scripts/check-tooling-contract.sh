@@ -82,6 +82,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nexte
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo test --workspace --doc --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --features persistence --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --features persistence --locked.$'
 assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
@@ -95,6 +96,11 @@ assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]delete[(]name[)]'
 assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]open[(]cacheName[)]'
 assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]match[(]e[.]request[)]'
 assert_not_contains "$root_dir/shell/assets/sw.js" 'caches[.]match[(]e[.]request[)]'
+assert_contains "$root_dir/shell/assets/sw.js" 'self[.]skipWaiting[(][)]'
+assert_contains "$root_dir/shell/assets/sw.js" 'self[.]clients[.]claim[(][)]'
+assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]mode === 'navigate'"
+assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]"
+assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]"
 assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'

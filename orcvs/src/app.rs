@@ -109,13 +109,11 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 
     pub fn set_bpm(&mut self, bpm: Bpm) {
-        let was_playing = self.playing();
-        if was_playing {
-            self.stop();
-        }
         self.opts.bpm = bpm;
-        if was_playing {
-            self.play();
+        if self.playing() {
+            let _ = self
+                .playback
+                .retune(Duration::from_millis(self.opts.bpm.delay_ms()));
         }
     }
 
@@ -288,6 +286,7 @@ impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
 
     use super::Orcvs;
     use crate::opts::Bpm;
@@ -305,6 +304,54 @@ mod test {
         orcvs.set_bpm(Bpm::new(120).unwrap());
 
         assert_eq!(orcvs.bpm().beats_per_minute(), 120);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn changing_tempo_while_playing_preserves_output_and_waits_for_the_new_period() {
+        let adapter = crate::playback::InMemoryOutputAdapter::default();
+        let mut orcvs = Orcvs::with_output_adapter(2, 1, adapter.clone());
+        orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 1);
+
+        orcvs.set_bpm(Bpm::new(120).unwrap());
+        tokio::task::yield_now().await;
+
+        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(adapter.command_lists().len(), 1);
+        orcvs.observe_playback();
+        assert!(orcvs.playing());
+
+        tokio::time::advance(Duration::from_millis(124)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 1);
+
+        tokio::time::advance(Duration::from_millis(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(adapter.command_lists().len(), 2);
+    }
+
+    #[test]
+    fn failed_tempo_retune_keeps_existing_playback_running() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let adapter = crate::playback::InMemoryOutputAdapter::default();
+        let mut orcvs = Orcvs::with_output_adapter(2, 1, adapter.clone());
+        runtime.block_on(async {
+            orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+            tokio::task::yield_now().await;
+        });
+
+        orcvs.set_bpm(Bpm::new(120).unwrap());
+
+        let diagnostics = orcvs.observe_playback();
+        assert!(orcvs.playing());
+        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(
+            diagnostics,
+            vec![crate::playback::PlaybackDiagnostic::StartFailure {
+                message: "Playback requires a Tokio runtime".to_string(),
+            }]
+        );
     }
 
     #[test]

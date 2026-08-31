@@ -71,6 +71,12 @@ test_wasm_build_without_persistence_is_rejected() {
   assert_rejected "a WASM build without the persistence feature"
 }
 
+test_missing_default_wasm_build_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^env -u NO_COLOR trunk build --locked\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a missing default-feature WASM build"
+}
+
 test_wasm_test_without_persistence_is_rejected() {
   make_fixture
   perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --locked/' "$fixture_dir/mise.toml"
@@ -101,10 +107,44 @@ test_service_worker_without_cache_invalidation_is_rejected() {
   assert_rejected "a service worker without versioned cache invalidation"
 }
 
+test_service_worker_without_immediate_activation_is_rejected() {
+  make_fixture
+  perl -pi -e 's/self[.]skipWaiting[(][)]/self.waitForOldClients()/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that waits for every old tab to close"
+}
+
+test_service_worker_without_immediate_control_is_rejected() {
+  make_fixture
+  perl -pi -e 's/self[.]clients[.]claim[(][)]/self.clients.waitForReload()/' "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "a service worker that does not control existing tabs after activation"
+}
+
+test_service_worker_with_cache_first_navigation_is_rejected() {
+  make_fixture
+  perl -pi -e "s/e[.]request[.]mode === 'navigate'/e.request.mode === 'cached-navigation'/" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "cache-first navigation after a deploy"
+}
+
+test_service_worker_with_cache_first_stable_artifacts_is_rejected() {
+  make_fixture
+  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]|false|" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "cache-first stable JavaScript after an unchanged service-worker deploy"
+
+  make_fixture
+  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]|false|" "$fixture_dir/shell/assets/sw.js"
+  assert_rejected "cache-first stable WASM after an unchanged service-worker deploy"
+}
+
 test_stale_debug_package_is_rejected() {
   make_fixture
   perl -pi -e 's/--package=shell/--package=vtha/' "$fixture_dir/.vscode/launch.json"
   assert_rejected "a stale package name in the debugger configuration"
+}
+
+test_console_debug_package_is_rejected() {
+  make_fixture
+  perl -pi -e 's/("--package=shell")/$1,\n                    "--package=console"/' "$fixture_dir/.vscode/launch.json"
+  assert_rejected "the retired console package in the debugger configuration"
 }
 
 test_missing_orcvs_persistence_check_is_rejected() {
@@ -177,12 +217,18 @@ case "${1:-all}" in
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
   wasm-build-persistence) test_wasm_build_without_persistence_is_rejected ;;
+  missing-default-wasm-build) test_missing_default_wasm_build_is_rejected ;;
   wasm-test-persistence) test_wasm_test_without_persistence_is_rejected ;;
   stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
   hashed-wasm-artifacts) test_hashed_wasm_artifacts_are_rejected ;;
   stale-script-artifact) test_stale_script_artifact_name_is_rejected ;;
   service-worker-cache-invalidation) test_service_worker_without_cache_invalidation_is_rejected ;;
+  service-worker-immediate-activation) test_service_worker_without_immediate_activation_is_rejected ;;
+  service-worker-immediate-control) test_service_worker_without_immediate_control_is_rejected ;;
+  service-worker-navigation-strategy) test_service_worker_with_cache_first_navigation_is_rejected ;;
+  service-worker-stable-artifacts) test_service_worker_with_cache_first_stable_artifacts_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
+  console-debug-package) test_console_debug_package_is_rejected ;;
   missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
@@ -198,12 +244,18 @@ case "${1:-all}" in
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
     test_wasm_build_without_persistence_is_rejected
+    test_missing_default_wasm_build_is_rejected
     test_wasm_test_without_persistence_is_rejected
     test_stale_wasm_artifact_name_is_rejected
     test_hashed_wasm_artifacts_are_rejected
     test_stale_script_artifact_name_is_rejected
     test_service_worker_without_cache_invalidation_is_rejected
+    test_service_worker_without_immediate_activation_is_rejected
+    test_service_worker_without_immediate_control_is_rejected
+    test_service_worker_with_cache_first_navigation_is_rejected
+    test_service_worker_with_cache_first_stable_artifacts_is_rejected
     test_stale_debug_package_is_rejected
+    test_console_debug_package_is_rejected
     test_missing_orcvs_persistence_check_is_rejected
     test_persistence_command_in_wrong_task_is_rejected
     test_dotted_dependency_version_is_rejected

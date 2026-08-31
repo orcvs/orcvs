@@ -359,6 +359,37 @@ mod tests {
         );
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn disconnected_output_reports_delivery_failure_once() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let source = SourceCommander::new(Grid::new(10, 2));
+        for (index, content) in "!>07FC4".chars().enumerate() {
+            source.set(index, &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source, adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        state.lock().unwrap().fail_next_send = true;
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        for _ in 0..2 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            playback.observe().diagnostics,
+            vec![crate::playback::PlaybackDiagnostic::OutputFailure(
+                OutputAdapterError::new("device lost")
+            )]
+        );
+    }
+
     #[test]
     fn reselection_reports_safety_failure_and_connects_new_destination() {
         let state = Arc::new(Mutex::new(FakeState::default()));
