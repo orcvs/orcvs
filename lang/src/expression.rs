@@ -24,8 +24,6 @@ pub enum Token {
     Char,
 }
 
-pub type T = Token;
-
 impl Expression {
     pub fn new() -> Self {
         let tokens = ArrayVec::new();
@@ -90,17 +88,6 @@ impl Token {
 impl From<&Function> for Tokens {
     #[inline(always)]
     fn from(f: &Function) -> Self {
-        let tokens = match f {
-            Function::Add => vec![T::Number, T::Number],
-            Function::ConvertToNote => vec![T::Number],
-            Function::ConvertToNumber => vec![T::Note],
-            Function::Divide => vec![T::Number, T::Number],
-            Function::Play => vec![T::NumberN(1), T::Number, T::Note],
-            Function::Multiply => vec![T::Number, T::Number],
-            Function::Subtract => vec![T::Number, T::Number],
-            _ => vec![],
-        };
-
-        tokens.into_iter().collect()
+        f.signature().iter().copied().collect()
     }
 }

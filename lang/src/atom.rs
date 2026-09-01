@@ -23,16 +23,61 @@ pub enum Activation {
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Function {
-    Add,
-    ConvertToNote,
-    ConvertToNumber,
-    Divide,
-    Empty,
-    Multiply,
-    Play,
-    Subtract,
+macro_rules! define_functions {
+    ($($variant:ident => ($spelling:literal, [$($operand:expr),* $(,)?])),+ $(,)?) => {
+        $(const _: () = assert!(
+            $spelling.len() == 2 && $spelling.is_ascii(),
+            "a Function spelling must be exactly two ASCII Cells",
+        );)+
+
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub enum Function {
+            $($variant,)+
+            /// Parser-recovery sentinel; not a real Function.
+            Empty,
+        }
+
+        impl Function {
+            /// Every real Function, generated from the canonical definitions above.
+            pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
+
+            pub(crate) const fn spelling(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $spelling,)+
+                    Self::Empty => "__",
+                }
+            }
+
+            pub(crate) fn signature(self) -> &'static [crate::Token] {
+                match self {
+                    $(Self::$variant => &[$($operand,)*],)+
+                    Self::Empty => &[],
+                }
+            }
+        }
+
+        impl TryFrom<&str> for Function {
+            type Error = Error;
+
+            #[inline(always)]
+            fn try_from(spelling: &str) -> Result<Self, Self::Error> {
+                match spelling {
+                    $($spelling => Ok(Self::$variant),)+
+                    _ => Err(crate::SyntaxError::UnknownFunction(spelling.to_string()).into()),
+                }
+            }
+        }
+    };
+}
+
+define_functions! {
+    Add => (".+", [crate::Token::Number, crate::Token::Number]),
+    ConvertToNote => (".^", [crate::Token::Number]),
+    ConvertToNumber => (".v", [crate::Token::Note]),
+    Divide => ("./", [crate::Token::Number, crate::Token::Number]),
+    Multiply => (".x", [crate::Token::Number, crate::Token::Number]),
+    Play => ("!>", [crate::Token::NumberN(1), crate::Token::Number, crate::Token::Note]),
+    Subtract => (".-", [crate::Token::Number, crate::Token::Number]),
 }
 
 #[inline(always)]
@@ -77,16 +122,7 @@ impl From<Function> for Atom {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Function::Add => write!(f, ".+"),
-            Function::ConvertToNote => write!(f, ".^"),
-            Function::ConvertToNumber => write!(f, ".v"),
-            Function::Empty => write!(f, "__"),
-            Function::Divide => write!(f, "./"),
-            Function::Multiply => write!(f, ".x"),
-            Function::Play => write!(f, "!>"),
-            Function::Subtract => write!(f, ".-"),
-        }
+        f.write_str(self.spelling())
     }
 }
 

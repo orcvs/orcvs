@@ -43,7 +43,7 @@ impl Interpreter {
                         return Ok(Interpretation::Play(functions::play(&mut ctx)?));
                     }
                     Function::Play => return Err(InterpretationError::NestedPlay.into()),
-                    _ => Atom::Function(Function::Empty),
+                    Function::Empty => Atom::Function(Function::Empty),
                 },
                 atom => *atom,
             };

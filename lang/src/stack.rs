@@ -1,4 +1,4 @@
-use crate::{ArgumentError, Atom, Error, Function, SyntaxError, TypeError};
+use crate::{ArgumentError, Atom, Error, Function, TypeError};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
@@ -131,24 +131,6 @@ impl TryFrom<MaybeAtom> for Function {
         match maybe_atom.0 {
             Some(Atom::Function(f)) => Ok(f),
             _ => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<&str> for Function {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            ".+" => Ok(Function::Add),
-            ".^" => Ok(Function::ConvertToNote),
-            ".v" => Ok(Function::ConvertToNumber),
-            "./" => Ok(Function::Divide),
-            ".x" => Ok(Function::Multiply),
-            "!>" => Ok(Function::Play),
-            ".-" => Ok(Function::Subtract),
-            s => Err(SyntaxError::UnknownFunction(s.to_string()).into()),
         }
     }
 }

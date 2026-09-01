@@ -206,6 +206,18 @@ mod test {
         parser.try_parse()
     }
 
+    #[test]
+    fn every_real_function_parses_and_renders_from_its_canonical_spelling() {
+        assert!(!Function::ALL.contains(&Function::Empty));
+
+        for function in Function::ALL {
+            let spelling = function.spelling();
+
+            assert_eq!(Function::try_from(spelling).unwrap(), *function);
+            assert_eq!(function.to_string(), spelling);
+        }
+    }
+
     fn parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
         let parser = Parser::from(exp);
         let a = parser.parse()?.take_atoms();
