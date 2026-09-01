@@ -7,6 +7,8 @@ interpretation, Glyph classification, diagnostics, and later spatial Tick planni
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Source no longer owns parallel Expression-map, parsed-Atom, Glyph, and diagnostic protocols.
 - [ ] Callers query units, roots, Footprints, and diagnostics without reconstructing spans.
 - [ ] Render Frame still receives coherent Source Cells and semantic Glyphs from one revision.

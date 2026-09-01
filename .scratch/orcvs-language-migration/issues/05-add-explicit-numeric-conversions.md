@@ -8,6 +8,8 @@ Function.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [x] During evaluation, `.v Number` returns the same Number and `.v Note` returns its underlying MIDI Number.
 - [x] During evaluation, `.^ Note` returns the same Note and `.^ Number` converts `00`–`7F` to the corresponding Note.
 - [x] `.^` diagnoses Numbers `80`–`FF` and produces no result.

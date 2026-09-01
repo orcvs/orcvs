@@ -7,6 +7,8 @@ south, with no separate control phase.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Active Halt locks a complete root one row south before that root's later turn.
 - [ ] Empty target is a no-op; occupied non-root target diagnoses.
 - [ ] A suppressed Halt does not lock its own target.

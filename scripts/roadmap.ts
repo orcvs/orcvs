@@ -476,7 +476,38 @@ export const planRelease = (roadmap: Roadmap, release: ReleaseScope): ReleasePla
     };
   }
   if (!byReference.has(release.gate)) {
+    const declaredGate = tagged.find(({ reference }) => reference === release.gate);
+    if (declaredGate !== undefined && isSettled(declaredGate.issue.state)) {
+      if (open.length > 0) {
+        throw new Error(
+          `Settled release gate ${release.gate} has open release issues: ${open
+            .map(({ reference }) => reference)
+            .sort()
+            .join(', ')}`,
+        );
+      }
+      return { criticalPath: [], parallel: [] };
+    }
     throw new Error(`Release gate ${release.gate} is not an open issue tagged ${release.tag}.`);
+  }
+
+  const gateClosure = new Set<string>();
+  const includePrerequisites = (reference: string): void => {
+    if (gateClosure.has(reference)) return;
+    gateClosure.add(reference);
+    const taggedIssue = byReference.get(reference);
+    if (taggedIssue === undefined) throw new Error(`Unknown open release issue ${reference}.`);
+    for (const blocker of taggedIssue.issue.unmetBlockers) includePrerequisites(blocker);
+  };
+  includePrerequisites(release.gate);
+  const outsideGate = open
+    .map(({ reference }) => reference)
+    .filter((reference) => !gateClosure.has(reference))
+    .sort();
+  if (outsideGate.length > 0) {
+    throw new Error(
+      `Release gate ${release.gate} does not depend on tagged release issues: ${outsideGate.join(', ')}`,
+    );
   }
 
   const paths = new Map<string, readonly string[]>();

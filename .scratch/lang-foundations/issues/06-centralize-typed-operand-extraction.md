@@ -8,6 +8,8 @@ designing Sequence broadcasting prematurely.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Arithmetic and Raw Play consume operands through one strict typed extraction seam.
 - [ ] The Function signature remains authoritative for arity, operand order, and Number-versus-Note
       expectations.

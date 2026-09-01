@@ -3,9 +3,12 @@
 **What to build:** Encode the partition law from ADR 0018 and CONTEXT.md. Generate Source contents
 over a Grid, build the Language Map, and check that the recognised units partition each row.
 
-**Blocked by:** 01 — Add proptest for native targets.
+**Blocked by:** 01 — Add proptest for native targets; language-map/03 — Move Source consumers behind
+the Language Map.
 
 **Status:** ready-for-agent
+
+**Tags:** release/v1
 
 - [ ] No two Expression ranges overlap.
 - [ ] No Expression range crosses a row boundary.

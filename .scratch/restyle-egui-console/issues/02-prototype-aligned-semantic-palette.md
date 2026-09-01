@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Semantic colours are derived from one theme boundary rather than scattered rendering literals.
 - [ ] Glyph classification remains responsible for semantic colour choice while Grid rendering owns geometry.
 - [ ] Numbers use a calm non-yellow colour distinct from Functions, Notes, and ordinary Characters.

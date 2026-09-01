@@ -5,6 +5,8 @@ Wire the case count to the verification tier, and commit the counterexample file
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `proptest` is declared as a workspace dependency and used by `lang` and `orcvs`.
 - [ ] The dependency is confined to `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`.
 - [ ] Property modules carry the matching `cfg`, so `wasm-pack test` compiles without proptest.

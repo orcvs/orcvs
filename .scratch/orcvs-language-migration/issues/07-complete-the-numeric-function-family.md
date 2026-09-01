@@ -8,6 +8,8 @@ operands and no value for unequal operands.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Every Function parses and round-trips through its behavior-first spelling.
 - [ ] Absolute Difference is symmetric and cannot underflow.
 - [ ] Modulo diagnoses a zero divisor and produces no result.

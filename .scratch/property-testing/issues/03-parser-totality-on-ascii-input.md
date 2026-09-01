@@ -1,17 +1,22 @@
 # 03 — Parser totality on ASCII input
 
-**What to build:** Check that the parser terminates and never panics on arbitrary ASCII input, and
-that its two entry points agree. Generate strings from the full printable ASCII range, not only from
-valid Orcvs spellings.
+**What to build:** Check that strict Expression parsing and permissive Live Edit analysis terminate,
+never panic, and preserve their distinct contracts on arbitrary ASCII input. Generate strings from
+the full printable ASCII range, not only valid Orcvs spellings.
 
-**Blocked by:** 01 — Add proptest for native targets.
+**Blocked by:** 01 — Add proptest for native targets; lang-foundations/08 — Separate Source analysis from strict parsing; language-map/02 — Derive Expressions, roots, and diagnostics.
 
 **Status:** ready-for-agent
 
-- [ ] `Parser::parse` never panics for any ASCII input up to `EXP_LEN`.
-- [ ] `try_parse` never panics, and returns an error wherever `parse` reports invalid.
+**Tags:** release/v1
+
+- [ ] Strict parsing never panics and returns only complete evaluable entries or a typed error.
+- [ ] Permissive analysis never panics, preserves complete recognized units, and reports incomplete
+      or invalid Source explicitly without placeholder runtime values.
 - [ ] Input longer than `EXP_LEN` produces `ExpressionTooLong` rather than a panic or a truncation.
-- [ ] A successful `try_parse` consumes the whole input, leaving no trailing content.
+- [ ] A successful strict parse consumes the whole Expression, leaving no trailing content.
+- [ ] Recovery advances at the documented Cell and every diagnostic refers to the same Language Map
+      revision as its Position or Footprint.
 - [ ] Every `Atom` renders through `Display` and parses back to an equal `Atom`.
 - [ ] The generator covers the space character, incomplete `#`, and the `##` Comment introducer.
 

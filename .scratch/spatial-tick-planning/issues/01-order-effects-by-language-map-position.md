@@ -7,6 +7,8 @@ actionable Language Units and Expression roots.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Turns are ordered by row-major anchor Position from one Source Snapshot.
 - [ ] Each producer emits effects in a stable local order.
 - [ ] Writes, activations, locks, diagnostics, and terminal commands share the same ordering model.

@@ -7,6 +7,8 @@ that renders and parses in both directions, including the documented octave belo
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Number parsing accepts exactly two uppercase hexadecimal Cells for every value `00`–`FF`.
 - [ ] Single-Cell, lowercase, signed, empty, and over-length Number spellings diagnose.
 - [ ] Note conversion derives one arithmetic mapping for all values `00`–`7F`, from `C/` through

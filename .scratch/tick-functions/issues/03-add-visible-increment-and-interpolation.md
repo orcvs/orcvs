@@ -7,6 +7,8 @@ Number at the ordinary result Portal in the current Source Snapshot.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Empty Portal initializes as Number `00`.
 - [ ] Increment returns `(previous + step) % modulus` and rejects zero modulus.
 - [ ] Interpolation moves toward target without overshoot; rate `00` holds.

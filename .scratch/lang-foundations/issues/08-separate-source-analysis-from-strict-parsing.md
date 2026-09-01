@@ -8,6 +8,8 @@ injecting sentinel Functions for incomplete Source.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Strict parsing returns parsed Atoms or a typed error and never produces recovery sentinels.
 - [ ] Permissive analysis preserves complete entries while representing incomplete or invalid
       Source explicitly.

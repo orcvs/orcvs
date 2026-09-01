@@ -7,6 +7,8 @@ inclusive byte-range mapping.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Reversed bounds normalize and equal bounds return that value.
 - [ ] Seed, absolute Tick, signed Position coordinates, and Sequence index occupy the specified bytes.
 - [ ] A fresh ChaCha8 stream supplies the first `u64` for each scalar result.

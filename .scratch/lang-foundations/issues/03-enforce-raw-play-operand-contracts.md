@@ -8,6 +8,8 @@ parsing.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Raw Play consumes a two-Cell channel Number, a velocity Number, and a Note in that order.
 - [ ] Channels outside `00`–`0F` and velocities outside `00`–`7F` diagnose and emit no command.
 - [ ] A Note in either Number slot and a Number or Char in the Note slot diagnose and emit no

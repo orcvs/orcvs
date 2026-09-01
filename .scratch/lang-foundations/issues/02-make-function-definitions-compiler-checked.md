@@ -8,6 +8,8 @@ rendering, signature lookup, enumeration, or dispatch silently incomplete.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Parsing and rendering use the same canonical spelling definition.
 - [ ] Every real Function has exactly one fixed operand signature.
 - [ ] The complete real-Function enumeration cannot silently omit a newly added Function.

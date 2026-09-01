@@ -7,6 +7,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Range handles ascending, descending, equal, Number, Note, and mixed-type bounds.
 - [ ] Reverse changes Atom order but never reverses an Atom encoding.
 - [ ] Concatenate promotes Atoms, stays flat, and treats empty Sequence as identity.

@@ -7,6 +7,8 @@ Number operands.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Clock returns `floor(Tick / rate) % modulus`.
 - [ ] Delay Bangs exactly when `Tick % (rate * modulus) == 0`, including Tick `0`.
 - [ ] Zero rate or modulus diagnoses and the cycle product cannot byte-wrap.

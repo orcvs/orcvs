@@ -7,6 +7,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Complete Operand Literals, Functions, Bangs, and Activation Characters are recognized.
 - [ ] Each unit records one Grid-minted anchor Position and complete Footprint.
 - [ ] Recognition is left-to-right and non-overlapping (`***`, `<<<`, and `^^^^` match ADR 0018).

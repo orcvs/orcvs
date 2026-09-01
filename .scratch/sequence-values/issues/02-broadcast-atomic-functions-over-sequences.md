@@ -7,6 +7,8 @@ using ADR 0007's scalar and equal-length rules.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Atom/Atom evaluates once and returns the ordinary result.
 - [ ] Atom/Sequence and Sequence/Atom repeat the scalar across every element.
 - [ ] Equal-length Sequences pair element-wise in order.
@@ -14,5 +16,6 @@ using ADR 0007's scalar and equal-length rules.
 - [ ] Per-element type or evaluation failure diagnoses the complete operation.
 - [ ] Unary `.v` and `.^` conversions broadcast atom-wise, preserve order, and return no partial
       Sequence when any element fails conversion.
-- [ ] Equality can produce empty element results without inventing an Atom.
+- [ ] Equality remains ADR 0011's whole-value predicate: it produces one scalar Bang only when
+      every broadcast pair is equal, otherwise no value; it never creates absent Sequence elements.
 - [ ] Increment and Interpolation are not accidentally broadcast.

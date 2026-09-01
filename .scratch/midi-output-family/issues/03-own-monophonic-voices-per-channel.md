@@ -7,6 +7,8 @@ adapter and MIDI channel.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Every command stops the prior Mono-owned note on its channel first.
 - [ ] Velocity `00` or length `00` replaces ownership with silence and starts nothing.
 - [ ] Positive commands own the replacement and schedule Note Off at Tick `T + length`.

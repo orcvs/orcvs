@@ -7,6 +7,8 @@ shipping its setup code or dependency as part of the ordinary `lang` library.
 
 **Status:** ready-for-agent
 
+**Tags:** Improvement
+
 - [ ] Subscriber initialization is compiled only for tests.
 - [ ] The subscriber dependency is development-only and no runtime dependency remains solely for
       test setup.

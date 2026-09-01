@@ -5,6 +5,8 @@ When a property test and CONTEXT.md disagree, the glossary is correct.
 
 **Status:** ready-for-agent
 
+**Tags:** Improvement
+
 - [ ] `AGENTS.md` states that CONTEXT.md and the ADRs are authoritative over a property test.
 - [ ] It states that a wrong glossary sentence is corrected in CONTEXT.md in the same change.
 - [ ] It states that a property is never weakened to match the code.

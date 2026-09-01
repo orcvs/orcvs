@@ -1,6 +1,13 @@
 # Collapse ExpressionMap into a single Expression-extent seam
 
-**Status:** ready-for-agent
+**Status:** superseded by `language-map` and the decided Expression/runtime invariant.
+
+**Tags:** Improvement
+
+This earlier Expression-extent seam is retained as planning history. The Language Map effort now
+owns the single deep Source-derived interface, including Expressions, roots, Language Units,
+Footprints, diagnostics, and valid evaluable entries; no competing implementation tickets should
+be created from this spec.
 
 ## Problem Statement
 

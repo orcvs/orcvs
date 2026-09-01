@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { readReleaseScope, taggedReference } from '../roadmap.ts';
+import { buildRoadmap, planRelease, readReleaseScope, taggedReference } from '../roadmap.ts';
 
 test('taggedReference rejects an issue without a number', () => {
   const tagged = {
@@ -79,6 +79,92 @@ test('readReleaseScope accepts markdown-emphasized release labels, same as Statu
     assert.equal(scope?.goal, 'ship');
     assert.equal(scope?.definition, 'docs/dod.md');
     assert.equal(scope?.gate, '05');
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('planRelease accepts a settled declared gate when all release work is settled', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    mkdirSync(join(root, 'release', 'issues'), { recursive: true });
+    writeFileSync(
+      join(root, 'release', 'issues', '01-gate.md'),
+      '# Gate\n\nStatus: resolved\nTags: release/v1\n',
+    );
+
+    const roadmap = buildRoadmap(root);
+    const plan = planRelease(roadmap, {
+      title: 'Release',
+      tag: 'release/v1',
+      goal: 'ship',
+      definition: null,
+      gate: 'release/01',
+    });
+
+    assert.deepEqual(plan, { criticalPath: [], parallel: [] });
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('planRelease rejects a settled declared gate while tagged release work remains open', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    mkdirSync(join(root, 'release', 'issues'), { recursive: true });
+    writeFileSync(
+      join(root, 'release', 'issues', '01-gate.md'),
+      '# Gate\n\nStatus: resolved\nTags: release/v1\n',
+    );
+    writeFileSync(
+      join(root, 'release', 'issues', '02-work.md'),
+      '# Work\n\nStatus: ready-for-agent\nTags: release/v1\n',
+    );
+
+    const roadmap = buildRoadmap(root);
+
+    assert.throws(
+      () =>
+        planRelease(roadmap, {
+          title: 'Release',
+          tag: 'release/v1',
+          goal: 'ship',
+          definition: null,
+          gate: 'release/01',
+        }),
+      /Settled release gate release\/01 has open release issues: release\/02/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('planRelease rejects tagged work outside the open gate dependency closure', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    mkdirSync(join(root, 'release', 'issues'), { recursive: true });
+    writeFileSync(
+      join(root, 'release', 'issues', '01-gate.md'),
+      '# Gate\n\nStatus: ready-for-agent\nTags: release/v1\n',
+    );
+    writeFileSync(
+      join(root, 'release', 'issues', '02-work.md'),
+      '# Work\n\nStatus: ready-for-agent\nTags: release/v1\n',
+    );
+
+    const roadmap = buildRoadmap(root);
+
+    assert.throws(
+      () =>
+        planRelease(roadmap, {
+          title: 'Release',
+          tag: 'release/v1',
+          goal: 'ship',
+          definition: null,
+          gate: 'release/01',
+        }),
+      /Release gate release\/01 does not depend on tagged release issues: release\/02/u,
+    );
   } finally {
     rmSync(root, { recursive: true });
   }

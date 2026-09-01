@@ -7,6 +7,8 @@ Position while keeping the Source Snapshot and Tick Plan deterministic.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Playback begins at Tick `0` and increments one unsigned counter per executed Tick.
 - [ ] Source interpretation receives Tick explicitly rather than reading wall time or global state.
 - [ ] Function evaluation receives its Grid-minted anchor Position from the Language Map.

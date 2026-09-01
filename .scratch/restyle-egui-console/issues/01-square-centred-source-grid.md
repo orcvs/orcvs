@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Cell width and height remain equal for wide, tall, and square available areas.
 - [ ] The rendered Grid viewport remains square and centred in surplus space.
 - [ ] Resizing cannot stretch one Cell axis independently of the other.

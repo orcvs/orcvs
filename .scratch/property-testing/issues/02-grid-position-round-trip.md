@@ -7,6 +7,8 @@ candidate coordinates, and check containment, the index round trip, and row cove
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `position(x, y)` returns `Some` exactly when `x` is inside the columns and `y` inside the rows.
 - [ ] `position_at(index(p)) == Some(p)` for every Position the Grid mints.
 - [ ] `index(position_at(i).unwrap()) == i` for every `i` below `count()`.

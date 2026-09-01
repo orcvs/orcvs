@@ -9,6 +9,8 @@ known.
 
 **Status:** ready-for-agent
 
+**Tags:** Improvement
+
 - [ ] The unused Portal type, module, and export are removed.
 - [ ] No current parser, evaluator, or Source behavior changes.
 - [ ] The later Sequence Portal ticket still describes the domain behavior without depending on the

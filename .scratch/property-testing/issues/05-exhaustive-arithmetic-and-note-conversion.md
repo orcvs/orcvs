@@ -3,12 +3,18 @@
 **What to build:** Test the byte arithmetic and the MIDI Note conversions exhaustively, with loops
 rather than properties. The domains are small enough to cover completely.
 
-**Blocked by:** 01 — Add proptest for native targets.
+**Blocked by:** property-testing/07 — Make Number and Note Source encodings canonical;
+orcvs-language-migration/05 — Add explicit Number and Note conversions;
+orcvs-language-migration/07 — Complete the numeric Function family.
 
 **Status:** ready-for-agent
 
-- [ ] `add`, `subtract`, and `multiply` are checked over all 65,536 `u8` pairs and always wrap.
+**Tags:** release/v1
+
+- [ ] Addition, ordered Subtraction, Absolute Difference, Multiplication, Modulo, Minimum, Maximum,
+      and Equality are checked over all 65,536 Number pairs against their accepted laws.
 - [ ] `divide` errors for every zero divisor and returns a value for every non-zero divisor.
+- [ ] Modulo errors for every zero divisor; Equality proves its scalar Bang/no-value behavior.
 - [ ] `midi_number_to_note` and `midi_note_to_number` round-trip over every value from `00` to `7F`.
 - [ ] Every value above `7F` is rejected as a Note.
 - [ ] Evaluator-level `.v` identity and Note-to-Number conversion cover every valid MIDI value, and

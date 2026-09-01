@@ -7,6 +7,8 @@ root activation behavior from `CONTEXT.md` and ADR 0020.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Snapshot Bang activates only complete aligned cardinal Expression roots.
 - [ ] Horizontal root anchors are two columns away; vertical anchors are one row away.
 - [ ] Activation takes effect only at a later root turn and evaluates the root at most once.

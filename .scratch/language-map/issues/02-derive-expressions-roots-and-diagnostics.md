@@ -7,6 +7,8 @@ parsed language values, complete Footprints, and revision-consistent diagnostics
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Contiguous occupied Source is grouped into horizontal Expressions without row wrapping.
 - [ ] A valid Expression identifies its first Function as its root and retains nested Functions.
 - [ ] Literal-only, incomplete, invalid, and over-capacity Source produce the documented outcomes.

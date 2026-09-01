@@ -7,6 +7,8 @@ explicit Note Off at Tick `T + length`.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Positive velocity and length emit Note On now and Note Off at the beginning of Tick `T + length`.
 - [ ] Velocity `00` emits the explicit stop and schedules no expiry.
 - [ ] Length `00` emits no MIDI output.

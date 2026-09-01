@@ -8,6 +8,8 @@ intermediate collections.
 
 **Status:** ready-for-agent
 
+**Tags:** Improvement
+
 - [ ] Parser construction accepts immutable Source text and stores only an immutable borrow.
 - [ ] Callers no longer allocate or request mutable text solely to construct a Parser.
 - [ ] Strict parsing returns the bounded Atom storage without collecting it into an equivalent

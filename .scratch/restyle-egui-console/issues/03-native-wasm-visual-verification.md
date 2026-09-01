@@ -1,11 +1,19 @@
 # 03 — Native/WASM visual verification
 
-**What to build:** The completed console restyle is verified on native and WASM targets, with rendered evidence at wide and tall window sizes, the exact palette recorded, and remaining visual differences from the prototype documented.
+**What to build:** Capture the nominated candidate on native and WASM at wide and tall viewport
+sizes, with enough metadata and human review to reproduce and assess the rendered evidence.
 
-**Blocked by:** 01 — Square, centred Source Grid viewport; 02 — Prototype-aligned semantic console palette.
+**Blocked by:** 01 — Square, centred Source Grid viewport; 02 — Prototype-aligned semantic console palette; v1-release/03 — Run the exact-candidate verification workflow.
 
 **Status:** ready-for-agent
 
-- [ ] The required console crate gates pass for native and WASM targets.
-- [ ] Wide and tall rendered evidence demonstrates square Cells and centred letterboxing.
+**Tags:** release/v1
+
+- [ ] Four captures exist for the exact candidate SHA: native wide, native tall, WASM wide, and
+      WASM tall.
+- [ ] Each artifact records SHA, OS or browser, viewport dimensions, capture procedure, date, and
+      reviewer.
+- [ ] The checklist verifies square Cell geometry, centred wide/tall presentation, the semantic
+      palette, occupied and empty Cells, Function/Number/Note/Bang/Activation/diagnostic
+      distinctions, and Cursor treatment.
 - [ ] The exact palette and any remaining prototype differences are reported.

@@ -7,6 +7,8 @@ two-Cell Language Unit according to ADR 0014.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Consecutive same-direction Jump Functions form one chain with one relaying head.
 - [ ] Direction-specific input, member alignment, and output anchors match ADR 0014.
 - [ ] Ordinary units overwrite one complete destination Footprint atomically.

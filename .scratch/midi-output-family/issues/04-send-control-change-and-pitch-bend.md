@@ -7,6 +7,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Control Change emits the correct status, controller, and value bytes.
 - [ ] Pitch Bend emits the correct status, LSB, and MSB bytes.
 - [ ] Channel accepts `00`–`0F`; every data byte accepts `00`–`7F`.
