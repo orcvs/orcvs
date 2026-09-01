@@ -1012,6 +1012,19 @@ mod test {
     }
 
     #[test]
+    fn retired_identity_source_receives_the_unknown_function_diagnostic() {
+        let mut src = source();
+
+        src.write(0, "id");
+
+        assert_eq!(src.row(0), "id        ");
+        assert_eq!(src.diagnostics().len(), 1);
+        assert_eq!(src.diagnostics()[0].start, 0);
+        assert_eq!(src.diagnostics()[0].end, 1);
+        assert_eq!(src.diagnostics()[0].message, "unknown function \"id\"");
+    }
+
+    #[test]
     fn test_join_discards_stale_expression_state() {
         trace();
 

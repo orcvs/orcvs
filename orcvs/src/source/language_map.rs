@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn build_maps_every_cell_in_one_run_to_its_inclusive_extent() {
-        let map = ExpressionMap::build(Grid::new(5, 1), b" id1 ");
+        let map = ExpressionMap::build(Grid::new(5, 1), b" .+1 ");
         assert_eq!(map.inner[0], None);
         assert_range(&map, 1, 3);
         assert_eq!(map.inner[4], None);
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn build_separates_multiple_runs_in_one_row() {
-        let map = ExpressionMap::build(Grid::new(8, 1), b"id  .+  ");
+        let map = ExpressionMap::build(Grid::new(8, 1), b".+  .-  ");
         assert_range(&map, 0, 1);
         assert_eq!(map.inner[2], None);
         assert_eq!(map.inner[3], None);
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn build_keeps_edge_touching_runs_inside_their_rows() {
-        let map = ExpressionMap::build(Grid::new(4, 2), b"  id.+  ");
+        let map = ExpressionMap::build(Grid::new(4, 2), b"  .+.-  ");
         assert_range(&map, 2, 3);
         assert_range(&map, 4, 5);
         assert_ne!(map.inner[3], map.inner[4]);
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn prospective_range_scans_only_the_edited_row() {
         let grid = Grid::new(5, 2);
-        let bytes = b"id   .+   ";
+        let bytes = b".+   .-   ";
         assert_eq!(
             ExpressionMap::prospective_range(grid, bytes, 2, b'1'),
             Some(Range::new(0, 2))
