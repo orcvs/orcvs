@@ -133,7 +133,6 @@ impl<'a> Parser<'a> {
             Some(s) => match token {
                 Token::Note => to_atom_note(s)?,
                 Token::Number => to_atom_num(s)?,
-                Token::NumberN(_) => to_atom_num(s)?,
                 Token::Char => to_atom_char(s)?,
                 Token::Activation | Token::Bang | Token::Function => unreachable!(),
             },
@@ -410,6 +409,19 @@ mod test {
     }
 
     #[test]
+    fn every_note_source_encoding_parses_in_context() {
+        for value in 0x00..=0x7F {
+            let note = Atom::Note(value).to_string();
+            let mut source = format!(".v{note}");
+            assert_eq!(
+                try_parse(&mut source).unwrap().as_slice(),
+                &[Atom::Function(Function::ConvertToNumber), Atom::Note(value)],
+                "failed to parse Note({value}) from {note:?}",
+            );
+        }
+    }
+
+    #[test]
     fn conversion_literal_operands_are_monomorphic() {
         assert!(matches!(
             try_parse(&mut ".v3C".to_owned()),
@@ -463,7 +475,7 @@ mod test {
     fn test_parse_play_function() {
         trace();
 
-        let mut s = String::from("!>10AC4");
+        let mut s = String::from("!>010AC4");
         let parsed = try_parse(&mut s).unwrap();
 
         let v = vec![

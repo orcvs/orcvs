@@ -57,7 +57,6 @@ impl From<Token> for Glyph {
             Token::Function => G::Function,
             Token::Note => G::Note,
             Token::Number => G::Number,
-            Token::NumberN(_) => G::Number,
             Token::Char => G::Char,
         }
     }

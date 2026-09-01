@@ -25,7 +25,6 @@ pub enum Token {
     Function,
     Note,
     Number,
-    NumberN(usize),
     Char,
 }
 
@@ -119,7 +118,6 @@ impl Default for Expression {
 impl Token {
     pub fn len(&self) -> usize {
         match self {
-            Token::NumberN(n) => *n,
             Token::Char => DEFAULT_CHAR_TOKEN_LEN,
             _ => DEFAULT_TOKEN_LEN,
         }

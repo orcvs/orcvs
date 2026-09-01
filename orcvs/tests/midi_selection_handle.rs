@@ -60,7 +60,7 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
         vec![MidiDestination::new("studio", "Studio Synth")]
     );
     midi.select(&MidiDestinationId::new("studio")).unwrap();
-    for content in "!>07FC4".chars() {
+    for content in "!>007FC4".chars() {
         orcvs.write(&content.to_string());
     }
 

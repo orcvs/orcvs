@@ -335,7 +335,7 @@ mod tests {
     async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let source = SourceCommander::new(Grid::new(10, 2));
-        for (index, content) in "!>07FC4".chars().enumerate() {
+        for (index, content) in "!>007FC4".chars().enumerate() {
             source.set(index, &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
@@ -363,7 +363,7 @@ mod tests {
     async fn disconnected_output_reports_delivery_failure_once() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let source = SourceCommander::new(Grid::new(10, 2));
-        for (index, content) in "!>07FC4".chars().enumerate() {
+        for (index, content) in "!>007FC4".chars().enumerate() {
             source.set(index, &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {

@@ -80,7 +80,7 @@ define_functions! {
     ConvertToNumber => (".v", [crate::Token::Note]),
     Divide => ("./", [crate::Token::Number, crate::Token::Number]),
     Multiply => (".x", [crate::Token::Number, crate::Token::Number]),
-    Play => ("!>", [crate::Token::NumberN(1), crate::Token::Number, crate::Token::Note]),
+    Play => ("!>", [crate::Token::Number, crate::Token::Number, crate::Token::Note]),
     Subtract => (".-", [crate::Token::Number, crate::Token::Number]),
 }
 
@@ -140,7 +140,7 @@ impl fmt::Display for Atom {
             Atom::Number(n) => write!(f, "{:02X}", n),
             Atom::Note(n) => match midi_number_to_note(*n) {
                 Some(note) => write!(f, "{note}"),
-                None => write!(f, "{n}"),
+                None => Err(fmt::Error),
             },
             Atom::Char(c) => write!(f, "{c}"),
             Atom::Function(fun) => write!(f, "{fun}"),
@@ -151,6 +151,8 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Write;
+
     use super::{Activation, Atom, Function, to_atom_num};
 
     #[test]
@@ -192,13 +194,17 @@ mod test {
         );
 
         for n in 0..=u8::MAX {
-            for atom in [Atom::Number(n), Atom::Note(n)] {
-                assert_eq!(
-                    String::from(atom),
-                    atom.to_string(),
-                    "String::from disagreed with Display for {atom:?}"
-                );
-            }
+            let atom = Atom::Number(n);
+            assert_eq!(
+                String::from(atom),
+                atom.to_string(),
+                "String::from disagreed with Display for {atom:?}"
+            );
+        }
+
+        for n in 0..=0x7F {
+            let atom = Atom::Note(n);
+            assert_eq!(String::from(atom), atom.to_string());
         }
 
         for atom in [
@@ -245,5 +251,14 @@ mod test {
 
         assert_ne!(Atom::Note(60).to_string(), Atom::Number(60).to_string());
         assert_eq!(Atom::Number(60).to_string(), "3C");
+    }
+
+    #[test]
+    fn values_above_the_midi_range_cannot_render_as_note_source() {
+        for value in 0x80..=u8::MAX {
+            let mut source = String::new();
+            assert!(write!(&mut source, "{}", Atom::Note(value)).is_err());
+            assert!(source.is_empty());
+        }
     }
 }
