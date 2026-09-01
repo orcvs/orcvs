@@ -3,8 +3,7 @@
 **What to build:** Give the Source-resident Bang `**` its one-Tick lifecycle and aligned cardinal
 root activation behavior from `CONTEXT.md` and ADR 0020.
 
-**Blocked by:** 01 — Order effects by Language Map Position;
-`.scratch/orcvs-language-migration/issues/02-free-the-bang-and-activation-spellings.md`.
+**Blocked by:** 01 — Order effects by Language Map Position; orcvs-language-migration/02.
 
 **Status:** ready-for-agent
 

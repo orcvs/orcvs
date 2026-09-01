@@ -3,8 +3,7 @@
 **What to build:** Route ordinary Atom and Sequence results through one Portal destination into
 atomic Tick Plan Cell writes, following ADR 0009.
 
-**Blocked by:** 01 — Add the Sequence language value;
-`.scratch/language-map/issues/03-move-source-consumers-behind-the-language-map.md`.
+**Blocked by:** 01 — Add the Sequence language value; language-map/03.
 
 **Status:** ready-for-agent
 

@@ -3,8 +3,7 @@
 **What to build:** Apply compatible stateless Atomic Functions pervasively across Sequence operands
 using ADR 0007's scalar and equal-length rules.
 
-**Blocked by:** 01 — Add the Sequence language value;
-`.scratch/orcvs-language-migration/issues/07-complete-the-numeric-function-family.md`.
+**Blocked by:** 01 — Add the Sequence language value; orcvs-language-migration/05; orcvs-language-migration/07.
 
 **Status:** ready-for-agent
 

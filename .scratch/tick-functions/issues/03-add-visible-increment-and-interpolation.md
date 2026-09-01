@@ -3,8 +3,7 @@
 **What to build:** Implement scalar feedback Functions `~+` and `~>` by reading the previous visible
 Number at the ordinary result Portal in the current Source Snapshot.
 
-**Blocked by:** 01 — Thread Tick and Position into interpretation;
-`.scratch/sequence-values/issues/04-plan-complete-sequence-writes-through-portals.md`.
+**Blocked by:** 01 — Thread Tick and Position into interpretation; sequence-values/04; lang-foundations/06.
 
 **Status:** ready-for-agent
 

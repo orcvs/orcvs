@@ -3,7 +3,7 @@
 **What to build:** Represent one flat ordered Sequence of Atoms as a language value that can cross
 Function evaluation without becoming Source writes prematurely.
 
-**Blocked by:** `.scratch/orcvs-language-migration/issues/04-select-a-disjoint-note-encoding.md`.
+**Blocked by:** orcvs-language-migration/04 — Confirm contextual Number and Note literals.
 
 **Status:** ready-for-agent
 

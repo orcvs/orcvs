@@ -3,8 +3,7 @@
 **What to build:** Implement Range `:-`, Reverse `:<`, Concatenate `:&`, Select `:?`, and Replace
 `:=` with the exact contracts in ADR 0007.
 
-**Blocked by:** 01 — Add the Sequence language value;
-`.scratch/orcvs-language-migration/issues/01-move-arithmetic-onto-the-dot-family.md`.
+**Blocked by:** 01 — Add the Sequence language value; orcvs-language-migration/01; lang-foundations/02.
 
 **Status:** ready-for-agent
 

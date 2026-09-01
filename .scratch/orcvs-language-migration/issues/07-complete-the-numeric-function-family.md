@@ -4,8 +4,7 @@
 Equality `.=` with the Number-only contracts from ADR 0011. Equality produces Bang for equal
 operands and no value for unequal operands.
 
-**Blocked by:** 01 — Move arithmetic onto the `.` family; 02 — Free Bang spelling; 03 — Wrap
-general arithmetic over bytes.
+**Blocked by:** 01 — Move arithmetic onto the `.` family; 02 — Free Bang spelling; 03 — Wrap general arithmetic over bytes; lang-foundations/06.
 
 **Status:** ready-for-agent
 

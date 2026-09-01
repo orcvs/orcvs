@@ -3,7 +3,7 @@
 **What to build:** Supply each root evaluation with the absolute Tick and its Language Map anchor
 Position while keeping the Source Snapshot and Tick Plan deterministic.
 
-**Blocked by:** `.scratch/language-map/issues/03-move-source-consumers-behind-the-language-map.md`.
+**Blocked by:** language-map/03 — Move Source consumers behind the Language Map.
 
 **Status:** ready-for-agent
 

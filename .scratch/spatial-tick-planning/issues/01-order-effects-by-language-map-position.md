@@ -3,7 +3,7 @@
 **What to build:** Replace expression-only planning with ADR 0020's one row-major pass over all
 actionable Language Units and Expression roots.
 
-**Blocked by:** `.scratch/language-map/issues/03-move-source-consumers-behind-the-language-map.md`.
+**Blocked by:** language-map/03 — Move Source consumers behind the Language Map.
 
 **Status:** ready-for-agent
 

@@ -32,7 +32,7 @@ Pull requests run 32 cases. The merge tier runs the 256-case default. Counterexa
 - `issues/02-grid-position-round-trip.md`
 - `issues/03-parser-totality-on-ascii-input.md`
 - `issues/04-language-map-row-partition.md`
-- `issues/05-exhaustive-arithmetic-and-note-conversion.md`
+- `issues/07-make-number-and-note-source-encodings-canonical.md`
 - `issues/06-record-the-glossary-authority-rule.md`
 
 ## Later

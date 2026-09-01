@@ -4,9 +4,7 @@
 variants capable of carrying ADR 0016's terminal outputs without leaking MIDI byte assembly into
 Source interpretation.
 
-**Blocked by:** `.scratch/orcvs-language-migration/issues/02-free-the-bang-and-activation-spellings.md`,
-`.scratch/orcvs-language-migration/issues/04-select-a-disjoint-note-encoding.md`, and
-`.scratch/spatial-tick-planning/issues/02-add-source-bang-activation-and-expiry.md`.
+**Blocked by:** orcvs-language-migration/02; orcvs-language-migration/04; spatial-tick-planning/02; lang-foundations/06.
 
 **Status:** ready-for-agent
 

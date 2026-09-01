@@ -3,7 +3,7 @@
 **What to build:** Extend the Language Map partition into row-confined Expressions with one root,
 parsed language values, complete Footprints, and revision-consistent diagnostics.
 
-**Blocked by:** 01 — Partition Source into Language Units.
+**Blocked by:** 01 — Partition Source into Language Units; lang-foundations/07; lang-foundations/08.
 
 **Status:** ready-for-agent
 

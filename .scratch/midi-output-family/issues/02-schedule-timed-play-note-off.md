@@ -3,8 +3,7 @@
 **What to build:** Implement `!~ channel velocity note length` and make Playback Engine schedule its
 explicit Note Off at Tick `T + length`.
 
-**Blocked by:** 01 — Generalize Play Commands for MIDI output;
-`.scratch/tick-functions/issues/01-thread-tick-and-position-into-interpretation.md`.
+**Blocked by:** 01 — Generalize Play Commands for MIDI output; tick-functions/01.
 
 **Status:** ready-for-agent
 
