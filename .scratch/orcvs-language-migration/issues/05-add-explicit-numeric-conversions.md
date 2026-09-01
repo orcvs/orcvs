@@ -8,11 +8,13 @@ Function.
 
 **Status:** ready-for-agent
 
-- [x] `.v Number` returns the same Number and `.v Note` returns its underlying MIDI Number.
-- [x] `.^ Note` returns the same Note and `.^ Number` converts `00`–`7F` to the corresponding Note.
+- [x] During evaluation, `.v Number` returns the same Number and `.v Note` returns its underlying MIDI Number.
+- [x] During evaluation, `.^ Note` returns the same Note and `.^ Number` converts `00`–`7F` to the corresponding Note.
 - [x] `.^` diagnoses Numbers `80`–`FF` and produces no result.
 - [ ] Both Functions extend atom-wise across Sequences and return no partial Sequence if one element fails.
 - [x] Both spellings parse and round-trip through `Display` without colliding with another Language Unit.
+- [x] Source literal operands are monomorphic (`.v Note`, `.^ Number`); identity applies only to
+      already-typed values supplied through evaluation.
 - [ ] Arithmetic, time, feedback, random, and Play tests prove that no implicit Number/Note coercion remains.
 
 ## Comments

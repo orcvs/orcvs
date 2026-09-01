@@ -56,8 +56,6 @@ impl From<Token> for Glyph {
             Token::Activation => G::Char,
             Token::Function => G::Function,
             Token::Note => G::Note,
-            Token::NumericToNote => G::Number,
-            Token::NumericToNumber => G::Note,
             Token::Number => G::Number,
             Token::NumberN(_) => G::Number,
             Token::Char => G::Char,

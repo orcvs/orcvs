@@ -327,10 +327,19 @@ mod test {
     }
 
     #[test]
-    fn conversion_to_note_returns_an_overlapping_source_spelling_unchanged() {
-        assert_eq!(interpret(".^C4".to_owned()), Atom::Note(60));
-        assert_eq!(interpret(".^G9".to_owned()), Atom::Note(127));
-        assert_eq!(interpret(".v.^C4".to_owned()), Atom::Number(60));
+    fn conversion_source_literals_use_the_monomorphic_operand_type() {
+        assert_eq!(interpret(".vA0".to_owned()), Atom::Number(21));
+
+        let mut source = ".^C4".to_owned();
+        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        assert!(matches!(
+            Interpreter::execute(&atoms),
+            Err(Error::Interpretation(InterpretationError::NoteConversion(
+                0xC4
+            )))
+        ));
+
+        assert_eq!(interpret(".v.^3C".to_owned()), Atom::Number(60));
     }
 
     #[test]

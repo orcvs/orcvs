@@ -95,16 +95,7 @@ impl<'a> Parser<'a> {
                         self.take_language_unit()?;
                     } else {
                         let a = self.take_token(&t)?;
-                        let typed_token = match (t, a) {
-                            (Token::NumericToNote | Token::NumericToNumber, Atom::Note(_)) => {
-                                Token::Note
-                            }
-                            (Token::NumericToNote | Token::NumericToNumber, Atom::Number(_)) => {
-                                Token::Number
-                            }
-                            _ => t,
-                        };
-                        self.add(typed_token, a)?;
+                        self.add(t, a)?;
                     }
                 }
                 Ok(())
@@ -125,18 +116,6 @@ impl<'a> Parser<'a> {
         let atom = match t {
             Some(s) => match token {
                 Token::Note => to_atom_note(s)?,
-                // A conversion Function accepts either member of the
-                // Number/Note pair, so unlike every other signature its own
-                // signature cannot tell an overlapping hexadecimal spelling
-                // from a Note spelling. Resolve the overlap towards the Note:
-                // every Cell pair valid in both domains begins with a pitch
-                // letter and so reads as `A0` or greater, outside the `00`-`7F`
-                // domain `.^` converts. Reading it as a Number could therefore
-                // only ever diagnose, while the explicit `.v C4` / `.^ 3C`
-                // source forms are unaffected.
-                Token::NumericToNote | Token::NumericToNumber => {
-                    to_atom_note(s).or_else(|_| to_atom_num(s))?
-                }
                 Token::Number => to_atom_num(s)?,
                 Token::NumberN(_) => to_atom_num(s)?,
                 Token::Char => to_atom_char(s)?,
@@ -356,29 +335,24 @@ mod test {
             try_parse(&mut ".^3C".to_owned()).unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Number(60)]
         );
-        assert_eq!(
-            try_parse(&mut ".v3C".to_owned()).unwrap().as_slice(),
-            &[Atom::Function(Function::ConvertToNumber), Atom::Number(60)]
-        );
-        assert_eq!(
-            try_parse(&mut ".^G9".to_owned()).unwrap().as_slice(),
-            &[Atom::Function(Function::ConvertToNote), Atom::Note(127)]
-        );
     }
 
     #[test]
-    fn conversion_operands_resolve_an_overlapping_spelling_as_a_note() {
-        // Every Cell pair valid in both domains begins with a pitch letter, so
-        // its hexadecimal reading is always `A0` or greater and could only ever
-        // diagnose as a `.^` operand. Both conversions therefore read it as a
-        // Note, which `.^` returns unchanged and `.v` lowers.
+    fn conversion_literal_operands_are_monomorphic() {
+        assert!(matches!(
+            try_parse(&mut ".v3C".to_owned()),
+            Err(Error::Type(TypeError::Note(_)))
+        ));
+        assert!(matches!(
+            try_parse(&mut ".^G9".to_owned()),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+
+        // An overlapping spelling receives the type fixed by the Function's
+        // literal operand slot, rather than choosing a type from its spelling.
         assert_eq!(
             try_parse(&mut ".^C4".to_owned()).unwrap().as_slice(),
-            &[Atom::Function(Function::ConvertToNote), Atom::Note(60)]
-        );
-        assert_eq!(
-            try_parse(&mut ".^a0".to_owned()).unwrap().as_slice(),
-            &[Atom::Function(Function::ConvertToNote), Atom::Note(22)]
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0xC4)]
         );
     }
 

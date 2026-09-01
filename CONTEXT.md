@@ -85,7 +85,7 @@ A pitched Atom carrying one MIDI note value from `00` through `7F`. In a Note op
 _Avoid_: Number, note-shaped Number, intrinsically typed literal
 
 **Numeric Conversion Function**:
-One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Conversion Functions are the explicit type-directed exception to monomorphic Function signatures: each accepts a Number or Note but has one fixed result type. `.v` always returns a Number, while `.^` always returns a Note or diagnoses when a Number lies outside `00` through `7F`; applying either Function to its result type is an identity.
+One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Their Source literal signatures are monomorphic: `.v` consumes a Note literal and returns its underlying Number, while `.^` consumes a Number literal from `00` through `7F` and returns the corresponding Note, diagnosing `80` through `FF`. During evaluation, either Function also accepts an already-typed value of its result type as an identity; this supports composition and atom-wise Sequence extension without making an overlapping Operand Literal ambiguous.
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Sequence**:
