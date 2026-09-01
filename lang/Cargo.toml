@@ -9,6 +9,11 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[lib]
+# `cargo bench` would otherwise also run the unit-test harness, which does not
+# understand criterion's arguments.
+bench = false
+
 [dependencies]
 arrayvec.workspace = true
 thiserror.workspace = true
@@ -16,3 +21,10 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = [
     "fmt",
 ], default-features = false }
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "lang"
+harness = false

@@ -16,6 +16,21 @@ Verification has two trigger tiers:
 fixed before normal development continues. The delayed tier means a WASM regression can be found
 after merge rather than before it.
 
+A third tier measures rather than checks. `mise run bench` runs the `lang` criterion benchmarks and
+prints them in the bencher output format. `.github/workflows/bench.yml` runs the same command in two
+jobs and fails either when a benchmark is more than three times slower than the previous stored
+result. The publishing job runs after a push to `main` and appends the result to the series on the
+`gh-pages` branch. The pull-request job compares against that series and stores nothing. Permissions
+are declared per job, so only the publishing job can write repository contents. Both triggers are
+filtered to the paths that can move a measurement, so a change that cannot touch `lang` performance
+runs no benchmark. `mise run check` does not run either.
+
+This benchmark gate is the one exception to the equivalence above. The measurement is reproducible
+from a checkout; the comparison is not, because it lives in the action rather than in `mise.toml`.
+`.scratch/benchmarks/spec.md` records what the gate can and cannot detect.
+
+- `criterion` measures the `lang` parse and interpret paths; `benchmark-action/github-action-benchmark`
+  stores and compares the results.
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
   profile, including non-fail-fast reporting.
 - `cargo-deny` audits the locked dependency graph for advisories, bans, licences, and sources.

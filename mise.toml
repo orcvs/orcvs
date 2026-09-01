@@ -36,6 +36,10 @@ description = "Lang tests"
 env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
 
+[tasks.bench]
+description = "Benchmark the lang parse and interpret paths"
+run = 'cargo bench --package lang --locked -- --output-format bencher'
+
 [tasks.check]
 description = "Full repository verification gate"
 run = '''
