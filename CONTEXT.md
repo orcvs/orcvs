@@ -36,6 +36,10 @@ _Avoid_: Cell structure, semantic Grid, bounding box
 The semantic view derived from one Source revision. It identifies Expressions, roots, Language Units, their anchor Positions, and their Footprints without adding stored program state or a second coordinate system. It partitions each row from left to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that complete Footprint, and an unmatched character diagnoses without participating in an overlapping unit.
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
+**Operand Literal**:
+Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context, so a standalone operand literal is invalid.
+_Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
+
 **Source Snapshot**:
 The complete Source observed for one Tick. It is simultaneously an executable Orcvs program and the accumulated output of all preceding Ticks, so no persistent language state exists outside it.
 _Avoid_: Program state, runtime state
@@ -73,15 +77,15 @@ One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies e
 _Avoid_: Jumper, Jymper, Sequence transport
 
 **Number**:
-An unsigned byte encoded as exactly two uppercase hexadecimal Cells from `00` through `FF`. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
+An unsigned byte interpreted from an Operand Literal as exactly two uppercase hexadecimal Cells from `00` through `FF` when a Function requires a Number. General arithmetic wraps within this byte range; narrower domains such as MIDI parameters enforce their limits at their own boundaries.
 _Avoid_: Base-36 value, decimal literal, single-glyph number
 
 **Note**:
-A pitched Atom carrying one MIDI note value from `00` through `7F`. Its canonical Source encoding is disjoint from every Number encoding, so a Source revision determines the Atom type without operand context; the exact two-Cell ASCII spelling remains to be selected.
-_Avoid_: Number, note-shaped Number, contextual pitch
+A pitched Atom carrying one MIDI note value from `00` through `7F`. In a Note operand position, its two-Cell Operand Literal uses an uppercase pitch letter for a natural or lowercase pitch letter for a sharp followed by its octave character: `/` for the octave below `0`, then `0` through `9`, such as `C/`, `C4`, or `c4`. The same Source characters may denote a Number in a Number operand position.
+_Avoid_: Number, note-shaped Number, intrinsically typed literal
 
 **Numeric Conversion Function**:
-One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. `.v` always returns a Number, while `.^` always returns a Note or diagnoses when a Number lies outside `00` through `7F`; applying either Function to its result type is an identity.
+One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Conversion Functions are the explicit type-directed exception to monomorphic Function signatures: each accepts a Number or Note but has one fixed result type. `.v` always returns a Number, while `.^` always returns a Note or diagnoses when a Number lies outside `00` through `7F`; applying either Function to its result type is an identity.
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Sequence**:
@@ -89,8 +93,8 @@ A flat ordered sequence of Atoms produced and consumed as one language value. At
 _Avoid_: Pattern, Cell batch, write list, string
 
 **Range Function**:
-The Sequence Function `:-`. It returns an inclusive, unit-step Sequence between two Numbers or two Notes. Bound order selects ascending or descending output, and equal bounds return a singleton. Number and Note bounds cannot mix.
-_Avoid_: Sequence generator, interval, mixed range
+One of the monomorphic Sequence Functions `:-` and `:#`. Number Range `:-` returns an inclusive, unit-step Sequence between two Numbers; Note Range `:#` returns an inclusive chromatic Sequence between two Notes. Bound order selects ascending or descending output, and equal bounds return a singleton.
+_Avoid_: Sequence generator, interval, polymorphic Range, mixed range
 
 **Reverse Function**:
 The Sequence Function `:<`. It reverses Atom order while preserving each Atom's complete encoding and type. A singleton and an empty Sequence remain unchanged.
@@ -113,7 +117,7 @@ One destination resolved while interpreting a Source Snapshot, through which an 
 _Avoid_: Port, address value, output coordinate
 
 **Comment**:
-Source text beginning with `#` and continuing to the end of its row, excluded from Expressions and evaluation.
+Source text beginning with the two-Cell introducer `##` and continuing to the end of its row, excluded from Expressions and evaluation. One `#` alone is incomplete or invalid Source rather than a Comment.
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:
@@ -169,7 +173,7 @@ The one Cell the console is editing: a Position, plus the blink state that draws
 _Avoid_: Caret, pointer, insertion point
 
 **Glyph**:
-The classification that decides how a Cell is painted: Function, Note, Number or Char for a Cell the Source has parsed, and Marker, Highlight or Space for a Cell it has not. A Glyph is derived from the Source, never stored as Cell content.
+The classification that decides how a Cell is painted: Function, Note, Number or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
 _Avoid_: Style, token, syntax highlight
 
 **Marker**:

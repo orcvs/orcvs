@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PROTOTYPE — Contextual Number and Note Literals</title>
+  <style>
+    :root{color-scheme:dark;font:15px/1.45 system-ui,sans-serif;background:#101417;color:#d9e2e8}body{max-width:1180px;margin:auto;padding:28px 20px 64px}h1,h2{color:#f3f7f9}code{color:#a7ead6}.tag{color:#63d5b3;font-weight:700;letter-spacing:.08em}.panel{background:#182025;border:1px solid #2d3a41;border-radius:10px;padding:17px;margin:17px 0}.tabs,.controls,.legend{display:flex;flex-wrap:wrap;gap:8px}button{background:#244c41;color:#f1fff9;border:1px solid #397463;border-radius:6px;padding:9px 12px;cursor:pointer}button.active,button:hover{background:#397463}button:disabled{opacity:.4}.models{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.grid{display:grid;grid-template-columns:repeat(18,25px);grid-auto-rows:26px;width:max-content;padding:5px;background:#0b1013;border:1px solid #344149}.cell{display:grid;place-items:center;box-sizing:border-box;border-right:1px solid #1e292f;border-bottom:1px solid #1e292f;font:14px/1 monospace;color:#748189}.function{color:#63d5b3;background:#11241f}.number{color:#ffd479;background:#2a2516}.note{color:#75d8ff;background:#10232c}.comment{color:#9aa7ad;background:#20272b}.invalid{color:#ff8585;background:#2a1719}.changed{outline:2px solid #f3f7f9;outline-offset:-2px}.diag{min-height:3em;margin-top:10px;padding:10px 12px;border-left:3px solid #63d5b3;background:#11171a}.diag.error{border-color:#ff7272;color:#ffd0d0}.mapping{display:grid;grid-template-columns:repeat(8,minmax(90px,1fr));gap:6px}.map-item{font:13px/1.3 monospace;background:#11171a;padding:6px}.natural{color:#75d8ff}.sharp{color:#b6e9fa}.signature{font:14px/1.5 monospace;color:#a7ead6}.verdict{border-left:3px solid #63d5b3;padding:10px 12px;background:#11241f}@media(max-width:900px){.models{grid-template-columns:1fr}.mapping{grid-template-columns:repeat(4,minmax(80px,1fr))}}
+  </style>
+</head>
+<body>
+  <div class="tag">THROWAWAY SYNTAX PROTOTYPE</div>
+  <h1>Literal characters receive type from their Function</h1>
+  <p class="panel">Source stores characters. A literal occurrence becomes exactly one Atom only after its Expression is parsed against a fixed Function signature. The spelling <code>C4</code> is therefore Number 196 under <code>:-</code> and Note 60 under <code>:#</code> or <code>!&gt;</code>; this is contextual interpretation, not implicit conversion.</p>
+
+  <section class="panel">
+    <h2>Syntax under test</h2>
+    <div class="signature">:- Number Number → Sequence&lt;Number&gt;<br>:# Note Note → Sequence&lt;Note&gt;<br>.v Note → Number &nbsp;·&nbsp; .^ Number → Note<br>## … → Comment through row end</div>
+  </section>
+
+  <section class="panel">
+    <h2>Guided Source walkthrough</h2>
+    <div class="tabs" id="tabs"></div>
+    <p id="description"></p>
+    <div class="controls"><button id="reset">Reset</button><button id="next">Advance one edit / Tick</button></div>
+  </section>
+
+  <section class="models">
+    <article class="panel">
+      <h2 id="leftTitle"></h2>
+      <div class="grid" id="leftGrid"></div>
+      <div class="diag" id="leftDiag"></div>
+    </article>
+    <article class="panel">
+      <h2 id="rightTitle"></h2>
+      <div class="grid" id="rightGrid"></div>
+      <div class="diag" id="rightDiag"></div>
+    </article>
+  </section>
+  <p class="verdict" id="verdict"></p>
+
+  <section class="panel">
+    <h2>Complete canonical Note mapping</h2>
+    <p>Pitch letters are uppercase for naturals and lowercase for sharps. <code>/</code> is the octave below <code>0</code>. The generated table contains exactly MIDI <code>00</code> through <code>7F</code>; each Note has one two-Cell spelling in a Note operand position.</p>
+    <div class="mapping" id="mapping"></div>
+    <div class="diag" id="mappingDiag"></div>
+  </section>
+
+<script>
+const W=18,H=5,index=(r,c)=>r*W+c;
+const empty=()=>Array.from({length:W*H},()=>({ch:" ",kind:"empty",changed:false}));
+function make(entries){const grid=empty();for(const [r,c,text,kind,changed=false] of entries){[...text].forEach((ch,i)=>grid[index(r,c+i)]={ch,kind,changed});}return grid;}
+function draw(target,grid){target.innerHTML=grid.map(cell=>`<span class="cell ${cell.kind} ${cell.changed?'changed':''}">${cell.ch===' '?'·':cell.ch}</span>`).join("");}
+const scenarios=[
+  {
+    name:"Fixed Range types",
+    description:"The Function name fixes the meaning of identical literal characters before evaluation.",
+    frames:[{
+      lt:"Number Range — before Tick",rt:"Note Range — before Tick",
+      lg:make([[1,2,":-","function"],[1,4,"C4","number",true],[1,6,"C5","number",true]]),
+      rg:make([[1,2,":#","function"],[1,4,"C4","note",true],[1,6,"C5","note",true]]),
+      ld:"Success context: :- requires two Numbers; C4 and C5 mean 196 and 197.",rd:"Success context: :# requires two Notes; C4 and C5 mean MIDI 60 and 72.",
+      verdict:"One spelling has one type per occurrence. No overload resolution or implicit conversion occurs."
+    },{
+      lt:"Number Range — after Tick",rt:"Note Range — after Tick",
+      lg:make([[1,2,":-","function"],[1,4,"C4","number"],[1,6,"C5","number"],[2,2,"C4C5","number",true]]),
+      rg:make([[1,2,":#","function"],[1,4,"C4","note"],[1,6,"C5","note"],[2,2,"C4c4D4d4E4F4f4","note",true]]),
+      ld:"Success: the complete Number Sequence [C4, C5] is written.",rd:"Success: the chromatic Note Sequence begins C4, c4, D4, d4 …; the prototype highlights the visible prefix.",
+      verdict:"Generated Source contains ordinary characters; a future consumer will interpret each occurrence through its own signature."
+    }]
+  },
+  {
+    name:"Explicit conversion",
+    description:"Conversion Functions produce a typed value; the surrounding Range never changes domain implicitly.",
+    frames:[{
+      lt:"Convert Note to Number",rt:"Convert Number to Note",
+      lg:make([[1,1,":-","function"],[1,3,".v","function"],[1,5,"C4","note",true],[1,7,"40","number"]]),
+      rg:make([[1,1,":#","function"],[1,3,".^","function"],[1,5,"3C","number",true],[1,7,"E4","note"]]),
+      ld:"Success context: .v consumes Note C4 and produces Number 3C for Number Range.",rd:"Success context: .^ consumes Number 3C and produces Note C4 for Note Range.",
+      verdict:"The conversion is visible in Source and each Function retains one fixed signature."
+    }]
+  },
+  {
+    name:"Live Edit",
+    description:"A Function edit changes the typed context on the next Source revision; the literal characters need not change.",
+    frames:[{
+      lt:"Revision A",rt:"Revision A diagnostic",
+      lg:make([[1,2,":-","function"],[1,4,"C4","number"],[1,6,"C5","number"]]),
+      rg:make([[1,2,"#","invalid",true]]),
+      ld:"Success context: C4 and C5 are Number Glyphs under :-.",rd:"Diagnostic: one # is an incomplete reserved Source form, not a Comment.",
+      verdict:"Advance one edit to change only the second Function Cell and complete the Comment introducer."
+    },{
+      lt:"Revision B — edited Cell",rt:"Revision B — edited Cell",
+      lg:make([[1,2,":#","function",true],[1,4,"C4","note"],[1,6,"C5","note"]]),
+      rg:make([[1,2,"## comment C4","comment",true]]),
+      ld:"Success context: after :− becomes :#, the unchanged C4 and C5 Cells are Note Glyphs. The expression first becomes executable in this revision.",rd:"Success context: ## begins a Comment; all following Cells on this row are excluded from evaluation.",
+      verdict:"Glyphs are derived from the current parsed Expression. Source stores neither the old type nor a hidden type tag."
+    }]
+  },
+  {
+    name:"Typed Play",
+    description:"A terminal Function supplies Note context without consulting a global literal classification.",
+    frames:[{
+      lt:"Play Expression",rt:"Standalone literal",
+      lg:make([[1,1,"!>","function"],[1,3,"00","number"],[1,5,"7F","number"],[1,7,"C4","note",true]]),
+      rg:make([[1,7,"C4","invalid",true]]),
+      ld:"Success context: !> requires Number channel, Number velocity, and Note; emit MIDI Note 60.",rd:"Diagnostic: C4 has no typed operand position because it is not contained in an Expression.",
+      verdict:"Typed context makes the Play expression deterministic; absent that context, the literal does not default silently."
+    }]
+  }
+];
+let selected=0,step=0;
+function render(){const scenario=scenarios[selected],frame=scenario.frames[step];tabs.innerHTML=scenarios.map((item,i)=>`<button data-case="${i}" class="${i===selected?'active':''}">${item.name}</button>`).join("");description.textContent=scenario.description;leftTitle.textContent=frame.lt;rightTitle.textContent=frame.rt;draw(leftGrid,frame.lg);draw(rightGrid,frame.rg);leftDiag.textContent=frame.ld;rightDiag.textContent=frame.rd;rightDiag.className=`diag ${frame.rd.startsWith('Diagnostic')?'error':''}`;verdict.textContent=frame.verdict;next.disabled=step===scenario.frames.length-1;}
+document.addEventListener("click",event=>{if(event.target.dataset.case!==undefined){selected=Number(event.target.dataset.case);step=0;}if(event.target.id==="reset")step=0;if(event.target.id==="next")step=Math.min(step+1,scenarios[selected].frames.length-1);render();});
+const pitches=["C","c","D","d","E","F","f","G","g","A","a","B"];
+const noteName=midi=>{const octave=Math.floor(midi/12)-1;return pitches[midi%12]+(octave===-1?"/":String(octave));};
+const notes=Array.from({length:128},(_,midi)=>({midi,name:noteName(midi)}));
+mapping.innerHTML=notes.map(({midi,name})=>`<div class="map-item ${name[0]===name[0].toLowerCase()?'sharp':'natural'}">${midi.toString(16).toUpperCase().padStart(2,'0')} → ${name}</div>`).join("");
+const names=new Set(notes.map(note=>note.name));
+const complete=notes.length===128&&names.size===128&&notes.every(note=>note.name.length===2)&&notes[0].name==="C/"&&notes[127].name==="G9";
+mappingDiag.textContent=complete?"Success: 128 MIDI values, 128 unique two-Cell Note spellings; endpoints are 00 → C/ and 7F → G9.":"Diagnostic: generated Note mapping is incomplete or non-canonical.";
+mappingDiag.className=`diag ${complete?'':'error'}`;
+render();
+</script>
+</body>
+</html>

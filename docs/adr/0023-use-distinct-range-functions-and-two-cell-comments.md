@@ -1,0 +1,3 @@
+# Use distinct Range Functions and two-Cell Comments
+
+Orcvs assigns `:-` to Number Range and `:#` to Note Range, giving each Function one fixed operand and result signature rather than selecting numeric or musical behavior from its operands. To make `:#` an unambiguous two-Cell Function and keep reserved Source forms aligned with the language's two-Cell recognition model, Comments begin with `##`; one `#` alone is incomplete or invalid Source. Type-preserving structural Sequence Functions remain generic because they do not reinterpret their Atoms, while ADR 0021's explicit conversion Functions remain the sole type-directed exception and always produce their named target type.

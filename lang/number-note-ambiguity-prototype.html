@@ -12,7 +12,7 @@
 <body>
   <div class="tag">THROWAWAY LOGIC PROTOTYPE</div>
   <h1>What type is <code>C4</code>?</h1>
-  <p class="panel"><strong>Superseded exploration.</strong> This prototype demonstrates the ambiguity that led to ADR 0021. The overlapping <code>C4</code> spelling and sticky-Note arithmetic shown below are rejected designs, not implemented behavior. ADR 0021 records the design requirement for disjoint Number and Note encodings and explicit <code>.v</code> / <code>.^</code> conversion; the exact Note spelling and implementation remain pending.</p>
+  <p class="panel"><strong>Superseded exploration.</strong> This prototype demonstrates the failure of classifying <code>C4</code> globally without a typed Function context. The competing interpretations and sticky-Note arithmetic shown below are rejected designs, not implemented behavior. ADR 0021 instead assigns each literal occurrence exactly one type from its Expression and fixed Function signature; <a href="contextual-number-note-prototype.html">the replacement prototype</a> demonstrates that contract and the explicit <code>.v</code> / <code>.^</code> conversions.</p>
 
   <section class="panel">
     <h2>Guided walkthrough</h2>
@@ -115,7 +115,7 @@ const cases=[
     description:"A typed result is encoded into character Source. On the next revision, only those characters remain.",
     frames:[
       {ng:make([[1,7,"C4","number",{result:true,ambiguous:true}]]),tg:make([[1,7,"C4","note",{result:true,ambiguous:true}]]),nt:"Tick T commit",tt:"Tick T commit",ns:["Runtime value","Number(196)","Portal write","C4"],ts:["Runtime value","Note(60)","Portal write","C4"],nd:"Portal encoded the typed Number into two Cells.",td:"Portal encoded the typed Note into the same two Cells.",verdict:"At commit time the runtime still knows the type, but Source stores only C and 4."},
-      {ng:make([[1,7,"C4","number",{ambiguous:true}]]),tg:make([[1,7,"C4","note",{ambiguous:true}]]),nt:"Tick T+1 snapshot",tt:"Tick T+1 snapshot",ns:["Stored state","characters C, 4","Recovered type","Number(196)?"],ts:["Stored state","characters C, 4","Recovered type","Note(60)?"],nd:"No type tag survived the commit; Number is one valid reconstruction.",td:"No type tag survived the commit; Note is another valid reconstruction.",verdict:"The Source-only persistence invariant loses Atom identity unless the encoding itself becomes disjoint."}
+      {ng:make([[1,7,"C4","number",{ambiguous:true}]]),tg:make([[1,7,"C4","note",{ambiguous:true}]]),nt:"Tick T+1 snapshot",tt:"Tick T+1 snapshot",ns:["Stored state","characters C, 4","Context needed","Number operand"],ts:["Stored state","characters C, 4","Context needed","Note operand"],nd:"No type tag survived the commit; a Number-typed consumer interprets C4 as 196.",td:"No type tag survived the commit; a Note-typed consumer interprets C4 as MIDI 60.",verdict:"The exploration assumed Source must preserve Atom identity globally. The settled design intentionally derives it from the next consuming Function."}
     ]
   },
   {
