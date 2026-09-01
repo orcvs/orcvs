@@ -13,5 +13,7 @@ using ADR 0007's scalar and equal-length rules.
 - [ ] Equal-length Sequences pair element-wise in order.
 - [ ] Unequal non-scalar lengths diagnose and return no partial Sequence.
 - [ ] Per-element type or evaluation failure diagnoses the complete operation.
+- [ ] Unary `.v` and `.^` conversions broadcast atom-wise, preserve order, and return no partial
+      Sequence when any element fails conversion.
 - [ ] Equality can produce empty element results without inventing an Atom.
 - [ ] Increment and Interpolation are not accidentally broadcast.

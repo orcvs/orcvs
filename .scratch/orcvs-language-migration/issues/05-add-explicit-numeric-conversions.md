@@ -26,3 +26,9 @@ and strict Number/Note handling in existing Arithmetic and Play Functions. Seque
 remains blocked on `.scratch/sequence-values/issues/01-add-the-sequence-language-value.md`; time,
 feedback, and random Functions likewise do not exist yet, so those two acceptance items remain
 open rather than being represented by speculative infrastructure or tests.
+
+Downstream coverage is assigned explicitly: conversion broadcasting and atomic failure belong to
+`.scratch/sequence-values/issues/02-broadcast-atomic-functions-over-sequences.md`; Clock, Delay,
+Euclidean, feedback, and Random Note-rejection tests belong to their matching tickets under
+`.scratch/tick-functions/issues/`; and exhaustive Function-level conversion laws belong to
+`.scratch/property-testing/issues/05-exhaustive-arithmetic-and-note-conversion.md`.

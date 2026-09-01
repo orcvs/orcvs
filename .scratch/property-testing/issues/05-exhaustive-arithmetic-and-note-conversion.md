@@ -11,6 +11,10 @@ rather than properties. The domains are small enough to cover completely.
 - [ ] `divide` errors for every zero divisor and returns a value for every non-zero divisor.
 - [ ] `midi_number_to_note` and `midi_note_to_number` round-trip over every value from `00` to `7F`.
 - [ ] Every value above `7F` is rejected as a Note.
+- [ ] Function-level `.v` identity and Note-to-Number conversion cover every valid MIDI value, and
+      `.v Number` covers every byte.
+- [ ] Function-level `.^` identity and Number-to-Note conversion cover `00`–`7F`, while every Number
+      from `80` through `FF` diagnoses and produces no result.
 - [ ] `str_to_num` accepts exactly the two-character uppercase hexadecimal spellings, over all 256 values.
 - [ ] The tests are fast enough for the pull-request tier.
 
@@ -24,6 +28,6 @@ ADR 0011 is the claim under test: "General arithmetic wraps within this byte ran
 `DivisionByZero`. Division is the asymmetry, so state it in the test names rather than leaving a
 reader to notice.
 
-ADR 0021 defines the `.v` and `.^` identity laws. Those Functions do not exist yet, so this issue
-covers only the conversion helpers in `lang/src/lib.rs`. Add the Function-level laws when
-`orcvs-language-migration/05` lands.
+ADR 0021 defines the `.v` and `.^` identity laws. The Functions landed in
+`orcvs-language-migration/05`; this issue now owns preserving their exhaustive Function-level laws
+alongside the lower-level conversion-helper coverage.

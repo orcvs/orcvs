@@ -14,5 +14,6 @@ Number operands.
 - [ ] Zero rate or modulus diagnoses and the cycle product cannot byte-wrap.
 - [ ] Euclidean follows ADR 0012's formula and phase exactly.
 - [ ] Euclidean handles zero hits, full hits, zero steps, and hits greater than steps.
+- [ ] Note operands diagnose in Clock, Delay, and Euclidean tests rather than converting implicitly.
 - [ ] Sequence operands follow the ordinary broadcasting rules once available.
 - [ ] Tick-by-Tick tests use explicit Source Grids and diagnostics.
