@@ -26,6 +26,8 @@ pub enum Activation {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Function {
     Add,
+    ConvertToNote,
+    ConvertToNumber,
     Divide,
     Empty,
     Multiply,
@@ -77,6 +79,8 @@ impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Function::Add => write!(f, ".+"),
+            Function::ConvertToNote => write!(f, ".^"),
+            Function::ConvertToNumber => write!(f, ".v"),
             Function::Empty => write!(f, "__"),
             Function::Divide => write!(f, "./"),
             Function::Multiply => write!(f, ".x"),
@@ -173,6 +177,12 @@ mod test {
         assert_eq!(Function::Subtract.to_string(), ".-");
         assert_eq!(Function::Multiply.to_string(), ".x");
         assert_eq!(Function::Divide.to_string(), "./");
+    }
+
+    #[test]
+    fn numeric_conversion_functions_display_with_their_dot_family_spellings() {
+        assert_eq!(Function::ConvertToNumber.to_string(), ".v");
+        assert_eq!(Function::ConvertToNote.to_string(), ".^");
     }
 
     #[test]

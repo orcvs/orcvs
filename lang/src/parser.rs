@@ -95,7 +95,16 @@ impl<'a> Parser<'a> {
                         self.take_language_unit()?;
                     } else {
                         let a = self.take_token(&t)?;
-                        self.add(t, a)?;
+                        let typed_token = match (t, a) {
+                            (Token::NumericToNote | Token::NumericToNumber, Atom::Note(_)) => {
+                                Token::Note
+                            }
+                            (Token::NumericToNote | Token::NumericToNumber, Atom::Number(_)) => {
+                                Token::Number
+                            }
+                            _ => t,
+                        };
+                        self.add(typed_token, a)?;
                     }
                 }
                 Ok(())
@@ -116,6 +125,12 @@ impl<'a> Parser<'a> {
         let atom = match t {
             Some(s) => match token {
                 Token::Note => to_atom_note(s)?,
+                // Conversion operands prefer the type being converted from when
+                // a two-Cell spelling is valid in both domains. This preserves
+                // the explicit `.v C4` / `.^ 3C` source forms while admitting
+                // unambiguous identity operands such as `.v 3C` and `.^ G9`.
+                Token::NumericToNote => to_atom_num(s).or_else(|_| to_atom_note(s))?,
+                Token::NumericToNumber => to_atom_note(s).or_else(|_| to_atom_num(s))?,
                 Token::Number => to_atom_num(s)?,
                 Token::NumberN(_) => to_atom_num(s)?,
                 Token::Char => to_atom_char(s)?,
@@ -323,6 +338,26 @@ mod test {
                 "{spelling} produced {error:?}"
             );
         }
+    }
+
+    #[test]
+    fn numeric_conversion_spellings_parse_without_language_unit_collisions() {
+        assert_eq!(
+            try_parse(&mut ".vC4".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNumber), Atom::Note(60)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^3C".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(60)]
+        );
+        assert_eq!(
+            try_parse(&mut ".v3C".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNumber), Atom::Number(60)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^G9".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Note(127)]
+        );
     }
 
     #[test]

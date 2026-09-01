@@ -18,6 +18,8 @@ pub enum Token {
     Activation,
     Bang,
     Function,
+    NumericToNote,
+    NumericToNumber,
     Note,
     Number,
     NumberN(usize),
@@ -92,6 +94,8 @@ impl From<&Function> for Tokens {
     fn from(f: &Function) -> Self {
         let tokens = match f {
             Function::Add => vec![T::Number, T::Number],
+            Function::ConvertToNote => vec![T::NumericToNote],
+            Function::ConvertToNumber => vec![T::NumericToNumber],
             Function::Divide => vec![T::Number, T::Number],
             Function::Play => vec![T::NumberN(1), T::Number, T::Note],
             Function::Multiply => vec![T::Number, T::Number],

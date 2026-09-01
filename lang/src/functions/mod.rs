@@ -1,12 +1,17 @@
 pub(crate) mod math;
-use crate::{Error, InterpretationError, PlayCommand, interpreter::Context};
+pub(crate) mod numeric_conversion;
+use crate::{
+    Error, InterpretationError, PlayCommand,
+    interpreter::Context,
+    stack::{NoteValue, NumberValue},
+};
 
 #[inline(always)]
 pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
-    let arg_1 = ctx.stack.try_pop(3, 0)?;
-    let arg_2 = ctx.stack.try_pop(3, 1)?;
-    let arg_3 = ctx.stack.try_pop(3, 2)?;
-    play_impl(arg_1, arg_2, arg_3)
+    let NumberValue(channel) = ctx.stack.try_pop(3, 0)?;
+    let NumberValue(velocity) = ctx.stack.try_pop(3, 1)?;
+    let NoteValue(note) = ctx.stack.try_pop(3, 2)?;
+    play_impl(channel, velocity, note)
 }
 
 #[inline(always)]
@@ -72,6 +77,22 @@ mod test {
                 ),
                 "{found} argument(s) gave {error:?}"
             );
+        }
+    }
+
+    #[test]
+    fn play_rejects_implicit_number_note_conversions() {
+        for arguments in [
+            [Atom::Note(0), Atom::Number(0x7F), Atom::Note(60)],
+            [Atom::Number(0), Atom::Note(0x7F), Atom::Note(60)],
+            [Atom::Number(0), Atom::Number(0x7F), Atom::Number(60)],
+        ] {
+            let mut ctx = Context::new();
+            for argument in arguments.into_iter().rev() {
+                ctx.stack.push(argument);
+            }
+
+            assert!(matches!(play(&mut ctx), Err(Error::Type(_))));
         }
     }
 }

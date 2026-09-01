@@ -1,10 +1,17 @@
-use crate::{ArgumentError, Atom, Error, Function, SyntaxError, TypeError, char_to_num};
+use crate::{ArgumentError, Atom, Error, Function, SyntaxError, TypeError};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
 pub struct MaybeAtom(pub Option<Atom>);
 
 pub(crate) struct NumberValue(pub u8);
+
+pub(crate) struct NoteValue(pub u8);
+
+pub(crate) enum NumericValue {
+    Note(u8),
+    Number(u8),
+}
 
 #[derive(Debug)]
 pub struct Stack<const N: usize> {
@@ -64,20 +71,6 @@ impl From<MaybeAtom> for Atom {
     }
 }
 
-impl TryFrom<MaybeAtom> for u8 {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::Number(n) | Atom::Note(n)) => Ok(n),
-            Some(Atom::Char(c)) => char_to_num(c),
-            Some(atom) => Err(TypeError::Number(atom.into()).into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
 impl TryFrom<MaybeAtom> for NumberValue {
     type Error = Error;
 
@@ -86,6 +79,33 @@ impl TryFrom<MaybeAtom> for NumberValue {
         match maybe_atom.0 {
             Some(Atom::Number(n)) => Ok(Self(n)),
             Some(atom) => Err(TypeError::Number(atom.into()).into()),
+            None => Err(ArgumentError::Expected.into()),
+        }
+    }
+}
+
+impl TryFrom<MaybeAtom> for NoteValue {
+    type Error = Error;
+
+    #[inline(always)]
+    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
+        match maybe_atom.0 {
+            Some(Atom::Note(n)) => Ok(Self(n)),
+            Some(atom) => Err(TypeError::Note(atom.into()).into()),
+            None => Err(ArgumentError::Expected.into()),
+        }
+    }
+}
+
+impl TryFrom<MaybeAtom> for NumericValue {
+    type Error = Error;
+
+    #[inline(always)]
+    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
+        match maybe_atom.0 {
+            Some(Atom::Note(n)) => Ok(Self::Note(n)),
+            Some(Atom::Number(n)) => Ok(Self::Number(n)),
+            Some(atom) => Err(TypeError::Numeric(atom.into()).into()),
             None => Err(ArgumentError::Expected.into()),
         }
     }
@@ -122,6 +142,8 @@ impl TryFrom<&str> for Function {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
             ".+" => Ok(Function::Add),
+            ".^" => Ok(Function::ConvertToNote),
+            ".v" => Ok(Function::ConvertToNumber),
             "./" => Ok(Function::Divide),
             ".x" => Ok(Function::Multiply),
             "!>" => Ok(Function::Play),

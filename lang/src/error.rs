@@ -20,6 +20,9 @@ pub enum InterpretationError {
     #[error("cannot divide by zero")]
     DivisionByZero,
 
+    #[error("Number {0:02X} cannot be converted to a Note")]
+    NoteConversion(u8),
+
     #[error("a Play Function is valid only at the root of an Expression")]
     NestedPlay,
 
@@ -31,6 +34,9 @@ pub enum InterpretationError {
 pub enum TypeError {
     #[error("expected a function, found {0:?}")]
     Function(String),
+
+    #[error("expected a number or note, found {0:?}")]
+    Numeric(String),
 
     #[error("expected a note, found {0:?}")]
     Note(String),
