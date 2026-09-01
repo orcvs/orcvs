@@ -151,7 +151,7 @@ impl LanguageMap {
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
             range,
-            atoms: Some(atoms),
+            atoms,
             diagnostic: strict_diagnostic,
         });
     }
@@ -186,9 +186,9 @@ fn parse_standalone_run(source: &str) -> Option<Expression> {
     Some(expression)
 }
 
-fn expression_parts(mut expression: Expression) -> (Atoms, Vec<Glyph>) {
-    let glyphs = Glyph::to_glyphs(expression.take_tokens());
-    let atoms = expression.take_atoms();
+fn expression_parts(expression: Expression) -> (Option<Atoms>, Vec<Glyph>) {
+    let glyphs = Glyph::to_glyphs(expression.tokens().collect());
+    let atoms = expression.atoms();
     (atoms, glyphs)
 }
 

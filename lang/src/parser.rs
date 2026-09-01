@@ -36,8 +36,10 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        let atoms = self.expression.take_atoms();
-        Ok(atoms.into_iter().collect())
+        Ok(self
+            .expression
+            .take_atoms()
+            .expect("strict parsing cannot produce analysis-only entries"))
     }
 
     ///
@@ -85,7 +87,11 @@ impl<'a> Parser<'a> {
                         Tokens::from(&f)
                     }
                     Err(e) => {
-                        self.check_function().ok_or(e)?;
+                        if self.check_function().is_some() {
+                            self.expression.add_invalid()?;
+                        } else {
+                            return Err(e);
+                        }
                         Tokens::new()
                     }
                 };
@@ -94,14 +100,24 @@ impl<'a> Parser<'a> {
                     if self.is_function_next() {
                         self.take_language_unit()?;
                     } else {
-                        let a = self.take_token(&t)?;
-                        self.add(t, a)?;
+                        match self.take_token(&t) {
+                            Ok(Some(atom)) => self.add(t, atom)?,
+                            Ok(None) => {}
+                            Err(error) if self.check => {
+                                self.invalid = true;
+                                self.expression.add_invalid()?;
+                                return Err(error);
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
                 }
                 Ok(())
             }
             None => {
                 if self.check {
+                    self.invalid = true;
+                    self.expression.add_incomplete(Token::Char)?;
                     Ok(())
                 } else {
                     Err(SyntaxError::ExpectedFunction.into())
@@ -111,7 +127,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline(always)]
-    fn take_token(&mut self, token: &Token) -> Result<Atom, Error> {
+    fn take_token(&mut self, token: &Token) -> Result<Option<Atom>, Error> {
         let t = self.next_token(token.len());
         let atom = match t {
             Some(s) => match token {
@@ -121,12 +137,16 @@ impl<'a> Parser<'a> {
                 Token::Char => to_atom_char(s)?,
                 Token::Activation | Token::Bang | Token::Function => unreachable!(),
             },
-            None => self
-                .check_atom()
-                .ok_or(Error::Syntax(SyntaxError::ExpectedToken))?,
+            None => {
+                if self.check_atom().is_some() {
+                    self.expression.add_incomplete(*token)?;
+                    return Ok(None);
+                }
+                return Err(Error::Syntax(SyntaxError::ExpectedToken));
+            }
         };
 
-        Ok(atom)
+        Ok(Some(atom))
     }
 
     #[inline(always)]
@@ -198,7 +218,9 @@ fn is_function(s: Option<&str>) -> bool {
 #[cfg(test)]
 mod test {
 
-    use crate::{Atom, Atoms, Error, Function, SyntaxError, TypeError, parser::Parser, trace};
+    use crate::{
+        Atom, Atoms, Error, Function, SyntaxError, Token, TypeError, parser::Parser, trace,
+    };
     use arrayvec::ArrayVec;
 
     fn try_parse(exp: &mut str) -> Result<Atoms, Error> {
@@ -220,8 +242,12 @@ mod test {
 
     fn parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
         let parser = Parser::from(exp);
-        let a = parser.parse()?.take_atoms();
-        Ok(a.into_iter().collect())
+        Ok(parser
+            .parse()?
+            .take_atoms()
+            .unwrap_or_default()
+            .into_iter()
+            .collect())
     }
 
     #[test]
@@ -231,8 +257,7 @@ mod test {
         let mut s = String::from(".+");
         let parsed = parse(&mut s).unwrap();
 
-        let stack = vec![Atom::Function(Function::Add), Atom::Empty, Atom::Empty];
-        assert_eq!(parsed, stack);
+        assert!(parsed.is_empty());
 
         let mut s = String::from("+");
         let parsed = parse(&mut s).unwrap();
@@ -251,6 +276,41 @@ mod test {
         let mut s = String::from("A           ");
         let parsed = parse(&mut s).unwrap();
         assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn permissive_parse_keeps_non_values_out_of_runtime_atoms() {
+        let incomplete = Parser::from(".+01".to_owned().as_mut_str())
+            .parse()
+            .unwrap();
+        assert_eq!(
+            incomplete.tokens().collect::<Vec<_>>(),
+            vec![Token::Function, Token::Number, Token::Number]
+        );
+        assert_eq!(
+            incomplete.entries().collect::<Vec<_>>(),
+            vec![
+                (Token::Function, Atom::Function(Function::Add)),
+                (Token::Number, Atom::Number(1))
+            ]
+        );
+        assert!(incomplete.atoms().is_none());
+
+        let invalid = Parser::from(".+01XY".to_owned().as_mut_str())
+            .parse()
+            .unwrap();
+        assert_eq!(
+            invalid.tokens().collect::<Vec<_>>(),
+            vec![Token::Function, Token::Number, Token::Char]
+        );
+        assert_eq!(
+            invalid.entries().collect::<Vec<_>>(),
+            vec![
+                (Token::Function, Atom::Function(Function::Add)),
+                (Token::Number, Atom::Number(1))
+            ]
+        );
+        assert!(invalid.atoms().is_none());
     }
 
     #[test]

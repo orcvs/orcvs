@@ -1,6 +1,5 @@
 use crate::{Atom, Atoms, EXP_LEN, Function, SyntaxError};
 use arrayvec::ArrayVec;
-use std::mem;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 const DEFAULT_CHAR_TOKEN_LEN: usize = 1;
@@ -9,8 +8,14 @@ pub type Tokens = ArrayVec<Token, EXP_LEN>;
 
 #[derive(Debug, Clone)]
 pub struct Expression {
-    pub tokens: Tokens,
-    pub atoms: Atoms,
+    records: ArrayVec<Record, EXP_LEN>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Record {
+    Evaluable { token: Token, atom: Atom },
+    Incomplete { expected: Token },
+    Invalid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -26,42 +31,82 @@ pub enum Token {
 
 impl Expression {
     pub fn new() -> Self {
-        let tokens = ArrayVec::new();
-        let atoms = ArrayVec::new();
-
-        Self { tokens, atoms }
+        Self {
+            records: ArrayVec::new(),
+        }
     }
 
-    ///
-    /// Adds a token and atom to the expression
-    /// Should always be added together to keep collections in sync
-    ///
-    pub fn add(&mut self, t: Token, a: Atom) -> Result<(), SyntaxError> {
-        self.tokens
-            .try_push(t)
-            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })?;
-        self.atoms
-            .try_push(a)
+    /// Adds one complete syntax-and-value entry to the Expression.
+    pub fn add(&mut self, token: Token, atom: Atom) -> Result<(), SyntaxError> {
+        self.records
+            .try_push(Record::Evaluable { token, atom })
             .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })?;
         Ok(())
     }
 
-    pub fn take_atoms(&mut self) -> Atoms {
-        let atoms = mem::take(&mut self.atoms);
-        atoms.into_iter().collect()
+    pub(crate) fn add_incomplete(&mut self, expected: Token) -> Result<(), SyntaxError> {
+        self.records
+            .try_push(Record::Incomplete { expected })
+            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
     }
 
-    pub fn take_tokens(&mut self) -> Vec<Token> {
-        let tokens = mem::take(&mut self.tokens);
-        tokens.into_iter().collect()
+    pub(crate) fn add_invalid(&mut self) -> Result<(), SyntaxError> {
+        self.records
+            .try_push(Record::Invalid)
+            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
+    }
+
+    /// Complete evaluable entries, with their syntax and runtime value paired.
+    pub fn entries(&self) -> impl Iterator<Item = (Token, Atom)> + '_ {
+        self.records.iter().filter_map(|record| record.entry())
+    }
+
+    pub fn atoms(&self) -> Option<Atoms> {
+        self.records.iter().copied().map(Record::atom).collect()
+    }
+
+    pub fn take_atoms(self) -> Option<Atoms> {
+        self.records.into_iter().map(Record::atom).collect()
+    }
+
+    pub fn tokens(&self) -> impl DoubleEndedIterator<Item = Token> + '_ {
+        self.records.iter().map(Record::token)
+    }
+
+    pub fn take_tokens(self) -> Vec<Token> {
+        self.records
+            .into_iter()
+            .map(|record| record.token())
+            .collect()
     }
 
     pub fn len(&self) -> usize {
-        self.tokens.len().max(self.atoms.len())
+        self.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tokens.is_empty() && self.atoms.is_empty()
+        self.records.is_empty()
+    }
+}
+
+impl Record {
+    fn entry(&self) -> Option<(Token, Atom)> {
+        match self {
+            Self::Evaluable { token, atom } => Some((*token, *atom)),
+            Self::Incomplete { .. } | Self::Invalid => None,
+        }
+    }
+
+    fn atom(self) -> Option<Atom> {
+        self.entry().map(|(_, atom)| atom)
+    }
+
+    fn token(&self) -> Token {
+        match self {
+            Self::Evaluable { token, .. } => *token,
+            Self::Incomplete { expected } => *expected,
+            Self::Invalid => Token::Char,
+        }
     }
 }
 
@@ -89,5 +134,31 @@ impl From<&Function> for Tokens {
     #[inline(always)]
     fn from(f: &Function) -> Self {
         f.signature().iter().copied().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Expression, Token};
+    use crate::{Atom, EXP_LEN, SyntaxError};
+
+    #[test]
+    fn bounded_entries_add_syntax_and_value_atomically() {
+        let mut expression = Expression::new();
+        for _ in 0..EXP_LEN {
+            expression.add(Token::Number, Atom::Number(1)).unwrap();
+        }
+
+        assert!(matches!(
+            expression.add(Token::Note, Atom::Note(60)),
+            Err(SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
+        ));
+        assert_eq!(expression.len(), EXP_LEN);
+        assert_eq!(expression.tokens().last(), Some(Token::Number));
+        assert_eq!(expression.atoms().unwrap().last(), Some(&Atom::Number(1)));
+        assert_eq!(
+            expression.entries().last(),
+            Some((Token::Number, Atom::Number(1)))
+        );
     }
 }

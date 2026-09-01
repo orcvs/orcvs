@@ -1395,13 +1395,13 @@ mod test {
     }
 
     #[test]
-    fn test_failed_expression_suppresses_only_its_own_result() {
+    fn test_incomplete_expression_is_not_evaluated_and_suppresses_only_its_own_result() {
         trace();
 
         let mut src = source();
 
-        // `.+` with no operands fails to evaluate; the `.+0102` beside it is
-        // unrelated and must still commit its `03` in the same Tick
+        // `.+` with no operands is an analysis-only record; the `.+0102` beside
+        // it is unrelated and must still commit its `03` in the same Tick.
         src.write(0, ".+");
         src.write(3, ".+0102");
 
@@ -1409,13 +1409,7 @@ mod test {
 
         assert_eq!(src.row(1), "   03     ");
         assert_eq!(tick.plan.writes.len(), 2);
-        assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].start, 0);
-        assert_eq!(tick.plan.diagnostics[0].end, 1);
-        assert_eq!(
-            tick.plan.diagnostics[0].message,
-            "expected a number, found \"_\""
-        );
+        assert!(tick.plan.diagnostics.is_empty());
     }
 
     #[test]
