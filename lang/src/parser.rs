@@ -9,13 +9,67 @@ use crate::Tokens;
 use crate::atom::to_atom_char;
 use crate::to_atom_note;
 use crate::to_atom_num;
-use std::ops::Not;
+
+#[derive(Debug)]
+pub enum SourceAnalysis {
+    Complete(Expression),
+    Incomplete {
+        expression: Expression,
+        error: Error,
+    },
+    Invalid {
+        expression: Expression,
+        error: Error,
+    },
+}
+
+impl SourceAnalysis {
+    pub fn expression(&self) -> &Expression {
+        match self {
+            Self::Complete(expression)
+            | Self::Incomplete { expression, .. }
+            | Self::Invalid { expression, .. } => expression,
+        }
+    }
+
+    pub fn into_expression(self) -> Expression {
+        match self {
+            Self::Complete(expression)
+            | Self::Incomplete { expression, .. }
+            | Self::Invalid { expression, .. } => expression,
+        }
+    }
+
+    pub fn error(&self) -> Option<&Error> {
+        match self {
+            Self::Complete(_) => None,
+            Self::Incomplete { error, .. } | Self::Invalid { error, .. } => Some(error),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ParseStatus {
+    Complete,
+    Incomplete(Error),
+    Invalid(Error),
+}
+
+impl ParseStatus {
+    fn merge(self, next: Self) -> Self {
+        match (self, next) {
+            (invalid @ Self::Invalid(_), _) | (_, invalid @ Self::Invalid(_)) => invalid,
+            (incomplete @ Self::Incomplete(_), _) | (_, incomplete @ Self::Incomplete(_)) => {
+                incomplete
+            }
+            (Self::Complete, Self::Complete) => Self::Complete,
+        }
+    }
+}
 
 pub struct Parser<'a> {
     expression: Expression,
     source: &'a str,
-    check: bool,
-    invalid: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -23,59 +77,56 @@ impl<'a> Parser<'a> {
         Self {
             expression: Expression::new(),
             source,
-            check: false,
-            invalid: false,
         }
     }
 
-    ///
-    /// try_parse will error if the parse fails
-    ///
+    /// Strictly parses one complete Expression.
+    #[inline]
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
-        self.take_language_unit()?;
-        if !self.source.is_empty() {
-            return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
-        }
-        Ok(self
-            .expression
-            .take_atoms()
-            .expect("strict parsing cannot produce analysis-only entries"))
-    }
-
-    ///
-    /// parse will return a boolean indicating success or failure
-    ///
-    pub fn parse(mut self) -> Result<Expression, Error> {
-        self.check = true;
-        self.invalid = false;
-        match self.take_language_unit() {
-            Err(error @ Error::Syntax(SyntaxError::ExpressionTooLong { .. })) => Err(error),
-            _ => Ok(self.expression),
+        match self.take_language_unit()? {
+            ParseStatus::Complete if self.source.is_empty() => Ok(self
+                .expression
+                .take_atoms()
+                .expect("strict parsing contains only values")),
+            ParseStatus::Complete => {
+                Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into())
+            }
+            ParseStatus::Incomplete(error) | ParseStatus::Invalid(error) => Err(error),
         }
     }
 
-    pub fn take(self) -> Expression {
-        self.expression
-    }
+    /// Permissively analyzes Source while preserving every complete entry.
+    #[inline]
+    pub fn analyze(mut self) -> Result<SourceAnalysis, Error> {
+        let mut status = self.take_language_unit()?;
+        if matches!(status, ParseStatus::Complete) && !self.source.is_empty() {
+            let trailing = self.source.to_string();
+            status = ParseStatus::Invalid(SyntaxError::UnexpectedTrailingContent(trailing).into());
+        }
 
-    pub fn is_valid(&self) -> bool {
-        self.invalid.not()
+        let expression = self.expression;
+        let analysis = match status {
+            ParseStatus::Complete => SourceAnalysis::Complete(expression),
+            ParseStatus::Incomplete(error) => SourceAnalysis::Incomplete { expression, error },
+            ParseStatus::Invalid(error) => SourceAnalysis::Invalid { expression, error },
+        };
+        Ok(analysis)
     }
 
     ///
     /// A Language Unit may be a Function or a standalone Atom.
     #[inline(always)]
-    fn take_language_unit(&mut self) -> Result<(), Error> {
+    fn take_language_unit(&mut self) -> Result<ParseStatus, Error> {
         match self.next_token(2) {
             Some(t) => {
                 match t {
                     "**" => {
                         self.add(Token::Bang, Atom::Bang)?;
-                        return Ok(());
+                        return Ok(ParseStatus::Complete);
                     }
                     ">>" => {
                         self.add(Token::Activation, Atom::Activation(crate::Activation::East))?;
-                        return Ok(());
+                        return Ok(ParseStatus::Complete);
                     }
                     _ => {}
                 }
@@ -86,42 +137,38 @@ impl<'a> Parser<'a> {
                         self.add(Token::Function, Atom::from(f))?;
                         Tokens::from(&f)
                     }
-                    Err(e) => {
-                        if self.check_function().is_some() {
-                            self.expression.add_invalid()?;
-                        } else {
-                            return Err(e);
-                        }
-                        Tokens::new()
+                    Err(error) => {
+                        self.expression.add_invalid()?;
+                        return Ok(ParseStatus::Invalid(error));
                     }
                 };
 
+                let mut status = ParseStatus::Complete;
                 for t in tokens {
                     if self.is_function_next() {
-                        self.take_language_unit()?;
+                        status = status.merge(self.take_language_unit()?);
                     } else {
                         match self.take_token(&t) {
                             Ok(Some(atom)) => self.add(t, atom)?,
-                            Ok(None) => {}
-                            Err(error) if self.check => {
-                                self.invalid = true;
-                                self.expression.add_invalid()?;
-                                return Err(error);
+                            Ok(None) => {
+                                status = status.merge(ParseStatus::Incomplete(
+                                    SyntaxError::ExpectedToken.into(),
+                                ));
                             }
-                            Err(error) => return Err(error),
+                            Err(error) => {
+                                self.expression.add_invalid()?;
+                                return Ok(ParseStatus::Invalid(error));
+                            }
                         }
                     }
                 }
-                Ok(())
+                Ok(status)
             }
             None => {
-                if self.check {
-                    self.invalid = true;
-                    self.expression.add_incomplete(Token::Char)?;
-                    Ok(())
-                } else {
-                    Err(SyntaxError::ExpectedFunction.into())
-                }
+                self.expression.add_incomplete(Token::Char)?;
+                Ok(ParseStatus::Incomplete(
+                    SyntaxError::ExpectedFunction.into(),
+                ))
             }
         }
     }
@@ -137,11 +184,8 @@ impl<'a> Parser<'a> {
                 Token::Activation | Token::Bang | Token::Function => unreachable!(),
             },
             None => {
-                if self.check_atom().is_some() {
-                    self.expression.add_incomplete(*token)?;
-                    return Ok(None);
-                }
-                return Err(Error::Syntax(SyntaxError::ExpectedToken));
+                self.expression.add_incomplete(*token)?;
+                return Ok(None);
             }
         };
 
@@ -181,26 +225,6 @@ impl<'a> Parser<'a> {
         self.expression.add(t, a)?;
         Ok(())
     }
-
-    #[inline(always)]
-    fn check_atom(&mut self) -> Option<Atom> {
-        if self.check {
-            self.invalid = true;
-            Some(Atom::Empty)
-        } else {
-            None
-        }
-    }
-
-    #[inline(always)]
-    fn check_function(&mut self) -> Option<Function> {
-        if self.check {
-            self.invalid = true;
-            Some(Function::Empty)
-        } else {
-            None
-        }
-    }
 }
 
 #[inline(always)]
@@ -218,7 +242,8 @@ fn is_function(s: Option<&str>) -> bool {
 mod test {
 
     use crate::{
-        Atom, Atoms, Error, Function, SyntaxError, Token, TypeError, parser::Parser, trace,
+        Atom, Atoms, Error, Function, SourceAnalysis, SyntaxError, Token, TypeError,
+        parser::Parser, trace,
     };
     use arrayvec::ArrayVec;
 
@@ -228,9 +253,47 @@ mod test {
     }
 
     #[test]
-    fn every_real_function_parses_and_renders_from_its_canonical_spelling() {
-        assert!(!Function::ALL.contains(&Function::Empty));
+    fn source_analysis_represents_complete_incomplete_and_invalid_source() {
+        assert!(matches!(
+            Parser::from(&mut ".+0102".to_owned()).analyze().unwrap(),
+            SourceAnalysis::Complete(_)
+        ));
+        assert!(matches!(
+            Parser::from(&mut ".+01".to_owned()).analyze().unwrap(),
+            SourceAnalysis::Incomplete { .. }
+        ));
+        assert!(matches!(
+            Parser::from(&mut ".+01XY".to_owned()).analyze().unwrap(),
+            SourceAnalysis::Invalid { .. }
+        ));
+    }
 
+    #[test]
+    fn source_analysis_marks_trailing_content_invalid_without_losing_complete_entries() {
+        let analysis = Parser::from(&mut ".+0102Z".to_owned()).analyze().unwrap();
+
+        match analysis {
+            SourceAnalysis::Invalid { expression, error } => {
+                assert_eq!(
+                    expression.atoms().unwrap().as_slice(),
+                    &[
+                        Atom::Function(Function::Add),
+                        Atom::Number(1),
+                        Atom::Number(2),
+                    ]
+                );
+                assert!(matches!(
+                    error,
+                    Error::Syntax(SyntaxError::UnexpectedTrailingContent(ref trailing))
+                        if trailing == "Z"
+                ));
+            }
+            other => panic!("expected invalid analysis, found {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_real_function_parses_and_renders_from_its_canonical_spelling() {
         for function in Function::ALL {
             let spelling = function.spelling();
 
@@ -242,7 +305,8 @@ mod test {
     fn parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
         let parser = Parser::from(exp);
         Ok(parser
-            .parse()?
+            .analyze()?
+            .into_expression()
             .take_atoms()
             .unwrap_or_default()
             .into_iter()
@@ -280,8 +344,9 @@ mod test {
     #[test]
     fn permissive_parse_keeps_non_values_out_of_runtime_atoms() {
         let incomplete = Parser::from(".+01".to_owned().as_mut_str())
-            .parse()
-            .unwrap();
+            .analyze()
+            .unwrap()
+            .into_expression();
         assert_eq!(
             incomplete.tokens().collect::<Vec<_>>(),
             vec![Token::Function, Token::Number, Token::Number]
@@ -296,8 +361,9 @@ mod test {
         assert!(incomplete.atoms().is_none());
 
         let invalid = Parser::from(".+01XY".to_owned().as_mut_str())
-            .parse()
-            .unwrap();
+            .analyze()
+            .unwrap()
+            .into_expression();
         assert_eq!(
             invalid.tokens().collect::<Vec<_>>(),
             vec![Token::Function, Token::Number, Token::Char]

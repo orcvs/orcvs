@@ -55,8 +55,6 @@ macro_rules! define_functions {
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub enum Function {
             $($variant,)+
-            /// Parser-recovery sentinel; not a real Function.
-            Empty,
         }
 
         impl Function {
@@ -66,14 +64,12 @@ macro_rules! define_functions {
             pub(crate) const fn spelling(self) -> &'static str {
                 match self {
                     $(Self::$variant => $spelling,)+
-                    Self::Empty => "__",
                 }
             }
 
             pub(crate) fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => &[$($operand,)*],)+
-                    Self::Empty => &[],
                 }
             }
         }

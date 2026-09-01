@@ -1,4 +1,4 @@
-use lang::{Activation, Atom, Atoms, Expression, Parser, Token};
+use lang::{Activation, Atom, Atoms, Expression, Parser, SourceAnalysis, Token};
 
 use crate::{glyph::Glyph, grid::Grid};
 
@@ -117,22 +117,11 @@ impl LanguageMap {
         let mut source =
             String::from_utf8(bytes[start..=end].to_vec()).expect("Source Cells contain ASCII");
         let standalone_run = parse_standalone_run(&source);
-        let strict_diagnostic = if standalone_run.is_some() {
-            None
-        } else {
-            let mut strict_source = source.clone();
-            Parser::from(&mut strict_source)
-                .try_parse()
-                .err()
-                .map(|error| Diagnostic {
-                    start,
-                    end,
-                    message: error.to_string(),
-                })
-        };
-
-        let parsed = match standalone_run.map_or_else(|| Parser::from(&mut source).parse(), Ok) {
-            Ok(parsed) => parsed,
+        let analysis = match standalone_run
+            .map(SourceAnalysis::Complete)
+            .map_or_else(|| Parser::from(&mut source).analyze(), Ok)
+        {
+            Ok(analysis) => analysis,
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
                     range,
@@ -147,12 +136,18 @@ impl LanguageMap {
             }
         };
 
-        let (atoms, glyphs) = expression_parts(parsed);
+        let executable = matches!(analysis, SourceAnalysis::Complete(_));
+        let diagnostic = analysis.error().map(|error| Diagnostic {
+            start,
+            end,
+            message: error.to_string(),
+        });
+        let (atoms, glyphs) = expression_parts(analysis.into_expression(), executable);
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
             range,
             atoms,
-            diagnostic: strict_diagnostic,
+            diagnostic,
         });
     }
 
@@ -186,9 +181,9 @@ fn parse_standalone_run(source: &str) -> Option<Expression> {
     Some(expression)
 }
 
-fn expression_parts(expression: Expression) -> (Option<Atoms>, Vec<Glyph>) {
+fn expression_parts(expression: Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
     let glyphs = Glyph::to_glyphs(expression.tokens().collect());
-    let atoms = expression.atoms();
+    let atoms = executable.then(|| expression.atoms()).flatten();
     (atoms, glyphs)
 }
 

@@ -11,7 +11,7 @@ pub use atom::{Activation, Atom, Atoms, Function, Note, to_atom_note, to_atom_nu
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
-pub use parser::Parser;
+pub use parser::{Parser, SourceAnalysis};
 pub use portal::Portal;
 pub use stack::Stack;
 

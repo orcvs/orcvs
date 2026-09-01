@@ -246,7 +246,7 @@ impl Source {
         let mut expression = String::from_utf8(self.inner.as_bytes()[start..=end].to_vec())
             .expect("Source Cells contain ASCII");
         expression.replace_range(idx - start..=idx - start, &(byte as char).to_string());
-        match Parser::from(&mut expression).parse() {
+        match Parser::from(&mut expression).analyze() {
             Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
                 Err(SourceError::ExpressionTooLong {
                     start,
