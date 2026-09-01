@@ -59,6 +59,10 @@ macro_rules! define_functions {
         impl TryFrom<&str> for Function {
             type Error = Error;
 
+            /// Two definitions sharing a spelling would generate a duplicate arm here and
+            /// leave the later variant unreachable from the parser. Denying the lint turns
+            /// that into a compile error rather than a warning the build would accept.
+            #[deny(unreachable_patterns)]
             #[inline(always)]
             fn try_from(spelling: &str) -> Result<Self, Self::Error> {
                 match spelling {
