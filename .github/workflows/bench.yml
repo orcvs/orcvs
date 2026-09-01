@@ -1,0 +1,131 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    # Everything that can move a measurement: the crate itself, the profile and
+    # resolved dependency versions it compiles under, the toolchain, the command, and
+    # the gate's own definition. Repeated because Actions does not support YAML anchors.
+    paths:
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/bench.yml'
+  pull_request:
+    branches: [main]
+    # Everything that can move a measurement: the crate itself, the profile and
+    # resolved dependency versions it compiles under, the toolchain, the command, and
+    # the gate's own definition. Repeated because Actions does not support YAML anchors.
+    paths:
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/bench.yml'
+
+# Granted per job. The publishing job writes repository contents; the pull-request job
+# must not, so it never receives the permission at all.
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Measures the merged result and appends it to the series on gh-pages.
+  publish:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      deployments: write
+    # A run cancelled partway through publishing leaves the stored series half written.
+    concurrency:
+      group: bench-publish-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # `mise run bench` needs only cargo, which the toolchain step provides. Without
+      # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
+      # ten minutes for tools this job never invokes.
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          install: false
+      # The first run after a fresh compile is contaminated: measured locally,
+      # parse_source reported 1,204 ns on the first run and a settled 417 ns on the
+      # three that followed. CI only ever runs a freshly compiled binary, so the
+      # first result is discarded.
+      - name: Warm up
+        run: mise run bench > /dev/null
+      - name: Run benchmarks
+        # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
+        # status of `tee`, so a failed benchmark run would pass this step and publish
+        # whatever partial output it had already written.
+        shell: bash
+        run: mise run bench | tee output.txt
+      - name: Publish and compare
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        with:
+          # The action keys the stored series by this name. It must never change.
+          name: lang
+          tool: cargo
+          output-file-path: output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '150%'
+          comment-on-alert: true
+          fail-threshold: '300%'
+          fail-on-alert: true
+
+  # Measures the pull request and compares it against the last point stored by main.
+  # It reads the series and never writes it: no token, no push, no stored result.
+  pull-request:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: bench-pr-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # `mise run bench` needs only cargo, which the toolchain step provides. Without
+      # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
+      # ten minutes for tools this job never invokes.
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          install: false
+      - name: Warm up
+        run: mise run bench > /dev/null
+      - name: Run benchmarks
+        # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
+        # status of `tee`, so a failed benchmark run would pass this step and publish
+        # whatever partial output it had already written.
+        shell: bash
+        run: mise run bench | tee output.txt
+      - name: Compare against main
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        with:
+          name: lang
+          tool: cargo
+          output-file-path: output.txt
+          # No github-token: the action reads gh-pages anonymously on a public repo,
+          # and comment-on-alert would require one. The comparison and the failure
+          # threshold work without it.
+          auto-push: false
+          alert-threshold: '150%'
+          comment-on-alert: false
+          fail-threshold: '300%'
+          fail-on-alert: true
+          summary-always: true

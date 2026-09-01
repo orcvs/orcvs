@@ -40,6 +40,14 @@ codegen-units = 1
 strip = "symbols"
 lto = true
 
+# `bench` inherits `release`. Full LTO across criterion's tree is a slow link on every
+# merge run, and stripped symbols make a local profiling run much less useful. A
+# comparison gate needs a profile identical between runs, not one identical to the
+# shipped binary.
+[profile.bench]
+lto = "thin"
+strip = "none"
+
 [profile.profiling]
 inherits = "release"
 debug = true

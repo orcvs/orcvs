@@ -51,6 +51,7 @@ risk gate:
 - public API: doctests, examples, rustdoc warnings, and human API review
 - concurrency: cancellation, shutdown, ownership, backpressure, ordering, and race-sensitive tests
 - parser/protocol boundary: boundary or property tests; fuzz when exposure warrants it
+- performance: `mise run bench`, and a benchmark for any path whose cost the change claims to move
 
 ## Completion evidence
 
