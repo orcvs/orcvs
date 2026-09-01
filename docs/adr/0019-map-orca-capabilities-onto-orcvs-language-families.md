@@ -25,7 +25,7 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Bang | `*` and lowercase case | Retain as explicit two-Cell Atom; remove Function case | `**` | ADR 0006 |
 | Halt | `H` | Retain with Orca Source-order behavior | `*!` | ADRs 0006 and 0014 |
 | Vertical Jumper and horizontal Jymper | `J Y` | Generalize to four directional Jump Functions over complete Language Units | `&^ &v &< &>` | ADRs 0005 and 0014 |
-| Range | — | Add as a first-class Sequence Function | `:-` | ADR 0007 |
+| Number Range and Note Range | — | Add distinct monomorphic Sequence Functions | `:-` and `:#` | ADRs 0007 and 0023 |
 | Reverse | — | Add as a first-class Sequence Function | `:<` | ADR 0007 |
 | Concatenate | — | Add as a first-class Sequence Function | `:&` | ADR 0007 |
 | Track | `T` | Replace with Sequence Select | `:?` | ADRs 0007 and 0017 |
@@ -48,4 +48,4 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 
 The canonical families are numeric `.`, Tick and feedback `~`, activation `*`, address `&`, Source `@`, Sequence `:`, and terminal output `!` (ADR 0008). General arithmetic takes and returns Numbers; `.v` and `.^` explicitly convert between Number and Note with fixed result types (ADRs 0010, 0011, and 0021). Sequence broadcasting and structural behavior follow ADR 0007; editing remains a one-character Cell Grid with semantic behavior derived through the Language Map (ADR 0018).
 
-Three design boundaries remain intentionally deferred rather than unresolved in this audit: the concrete Source address form beyond directional Jump (ADR 0005), the disjoint two-Cell Source encoding for Notes (ADR 0021), and the text or message value encoding required by UDP, OSC, and Application Command. The Orca-to-Orcvs capability map is a presentation and implementation-tracking view of this decision, not a separate source of language truth.
+Two design boundaries remain intentionally deferred rather than unresolved in this audit: the concrete Source address form beyond directional Jump (ADR 0005), and the text or message value encoding required by UDP, OSC, and Application Command. Contextual two-Cell Note interpretation and the distinct Number and Note Range names are settled by ADRs 0021 and 0023. The Orca-to-Orcvs capability map is a presentation and implementation-tracking view of this decision, not a separate source of language truth.

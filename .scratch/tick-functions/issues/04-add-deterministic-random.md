@@ -13,6 +13,7 @@ inclusive byte-range mapping.
 - [ ] A fresh ChaCha8 stream supplies the first `u64` for each scalar result.
 - [ ] Golden vectors pin seed bytes, stream output, and range mapping.
 - [ ] Moving a Function changes its stream; identical inputs reproduce it.
+- [ ] Note seed or bound operands diagnose in Random tests rather than converting implicitly.
 - [ ] Sequence index distinguishes broadcast elements.
 - [ ] `rand_chacha` is added only to `lang`, with default features disabled and dependency audit.
 - [ ] Native and `wasm32-unknown-unknown` results match.

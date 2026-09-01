@@ -3,8 +3,7 @@
 **What to fix:** The root `<html>` element has no `lang` attribute. A screen reader then guesses the
 language and can use the wrong pronunciation rules.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The `<html>` element declares a language.
 - [x] The declared language matches the page content.

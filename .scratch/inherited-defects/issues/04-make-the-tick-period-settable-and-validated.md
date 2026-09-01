@@ -3,8 +3,7 @@
 **What to fix:** `Bpm` holds a private `usize` with no constructor and no setter. The tempo is fixed
 at `Bpm(20)`. `delay_ms` divides by that field, so a zero value would panic.
 
-**Status:** needs-triage
-**Implementation:** complete
+**Status:** resolved
 
 - [x] The user can change the tempo.
 - [x] `Bpm` refuses a zero value at construction, as `MarkerSpacing` does.
@@ -44,3 +43,15 @@ whether a tempo change restarts playback or takes effect on the next Tick.
 
 Land the validation first. Give `Bpm` a `new(usize) -> Option<Self>` over `NonZeroUsize`, and keep
 `delay_ms` as it is. The division is then safe by construction.
+
+## Resolution
+
+Both halves landed. `Bpm` now wraps a `NonZeroUsize` behind a fallible `new` that also rejects
+anything above `MAX_BPM` (`60_000 / 4`), so `delay_ms` cannot divide by zero and cannot return a
+zero Tick period. `Opts::new` builds the default through `Bpm::new(20)`.
+
+The tempo control is a drag-value field in the console's Tempo menu
+(`shell/src/console.rs:374-398`). It commits on pointer release rather than on every frame, through
+the `pending`/`take_commit` pair, so dragging does not retune playback on each pixel.
+`Orcvs::set_bpm` retunes a running Playback Engine in place and leaves a stopped one to pick the new
+period at its next start.

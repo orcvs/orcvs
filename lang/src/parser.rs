@@ -326,6 +326,56 @@ mod test {
     }
 
     #[test]
+    fn numeric_conversion_spellings_parse_without_language_unit_collisions() {
+        assert_eq!(
+            try_parse(&mut ".vC4".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNumber), Atom::Note(60)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^3C".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(60)]
+        );
+    }
+
+    #[test]
+    fn conversion_literal_operands_are_monomorphic() {
+        assert!(matches!(
+            try_parse(&mut ".v3C".to_owned()),
+            Err(Error::Type(TypeError::Note(_)))
+        ));
+        assert!(matches!(
+            try_parse(&mut ".^G9".to_owned()),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+
+        // An overlapping spelling receives the type fixed by the Function's
+        // literal operand slot, rather than choosing a type from its spelling.
+        assert_eq!(
+            try_parse(&mut ".^C4".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0xC4)]
+        );
+    }
+
+    #[test]
+    fn conversion_operands_without_a_note_spelling_stay_numbers() {
+        // The whole `00`-`7F` domain `.^` accepts starts with a hexadecimal
+        // digit rather than a pitch letter, so no in-range operand is ambiguous
+        // and the `80`-`FF` diagnosis stays reachable from Source.
+        assert_eq!(
+            try_parse(&mut ".^7F".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0x7F)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^80".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0x80)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^FA".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0xFA)]
+        );
+    }
+
+    #[test]
     fn bang_and_east_activation_parse_as_complete_language_units() {
         assert_eq!(
             try_parse(&mut "**".to_owned()).unwrap().as_slice(),

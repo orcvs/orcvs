@@ -13,17 +13,17 @@ valid Orcvs spellings.
 - [ ] Input longer than `EXP_LEN` produces `ExpressionTooLong` rather than a panic or a truncation.
 - [ ] A successful `try_parse` consumes the whole input, leaving no trailing content.
 - [ ] Every `Atom` renders through `Display` and parses back to an equal `Atom`.
-- [ ] The generator covers the space character and the `#` comment character.
+- [ ] The generator covers the space character, incomplete `#`, and the `##` Comment introducer.
 
 ## Comments
 
 `AGENTS.md` names this exact obligation: "parser/protocol boundary: boundary or property tests". The
 parser is the widest input surface in the workspace, because every keystroke reaches it.
 
-The round trip is the strongest property here, but it only holds for Atoms whose canonical spelling
-is settled. CONTEXT.md records that the Note encoding "remains to be selected", so exclude `Atom::Note`
-from the round trip until `orcvs-language-migration/04` lands, and say so in a comment rather than
-silently narrowing the generator.
+The round trip is contextual rather than a standalone parse law for Operand Literals. Cover every
+Note value from `C/` through `G9` inside a Function's Note operand position and every Number value
+inside a Number operand position. Overlapping characters such as `C4` must round-trip according to
+that fixed signature; a standalone operand literal is invalid.
 
 Generate raw input. A generator that only produces valid Expressions tests the generator, not the
 parser, and it slowly becomes a second implementation of the grammar.

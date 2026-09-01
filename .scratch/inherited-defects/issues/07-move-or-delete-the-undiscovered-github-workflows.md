@@ -4,8 +4,7 @@
 workflows only from the repository root. These three have never run, and each one names paths and a
 binary that do not exist.
 
-**Status:** needs-triage
-**Implementation:** complete
+**Status:** resolved
 
 - [x] Every workflow file in the repository either runs or is deleted.
 - [x] No workflow names a binary or a directory that the build does not produce.
@@ -43,3 +42,12 @@ assertions to `scripts/check-tooling-contract.sh` that keep them correct.
 
 Do not move them without correcting them. A workflow that runs and fails is worse than one that
 never runs.
+
+## Resolution
+
+All three were deleted. `shell/.github/` no longer exists, and `.github/workflows/test.yml` is the
+only workflow in the repository. Nothing now names `eframe_template` or builds Trunk from the
+repository root.
+
+GitHub Pages deployment and release binaries were not adopted. If either is wanted later, it is new
+work against a correct path and binary name, not a move of these files.

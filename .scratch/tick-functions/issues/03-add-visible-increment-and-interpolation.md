@@ -11,7 +11,8 @@ Number at the ordinary result Portal in the current Source Snapshot.
 - [ ] Empty Portal initializes as Number `00`.
 - [ ] Increment returns `(previous + step) % modulus` and rejects zero modulus.
 - [ ] Interpolation moves toward target without overshoot; rate `00` holds.
-- [ ] Previous Note, Sequence, invalid Footprint, or non-Number operand diagnoses.
+- [ ] Tests prove that a previous Note, a Note operand, a Sequence, an invalid Footprint, or another
+      non-Number operand diagnoses rather than converting implicitly.
 - [ ] Both Functions remain scalar exceptions to Sequence broadcasting.
 - [ ] Cross-Tick state is visible only in Source Snapshot Cells.
 - [ ] Live Editing and stale-tail behavior remain deterministic.

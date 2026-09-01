@@ -1,6 +1,6 @@
 use crate::{
     Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Stack,
-    functions::{self, math},
+    functions::{self, math, numeric_conversion},
 };
 
 pub type Args = Stack<16>;
@@ -34,6 +34,8 @@ impl Interpreter {
             let atom = match atom {
                 Atom::Function(fun) => match fun {
                     Function::Add => math::add(&mut ctx)?,
+                    Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
+                    Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
                     Function::Divide => math::divide(&mut ctx)?,
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
@@ -265,6 +267,79 @@ mod test {
             ]);
             assert!(matches!(result, Err(Error::Type(TypeError::Number(_)))));
         }
+    }
+
+    #[test]
+    fn explicit_numeric_conversions_have_fixed_result_types() {
+        for value in 0..=0x7F {
+            assert_eq!(
+                interpret_stack(vec![
+                    Atom::Function(Function::ConvertToNumber),
+                    Atom::Number(value),
+                ])
+                .unwrap(),
+                Atom::Number(value)
+            );
+            assert_eq!(
+                interpret_stack(vec![
+                    Atom::Function(Function::ConvertToNumber),
+                    Atom::Note(value),
+                ])
+                .unwrap(),
+                Atom::Number(value)
+            );
+            assert_eq!(
+                interpret_stack(vec![
+                    Atom::Function(Function::ConvertToNote),
+                    Atom::Number(value),
+                ])
+                .unwrap(),
+                Atom::Note(value)
+            );
+            assert_eq!(
+                interpret_stack(vec![
+                    Atom::Function(Function::ConvertToNote),
+                    Atom::Note(value),
+                ])
+                .unwrap(),
+                Atom::Note(value)
+            );
+        }
+    }
+
+    #[test]
+    fn conversion_to_note_rejects_numbers_outside_the_midi_range() {
+        for value in 0x80..=u8::MAX {
+            assert!(matches!(
+                interpret_stack(vec![
+                    Atom::Function(Function::ConvertToNote),
+                    Atom::Number(value),
+                ]),
+                Err(Error::Interpretation(InterpretationError::NoteConversion(n))) if n == value
+            ));
+        }
+    }
+
+    #[test]
+    fn conversions_are_idempotent_through_nested_source_expressions() {
+        assert_eq!(interpret(".v.vC4".to_owned()), Atom::Number(60));
+        assert_eq!(interpret(".^.^3C".to_owned()), Atom::Note(60));
+    }
+
+    #[test]
+    fn conversion_source_literals_use_the_monomorphic_operand_type() {
+        assert_eq!(interpret(".vA0".to_owned()), Atom::Number(21));
+
+        let mut source = ".^C4".to_owned();
+        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        assert!(matches!(
+            Interpreter::execute(&atoms),
+            Err(Error::Interpretation(InterpretationError::NoteConversion(
+                0xC4
+            )))
+        ));
+
+        assert_eq!(interpret(".v.^3C".to_owned()), Atom::Number(60));
     }
 
     #[test]

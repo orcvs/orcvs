@@ -3,8 +3,7 @@
 **What to fix:** `SourceCommander` unwraps every `RwLock` guard. One panic inside a `Source` method
 poisons the lock. Every later read and write then panics, and the editor dies.
 
-**Status:** ready-for-agent
-**Implementation:** complete
+**Status:** resolved
 
 - [x] A panic inside one `Source` method does not stop later reads and writes.
 - [x] `SourceCommander` and `PlaybackEngine` treat lock poisoning the same way.

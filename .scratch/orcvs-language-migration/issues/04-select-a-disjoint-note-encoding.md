@@ -1,22 +1,34 @@
-# 04 — Select a disjoint two-Cell Note encoding
+# 04 — Confirm contextual Number and Note literals
 
-**What to decide:** Choose the canonical two-Cell ASCII Source encoding for every Note from MIDI
-`00` through `7F`. No Note spelling may also be a hexadecimal Number, Function, Bang, Activation
-Character, or reserved Source form. The Language Map must classify the encoding without consulting
-an operand slot or surrounding Function.
+**What to decide:** Confirm how the same two literal Source characters receive exactly one Number
+or Note type from the containing Expression and its Function signature. Preserve the two-Cell Note
+spelling from `C/` through `G9`, give Number Range and Note Range distinct names, and keep Comments
+on a complete two-Cell introducer.
 
 **Blocked by:** None — requires a syntax decision before implementation.
 
-**Status:** needs-info
+**Status:** resolved
 
-- [ ] Every MIDI note from `00` through `7F` has one canonical two-Cell encoding.
-- [ ] Every Note encoding is disjoint from Numbers `00` through `FF` and every reserved Language Unit.
-- [ ] Naturals and sharps remain readable enough for live musical editing.
-- [ ] `Display`, parsing, Glyph classification, Portal round-trips, Sequences, and Live Edits use the same mapping.
-- [ ] A syntax prototype demonstrates the complete mapping and collision-free classification.
+- [x] Every MIDI Note from `00` through `7F` has one contextual two-Cell spelling from `C/` through `G9`.
+- [x] A literal occurrence receives exactly one Atom type from its Expression and fixed Function signature.
+- [x] `.v` and `.^` are the sole type-directed exception and always produce their named target type.
+- [x] Number Range `:-` and Note Range `:#` have distinct monomorphic signatures; mixed bounds diagnose.
+- [x] Comments begin with `##`; one `#` is incomplete or invalid Source.
+- [x] `Display`, parsing, Glyph classification, Portal round-trips, Sequences, and Live Edits follow contextual typing.
+- [x] A syntax prototype demonstrates the complete Note mapping and context-dependent classification.
 
 ## Comments
 
-The retired natural-note spelling overlaps hexadecimal Numbers such as `A0`, `C4`, and `B7`.
-ADR 0021 requires lexical type identity but deliberately does not invent the replacement spelling.
-The Number/Note ambiguity prototype records the failure mode that this issue must eliminate.
+The original ticket incorrectly extrapolated ADR 0021 into a requirement that raw characters carry
+type independently of their operand slot. The intended contract is contextual: `C4` is Number 196
+for a Number operand and Note 60 for a Note operand. Source always stores literal characters; a later
+consumer interprets them through its own fixed signature. ADR 0021 now states that distinction
+explicitly.
+
+Number Range remains `:-`; Note Range is `:#`. This avoids semantic overloading while retaining
+type-preserving generic structural Sequence Functions. Moving the Comment introducer from `#` to
+`##` makes `:#` unambiguous and follows the two-Cell Source form.
+
+The replacement prototype is `lang/contextual-number-note-prototype.html`. The superseded
+`lang/number-note-ambiguity-prototype.html` remains as the exploration that exposed the wording
+problem.
