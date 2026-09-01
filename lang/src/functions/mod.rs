@@ -11,7 +11,7 @@ pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
     let NumberValue(channel) = ctx.stack.try_pop(3, 0)?;
     let NumberValue(velocity) = ctx.stack.try_pop(3, 1)?;
     let NoteValue(note) = ctx.stack.try_pop(3, 2)?;
-    play_impl(channel, velocity, note)
+    play_impl(channel, velocity, note.value())
 }
 
 #[inline(always)]
@@ -40,7 +40,8 @@ mod test {
 
         // A fourth atom below the three arguments must survive untouched
         ctx.stack.push(Atom::Char('z'));
-        ctx.stack.push(Atom::Note(60)); // n
+        ctx.stack
+            .push(Atom::Note(crate::Note::try_from(60).unwrap())); // n
         ctx.stack.push(Atom::Number(0x7F)); // v
         ctx.stack.push(Atom::Number(0x0)); // c
 
@@ -83,8 +84,16 @@ mod test {
     #[test]
     fn play_rejects_implicit_number_note_conversions() {
         for arguments in [
-            [Atom::Note(0), Atom::Number(0x7F), Atom::Note(60)],
-            [Atom::Number(0), Atom::Note(0x7F), Atom::Note(60)],
+            [
+                Atom::Note(crate::Note::try_from(0).unwrap()),
+                Atom::Number(0x7F),
+                Atom::Note(crate::Note::try_from(60).unwrap()),
+            ],
+            [
+                Atom::Number(0),
+                Atom::Note(crate::Note::try_from(0x7F).unwrap()),
+                Atom::Note(crate::Note::try_from(60).unwrap()),
+            ],
             [Atom::Number(0), Atom::Number(0x7F), Atom::Number(60)],
         ] {
             let mut ctx = Context::new();

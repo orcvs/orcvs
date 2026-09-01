@@ -148,7 +148,7 @@ mod tests {
         }
 
         assert!(matches!(
-            expression.add(Token::Note, Atom::Note(60)),
+            expression.add(Token::Note, Atom::Note(crate::Note::try_from(60).unwrap())),
             Err(SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
         ));
         assert_eq!(expression.len(), EXP_LEN);

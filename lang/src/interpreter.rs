@@ -262,7 +262,7 @@ mod test {
         ] {
             let result = interpret_stack(vec![
                 Atom::Function(function),
-                Atom::Note(60),
+                Atom::Note(crate::Note::try_from(60).unwrap()),
                 Atom::Number(1),
             ]);
             assert!(matches!(result, Err(Error::Type(TypeError::Number(_)))));
@@ -283,7 +283,7 @@ mod test {
             assert_eq!(
                 interpret_stack(vec![
                     Atom::Function(Function::ConvertToNumber),
-                    Atom::Note(value),
+                    Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
                 .unwrap(),
                 Atom::Number(value)
@@ -294,15 +294,15 @@ mod test {
                     Atom::Number(value),
                 ])
                 .unwrap(),
-                Atom::Note(value)
+                Atom::Note(crate::Note::try_from(value).unwrap())
             );
             assert_eq!(
                 interpret_stack(vec![
                     Atom::Function(Function::ConvertToNote),
-                    Atom::Note(value),
+                    Atom::Note(crate::Note::try_from(value).unwrap()),
                 ])
                 .unwrap(),
-                Atom::Note(value)
+                Atom::Note(crate::Note::try_from(value).unwrap())
             );
         }
     }
@@ -323,7 +323,10 @@ mod test {
     #[test]
     fn conversions_are_idempotent_through_nested_source_expressions() {
         assert_eq!(interpret(".v.vC4".to_owned()), Atom::Number(60));
-        assert_eq!(interpret(".^.^3C".to_owned()), Atom::Note(60));
+        assert_eq!(
+            interpret(".^.^3C".to_owned()),
+            Atom::Note(crate::Note::try_from(60).unwrap())
+        );
     }
 
     #[test]

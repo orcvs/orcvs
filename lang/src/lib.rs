@@ -7,7 +7,7 @@ mod parser;
 mod portal;
 mod stack;
 
-pub use atom::{Activation, Atom, Atoms, Function, to_atom_note, to_atom_num};
+pub use atom::{Activation, Atom, Atoms, Function, Note, to_atom_note, to_atom_num};
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
@@ -100,7 +100,7 @@ fn midi_number_to_note(note: u8) -> Option<String> {
 
 #[cfg(test)]
 mod test {
-    use super::{Atom, midi_note_to_number, midi_number_to_note, str_to_num};
+    use super::{Atom, Note, midi_note_to_number, midi_number_to_note, str_to_num};
 
     #[test]
     fn test_str_to_num_rejects_a_leading_sign() {
@@ -134,7 +134,10 @@ mod test {
             let source = midi_number_to_note(number).unwrap();
             assert_eq!(source.len(), 2, "Note({number}) rendered as {source:?}");
             assert_eq!(midi_note_to_number(&source), Some(number));
-            assert_eq!(Atom::Note(number).to_string(), source);
+            assert_eq!(
+                Atom::Note(Note::try_from(number).unwrap()).to_string(),
+                source
+            );
         }
     }
 

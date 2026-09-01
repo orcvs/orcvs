@@ -400,7 +400,10 @@ mod test {
     fn numeric_conversion_spellings_parse_without_language_unit_collisions() {
         assert_eq!(
             try_parse(&mut ".vC4".to_owned()).unwrap().as_slice(),
-            &[Atom::Function(Function::ConvertToNumber), Atom::Note(60)]
+            &[
+                Atom::Function(Function::ConvertToNumber),
+                Atom::Note(crate::Note::try_from(60).unwrap()),
+            ]
         );
         assert_eq!(
             try_parse(&mut ".^3C".to_owned()).unwrap().as_slice(),
@@ -411,11 +414,15 @@ mod test {
     #[test]
     fn every_note_source_encoding_parses_in_context() {
         for value in 0x00..=0x7F {
-            let note = Atom::Note(value).to_string();
+            let note_value = crate::Note::try_from(value).unwrap();
+            let note = Atom::Note(note_value).to_string();
             let mut source = format!(".v{note}");
             assert_eq!(
                 try_parse(&mut source).unwrap().as_slice(),
-                &[Atom::Function(Function::ConvertToNumber), Atom::Note(value)],
+                &[
+                    Atom::Function(Function::ConvertToNumber),
+                    Atom::Note(note_value),
+                ],
                 "failed to parse Note({value}) from {note:?}",
             );
         }
@@ -482,7 +489,7 @@ mod test {
             Atom::Function(Function::Play),
             Atom::Number(1),
             Atom::Number(10),
-            Atom::Note(60),
+            Atom::Note(crate::Note::try_from(60).unwrap()),
         ];
 
         let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();

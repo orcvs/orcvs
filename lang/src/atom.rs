@@ -5,6 +5,28 @@ use crate::{EXP_LEN, Error, TypeError, midi_note_to_number, midi_number_to_note,
 
 pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Note(u8);
+
+impl Note {
+    #[inline(always)]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for Note {
+    type Error = crate::InterpretationError;
+
+    #[inline(always)]
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00..=0x7F => Ok(Self(value)),
+            _ => Err(crate::InterpretationError::NoteConversion(value)),
+        }
+    }
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
@@ -13,7 +35,7 @@ pub enum Atom {
     Char(char),
     Empty,
     Function(Function),
-    Note(u8),
+    Note(Note),
     Number(u8),
 }
 
@@ -87,10 +109,7 @@ define_functions! {
 #[inline(always)]
 pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
     match midi_note_to_number(s) {
-        Some(n) => {
-            let a = Atom::Note(n);
-            Ok(a)
-        }
+        Some(n) => Ok(Atom::Note(Note(n))),
         None => Err(TypeError::Note(s.to_string()))?,
     }
 }
@@ -138,7 +157,7 @@ impl fmt::Display for Atom {
             // Numbers are hexadecimal: rendered results are written back into the
             // Source and re-parsed as two Cells, so they must round trip as hex
             Atom::Number(n) => write!(f, "{:02X}", n),
-            Atom::Note(n) => match midi_number_to_note(*n) {
+            Atom::Note(n) => match midi_number_to_note(n.value()) {
                 Some(note) => write!(f, "{note}"),
                 None => Err(fmt::Error),
             },
@@ -151,9 +170,7 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
-    use std::fmt::Write;
-
-    use super::{Activation, Atom, Function, to_atom_num};
+    use super::{Activation, Atom, Function, Note, to_atom_num};
 
     #[test]
     fn test_number_displays_as_two_uppercase_hex_digits() {
@@ -203,7 +220,7 @@ mod test {
         }
 
         for n in 0..=0x7F {
-            let atom = Atom::Note(n);
+            let atom = Atom::Note(Note::try_from(n).unwrap());
             assert_eq!(String::from(atom), atom.to_string());
         }
 
@@ -215,6 +232,14 @@ mod test {
         ] {
             assert_eq!(String::from(atom), atom.to_string(), "{atom:?}");
         }
+    }
+
+    #[test]
+    fn note_construction_enforces_the_midi_domain_before_rendering() {
+        assert!(Note::try_from(0x80).is_err());
+
+        let note = Atom::Note(Note::try_from(0x7F).unwrap());
+        assert_eq!(String::from(note), "G9");
     }
 
     #[test]
@@ -245,20 +270,14 @@ mod test {
     #[test]
     fn test_notes_render_distinctly_from_numbers() {
         // Notes render via midi_number_to_note and are unaffected by hex Numbers
-        assert_eq!(Atom::Note(60).to_string(), "C4");
-        assert_eq!(Atom::Note(69).to_string(), "A4");
-        assert_eq!(Atom::Note(21).to_string(), "A0");
+        assert_eq!(Atom::Note(Note::try_from(60).unwrap()).to_string(), "C4");
+        assert_eq!(Atom::Note(Note::try_from(69).unwrap()).to_string(), "A4");
+        assert_eq!(Atom::Note(Note::try_from(21).unwrap()).to_string(), "A0");
 
-        assert_ne!(Atom::Note(60).to_string(), Atom::Number(60).to_string());
+        assert_ne!(
+            Atom::Note(Note::try_from(60).unwrap()).to_string(),
+            Atom::Number(60).to_string()
+        );
         assert_eq!(Atom::Number(60).to_string(), "3C");
-    }
-
-    #[test]
-    fn values_above_the_midi_range_cannot_render_as_note_source() {
-        for value in 0x80..=u8::MAX {
-            let mut source = String::new();
-            assert!(write!(&mut source, "{}", Atom::Note(value)).is_err());
-            assert!(source.is_empty());
-        }
     }
 }

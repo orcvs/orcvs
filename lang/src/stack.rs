@@ -1,4 +1,4 @@
-use crate::{ArgumentError, Atom, Error, Function, TypeError};
+use crate::{ArgumentError, Atom, Error, Function, Note, TypeError};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
@@ -6,10 +6,10 @@ pub struct MaybeAtom(pub Option<Atom>);
 
 pub(crate) struct NumberValue(pub u8);
 
-pub(crate) struct NoteValue(pub u8);
+pub(crate) struct NoteValue(pub Note);
 
 pub(crate) enum NumericValue {
-    Note(u8),
+    Note(Note),
     Number(u8),
 }
 
