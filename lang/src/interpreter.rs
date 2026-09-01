@@ -327,6 +327,13 @@ mod test {
     }
 
     #[test]
+    fn conversion_to_note_returns_an_overlapping_source_spelling_unchanged() {
+        assert_eq!(interpret(".^C4".to_owned()), Atom::Note(60));
+        assert_eq!(interpret(".^G9".to_owned()), Atom::Note(127));
+        assert_eq!(interpret(".v.^C4".to_owned()), Atom::Number(60));
+    }
+
+    #[test]
     fn general_arithmetic_wraps_for_every_pair_of_bytes() {
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {

@@ -125,12 +125,18 @@ impl<'a> Parser<'a> {
         let atom = match t {
             Some(s) => match token {
                 Token::Note => to_atom_note(s)?,
-                // Conversion operands prefer the type being converted from when
-                // a two-Cell spelling is valid in both domains. This preserves
-                // the explicit `.v C4` / `.^ 3C` source forms while admitting
-                // unambiguous identity operands such as `.v 3C` and `.^ G9`.
-                Token::NumericToNote => to_atom_num(s).or_else(|_| to_atom_note(s))?,
-                Token::NumericToNumber => to_atom_note(s).or_else(|_| to_atom_num(s))?,
+                // A conversion Function accepts either member of the
+                // Number/Note pair, so unlike every other signature its own
+                // signature cannot tell an overlapping hexadecimal spelling
+                // from a Note spelling. Resolve the overlap towards the Note:
+                // every Cell pair valid in both domains begins with a pitch
+                // letter and so reads as `A0` or greater, outside the `00`-`7F`
+                // domain `.^` converts. Reading it as a Number could therefore
+                // only ever diagnose, while the explicit `.v C4` / `.^ 3C`
+                // source forms are unaffected.
+                Token::NumericToNote | Token::NumericToNumber => {
+                    to_atom_note(s).or_else(|_| to_atom_num(s))?
+                }
                 Token::Number => to_atom_num(s)?,
                 Token::NumberN(_) => to_atom_num(s)?,
                 Token::Char => to_atom_char(s)?,
@@ -357,6 +363,41 @@ mod test {
         assert_eq!(
             try_parse(&mut ".^G9".to_owned()).unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Note(127)]
+        );
+    }
+
+    #[test]
+    fn conversion_operands_resolve_an_overlapping_spelling_as_a_note() {
+        // Every Cell pair valid in both domains begins with a pitch letter, so
+        // its hexadecimal reading is always `A0` or greater and could only ever
+        // diagnose as a `.^` operand. Both conversions therefore read it as a
+        // Note, which `.^` returns unchanged and `.v` lowers.
+        assert_eq!(
+            try_parse(&mut ".^C4".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Note(60)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^a0".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Note(22)]
+        );
+    }
+
+    #[test]
+    fn conversion_operands_without_a_note_spelling_stay_numbers() {
+        // The whole `00`-`7F` domain `.^` accepts starts with a hexadecimal
+        // digit rather than a pitch letter, so no in-range operand is ambiguous
+        // and the `80`-`FF` diagnosis stays reachable from Source.
+        assert_eq!(
+            try_parse(&mut ".^7F".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0x7F)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^80".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0x80)]
+        );
+        assert_eq!(
+            try_parse(&mut ".^FA".to_owned()).unwrap().as_slice(),
+            &[Atom::Function(Function::ConvertToNote), Atom::Number(0xFA)]
         );
     }
 

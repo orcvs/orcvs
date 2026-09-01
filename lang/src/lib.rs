@@ -40,11 +40,6 @@ pub fn str_to_num(s: &str) -> Result<u8, Error> {
     }
 }
 
-#[inline(always)]
-pub fn char_to_num(c: char) -> Result<u8, Error> {
-    str_to_num(&c.to_string())
-}
-
 #[allow(dead_code)]
 static INIT: Once = Once::new();
 
