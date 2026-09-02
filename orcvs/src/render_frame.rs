@@ -2,7 +2,7 @@ use crate::{
     glyph::Glyph,
     grid::Position,
     opts::{HighlightSpacing, MarkerSpacing},
-    source::SourceRevisionCells,
+    source::SourceRevision,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -72,24 +72,26 @@ pub struct RenderFrame {
 
 impl RenderFrame {
     pub(crate) fn derive(
-        source: SourceRevisionCells,
+        source: SourceRevision,
         selected: Position,
         cursor_visible: bool,
         config: RenderFrameConfig,
     ) -> Self {
-        source.grid.assert_owns(selected);
+        source.grid().assert_owns(selected);
         let rows = source
-            .grid
+            .grid()
             .rows()
             .map(|row| {
                 row.map(|position| {
-                    let cell = &source.cells[source.grid.index(position)];
                     let is_selected = position == selected;
                     let marker_spacing = config.marker_spacing.cells();
                     RenderCell {
                         position,
-                        content: cell.content,
-                        glyph: cell.glyph.unwrap_or(Glyph::Space),
+                        content: source.content_at(position),
+                        glyph: source
+                            .language_map()
+                            .glyph_at(position)
+                            .unwrap_or(Glyph::Space),
                         cursor_bloom: cursor_bloom(position, selected, config),
                         sector_left_strength: (position.x() > 0
                             && position.x().is_multiple_of(marker_spacing))
@@ -224,7 +226,7 @@ mod tests {
         let selected = grid.position(1, 0).unwrap();
 
         let frame = RenderFrame::derive(
-            source.read_revision_cells(),
+            source.read_revision(),
             selected,
             true,
             RenderFrameConfig {
@@ -259,7 +261,7 @@ mod tests {
         }
 
         let frame = RenderFrame::derive(
-            source.read_revision_cells(),
+            source.read_revision(),
             grid.origin(),
             false,
             RenderFrameConfig {
@@ -282,7 +284,7 @@ mod tests {
         source.set(1, ">").unwrap();
 
         let frame = RenderFrame::derive(
-            source.read_revision_cells(),
+            source.read_revision(),
             grid.origin(),
             false,
             RenderFrameConfig {
@@ -302,7 +304,7 @@ mod tests {
         source.set(0, "x").unwrap();
 
         let frame = RenderFrame::derive(
-            source.read_revision_cells(),
+            source.read_revision(),
             grid.origin(),
             false,
             RenderFrameConfig {
@@ -322,7 +324,7 @@ mod tests {
         let selected = grid.position(9, 7).unwrap();
 
         let frame = RenderFrame::derive(
-            source.read_revision_cells(),
+            source.read_revision(),
             selected,
             false,
             RenderFrameConfig {
@@ -484,7 +486,7 @@ mod tests {
         start.wait();
         for _ in 0..2_000 {
             let frame = RenderFrame::derive(
-                source.read_revision_cells(),
+                source.read_revision(),
                 grid.origin(),
                 false,
                 RenderFrameConfig {

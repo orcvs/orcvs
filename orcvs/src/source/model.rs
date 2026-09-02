@@ -1,7 +1,7 @@
 use lang::{
     Atom, Atoms, EXP_LEN, Error as LangError, Interpretation, Interpreter, Parser, SyntaxError,
 };
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 use tracing::debug;
 
 use crate::glyph::Glyph;
@@ -26,7 +26,7 @@ pub struct Cell {
 
 ///
 /// The observable outcome of one accepted edit: every Cell whose content or
-/// glyph classification differs from the previous revision, described at the
+/// presentation differs from the previous revision, described at the
 /// revision the edit produced.
 ///
 #[derive(Clone, Debug, PartialEq)]
@@ -57,6 +57,26 @@ impl Diagnostic {
             message,
             anchor: grid.position_at(start),
             footprint: Footprint::from_indices(grid, start..=end),
+        }
+    }
+
+    fn for_expression(
+        grid: Grid,
+        anchor: crate::grid::Position,
+        footprint: &Footprint,
+        message: String,
+    ) -> Self {
+        let mut indices = footprint.positions().map(|position| grid.index(position));
+        let start = indices
+            .next()
+            .expect("an Expression Footprint contains at least one Position");
+        let end = indices.last().unwrap_or(start);
+        Self {
+            start,
+            end,
+            message,
+            anchor: Some(anchor),
+            footprint: footprint.clone(),
         }
     }
 
@@ -100,7 +120,7 @@ pub struct TickResult {
 pub struct Source {
     grid: Grid,
     inner: String,
-    language_map: LanguageMap,
+    language_map: Arc<LanguageMap>,
 }
 
 #[cfg(feature = "persistence")]
@@ -169,7 +189,7 @@ impl Source {
     pub fn new(grid: Grid) -> Self {
         let size = grid.count();
         let inner = SPACE.to_string().repeat(size);
-        let language_map = LanguageMap::build(grid, inner.as_bytes());
+        let language_map = Arc::new(LanguageMap::build(grid, inner.as_bytes()));
 
         Self {
             grid,
@@ -236,6 +256,10 @@ impl Source {
         &self.language_map
     }
 
+    pub(super) fn shared_language_map(&self) -> Arc<LanguageMap> {
+        Arc::clone(&self.language_map)
+    }
+
     ///
     /// Whether `idx` names a Cell. The Grid decides: an index it cannot
     /// address is one this Source has no Cell for.
@@ -294,28 +318,6 @@ impl Source {
         }
     }
 
-    pub(crate) fn cells(&self) -> Vec<Cell> {
-        self.inner
-            .bytes()
-            .enumerate()
-            .map(|(idx, byte)| Cell {
-                idx,
-                content: (byte != SPACE_BYTE).then_some(byte as char),
-                glyph: self.language_map.glyph_at(idx),
-            })
-            .collect()
-    }
-
-    ///
-    /// Problems with Expressions in the current revision, in Source order.
-    ///
-    pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        self.language_map
-            .expression_diagnostics()
-            .cloned()
-            .collect()
-    }
-
     ///
     /// Whether an Expression computes anything.
     ///
@@ -360,8 +362,9 @@ impl Source {
             else {
                 continue;
             };
-            let range = expression.range();
-            let start = range.start();
+            let root = expression
+                .root()
+                .expect("a computation Expression has a Function root");
 
             let result = match Interpreter::execute(atoms) {
                 Ok(Interpretation::Cell(Atom::Empty)) => continue,
@@ -371,10 +374,10 @@ impl Source {
                     continue;
                 }
                 Err(error) => {
-                    diagnostics.push(Diagnostic::for_range(
+                    diagnostics.push(Diagnostic::for_expression(
                         self.grid,
-                        range.start(),
-                        range.end(),
+                        root,
+                        expression.footprint(),
                         error.to_string(),
                     ));
                     continue;
@@ -385,24 +388,20 @@ impl Source {
                 encoded.is_ascii(),
                 "Interpreter Cell results must preserve the Source ASCII invariant"
             );
-            let origin = self
-                .grid
-                .position_at(start)
-                .expect("parsed holds one entry per Cell");
-            let Some(target) = self.grid.below(origin) else {
-                diagnostics.push(Diagnostic::for_range(
+            let Some(target) = self.grid.below(root) else {
+                diagnostics.push(Diagnostic::for_expression(
                     self.grid,
-                    range.start(),
-                    range.end(),
+                    root,
+                    expression.footprint(),
                     format!("result {encoded:?} falls below the Source"),
                 ));
                 continue;
             };
             if !self.grid.fits(target, encoded.chars().count()) {
-                diagnostics.push(Diagnostic::for_range(
+                diagnostics.push(Diagnostic::for_expression(
                     self.grid,
-                    range.start(),
-                    range.end(),
+                    root,
+                    expression.footprint(),
                     format!("result {encoded:?} crosses the row edge"),
                 ));
                 continue;
@@ -454,13 +453,13 @@ impl Source {
             .map(|(idx, byte)| Cell {
                 idx,
                 content: (byte != SPACE_BYTE).then_some(byte as char),
-                glyph: self.language_map.glyph_at(idx),
+                glyph: self.language_map.glyph_at_index(idx),
             })
             .collect()
     }
 
-    fn rebuild_derived_state(&mut self) -> LanguageMap {
-        let language_map = LanguageMap::build(self.grid, self.inner.as_bytes());
+    fn rebuild_derived_state(&mut self) -> Arc<LanguageMap> {
+        let language_map = Arc::new(LanguageMap::build(self.grid, self.inner.as_bytes()));
         std::mem::replace(&mut self.language_map, language_map)
     }
 
@@ -478,10 +477,6 @@ impl Source {
             let bytes = self.inner.as_bytes_mut();
             bytes[idx] = byte;
         }
-    }
-
-    pub fn get_glyph_at(&self, idx: usize) -> Option<Glyph> {
-        self.language_map.glyph_at(idx)
     }
 }
 
@@ -510,6 +505,18 @@ mod test {
     ///
     fn grid() -> Grid {
         Grid::new(10, 6)
+    }
+
+    fn glyph_at(source: &Source, idx: usize) -> Option<Glyph> {
+        source.language_map.glyph_at_index(idx)
+    }
+
+    fn diagnostics(source: &Source) -> Vec<super::Diagnostic> {
+        source
+            .language_map
+            .expression_diagnostics()
+            .cloned()
+            .collect()
     }
 
     ///
@@ -650,10 +657,10 @@ mod test {
         assert!(restored.grid.position(10, 2).is_none());
         assert_eq!(
             (0..grid.count())
-                .map(|idx| restored.get_glyph_at(idx))
+                .map(|idx| glyph_at(&restored, idx))
                 .collect::<Vec<_>>(),
             (0..grid.count())
-                .map(|idx| source.get_glyph_at(idx))
+                .map(|idx| glyph_at(&source, idx))
                 .collect::<Vec<_>>()
         );
 
@@ -730,9 +737,9 @@ mod test {
         src.write(2, &(".+".repeat(15) + &"00".repeat(16)));
         src.set(1, "+").unwrap();
         let before = src.snapshot();
-        let before_diagnostics = src.diagnostics();
+        let before_diagnostics = diagnostics(&src);
         let before_glyphs = (0..src.count())
-            .map(|idx| src.get_glyph_at(idx))
+            .map(|idx| glyph_at(&src, idx))
             .collect::<Vec<_>>();
 
         let result = src.set(0, ".");
@@ -746,10 +753,10 @@ mod test {
             })
         );
         assert_eq!(src.snapshot(), before);
-        assert_eq!(src.diagnostics(), before_diagnostics);
+        assert_eq!(diagnostics(&src), before_diagnostics);
         assert_eq!(
             (0..src.count())
-                .map(|idx| src.get_glyph_at(idx))
+                .map(|idx| glyph_at(&src, idx))
                 .collect::<Vec<_>>(),
             before_glyphs
         );
@@ -844,8 +851,8 @@ mod test {
         let change = src.set(59, "+").unwrap();
 
         assert_eq!(change.cells.len(), 2);
-        assert_eq!(src.get_glyph_at(58), Some(Glyph::Function));
-        assert_eq!(src.get_glyph_at(59), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 58), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 59), Some(Glyph::Function));
     }
 
     #[test]
@@ -853,11 +860,11 @@ mod test {
         let mut src = SourceUnderTest::new(Grid::new(10, 1));
         src.set(0, ".").unwrap();
         src.set(1, "+").unwrap();
-        assert_eq!(src.get_glyph_at(5), Some(Glyph::Number));
+        assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
 
         let change = src.set(5, "x").unwrap();
         assert_eq!(src.get(5), Some("x".to_string()));
-        assert_eq!(src.get_glyph_at(5), Some(Glyph::Char));
+        assert_eq!(glyph_at(&src, 5), Some(Glyph::Char));
         assert_eq!(
             change.cells,
             vec![Cell {
@@ -869,7 +876,7 @@ mod test {
 
         let change = src.unset(5).unwrap();
         assert_eq!(src.get(5), None);
-        assert_eq!(src.get_glyph_at(5), Some(Glyph::Number));
+        assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
         assert_eq!(
             change.cells,
             vec![Cell {
@@ -898,10 +905,10 @@ mod test {
         assert_eq!(rebuilt.snapshot(), src.snapshot());
         assert_eq!(
             (0..grid.count())
-                .map(|idx| rebuilt.get_glyph_at(idx))
+                .map(|idx| glyph_at(&rebuilt, idx))
                 .collect::<Vec<_>>(),
             (0..grid.count())
-                .map(|idx| src.get_glyph_at(idx))
+                .map(|idx| glyph_at(&src, idx))
                 .collect::<Vec<_>>()
         );
     }
@@ -928,8 +935,8 @@ mod test {
                 },
             ]
         );
-        assert_eq!(src.get_glyph_at(10), Some(Glyph::Function));
-        assert_eq!(src.get_glyph_at(11), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
 
         let change = src.unset(9).unwrap();
         assert_eq!(
@@ -947,8 +954,8 @@ mod test {
                 },
             ]
         );
-        assert_eq!(src.get_glyph_at(10), Some(Glyph::Function));
-        assert_eq!(src.get_glyph_at(11), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
     }
 
     #[test]
@@ -961,7 +968,7 @@ mod test {
             src.set(i, &c.to_string()).unwrap();
         }
 
-        let glyphs: Vec<_> = (0..6).map(|i| src.get_glyph_at(i)).collect();
+        let glyphs: Vec<_> = (0..6).map(|i| glyph_at(&src, i)).collect();
         assert_eq!(
             glyphs,
             vec![
@@ -985,8 +992,8 @@ mod test {
         src.set(9, ".").unwrap();
         let change = src.set(10, "+").unwrap();
 
-        assert_eq!(src.get_glyph_at(9), Some(Glyph::Char));
-        assert_eq!(src.get_glyph_at(10), Some(Glyph::Char));
+        assert_eq!(glyph_at(&src, 9), Some(Glyph::Char));
+        assert_eq!(glyph_at(&src, 10), Some(Glyph::Char));
         assert_eq!(
             change.cells,
             vec![Cell {
@@ -1006,33 +1013,33 @@ mod test {
         // The incomplete Function remains visible and is diagnosed immediately.
         src.write(0, ".+01");
         assert_eq!(src.row(0), ".+01      ");
-        assert_eq!(src.diagnostics().len(), 1);
-        assert_eq!(src.diagnostics()[0].start, 0);
-        assert_eq!(src.diagnostics()[0].end, 3);
-        assert_eq!(src.diagnostics()[0].message, "expected a token");
+        assert_eq!(diagnostics(&src).len(), 1);
+        assert_eq!(diagnostics(&src)[0].start, 0);
+        assert_eq!(diagnostics(&src)[0].end, 3);
+        assert_eq!(diagnostics(&src)[0].message, "expected a token");
 
         // Completing it removes the cause and therefore the diagnostic in the
         // same accepted edit.
         src.write(4, "02");
-        assert!(src.diagnostics().is_empty());
+        assert!(diagnostics(&src).is_empty());
 
         // A valid prefix does not make trailing content disappear from the
         // Expression's diagnostic state.
         src.set(6, "Z").unwrap();
         assert_eq!(
-            src.diagnostics()[0].message,
+            diagnostics(&src)[0].message,
             "unexpected trailing content \"Z\""
         );
         src.unset(6).unwrap();
-        assert!(src.diagnostics().is_empty());
+        assert!(diagnostics(&src).is_empty());
 
         // Replacing a valid operand with invalid content creates a fresh
         // diagnostic for the current Expression, without rejecting the edit.
         src.set(4, "X").unwrap();
         assert_eq!(src.get(4), Some("X".to_string()));
-        assert_eq!(src.diagnostics().len(), 1);
+        assert_eq!(diagnostics(&src).len(), 1);
         assert_eq!(
-            src.diagnostics()[0].message,
+            diagnostics(&src)[0].message,
             "expected a number, found \"X2\""
         );
 
@@ -1041,7 +1048,7 @@ mod test {
         for idx in 0..6 {
             src.unset(idx).unwrap();
         }
-        assert!(src.diagnostics().is_empty());
+        assert!(diagnostics(&src).is_empty());
     }
 
     #[test]
@@ -1051,10 +1058,10 @@ mod test {
         src.write(0, "id");
 
         assert_eq!(src.row(0), "id        ");
-        assert_eq!(src.diagnostics().len(), 1);
-        assert_eq!(src.diagnostics()[0].start, 0);
-        assert_eq!(src.diagnostics()[0].end, 1);
-        assert_eq!(src.diagnostics()[0].message, "unknown function \"id\"");
+        assert_eq!(diagnostics(&src).len(), 1);
+        assert_eq!(diagnostics(&src)[0].start, 0);
+        assert_eq!(diagnostics(&src)[0].end, 1);
+        assert_eq!(diagnostics(&src)[0].message, "unknown function \"id\"");
     }
 
     #[test]
@@ -1092,8 +1099,8 @@ mod test {
         // deleting Cell 1 splits off a complete `.+0101` Expression at Cell 2
         src.unset(1).unwrap();
 
-        assert_eq!(src.get_glyph_at(1), None);
-        let glyphs: Vec<_> = (2..8).map(|i| src.get_glyph_at(i)).collect();
+        assert_eq!(glyph_at(&src, 1), None);
+        let glyphs: Vec<_> = (2..8).map(|i| glyph_at(&src, i)).collect();
         assert_eq!(
             glyphs,
             vec![
@@ -1368,10 +1375,10 @@ mod test {
         // classify Cells at the beginning of row 1.
         src.write(8, ".+");
 
-        assert_eq!(src.get_glyph_at(8), Some(Glyph::Function));
-        assert_eq!(src.get_glyph_at(9), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 8), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 9), Some(Glyph::Function));
         for idx in 10..14 {
-            assert_eq!(src.get_glyph_at(idx), None);
+            assert_eq!(glyph_at(&src, idx), None);
         }
     }
 

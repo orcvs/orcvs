@@ -98,13 +98,25 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     source.set(4, ".").unwrap();
     source.set(5, "+").unwrap();
 
-    assert_eq!(source.get_glyph_at(4), Some(Glyph::Function));
-    assert_eq!(source.get_glyph_at(5), Some(Glyph::Function));
-    assert_eq!(source.get_glyph_at(6), None);
+    assert_eq!(
+        source.language_map().glyph_at(grid.position(4, 0).unwrap()),
+        Some(Glyph::Function)
+    );
+    assert_eq!(
+        source.language_map().glyph_at(grid.position(5, 0).unwrap()),
+        Some(Glyph::Function)
+    );
+    assert_eq!(
+        source.language_map().glyph_at(grid.position(0, 1).unwrap()),
+        None
+    );
     assert_eq!(source.language_map().diagnostics().count(), 1);
 
     source.unset(5).unwrap();
-    assert_eq!(source.get_glyph_at(4), Some(Glyph::Char));
+    assert_eq!(
+        source.language_map().glyph_at(grid.position(4, 0).unwrap()),
+        Some(Glyph::Char)
+    );
     assert_eq!(source.language_map().expressions().count(), 1);
     let diagnostic = source.language_map().diagnostics().next().unwrap();
     assert_eq!(diagnostic.anchor(), grid.position(4, 0));

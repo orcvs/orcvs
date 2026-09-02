@@ -17,7 +17,9 @@ const SPACE_BYTE: u8 = b' ';
 /// This is the single owner of expression extents, parsed expressions, Glyph
 /// classifications, and diagnostics. It deliberately exposes only the
 /// semantics the current parser and row-local partition can establish.
+#[derive(Clone)]
 pub struct LanguageMap {
+    grid: Grid,
     units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
     glyphs: Vec<Option<Glyph>>,
@@ -74,8 +76,8 @@ impl Footprint {
     }
 }
 
+#[derive(Clone)]
 pub struct ExpressionEntry {
-    range: Range,
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
@@ -95,10 +97,6 @@ impl ExpressionEntry {
 
     pub fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
         self.units.iter()
-    }
-
-    pub(super) fn range(&self) -> Range {
-        self.range
     }
 
     pub(super) fn atoms(&self) -> Option<&Atoms> {
@@ -150,6 +148,7 @@ impl LanguageMap {
         let expression_map = ExpressionMap::build(grid, bytes);
         let ranges = expression_map.ranges().collect::<Vec<_>>();
         let mut map = Self {
+            grid,
             units,
             expressions: Vec::new(),
             glyphs: vec![None; bytes.len()],
@@ -206,13 +205,23 @@ impl LanguageMap {
             .chain(self.lexical_diagnostics.iter())
     }
 
+    #[cfg(test)]
     pub(super) fn expression_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.expressions
             .iter()
             .filter_map(|expression| expression.diagnostic.as_ref())
     }
 
-    pub(super) fn glyph_at(&self, idx: usize) -> Option<Glyph> {
+    /// The semantic Glyph for the Cell at `position`, when the revision gives
+    /// that Cell a language classification.
+    pub fn glyph_at(&self, position: Position) -> Option<Glyph> {
+        self.glyphs
+            .get(self.grid.index(position))
+            .copied()
+            .flatten()
+    }
+
+    pub(super) fn glyph_at_index(&self, idx: usize) -> Option<Glyph> {
         self.glyphs.get(idx).copied().flatten()
     }
 
@@ -237,7 +246,6 @@ impl LanguageMap {
             Ok(analysis) => analysis,
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
-                    range,
                     atoms: None,
                     diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
                     root: None,
@@ -288,7 +296,6 @@ impl LanguageMap {
         }
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
-            range,
             atoms,
             diagnostic,
             root,
@@ -655,8 +662,14 @@ mod tests {
 
         assert_eq!(unit_spellings(&comment), vec![(0, vec![0, 1])]);
         assert_eq!(
-            comment.expressions().next().unwrap().range(),
-            Range::new(0, 1)
+            comment
+                .expressions()
+                .next()
+                .unwrap()
+                .footprint()
+                .positions()
+                .count(),
+            2
         );
         assert_eq!(comment.diagnostics().count(), 0);
         assert_eq!(
@@ -734,10 +747,10 @@ mod tests {
         let map = LanguageMap::build(Grid::new(8, 1), b".+0102 x");
         let expressions = map.expressions().collect::<Vec<_>>();
         assert_eq!(expressions.len(), 2);
-        assert_eq!(expressions[0].range(), Range::new(0, 5));
+        assert_eq!(expressions[0].footprint().positions().count(), 6);
         assert!(expressions[0].atoms().is_some());
-        assert_eq!(map.glyph_at(0), Some(Glyph::Function));
-        assert_eq!(map.glyph_at(7), Some(Glyph::Char));
+        assert_eq!(map.glyph_at_index(0), Some(Glyph::Function));
+        assert_eq!(map.glyph_at_index(7), Some(Glyph::Char));
         assert_eq!(map.expression_diagnostics().count(), 1);
     }
 
@@ -756,7 +769,7 @@ mod tests {
                 .as_slice(),
             &[Atom::Bang, Atom::Bang]
         );
-        assert!((0..4).all(|idx| bangs.glyph_at(idx) == Some(Glyph::Bang)));
+        assert!((0..4).all(|idx| bangs.glyph_at_index(idx) == Some(Glyph::Bang)));
         assert_eq!(bangs.diagnostics().count(), 0);
         assert_eq!(
             activations

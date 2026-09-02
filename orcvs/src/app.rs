@@ -163,7 +163,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
 
     pub fn render_frame(&self) -> RenderFrame {
         RenderFrame::derive(
-            self.source.read_revision_cells(),
+            self.source.read_revision(),
             self.cursor.position(),
             self.cursor.on,
             RenderFrameConfig {

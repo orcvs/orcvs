@@ -2,7 +2,7 @@ pub mod error;
 mod language_map;
 pub use language_map::{ExpressionEntry, Footprint, LanguageMap, LanguageUnit, LanguageUnitKind};
 mod model;
-use crate::{glyph::Glyph, grid::Grid};
+use crate::grid::{Grid, Position};
 pub use error::SourceError;
 pub use model::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -21,9 +21,29 @@ pub struct SourceCommander {
     inner: Arc<RwLock<Source>>,
 }
 
-pub(crate) struct SourceRevisionCells {
-    pub(crate) grid: Grid,
-    pub(crate) cells: Vec<Cell>,
+/// Character Cells and semantic language information observed from exactly one
+/// Source revision.
+#[derive(Clone)]
+pub struct SourceRevision {
+    grid: Grid,
+    source: String,
+    language_map: Arc<LanguageMap>,
+}
+
+impl SourceRevision {
+    pub fn grid(&self) -> Grid {
+        self.grid
+    }
+
+    pub fn content_at(&self, position: Position) -> Option<char> {
+        self.grid.assert_owns(position);
+        let byte = self.source.as_bytes()[self.grid.index(position)];
+        (byte != b' ').then_some(char::from(byte))
+    }
+
+    pub fn language_map(&self) -> &LanguageMap {
+        &self.language_map
+    }
 }
 
 impl SourceCommander {
@@ -48,11 +68,8 @@ impl SourceCommander {
         write_recover(&self.inner).unset(idx)
     }
 
-    pub fn get(&self, idx: usize) -> (Option<String>, Option<Glyph>) {
-        let source = read_recover(&self.inner);
-        let s = source.get(idx);
-        let g = source.get_glyph_at(idx);
-        (s, g)
+    pub fn get(&self, idx: usize) -> Option<String> {
+        read_recover(&self.inner).get(idx)
     }
 
     ///
@@ -62,18 +79,13 @@ impl SourceCommander {
         read_recover(&self.inner).snapshot()
     }
 
-    pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        read_recover(&self.inner).diagnostics()
-    }
-
-    ///
-    /// Every Cell and its Source-derived Glyph from one Source revision.
-    ///
-    pub(crate) fn read_revision_cells(&self) -> SourceRevisionCells {
+    /// Every character Cell and its Language Map from one Source revision.
+    pub fn read_revision(&self) -> SourceRevision {
         let source = read_recover(&self.inner);
-        SourceRevisionCells {
+        SourceRevision {
             grid: source.grid(),
-            cells: source.cells(),
+            source: source.snapshot(),
+            language_map: source.shared_language_map(),
         }
     }
 
@@ -103,7 +115,7 @@ mod tests {
 
         assert_eq!(source.snapshot(), "  ");
         source.set(0, "x").unwrap();
-        assert_eq!(source.get(0).0.as_deref(), Some("x"));
+        assert_eq!(source.get(0).as_deref(), Some("x"));
     }
 
     #[test]
@@ -136,7 +148,7 @@ mod tests {
         let tick = source.execute();
 
         assert!(tick.plan.diagnostics.is_empty());
-        assert_eq!(source.get(150).0, Some(".".to_string()));
+        assert_eq!(source.get(150), Some(".".to_string()));
     }
 
     #[test]
@@ -153,22 +165,29 @@ mod tests {
 
         source.execute();
 
-        assert_eq!(source.get(130).0, Some("0".to_string()));
-        assert_eq!(source.get(131).0, Some("3".to_string()));
-        assert_eq!(source.get(170).0, Some("0".to_string()));
-        assert_eq!(source.get(171).0, Some("3".to_string()));
-        assert!(source.diagnostics().iter().any(|diagnostic| {
-            diagnostic.start == 100
-                && diagnostic.end == 161
-                && diagnostic.message == "expression exceeds the parser capacity of 32 atoms"
-        }));
+        assert_eq!(source.get(130), Some("0".to_string()));
+        assert_eq!(source.get(131), Some("3".to_string()));
+        assert_eq!(source.get(170), Some("0".to_string()));
+        assert_eq!(source.get(171), Some("3".to_string()));
+        assert!(
+            source
+                .read_revision()
+                .language_map()
+                .diagnostics()
+                .any(|diagnostic| {
+                    diagnostic.start == 100
+                        && diagnostic.end == 161
+                        && diagnostic.message
+                            == "expression exceeds the parser capacity of 32 atoms"
+                })
+        );
 
         source.execute();
         source.set(199, "x").unwrap();
 
-        assert_eq!(source.get(199).0, Some("x".to_string()));
-        assert_eq!(source.get(170).0, Some("0".to_string()));
-        assert_eq!(source.get(171).0, Some("3".to_string()));
+        assert_eq!(source.get(199), Some("x".to_string()));
+        assert_eq!(source.get(170), Some("0".to_string()));
+        assert_eq!(source.get(171), Some("3".to_string()));
     }
 
     #[test]
@@ -178,14 +197,32 @@ mod tests {
         source.set(0, ".").unwrap();
         source.set(1, "+").unwrap();
 
-        let read = source.read_revision_cells();
+        let read = source.read_revision();
 
-        assert_eq!(read.grid, grid);
-        assert_eq!(read.cells.len(), 8);
-        assert_eq!(read.cells[0].content, Some('.'));
-        assert_eq!(read.cells[0].glyph, Some(crate::glyph::Glyph::Function));
-        assert_eq!(read.cells[1].content, Some('+'));
-        assert_eq!(read.cells[1].glyph, Some(crate::glyph::Glyph::Function));
-        assert!(read.cells[2..].iter().all(|cell| cell.content.is_none()));
+        assert_eq!(read.grid(), grid);
+        assert_eq!(read.content_at(grid.position(0, 0).unwrap()), Some('.'));
+        assert_eq!(
+            read.language_map().glyph_at(grid.position(0, 0).unwrap()),
+            Some(crate::glyph::Glyph::Function)
+        );
+        assert_eq!(read.content_at(grid.position(1, 0).unwrap()), Some('+'));
+        assert!(
+            grid.rows()
+                .flatten()
+                .skip(2)
+                .all(|position| read.content_at(position).is_none())
+        );
+    }
+
+    #[test]
+    fn unchanged_revision_reads_share_the_language_map() {
+        let source = SourceCommander::new(Grid::new(4, 2));
+        source.set(0, ".").unwrap();
+        source.set(1, "+").unwrap();
+
+        let first = source.read_revision();
+        let second = source.read_revision();
+
+        assert!(std::ptr::eq(first.language_map(), second.language_map()));
     }
 }
