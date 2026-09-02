@@ -1,6 +1,12 @@
-use lang::{Activation, Atom, Atoms, Expression, Parser, SourceAnalysis, Token};
+use lang::{
+    Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token, to_atom_note,
+    to_atom_num,
+};
 
-use crate::{glyph::Glyph, grid::Grid};
+use crate::{
+    glyph::Glyph,
+    grid::{Grid, Position},
+};
 
 use super::Diagnostic;
 
@@ -10,11 +16,66 @@ const SPACE_BYTE: u8 = b' ';
 ///
 /// This is the single owner of expression extents, parsed expressions, Glyph
 /// classifications, and diagnostics. It deliberately exposes only the
-/// semantics the current parser can establish; Language Unit queries described
-/// by ADR 0018 belong here once their lexical prerequisites are implemented.
+/// semantics the current parser and row-local partition can establish.
 pub(super) struct LanguageMap {
+    // Established for the next Language Map delivery slices to consume.
+    // Issue 01 tests this partition through the module seam; issues 02 and 03
+    // will move production expression and Source consumers onto it.
+    #[allow(dead_code)]
+    units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
     glyphs: Vec<Option<Glyph>>,
+    lexical_diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum LanguageUnitKind {
+    OperandLiteral,
+    Function(Function),
+    Bang,
+    Activation(Activation),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct LanguageUnit {
+    kind: LanguageUnitKind,
+    anchor: Position,
+    footprint: Footprint,
+}
+
+impl LanguageUnit {
+    // Issue 01 exposes partition identity for seam-level tests before the
+    // production consumers migrate in issues 02 and 03.
+    #[allow(dead_code)]
+    pub(super) fn kind(&self) -> LanguageUnitKind {
+        self.kind
+    }
+
+    // See `kind`: anchors are established and tested in this delivery slice.
+    #[allow(dead_code)]
+    pub(super) fn anchor(&self) -> Position {
+        self.anchor
+    }
+
+    // See `kind`: footprints are established and tested in this delivery slice.
+    #[allow(dead_code)]
+    pub(super) fn footprint(&self) -> &Footprint {
+        &self.footprint
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Footprint {
+    positions: Vec<Position>,
+}
+
+impl Footprint {
+    // Footprint queries currently serve the issue-01 module-seam tests; the
+    // later consumer-migration slice will call them from production code.
+    #[allow(dead_code)]
+    pub(super) fn positions(&self) -> impl Iterator<Item = Position> + '_ {
+        self.positions.iter().copied()
+    }
 }
 
 pub(super) struct ExpressionEntry {
@@ -59,11 +120,19 @@ impl Range {
 
 impl LanguageMap {
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
+        assert_eq!(
+            bytes.len(),
+            grid.count(),
+            "LanguageMap Source length must match its Grid"
+        );
+        let (units, lexical_diagnostics) = partition_units(grid, bytes);
         let expression_map = ExpressionMap::build(grid, bytes);
         let ranges = expression_map.ranges().collect::<Vec<_>>();
         let mut map = Self {
+            units,
             expressions: Vec::new(),
             glyphs: vec![None; bytes.len()],
+            lexical_diagnostics,
         };
 
         for range in ranges {
@@ -93,10 +162,24 @@ impl LanguageMap {
         self.expressions.iter()
     }
 
+    // Issue 01 establishes this interface for module-seam tests; issues 02 and
+    // 03 migrate expression and Source consumers onto it.
+    #[allow(dead_code)]
+    pub(super) fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
+        self.units.iter()
+    }
+
     pub(super) fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.expressions
             .iter()
             .filter_map(|expression| expression.diagnostic.as_ref())
+    }
+
+    // Lexical diagnostics remain distinct until issue 02 derives the public
+    // diagnostic view from the Language Unit partition.
+    #[allow(dead_code)]
+    pub(super) fn unit_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.lexical_diagnostics.iter()
     }
 
     pub(super) fn glyph_at(&self, idx: usize) -> Option<Glyph> {
@@ -164,6 +247,74 @@ impl LanguageMap {
     }
 }
 
+fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnostic>) {
+    let mut units = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    for row in grid.rows() {
+        let positions = row.collect::<Vec<_>>();
+        let mut column = 0;
+        while column < positions.len() {
+            let anchor = positions[column];
+            let idx = grid.index(anchor);
+            if bytes[idx] == SPACE_BYTE {
+                column += 1;
+                continue;
+            }
+            if bytes[idx] == b'#' && bytes.get(idx + 1) == Some(&b'#') && grid.fits(anchor, 2) {
+                break;
+            }
+
+            let Some(spelling) = bytes.get(idx..idx + 2).filter(|_| grid.fits(anchor, 2)) else {
+                diagnostics.push(invalid_unit_diagnostic(idx, bytes[idx]));
+                column += 1;
+                continue;
+            };
+            let kind = match spelling {
+                b"**" => Some(LanguageUnitKind::Bang),
+                _ => std::str::from_utf8(spelling).ok().and_then(|spelling| {
+                    Activation::try_from(spelling)
+                        .map(LanguageUnitKind::Activation)
+                        .ok()
+                        .or_else(|| {
+                            Function::try_from(spelling)
+                                .map(LanguageUnitKind::Function)
+                                .ok()
+                        })
+                        .or_else(|| {
+                            (to_atom_num(spelling).is_ok() || to_atom_note(spelling).is_ok())
+                                .then_some(LanguageUnitKind::OperandLiteral)
+                        })
+                }),
+            };
+
+            if let Some(kind) = kind {
+                units.push(LanguageUnit {
+                    kind,
+                    anchor,
+                    footprint: Footprint {
+                        positions: positions[column..column + 2].to_vec(),
+                    },
+                });
+                column += 2;
+            } else {
+                diagnostics.push(invalid_unit_diagnostic(idx, bytes[idx]));
+                column += 1;
+            }
+        }
+    }
+
+    (units, diagnostics)
+}
+
+fn invalid_unit_diagnostic(idx: usize, byte: u8) -> Diagnostic {
+    Diagnostic {
+        start: idx,
+        end: idx,
+        message: format!("invalid Language Unit character {:?}", char::from(byte)),
+    }
+}
+
 fn parse_standalone_run(source: &str) -> Option<Expression> {
     if source.len() < 4 || !source.len().is_multiple_of(2) {
         return None;
@@ -173,8 +324,12 @@ fn parse_standalone_run(source: &str) -> Option<Expression> {
     for spelling in source.as_bytes().as_chunks::<2>().0 {
         let (token, atom) = match spelling {
             b"**" => (Token::Bang, Atom::Bang),
-            b">>" => (Token::Activation, Atom::Activation(Activation::East)),
-            _ => return None,
+            _ => {
+                let activation = std::str::from_utf8(spelling)
+                    .ok()
+                    .and_then(|spelling| Activation::try_from(spelling).ok())?;
+                (Token::Activation, Atom::Activation(activation))
+            }
         };
         expression.add(token, atom).ok()?;
     }
@@ -241,22 +396,22 @@ impl ExpressionMap {
     }
 }
 
-/// The one rule for Expression extent. A future Comment implementation belongs
-/// here and must exclude the entire `#` suffix of a row from Expressions.
 fn row_extents(row_start: usize, row: &[u8]) -> Vec<Option<Range>> {
     let mut extents = vec![None; row.len()];
     let mut local_start = 0;
 
     while local_start < row.len() {
+        if row[local_start..].starts_with(b"##") {
+            break;
+        }
         if row[local_start] == SPACE_BYTE {
             local_start += 1;
             continue;
         }
 
-        let local_end = row[local_start..]
-            .iter()
-            .position(|&byte| byte == SPACE_BYTE)
-            .map_or(row.len() - 1, |offset| local_start + offset - 1);
+        let local_end = (local_start..row.len())
+            .find(|&idx| row[idx] == SPACE_BYTE || row[idx..].starts_with(b"##"))
+            .map_or(row.len() - 1, |idx| idx - 1);
         let range = Range::new(row_start + local_start, row_start + local_end);
         extents[local_start..=local_end].fill(Some(range));
         local_start = local_end + 1;
@@ -270,7 +425,113 @@ mod tests {
 
     use lang::{Activation, Atom};
 
-    use super::{ExpressionMap, LanguageMap, Range};
+    use super::{ExpressionMap, LanguageMap, LanguageUnitKind, Range};
+
+    fn unit_spellings(map: &LanguageMap) -> Vec<(usize, Vec<usize>)> {
+        map.units()
+            .map(|unit| {
+                (
+                    unit.anchor().x(),
+                    unit.footprint()
+                        .positions()
+                        .map(|position| position.x())
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn language_map_partitions_complete_units_left_to_right_without_overlap() {
+        let bangs = LanguageMap::build(Grid::new(3, 1), b"***");
+        let west = LanguageMap::build(Grid::new(3, 1), b"<<<");
+        let north = LanguageMap::build(Grid::new(4, 1), b"^^^^");
+
+        assert_eq!(unit_spellings(&bangs), vec![(0, vec![0, 1])]);
+        assert_eq!(unit_spellings(&west), vec![(0, vec![0, 1])]);
+        assert_eq!(
+            unit_spellings(&north),
+            vec![(0, vec![0, 1]), (2, vec![2, 3])]
+        );
+        assert!(
+            bangs
+                .unit_diagnostics()
+                .any(|diagnostic| diagnostic.start == 2)
+        );
+        assert!(
+            west.unit_diagnostics()
+                .any(|diagnostic| diagnostic.start == 2)
+        );
+        assert_eq!(north.unit_diagnostics().count(), 0);
+    }
+
+    #[test]
+    fn language_map_recognizes_every_current_unit_kind_on_a_rectangular_grid() {
+        let map = LanguageMap::build(Grid::new(12, 2), b".+C4**>>    ^^vv<<00    ");
+
+        assert_eq!(
+            map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
+            vec![
+                LanguageUnitKind::Function(lang::Function::Add),
+                LanguageUnitKind::OperandLiteral,
+                LanguageUnitKind::Bang,
+                LanguageUnitKind::Activation(Activation::East),
+                LanguageUnitKind::Activation(Activation::North),
+                LanguageUnitKind::Activation(Activation::South),
+                LanguageUnitKind::Activation(Activation::West),
+                LanguageUnitKind::OperandLiteral,
+            ]
+        );
+
+        assert_eq!(
+            unit_spellings(&map),
+            vec![
+                (0, vec![0, 1]),
+                (2, vec![2, 3]),
+                (4, vec![4, 5]),
+                (6, vec![6, 7]),
+                (0, vec![0, 1]),
+                (2, vec![2, 3]),
+                (4, vec![4, 5]),
+                (6, vec![6, 7]),
+            ]
+        );
+    }
+
+    #[test]
+    fn language_map_never_forms_a_unit_across_a_row_edge() {
+        let map = LanguageMap::build(Grid::new(3, 2), b"  **  ");
+
+        assert!(map.units().next().is_none());
+        assert_eq!(
+            map.unit_diagnostics()
+                .map(|diagnostic| diagnostic.start)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+    }
+
+    #[test]
+    fn comments_and_live_edit_fragments_do_not_form_language_units() {
+        let comment = LanguageMap::build(Grid::new(8, 1), b"**##**00");
+        let fragment = LanguageMap::build(Grid::new(8, 1), b".+# **  ");
+
+        assert_eq!(unit_spellings(&comment), vec![(0, vec![0, 1])]);
+        assert_eq!(
+            comment.expressions().next().unwrap().range(),
+            Range::new(0, 1)
+        );
+        assert_eq!(comment.unit_diagnostics().count(), 0);
+        assert_eq!(
+            unit_spellings(&fragment),
+            vec![(0, vec![0, 1]), (4, vec![4, 5])]
+        );
+        assert!(
+            fragment
+                .unit_diagnostics()
+                .any(|diagnostic| diagnostic.start == 2)
+        );
+    }
 
     fn assert_range(map: &ExpressionMap, start: usize, end: usize) {
         for idx in start..=end {

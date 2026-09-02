@@ -41,7 +41,35 @@ pub enum Atom {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Activation {
+    North,
+    South,
+    West,
     East,
+}
+
+impl Activation {
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::North => "^^",
+            Self::South => "vv",
+            Self::West => "<<",
+            Self::East => ">>",
+        }
+    }
+}
+
+impl TryFrom<&str> for Activation {
+    type Error = ();
+
+    fn try_from(spelling: &str) -> Result<Self, Self::Error> {
+        match spelling {
+            "^^" => Ok(Self::North),
+            "vv" => Ok(Self::South),
+            "<<" => Ok(Self::West),
+            ">>" => Ok(Self::East),
+            _ => Err(()),
+        }
+    }
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
@@ -148,7 +176,7 @@ impl fmt::Display for Function {
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Atom::Activation(Activation::East) => write!(f, ">>"),
+            Atom::Activation(activation) => f.write_str(activation.spelling()),
             Atom::Bang => write!(f, "**"),
             // Numbers are hexadecimal: rendered results are written back into the
             // Source and re-parsed as two Cells, so they must round trip as hex
@@ -260,6 +288,9 @@ mod test {
     #[test]
     fn bang_and_activation_display_with_their_complete_spellings() {
         assert_eq!(Atom::Bang.to_string(), "**");
+        assert_eq!(Atom::Activation(Activation::North).to_string(), "^^");
+        assert_eq!(Atom::Activation(Activation::South).to_string(), "vv");
+        assert_eq!(Atom::Activation(Activation::West).to_string(), "<<");
         assert_eq!(Atom::Activation(Activation::East).to_string(), ">>");
     }
 

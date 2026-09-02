@@ -124,8 +124,8 @@ impl<'a> Parser<'a> {
                         self.add(Token::Bang, Atom::Bang)?;
                         return Ok(ParseStatus::Complete);
                     }
-                    ">>" => {
-                        self.add(Token::Activation, Atom::Activation(crate::Activation::East))?;
+                    _ if let Ok(activation) = crate::Activation::try_from(t) => {
+                        self.add(Token::Activation, Atom::Activation(activation))?;
                         return Ok(ParseStatus::Complete);
                     }
                     _ => {}
@@ -547,15 +547,22 @@ mod test {
     }
 
     #[test]
-    fn bang_and_east_activation_parse_as_complete_language_units() {
+    fn bang_and_activations_parse_as_complete_language_units() {
         assert_eq!(
             try_parse(&mut "**".to_owned()).unwrap().as_slice(),
             &[Atom::Bang]
         );
-        assert_eq!(
-            try_parse(&mut ">>".to_owned()).unwrap().as_slice(),
-            &[Atom::Activation(crate::Activation::East)]
-        );
+        for (source, direction) in [
+            ("^^", crate::Activation::North),
+            ("vv", crate::Activation::South),
+            ("<<", crate::Activation::West),
+            (">>", crate::Activation::East),
+        ] {
+            assert_eq!(
+                try_parse(&mut source.to_owned()).unwrap().as_slice(),
+                &[Atom::Activation(direction)]
+            );
+        }
     }
 
     #[test]
