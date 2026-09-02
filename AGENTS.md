@@ -67,6 +67,11 @@ Risks: public API / unsafe / dependencies / features / performance
 
 ## Agent conventions
 
+### Remotes
+
+`origin` (`orcvs/orcvs`) is the primary remote. Push branches and open pull requests there, not
+against the `fork` remote.
+
 ### Issue tracker
 
 Issues are tracked as local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.

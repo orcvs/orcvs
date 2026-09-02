@@ -34,12 +34,19 @@ outward, and an inactive terminal root is skipped before evaluation, so it emits
 command nor a diagnostic.
 
 Known limitation, deliberately left for `spatial-tick-planning/01`: a Bang horizontally
-adjacent to a root cannot activate it today. `row_extents` splits Expression runs only on
-spaces and `##`, so `**!>007FC4` is one run that parses as a Bang followed by unexpected
-trailing content and forms no root at all; the same applies to a Bang immediately east of a
-root's Footprint, which the parser reads as trailing content of that Expression. The west and
-east anchors are implemented and unit-tested against the Language Map directly
-(`a_bang_activates_the_root_anchor_at_each_of_its_four_cardinal_positions`), while the
+adjacent to a root cannot activate it today, in any spelling. `row_extents` splits Expression
+runs only on spaces and `##`, so `**!>007FC4` is one run that parses as a Bang followed by
+unexpected trailing content and forms no root at all; the same applies to a Bang immediately
+east of a root's Footprint, which the parser reads as trailing content of that Expression. The
+space-separated spellings `** !>007FC4` and `!>007FC4 **` parse cleanly but are equally inert,
+and produce no diagnostic either: the space puts the Bang anchor three or more columns from the
+root anchor, never the two ADR 0006 requires. The west and east arms of
+`activated_root_anchors` are therefore unreachable from any Source, and
+`a_bang_aligns_with_the_root_anchor_at_each_of_its_four_cardinal_positions` tests the geometry
+filter over a Grid holding no root rather than activation of a real one. All four horizontal
+spellings are pinned inert by
+`test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root`, so a future Expression
+partition that makes them reachable fails a test rather than changing behaviour silently. The
 end-to-end Tick tests use vertical placement, which the current Expression partition supports.
 
 Diagnostics are gated along with emission, deliberately. An inactive terminal root is skipped

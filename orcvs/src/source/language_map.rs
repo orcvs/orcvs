@@ -207,6 +207,13 @@ impl LanguageMap {
     ///
     /// Bangs are partitioned independently of Expressions, so this reads the
     /// Language Unit partition rather than any Expression's contents.
+    ///
+    /// This answers the geometry alone: whether a Bang is cardinally aligned
+    /// with `root`, not whether a complete root sits there. ADR 0006 requires
+    /// both, and the caller supplies the second half by passing an Expression's
+    /// own root anchor. A Position holding no root answers `true` just as
+    /// readily, so a future caller delivering activation to arbitrary Positions
+    /// owes its own root check.
     pub fn is_root_active(&self, root: Position) -> bool {
         self.units()
             .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Bang))
@@ -402,6 +409,15 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
 /// Cells because every Language Unit is two Cells wide, so a horizontal
 /// neighbour's anchor sits two columns away rather than one. An anchor outside
 /// the Grid is not a Position at all and simply does not appear.
+///
+/// The west and east anchors are stated here because ADR 0006 states them, but
+/// no Source can reach them today: `row_extents` splits Expression runs only on
+/// spaces and `##`, so a horizontally adjacent Bang either merges into the
+/// root's own run and forms no root at all, or is separated by a space that
+/// puts its anchor three or more columns away. `spatial-tick-planning/01` owns
+/// the Expression partition that makes them reachable;
+/// `test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root` pins
+/// the present behaviour until then.
 fn activated_root_anchors(grid: Grid, bang: Position) -> impl Iterator<Item = Position> {
     let (x, y) = (bang.x(), bang.y());
 
@@ -681,7 +697,11 @@ mod tests {
     }
 
     #[test]
-    fn a_bang_activates_the_root_anchor_at_each_of_its_four_cardinal_positions() {
+    fn a_bang_aligns_with_the_root_anchor_at_each_of_its_four_cardinal_positions() {
+        // The geometry filter alone: this Grid holds no root, because the
+        // horizontal anchors are unreachable from any Source that parses one
+        // (see `activated_root_anchors`). What a real root does with an
+        // aligned Bang is pinned end-to-end in `source::model`'s Tick tests.
         let grid = Grid::new(6, 3);
         let map = LanguageMap::build(grid, b"        **        ");
         let at = |x, y| grid.position(x, y).expect("inside the Grid");

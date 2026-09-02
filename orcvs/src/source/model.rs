@@ -1379,6 +1379,50 @@ mod test {
     }
 
     #[test]
+    fn test_two_bangs_around_one_terminal_root_emit_one_command() {
+        // ADR 0006: multiple Bangs do not make one root evaluate twice. The
+        // root is aligned north of one Bang and south of the other, so both
+        // reach it and it still has exactly one turn.
+        let mut src = source();
+        src.write(0, "**");
+        src.write(10, "!>007FC4");
+        src.write(20, "**");
+
+        let tick = src.execute();
+
+        assert_eq!(
+            tick.plan.play_commands,
+            vec![PlayCommand::Raw {
+                channel: 0,
+                velocity: 0x7F,
+                note: 60,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root() {
+        // Pins the limitation `spatial-tick-planning/01` inherits. ADR 0006's
+        // west and east anchors sit two Cells from the Bang, but a Raw Play's
+        // operands occupy those Cells, and `row_extents` splits Expression runs
+        // only on spaces and `##`. So the contiguous spellings form no root at
+        // all, and the space-separated ones put the Bang anchor three or more
+        // columns away from the root anchor. Every horizontal placement is
+        // inert; the day the Expression partition changes, this test says so.
+        for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
+            let mut src = source();
+            src.write(0, expression);
+
+            let tick = src.execute();
+
+            assert!(
+                tick.plan.play_commands.is_empty(),
+                "{expression:?} emitted a command"
+            );
+        }
+    }
+
+    #[test]
     fn test_a_value_producing_root_evaluates_without_a_bang() {
         // Gating every root behind activation belongs to spatial Tick
         // planning. Until then only terminal roots consult the Bang.

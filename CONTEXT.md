@@ -145,7 +145,7 @@ One interpreted MIDI instruction emitted by an active Terminal Output Function f
 _Avoid_: Performance command, MIDI event
 
 **Terminal Output Function**:
-The family of `!`-spelled Functions that perform an effect and answer with no language value: Raw Play `!>`, and in turn Timed Play `!~`, Monophonic Play `!%`, Control Change `!c`, Pitch Bend `!b`, and Application Command `!$`. Every member performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result. Each MIDI member emits a Play Command carrying operands already validated against their MIDI domains, so the output adapter alone assembles the wire message.
+The family of `!`-spelled Functions that perform an effect and answer with no language value: Raw Play `!>`, and in turn Timed Play `!~`, Monophonic Play `!%`, Control Change `!c`, Pitch Bend `!b`, and Application Command `!$`. Every member performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result. Activation gates evaluation itself, so an inactive terminal root reports no evaluation-time diagnostic either: ADR 0016's operand diagnostics are outcomes of evaluation, and an Expression that never evaluates has no outcome to report. Lexical and syntax diagnostics are unaffected and still fire regardless of activation. Each MIDI member emits a Play Command carrying operands already validated against their MIDI domains, so the output adapter alone assembles the wire message.
 _Avoid_: Effect Function, side-effecting Function, output verb, action Function
 
 **Play Function**:

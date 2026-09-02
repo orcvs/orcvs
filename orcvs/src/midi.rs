@@ -149,7 +149,20 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
                     channel,
                     velocity,
                     note,
-                } => [0x90 | channel, note, velocity],
+                } => {
+                    // `0x90 | channel` is a channel nibble only while the
+                    // channel is in range; a wider value would rewrite the
+                    // status byte into a different MIDI message entirely.
+                    debug_assert!(
+                        channel <= 0x0F,
+                        "Play channel {channel:02X} is out of range"
+                    );
+                    debug_assert!(
+                        velocity <= 0x7F,
+                        "Play velocity {velocity:02X} is out of range"
+                    );
+                    [0x90 | channel, note, velocity]
+                }
             };
             if let Err(error) = connection.send(&message) {
                 let delivery_error = OutputAdapterError::new(error.message);
