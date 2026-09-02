@@ -307,13 +307,21 @@ mod test {
             Function::Modulo,
         ] {
             for operand in [Atom::Char('z'), Atom::Bang, Atom::Empty] {
-                assert!(
-                    matches!(
-                        interpret_stack(vec![Atom::Function(function), operand, Atom::Number(1),]),
-                        Err(Error::Type(TypeError::Number(_)))
-                    ),
-                    "{function:?} accepted {operand:?}",
-                );
+                // Both slots, because a nested Function answers into either
+                // one: an unequal `.=` puts Empty wherever it is written.
+                for operands in [[operand, Atom::Number(1)], [Atom::Number(1), operand]] {
+                    assert!(
+                        matches!(
+                            interpret_stack(
+                                std::iter::once(Atom::Function(function))
+                                    .chain(operands)
+                                    .collect(),
+                            ),
+                            Err(Error::Type(TypeError::Number(_)))
+                        ),
+                        "{function:?} accepted {operands:?}",
+                    );
+                }
             }
         }
     }

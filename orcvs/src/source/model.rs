@@ -1459,6 +1459,23 @@ mod test {
     }
 
     #[test]
+    fn a_zero_divisor_diagnoses_and_commits_nothing() {
+        // The ticket pairs "diagnoses" with "produces no result", and only the
+        // Source can show the second half: an Interpreter error has to reach
+        // the Tick Plan as a diagnostic AND leave the result row untouched,
+        // rather than committing a Cell the next Tick would read as an operand.
+        let mut src = source();
+        src.write(0, ".%0A00");
+
+        let tick = src.execute();
+
+        assert_eq!(src.row(1), "          ");
+        assert!(tick.plan.writes.is_empty());
+        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert_eq!(tick.plan.diagnostics[0].message, "cannot modulo by zero");
+    }
+
+    #[test]
     fn test_result_above_nine_commits_both_hexadecimal_cells() {
         trace();
 
