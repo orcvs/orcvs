@@ -20,6 +20,9 @@ pub enum InterpretationError {
     #[error("cannot divide by zero")]
     DivisionByZero,
 
+    #[error("cannot modulo by zero")]
+    ModuloByZero,
+
     #[error("Number {0:02X} cannot be converted to a Note")]
     NoteConversion(u8),
 

@@ -1435,6 +1435,30 @@ mod test {
     }
 
     #[test]
+    fn an_equal_comparison_commits_a_bang_and_an_unequal_one_commits_nothing() {
+        // Equality answers a pulse, so its two answers reach the Source by two
+        // different paths: the equal case is an ordinary two-Cell result write
+        // that must render as `**`, and the unequal case rides the existing
+        // Empty signal and must leave the result row exactly as it found it.
+        let mut src = source();
+        src.write(0, ".=0303");
+
+        let tick = src.execute();
+
+        assert_eq!(src.row(1), "**        ");
+        assert_eq!(tick.plan.writes.len(), 2);
+
+        let mut src = source();
+        src.write(0, ".=0304");
+
+        let tick = src.execute();
+
+        assert_eq!(src.row(1), "          ");
+        assert!(tick.plan.writes.is_empty());
+        assert!(tick.plan.diagnostics.is_empty());
+    }
+
+    #[test]
     fn test_result_above_nine_commits_both_hexadecimal_cells() {
         trace();
 

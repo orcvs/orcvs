@@ -151,10 +151,15 @@ macro_rules! define_functions {
 }
 
 define_functions! {
+    AbsoluteDifference => (".|", Value, [crate::Token::Number, crate::Token::Number]),
     Add => (".+", Value, [crate::Token::Number, crate::Token::Number]),
     ConvertToNote => (".^", Value, [crate::Token::Number]),
     ConvertToNumber => (".v", Value, [crate::Token::Note]),
     Divide => ("./", Value, [crate::Token::Number, crate::Token::Number]),
+    Equality => (".=", Value, [crate::Token::Number, crate::Token::Number]),
+    Maximum => (".>", Value, [crate::Token::Number, crate::Token::Number]),
+    Minimum => (".<", Value, [crate::Token::Number, crate::Token::Number]),
+    Modulo => (".%", Value, [crate::Token::Number, crate::Token::Number]),
     Multiply => (".x", Value, [crate::Token::Number, crate::Token::Number]),
     Play => ("!>", Terminal, [crate::Token::Number, crate::Token::Number, crate::Token::Note]),
     Subtract => (".-", Value, [crate::Token::Number, crate::Token::Number]),
@@ -302,6 +307,11 @@ mod test {
         assert_eq!(Function::Subtract.to_string(), ".-");
         assert_eq!(Function::Multiply.to_string(), ".x");
         assert_eq!(Function::Divide.to_string(), "./");
+        assert_eq!(Function::AbsoluteDifference.to_string(), ".|");
+        assert_eq!(Function::Modulo.to_string(), ".%");
+        assert_eq!(Function::Minimum.to_string(), ".<");
+        assert_eq!(Function::Maximum.to_string(), ".>");
+        assert_eq!(Function::Equality.to_string(), ".=");
     }
 
     #[test]

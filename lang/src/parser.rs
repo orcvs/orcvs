@@ -492,6 +492,30 @@ mod test {
     }
 
     #[test]
+    fn comparison_spellings_parse_without_activation_collisions() {
+        // `.<` and `.>` share their second Cell with the Self-Banging Functions
+        // `<<` and `>>`, and the parser tests an Activation before a Function.
+        // These pin that the shared Cell alone never wins.
+        for (source, function) in [
+            (".|0A05", Function::AbsoluteDifference),
+            (".%0A05", Function::Modulo),
+            (".<0A05", Function::Minimum),
+            (".>0A05", Function::Maximum),
+            (".=0A05", Function::Equality),
+        ] {
+            assert_eq!(
+                try_parse(&mut source.to_owned()).unwrap().as_slice(),
+                &[
+                    Atom::Function(function),
+                    Atom::Number(0x0A),
+                    Atom::Number(0x05),
+                ],
+                "failed to parse {source:?}",
+            );
+        }
+    }
+
+    #[test]
     fn every_note_source_encoding_parses_in_context() {
         for value in 0x00..=0x7F {
             let note_value = crate::Note::try_from(value).unwrap();

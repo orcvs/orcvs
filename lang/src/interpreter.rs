@@ -42,10 +42,15 @@ impl Interpreter {
                     return Err(InterpretationError::NestedTerminalFunction.into());
                 }
                 Atom::Function(fun) => match fun {
+                    Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
                     Function::Add => math::add(&mut ctx)?,
                     Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
                     Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
                     Function::Divide => math::divide(&mut ctx)?,
+                    Function::Equality => math::equality(&mut ctx)?,
+                    Function::Maximum => math::maximum(&mut ctx)?,
+                    Function::Minimum => math::minimum(&mut ctx)?,
+                    Function::Modulo => math::modulo(&mut ctx)?,
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
                     Function::Play => {
@@ -261,18 +266,55 @@ mod test {
 
     #[test]
     fn general_arithmetic_rejects_note_operands() {
+        // The numeric family is Number-only in both operand positions: a Note
+        // is converted explicitly with `.v` or not at all, so neither position
+        // may quietly read a Note's MIDI number as a Number.
+        let note = Atom::Note(crate::Note::try_from(60).unwrap());
         for function in [
+            Function::AbsoluteDifference,
             Function::Add,
-            Function::Subtract,
-            Function::Multiply,
             Function::Divide,
+            Function::Equality,
+            Function::Maximum,
+            Function::Minimum,
+            Function::Modulo,
+            Function::Multiply,
+            Function::Subtract,
         ] {
-            let result = interpret_stack(vec![
-                Atom::Function(function),
-                Atom::Note(crate::Note::try_from(60).unwrap()),
-                Atom::Number(1),
-            ]);
-            assert!(matches!(result, Err(Error::Type(TypeError::Number(_)))));
+            for operands in [[note, Atom::Number(1)], [Atom::Number(1), note]] {
+                let result = interpret_stack(
+                    std::iter::once(Atom::Function(function))
+                        .chain(operands)
+                        .collect(),
+                );
+                assert!(
+                    matches!(result, Err(Error::Type(TypeError::Number(_)))),
+                    "{function:?} accepted {operands:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_numeric_family_rejects_every_non_number_operand() {
+        // Char and Bang reach the stack from Source text and from an Equality
+        // answer respectively, so neither may coerce into a Number either.
+        for function in [
+            Function::AbsoluteDifference,
+            Function::Equality,
+            Function::Maximum,
+            Function::Minimum,
+            Function::Modulo,
+        ] {
+            for operand in [Atom::Char('z'), Atom::Bang, Atom::Empty] {
+                assert!(
+                    matches!(
+                        interpret_stack(vec![Atom::Function(function), operand, Atom::Number(1),]),
+                        Err(Error::Type(TypeError::Number(_)))
+                    ),
+                    "{function:?} accepted {operand:?}",
+                );
+            }
         }
     }
 
@@ -439,6 +481,165 @@ mod test {
         ));
 
         assert_eq!(interpret(".v.^3C".to_owned()), Atom::Number(60));
+    }
+
+    #[test]
+    fn absolute_difference_is_symmetric_and_never_underflows() {
+        // `.-` wraps, so an ordered difference cannot express distance without
+        // borrowing. `.|` exists precisely to answer the distance instead, so
+        // both operand orders must agree for every pair a Source can write.
+        for left in 0..=u8::MAX {
+            for right in 0..=u8::MAX {
+                let expected =
+                    Atom::Number((i16::from(left) - i16::from(right)).unsigned_abs() as u8);
+
+                for (a, b) in [(left, right), (right, left)] {
+                    assert_eq!(
+                        interpret_stack(vec![
+                            Atom::Function(Function::AbsoluteDifference),
+                            Atom::Number(a),
+                            Atom::Number(b),
+                        ])
+                        .unwrap(),
+                        expected,
+                        "AbsoluteDifference({a:02X}, {b:02X})",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn modulo_returns_the_unsigned_remainder_for_every_non_zero_divisor() {
+        for left in 0..=u8::MAX {
+            for right in 1..=u8::MAX {
+                assert_eq!(
+                    interpret_stack(vec![
+                        Atom::Function(Function::Modulo),
+                        Atom::Number(left),
+                        Atom::Number(right),
+                    ])
+                    .unwrap(),
+                    Atom::Number((u16::from(left) % u16::from(right)) as u8),
+                    "Modulo({left:02X}, {right:02X})",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn modulo_by_zero_diagnoses_distinctly_from_division_by_zero() {
+        // A zero divisor has no remainder to invent, so `.%` produces no Atom
+        // at all. It carries its own diagnostic rather than borrowing `./`'s,
+        // so the Source is told which Function it wrote.
+        for left in 0..=u8::MAX {
+            assert!(
+                matches!(
+                    interpret_stack(vec![
+                        Atom::Function(Function::Modulo),
+                        Atom::Number(left),
+                        Atom::Number(0),
+                    ]),
+                    Err(Error::Interpretation(InterpretationError::ModuloByZero))
+                ),
+                "Modulo({left:02X}, 00)",
+            );
+        }
+
+        assert_ne!(
+            InterpretationError::ModuloByZero.to_string(),
+            InterpretationError::DivisionByZero.to_string()
+        );
+    }
+
+    #[test]
+    fn minimum_and_maximum_select_one_of_their_operands_for_every_pair_of_bytes() {
+        // Selection, not arithmetic: the answer is always one operand
+        // unchanged, so neither Function can wrap or clamp.
+        for left in 0..=u8::MAX {
+            for right in 0..=u8::MAX {
+                for (function, expected) in [
+                    (
+                        Function::Minimum,
+                        u16::from(left).min(u16::from(right)) as u8,
+                    ),
+                    (
+                        Function::Maximum,
+                        u16::from(left).max(u16::from(right)) as u8,
+                    ),
+                ] {
+                    assert_eq!(
+                        interpret_stack(vec![
+                            Atom::Function(function),
+                            Atom::Number(left),
+                            Atom::Number(right),
+                        ])
+                        .unwrap(),
+                        Atom::Number(expected),
+                        "{function:?}({left:02X}, {right:02X})",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn equality_answers_a_bang_only_for_equal_numbers() {
+        // Equality is a pulse, not a truth value: an unequal comparison answers
+        // `Atom::Empty`, the Interpreter's existing "no result write" signal, so
+        // the Source never gains a Cell meaning "false".
+        for left in 0..=u8::MAX {
+            for right in 0..=u8::MAX {
+                let expected = if left == right {
+                    Atom::Bang
+                } else {
+                    Atom::Empty
+                };
+
+                assert_eq!(
+                    interpret_stack(vec![
+                        Atom::Function(Function::Equality),
+                        Atom::Number(left),
+                        Atom::Number(right),
+                    ])
+                    .unwrap(),
+                    expected,
+                    "Equality({left:02X}, {right:02X})",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_numeric_family_evaluates_from_its_source_spellings() {
+        // Ties each spelling to its behaviour end to end: the exhaustive tests
+        // above build stacks directly and would not catch two definitions whose
+        // spellings were transposed in the table.
+        assert_eq!(interpret(".|050A".to_owned()), Atom::Number(5));
+        assert_eq!(interpret(".%0A03".to_owned()), Atom::Number(1));
+        assert_eq!(interpret(".<0A03".to_owned()), Atom::Number(3));
+        assert_eq!(interpret(".>0A03".to_owned()), Atom::Number(10));
+        assert_eq!(interpret(".=0A0A".to_owned()), Atom::Bang);
+
+        // Nested operands resolve before the outer Function sees them
+        assert_eq!(interpret(".<.+0102.%0A03".to_owned()), Atom::Number(1));
+        assert_eq!(interpret(".|.>0A03.<0A03".to_owned()), Atom::Number(7));
+    }
+
+    #[test]
+    fn equality_composes_with_nested_arithmetic_on_both_answers() {
+        // The Bang answer stands where a value stands, and the absent answer is
+        // absent everywhere: nesting it as an operand diagnoses rather than
+        // silently reading as a Number.
+        assert_eq!(interpret(".=.+010203".to_owned()), Atom::Bang);
+        assert_eq!(interpret(".=.+010204".to_owned()), Atom::Empty);
+
+        let mut source = ".+.=010203".to_owned();
+        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        assert!(matches!(
+            Interpreter::execute(&atoms),
+            Err(Error::Type(TypeError::Number(found))) if found == "_"
+        ));
     }
 
     #[test]
