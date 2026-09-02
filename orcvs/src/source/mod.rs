@@ -1,5 +1,6 @@
 pub mod error;
 mod language_map;
+pub use language_map::{ExpressionEntry, Footprint, LanguageMap, LanguageUnit, LanguageUnitKind};
 mod model;
 use crate::{glyph::Glyph, grid::Grid};
 pub use error::SourceError;

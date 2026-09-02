@@ -17,11 +17,7 @@ const SPACE_BYTE: u8 = b' ';
 /// This is the single owner of expression extents, parsed expressions, Glyph
 /// classifications, and diagnostics. It deliberately exposes only the
 /// semantics the current parser and row-local partition can establish.
-pub(super) struct LanguageMap {
-    // Established for the next Language Map delivery slices to consume.
-    // Issue 01 tests this partition through the module seam; issues 02 and 03
-    // will move production expression and Source consumers onto it.
-    #[allow(dead_code)]
+pub struct LanguageMap {
     units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
     glyphs: Vec<Option<Glyph>>,
@@ -29,62 +25,78 @@ pub(super) struct LanguageMap {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum LanguageUnitKind {
+pub enum LanguageUnitKind {
     OperandLiteral,
+    Atom(Atom),
     Function(Function),
     Bang,
     Activation(Activation),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct LanguageUnit {
+pub struct LanguageUnit {
     kind: LanguageUnitKind,
     anchor: Position,
     footprint: Footprint,
 }
 
 impl LanguageUnit {
-    // Issue 01 exposes partition identity for seam-level tests before the
-    // production consumers migrate in issues 02 and 03.
-    #[allow(dead_code)]
-    pub(super) fn kind(&self) -> LanguageUnitKind {
+    pub fn kind(&self) -> LanguageUnitKind {
         self.kind
     }
 
-    // See `kind`: anchors are established and tested in this delivery slice.
-    #[allow(dead_code)]
-    pub(super) fn anchor(&self) -> Position {
+    pub fn anchor(&self) -> Position {
         self.anchor
     }
 
-    // See `kind`: footprints are established and tested in this delivery slice.
-    #[allow(dead_code)]
-    pub(super) fn footprint(&self) -> &Footprint {
+    pub fn footprint(&self) -> &Footprint {
         &self.footprint
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct Footprint {
+pub struct Footprint {
     positions: Vec<Position>,
 }
 
 impl Footprint {
-    // Footprint queries currently serve the issue-01 module-seam tests; the
-    // later consumer-migration slice will call them from production code.
-    #[allow(dead_code)]
-    pub(super) fn positions(&self) -> impl Iterator<Item = Position> + '_ {
+    pub fn positions(&self) -> impl Iterator<Item = Position> + '_ {
         self.positions.iter().copied()
+    }
+
+    pub(super) fn from_indices(grid: Grid, indices: impl IntoIterator<Item = usize>) -> Self {
+        Self {
+            positions: indices
+                .into_iter()
+                .filter_map(|idx| grid.position_at(idx))
+                .collect(),
+        }
     }
 }
 
-pub(super) struct ExpressionEntry {
+pub struct ExpressionEntry {
     range: Range,
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
+    root: Option<Position>,
+    footprint: Footprint,
+    units: Vec<LanguageUnit>,
 }
 
 impl ExpressionEntry {
+    /// The first Function anchor when this is a complete executable Expression.
+    pub fn root(&self) -> Option<Position> {
+        self.root
+    }
+
+    pub fn footprint(&self) -> &Footprint {
+        &self.footprint
+    }
+
+    pub fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
+        self.units.iter()
+    }
+
     pub(super) fn range(&self) -> Range {
         self.range
     }
@@ -119,6 +131,15 @@ impl Range {
 }
 
 impl LanguageMap {
+    /// Derives the semantic view of one complete Source revision.
+    ///
+    /// Returns `None` when `source` is not exactly one printable-ASCII Cell per
+    /// Position in `grid`.
+    pub fn derive(grid: Grid, source: &str) -> Option<Self> {
+        (source.len() == grid.count() && source.bytes().all(|byte| (0x20..=0x7e).contains(&byte)))
+            .then(|| Self::build(grid, source.as_bytes()))
+    }
+
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
         assert_eq!(
             bytes.len(),
@@ -137,6 +158,17 @@ impl LanguageMap {
 
         for range in ranges {
             map.parse_range(grid, bytes, range);
+        }
+        for expression in &map.expressions {
+            for parsed in &expression.units {
+                if let Some(unit) = map
+                    .units
+                    .iter_mut()
+                    .find(|unit| unit.anchor == parsed.anchor)
+                {
+                    unit.kind = parsed.kind;
+                }
+            }
         }
         for (idx, byte) in bytes.iter().copied().enumerate() {
             if byte != SPACE_BYTE && map.glyphs[idx].is_none() {
@@ -158,28 +190,26 @@ impl LanguageMap {
         ExpressionMap::prospective_range(grid, bytes, idx, byte)
     }
 
-    pub(super) fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
+    pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
         self.expressions.iter()
     }
 
-    // Issue 01 establishes this interface for module-seam tests; issues 02 and
-    // 03 migrate expression and Source consumers onto it.
-    #[allow(dead_code)]
-    pub(super) fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
+    pub fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
         self.units.iter()
     }
 
-    pub(super) fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+    /// Every parser and unmatched-character diagnostic in this revision.
+    pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.expressions
             .iter()
             .filter_map(|expression| expression.diagnostic.as_ref())
+            .chain(self.lexical_diagnostics.iter())
     }
 
-    // Lexical diagnostics remain distinct until issue 02 derives the public
-    // diagnostic view from the Language Unit partition.
-    #[allow(dead_code)]
-    pub(super) fn unit_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.lexical_diagnostics.iter()
+    pub(super) fn expression_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.expressions
+            .iter()
+            .filter_map(|expression| expression.diagnostic.as_ref())
     }
 
     pub(super) fn glyph_at(&self, idx: usize) -> Option<Glyph> {
@@ -209,28 +239,61 @@ impl LanguageMap {
                 self.expressions.push(ExpressionEntry {
                     range,
                     atoms: None,
-                    diagnostic: Some(Diagnostic {
-                        start,
-                        end,
-                        message: error.to_string(),
-                    }),
+                    diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
+                    root: None,
+                    footprint: footprint_for_range(grid, range),
+                    units: units_in_range(&self.units, grid, range),
                 });
                 return;
             }
         };
 
         let executable = matches!(analysis, SourceAnalysis::Complete(_));
-        let diagnostic = analysis.error().map(|error| Diagnostic {
-            start,
-            end,
-            message: error.to_string(),
-        });
-        let (atoms, glyphs) = expression_parts(analysis.into_expression(), executable);
+        let diagnostic = analysis
+            .error()
+            .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
+        let expression = analysis.into_expression();
+        let mut expression_units = units_in_range(&self.units, grid, range);
+        if executable {
+            for (unit, (_, atom)) in expression_units.iter_mut().zip(expression.entries()) {
+                unit.kind = match atom {
+                    Atom::Function(function) => LanguageUnitKind::Function(function),
+                    Atom::Bang => LanguageUnitKind::Bang,
+                    Atom::Activation(activation) => LanguageUnitKind::Activation(activation),
+                    atom => LanguageUnitKind::Atom(atom),
+                };
+            }
+        }
+        let root = executable
+            .then(|| {
+                expression_units.iter().find_map(|unit| {
+                    matches!(unit.kind, LanguageUnitKind::Function(_)).then_some(unit.anchor)
+                })
+            })
+            .flatten();
+        let (atoms, mut glyphs) = expression_parts(expression, executable);
+        if !executable
+            && matches!(
+                expression_units.as_slice(),
+                [LanguageUnit {
+                    kind: LanguageUnitKind::OperandLiteral,
+                    ..
+                }]
+            )
+        {
+            // A standalone Operand Literal has no contextual Number or Note
+            // type. Preserve the existing raw-character presentation while
+            // retaining its invalid-expression diagnostic.
+            glyphs.clear();
+        }
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
             range,
             atoms,
             diagnostic,
+            root,
+            footprint: footprint_for_range(grid, range),
+            units: expression_units,
         });
     }
 
@@ -266,7 +329,7 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
             }
 
             let Some(spelling) = bytes.get(idx..idx + 2).filter(|_| grid.fits(anchor, 2)) else {
-                diagnostics.push(invalid_unit_diagnostic(idx, bytes[idx]));
+                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[idx]));
                 column += 1;
                 continue;
             };
@@ -298,7 +361,7 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
                 });
                 column += 2;
             } else {
-                diagnostics.push(invalid_unit_diagnostic(idx, bytes[idx]));
+                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[idx]));
                 column += 1;
             }
         }
@@ -307,12 +370,28 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
     (units, diagnostics)
 }
 
-fn invalid_unit_diagnostic(idx: usize, byte: u8) -> Diagnostic {
-    Diagnostic {
-        start: idx,
-        end: idx,
-        message: format!("invalid Language Unit character {:?}", char::from(byte)),
-    }
+fn invalid_unit_diagnostic(grid: Grid, idx: usize, byte: u8) -> Diagnostic {
+    Diagnostic::for_range(
+        grid,
+        idx,
+        idx,
+        format!("invalid Language Unit character {:?}", char::from(byte)),
+    )
+}
+
+fn footprint_for_range(grid: Grid, range: Range) -> Footprint {
+    Footprint::from_indices(grid, range.start()..=range.end())
+}
+
+fn units_in_range(units: &[LanguageUnit], grid: Grid, range: Range) -> Vec<LanguageUnit> {
+    units
+        .iter()
+        .filter(|unit| {
+            let idx = grid.index(unit.anchor);
+            (range.start()..=range.end()).contains(&idx)
+        })
+        .cloned()
+        .collect()
 }
 
 fn parse_standalone_run(source: &str) -> Option<Expression> {
@@ -427,6 +506,70 @@ mod tests {
 
     use super::{ExpressionMap, LanguageMap, LanguageUnitKind, Range};
 
+    #[test]
+    fn public_language_map_expression_exposes_root_nested_functions_and_footprints() {
+        let grid = Grid::new(10, 1);
+        let map = LanguageMap::derive(grid, ".+.x010203").unwrap();
+        let expression = map.expressions().next().unwrap();
+
+        assert_eq!(expression.root().unwrap().x(), 0);
+        assert_eq!(expression.root().unwrap().y(), 0);
+        assert_eq!(
+            expression
+                .units()
+                .filter_map(|unit| match unit.kind() {
+                    LanguageUnitKind::Function(function) => Some(function),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec![lang::Function::Add, lang::Function::Multiply]
+        );
+        assert_eq!(
+            expression
+                .units()
+                .flat_map(|unit| unit.footprint().positions())
+                .map(|position| (position.x(), position.y()))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 0),
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (4, 0),
+                (5, 0),
+                (6, 0),
+                (7, 0),
+                (8, 0),
+                (9, 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn expression_and_diagnostic_positions_belong_to_the_derived_revision_grid() {
+        let grid = Grid::new(4, 2);
+        let map = LanguageMap::derive(grid, ".+01xxxx").unwrap();
+        let first = map.expressions().next().unwrap();
+        let diagnostic = map.diagnostics().next().unwrap();
+
+        assert_eq!(first.footprint().positions().count(), 4);
+        assert_eq!(diagnostic.anchor(), grid.position(0, 0));
+        assert_eq!(
+            diagnostic
+                .footprint()
+                .positions()
+                .map(|position| (position.x(), position.y()))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (1, 0), (2, 0), (3, 0)]
+        );
+        assert!(map.expressions().all(|expression| {
+            expression
+                .footprint()
+                .positions()
+                .all(|position| position.y() < 2)
+        }));
+    }
+
     fn unit_spellings(map: &LanguageMap) -> Vec<(usize, Vec<usize>)> {
         map.units()
             .map(|unit| {
@@ -453,16 +596,9 @@ mod tests {
             unit_spellings(&north),
             vec![(0, vec![0, 1]), (2, vec![2, 3])]
         );
-        assert!(
-            bangs
-                .unit_diagnostics()
-                .any(|diagnostic| diagnostic.start == 2)
-        );
-        assert!(
-            west.unit_diagnostics()
-                .any(|diagnostic| diagnostic.start == 2)
-        );
-        assert_eq!(north.unit_diagnostics().count(), 0);
+        assert!(bangs.diagnostics().any(|diagnostic| diagnostic.start == 2));
+        assert!(west.diagnostics().any(|diagnostic| diagnostic.start == 2));
+        assert_eq!(north.diagnostics().count(), 0);
     }
 
     #[test]
@@ -504,7 +640,8 @@ mod tests {
 
         assert!(map.units().next().is_none());
         assert_eq!(
-            map.unit_diagnostics()
+            map.diagnostics()
+                .filter(|diagnostic| diagnostic.message.starts_with("invalid Language Unit"))
                 .map(|diagnostic| diagnostic.start)
                 .collect::<Vec<_>>(),
             vec![2, 3]
@@ -521,14 +658,14 @@ mod tests {
             comment.expressions().next().unwrap().range(),
             Range::new(0, 1)
         );
-        assert_eq!(comment.unit_diagnostics().count(), 0);
+        assert_eq!(comment.diagnostics().count(), 0);
         assert_eq!(
             unit_spellings(&fragment),
             vec![(0, vec![0, 1]), (4, vec![4, 5])]
         );
         assert!(
             fragment
-                .unit_diagnostics()
+                .diagnostics()
                 .any(|diagnostic| diagnostic.start == 2)
         );
     }
@@ -601,7 +738,7 @@ mod tests {
         assert!(expressions[0].atoms().is_some());
         assert_eq!(map.glyph_at(0), Some(Glyph::Function));
         assert_eq!(map.glyph_at(7), Some(Glyph::Char));
-        assert_eq!(map.diagnostics().count(), 1);
+        assert_eq!(map.expression_diagnostics().count(), 1);
     }
 
     #[test]

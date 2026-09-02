@@ -8,7 +8,7 @@ use crate::glyph::Glyph;
 use crate::grid::Grid;
 
 use super::SourceError;
-use super::language_map::LanguageMap;
+use super::language_map::{Footprint, LanguageMap};
 
 pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
@@ -45,6 +45,28 @@ pub struct Diagnostic {
     pub start: usize,
     pub end: usize,
     pub message: String,
+    anchor: Option<crate::grid::Position>,
+    footprint: Footprint,
+}
+
+impl Diagnostic {
+    pub(super) fn for_range(grid: Grid, start: usize, end: usize, message: String) -> Self {
+        Self {
+            start,
+            end,
+            message,
+            anchor: grid.position_at(start),
+            footprint: Footprint::from_indices(grid, start..=end),
+        }
+    }
+
+    pub fn anchor(&self) -> Option<crate::grid::Position> {
+        self.anchor
+    }
+
+    pub fn footprint(&self) -> &Footprint {
+        &self.footprint
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -209,6 +231,11 @@ impl Source {
         self.inner.clone()
     }
 
+    /// The semantic view derived from this exact Source revision.
+    pub fn language_map(&self) -> &LanguageMap {
+        &self.language_map
+    }
+
     ///
     /// Whether `idx` names a Cell. The Grid decides: an index it cannot
     /// address is one this Source has no Cell for.
@@ -283,7 +310,10 @@ impl Source {
     /// Problems with Expressions in the current revision, in Source order.
     ///
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        self.language_map.diagnostics().cloned().collect()
+        self.language_map
+            .expression_diagnostics()
+            .cloned()
+            .collect()
     }
 
     ///
@@ -341,11 +371,12 @@ impl Source {
                     continue;
                 }
                 Err(error) => {
-                    diagnostics.push(Diagnostic {
-                        start: range.start(),
-                        end: range.end(),
-                        message: error.to_string(),
-                    });
+                    diagnostics.push(Diagnostic::for_range(
+                        self.grid,
+                        range.start(),
+                        range.end(),
+                        error.to_string(),
+                    ));
                     continue;
                 }
             };
@@ -359,19 +390,21 @@ impl Source {
                 .position_at(start)
                 .expect("parsed holds one entry per Cell");
             let Some(target) = self.grid.below(origin) else {
-                diagnostics.push(Diagnostic {
-                    start: range.start(),
-                    end: range.end(),
-                    message: format!("result {encoded:?} falls below the Source"),
-                });
+                diagnostics.push(Diagnostic::for_range(
+                    self.grid,
+                    range.start(),
+                    range.end(),
+                    format!("result {encoded:?} falls below the Source"),
+                ));
                 continue;
             };
             if !self.grid.fits(target, encoded.chars().count()) {
-                diagnostics.push(Diagnostic {
-                    start: range.start(),
-                    end: range.end(),
-                    message: format!("result {encoded:?} crosses the row edge"),
-                });
+                diagnostics.push(Diagnostic::for_range(
+                    self.grid,
+                    range.start(),
+                    range.end(),
+                    format!("result {encoded:?} crosses the row edge"),
+                ));
                 continue;
             }
 
