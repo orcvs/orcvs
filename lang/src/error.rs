@@ -26,6 +26,9 @@ pub enum InterpretationError {
     #[error("a Play Function is valid only at the root of an Expression")]
     NestedPlay,
 
+    #[error("Play channel {0:02X} is outside the MIDI range 00–0F")]
+    PlayChannel(u8),
+
     #[error("Play velocity {0:02X} is outside the MIDI range 00–7F")]
     PlayVelocity(u8),
 }

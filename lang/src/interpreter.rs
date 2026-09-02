@@ -269,6 +269,30 @@ mod test {
     }
 
     #[test]
+    fn direct_play_evaluation_enforces_each_operand_type() {
+        let note = Atom::Note(crate::Note::try_from(60).unwrap());
+        for atoms in [
+            vec![Function::Play.into(), note, Atom::Number(0x7F), note],
+            vec![Function::Play.into(), Atom::Number(0), note, note],
+            vec![
+                Function::Play.into(),
+                Atom::Number(0),
+                Atom::Number(0x7F),
+                Atom::Number(60),
+            ],
+            vec![
+                Function::Play.into(),
+                Atom::Number(0),
+                Atom::Number(0x7F),
+                Atom::Char('C'),
+            ],
+        ] {
+            let atoms = atoms.into_iter().collect();
+            assert!(matches!(Interpreter::execute(&atoms), Err(Error::Type(_))));
+        }
+    }
+
+    #[test]
     fn explicit_numeric_conversions_have_fixed_result_types() {
         for value in 0..=0x7F {
             assert_eq!(

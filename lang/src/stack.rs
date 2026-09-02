@@ -111,18 +111,6 @@ impl TryFrom<MaybeAtom> for NumericValue {
     }
 }
 
-impl TryFrom<MaybeAtom> for String {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(a) => Ok(a.into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
 impl TryFrom<MaybeAtom> for Function {
     type Error = Error;
 

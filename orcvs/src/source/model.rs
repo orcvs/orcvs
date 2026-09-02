@@ -1188,6 +1188,22 @@ mod test {
     }
 
     #[test]
+    fn test_play_channel_above_midi_range_is_diagnosed() {
+        let mut src = source();
+        src.write(0, "!>107FC4");
+
+        let tick = src.execute();
+
+        assert!(tick.plan.play_commands.is_empty());
+        assert!(tick.plan.writes.is_empty());
+        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert_eq!(
+            tick.plan.diagnostics[0].message,
+            "Play channel 10 is outside the MIDI range 00–0F"
+        );
+    }
+
+    #[test]
     fn test_nested_play_is_diagnosed_without_emitting_a_command() {
         let mut src = SourceUnderTest::new(Grid::new(12, 3));
         src.write(0, ".+!>007FC401");
@@ -1201,6 +1217,20 @@ mod test {
             tick.plan.diagnostics[0].message,
             "a Play Function is valid only at the root of an Expression"
         );
+    }
+
+    #[test]
+    fn test_nested_evaluation_cannot_change_play_operand_types() {
+        for expression in ["!>.^007FC4", "!>00.^7FC4", "!>007F.vC4"] {
+            let mut src = SourceUnderTest::new(Grid::new(expression.len(), 3));
+            src.write(0, expression);
+
+            let tick = src.execute();
+
+            assert!(tick.plan.play_commands.is_empty(), "{expression}");
+            assert!(tick.plan.writes.is_empty(), "{expression}");
+            assert_eq!(tick.plan.diagnostics.len(), 1, "{expression}");
+        }
     }
 
     #[test]

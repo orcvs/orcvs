@@ -16,6 +16,10 @@ pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
 
 #[inline(always)]
 fn play_impl(channel: u8, velocity: u8, note: u8) -> Result<PlayCommand, Error> {
+    if channel > 0x0F {
+        return Err(InterpretationError::PlayChannel(channel).into());
+    }
+
     if velocity > 0x7F {
         return Err(InterpretationError::PlayVelocity(velocity).into());
     }
@@ -102,6 +106,29 @@ mod test {
             }
 
             assert!(matches!(play(&mut ctx), Err(Error::Type(_))));
+        }
+    }
+
+    #[test]
+    fn play_rejects_channels_outside_the_midi_range() {
+        for channel in 0x10..=u8::MAX {
+            let mut ctx = Context::new();
+            for argument in [
+                Atom::Number(channel),
+                Atom::Number(0x7F),
+                Atom::Note(crate::Note::try_from(60).unwrap()),
+            ]
+            .into_iter()
+            .rev()
+            {
+                ctx.stack.push(argument);
+            }
+
+            assert!(matches!(
+                play(&mut ctx),
+                Err(Error::Interpretation(crate::InterpretationError::PlayChannel(value)))
+                    if value == channel
+            ));
         }
     }
 }
