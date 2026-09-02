@@ -23,7 +23,7 @@ make_fixture() {
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
-  cp "$repo_root/.github/workflows/test.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
@@ -45,6 +45,36 @@ test_commented_requirement_is_rejected() {
   make_fixture
   perl -pi -e 's/^(RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked)$/# $1/' "$fixture_dir/mise.toml"
   assert_rejected "a commented-out required setting"
+}
+
+test_unbenchmarked_orcvs_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(      - 'orcvs\\/\\*\\*')\$/# \$1/" "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow that ignores changes to the benchmarked orcvs crate"
+}
+
+test_lang_only_bench_task_is_rejected() {
+  make_fixture
+  perl -pi -e 's/cargo bench --package lang --package orcvs --benches/cargo bench --package lang/' "$fixture_dir/mise.toml"
+  assert_rejected "a benchmark task that measures only the lang crate"
+}
+
+test_missing_orcvs_criterion_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^criterion = /# criterion = /' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "an orcvs crate without the criterion dev-dependency"
+}
+
+test_shipped_orcvs_criterion_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^\[dev-dependencies\]$/[dependencies]/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a criterion dependency that ships in the orcvs library"
+}
+
+test_bench_without_native_dependencies_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(        run: sudo apt-get update .*)$/# $1/' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow that never installs the orcvs native dependencies"
 }
 
 test_unlocked_check_deny_is_rejected() {
@@ -255,6 +285,11 @@ test_fixture_cleanup_removes_tmp_dirs_on_failure() {
 
 case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
+  unbenchmarked-orcvs) test_unbenchmarked_orcvs_is_rejected ;;
+  lang-only-bench) test_lang_only_bench_task_is_rejected ;;
+  missing-orcvs-criterion) test_missing_orcvs_criterion_is_rejected ;;
+  shipped-orcvs-criterion) test_shipped_orcvs_criterion_is_rejected ;;
+  bench-native-dependencies) test_bench_without_native_dependencies_is_rejected ;;
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
@@ -290,6 +325,11 @@ case "${1:-all}" in
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
     test_unlocked_check_deny_is_rejected
+    test_unbenchmarked_orcvs_is_rejected
+    test_lang_only_bench_task_is_rejected
+    test_missing_orcvs_criterion_is_rejected
+    test_shipped_orcvs_criterion_is_rejected
+    test_bench_without_native_dependencies_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
     test_wasm_build_without_persistence_is_rejected

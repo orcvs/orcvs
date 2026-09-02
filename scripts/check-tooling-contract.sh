@@ -84,6 +84,15 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAG
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --features persistence --locked.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher.$'
+# The measurement is only compared when the workflow runs, so every path that can
+# move a number has to trigger it: the two benchmarked crates included.
+assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
+assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'orcvs/[*][*]'$"
+assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench [|] tee output[.]txt$'
+# `orcvs` links ALSA through `midir` on Linux, so both bench jobs need the same
+# native dependency the test workflow installs.
+assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev$'
 assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
@@ -125,10 +134,18 @@ assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolc
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v3$'
 
+# Criterion covers both benchmarked paths: language execution in `lang`, and
+# populated Source rendering and editing in `orcvs`. It stays a plain versioned
+# dev-dependency of exactly those two crates, so no shipped target and no other
+# crate pulls its tree in.
+assert_contains "$root_dir/lang/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
+assert_contains "$root_dir/orcvs/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
+assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_not_contains "$root_dir/Cargo.toml" '^[[:space:]]*criterion[[:space:]]*='
 assert_not_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
-assert_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
-assert_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
+assert_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
+assert_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
 assert_not_contains "$root_dir/Cargo.toml" '^\[profile\.ci\]$'
 assert_contains "$root_dir/Cargo.toml" '^tokio[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
 for manifest in "$root_dir/orcvs/Cargo.toml" "$root_dir/shell/Cargo.toml"; do

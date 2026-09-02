@@ -37,8 +37,11 @@ env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
 
 [tasks.bench]
-description = "Benchmark the lang parse and interpret paths"
-run = 'cargo bench --package lang --locked -- --output-format bencher'
+description = "Benchmark the lang execution paths and the populated Source paths"
+# `--benches` keeps the orcvs integration-test harnesses out, and each benchmarked
+# crate sets `[lib] bench = false` to keep its unit-test harness out. Every one of
+# them rejects `--output-format` and fails the task before criterion runs.
+run = 'cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher'
 
 [tasks.check]
 description = "Full repository verification gate"

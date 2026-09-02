@@ -4,11 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    # Everything that can move a measurement: the crate itself, the profile and
-    # resolved dependency versions it compiles under, the toolchain, the command, and
-    # the gate's own definition. Repeated because Actions does not support YAML anchors.
+    # Everything that can move a measurement: the benchmarked crates, the profile and
+    # resolved dependency versions they compile under, the toolchain, the command, and
+    # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
+    # the Render Frame. Repeated because Actions does not support YAML anchors.
     paths:
       - 'lang/**'
+      - 'orcvs/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -16,11 +18,13 @@ on:
       - '.github/workflows/bench.yml'
   pull_request:
     branches: [main]
-    # Everything that can move a measurement: the crate itself, the profile and
-    # resolved dependency versions it compiles under, the toolchain, the command, and
-    # the gate's own definition. Repeated because Actions does not support YAML anchors.
+    # Everything that can move a measurement: the benchmarked crates, the profile and
+    # resolved dependency versions they compile under, the toolchain, the command, and
+    # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
+    # the Render Frame. Repeated because Actions does not support YAML anchors.
     paths:
       - 'lang/**'
+      - 'orcvs/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -52,6 +56,10 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # `orcvs` depends on `midir`, which links ALSA on Linux. Without this the bench
+      # jobs fail while building `alsa-sys` and publish nothing.
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       # `mise run bench` needs only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
@@ -100,6 +108,10 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # `orcvs` depends on `midir`, which links ALSA on Linux. Without this the bench
+      # jobs fail while building `alsa-sys` and publish nothing.
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       # `mise run bench` needs only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.

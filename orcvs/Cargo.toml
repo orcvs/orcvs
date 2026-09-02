@@ -9,6 +9,11 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[lib]
+# `--benches` selects the library too, and its unit-test harness does not
+# understand criterion's arguments.
+bench = false
+
 [features]
 default = []
 persistence = ["dep:serde"]
@@ -32,9 +37,14 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 serde_json = "1"
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt"] }
+
+[[bench]]
+name = "source"
+harness = false
 
 [package.metadata.docs.rs]
 all-features = true

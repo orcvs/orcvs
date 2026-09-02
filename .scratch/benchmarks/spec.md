@@ -1,6 +1,6 @@
-# Gate `lang` performance against its own history
+# Gate language and Source performance against its own history
 
-**Goal:** Measure the `lang` parse and interpret paths with criterion, store the results as a series, and fail a merge when a benchmark blows up.
+**Goal:** Measure the `lang` parse and interpret paths and the populated `orcvs` Source paths with criterion, store the results as a series, and fail a merge when a benchmark blows up.
 
 ## Why
 
@@ -10,9 +10,9 @@
 
 A wall-clock benchmark run on `ubuntu-latest`, compared by `benchmark-action/github-action-benchmark` against the previous stored result for `main`, with the series kept on the `gh-pages` branch and charted at `orcvs.github.io/orcvs/dev/bench`.
 
-Both triggers are filtered to the paths that can move a measurement: `lang/**`, the root manifest and lockfile, `rust-toolchain.toml`, `mise.toml`, and the workflow itself. A pull request that touches none of them runs no benchmark, which is safe only while the benchmark jobs are not required status checks — `main` currently requires `full-gate`, `macos`, and `wasm`. Making a filtered job required would leave every unrelated pull request waiting forever for a check that never reports.
+Both triggers are filtered to the paths that can move a measurement: `lang/**`, `orcvs/**`, the root manifest and lockfile, `rust-toolchain.toml`, `mise.toml`, and the workflow itself. A pull request that touches none of them runs no benchmark, which is safe only while the benchmark jobs are not required status checks — `main` currently requires `full-gate`, `macos`, and `wasm`. Making a filtered job required would leave every unrelated pull request waiting forever for a check that never reports.
 
-Filtering the push trigger as well keeps the series to one point per change that could have moved it. Each stored point carries the runner's own noise, and the comparison is against the previous point, so republishing an unchanged `lang` would let the baseline drift on nothing.
+Filtering the push trigger as well keeps the series to one point per change that could have moved it. Each stored point carries the runner's own noise, and the comparison is against the previous point, so republishing an unchanged `lang` or `orcvs` would let the baseline drift on nothing.
 
 Two jobs share one measurement. The publishing job runs after a push to `main`, appends the result to the series, and holds `contents: write`. The pull-request job runs the same benchmarks, compares them against the last point `main` stored, and fails on the same threshold, but holds `contents: read` and supplies no token: on a public repository the action reads `gh-pages` anonymously, and the comparison and failure threshold need nothing more. Only `main` writes to the series, so a pull request cannot move the baseline it is judged against.
 
@@ -34,11 +34,15 @@ The upgrade path, if a real regression ever slips through, is `iai-callgrind`: i
 
 ## Rules
 
-The measurement command is identical locally and in CI: `cargo bench --package lang -- --output-format bencher`. The `--output-format bencher` flag is load-bearing. The action's `cargo` parser is one regex over `test <name> ... bench: <N> ns/iter (+/- <M>)`, and a line that does not match is skipped silently, so criterion's default output stores zero benchmarks and passes green.
+The measurement command is identical locally and in CI: `cargo bench --package lang --package orcvs --benches -- --output-format bencher`. The `--output-format bencher` flag is load-bearing. The action's `cargo` parser is one regex over `test <name> ... bench: <N> ns/iter (+/- <M>)`, and a line that does not match is skipped silently, so criterion's default output stores zero benchmarks and passes green.
 
 The benchmark job is its own workflow. It needs `contents: write` to push the series, and `test.yml` runs on pull requests, so the write-scoped job stays out of it.
 
 Benchmarks measure behaviour that exists, on Source drawn from the existing tests. A benchmark of an unimplemented path is a fiction with a number attached.
+
+The stored series is keyed by the action's `name: lang`, which was chosen before `orcvs` was benchmarked. It stays as it is: the key is how the action finds the history on `gh-pages`, and renaming it would abandon every point already stored.
+
+A Source benchmark measures several Source sizes. One fixed size cannot tell a constant cost from a whole-map traversal, and every Source path measured here — the revision read, the Render Frame, and the Language Map rebuild an edit forces — is a candidate for the second.
 
 ## Prerequisites
 
@@ -50,3 +54,5 @@ The orphan `gh-pages` branch exists on `origin` and GitHub Pages is enabled for 
 - `issues/02-add-the-bench-profile-and-mise-task.md`
 - `issues/03-gate-merges-on-the-benchmark-series.md`
 - `issues/04-document-the-benchmark-tier.md`
+- `issues/05-benchmark-populated-source-revision-reads-and-render-frames.md`
+- `issues/06-benchmark-populated-source-edits-and-language-map-rebuilding.md`
