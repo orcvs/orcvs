@@ -1221,7 +1221,11 @@ mod test {
 
     #[test]
     fn test_nested_evaluation_cannot_change_play_operand_types() {
-        for expression in ["!>.^007FC4", "!>00.^7FC4", "!>007F.vC4"] {
+        for (expression, expected) in [
+            ("!>.^007FC4", "expected a number, found \"C/\""),
+            ("!>00.^7FC4", "expected a number, found \"G9\""),
+            ("!>007F.vC4", "expected a note, found \"3C\""),
+        ] {
             let mut src = SourceUnderTest::new(Grid::new(expression.len(), 3));
             src.write(0, expression);
 
@@ -1230,6 +1234,7 @@ mod test {
             assert!(tick.plan.play_commands.is_empty(), "{expression}");
             assert!(tick.plan.writes.is_empty(), "{expression}");
             assert_eq!(tick.plan.diagnostics.len(), 1, "{expression}");
+            assert_eq!(tick.plan.diagnostics[0].message, expected, "{expression}");
         }
     }
 

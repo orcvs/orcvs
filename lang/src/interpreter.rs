@@ -269,6 +269,46 @@ mod test {
     }
 
     #[test]
+    fn direct_and_nested_arithmetic_report_the_same_missing_operand_diagnostic() {
+        for atoms in [
+            vec![Atom::Function(Function::Add), Atom::Number(1)],
+            vec![
+                Atom::Function(Function::Add),
+                Atom::Function(Function::Add),
+                Atom::Number(1),
+                Atom::Number(2),
+            ],
+        ] {
+            assert!(matches!(
+                interpret_stack(atoms),
+                Err(Error::Argument(ArgumentError::Arity {
+                    expected: 2,
+                    found: 1,
+                }))
+            ));
+        }
+    }
+
+    #[test]
+    fn direct_and_nested_arithmetic_report_the_same_operand_type_diagnostic() {
+        let note = Atom::Note(crate::Note::try_from(60).unwrap());
+        for atoms in [
+            vec![Atom::Function(Function::Add), note, Atom::Number(1)],
+            vec![
+                Atom::Function(Function::Add),
+                Atom::Function(Function::ConvertToNote),
+                Atom::Number(60),
+                Atom::Number(1),
+            ],
+        ] {
+            assert!(matches!(
+                interpret_stack(atoms),
+                Err(Error::Type(TypeError::Number(found))) if found == "C4"
+            ));
+        }
+    }
+
+    #[test]
     fn direct_play_evaluation_enforces_each_operand_type() {
         let note = Atom::Note(crate::Note::try_from(60).unwrap());
         for atoms in [

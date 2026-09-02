@@ -1,17 +1,15 @@
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
-use crate::{
-    Error, InterpretationError, PlayCommand,
-    interpreter::Context,
-    stack::{NoteValue, NumberValue},
-};
+use crate::{Error, Function, InterpretationError, PlayCommand, interpreter::Context};
 
 #[inline(always)]
 pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
-    let NumberValue(channel) = ctx.stack.try_pop(3, 0)?;
-    let NumberValue(velocity) = ctx.stack.try_pop(3, 1)?;
-    let NoteValue(note) = ctx.stack.try_pop(3, 2)?;
-    play_impl(channel, velocity, note.value())
+    let operands = ctx.stack.extract(Function::Play)?;
+    play_impl(
+        operands.number(0),
+        operands.number(1),
+        operands.note(2).value(),
+    )
 }
 
 #[inline(always)]

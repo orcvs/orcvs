@@ -1,16 +1,34 @@
-use crate::{ArgumentError, Atom, Error, Function, Note, TypeError};
+use crate::{ArgumentError, Atom, EXP_LEN, Error, Function, Note, Token, TypeError};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
 pub struct MaybeAtom(pub Option<Atom>);
 
-pub(crate) struct NumberValue(pub u8);
-
-pub(crate) struct NoteValue(pub Note);
-
 pub(crate) enum NumericValue {
     Note(Note),
     Number(u8),
+}
+
+pub(crate) struct Operands {
+    inner: ArrayVec<Atom, EXP_LEN>,
+}
+
+impl Operands {
+    #[inline(always)]
+    pub(crate) fn number(&self, index: usize) -> u8 {
+        match self.inner[index] {
+            Atom::Number(value) => value,
+            _ => unreachable!("typed extraction guarantees a Number operand"),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn note(&self, index: usize) -> Note {
+        match self.inner[index] {
+            Atom::Note(value) => value,
+            _ => unreachable!("typed extraction guarantees a Note operand"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -45,6 +63,32 @@ impl<const N: usize> Stack<N> {
             .try_into()
             .map_err(|err| map_arity(err, expected, count))
     }
+
+    /// Pops and validates the operands declared by `function`, in signature order.
+    #[inline(always)]
+    pub(crate) fn extract(&mut self, function: Function) -> Result<Operands, Error> {
+        let signature = function.signature();
+        let mut operands = ArrayVec::new();
+
+        for (found, expected) in signature.iter().copied().enumerate() {
+            let atom = self.pop().0.ok_or_else(|| {
+                Error::from(ArgumentError::Arity {
+                    expected: signature.len(),
+                    found,
+                })
+            })?;
+
+            match (expected, atom) {
+                (Token::Number, Atom::Number(_)) | (Token::Note, Atom::Note(_)) => {}
+                (Token::Number, atom) => return Err(TypeError::Number(atom.into()).into()),
+                (Token::Note, atom) => return Err(TypeError::Note(atom.into()).into()),
+                _ => unreachable!("scalar and terminal signatures contain only typed operands"),
+            }
+            operands.push(atom);
+        }
+
+        Ok(Operands { inner: operands })
+    }
 }
 
 impl<const N: usize> Default for Stack<N> {
@@ -67,32 +111,6 @@ impl From<MaybeAtom> for Atom {
         match maybe_atom.0 {
             Some(a) => a,
             None => Atom::Empty,
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for NumberValue {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::Number(n)) => Ok(Self(n)),
-            Some(atom) => Err(TypeError::Number(atom.into()).into()),
-            None => Err(ArgumentError::Expected.into()),
-        }
-    }
-}
-
-impl TryFrom<MaybeAtom> for NoteValue {
-    type Error = Error;
-
-    #[inline(always)]
-    fn try_from(maybe_atom: MaybeAtom) -> Result<Self, Self::Error> {
-        match maybe_atom.0 {
-            Some(Atom::Note(n)) => Ok(Self(n)),
-            Some(atom) => Err(TypeError::Note(atom.into()).into()),
-            None => Err(ArgumentError::Expected.into()),
         }
     }
 }
