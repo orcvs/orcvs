@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788236376512,
+  "lastUpdate": 1788311563053,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -47,6 +47,54 @@ window.BENCHMARK_DATA = {
             "name": "parse_source",
             "value": 482,
             "range": "± 14",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "distinct": true,
+          "id": "c709e6da88938c0d661af230b7dd740ce930631d",
+          "message": "Enforce raw play operand contracts",
+          "timestamp": "2026-09-02T10:59:54+10:00",
+          "tree_id": "5c1c333640e7b8a0a9e2afb7fd8344a65c545861",
+          "url": "https://github.com/orcvs/orcvs/commit/c709e6da88938c0d661af230b7dd740ce930631d"
+        },
+        "date": 1788311562070,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 118,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 82,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 40,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 346,
+            "range": "± 4",
             "unit": "ns/iter"
           }
         ]
