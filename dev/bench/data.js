@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788311563053,
+  "lastUpdate": 1788313575587,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -95,6 +95,54 @@ window.BENCHMARK_DATA = {
             "name": "parse_source",
             "value": 346,
             "range": "± 4",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "distinct": true,
+          "id": "f7d4c69592db8c11ea2fed3492aaa35d0f4e170a",
+          "message": "Centralize typed operand extraction",
+          "timestamp": "2026-09-02T11:43:44+10:00",
+          "tree_id": "0225340eb16d4217a20e07d11a20888762b2a4b9",
+          "url": "https://github.com/orcvs/orcvs/commit/f7d4c69592db8c11ea2fed3492aaa35d0f4e170a"
+        },
+        "date": 1788313574819,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 121,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 81,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 15,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 359,
+            "range": "± 5",
             "unit": "ns/iter"
           }
         ]
