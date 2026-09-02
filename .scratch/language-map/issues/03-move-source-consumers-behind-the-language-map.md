@@ -9,12 +9,12 @@ interpretation, Glyph classification, diagnostics, and later spatial Tick planni
 
 **Tags:** release/v1
 
-- [ ] Source no longer owns parallel Expression-map, parsed-Atom, Glyph, and diagnostic protocols.
-- [ ] Callers query units, roots, Footprints, and diagnostics without reconstructing spans.
-- [ ] Render Frame still receives coherent Source Cells and semantic Glyphs from one revision.
-- [ ] Persistence stores only Grid and character Source and rebuilds derived state on ingress.
-- [ ] Source and Playback Engine seam from ADRs 0001–0002 remains unchanged.
-- [ ] Native, persistence, and WASM gates pass.
+- [x] Source no longer owns parallel Expression-map, parsed-Atom, Glyph, and diagnostic protocols.
+- [x] Callers query units, roots, Footprints, and diagnostics without reconstructing spans.
+- [x] Render Frame still receives coherent Source Cells and semantic Glyphs from one revision.
+- [x] Persistence stores only Grid and character Source and rebuilds derived state on ingress.
+- [x] Source and Playback Engine seam from ADRs 0001–0002 remains unchanged.
+- [x] Native, persistence, and WASM gates pass.
 
 ## Comments
 
