@@ -2,7 +2,7 @@
 
 **What to build:** One place in `orcvs` that decides whether a native MIDI backend exists on the target and what a running Orcvs therefore uses for output, so that nothing else — no other `orcvs` module, and no consuming crate — restates that condition. The console still discovers and selects MIDI destinations exactly as it does today; it just asks `orcvs` what backend it has instead of deriving it from the target operating system.
 
-This is a prefactor with no behaviour change. It exists because a consuming crate cannot test an `orcvs` feature: `feature = "native-midi"` inside the shell names the shell's own feature. Without a seam the shell has to mirror the flag and keep the mirror in sync forever.
+This is a refactor with no behaviour change. It exists because a consuming crate cannot test an `orcvs` feature: `feature = "native-midi"` inside the shell names the shell's own feature. Without a seam the shell has to mirror the flag and keep the mirror in sync forever.
 
 **Blocked by:** None — can start immediately.
 

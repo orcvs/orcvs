@@ -16,18 +16,18 @@ Verification has two trigger tiers:
 fixed before normal development continues. The delayed tier means a WASM regression can be found
 after merge rather than before it.
 
-A third tier measures rather than checks. `mise run bench` runs the criterion benchmarks in both
-`lang` and `orcvs` and prints them in the bencher output format. `lang` covers language execution:
-parsing an Expression and interpreting it. `orcvs` covers a populated Source: reading an unchanged
-revision, deriving its Render Frame, and applying an edit with the Language Map rebuild it forces.
-Each is measured over several Source sizes, so whole-map work shows as growth across the series
-rather than hiding inside one fixed size. `.github/workflows/bench.yml` runs the same command in two
-jobs and fails either when a benchmark is more than three times slower than the previous stored
-result. The publishing job runs after a push to `main` and appends the result to the series on the
-`gh-pages` branch. The pull-request job compares against that series and stores nothing. Permissions
-are declared per job, so only the publishing job can write repository contents. Both triggers are
-filtered to the paths that can move a measurement, so a change that cannot touch `lang` or `orcvs`
-performance runs no benchmark. `mise run check` does not run either.
+A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
+in both `lang` and `orcvs` and prints them in the bencher output format. `lang` covers language
+execution: parsing an Expression and interpreting it. `orcvs` covers a populated Source: reading an
+unchanged revision, deriving its Render Frame, and applying an edit with the Language Map rebuild it
+forces. Each is measured over several Source sizes, so whole-map work shows as growth across the
+series rather than hiding inside one fixed size. `.github/workflows/bench.yml` runs the same command
+in two jobs and fails either when a benchmark is more than three times slower than the previous
+stored result. The publishing job runs after a push to `main` and appends the result to the series
+on the `gh-pages` branch. The pull-request job compares against that series and stores nothing.
+Permissions are declared per job, so only the publishing job can write repository contents. Both
+triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`
+or `orcvs` performance runs no benchmark. `mise run check` does not run either.
 
 This benchmark gate is the one exception to the equivalence above. The measurement is reproducible
 from a checkout; the comparison is not, because it lives in the action rather than in `mise.toml`.

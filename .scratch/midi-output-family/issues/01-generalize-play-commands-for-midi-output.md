@@ -6,7 +6,7 @@ Source interpretation.
 
 **Blocked by:** orcvs-language-migration/02; orcvs-language-migration/04; lang-foundations/06.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 

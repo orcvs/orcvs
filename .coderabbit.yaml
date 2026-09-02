@@ -1,0 +1,7 @@
+# Syntax and evaluation prototypes are throw-away design artifacts, not code.
+# See docs/agents/syntax-prototypes.md. They deliberately hold competing or
+# unresolved spellings while a design question is open, so review findings
+# against them are noise at best and overwrite an open question at worst.
+reviews:
+  path_filters:
+    - "!lang/*-prototype.html"
