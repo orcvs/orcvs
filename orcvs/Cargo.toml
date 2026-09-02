@@ -42,6 +42,13 @@ serde_json = "1"
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 
+# Property tests are confined to native targets. Every invariant they encode is
+# platform-independent logic, so running them under `wasm-pack` adds a dependency
+# graph to maintain and no signal; this `cfg` keeps proptest out of the WASM graph
+# entirely. The property modules carry the matching `cfg`. See docs/tooling.md.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest.workspace = true
+
 [[bench]]
 name = "source"
 harness = false

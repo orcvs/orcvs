@@ -53,6 +53,10 @@ mise run check_merge
 
 [tasks.check_pull_request]
 description = "Pull-request verification tier"
+# Property tests run 32 cases here and the 256-case proptest default in the merge
+# tier. Task-level so every run line stays byte-identical to the text
+# scripts/check-tooling-contract.sh pins.
+env = { PROPTEST_CASES = '32' }
 run = '''
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings

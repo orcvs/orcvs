@@ -25,6 +25,13 @@ tracing-subscriber = { version = "0.3.18", features = [
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
+# Property tests are confined to native targets. Every invariant they encode is
+# platform-independent logic, so running them under `wasm-pack` adds a dependency
+# graph to maintain and no signal; this `cfg` keeps proptest out of the WASM graph
+# entirely. The property modules carry the matching `cfg`. See docs/tooling.md.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest.workspace = true
+
 [[bench]]
 name = "lang"
 harness = false

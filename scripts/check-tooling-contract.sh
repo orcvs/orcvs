@@ -41,6 +41,26 @@ assert_toml_table_not_contains() {
   fi
 }
 
+assert_toml_table_contains() {
+  local file="$1"
+  local table_pattern="$2"
+  local field_pattern="$3"
+  if ! awk -v table_pattern="$table_pattern" -v field_pattern="$field_pattern" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*\[/ {
+      line = $0
+      sub(/[[:space:]]*#.*/, "", line)
+      in_table = (line ~ table_pattern)
+      next
+    }
+    in_table && $0 ~ field_pattern { found = 1 }
+    END { exit !found }
+  ' "$file"; then
+    echo "expected $file table $table_pattern to match: $field_pattern" >&2
+    exit 1
+  fi
+}
+
 assert_toml_task_contains() {
   local file="$1"
   local task="$2"
@@ -53,6 +73,22 @@ assert_toml_task_contains() {
     END { exit !found }
   ' "$file"; then
     echo "expected $file task $task to match: $pattern" >&2
+    exit 1
+  fi
+}
+
+assert_toml_task_not_contains() {
+  local file="$1"
+  local task="$2"
+  local pattern="$3"
+  if awk -v task="$task" -v pattern="$pattern" '
+    /^[[:space:]]*#/ { next }
+    $0 == "[tasks." task "]" { in_task = 1; next }
+    in_task && /^\[.*\]$/ { in_task = 0 }
+    in_task && $0 ~ pattern { found = 1 }
+    END { exit !found }
+  ' "$file"; then
+    echo "expected $file task $task not to match: $pattern" >&2
     exit 1
   fi
 }
@@ -155,3 +191,27 @@ for manifest in "$root_dir/orcvs/Cargo.toml" "$root_dir/shell/Cargo.toml"; do
   assert_toml_table_not_contains "$manifest" '^[[:space:]]*[[]([^]]+[.])?dependencies[.]tokio[]][[:space:]]*$' '^[[:space:]]*version[[:space:]]*='
   assert_not_contains "$manifest" '^tokio[[:space:]]*=[[:space:]]*\{[^}]*features[[:space:]]*=[[:space:]]*\[[^]]*"full"'
 done
+
+# Proptest answers the obligation this contract already carries at the parser
+# boundary: "boundary or property tests". Every invariant it encodes is
+# platform-independent logic, so it stays a dev-dependency of the two crates that
+# hold those invariants, confined to the non-WASM target table. `wasm-pack test`
+# then compiles with no proptest in the graph, and no shipped binary can pull its
+# tree in.
+proptest_native_dev_table='^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dev-dependencies[]]$'
+assert_toml_table_contains "$root_dir/lang/Cargo.toml" "$proptest_native_dev_table" '^[[:space:]]*proptest[.]workspace[[:space:]]*='
+assert_toml_table_contains "$root_dir/orcvs/Cargo.toml" "$proptest_native_dev_table" '^[[:space:]]*proptest[.]workspace[[:space:]]*='
+assert_contains "$root_dir/Cargo.toml" '^proptest[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
+assert_not_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
+# The pull-request tier trades case count for latency; the merge tier keeps
+# proptest's 256-case default. Task-level env, so every run line above stays
+# byte-identical to the text this script pins.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^env = [{] PROPTEST_CASES = .32. [}]$'
+assert_toml_task_not_contains "$root_dir/mise.toml" 'check_merge' 'PROPTEST_CASES'
+assert_toml_task_not_contains "$root_dir/mise.toml" 'check_merge_native' 'PROPTEST_CASES'
+assert_toml_task_not_contains "$root_dir/mise.toml" 'test_persistence' 'PROPTEST_CASES'
+# A counterexample CI can see and a developer cannot reproduce is worse than no
+# property, so the `proptest-regressions` files are source and are never ignored.
+assert_not_contains "$root_dir/.gitignore" 'proptest-regressions'

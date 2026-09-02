@@ -585,3 +585,40 @@ mod test {
         assert_eq!(parsed, expected);
     }
 }
+
+///
+/// The wiring seed for the property-testing effort: one narrow property that
+/// proves the native-only proptest dependency and its `cfg` gate are real.
+/// The full parser-totality suite — permissive analysis, `ExpressionTooLong`,
+/// recovery, and the `Atom` round trip — belongs to
+/// `.scratch/property-testing/issues/03-parser-totality-on-ascii-input.md`.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod property {
+
+    use crate::{Atoms, Error, parser::Parser};
+    use proptest::prelude::*;
+
+    proptest! {
+        ///
+        /// Strict parsing is total over printable ASCII. The generator spans the
+        /// whole printable range rather than valid Orcvs spellings, and runs past
+        /// `EXP_LEN` so the capacity bound is reachable.
+        ///
+        #[test]
+        fn strict_parsing_of_printable_ascii_returns_rather_than_panicking(
+            source in "[ -~]{0,40}",
+        ) {
+            let mut source = source;
+
+            // The whole property is that this call returns. Either arm is an
+            // accepted outcome; the annotation states the second half of it,
+            // that failure arrives as the crate's typed `Error` rather than as
+            // a panic. A panic inside `try_parse` fails the case.
+            let _outcome: Result<Atoms, Error> = Parser::from(&mut source).try_parse();
+        }
+    }
+}

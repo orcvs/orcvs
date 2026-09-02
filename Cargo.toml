@@ -10,6 +10,14 @@ rust-version = "1.98"
 
 [workspace.dependencies]
 arrayvec = { version = "0.7.4", default-features = false }
+# Defaults off, `std` on. `std` is what the `proptest-regressions` counterexample
+# files are written through, so it is the one feature persistence needs. `fork` and
+# `timeout` — and the `rusty-fork` and `tempfile` trees behind them — buy nothing
+# for properties over pure logic, and `bit-set` only swaps proptest's internal
+# bitset for a faster one at the cost of pulling `bit-set` 0.8 and `bit-vec` 0.8
+# alongside the 0.10 and 0.9 the WASM stack already resolves. Two crates and two
+# duplicate versions for a shrinking micro-optimisation is the wrong trade.
+proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 thiserror = "2.0.20"
 tokio = { version = "1.39.2", default-features = false }
 tracing = { version = "0.1.40", default-features = false }

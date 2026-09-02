@@ -36,11 +36,39 @@ from a checkout; the comparison is not, because it lives in the action rather th
 - `criterion` measures both benchmarked paths — language execution in `lang`, and populated Source
   reading, rendering, and editing in `orcvs`; `benchmark-action/github-action-benchmark` stores and
   compares the results.
+- `proptest` generates the property tests that encode the invariants `CONTEXT.md` and the ADRs
+  already state.
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
   profile, including non-fail-fast reporting.
 - `cargo-deny` audits the locked dependency graph for advisories, bans, licences, and sources.
 - `trunk` builds the browser application and performs its WASM asset pipeline.
 - `wasm-pack` executes the browser regression suite through `wasm-bindgen-test`.
+
+`AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests;
+fuzz when exposure warrants it", and the parser is the widest input surface in the workspace because
+every keystroke reaches it. That obligation is the rationale for the dependency. `proptest` is
+declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
+`[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]` only. Every invariant these
+properties encode is platform-independent logic, so running them under `wasm-pack` would add a
+dependency graph to maintain and no signal; the property modules carry the same `cfg`, so a WASM
+build never sees the dependency at all. Default features are off and only `std` is enabled, because
+`std` is what the counterexample files are written through and the `fork`, `timeout`, and `bit-set`
+features buy nothing for properties over pure logic. `scripts/check-tooling-contract.sh` pins that
+confinement, so a later change cannot quietly move `proptest` into a shipped `[dependencies]` table.
+
+The case count follows the verification tier. `mise run check_pull_request` sets `PROPTEST_CASES` to
+32, so a pull request trades coverage for latency; the merge tier leaves proptest's 256-case default
+in place. The setting is task-level env rather than an inline assignment on a run line, because the
+contract script pins the exact text of those lines.
+
+Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
+directory beside each crate's `src`, one file per module, and `.gitignore` deliberately carries no
+rule that would exclude them; the contract script pins that absence. A counterexample that CI can
+see and a developer cannot reproduce is worse than no property at all, so the shrunk input travels
+with the repository and the next run replays it before generating anything new.
+
+The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
+installed. That is a separate decision with its own cost, and it is not taken here.
 
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.

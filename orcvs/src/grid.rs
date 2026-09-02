@@ -519,3 +519,43 @@ mod test {
         assert!(!grid.fits(at(3, 0), 2));
     }
 }
+
+///
+/// The wiring seed for the property-testing effort: one narrow property that
+/// proves the native-only proptest dependency and its `cfg` gate are real.
+/// The full Grid suite — containment, `owns`, `rows`, `fits`, and directional
+/// movement — belongs to
+/// `.scratch/property-testing/issues/02-grid-position-round-trip.md`.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod property {
+
+    use crate::grid::Grid;
+    use proptest::prelude::*;
+
+    proptest! {
+        ///
+        /// "The Grid converts between a Position and the index the Source
+        /// addresses Cells by": `position_at` inverts `index` for every Position
+        /// the Grid mints. Dimensions start at one, because a Grid has at least
+        /// one column and one row.
+        ///
+        #[test]
+        fn position_at_inverts_index_for_every_minted_position(
+            cols in 1usize..=32,
+            rows in 1usize..=32,
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            for y in 0..rows {
+                for x in 0..cols {
+                    let pos = grid.position(x, y).expect("inside the grid");
+                    prop_assert_eq!(grid.position_at(grid.index(pos)), Some(pos));
+                }
+            }
+        }
+    }
+}
