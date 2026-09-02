@@ -9,9 +9,9 @@
   </style>
 </head>
 <body>
-  <div class="tag">FOCUSED REPRESENTATION PROTOTYPE</div>
-  <h1>Where should an Activation Character live?</h1>
-  <p class="panel">Actual Orcvs syntax is shown throughout: Directional Bang Functions <code>*^</code>, <code>*v</code>, <code>*&lt;</code>, and <code>*&gt;</code> emit the Source-resident Activation Characters <code>^^</code>, <code>vv</code>, <code>&lt;&lt;</code>, and <code>&gt;&gt;</code>. This prototype compares two implementation models without changing that language.</p>
+  <div class="tag">HISTORICAL REPRESENTATION PROTOTYPE</div>
+  <h1>What did the first Activation comparison establish?</h1>
+  <p class="panel">Directional Bang Functions <code>*^</code>, <code>*v</code>, <code>*&lt;</code>, and <code>*&gt;</code> emit the Source-resident spellings <code>^^</code>, <code>vv</code>, <code>&lt;&lt;</code>, and <code>&gt;&gt;</code>. This prototype established their movement and collision behavior while comparing two representations. A later Portal analysis selected a third representation: root-only Self-Banging Functions.</p>
 
   <section class="panel">
     <h2>Guided evidence</h2>
@@ -22,12 +22,12 @@
 
   <section class="models">
     <article class="model">
-      <h2>Model A: spatial Language Unit</h2>
+      <h2>Model A: spatial Language Unit (superseded)</h2>
       <p><strong>Hypothetical representation:</strong> <code>LanguageUnitKind::Activation(Direction)</code>, scheduled from the Language Map.</p>
       <h3 class="tick"></h3><div class="grid"></div><p class="diag"></p><p class="path"></p>
     </article>
     <article class="model">
-      <h2>Model B: source-encodable value</h2>
+      <h2>Model B: source-encodable value (rejected)</h2>
       <p><strong>Hypothetical representation:</strong> <code>Atom::Activation(Direction)</code> in a standalone Expression, special-cased by Tick planning.</p>
       <h3 class="tick"></h3><div class="grid"></div><p class="diag"></p><p class="path"></p>
     </article>
@@ -39,7 +39,7 @@
       <div><h3>Model A</h3><p>Reuses Language Map recognition, anchors, Footprints, Grid navigation, root queries, Glyph derivation, diagnostics, ordered Source writes, and next-Snapshot rebuilding. It does not use Function evaluation, runtime values, or Sequence machinery.</p></div>
       <div><h3>Model B</h3><p>Reuses runtime-value spelling, parser records, and token Glyph conversion. It still duplicates spatial scheduling, collision, root delivery, clear/write ordering, and generated-Source guards; it also needs exclusions from Function operands and pervasive Sequence extension.</p></div>
     </div>
-    <p class="verdict"><strong>Decision:</strong> choose Model A. The behavior is spatial, and its facts are already local behind the Language Map/Tick-planning interface. Activation Characters gain no ordinary Expression or Sequence capability.</p>
+    <p class="verdict"><strong>Superseded conclusion:</strong> Model A beat the runtime-value model, but the comparison treated Function output as ordinary result placement. The selected representation is now a root-only Self-Banging Source Function: it receives intrinsic Bang activation and plans clear-old then write-shifted Portal effects. The observable Grids below remain authoritative.</p>
   </section>
 
 <script>
@@ -48,31 +48,31 @@ const frame=(source,diagnostic,context,changed=[])=>({source,diagnostic,context,
 const casesData=[
   {name:"Four encodings",question:"Does recognition preserve every direction in Source?",frames:[
     frame([[1,1,"^^","activation"],[4,1,"vv","activation"],[1,3,"<<","activation"],[7,3,">>","activation"]],"No diagnostic: four complete two-Cell Language Units.","North, south, west, and east are read from Source; each Snapshot unit is scheduled once."),
-    frame([[1,0,"^^","activation"],[4,2,"vv","activation"],[0,3,"<<","activation"],[8,3,">>","activation"]],"No diagnostic: every complete Footprint moved exactly one Cell.","Direction remains visible in the rewritten Source.",[[1,0],[4,2],[0,3],[8,3]])]},
+    frame([[1,0,"^^","activation"],[4,2,"vv","activation"],[0,3,"<<","activation"],[8,3,">>","activation"]],"No diagnostic: every complete Footprint moved exactly one Cell.","Direction remains visible in the rewritten Source.",[[1,0],[2,0],[1,1],[2,1],[4,1],[5,1],[4,2],[5,2],[0,3],[1,3],[2,3],[7,3],[8,3],[9,3]])]},
   {name:"Initial emission",question:"When does generated Source first become executable?",frames:[
     frame([[3,2,"*>","function"]],"No diagnostic: *> is an active Directional Bang Function.","Tick 0 Snapshot contains only the Function."),
-    frame([[3,2,"*>","function"],[5,2,">>","activation"]],"No diagnostic: the complete initial destination was empty.","Tick 0 commit writes >>. Planned Source does not receive a same-Tick turn.",[[5,2]]),
-    frame([[3,2,"*>","function"],[6,2,">>","activation"]],"No diagnostic: generated Source is recognized in the next Language Map.","Tick 1 gives >> its first turn and moves it exactly one Cell.",[[6,2]])]},
+    frame([[3,2,"*>","function"],[5,2,">>","activation"]],"No diagnostic: the complete initial destination was empty.","Tick 0 commit writes >>. Planned Source does not receive a same-Tick turn.",[[5,2],[6,2]]),
+    frame([[3,2,"*>","function"],[6,2,">>","activation"]],"No diagnostic: generated Source is recognized in the next Language Map.","Tick 1 gives >> its first turn and moves it exactly one Cell.",[[5,2],[6,2],[7,2]])]},
   {name:"Overlapping move",question:"Does horizontal self-overlap collide with the current Footprint?",frames:[
     frame([[3,2,">>","activation"]],"No diagnostic: only the newly entered Cell will be tested.","Tick Plan producer is the Activation anchor (3,2)."),
-    frame([[4,2,">>","activation"]],"No diagnostic: the newly entered Cell (5,2) was empty.","Clear (3,2),(4,2), then write (4,2),(5,2); the overlapping write wins.",[[4,2]])]},
+    frame([[4,2,">>","activation"]],"No diagnostic: the newly entered Cell (5,2) was empty.","Clear (3,2),(4,2), then write (4,2),(5,2); the overlapping write wins.",[[3,2],[4,2],[5,2]])]},
   {name:"Aligned root",question:"Does complete aligned contact deliver Bang without overwriting the root?",frames:[
     frame([[3,2,">>","activation"],[5,2,".+","function"],[7,2,"0102","atom"]],"No diagnostic: .+ is a complete Expression root aligned east.","The root's row-major turn is after the Activation anchor."),
-    frame([[3,2,"**","bang"],[5,2,".+","function"],[7,2,"0102","atom"]],"No diagnostic: collision creates ** and directly activates .+.","The current Footprint becomes Bang; the later root evaluates once without being overwritten.",[[3,2]])]},
+    frame([[3,2,"**","bang"],[5,2,".+","function"],[7,2,"0102","atom"]],"No diagnostic: collision creates ** and directly activates .+.","The current Footprint becomes Bang; the later root evaluates once without being overwritten.",[[3,2],[4,2]])]},
   {name:"Partial contact",question:"What happens when the leading edge touches only part of a Language Unit?",frames:[
     frame([[3,2,"^^","activation"],[4,1,"0A","atom"]],"Pending: the north leading edge meets only the first Cell of the 0A Footprint.","No complete aligned target exists."),
-    frame([[3,2,"**","bang"],[4,1,"0A","atom"]],"Alignment diagnostic: partial Language Unit contact at (4,1); activation delivered to none.","The move blocks and the current Footprint becomes **.",[[3,2]])]},
+    frame([[3,2,"**","bang"],[4,1,"0A","atom"]],"Alignment diagnostic: partial Language Unit contact at (4,1); activation delivered to none.","The move blocks and the current Footprint becomes **.",[[3,2],[4,2]])]},
   {name:"Grid edge",question:"Does an out-of-Grid move remain atomic?",frames:[
     frame([[16,2,">>","activation"]],"Pending: moving east would place one Cell outside the Grid.","The destination Footprint is validated as a whole."),
-    frame([[16,2,"**","bang"]],"No partial write: the out-of-Grid move changes the current Footprint to **.","No hidden travel state remains.",[[16,2]])]},
+    frame([[16,2,"**","bang"]],"No partial write: the out-of-Grid move changes the current Footprint to **.","No hidden travel state remains.",[[16,2],[17,2]])]},
   {name:"Source order",question:"Can delivery revisit an earlier root or run generated Source immediately?",frames:[
     frame([[0,2,".+","function"],[2,2,"0102","atom"],[7,2,">>","activation"],[9,2,".+","function"],[11,2,"0102","atom"]],"No diagnostic: both roots are complete; only the east root is contacted.","Turns begin in row-major order: root (0,2), Activation (7,2), root (9,2)."),
-    frame([[0,2,".+","function"],[2,2,"0102","atom"],[7,2,"**","bang"],[9,2,".+","function"],[11,2,"0102","atom"]],"No diagnostic: direct delivery activates only the later root at (9,2).", "The earlier root is not revisited. Only units in the Snapshot receive turns.",[[7,2]])]}
+    frame([[0,2,".+","function"],[2,2,"0102","atom"],[7,2,"**","bang"],[9,2,".+","function"],[11,2,"0102","atom"]],"No diagnostic: direct delivery activates only the later root at (9,2).", "The earlier root is not revisited. Only units in the Snapshot receive turns.",[[7,2],[8,2]])]}
 ];
 let selected=0,step=0;
 const models=[...document.querySelectorAll(".model")];
-function drawGrid(element,data){const occupied=new Map();for(const [x,y,text,kind] of data.source){[...text].forEach((ch,i)=>occupied.set(`${x+i},${y}`,{ch,kind,changed:data.changed.some(([cx,cy])=>cx===x&&cy===y)}))}element.innerHTML=Array.from({length:W*H},(_,i)=>{const x=i%W,y=Math.floor(i/W),cell=occupied.get(`${x},${y}`);return `<span class="cell ${cell?.kind??""} ${cell?.changed?"changed":""}">${cell?.ch??"·"}</span>`}).join("")}
-function render(){const test=casesData[selected],data=test.frames[step];cases.innerHTML=casesData.map((item,index)=>`<button data-case="${index}" class="${index===selected?"active":""}">${item.name}</button>`).join("");question.textContent=test.question;for(const [index,model] of models.entries()){model.querySelector(".tick").textContent=`${step===0?"Source Snapshot":"After transition"} ${step+1} of ${test.frames.length}`;drawGrid(model.querySelector(".grid"),data);const diagnostic=model.querySelector(".diag");diagnostic.textContent=data.diagnostic;diagnostic.classList.toggle("ok",!data.diagnostic.toLowerCase().includes("diagnostic:")&&!data.diagnostic.toLowerCase().includes("partial"));model.querySelector(".path").textContent=index===0?`Language Map path — ${data.context}`:`Value/Expression path — ${data.context} Same behavior, plus a spatial-planning special case.`}next.disabled=step===test.frames.length-1}
+function drawGrid(element,data){const occupied=new Map(),changed=new Set(data.changed.map(([x,y])=>`${x},${y}`));for(const [x,y,text,kind] of data.source){[...text].forEach((ch,i)=>occupied.set(`${x+i},${y}`,{ch,kind}))}element.innerHTML=Array.from({length:W*H},(_,i)=>{const x=i%W,y=Math.floor(i/W),cell=occupied.get(`${x},${y}`);return `<span class="cell ${cell?.kind??""} ${changed.has(`${x},${y}`)?"changed":""}">${cell?.ch??"·"}</span>`}).join("")}
+function render(){const test=casesData[selected],data=test.frames[step];cases.innerHTML=casesData.map((item,index)=>`<button data-case="${index}" class="${index===selected?"active":""}">${item.name}</button>`).join("");question.textContent=test.question;for(const [index,model] of models.entries()){model.querySelector(".tick").textContent=`${step===0?"Source Snapshot":"After transition"} ${step+1} of ${test.frames.length}`;drawGrid(model.querySelector(".grid"),data);const diagnostic=model.querySelector(".diag");diagnostic.textContent=data.diagnostic;diagnostic.classList.toggle("ok",data.diagnostic.startsWith("No diagnostic:"));model.querySelector(".path").textContent=index===0?`Language Map path — ${data.context}`:`Value/Expression path — ${data.context} Same behavior, plus a spatial-planning special case.`}next.disabled=step===test.frames.length-1}
 document.addEventListener("click",event=>{if(event.target.dataset.case!==undefined){selected=Number(event.target.dataset.case);step=0}else if(event.target.id==="reset")step=0;else if(event.target.id==="next")step=Math.min(step+1,casesData[selected].frames.length-1);render()});render();
 </script>
 </body>

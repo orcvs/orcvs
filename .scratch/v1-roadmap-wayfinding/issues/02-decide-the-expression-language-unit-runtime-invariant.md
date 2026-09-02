@@ -9,8 +9,8 @@ Status: resolved
 ## Question
 
 What invariant relates Language Units, Expression syntax expectations, and runtime values across
-valid Source, incomplete Live Edits, invalid Source, diagnostics, Comments, Bangs, Activation
-Characters, and future structural syntax? Decide whether every Expression entry necessarily has
+valid Source, incomplete Live Edits, invalid Source, diagnostics, Comments, Bangs, Self-Banging
+Functions, and future structural syntax? Decide whether every Expression entry necessarily has
 one runtime Atom before choosing paired storage, and state the representation constraints that
 replace the premature tuple assumption in the current foundation ticket.
 
@@ -29,13 +29,11 @@ Units and Expressions and likewise have no runtime value. Diagnostics are derive
 Positions and Footprints from the same Source revision, not language values.
 
 Bang is both a Language Unit and a runtime Atom, including when preserved by compatible Sequence
-structure, but a standalone Bang is not thereby an Expression entry. Activation Characters retain
-their accepted observable behavior: direction persists in Source, each advances once per Tick,
-and collision produces Bang. Their implementation classification remains open pending a focused
-prototype comparing a distinct spatial Language Unit with a self-reproducing Function/value model.
-That prototype may reuse an internal source-encodable representation, but must not accidentally
-grant Expression-operand or Sequence behavior. This open representation choice does not block the
-valid Expression-entry invariant.
+structure, but a standalone Bang is not thereby an Expression entry. The later activation
+prototype resolves `^^`, `vv`, `<<`, and `>>` as root-only Self-Banging Source Functions: direction
+persists in Source, each intrinsically activates at its Source-order turn, advances once per Tick,
+and produces Bang on collision. Their Function classification grants neither operand/runtime-value
+nor Sequence behavior and does not change the valid Expression-entry invariant.
 
 Future structural Expression syntax that has no runtime value must be represented explicitly and
 must never receive a fake value. Whether it remains outside evaluable entries or later introduces

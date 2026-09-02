@@ -26,7 +26,7 @@ complete Footprint, and an unmatched character diagnoses without participating i
 unit."
 
 ADR 0018 gives the worked cases: `***` is Bang `**` then one invalid `*`; `<<<` is `<<` then one
-invalid `<`; `^^^^` is two Activation Characters. Put them in the generator as literals, and let the
+invalid `<`; `^^^^` is two Self-Banging Functions. Put them in the generator as literals, and let the
 random input find the rest.
 
 `prospective_expression_range` claims to answer without scanning any other row. That claim is a

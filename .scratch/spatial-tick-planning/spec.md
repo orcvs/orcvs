@@ -4,8 +4,8 @@
 
 ## Goal
 
-Implement ADRs 0014 and 0020 as one row-major Tick planning pass over the Language Map. Bang
-activation, Activation Character movement, Jump relay, Halt locks, ordinary writes, diagnostics,
+Implement ADRs 0004, 0006, 0009, 0014, and 0020 as one row-major Tick planning pass over the Language Map. Bang
+activation, Self-Banging Function effects, Jump relay, Halt locks, ordinary writes, diagnostics,
 and terminal commands share one total producer order.
 
 ## Delivery order

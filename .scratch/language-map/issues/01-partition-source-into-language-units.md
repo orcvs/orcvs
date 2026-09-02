@@ -9,7 +9,7 @@
 
 **Tags:** release/v1
 
-- [x] Complete Operand Literals, Functions, Bangs, and Activation Characters are recognized.
+- [x] Complete Operand Literals, Functions (including Self-Banging Functions), and Bangs are recognized.
 - [x] Each unit records one Grid-minted anchor Position and complete Footprint.
 - [x] Recognition is left-to-right and non-overlapping (`***`, `<<<`, and `^^^^` match ADR 0018).
 - [x] An invalid character diagnoses and scanning resumes at the following Cell.
@@ -27,5 +27,5 @@ consume the literal, as ADR 0021 requires.
 Implemented the row-local partition as a derived `LanguageMap` view. Each recognized unit owns a
 Grid-minted anchor and complete footprint; invalid-character diagnostics stay behind the partition
 interface until the later diagnostics migration ticket moves Source consumers onto it. Comments now
-terminate expression extents as well as unit recognition. All four Activation Character spellings
+terminate expression extents as well as unit recognition. All four Self-Banging Function spellings
 parse and render canonically.

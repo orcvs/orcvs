@@ -22,7 +22,61 @@ self-reproducing Function/value model from evidence rather than ADR shape alone.
 - [x] The discarded prototype code is removed; the answer and selected representation constraints
       are recorded in this ticket before `spatial-tick-planning/03` begins.
 
-## Answer
+## Revised answer — Self-Banging Functions
+
+Choose `^^`, `vv`, `<<`, and `>>` as root-only **Self-Banging Functions**. Each is a zero-operand
+Source Function that intrinsically receives Bang activation at its own Source-order turn without
+creating a Source-resident `**`. It then plans its movement entirely as ordered Source writes through
+Portals; it is not an `Atom`, ordinary Expression value, or Sequence member.
+
+For eastward `>>` at Cells 0 and 1, a successful move plans these writes in emission order:
+
+```text
+Cell 0 <- space
+Cell 1 <- space
+Cell 1 <- >
+Cell 2 <- >
+```
+
+ADR 0020's later-write-wins rule preserves the overlapping Cell and commits `.>>`. The complete
+destination is validated before any write enters the Tick Plan, so a failed move cannot partially
+clear the Function. Clearing is a Source operation rather than an Empty Atom or Sequence value.
+
+The Function owns the choice of one complete effect bundle:
+
+- empty destination: clear the current Footprint, then write its own spelling shifted one Cell;
+- blocked or out-of-Grid destination: replace its current Footprint with `**`;
+- complete aligned root: replace its current Footprint with `**` and directly deliver Bang activation
+  if the root's turn has not passed;
+- partial-unit contact: replace its current Footprint with `**` and diagnose without delivery.
+
+Portals retain their intended general role: any Source Function may resolve destinations at any
+Cells. One Function may use multiple Portals as one validated effect bundle, and its writes enter the
+Tick Plan in producer/emission order. Jump's empty-input clearing behavior provides prior language
+precedent for a Source effect that writes spaces without making space a value.
+
+Only Self-Banging Functions present in the Source Snapshot receive intrinsic activation and a turn.
+A Function generated during Tick T first self-bangs during Tick T+1. This preserves Source-order
+scheduling and prevents planned Source from executing in the Tick that creates it.
+
+### Revised constraints for `spatial-tick-planning/03`
+
+- Recognize all four spellings as zero-operand, root-only Self-Banging Source Functions carrying
+  direction in Source.
+- At each Function's Snapshot turn, supply intrinsic Bang activation without writing `**` or routing
+  through an ordinary Atom/value path.
+- Preflight one complete movement effect bundle, then emit clear-old and write-shifted Cell writes in
+  that order. Preserve horizontal overlap through ordinary later-write-wins conflict resolution.
+- Keep collision-to-Bang, aligned-root delivery, and partial-contact diagnosis in the Function's
+  Source behavior while reusing Portal destination resolution and Tick Plan ordering.
+- Keep spaces, Self-Banging Functions, and their effect bundles out of runtime values and Sequences.
+- Generated Self-Banging Functions receive their first turn only from the next Source Snapshot.
+
+This revision supersedes the representation conclusion below. The earlier comparison correctly
+rejected the runtime-value model but treated Function output as ordinary result placement and did not
+exercise the intended any-Cell Portal model or intrinsic self-Bang activation.
+
+## Superseded answer — distinct spatial Language Unit
 
 Choose a distinct spatial `LanguageUnitKind::Activation(Direction)` and schedule it directly from
 the Language Map. `Direction` may remain a small shared encoding type, but an Activation Character

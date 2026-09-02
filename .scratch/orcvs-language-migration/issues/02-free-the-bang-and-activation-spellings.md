@@ -1,7 +1,7 @@
-# 02 — Free the `**` and `>>` spellings for Bang and Activation
+# 02 — Free the `**` and `>>` spellings for Bang and directional activation
 
-**What to build:** `**` denotes the Bang Atom and `>>` denotes the east Activation Character, as
-`CONTEXT.md` and ADR 0006 define. Raw Play moves to `!>` per ADR 0016.
+**What to build:** `**` denotes the Bang Atom and `>>` denotes the east Self-Banging Function, as
+`CONTEXT.md` and ADR 0006 now define. Raw Play moves to `!>` per ADR 0016.
 
 **Blocked by:** 01
 

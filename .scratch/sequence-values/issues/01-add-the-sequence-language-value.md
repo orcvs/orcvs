@@ -15,8 +15,7 @@ Function evaluation without becoming Source writes prematurely.
 - [ ] Empty and singleton Sequences have explicit behavior.
 - [ ] Encoding is deterministic and concatenates complete Atom encodings.
 - [ ] Bang is a permitted Atom and structural Sequence operations preserve its type and encoding.
-- [ ] Activation Characters gain no Expression-operand or Sequence behavior unless the focused
-      Activation prototype explicitly selects and specifies that model.
+- [ ] Self-Banging Functions remain root-only Source effects and never become Sequence members.
 - [ ] Language errors distinguish Atom, Sequence, and incompatible operands.
 
 ## Comments

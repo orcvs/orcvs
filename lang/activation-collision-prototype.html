@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>PROTOTYPE — Activation Character Collision</title>
+  <title>PROTOTYPE — Self-Banging Function Collision</title>
   <style>
     :root{color-scheme:dark;font:15px/1.45 system-ui,sans-serif;background:#101417;color:#d9e2e8}body{max-width:1000px;margin:auto;padding:28px 20px 60px}h1,h2{color:#f3f7f9}.tag{color:#63d5b3;font-weight:700;letter-spacing:.08em}.panel{background:#182025;border:1px solid #2d3a41;border-radius:9px;padding:16px;margin:16px 0}.stage{display:grid;grid-template-columns:max-content 1fr;gap:20px;align-items:start}.grid{display:grid;grid-template-columns:repeat(16,25px);grid-auto-rows:25px;padding:5px;background:#0b1013;border:1px solid #344149}.cell{display:grid;place-items:center;box-sizing:border-box;border-right:1px solid #1e292f;border-bottom:1px solid #1e292f;font:14px/1 monospace;color:#7f8d94}.occupied{color:#ffd479}.activation{color:#75d8ff;background:#10232c}.root{color:#63d5b3;background:#11241f}.bang{color:#ff8585;background:#2a1719}.leading{outline:1px solid #ffbf69;outline-offset:-2px}.hit{background:#342518}.legend{display:flex;gap:14px;flex-wrap:wrap}.legend span:before{content:"■";margin-right:5px}.l-activation:before{color:#75d8ff}.l-leading:before{color:#ffbf69}.l-root:before{color:#63d5b3}.l-bang:before{color:#ff8585}button{background:#244c41;color:#f1fff9;border:1px solid #397463;border-radius:6px;padding:9px 12px;margin:4px;cursor:pointer}button.active,button:hover{background:#397463}button:disabled{opacity:.4}.state{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px}.state strong{color:#ffd479}.verdict{border-left:3px solid #63d5b3;padding:10px 12px;background:#101619}.tabs{display:flex;flex-wrap:wrap}@media(max-width:760px){.stage{grid-template-columns:1fr}.grid{grid-template-columns:repeat(16,minmax(18px,25px));width:min-content}}
   </style>
@@ -31,7 +31,7 @@
   <section class="panel">
     <h2>Candidate rule</h2>
     <p>Translate the complete two-Cell Footprint by one character Cell. Test only <em>newly entered</em> Cells, so horizontal movement does not collide with itself. Complete aligned contact with a two-Cell Function root encoding is valid and can activate that root. Partial contact with a root encoding or with an Atom encoding is invalid alignment: diagnose, produce <code>**</code>, and activate nothing.</p>
-    <div class="legend"><span class="l-activation">Activation Character</span><span class="l-leading">newly entered Cell</span><span class="l-root">Expression root</span><span class="l-bang">collision Bang</span></div>
+    <div class="legend"><span class="l-activation">Self-Banging Function</span><span class="l-leading">newly entered Cell</span><span class="l-root">Expression root</span><span class="l-bang">collision Bang</span></div>
   </section>
 
 <script>
@@ -42,7 +42,7 @@ const CollisionModel=(()=>{
   const mark=(g,cells,key)=>cells.forEach(([r,c])=>g[index(r,c)][key]=true);
   const cases=[
     {name:"East: self-overlap",description:"The right-hand > overlaps its old footprint. Only the newly entered Cell is tested.",direction:"east",arrow:[[3,5],[3,6]],leading:[[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
-    {name:"West: blocked",description:"The newly entered west Cell is occupied, so the complete Activation Character becomes a Bang.",direction:"west",arrow:[[3,7],[3,8]],leading:[[3,6]],source:g=>put(g,3,6,"0A"),after:[[3,7],[3,8]],outcome:"bang",activation:"none"},
+    {name:"West: blocked",description:"The newly entered west Cell is occupied, so the complete Self-Banging Function becomes a Bang.",direction:"west",arrow:[[3,7],[3,8]],leading:[[3,6]],source:g=>put(g,3,6,"0A"),after:[[3,7],[3,8]],outcome:"bang",activation:"none"},
     {name:"North: empty",description:"Both Cells on the north leading edge are newly entered and empty.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>{},after:[[3,6],[3,7]],outcome:"move",activation:"none"},
     {name:"South: root",description:"The south leading edge meets the complete root spelling .+. The move is blocked.",direction:"south",arrow:[[2,6],[2,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[2,6],[2,7]],outcome:"bang",activation:".+ root"},
     {name:"North: root",description:"The leading edge meets the complete root spelling .+. The move is blocked.",direction:"north",arrow:[[4,6],[4,7]],leading:[[3,6],[3,7]],source:g=>put(g,3,6,".+0102","root"),after:[[4,6],[4,7]],outcome:"bang",activation:".+ root"},

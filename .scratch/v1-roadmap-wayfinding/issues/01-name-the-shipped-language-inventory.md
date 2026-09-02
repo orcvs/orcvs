@@ -29,7 +29,7 @@ already exists.
 | Number | Contextual two-Cell uppercase hexadecimal `00`–`FF`; wrapping general arithmetic | Substantially satisfied |
 | Note | Contextual canonical pitch spelling `C/`–`G9`, carrying MIDI `00`–`7F` | Partial: the current tables omit MIDI 0–20 |
 | Bang `**` | One-Tick Atom with deterministic activation and expiry | Syntax partial; Tick behavior missing |
-| Activation Characters `^^`, `vv`, `<<`, `>>` | Direction-preserving Source units with one-Cell-per-Tick movement and collision-to-Bang behavior | East syntax only; behavior missing |
+| Self-Banging Functions `^^`, `vv`, `<<`, `>>` | Root-only Source Functions with intrinsic Bang activation, one-Cell-per-Tick Portal writes, and collision-to-Bang behavior | East syntax only; behavior missing |
 | Sequence | Flat ordered, non-nesting Atom value; compatible Atomic Functions extend pervasively | Missing |
 | Comment | `##` through row end; lone `#` is incomplete or invalid | Missing pending Language Map |
 

@@ -21,7 +21,7 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Random | `R` | Retain with explicit deterministic seed | `~?` | ADR 0013 |
 | Euclidean rhythm | `U` | Retain with explicit Tick input | `~%` | ADR 0012 |
 | Interpolation | `Z` | Retain with visible feedback | `~>` | ADR 0012 |
-| North, south, west, and east movement | `N S W E` | Replace self-moving Operators with Directional Bang Functions and Source-resident Activation Characters | `*^ *v *< *>` emit `^^ vv << >>` | ADRs 0006 and 0014 |
+| North, south, west, and east movement | `N S W E` | Use Directional Bang Functions to emit Source-resident Self-Banging Functions | `*^ *v *< *>` emit `^^ vv << >>` | ADRs 0006 and 0014 |
 | Bang | `*` and lowercase case | Retain as explicit two-Cell Atom; remove Function case | `**` | ADR 0006 |
 | Halt | `H` | Retain with Orca Source-order behavior | `*!` | ADRs 0006 and 0014 |
 | Vertical Jumper and horizontal Jymper | `J Y` | Generalize to four directional Jump Functions over complete Language Units | `&^ &v &< &>` | ADRs 0005 and 0014 |

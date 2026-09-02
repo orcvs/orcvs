@@ -25,7 +25,7 @@ One position in the Source, containing exactly one single-byte ASCII character; 
 _Avoid_: Character slot, text position
 
 **Language Unit**:
-One semantic value or operation recognized in a Source revision, such as a Function, Atom, or Activation Character. A Language Unit has one anchor Position and a footprint of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit.
+One semantic value or operation recognized in a Source revision, such as a Function or Atom. A Language Unit has one anchor Position and a footprint of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit.
 _Avoid_: Logical Cell, token Cell, glyph
 
 **Footprint**:
@@ -53,7 +53,7 @@ A named Orcvs language operation evaluated within an Expression. A Function may 
 _Avoid_: Operator, command
 
 **Source Function**:
-A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond the ordinary result position. Its reads observe the current Source Snapshot and its changes become part of the Tick Plan.
+A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond the ordinary result position. Its reads observe the current Source Snapshot. A Source-writing Function resolves one or more Portals, validates its complete effect bundle, then contributes the bundle's ordered writes to the Tick Plan.
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
@@ -61,12 +61,12 @@ A one-Tick pulse Atom encoded as `**`, distinct from every Number and Function. 
 _Avoid_: Boolean, trigger flag
 
 **Directional Bang Function**:
-One of the four activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Activation Character into the two Cells immediately outside its own two-Cell footprint in the selected direction. The Activation Character advances by one Cell per Tick. It becomes a Bang when its next move is blocked or would leave the Grid and activates the blocking Cell when that Cell is an Expression root.
+One of the four activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Footprint in the selected direction. The emitted Function first receives a turn from the following Source Snapshot.
 _Avoid_: Always Function, movement Function, automatic mode
 
-**Activation Character**:
-One of the Language Units `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. Its two-Cell Footprint retains its direction and advances by one Cell per Tick. A blocked or out-of-Grid move changes its current Footprint to the Bang `**`. Complete aligned contact with an Expression root delivers Bang activation when that root's Source-order turn has not passed. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. An Activation Character is not a Function.
-_Avoid_: Arrow Function, moving Bang, projectile
+**Self-Banging Function**:
+One of the root-only Source Functions `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. At its Source-order turn it intrinsically receives Bang activation without creating a Source-resident `**`, then advances its complete two-Cell Footprint by one Cell in its retained direction. A successful move atomically clears the current Footprint and writes the Function's own spelling at the shifted destination. A blocked or out-of-Grid move instead changes its current Footprint to `**`. Complete aligned contact with an Expression root delivers Bang activation when that root's turn has not passed. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. A Self-Banging Function is not an operand, runtime value, or Sequence member.
+_Avoid_: Activation Character, Self-Activating Function, Arrow Function, moving Bang, projectile
 
 **Halt Function**:
 The Activation Function `*!`. When active at its Source-order turn, it locks the Expression root directly south before that root's later turn. Orcvs does not revisit a Halt Function after its turn, and a Halt Function suppressed by another Halt Function does not lock its own target.
@@ -113,7 +113,7 @@ The Sequence Function `:=`. It uses a zero-based Number index modulo the length 
 _Avoid_: Push Function, Sequence replacement operand, mutation
 
 **Portal**:
-One destination resolved while interpreting a Source Snapshot, through which an Atom or Sequence enters the Tick Plan as Source writes. A Portal is neither Source content nor persistent language state.
+One Cell destination resolved while interpreting a Source Snapshot. An ordinary result sends an Atom or intact Sequence through one Portal; a Source Function may use multiple Portals in one validated effect bundle, including clear operations that write spaces. A Portal is neither a language value, Source content, nor persistent state.
 _Avoid_: Port, address value, output coordinate
 
 **Comment**:

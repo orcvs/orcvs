@@ -4,20 +4,20 @@
 
 ## Goal
 
-Choose the smallest coherent implementation model for Source-resident Activation Characters without
-changing their fixed observable movement and collision behavior or accidentally expanding the FRC
-Expression and Sequence language.
+Choose the smallest coherent implementation model for the Source-resident directional activation
+spellings without changing their fixed movement and collision behavior or accidentally expanding
+the FRC value and Sequence language.
 
 ## Constraints
 
-- Compare a distinct spatial Language Unit with a self-reproducing Function or source-encodable
+- Compare a distinct spatial Language Unit, a Self-Banging Source Function, and a source-encodable
   value model.
 - Keep recognition, Tick scheduling, Source writes, collision-to-Bang, Glyph classification, and
   generated-Source behavior in the comparison.
 - Treat Directional identity and one move per Tick as observable behavior; Rust enum placement is an
   implementation choice.
-- Activation Characters gain no ordinary Expression-operand or Sequence behavior unless the
-  prototype explicitly demonstrates and specifies that capability.
+- Self-Banging Functions are root-only Source Functions. They gain no operand, runtime-value, or
+  Sequence behavior unless a later focused design explicitly demonstrates and specifies it.
 
 ## Delivery
 

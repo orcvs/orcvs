@@ -61,8 +61,8 @@ borrowing cleanup.
 - Rewrite `property-testing/03` around strict-parser and permissive-analysis totality and recovery.
   Rewrite issue 04 against the implemented Language Map. Rewrite issue 05 as exhaustive proof for
   the complete numeric family and conversions and remove its false proptest-harness dependency.
-- Rewrite `sequence-values/01` to admit Bang Atoms while granting Activation Characters no
-  Expression or Sequence behavior before the prototype decides their representation. Clarify issue
+- Rewrite `sequence-values/01` to admit Bang Atoms while granting the directional activation
+  spelling no operand or Sequence behavior before the prototype decides its representation. Clarify issue
   02 that Equality is ADR 0011's whole-value predicate: it returns one scalar Bang only when every
   broadcast pair is equal, otherwise no value; it never creates missing Sequence elements.
 - Make Directional Bang movement wait for the Activation prototype and then rewrite its internal
