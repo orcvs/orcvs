@@ -874,6 +874,7 @@ mod tests {
         let source = SourceCommander::new(Grid::new(10, 4));
         write(&source, 0, ".+0102");
         write(&source, 20, "!>007FC4");
+        write(&source, 30, "**");
         let engine =
             PlaybackEngine::new(source.clone(), RecordingAdapter::observing(source.clone()));
         engine.activate_for_test();
@@ -892,6 +893,7 @@ mod tests {
     async fn live_editing_changes_the_next_unsampled_tick() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -901,14 +903,29 @@ mod tests {
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
         assert_eq!(adapter.command_lists().len(), 2);
-        assert_eq!(adapter.command_lists()[0][0].note, 60);
-        assert_eq!(adapter.command_lists()[1][0].note, 62);
+        assert_eq!(
+            adapter.command_lists()[0][0],
+            PlayCommand::Raw {
+                channel: 0,
+                velocity: 0x7F,
+                note: 60,
+            }
+        );
+        assert_eq!(
+            adapter.command_lists()[1][0],
+            PlayCommand::Raw {
+                channel: 0,
+                velocity: 0x7F,
+                note: 62,
+            }
+        );
     }
 
     #[tokio::test]
     async fn repeated_commands_are_dispatched_as_exact_tick_lists() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -917,13 +934,64 @@ mod tests {
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
         assert_eq!(adapter.command_lists().len(), 2);
+        assert_eq!(adapter.command_lists()[0].len(), 1);
         assert_eq!(adapter.command_lists()[0], adapter.command_lists()[1]);
+    }
+
+    #[tokio::test]
+    async fn an_inactive_terminal_root_reaches_the_output_adapter_as_an_empty_command_list() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // The Raw Play has no Bang anywhere in the Source, so nothing
+        // activates its root.
+        write(&source, 0, "!>007FC4");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source, adapter.clone());
+        engine.activate_for_test();
+
+        engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
+
+        // The engine submits once for every Tick it runs, so the proof is not
+        // a missing submission but an empty one: the Tick reached the adapter
+        // and carried no command.
+        assert_eq!(adapter.command_lists(), vec![Vec::<PlayCommand>::new()]);
+    }
+
+    #[tokio::test]
+    async fn two_active_terminal_roots_dispatch_in_tick_plan_order_within_one_submission() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // One Bang between the two roots activates both: the row above it is
+        // its north anchor and the row below it is its south anchor.
+        write(&source, 0, "!>0001C4");
+        write(&source, 10, "**");
+        write(&source, 20, "!>017FA4");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source, adapter.clone());
+        engine.activate_for_test();
+
+        engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![vec![
+                PlayCommand::Raw {
+                    channel: 0,
+                    velocity: 1,
+                    note: 60,
+                },
+                PlayCommand::Raw {
+                    channel: 1,
+                    velocity: 0x7F,
+                    note: 69,
+                },
+            ]]
+        );
     }
 
     #[tokio::test]
     async fn missed_deadline_is_dropped_and_the_next_scheduled_tick_runs() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -947,6 +1015,7 @@ mod tests {
     async fn playback_clock_reports_each_overrun_and_resumes_without_wall_clock_sleep() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.start(Duration::from_secs(1)).unwrap();
@@ -971,6 +1040,7 @@ mod tests {
     async fn cancelled_clock_cannot_stop_or_tick_restarted_playback() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
 
@@ -1013,6 +1083,7 @@ mod tests {
         let source = SourceCommander::new(Grid::new(10, 4));
         write(&source, 0, ".+0102");
         write(&source, 20, "!>007FC4");
+        write(&source, 30, "**");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("output unavailable");
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
@@ -1130,6 +1201,7 @@ mod tests {
     async fn start_is_idempotent_and_observation_drains_diagnostics() {
         let source = SourceCommander::new(Grid::new(10, 2));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("device lost");
         let engine = PlaybackEngine::new(source, adapter.clone());
@@ -1173,8 +1245,9 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_the_final_handle_during_a_tick_completes_playback_safety() {
-        let source = SourceCommander::new(Grid::new(10, 1));
+        let source = SourceCommander::new(Grid::new(10, 2));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let control = BlockingOutputControl::default();
         let engine = PlaybackEngine::new(
             source,
@@ -1202,8 +1275,9 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn clock_failure_remains_observable_after_output_panics() {
-        let source = SourceCommander::new(Grid::new(10, 1));
+        let source = SourceCommander::new(Grid::new(10, 2));
         write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
         let delivery_started = Arc::new(AtomicBool::new(false));
         let engine = PlaybackEngine::new(
             source,

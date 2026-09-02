@@ -72,9 +72,23 @@ impl TryFrom<&str> for Activation {
     }
 }
 
+/// What a Function contributes to the Expression that contains it.
+///
+/// A Value Function answers with a language value the surrounding Expression
+/// can consume. A Terminal Function performs a Terminal Output effect and
+/// answers with nothing, so it is valid only where no value is required.
+/// Every Function states which it is in the canonical definitions below, and
+/// nothing else is allowed to decide: a spelling table that disagreed with the
+/// interpreter would silently make a terminal Function usable as an operand.
+#[derive(Clone, Copy)]
+enum FunctionKind {
+    Value,
+    Terminal,
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, [$($operand:expr),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, [$($operand:expr),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -93,6 +107,22 @@ macro_rules! define_functions {
                 match self {
                     $(Self::$variant => $spelling,)+
                 }
+            }
+
+            const fn kind(self) -> FunctionKind {
+                match self {
+                    $(Self::$variant => FunctionKind::$kind,)+
+                }
+            }
+
+            /// Whether this Function performs a Terminal Output effect instead
+            /// of producing a value. Both the Interpreter's nesting guard and
+            /// tick planning's activation gate ask this rather than naming
+            /// individual Functions, so a new terminal spelling joins both by
+            /// its definition alone.
+            #[inline(always)]
+            pub const fn is_terminal(self) -> bool {
+                matches!(self.kind(), FunctionKind::Terminal)
             }
 
             pub(crate) fn signature(self) -> &'static [crate::Token] {
@@ -121,13 +151,13 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    Add => (".+", [crate::Token::Number, crate::Token::Number]),
-    ConvertToNote => (".^", [crate::Token::Number]),
-    ConvertToNumber => (".v", [crate::Token::Note]),
-    Divide => ("./", [crate::Token::Number, crate::Token::Number]),
-    Multiply => (".x", [crate::Token::Number, crate::Token::Number]),
-    Play => ("!>", [crate::Token::Number, crate::Token::Number, crate::Token::Note]),
-    Subtract => (".-", [crate::Token::Number, crate::Token::Number]),
+    Add => (".+", Value, [crate::Token::Number, crate::Token::Number]),
+    ConvertToNote => (".^", Value, [crate::Token::Number]),
+    ConvertToNumber => (".v", Value, [crate::Token::Note]),
+    Divide => ("./", Value, [crate::Token::Number, crate::Token::Number]),
+    Multiply => (".x", Value, [crate::Token::Number, crate::Token::Number]),
+    Play => ("!>", Terminal, [crate::Token::Number, crate::Token::Number, crate::Token::Note]),
+    Subtract => (".-", Value, [crate::Token::Number, crate::Token::Number]),
 }
 
 #[inline(always)]
@@ -283,6 +313,25 @@ mod test {
     #[test]
     fn play_function_displays_with_the_terminal_output_family_spelling() {
         assert_eq!(Function::Play.to_string(), "!>");
+    }
+
+    #[test]
+    fn exactly_the_terminal_output_family_is_classified_terminal() {
+        // The two families are visible in the spellings a user types: the dot
+        // family answers with a value, and the `!` family performs. A
+        // definition whose classification contradicted its spelling would let
+        // a terminal Function stand where an operand belongs.
+        for function in Function::ALL.iter().copied() {
+            assert_eq!(
+                function.is_terminal(),
+                function.spelling().starts_with('!'),
+                "{function:?} spells {:?}",
+                function.spelling()
+            );
+        }
+
+        assert!(Function::Play.is_terminal());
+        assert!(!Function::Add.is_terminal());
     }
 
     #[test]

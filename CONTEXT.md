@@ -141,11 +141,15 @@ Changing the Source while Playback continues. An edit affects the next Tick whos
 _Avoid_: Hot reload, live coding
 
 **Play Command**:
-One interpreted MIDI instruction emitted by a Play Function for delivery during a Tick. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
+One interpreted MIDI instruction emitted by an active Terminal Output Function for delivery during a Tick. It is an explicit variant per spelling — a Raw Play note, and in turn the Timed and Monophonic Play, Control Change, and Pitch Bend outputs — carrying values already validated against their MIDI domains rather than assembled wire bytes, so the output adapter alone knows the protocol encoding. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
 _Avoid_: Performance command, MIDI event
 
+**Terminal Output Function**:
+The family of `!`-spelled Functions that perform an effect and answer with no language value: Raw Play `!>`, and in turn Timed Play `!~`, Monophonic Play `!%`, Control Change `!c`, Pitch Bend `!b`, and Application Command `!$`. Every member performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result. Each MIDI member emits a Play Command carrying operands already validated against their MIDI domains, so the output adapter alone assembles the wire message.
+_Avoid_: Effect Function, side-effecting Function, output verb, action Function
+
 **Play Function**:
-The terminal `!> channel velocity note` Function that interprets a hexadecimal Number channel `00`–`0F`, a hexadecimal Number velocity `00`–`7F`, and a Note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
+The terminal `!> channel velocity note` Function, also called Raw Play, that interprets a hexadecimal Number channel `00`–`0F`, a hexadecimal Number velocity `00`–`7F`, and a Note as one raw Play Command. It performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result.
 _Avoid_: Note output, MIDI Function
 
 **Timed Play Function**:

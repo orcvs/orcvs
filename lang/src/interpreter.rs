@@ -32,6 +32,15 @@ impl Interpreter {
             // info!("atoms: {:?}", atoms);
             // info!("stack: {:?}", stack);
             let atom = match atom {
+                // A Terminal Output Function performs an effect and answers
+                // with no language value, so the only place it can stand is
+                // the one place nothing consumes an answer: the Expression
+                // root, which the Interpreter reaches last. Rejecting every
+                // other index here leaves each terminal arm below free to
+                // assume it is the root.
+                Atom::Function(fun) if fun.is_terminal() && index != 0 => {
+                    return Err(InterpretationError::NestedTerminalFunction.into());
+                }
                 Atom::Function(fun) => match fun {
                     Function::Add => math::add(&mut ctx)?,
                     Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
@@ -39,10 +48,9 @@ impl Interpreter {
                     Function::Divide => math::divide(&mut ctx)?,
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
-                    Function::Play if index == 0 => {
+                    Function::Play => {
                         return Ok(Interpretation::Play(functions::play(&mut ctx)?));
                     }
-                    Function::Play => return Err(InterpretationError::NestedPlay.into()),
                 },
                 atom => *atom,
             };
@@ -329,6 +337,31 @@ mod test {
         ] {
             let atoms = atoms.into_iter().collect();
             assert!(matches!(Interpreter::execute(&atoms), Err(Error::Type(_))));
+        }
+    }
+
+    #[test]
+    fn every_terminal_function_is_invalid_where_a_value_is_required() {
+        // The guard reads the Function's own classification, so a terminal
+        // spelling added by a later issue is nested-invalid the day it exists.
+        for function in Function::ALL.iter().copied().filter(|f| f.is_terminal()) {
+            let atoms = vec![
+                Atom::Function(Function::Add),
+                Atom::Function(function),
+                Atom::Number(1),
+            ]
+            .into_iter()
+            .collect();
+
+            assert!(
+                matches!(
+                    Interpreter::execute(&atoms),
+                    Err(Error::Interpretation(
+                        InterpretationError::NestedTerminalFunction
+                    ))
+                ),
+                "{function:?}"
+            );
         }
     }
 

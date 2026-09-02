@@ -19,11 +19,21 @@ use std::sync::Once;
 
 pub const EXP_LEN: usize = 32;
 
+/// One interpreted MIDI instruction a Terminal Output Function emits for
+/// delivery during a Tick.
+///
+/// This is a tagged variant set rather than one note triple because the
+/// Terminal Output family is wider than Raw Play: Timed and Monophonic Play,
+/// Control Change, and Pitch Bend each carry different validated data and
+/// arrive here as variants of their own. Every variant holds MIDI values that
+/// the emitting Function has already checked against their domains, and none
+/// holds wire bytes: assembling a MIDI message belongs to the output adapter,
+/// so Source interpretation never learns the protocol encoding.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PlayCommand {
-    pub channel: u8,
-    pub velocity: u8,
-    pub note: u8,
+pub enum PlayCommand {
+    /// ADR 0016's Raw Play. Velocity `00` is not an absent note but the
+    /// explicit stop MIDI's zero-velocity convention gives the Source.
+    Raw { channel: u8, velocity: u8, note: u8 },
 }
 
 #[inline(always)]

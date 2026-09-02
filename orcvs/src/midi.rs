@@ -141,9 +141,17 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
             return self.delivery_failure.clone().map_or(Ok(()), Err);
         };
         for command in commands {
-            if let Err(error) =
-                connection.send(&[0x90 | command.channel, command.note, command.velocity])
-            {
+            // The Play Command carries validated MIDI values; turning them
+            // into a status byte and its data bytes is this adapter's whole
+            // job, and the only place in Orcvs that knows the wire format.
+            let message = match *command {
+                PlayCommand::Raw {
+                    channel,
+                    velocity,
+                    note,
+                } => [0x90 | channel, note, velocity],
+            };
+            if let Err(error) = connection.send(&message) {
                 let delivery_error = OutputAdapterError::new(error.message);
                 let _ = self.send_all_notes_off();
                 self.connection = None;
@@ -223,12 +231,12 @@ mod tests {
 
         adapter
             .submit(&[
-                PlayCommand {
+                PlayCommand::Raw {
                     channel: 0x0f,
                     velocity: 0,
                     note: 0x15,
                 },
-                PlayCommand {
+                PlayCommand::Raw {
                     channel: 2,
                     velocity: 0x7f,
                     note: 0x45,
@@ -280,7 +288,7 @@ mod tests {
         state.lock().unwrap().fail_next_send = true;
 
         let error = adapter
-            .submit(&[PlayCommand {
+            .submit(&[PlayCommand::Raw {
                 channel: 0,
                 velocity: 0x7f,
                 note: 60,
@@ -292,7 +300,7 @@ mod tests {
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
             adapter
-                .submit(&[PlayCommand {
+                .submit(&[PlayCommand::Raw {
                     channel: 0,
                     velocity: 1,
                     note: 60,
@@ -303,7 +311,7 @@ mod tests {
 
         adapter.select(&MidiDestinationId::new("one")).unwrap();
         adapter
-            .submit(&[PlayCommand {
+            .submit(&[PlayCommand::Raw {
                 channel: 1,
                 velocity: 1,
                 note: 61,
@@ -335,7 +343,9 @@ mod tests {
     async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let source = SourceCommander::new(Grid::new(10, 2));
-        for (index, content) in "!>007FC4".chars().enumerate() {
+        // The Bang one row below the root anchor keeps the Raw Play active on
+        // every Tick; without it a terminal root emits nothing at all.
+        for (index, content) in "!>007FC4  **".chars().enumerate() {
             source.set(index, &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
@@ -363,7 +373,9 @@ mod tests {
     async fn disconnected_output_reports_delivery_failure_once() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let source = SourceCommander::new(Grid::new(10, 2));
-        for (index, content) in "!>007FC4".chars().enumerate() {
+        // The Bang one row below the root anchor keeps the Raw Play active on
+        // every Tick; without it a terminal root emits nothing at all.
+        for (index, content) in "!>007FC4  **".chars().enumerate() {
             source.set(index, &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {

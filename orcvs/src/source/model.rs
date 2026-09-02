@@ -95,8 +95,9 @@ pub struct CellWrite {
     pub content: char,
 }
 
-/// One MIDI Note On instruction. Issue 04 teaches Source interpretation to
-/// populate these; issue 03 establishes their ordered place in every Tick Plan.
+/// One interpreted MIDI instruction emitted by an active Terminal Output
+/// Function. Tick planning decides which terminal roots are active and in what
+/// order their commands appear; the output adapter turns each one into MIDI.
 pub use lang::PlayCommand;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -332,6 +333,18 @@ impl Source {
     }
 
     ///
+    /// Whether this Expression's root is a Terminal Output Function.
+    ///
+    /// The Interpreter accepts a terminal Function only as the first Atom, so
+    /// that is the one position where a terminal root can be. Asking the
+    /// Function's own classification rather than naming `!>` keeps this in step
+    /// with the canonical Function definitions as the family grows.
+    ///
+    fn is_terminal_root(atoms: &Atoms) -> bool {
+        matches!(atoms.first(), Some(Atom::Function(function)) if function.is_terminal())
+    }
+
+    ///
     /// Runs one Tick: evaluates every Expression against the current Source
     /// snapshot, then commits the resulting Cell changes.
     ///
@@ -365,6 +378,15 @@ impl Source {
             let root = expression
                 .root()
                 .expect("a computation Expression has a Function root");
+
+            // A Terminal Output Function performs only when its root is
+            // active, so an inactive terminal root is never evaluated at all:
+            // it contributes neither a command nor a diagnostic, exactly as an
+            // absent Function would. Value-producing roots still evaluate on
+            // every Tick; gating those belongs to spatial Tick planning.
+            if Self::is_terminal_root(atoms) && !self.language_map.is_root_active(root) {
+                continue;
+            }
 
             let result = match Interpreter::execute(atoms) {
                 Ok(Interpretation::Cell(Atom::Empty)) => continue,
@@ -1174,13 +1196,16 @@ mod test {
     #[test]
     fn test_root_play_function_emits_one_play_command_without_a_cell_write() {
         let mut src = source();
-        src.write(0, "!>007FC4");
+        // The Bang sits north of the root anchor, leaving the row below the
+        // Play free to show that a terminal Function writes no result Cell.
+        src.write(0, "**");
+        src.write(10, "!>007FC4");
 
         let tick = src.execute();
 
         assert_eq!(
             tick.plan.play_commands,
-            vec![PlayCommand {
+            vec![PlayCommand::Raw {
                 channel: 0,
                 velocity: 0x7F,
                 note: 60,
@@ -1188,19 +1213,20 @@ mod test {
         );
         assert!(tick.plan.writes.is_empty());
         assert!(tick.changes.is_empty());
-        assert_eq!(src.row(1), "          ");
+        assert_eq!(src.row(2), "          ");
     }
 
     #[test]
     fn test_play_preserves_zero_velocity_as_an_explicit_command() {
         let mut src = source();
-        src.write(0, "!>0F00A0");
+        src.write(0, "**");
+        src.write(10, "!>0F00A0");
 
         let tick = src.execute();
 
         assert_eq!(
             tick.plan.play_commands,
-            vec![PlayCommand {
+            vec![PlayCommand::Raw {
                 channel: 0xF,
                 velocity: 0,
                 note: 21,
@@ -1212,25 +1238,27 @@ mod test {
     #[test]
     fn test_play_velocity_above_midi_range_is_diagnosed() {
         let mut src = source();
-        src.write(0, "!>0080C4");
+        src.write(0, "**");
+        src.write(10, "!>0080C4");
 
         let tick = src.execute();
 
         assert!(tick.plan.play_commands.is_empty());
         assert!(tick.plan.writes.is_empty());
         assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].start, 0);
-        assert_eq!(tick.plan.diagnostics[0].end, 7);
+        assert_eq!(tick.plan.diagnostics[0].start, 10);
+        assert_eq!(tick.plan.diagnostics[0].end, 17);
         assert_eq!(
             tick.plan.diagnostics[0].message,
-            "Play velocity 80 is outside the MIDI range 00–7F"
+            "MIDI velocity 80 is outside the range 00–7F"
         );
     }
 
     #[test]
     fn test_play_channel_above_midi_range_is_diagnosed() {
         let mut src = source();
-        src.write(0, "!>107FC4");
+        src.write(0, "**");
+        src.write(10, "!>107FC4");
 
         let tick = src.execute();
 
@@ -1239,7 +1267,7 @@ mod test {
         assert_eq!(tick.plan.diagnostics.len(), 1);
         assert_eq!(
             tick.plan.diagnostics[0].message,
-            "Play channel 10 is outside the MIDI range 00–0F"
+            "MIDI channel 10 is outside the range 00–0F"
         );
     }
 
@@ -1255,7 +1283,7 @@ mod test {
         assert_eq!(tick.plan.diagnostics.len(), 1);
         assert_eq!(
             tick.plan.diagnostics[0].message,
-            "a Play Function is valid only at the root of an Expression"
+            "a terminal Function is valid only at the root of an Expression"
         );
     }
 
@@ -1268,6 +1296,9 @@ mod test {
         ] {
             let mut src = SourceUnderTest::new(Grid::new(expression.len(), 3));
             src.write(0, expression);
+            // A terminal root diagnoses only when it is evaluated, and it is
+            // evaluated only when a Bang activates it.
+            src.write(expression.len(), "**");
 
             let tick = src.execute();
 
@@ -1281,18 +1312,21 @@ mod test {
     #[test]
     fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
         let mut src = source();
+        // One Bang between the two roots activates both: the row above it is
+        // its north anchor and the row below it is its south anchor.
         src.write(0, "!>0001C4");
-        src.write(10, "!>017FA4");
+        src.write(10, "**");
+        src.write(20, "!>017FA4");
 
         let first = src.execute();
         let second = src.execute();
         let expected = vec![
-            PlayCommand {
+            PlayCommand::Raw {
                 channel: 0,
                 velocity: 1,
                 note: 60,
             },
-            PlayCommand {
+            PlayCommand::Raw {
                 channel: 1,
                 velocity: 0x7F,
                 note: 69,
@@ -1303,6 +1337,57 @@ mod test {
         assert_eq!(second.plan.play_commands, expected);
         assert!(first.changes.is_empty());
         assert!(second.changes.is_empty());
+    }
+
+    #[test]
+    fn test_inactive_terminal_root_emits_neither_a_command_nor_a_diagnostic() {
+        let mut src = source();
+        // Every operand of this Raw Play is outside its MIDI domain. An
+        // inactive terminal root is never evaluated, so not even the domain
+        // diagnostics it would produce reach the Tick Plan.
+        src.write(0, "!>1080C4");
+
+        let tick = src.execute();
+
+        assert!(tick.plan.play_commands.is_empty());
+        assert!(tick.plan.diagnostics.is_empty());
+        assert!(tick.plan.writes.is_empty());
+    }
+
+    #[test]
+    fn test_a_bang_north_or_south_of_a_terminal_root_activates_it() {
+        // The Bang carries the geometry: at `(0, 0)` it activates the root
+        // one row south, and at `(0, 1)` the root one row north.
+        for (bang, root) in [(0, 10), (10, 0)] {
+            let mut src = source();
+            src.write(bang, "**");
+            src.write(root, "!>007FC4");
+
+            let tick = src.execute();
+
+            assert_eq!(
+                tick.plan.play_commands,
+                vec![PlayCommand::Raw {
+                    channel: 0,
+                    velocity: 0x7F,
+                    note: 60,
+                }],
+                "Bang at {bang}, root at {root}"
+            );
+            assert!(tick.plan.diagnostics.is_empty(), "Bang at {bang}");
+        }
+    }
+
+    #[test]
+    fn test_a_value_producing_root_evaluates_without_a_bang() {
+        // Gating every root behind activation belongs to spatial Tick
+        // planning. Until then only terminal roots consult the Bang.
+        let mut src = source();
+        src.write(0, ".+0102");
+
+        let tick = src.execute();
+
+        assert_eq!(tick.plan.writes.len(), 2);
     }
 
     #[test]

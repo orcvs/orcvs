@@ -63,6 +63,13 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
     for content in "!>007FC4".chars() {
         orcvs.write(&content.to_string());
     }
+    // Writing clamps at the row edge, so the Cursor walks to the start of the
+    // next row for the Bang that activates the Raw Play root above it.
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown)]);
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 8]);
+    for content in "**".chars() {
+        orcvs.write(&content.to_string());
+    }
 
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
     tokio::task::yield_now().await;

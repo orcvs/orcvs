@@ -23,14 +23,17 @@ pub enum InterpretationError {
     #[error("Number {0:02X} cannot be converted to a Note")]
     NoteConversion(u8),
 
-    #[error("a Play Function is valid only at the root of an Expression")]
-    NestedPlay,
+    #[error("a terminal Function is valid only at the root of an Expression")]
+    NestedTerminalFunction,
 
-    #[error("Play channel {0:02X} is outside the MIDI range 00–0F")]
-    PlayChannel(u8),
+    #[error("MIDI channel {0:02X} is outside the range 00–0F")]
+    MidiChannel(u8),
 
-    #[error("Play velocity {0:02X} is outside the MIDI range 00–7F")]
-    PlayVelocity(u8),
+    /// `role` names the operand the Source supplied so one diagnostic serves
+    /// every data byte in the Terminal Output family: a Play velocity, a
+    /// Control Change controller or value, a Pitch Bend LSB or MSB.
+    #[error("MIDI {role} {value:02X} is outside the range 00–7F")]
+    MidiDataByte { role: &'static str, value: u8 },
 }
 
 #[derive(Error, Debug)]

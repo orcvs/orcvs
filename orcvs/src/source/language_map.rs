@@ -197,6 +197,24 @@ impl LanguageMap {
         self.units.iter()
     }
 
+    /// Whether a Source-resident Bang activates the root anchored at `root`.
+    ///
+    /// An ordinary root Expression is inert until a Bang activates it, and the
+    /// geometry deciding that is a question about where things sit rather than
+    /// about what any Function means. Keeping it here is what lets Source
+    /// interpretation stay a question about Atoms: the Interpreter is never
+    /// told where anything sits, and the MIDI path never learns what a Bang is.
+    ///
+    /// Bangs are partitioned independently of Expressions, so this reads the
+    /// Language Unit partition rather than any Expression's contents.
+    pub fn is_root_active(&self, root: Position) -> bool {
+        self.units()
+            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Bang))
+            .any(|unit| {
+                activated_root_anchors(self.grid, unit.anchor()).any(|anchor| anchor == root)
+            })
+    }
+
     /// Every parser and unmatched-character diagnostic in this revision.
     pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.expressions
@@ -375,6 +393,27 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
     }
 
     (units, diagnostics)
+}
+
+/// The root anchors a Bang anchored at `bang` activates.
+///
+/// ADR 0006 states the geometry from the Bang outward: north `(x, y-1)`, south
+/// `(x, y+1)`, west `(x-2, y)`, and east `(x+2, y)`. The horizontal step is two
+/// Cells because every Language Unit is two Cells wide, so a horizontal
+/// neighbour's anchor sits two columns away rather than one. An anchor outside
+/// the Grid is not a Position at all and simply does not appear.
+fn activated_root_anchors(grid: Grid, bang: Position) -> impl Iterator<Item = Position> {
+    let (x, y) = (bang.x(), bang.y());
+
+    [
+        y.checked_sub(1).map(|north| (x, north)),
+        Some((x, y + 1)),
+        x.checked_sub(2).map(|west| (west, y)),
+        Some((x + 2, y)),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(move |(x, y)| grid.position(x, y))
 }
 
 fn invalid_unit_diagnostic(grid: Grid, idx: usize, byte: u8) -> Diagnostic {
@@ -639,6 +678,31 @@ mod tests {
                 (6, vec![6, 7]),
             ]
         );
+    }
+
+    #[test]
+    fn a_bang_activates_the_root_anchor_at_each_of_its_four_cardinal_positions() {
+        let grid = Grid::new(6, 3);
+        let map = LanguageMap::build(grid, b"        **        ");
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+        // The Bang is anchored at (2, 1).
+        for (x, y) in [(2, 0), (2, 2), (0, 1), (4, 1)] {
+            assert!(map.is_root_active(at(x, y)), "({x}, {y})");
+        }
+        // One column off an aligned anchor, diagonally placed, or the Bang's
+        // own anchor: only complete cardinal alignment activates.
+        for (x, y) in [(1, 1), (3, 1), (1, 0), (3, 2), (2, 1)] {
+            assert!(!map.is_root_active(at(x, y)), "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn a_source_without_a_bang_activates_no_root() {
+        let grid = Grid::new(6, 1);
+        let map = LanguageMap::build(grid, b".+0102");
+
+        assert!(!map.is_root_active(grid.position(0, 0).unwrap()));
     }
 
     #[test]
