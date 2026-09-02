@@ -15,7 +15,7 @@ pub struct Expression {
 enum Record {
     Evaluable { token: Token, atom: Atom },
     Incomplete { expected: Token },
-    Invalid,
+    Invalid { expected: Token },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,9 +49,9 @@ impl Expression {
             .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
     }
 
-    pub(crate) fn add_invalid(&mut self) -> Result<(), SyntaxError> {
+    pub(crate) fn add_invalid(&mut self, expected: Token) -> Result<(), SyntaxError> {
         self.records
-            .try_push(Record::Invalid)
+            .try_push(Record::Invalid { expected })
             .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
     }
 
@@ -92,7 +92,7 @@ impl Record {
     fn entry(&self) -> Option<(Token, Atom)> {
         match self {
             Self::Evaluable { token, atom } => Some((*token, *atom)),
-            Self::Incomplete { .. } | Self::Invalid => None,
+            Self::Incomplete { .. } | Self::Invalid { .. } => None,
         }
     }
 
@@ -104,7 +104,7 @@ impl Record {
         match self {
             Self::Evaluable { token, .. } => *token,
             Self::Incomplete { expected } => *expected,
-            Self::Invalid => Token::Char,
+            Self::Invalid { expected } => *expected,
         }
     }
 }

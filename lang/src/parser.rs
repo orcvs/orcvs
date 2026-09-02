@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
                         Tokens::from(&f)
                     }
                     Err(error) => {
-                        self.expression.add_invalid()?;
+                        self.expression.add_invalid(Token::Function)?;
                         return Ok(ParseStatus::Invalid(error));
                     }
                 };
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
                                 ));
                             }
                             Err(error) => {
-                                self.expression.add_invalid()?;
+                                self.expression.add_invalid(t)?;
                                 return Ok(ParseStatus::Invalid(error));
                             }
                         }
@@ -366,7 +366,7 @@ mod test {
             .into_expression();
         assert_eq!(
             invalid.tokens().collect::<Vec<_>>(),
-            vec![Token::Function, Token::Number, Token::Char]
+            vec![Token::Function, Token::Number, Token::Number]
         );
         assert_eq!(
             invalid.entries().collect::<Vec<_>>(),
@@ -376,6 +376,20 @@ mod test {
             ]
         );
         assert!(invalid.atoms().is_none());
+    }
+
+    #[test]
+    fn source_analysis_preserves_invalid_nested_operand_footprint() {
+        let source = ".+.-01XY02";
+        let expression = Parser::from(&mut source.to_owned())
+            .analyze()
+            .unwrap()
+            .into_expression();
+
+        assert_eq!(
+            expression.tokens().map(|token| token.len()).sum::<usize>(),
+            source.len()
+        );
     }
 
     #[test]
