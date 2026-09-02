@@ -16,6 +16,9 @@ make_fixture() {
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
   mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  # The contract asks git whether the proptest regression files are ignored, so a
+  # fixture has to be a work tree or that check cannot run against it at all.
+  git -C "$fixture_dir" init --quiet
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"

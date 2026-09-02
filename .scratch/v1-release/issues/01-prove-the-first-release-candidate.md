@@ -3,8 +3,7 @@
 **What to build:** Close the release definition with the complete candidate-bound evidence bundle
 and an explicit, unwaived human GO/NO-GO decision.
 
-**Blocked by:** 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual
-verification.
+**Blocked by:** 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; language-map/04 — Propagate unit kinds by Grid index; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
 
 **Status:** ready-for-agent
 

@@ -62,10 +62,13 @@ in place. The setting is task-level env rather than an inline assignment on a ru
 contract script pins the exact text of those lines.
 
 Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
-directory beside each crate's `src`, one file per module, and `.gitignore` deliberately carries no
-rule that would exclude them; the contract script pins that absence. A counterexample that CI can
-see and a developer cannot reproduce is worse than no property at all, so the shrunk input travels
-with the repository and the next run replays it before generating anything new.
+directory beside each crate's `src`, one file per module, and no ignore rule excludes them. The
+contract script pins the representative path for each crate — `lang/proptest-regressions/parser.txt`
+and `orcvs/proptest-regressions/grid.txt` — by asking `git check-ignore` rather than reading
+`.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule. A
+counterexample that CI can see and a developer cannot reproduce is worse than no property at all, so
+the shrunk input travels with the repository and the next run replays it before generating anything
+new.
 
 The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
 installed. That is a separate decision with its own cost, and it is not taken here.

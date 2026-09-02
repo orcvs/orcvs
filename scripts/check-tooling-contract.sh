@@ -21,11 +21,14 @@ assert_not_contains() {
   fi
 }
 
-assert_toml_table_not_contains() {
+# Both table assertions share one scan: skip comment lines, track whether the
+# current table header matches, and report whether any line inside it matched.
+# Exit status carries the answer so each assertion only supplies its condition.
+toml_table_matches() {
   local file="$1"
   local table_pattern="$2"
   local field_pattern="$3"
-  if awk -v table_pattern="$table_pattern" -v field_pattern="$field_pattern" '
+  awk -v table_pattern="$table_pattern" -v field_pattern="$field_pattern" '
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*\[/ {
       line = $0
@@ -35,7 +38,14 @@ assert_toml_table_not_contains() {
     }
     in_table && $0 ~ field_pattern { found = 1 }
     END { exit !found }
-  ' "$file"; then
+  ' "$file"
+}
+
+assert_toml_table_not_contains() {
+  local file="$1"
+  local table_pattern="$2"
+  local field_pattern="$3"
+  if toml_table_matches "$file" "$table_pattern" "$field_pattern"; then
     echo "expected $file table $table_pattern not to match: $field_pattern" >&2
     exit 1
   fi
@@ -45,17 +55,7 @@ assert_toml_table_contains() {
   local file="$1"
   local table_pattern="$2"
   local field_pattern="$3"
-  if ! awk -v table_pattern="$table_pattern" -v field_pattern="$field_pattern" '
-    /^[[:space:]]*#/ { next }
-    /^[[:space:]]*\[/ {
-      line = $0
-      sub(/[[:space:]]*#.*/, "", line)
-      in_table = (line ~ table_pattern)
-      next
-    }
-    in_table && $0 ~ field_pattern { found = 1 }
-    END { exit !found }
-  ' "$file"; then
+  if ! toml_table_matches "$file" "$table_pattern" "$field_pattern"; then
     echo "expected $file table $table_pattern to match: $field_pattern" >&2
     exit 1
   fi
@@ -212,9 +212,21 @@ fi
 # property, so the `proptest-regressions` files are source and are never ignored.
 # Asking git rather than reading `.gitignore` catches a broad glob or a nested
 # ignore file that a substring match would miss.
+# check-ignore answers 0 for ignored and 1 for not ignored, but 128 for its own
+# failures. Collapsing 128 into "not ignored" would make this check pass silently
+# wherever git cannot answer, so only 1 is accepted as the clean result.
 for regressions_path in lang/proptest-regressions/parser.txt orcvs/proptest-regressions/grid.txt; do
-  if git -C "$root_dir" check-ignore -q "$regressions_path"; then
-    echo "expected $regressions_path not to be ignored by git" >&2
-    exit 1
-  fi
+  ignore_status=0
+  git -C "$root_dir" check-ignore -q "$regressions_path" || ignore_status=$?
+  case "$ignore_status" in
+    0)
+      echo "expected $regressions_path not to be ignored by git" >&2
+      exit 1
+      ;;
+    1) ;;
+    *)
+      echo "git check-ignore failed with status $ignore_status for $regressions_path" >&2
+      exit 1
+      ;;
+  esac
 done
