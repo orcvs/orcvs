@@ -388,9 +388,22 @@ impl Source {
                 continue;
             }
 
-            let result = match Interpreter::execute(atoms) {
+            let encoded = match Interpreter::execute(atoms) {
                 Ok(Interpretation::Cell(Atom::Empty)) => continue,
-                Ok(Interpretation::Cell(result)) => result,
+                Ok(Interpretation::Cell(result)) => result.to_string(),
+                // Per ADR 0007 an empty Sequence plans no Cell writes, exactly
+                // as the absence marker above plans none. A non-empty one is
+                // encoded and routed through the same below-root, complete-fit,
+                // horizontal-write path a single Atom takes: an intact Sequence
+                // is one ordinary result, not a batch of Cell writes. Resolving
+                // a destination other than the Cell below the root, and clearing
+                // a stale tail, belong to ADR 0009 and issue 04.
+                //
+                // No Source-parseable Function returns a Sequence yet, so no
+                // Source text reaches this arm; issues 02 and 03 add the
+                // producers that exercise it.
+                Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => continue,
+                Ok(Interpretation::Sequence(sequence)) => sequence.to_string(),
                 Ok(Interpretation::Play(command)) => {
                     play_commands.push(command);
                     continue;
@@ -405,10 +418,9 @@ impl Source {
                     continue;
                 }
             };
-            let encoded = result.to_string();
             assert!(
                 encoded.is_ascii(),
-                "Interpreter Cell results must preserve the Source ASCII invariant"
+                "Interpreter results must preserve the Source ASCII invariant"
             );
             let Some(target) = self.grid.below(root) else {
                 diagnostics.push(Diagnostic::for_expression(

@@ -16,3 +16,5 @@
 - [ ] Replace returns a new same-length Sequence and permits a different replacement Atom type.
 - [ ] Empty and invalid operands diagnose as ADR 0007 specifies.
 - [ ] Every Function parses and round-trips through its canonical two-Cell spelling.
+- [ ] Structural operations preserve a Bang member's type and encoding. (From issue 01, which
+      covers Bang only through construction, promotion, and encoding.)

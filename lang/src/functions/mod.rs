@@ -82,8 +82,8 @@ mod test {
         );
 
         // Exactly three arguments were consumed
-        assert_eq!(Atom::from(ctx.stack.pop()), Atom::Char('z'));
-        assert_eq!(Atom::from(ctx.stack.pop()), Atom::Empty);
+        assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Char('z'));
+        assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Empty);
     }
 
     #[test]

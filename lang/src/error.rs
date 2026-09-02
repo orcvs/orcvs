@@ -12,7 +12,48 @@ pub enum Error {
     Type(#[from] TypeError),
 
     #[error(transparent)]
+    Sequence(#[from] SequenceError),
+
+    #[error(transparent)]
     Interpretation(#[from] InterpretationError),
+}
+
+/// Problems with the shape of a language value rather than the type of an
+/// Operand Literal.
+///
+/// These live apart from [`TypeError`] because `TypeError` answers "these two
+/// Source Cells do not read as the type this operand position requires", which
+/// is a question about text. A Sequence is never spelled in Source: it exists
+/// only between Functions, so every diagnostic here is about a value one
+/// Function handed another — whether it was one Atom or many, whether an Atom
+/// may be a member at all, and whether two operands have compatible lengths.
+#[derive(Error, Debug)]
+pub enum SequenceError {
+    /// Raised where a scalar signature requires one Atom. Issue 02 replaces
+    /// this diagnostic for Atomic Functions with broadcasting; the Functions
+    /// that stay scalar keep it.
+    #[error("expected an Atom, found the Sequence {0:?}")]
+    ExpectedAtom(String),
+
+    #[error("expected a Sequence, found {0:?}")]
+    ExpectedSequence(String),
+
+    /// An Atom with no place in a Sequence: a Self-Banging Function, which is
+    /// a root-only Source effect, or the absence marker, which has no Source
+    /// encoding of its own.
+    #[error("{0:?} cannot be a Sequence member")]
+    Member(String),
+
+    /// Two non-scalar operands of unequal length. ADR 0007 pairs equal-length
+    /// Sequences element-wise and diagnoses everything else; issue 02 raises
+    /// this when it broadcasts.
+    #[error("incompatible Sequence lengths {left} and {right}")]
+    IncompatibleLengths { left: usize, right: usize },
+
+    /// An empty Sequence where indexing needs a member to reach. Select and
+    /// Replace raise this in issue 03.
+    #[error("expected a non-empty Sequence")]
+    EmptyNotAllowed,
 }
 
 #[derive(Error, Debug)]

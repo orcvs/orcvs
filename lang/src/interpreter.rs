@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Stack,
+    Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Sequence, Stack, Value,
     functions::{self, math, numeric_conversion},
 };
 
@@ -7,9 +7,18 @@ pub type Args = Stack<16>;
 
 pub struct Interpreter {}
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Interpretation {
     Cell(Atom),
+    /// A Sequence value leaving evaluation intact.
+    ///
+    /// No Source-parseable Function returns a Sequence yet — Range, Reverse,
+    /// and Concatenate arrive with issues 02 and 03 — so nothing reaches this
+    /// variant from Source text today. It exists now because the whole point
+    /// of the Sequence value is that it can cross Function evaluation and
+    /// leave it without first becoming Source writes; adding it later would
+    /// mean the consumer had already been written as though it could not.
+    Sequence(Sequence),
     Play(PlayCommand),
 }
 
@@ -62,10 +71,14 @@ impl Interpreter {
             ctx.stack.push(atom);
         }
 
-        // A non-terminal Expression leaves one Cell value on the stack. Source
-        // decides where that value belongs when it builds the Tick Plan.
-        let atom = ctx.stack.pop().into();
-        Ok(Interpretation::Cell(atom))
+        // A non-terminal Expression leaves one language value on the stack.
+        // Source decides where that value belongs when it builds the Tick Plan.
+        // An empty stack is the absence marker, not a Sequence of no Atoms.
+        Ok(match ctx.stack.pop_value() {
+            None => Interpretation::Cell(Atom::Empty),
+            Some(Value::Atom(atom)) => Interpretation::Cell(atom),
+            Some(Value::Sequence(sequence)) => Interpretation::Sequence(sequence),
+        })
     }
 }
 
@@ -87,7 +100,7 @@ mod test {
 
         match Interpreter::execute(&parsed).unwrap() {
             super::Interpretation::Cell(atom) => atom,
-            super::Interpretation::Play(_) => panic!("expected a Cell result"),
+            other => panic!("expected a Cell result, found {other:?}"),
         }
     }
 
@@ -95,7 +108,7 @@ mod test {
         let atoms = exp.into_iter().collect();
         Interpreter::execute(&atoms).map(|result| match result {
             super::Interpretation::Cell(atom) => atom,
-            super::Interpretation::Play(_) => panic!("expected a Cell result"),
+            other => panic!("expected a Cell result, found {other:?}"),
         })
     }
 

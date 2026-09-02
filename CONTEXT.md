@@ -89,7 +89,7 @@ One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Sequence**:
-A flat ordered sequence of Atoms produced and consumed as one language value. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function, which is a root-only Source effect rather than a value, and the empty result an Expression leaves when it produces no value, which has no Source encoding of its own. Per ADR 0025 membership is checked at the single point every Sequence is constructed through. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
 _Avoid_: Pattern, Cell batch, write list, string
 
 **Range Function**:
