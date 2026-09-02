@@ -1,7 +1,5 @@
-use lang::{
-    Atom, Atoms, EXP_LEN, Error as LangError, Interpretation, Interpreter, Parser, SyntaxError,
-};
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError};
+use std::{fmt, sync::Arc};
 use tracing::debug;
 
 use crate::glyph::Glyph;
@@ -9,6 +7,7 @@ use crate::grid::Grid;
 
 use super::SourceError;
 use super::language_map::{Footprint, LanguageMap};
+use super::tick;
 
 pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
@@ -60,7 +59,7 @@ impl Diagnostic {
         }
     }
 
-    fn for_expression(
+    pub(super) fn for_expression(
         grid: Grid,
         anchor: crate::grid::Position,
         footprint: &Footprint,
@@ -320,31 +319,6 @@ impl Source {
     }
 
     ///
-    /// Whether an Expression computes anything.
-    ///
-    /// An Expression with no Function is a literal — the Interpreter has no
-    /// Function to apply, so a Tick produces no result to commit for it. This
-    /// is what stops a committed result from feeding itself: the value a Tick
-    /// writes is valid Source, but on the next Tick it parses to a literal and
-    /// so commits nothing of its own.
-    ///
-    fn is_computation(atoms: &Atoms) -> bool {
-        atoms.iter().any(|a| matches!(a, Atom::Function(_)))
-    }
-
-    ///
-    /// Whether this Expression's root is a Terminal Output Function.
-    ///
-    /// The Interpreter accepts a terminal Function only as the first Atom, so
-    /// that is the one position where a terminal root can be. Asking the
-    /// Function's own classification rather than naming `!>` keeps this in step
-    /// with the canonical Function definitions as the family grows.
-    ///
-    fn is_terminal_root(atoms: &Atoms) -> bool {
-        matches!(atoms.first(), Some(Atom::Function(function)) if function.is_terminal())
-    }
-
-    ///
     /// Runs one Tick: evaluates every Expression against the current Source
     /// snapshot, then commits the resulting Cell changes.
     ///
@@ -363,103 +337,22 @@ impl Source {
         }
     }
 
+    ///
+    /// Interprets one Source Snapshot as ADR 0020's single row-major pass:
+    /// every producer takes its turn in anchor order and emits its effects,
+    /// then resolution folds those effects into the Tick Plan.
+    ///
+    /// Nothing here reads the Source between two turns, so a planned write
+    /// gains no turn of its own and a Function a write generates first becomes
+    /// actionable in the next Source Snapshot.
+    ///
     fn plan_tick(&self) -> TickPlan {
-        let mut writes = BTreeMap::new();
-        let mut play_commands = Vec::new();
-        let mut diagnostics = Vec::new();
-
-        for expression in self.language_map.expressions() {
-            let Some(atoms) = expression
-                .atoms()
-                .filter(|atoms| Self::is_computation(atoms))
-            else {
-                continue;
-            };
-            let root = expression
-                .root()
-                .expect("a computation Expression has a Function root");
-
-            // A Terminal Output Function performs only when its root is
-            // active, so an inactive terminal root is never evaluated at all:
-            // it contributes neither a command nor a diagnostic, exactly as an
-            // absent Function would. Value-producing roots still evaluate on
-            // every Tick; gating those belongs to spatial Tick planning.
-            if Self::is_terminal_root(atoms) && !self.language_map.is_root_active(root) {
-                continue;
-            }
-
-            let encoded = match Interpreter::execute(atoms) {
-                Ok(Interpretation::Cell(Atom::Empty)) => continue,
-                Ok(Interpretation::Cell(result)) => result.to_string(),
-                // Per ADR 0007 an empty Sequence plans no Cell writes, exactly
-                // as the absence marker above plans none. A non-empty one is
-                // encoded and routed through the same below-root, complete-fit,
-                // horizontal-write path a single Atom takes: an intact Sequence
-                // is one ordinary result, not a batch of Cell writes. Resolving
-                // a destination other than the Cell below the root, and clearing
-                // a stale tail, belong to ADR 0009 and issue 04.
-                //
-                // No Source-parseable Function returns a Sequence yet, so no
-                // Source text reaches this arm; issues 02 and 03 add the
-                // producers that exercise it.
-                Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => continue,
-                Ok(Interpretation::Sequence(sequence)) => sequence.to_string(),
-                Ok(Interpretation::Play(command)) => {
-                    play_commands.push(command);
-                    continue;
-                }
-                Err(error) => {
-                    diagnostics.push(Diagnostic::for_expression(
-                        self.grid,
-                        root,
-                        expression.footprint(),
-                        error.to_string(),
-                    ));
-                    continue;
-                }
-            };
-            assert!(
-                encoded.is_ascii(),
-                "Interpreter results must preserve the Source ASCII invariant"
-            );
-            let Some(target) = self.grid.below(root) else {
-                diagnostics.push(Diagnostic::for_expression(
-                    self.grid,
-                    root,
-                    expression.footprint(),
-                    format!("result {encoded:?} falls below the Source"),
-                ));
-                continue;
-            };
-            if !self.grid.fits(target, encoded.chars().count()) {
-                diagnostics.push(Diagnostic::for_expression(
-                    self.grid,
-                    root,
-                    expression.footprint(),
-                    format!("result {encoded:?} crosses the row edge"),
-                ));
-                continue;
-            }
-
-            let target_idx = self.grid.index(target);
-            for (offset, content) in encoded.chars().enumerate() {
-                // Expressions are visited in Source order, so insertion gives
-                // a later Expression ownership of only the Cells it overlaps.
-                writes.insert(
-                    target_idx + offset,
-                    CellWrite {
-                        idx: target_idx + offset,
-                        content,
-                    },
-                );
-            }
+        let mut effects = Vec::new();
+        for turn in tick::turns(self.grid, &self.language_map) {
+            turn.emit(self.grid, &self.language_map, &mut effects);
         }
 
-        TickPlan {
-            writes: writes.into_values().collect(),
-            play_commands,
-            diagnostics,
-        }
+        tick::resolve(effects)
     }
 
     fn commit_tick(&mut self, plan: &TickPlan) -> Vec<Cell> {
@@ -528,7 +421,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::Grid,
-        source::{Cell, PlayCommand, Source, SourceError},
+        source::{Cell, CellWrite, PlayCommand, Source, SourceError},
         test::trace,
     };
 
@@ -1426,13 +1319,14 @@ mod test {
 
     #[test]
     fn test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root() {
-        // Pins the limitation `spatial-tick-planning/01` inherits. ADR 0006's
+        // Pins the limitation `spatial-tick-planning/02` inherits. ADR 0006's
         // west and east anchors sit two Cells from the Bang, but a Raw Play's
         // operands occupy those Cells, and `row_extents` splits Expression runs
         // only on spaces and `##`. So the contiguous spellings form no root at
         // all, and the space-separated ones put the Bang anchor three or more
         // columns away from the root anchor. Every horizontal placement is
-        // inert; the day the Expression partition changes, this test says so.
+        // inert; the day the partition Bang activation reads changes, this
+        // test says so.
         for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
             let mut src = source();
             src.write(0, expression);
@@ -1679,6 +1573,120 @@ mod test {
         assert_eq!(src.row(1), "   03     ");
         assert_eq!(tick.plan.writes.len(), 2);
         assert!(tick.plan.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_writes_play_commands_and_diagnostics_follow_one_producer_order() {
+        trace();
+
+        // ADR 0020 orders every effect kind by the same row-major producer
+        // Position. This Tick emits all three kinds from five producers whose
+        // anchors interleave across rows and columns: two Play Commands, two
+        // diagnostics, and one result write. Each kind must come out in the
+        // order its producers took their turns — row first, then column —
+        // rather than in an order of its own.
+        let mut src = SourceUnderTest::new(Grid::new(20, 6));
+        src.write(0, "**");
+        src.write(20, "!>0001C4");
+        src.write(30, "**");
+        src.write(40, "./0100");
+        src.write(50, "!>027FA4");
+        src.write(60, ".^80");
+        src.write(70, ".+0102");
+
+        let tick = src.execute();
+
+        // (0, 1) then (10, 2): the second Play's anchor is further right and
+        // one row lower.
+        assert_eq!(
+            tick.plan.play_commands,
+            vec![
+                PlayCommand::Raw {
+                    channel: 0,
+                    velocity: 1,
+                    note: 60,
+                },
+                PlayCommand::Raw {
+                    channel: 2,
+                    velocity: 0x7F,
+                    note: 69,
+                },
+            ]
+        );
+        // (0, 2) then (0, 3), interleaved between the two Play producers.
+        assert_eq!(
+            tick.plan
+                .diagnostics
+                .iter()
+                .map(|diagnostic| (diagnostic.start, diagnostic.message.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (40, "cannot divide by zero"),
+                (60, "Number 80 cannot be converted to a Note"),
+            ]
+        );
+        // The last producer's write, from the anchor (10, 3).
+        assert_eq!(
+            tick.plan.writes,
+            vec![
+                CellWrite {
+                    idx: 90,
+                    content: '0',
+                },
+                CellWrite {
+                    idx: 91,
+                    content: '3',
+                },
+            ]
+        );
+        assert_eq!(src.row(4), "          03        ");
+    }
+
+    #[test]
+    fn test_a_computation_completed_by_a_write_waits_for_the_next_snapshot() {
+        trace();
+
+        // A planned write gains no turn in the Tick that plans it. The row 0
+        // Expression writes the `02` that completes the row 1 `.+01` into the
+        // computation `.+0102`. That completed Expression is not part of this
+        // Tick's Source Snapshot, so row 2 stays empty until the next Tick
+        // reads the Source the write left behind.
+        //
+        // No Function spelling can be written today: every result is a Number
+        // or a Note. Completing an Expression is as close as this Source gets
+        // to generating one, and it pins the same rule.
+        let mut src = source();
+        src.write(4, ".+0002");
+        src.write(10, ".+01");
+
+        let first = src.execute();
+
+        assert_eq!(
+            first.plan.writes,
+            vec![
+                CellWrite {
+                    idx: 14,
+                    content: '0',
+                },
+                CellWrite {
+                    idx: 15,
+                    content: '2',
+                },
+            ]
+        );
+        assert_eq!(src.row(1), ".+0102    ");
+        assert_eq!(src.row(2), "          ");
+
+        let second = src.execute();
+
+        assert_eq!(src.row(2), "03        ");
+        assert!(
+            second
+                .plan
+                .writes
+                .iter()
+                .any(|write| write.idx == 20 && write.content == '0')
+        );
     }
 
     #[test]

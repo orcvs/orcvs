@@ -128,6 +128,18 @@ _Avoid_: Cycle, frame
 The complete deterministic outcome of interpreting one Source Snapshot at a particular Tick, including activation routing, Source writes, ordered Play Commands, and diagnostics.
 _Avoid_: Play sequence, command batch
 
+**Producer**:
+One Language Unit or Expression root that takes a turn when a Tick Plan is built. A Producer has one anchor Position and emits an ordered sequence of Effects. The Producers are the Expression root, the Source-resident Bang, the Self-Banging Function, the Jump chain head, and Halt; only units present in the Source Snapshot are Producers, so a planned write is never one in the Tick that plans it.
+_Avoid_: Emitter, actor, source operator
+
+**Turn**:
+One Producer's opportunity to emit, taken at its anchor Position. Turns run in row-major anchor order across one Source Snapshot, and a Producer takes at most one; a Producer whose turn has passed is never revisited, which is what lets activation reach only a root still ahead of the current turn.
+_Avoid_: Pass, visit, step
+
+**Effect**:
+One thing a Producer contributes to the Tick Plan: a Cell write, an activation delivery, a root lock, a diagnostic, or a terminal Play Command. Effects are ordered first by their Producer's Position and then by the order that Producer emits them. Cell writes validate their whole destination before any Cell of them is emitted, and resolve Cell-wise, so a later Effect wins each Cell it overlaps and leaves the rest of an earlier write standing.
+_Avoid_: Action, mutation, command
+
 **Playback**:
 The time-driven process that requests a new Tick Plan for each Tick and dispatches its Play Commands. Playback does not parse Expressions or own Source interpretation.
 _Avoid_: Player, sequencer

@@ -2,6 +2,7 @@ pub mod error;
 mod language_map;
 pub use language_map::{ExpressionEntry, Footprint, LanguageMap, LanguageUnit, LanguageUnitKind};
 mod model;
+mod tick;
 use crate::grid::{Grid, Position};
 pub use error::SourceError;
 pub use model::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};

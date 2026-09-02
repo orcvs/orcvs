@@ -414,8 +414,8 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
 /// no Source can reach them today: `row_extents` splits Expression runs only on
 /// spaces and `##`, so a horizontally adjacent Bang either merges into the
 /// root's own run and forms no root at all, or is separated by a space that
-/// puts its anchor three or more columns away. `spatial-tick-planning/01` owns
-/// the Expression partition that makes them reachable;
+/// puts its anchor three or more columns away. `spatial-tick-planning/02` owns
+/// the Snapshot Bang activation that makes them reachable;
 /// `test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root` pins
 /// the present behaviour until then.
 fn activated_root_anchors(grid: Grid, bang: Position) -> impl Iterator<Item = Position> {

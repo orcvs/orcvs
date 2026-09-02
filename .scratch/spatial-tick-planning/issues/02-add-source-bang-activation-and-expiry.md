@@ -16,3 +16,5 @@ root activation behavior from `CONTEXT.md` and ADR 0020.
 - [ ] A newly planned Bang remains visible for the following Source Snapshot before expiring.
 - [ ] Direct activation does not overwrite the target Function.
 - [ ] Partial or non-root contact does not activate.
+- [ ] Bang producers read from the Language Unit partition take row-major turns interleaved with
+      Expression roots, pinning the `order_by_anchor` guard that issue 01 could not test end to end.
