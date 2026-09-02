@@ -77,22 +77,6 @@ assert_toml_task_contains() {
   fi
 }
 
-assert_toml_task_not_contains() {
-  local file="$1"
-  local task="$2"
-  local pattern="$3"
-  if awk -v task="$task" -v pattern="$pattern" '
-    /^[[:space:]]*#/ { next }
-    $0 == "[tasks." task "]" { in_task = 1; next }
-    in_task && /^\[.*\]$/ { in_task = 0 }
-    in_task && $0 ~ pattern { found = 1 }
-    END { exit !found }
-  ' "$file"; then
-    echo "expected $file task $task not to match: $pattern" >&2
-    exit 1
-  fi
-}
-
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
@@ -205,13 +189,32 @@ assert_contains "$root_dir/Cargo.toml" '^proptest[[:space:]]*=[[:space:]]*\{[^}]
 assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
 assert_not_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
+# The plain `[dev-dependencies]` table is the one that also compiles for WASM, so
+# it needs its own guard: the shipped-dependency assertions above deliberately do
+# not match a `dev-` table, and without this a move from the target table into the
+# plain one would leave every other assertion green while putting proptest back
+# into the `wasm-pack test` graph.
+assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]dev-dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]dev-dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
 # The pull-request tier trades case count for latency; the merge tier keeps
 # proptest's 256-case default. Task-level env, so every run line above stays
-# byte-identical to the text this script pins.
+# byte-identical to the text this script pins. Asserting the setting appears
+# exactly once pins the merge tier's default without naming the merge tasks: a
+# renamed task, a new tier, or a global `[env]` table would each break it, where
+# a per-task negative assertion would silently pass.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^env = [{] PROPTEST_CASES = .32. [}]$'
-assert_toml_task_not_contains "$root_dir/mise.toml" 'check_merge' 'PROPTEST_CASES'
-assert_toml_task_not_contains "$root_dir/mise.toml" 'check_merge_native' 'PROPTEST_CASES'
-assert_toml_task_not_contains "$root_dir/mise.toml" 'test_persistence' 'PROPTEST_CASES'
+proptest_cases_settings="$(grep -Ev '^[[:space:]]*#' "$root_dir/mise.toml" | grep -Ec 'PROPTEST_CASES' || true)"
+if [ "$proptest_cases_settings" -ne 1 ]; then
+  echo "expected mise.toml to set PROPTEST_CASES exactly once, found $proptest_cases_settings" >&2
+  exit 1
+fi
 # A counterexample CI can see and a developer cannot reproduce is worse than no
 # property, so the `proptest-regressions` files are source and are never ignored.
-assert_not_contains "$root_dir/.gitignore" 'proptest-regressions'
+# Asking git rather than reading `.gitignore` catches a broad glob or a nested
+# ignore file that a substring match would miss.
+for regressions_path in lang/proptest-regressions/parser.txt orcvs/proptest-regressions/grid.txt; do
+  if git -C "$root_dir" check-ignore -q "$regressions_path"; then
+    echo "expected $regressions_path not to be ignored by git" >&2
+    exit 1
+  fi
+done

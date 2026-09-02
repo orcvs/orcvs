@@ -539,23 +539,27 @@ mod property {
     proptest! {
         ///
         /// "The Grid converts between a Position and the index the Source
-        /// addresses Cells by": `position_at` inverts `index` for every Position
-        /// the Grid mints. Dimensions start at one, because a Grid has at least
-        /// one column and one row.
+        /// addresses Cells by": `position_at` inverts `index` for a Position the
+        /// Grid mints. Dimensions start at one, because a Grid has at least one
+        /// column and one row.
+        ///
+        /// The Position is generated with the Grid rather than swept inside each
+        /// case. Sweeping would make the generated domain the 1,024 dimension
+        /// pairs alone — small enough that the effort's own rule calls for an
+        /// exhaustive loop instead of a sample — and would leave the case count
+        /// buying nothing. Drawing `x` and `y` from the generated dimensions puts
+        /// roughly a million shapes in reach and gives `PROPTEST_CASES` something
+        /// to trade. Proving the law for *every* minted Position is issue 02's.
         ///
         #[test]
-        fn position_at_inverts_index_for_every_minted_position(
-            cols in 1usize..=32,
-            rows in 1usize..=32,
+        fn position_at_inverts_index_for_a_minted_position(
+            (cols, rows, x, y) in (1usize..=32, 1usize..=32)
+                .prop_flat_map(|(cols, rows)| (Just(cols), Just(rows), 0..cols, 0..rows)),
         ) {
             let grid = Grid::new(cols, rows);
 
-            for y in 0..rows {
-                for x in 0..cols {
-                    let pos = grid.position(x, y).expect("inside the grid");
-                    prop_assert_eq!(grid.position_at(grid.index(pos)), Some(pos));
-                }
-            }
+            let pos = grid.position(x, y).expect("inside the grid");
+            prop_assert_eq!(grid.position_at(grid.index(pos)), Some(pos));
         }
     }
 }
