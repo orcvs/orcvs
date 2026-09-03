@@ -183,11 +183,9 @@ fn edit(c: &mut Criterion, name: &str, content: &'static str) {
                         .expect("the restored Cell is accepted");
                 },
                 |()| {
-                    black_box(
-                        black_box(&source)
-                            .set(black_box(idx), content)
-                            .expect("the edited Cell is accepted"),
-                    )
+                    black_box(&source)
+                        .set(black_box(idx), content)
+                        .expect("the edited Cell is accepted");
                 },
                 BatchSize::PerIteration,
             )

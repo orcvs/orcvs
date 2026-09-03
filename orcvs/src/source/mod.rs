@@ -5,7 +5,7 @@ mod model;
 mod tick;
 use crate::grid::{Grid, Position};
 pub use error::SourceError;
-pub use model::{Cell, CellWrite, Change, Diagnostic, PlayCommand, Source, TickPlan, TickResult};
+pub use model::{CellWrite, Diagnostic, PlayCommand, Source, TickPlan};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 fn read_recover<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
@@ -57,7 +57,7 @@ impl SourceCommander {
     /// Synchronous edit: when this returns, every observable part of the
     /// Source describes the new revision.
     ///
-    pub fn set(&self, idx: usize, s: &str) -> Result<Change, SourceError> {
+    pub fn set(&self, idx: usize, s: &str) -> Result<(), SourceError> {
         write_recover(&self.inner).set(idx, s)
     }
 
@@ -65,7 +65,7 @@ impl SourceCommander {
     /// Synchronous delete: when this returns, every observable part of the
     /// Source describes the new revision.
     ///
-    pub fn unset(&self, idx: usize) -> Result<Change, SourceError> {
+    pub fn unset(&self, idx: usize) -> Result<(), SourceError> {
         write_recover(&self.inner).unset(idx)
     }
 
@@ -90,7 +90,7 @@ impl SourceCommander {
         }
     }
 
-    pub(crate) fn execute(&self) -> TickResult {
+    pub(crate) fn execute(&self) -> TickPlan {
         write_recover(&self.inner).execute()
     }
 }
@@ -148,7 +148,7 @@ mod tests {
         source.set(155, "2").unwrap();
         let tick = source.execute();
 
-        assert!(tick.plan.diagnostics.is_empty());
+        assert!(tick.diagnostics.is_empty());
         assert_eq!(source.get(150), Some(".".to_string()));
     }
 

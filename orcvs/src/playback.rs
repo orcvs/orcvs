@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant as ClockInstant;
 
-use crate::source::{PlayCommand, SourceCommander, TickResult};
+use crate::source::{PlayCommand, SourceCommander, TickPlan};
 
 pub trait OutputAdapter {
     fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError>;
@@ -278,7 +278,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         }
     }
 
-    fn tick(&mut self, generation: u64, timing: TickTiming) -> Option<TickResult> {
+    fn tick(&mut self, generation: u64, timing: TickTiming) -> Option<TickPlan> {
         if !self.playing || self.generation != generation {
             return None;
         }
@@ -290,14 +290,14 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             return None;
         }
         self.last_tick_at = Some(ClockInstant::now());
-        let tick = self.source.execute();
+        let plan = self.source.execute();
         if self.connected {
-            match self.adapter.submit(&tick.plan.play_commands) {
+            match self.adapter.submit(&plan.play_commands) {
                 Ok(()) => self.last_output_failure = None,
                 Err(error) => self.record_output_failure(error),
             }
         }
-        Some(tick)
+        Some(plan)
     }
 }
 
@@ -344,7 +344,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     }
 
     #[cfg(test)]
-    fn clock_tick(&self, timing: TickTiming) -> Option<TickResult> {
+    fn clock_tick(&self, timing: TickTiming) -> Option<TickPlan> {
         let mut inner = self.inner.lock().unwrap();
         let generation = inner.generation;
         inner.tick(generation, timing)
@@ -886,7 +886,7 @@ mod tests {
         let inner = engine.inner.lock().unwrap();
         assert_eq!(&inner.adapter.source_at_submission[0][10..12], "03");
         assert_eq!(&source.snapshot()[10..12], "03");
-        assert_eq!(inner.adapter.command_lists, vec![tick.plan.play_commands]);
+        assert_eq!(inner.adapter.command_lists, vec![tick.play_commands]);
     }
 
     #[tokio::test]
@@ -1094,7 +1094,7 @@ mod tests {
             .expect("Source Tick still succeeds");
 
         assert_eq!(&source.snapshot()[10..12], "03");
-        assert_eq!(failed_dispatch.plan.play_commands.len(), 1);
+        assert_eq!(failed_dispatch.play_commands.len(), 1);
         assert!(engine.is_playing());
         assert_eq!(
             engine.diagnostics(),

@@ -2,7 +2,6 @@ use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError};
 use std::{fmt, sync::Arc};
 use tracing::debug;
 
-use crate::glyph::Glyph;
 use crate::grid::Grid;
 
 use super::SourceError;
@@ -11,28 +10,6 @@ use super::tick;
 
 pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
-
-///
-/// One Cell as observable at a Source revision: its content and its
-/// glyph classification.
-///
-#[derive(Clone, Debug, PartialEq)]
-pub struct Cell {
-    pub idx: usize,
-    pub content: Option<char>,
-    pub glyph: Option<Glyph>,
-}
-
-///
-/// The observable outcome of one accepted edit: every Cell whose content or
-/// presentation differs from the previous revision, described at the
-/// revision the edit produced.
-///
-#[derive(Clone, Debug, PartialEq)]
-pub struct Change {
-    pub idx: usize,
-    pub cells: Vec<Cell>,
-}
 
 ///
 /// A problem with the Expression occupying `start..=end` in the current
@@ -107,13 +84,6 @@ pub struct TickPlan {
     pub writes: Vec<CellWrite>,
     pub play_commands: Vec<PlayCommand>,
     pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct TickResult {
-    pub plan: TickPlan,
-    pub snapshot: String,
-    pub changes: Vec<Cell>,
 }
 
 ///
@@ -214,37 +184,33 @@ impl Source {
     /// assert_eq!(source.get(33), Some("!".to_string()));
     /// ```
     ///
-    pub fn set(&mut self, idx: usize, s: &str) -> Result<Change, SourceError> {
+    pub fn set(&mut self, idx: usize, s: &str) -> Result<(), SourceError> {
         debug!("set {idx}: {s}");
         self.check_idx(idx)?;
         let byte = Self::check_content(s)?;
         self.check_expression_capacity(idx, byte)?;
 
-        Ok(self.edit(idx, byte))
+        self.edit(idx, byte);
+        Ok(())
     }
 
     ///
     /// Empties the Cell at `idx` and recalculates the affected Expressions.
     ///
-    pub fn unset(&mut self, idx: usize) -> Result<Change, SourceError> {
+    pub fn unset(&mut self, idx: usize) -> Result<(), SourceError> {
         self.check_idx(idx)?;
 
-        Ok(self.edit(idx, SPACE_BYTE))
+        self.edit(idx, SPACE_BYTE);
+        Ok(())
     }
 
     ///
-    /// Applies one already-validated edit and describes the Cells it changed
-    /// at the new revision.
+    /// Applies one already-validated edit. The revision it produces is what
+    /// the console observes, so the edit reports nothing of its own.
     ///
-    fn edit(&mut self, idx: usize, byte: u8) -> Change {
-        let before_cells = self.inner.as_bytes().to_vec();
-
+    fn edit(&mut self, idx: usize, byte: u8) {
         self.set_source(idx, byte);
-        let before_language_map = self.rebuild_derived_state();
-
-        let cells = self.changed_cells(&before_cells, &before_language_map);
-
-        Change { idx, cells }
+        self.rebuild_derived_state();
     }
 
     ///
@@ -331,15 +297,11 @@ impl Source {
     /// committed by one Expression can never become another Expression's input
     /// within the same Tick.
     ///
-    pub fn execute(&mut self) -> TickResult {
+    pub fn execute(&mut self) -> TickPlan {
         let plan = self.plan_tick();
-        let changes = self.commit_tick(&plan);
+        self.commit_tick(&plan);
 
-        TickResult {
-            plan,
-            snapshot: self.snapshot(),
-            changes,
-        }
+        plan
     }
 
     ///
@@ -360,39 +322,16 @@ impl Source {
         tick::resolve(effects)
     }
 
-    fn commit_tick(&mut self, plan: &TickPlan) -> Vec<Cell> {
-        let before_cells = self.inner.as_bytes().to_vec();
-
+    fn commit_tick(&mut self, plan: &TickPlan) {
         // Commit every planned Cell before rebuilding any derived state.
         for write in &plan.writes {
             self.set_source(write.idx, write.content as u8);
         }
-        let before_language_map = self.rebuild_derived_state();
-
-        self.changed_cells(&before_cells, &before_language_map)
+        self.rebuild_derived_state();
     }
 
-    fn changed_cells(&self, before_cells: &[u8], before_language_map: &LanguageMap) -> Vec<Cell> {
-        self.inner
-            .bytes()
-            .enumerate()
-            .filter(|&(idx, byte)| {
-                byte != before_cells[idx]
-                    || self
-                        .language_map
-                        .presentation_differs_at(before_language_map, idx)
-            })
-            .map(|(idx, byte)| Cell {
-                idx,
-                content: (byte != SPACE_BYTE).then_some(byte as char),
-                glyph: self.language_map.glyph_at_index(idx),
-            })
-            .collect()
-    }
-
-    fn rebuild_derived_state(&mut self) -> Arc<LanguageMap> {
-        let language_map = Arc::new(LanguageMap::build(self.grid, self.inner.as_bytes()));
-        std::mem::replace(&mut self.language_map, language_map)
+    fn rebuild_derived_state(&mut self) {
+        self.language_map = Arc::new(LanguageMap::build(self.grid, self.inner.as_bytes()));
     }
 
     ///
@@ -426,7 +365,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::Grid,
-        source::{Cell, CellWrite, PlayCommand, Source, SourceError},
+        source::{CellWrite, PlayCommand, Source, SourceError},
         test::trace,
     };
 
@@ -439,8 +378,26 @@ mod test {
         Grid::new(10, 6)
     }
 
+    ///
+    /// The Glyph a Cell presents at the current revision, read the way the
+    /// console reads it.
+    ///
     fn glyph_at(source: &Source, idx: usize) -> Option<Glyph> {
-        source.language_map.glyph_at_index(idx)
+        let cell = source.grid.cell_index(idx)?;
+        source.language_map.glyph_at(source.grid.position_at(cell))
+    }
+
+    ///
+    /// What a Cell presents at the current revision: its content and its Glyph.
+    /// An edit is observed by reading the revision it produced, so this is what
+    /// the console sees after one.
+    ///
+    fn cell(source: &Source, idx: usize) -> (Option<char>, Option<Glyph>) {
+        let content = source
+            .get(idx)
+            .and_then(|s| s.chars().next())
+            .filter(|c| *c != ' ');
+        (content, glyph_at(source, idx))
     }
 
     fn diagnostics(source: &Source) -> Vec<super::Diagnostic> {
@@ -695,50 +652,30 @@ mod test {
     }
 
     #[test]
-    fn test_set_returns_change_set_of_affected_cells() {
+    fn test_an_edit_classifies_the_cells_it_affects() {
         trace();
 
         let mut src = source();
 
-        let change = src.set(0, ".").unwrap();
-        assert_eq!(
-            change.cells,
-            vec![Cell {
-                idx: 0,
-                content: Some('.'),
-                glyph: Some(Glyph::Char),
-            }]
-        );
+        src.set(0, ".").unwrap();
+        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Char)));
 
-        // completing the `.+` Function reclassifies Cell 0 in the same change and
-        // marks the four empty operand-slot Cells (two 2-wide Numbers) as Number
-        let change = src.set(1, "+").unwrap();
+        // completing the `.+` Function reclassifies Cell 0 and marks the four
+        // empty operand-slot Cells (two 2-wide Numbers) as Number
+        src.set(1, "+").unwrap();
 
-        let function = |idx: usize, content: char| Cell {
-            idx,
-            content: Some(content),
-            glyph: Some(Glyph::Function),
-        };
-        let operand_slot = |idx: usize| Cell {
-            idx,
-            content: None,
-            glyph: Some(Glyph::Number),
-        };
-        assert_eq!(
-            change.cells,
-            vec![
-                function(0, '.'),
-                function(1, '+'),
-                operand_slot(2),
-                operand_slot(3),
-                operand_slot(4),
-                operand_slot(5),
-            ]
-        );
+        let function = |content: char| (Some(content), Some(Glyph::Function));
+        let operand_slot = (None, Some(Glyph::Number));
+        assert_eq!(cell(&src, 0), function('.'));
+        assert_eq!(cell(&src, 1), function('+'));
+        assert_eq!(cell(&src, 2), operand_slot);
+        assert_eq!(cell(&src, 3), operand_slot);
+        assert_eq!(cell(&src, 4), operand_slot);
+        assert_eq!(cell(&src, 5), operand_slot);
     }
 
     #[test]
-    fn test_unset_returns_change_set_of_affected_cells() {
+    fn test_deleting_half_a_function_clears_the_hints_it_placed() {
         trace();
 
         let mut src = source();
@@ -747,28 +684,12 @@ mod test {
 
         // deleting half the Function restores its raw character classification and
         // clears the operand-slot hints
-        let change = src.unset(1).unwrap();
+        src.unset(1).unwrap();
 
-        let cleared = |idx: usize, content: Option<char>| Cell {
-            idx,
-            content,
-            glyph: None,
-        };
-        assert_eq!(
-            change.cells,
-            vec![
-                Cell {
-                    idx: 0,
-                    content: Some('.'),
-                    glyph: Some(Glyph::Char),
-                },
-                cleared(1, None),
-                cleared(2, None),
-                cleared(3, None),
-                cleared(4, None),
-                cleared(5, None),
-            ]
-        );
+        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Char)));
+        for idx in 1..=5 {
+            assert_eq!(cell(&src, idx), (None, None), "Cell {idx} was not cleared");
+        }
     }
 
     #[test]
@@ -780,11 +701,13 @@ mod test {
         // `.+` at the last two Cells wants four more operand-slot glyphs
         // than the Source has room for
         src.set(58, ".").unwrap();
-        let change = src.set(59, "+").unwrap();
+        src.set(59, "+").unwrap();
 
-        assert_eq!(change.cells.len(), 2);
         assert_eq!(glyph_at(&src, 58), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 59), Some(Glyph::Function));
+        // the Function sits in the last two Cells, so its operand-slot hints
+        // have nowhere to go: nothing past the row edge is classified
+        assert_eq!(glyph_at(&src, 60), None);
     }
 
     #[test]
@@ -794,29 +717,11 @@ mod test {
         src.set(1, "+").unwrap();
         assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
 
-        let change = src.set(5, "x").unwrap();
-        assert_eq!(src.get(5), Some("x".to_string()));
-        assert_eq!(glyph_at(&src, 5), Some(Glyph::Char));
-        assert_eq!(
-            change.cells,
-            vec![Cell {
-                idx: 5,
-                content: Some('x'),
-                glyph: Some(Glyph::Char),
-            }]
-        );
+        src.set(5, "x").unwrap();
+        assert_eq!(cell(&src, 5), (Some('x'), Some(Glyph::Char)));
 
-        let change = src.unset(5).unwrap();
-        assert_eq!(src.get(5), None);
-        assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
-        assert_eq!(
-            change.cells,
-            vec![Cell {
-                idx: 5,
-                content: None,
-                glyph: Some(Glyph::Number),
-            }]
-        );
+        src.unset(5).unwrap();
+        assert_eq!(cell(&src, 5), (None, Some(Glyph::Number)));
     }
 
     #[test]
@@ -851,41 +756,15 @@ mod test {
         src.write(10, ".+0102");
         src.set(8, ".").unwrap();
 
-        let change = src.set(9, "+").unwrap();
-        assert_eq!(
-            change.cells,
-            vec![
-                Cell {
-                    idx: 8,
-                    content: Some('.'),
-                    glyph: Some(Glyph::Function),
-                },
-                Cell {
-                    idx: 9,
-                    content: Some('+'),
-                    glyph: Some(Glyph::Function),
-                },
-            ]
-        );
+        src.set(9, "+").unwrap();
+        assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 9), (Some('+'), Some(Glyph::Function)));
         assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
 
-        let change = src.unset(9).unwrap();
-        assert_eq!(
-            change.cells,
-            vec![
-                Cell {
-                    idx: 8,
-                    content: Some('.'),
-                    glyph: Some(Glyph::Char),
-                },
-                Cell {
-                    idx: 9,
-                    content: None,
-                    glyph: None,
-                },
-            ]
-        );
+        src.unset(9).unwrap();
+        assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Char)));
+        assert_eq!(cell(&src, 9), (None, None));
         assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
     }
@@ -922,18 +801,12 @@ mod test {
         let mut src = source();
 
         src.set(9, ".").unwrap();
-        let change = src.set(10, "+").unwrap();
+        src.set(10, "+").unwrap();
 
-        assert_eq!(glyph_at(&src, 9), Some(Glyph::Char));
-        assert_eq!(glyph_at(&src, 10), Some(Glyph::Char));
-        assert_eq!(
-            change.cells,
-            vec![Cell {
-                idx: 10,
-                content: Some('+'),
-                glyph: Some(Glyph::Char),
-            }]
-        );
+        // the two Cells are adjacent by index but sit in different rows, so
+        // neither is classified as part of a Function
+        assert_eq!(cell(&src, 9), (Some('.'), Some(Glyph::Char)));
+        assert_eq!(cell(&src, 10), (Some('+'), Some(Glyph::Char)));
     }
 
     #[test]
@@ -1091,28 +964,14 @@ mod test {
         assert_eq!(src.row(1), "03        ");
         assert_eq!(src.get(10), Some("0".to_string()));
         assert_eq!(src.get(11), Some("3".to_string()));
-        assert_eq!(tick.snapshot, src.snapshot());
-        assert!(tick.plan.play_commands.is_empty());
-        assert_eq!(tick.plan.writes.len(), 2);
-        assert_eq!(tick.plan.writes[0].idx, 10);
-        assert_eq!(tick.plan.writes[0].content, '0');
-        assert_eq!(tick.plan.writes[1].idx, 11);
-        assert_eq!(tick.plan.writes[1].content, '3');
-        assert_eq!(
-            tick.changes,
-            vec![
-                Cell {
-                    idx: 10,
-                    content: Some('0'),
-                    glyph: Some(Glyph::Char),
-                },
-                Cell {
-                    idx: 11,
-                    content: Some('3'),
-                    glyph: Some(Glyph::Char),
-                },
-            ]
-        );
+        assert!(tick.play_commands.is_empty());
+        assert_eq!(tick.writes.len(), 2);
+        assert_eq!(tick.writes[0].idx, 10);
+        assert_eq!(tick.writes[0].content, '0');
+        assert_eq!(tick.writes[1].idx, 11);
+        assert_eq!(tick.writes[1].content, '3');
+        assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Char)));
+        assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Char)));
     }
 
     #[test]
@@ -1126,15 +985,14 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(
-            tick.plan.play_commands,
+            tick.play_commands,
             vec![PlayCommand::Raw {
                 channel: 0,
                 velocity: 0x7F,
                 note: 60,
             }]
         );
-        assert!(tick.plan.writes.is_empty());
-        assert!(tick.changes.is_empty());
+        assert!(tick.writes.is_empty());
         assert_eq!(src.row(2), "          ");
     }
 
@@ -1147,14 +1005,14 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(
-            tick.plan.play_commands,
+            tick.play_commands,
             vec![PlayCommand::Raw {
                 channel: 0xF,
                 velocity: 0,
                 note: 21,
             }]
         );
-        assert!(tick.plan.diagnostics.is_empty());
+        assert!(tick.diagnostics.is_empty());
     }
 
     #[test]
@@ -1165,13 +1023,13 @@ mod test {
 
         let tick = src.execute();
 
-        assert!(tick.plan.play_commands.is_empty());
-        assert!(tick.plan.writes.is_empty());
-        assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].start(), 10);
-        assert_eq!(tick.plan.diagnostics[0].end(), 17);
+        assert!(tick.play_commands.is_empty());
+        assert!(tick.writes.is_empty());
+        assert_eq!(tick.diagnostics.len(), 1);
+        assert_eq!(tick.diagnostics[0].start(), 10);
+        assert_eq!(tick.diagnostics[0].end(), 17);
         assert_eq!(
-            tick.plan.diagnostics[0].message,
+            tick.diagnostics[0].message,
             "MIDI velocity 80 is outside the range 00–7F"
         );
     }
@@ -1184,11 +1042,11 @@ mod test {
 
         let tick = src.execute();
 
-        assert!(tick.plan.play_commands.is_empty());
-        assert!(tick.plan.writes.is_empty());
-        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert!(tick.play_commands.is_empty());
+        assert!(tick.writes.is_empty());
+        assert_eq!(tick.diagnostics.len(), 1);
         assert_eq!(
-            tick.plan.diagnostics[0].message,
+            tick.diagnostics[0].message,
             "MIDI channel 10 is outside the range 00–0F"
         );
     }
@@ -1200,11 +1058,11 @@ mod test {
 
         let tick = src.execute();
 
-        assert!(tick.plan.play_commands.is_empty());
-        assert!(tick.plan.writes.is_empty());
-        assert_eq!(tick.plan.diagnostics.len(), 1);
+        assert!(tick.play_commands.is_empty());
+        assert!(tick.writes.is_empty());
+        assert_eq!(tick.diagnostics.len(), 1);
         assert_eq!(
-            tick.plan.diagnostics[0].message,
+            tick.diagnostics[0].message,
             "a terminal Function is valid only at the root of an Expression"
         );
     }
@@ -1224,10 +1082,10 @@ mod test {
 
             let tick = src.execute();
 
-            assert!(tick.plan.play_commands.is_empty(), "{expression}");
-            assert!(tick.plan.writes.is_empty(), "{expression}");
-            assert_eq!(tick.plan.diagnostics.len(), 1, "{expression}");
-            assert_eq!(tick.plan.diagnostics[0].message, expected, "{expression}");
+            assert!(tick.play_commands.is_empty(), "{expression}");
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert_eq!(tick.diagnostics.len(), 1, "{expression}");
+            assert_eq!(tick.diagnostics[0].message, expected, "{expression}");
         }
     }
 
@@ -1255,10 +1113,10 @@ mod test {
             },
         ];
 
-        assert_eq!(first.plan.play_commands, expected);
-        assert_eq!(second.plan.play_commands, expected);
-        assert!(first.changes.is_empty());
-        assert!(second.changes.is_empty());
+        assert_eq!(first.play_commands, expected);
+        assert_eq!(second.play_commands, expected);
+        assert!(first.writes.is_empty());
+        assert!(second.writes.is_empty());
     }
 
     #[test]
@@ -1271,9 +1129,9 @@ mod test {
 
         let tick = src.execute();
 
-        assert!(tick.plan.play_commands.is_empty());
-        assert!(tick.plan.diagnostics.is_empty());
-        assert!(tick.plan.writes.is_empty());
+        assert!(tick.play_commands.is_empty());
+        assert!(tick.diagnostics.is_empty());
+        assert!(tick.writes.is_empty());
     }
 
     #[test]
@@ -1288,7 +1146,7 @@ mod test {
             let tick = src.execute();
 
             assert_eq!(
-                tick.plan.play_commands,
+                tick.play_commands,
                 vec![PlayCommand::Raw {
                     channel: 0,
                     velocity: 0x7F,
@@ -1296,7 +1154,7 @@ mod test {
                 }],
                 "Bang at {bang}, root at {root}"
             );
-            assert!(tick.plan.diagnostics.is_empty(), "Bang at {bang}");
+            assert!(tick.diagnostics.is_empty(), "Bang at {bang}");
         }
     }
 
@@ -1313,7 +1171,7 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(
-            tick.plan.play_commands,
+            tick.play_commands,
             vec![PlayCommand::Raw {
                 channel: 0,
                 velocity: 0x7F,
@@ -1344,7 +1202,7 @@ mod test {
             let tick = src.execute();
 
             assert!(
-                tick.plan.play_commands.is_empty(),
+                tick.play_commands.is_empty(),
                 "{expression:?} emitted a command"
             );
         }
@@ -1359,7 +1217,7 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(tick.plan.writes.len(), 2);
+        assert_eq!(tick.writes.len(), 2);
     }
 
     #[test]
@@ -1434,15 +1292,15 @@ mod test {
 
         assert_eq!(src.row(5), ".+0102   Z");
         assert_eq!(src.get(59), Some("Z".to_string()));
-        assert!(tick.plan.writes.is_empty());
-        assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].start(), 50);
-        assert_eq!(tick.plan.diagnostics[0].end(), 55);
+        assert!(tick.writes.is_empty());
+        assert_eq!(tick.diagnostics.len(), 1);
+        assert_eq!(tick.diagnostics[0].start(), 50);
+        assert_eq!(tick.diagnostics[0].end(), 55);
         assert_eq!(
-            tick.plan.diagnostics[0].message,
+            tick.diagnostics[0].message,
             "result \"03\" falls below the Source"
         );
-        assert!(tick.changes.is_empty());
+        assert!(tick.writes.is_empty());
     }
 
     #[test]
@@ -1581,8 +1439,8 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(src.row(1), "   03     ");
-        assert_eq!(tick.plan.writes.len(), 2);
-        assert!(tick.plan.diagnostics.is_empty());
+        assert_eq!(tick.writes.len(), 2);
+        assert!(tick.diagnostics.is_empty());
     }
 
     #[test]
@@ -1609,7 +1467,7 @@ mod test {
         // (0, 1) then (10, 2): the second Play's anchor is further right and
         // one row lower.
         assert_eq!(
-            tick.plan.play_commands,
+            tick.play_commands,
             vec![
                 PlayCommand::Raw {
                     channel: 0,
@@ -1625,8 +1483,7 @@ mod test {
         );
         // (0, 2) then (0, 3), interleaved between the two Play producers.
         assert_eq!(
-            tick.plan
-                .diagnostics
+            tick.diagnostics
                 .iter()
                 .map(|diagnostic| (diagnostic.start(), diagnostic.message.as_str()))
                 .collect::<Vec<_>>(),
@@ -1637,7 +1494,7 @@ mod test {
         );
         // The last producer's write, from the anchor (10, 3).
         assert_eq!(
-            tick.plan.writes,
+            tick.writes,
             vec![
                 CellWrite {
                     idx: 90,
@@ -1672,7 +1529,7 @@ mod test {
         let first = src.execute();
 
         assert_eq!(
-            first.plan.writes,
+            first.writes,
             vec![
                 CellWrite {
                     idx: 14,
@@ -1692,7 +1549,6 @@ mod test {
         assert_eq!(src.row(2), "03        ");
         assert!(
             second
-                .plan
                 .writes
                 .iter()
                 .any(|write| write.idx == 20 && write.content == '0')

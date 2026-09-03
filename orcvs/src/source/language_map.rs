@@ -242,15 +242,6 @@ impl LanguageMap {
         &self.units[units_range(&self.units, self.grid, expression.span)]
     }
 
-    pub(super) fn glyph_at_index(&self, idx: usize) -> Option<Glyph> {
-        self.glyphs.get(idx).copied().flatten()
-    }
-
-    pub(super) fn presentation_differs_at(&self, previous: &Self, idx: usize) -> bool {
-        debug_assert_eq!(self.glyphs.len(), previous.glyphs.len());
-        self.glyphs[idx] != previous.glyphs[idx]
-    }
-
     fn parse_range(&mut self, grid: Grid, bytes: &[u8], range: Span) {
         let start = range.start();
         let end = range.end();
@@ -856,19 +847,22 @@ mod tests {
 
     #[test]
     fn language_map_builds_cohesive_expression_state() {
-        let map = LanguageMap::build(Grid::new(8, 1), b".+0102 x");
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102 x");
         let expressions = map.expressions().collect::<Vec<_>>();
         assert_eq!(expressions.len(), 2);
         assert_eq!(expressions[0].span().positions().count(), 6);
         assert!(expressions[0].atoms().is_some());
-        assert_eq!(map.glyph_at_index(0), Some(Glyph::Function));
-        assert_eq!(map.glyph_at_index(7), Some(Glyph::Char));
+        let at = |idx: usize| map.glyph_at(grid.position_at(grid.cell_index(idx).unwrap()));
+        assert_eq!(at(0), Some(Glyph::Function));
+        assert_eq!(at(7), Some(Glyph::Char));
         assert_eq!(map.expression_diagnostics().count(), 1);
     }
 
     #[test]
     fn language_map_partitions_adjacent_standalone_units() {
-        let bangs = LanguageMap::build(Grid::new(4, 1), b"****");
+        let bang_grid = Grid::new(4, 1);
+        let bangs = LanguageMap::build(bang_grid, b"****");
         let activations = LanguageMap::build(Grid::new(4, 1), b">>>>");
 
         assert_eq!(
@@ -881,7 +875,13 @@ mod tests {
                 .as_slice(),
             &[Atom::Bang, Atom::Bang]
         );
-        assert!((0..4).all(|idx| bangs.glyph_at_index(idx) == Some(Glyph::Bang)));
+        assert!(
+            bang_grid
+                .rows()
+                .flatten()
+                .take(4)
+                .all(|position| bangs.glyph_at(position) == Some(Glyph::Bang))
+        );
         assert_eq!(bangs.diagnostics().count(), 0);
         assert_eq!(
             activations
@@ -897,14 +897,5 @@ mod tests {
             ]
         );
         assert_eq!(activations.diagnostics().count(), 0);
-    }
-
-    #[test]
-    fn presentation_comparison_stays_behind_the_language_map() {
-        let grid = Grid::new(5, 1);
-        let before = LanguageMap::build(grid, b"x    ");
-        let after = LanguageMap::build(grid, b"x y  ");
-        assert!(!after.presentation_differs_at(&before, 0));
-        assert!(after.presentation_differs_at(&before, 2));
     }
 }
