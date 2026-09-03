@@ -16,9 +16,9 @@
 use lang::{Atom, Atoms, Interpretation, Interpreter};
 use std::collections::BTreeMap;
 
-use crate::grid::{Grid, Position};
+use crate::grid::{CellIndex, Grid, Position};
 
-use super::language_map::{ExpressionEntry, LanguageMap};
+use super::language_map::{ExpressionEntry, LanguageMap, Span};
 use super::{CellWrite, Diagnostic, PlayCommand, TickPlan};
 
 ///
@@ -51,11 +51,12 @@ enum Producer<'map> {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
     ///
-    /// One Cell of a complete write. ADR 0004 and ADR 0009 validate a write's
-    /// whole destination before any of its Cells is emitted, so an invalid or
-    /// out-of-Grid destination diagnoses and contributes no partial write.
+    /// One complete write. ADR 0004 and ADR 0009 validate a write's whole
+    /// destination before any of its Cells is emitted; a `SpanWrite` exists
+    /// only when its whole destination was accepted, so a partial write is
+    /// unrepresentable rather than merely avoided.
     ///
-    Write(CellWrite),
+    Write(SpanWrite),
 
     /// One Play Command from an active Terminal Output Function.
     Play(PlayCommand),
@@ -142,6 +143,71 @@ impl Turn<'_> {
 /// one predictable order, which is a separate question from which producer
 /// owns each Cell.
 ///
+///
+/// A validated write of one encoding to a contiguous run of Cells.
+///
+/// The two ways a whole destination is refused are the two variants of
+/// `SpanWriteError`; each producer turns them into its own diagnostic, and
+/// neither yields a `SpanWrite`. Cells are addressed only when the Tick Plan
+/// resolves, so no producer can emit half of one.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct SpanWrite {
+    span: Span,
+    content: String,
+}
+
+///
+/// Why a whole destination was refused.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SpanWriteError {
+    /// There is no row below the producer's root.
+    BelowSource,
+    /// The encoding is wider than the destination row's remaining Cells.
+    CrossesRowEdge,
+}
+
+impl SpanWrite {
+    ///
+    /// The write that places `content` in the row below `root`, starting at
+    /// `root`'s column. `content` is one or more ASCII Cells.
+    ///
+    pub(super) fn below(grid: Grid, root: Position, content: &str) -> Result<Self, SpanWriteError> {
+        let target = grid.below(root).ok_or(SpanWriteError::BelowSource)?;
+        Self::at(grid, target, content)
+    }
+
+    ///
+    /// The write that places `content` at `start` and along its row.
+    /// `content` is one or more ASCII Cells.
+    ///
+    pub(super) fn at(grid: Grid, start: Position, content: &str) -> Result<Self, SpanWriteError> {
+        debug_assert!(!content.is_empty(), "a write places at least one Cell");
+        debug_assert!(
+            content.is_ascii(),
+            "a write preserves the Source ASCII invariant"
+        );
+
+        let width = content.chars().count();
+        let last = grid
+            .offset_in_row(start, width - 1)
+            .ok_or(SpanWriteError::CrossesRowEdge)?;
+
+        Ok(Self {
+            span: Span::new(grid, grid.index(start), last),
+            content: content.to_string(),
+        })
+    }
+
+    ///
+    /// Each Cell this write covers, paired with what it receives.
+    ///
+    fn cells(&self) -> impl Iterator<Item = (CellIndex, char)> + '_ {
+        self.span.indices().zip(self.content.chars())
+    }
+}
+
 pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     let mut writes = BTreeMap::new();
     let mut play_commands = Vec::new();
@@ -150,7 +216,18 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     for effect in effects {
         match effect {
             Effect::Write(write) => {
-                writes.insert(write.idx, write);
+                // A validated write fans out Cell-wise here, so ADR 0020's
+                // per-Cell conflict resolution is unchanged: a later producer
+                // still wins each Cell it overlaps, independently.
+                for (idx, content) in write.cells() {
+                    writes.insert(
+                        idx.get(),
+                        CellWrite {
+                            idx: idx.get(),
+                            content,
+                        },
+                    );
+                }
             }
             Effect::Play(command) => play_commands.push(command),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
@@ -221,36 +298,20 @@ fn emit_expression_root(
         "Interpreter results must preserve the Source ASCII invariant"
     );
 
-    // The whole destination validates before any Cell of this write is
-    // emitted, so a rejected destination contributes no partial write.
-    let Some(target) = grid.below(root) else {
-        effects.push(Effect::Diagnose(Diagnostic::for_expression(
+    match SpanWrite::below(grid, root, &encoded) {
+        Ok(write) => effects.push(Effect::Write(write)),
+        Err(reason) => effects.push(Effect::Diagnose(Diagnostic::for_expression(
             root,
             expression.span(),
-            format!("result {encoded:?} falls below the Source"),
-        )));
-        return;
-    };
-    if !grid.fits(target, encoded.chars().count()) {
-        effects.push(Effect::Diagnose(Diagnostic::for_expression(
-            root,
-            expression.span(),
-            format!("result {encoded:?} crosses the row edge"),
-        )));
-        return;
-    }
-
-    for (offset, content) in encoded.chars().enumerate() {
-        // The row bound is the Grid's to answer, not this loop's to compute:
-        // `fits` above already refused a result that would cross the edge, so
-        // every offset here names a Cell in the target's own row.
-        let idx = grid
-            .offset_in_row(target, offset)
-            .expect("a result that fits the target row stays inside it");
-        effects.push(Effect::Write(CellWrite {
-            idx: idx.get(),
-            content,
-        }));
+            match reason {
+                SpanWriteError::BelowSource => {
+                    format!("result {encoded:?} falls below the Source")
+                }
+                SpanWriteError::CrossesRowEdge => {
+                    format!("result {encoded:?} crosses the row edge")
+                }
+            },
+        ))),
     }
 }
 
@@ -281,7 +342,7 @@ fn is_terminal_root(atoms: &Atoms) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::{Effect, Turn, order_by_anchor, resolve, turns};
+    use super::{Effect, SpanWrite, SpanWriteError, Turn, order_by_anchor, resolve, turns};
     use crate::{
         grid::Grid,
         source::{CellWrite, Diagnostic, PlayCommand, language_map::LanguageMap},
@@ -321,8 +382,13 @@ mod test {
         effects
     }
 
-    fn write(idx: usize, content: char) -> Effect {
-        Effect::Write(CellWrite { idx, content })
+    ///
+    /// A complete write of `content` starting at `idx`. One Effect covers the
+    /// whole run, which is the shape a producer emits.
+    ///
+    fn write(grid: Grid, idx: usize, content: &str) -> Effect {
+        let start = grid.position_at(grid.cell_index(idx).expect("inside the Grid"));
+        Effect::Write(SpanWrite::at(grid, start, content).expect("the write fits its row"))
     }
 
     fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
@@ -389,7 +455,7 @@ mod test {
         let mut second = Vec::new();
         turn.emit(grid, &map, &mut second);
 
-        assert_eq!(first, vec![write(10, '0'), write(11, '3')]);
+        assert_eq!(first, vec![write(grid, 10, "03")]);
         assert_eq!(first, second);
     }
 
@@ -414,6 +480,30 @@ mod test {
     }
 
     #[test]
+    fn test_a_refused_destination_yields_no_write_at_all() {
+        // The property ADR 0004 states — validate the whole destination before
+        // emitting any Cell of it — is now a property of the constructor, so it
+        // is checked here without a Source, a producer, or a Tick.
+        let grid = Grid::new(4, 2);
+        let bottom_row = grid.position(0, 1).expect("inside the Grid");
+        let near_edge = grid.position(2, 0).expect("inside the Grid");
+
+        assert_eq!(
+            SpanWrite::below(grid, bottom_row, "03"),
+            Err(SpanWriteError::BelowSource),
+            "there is no row below the last one"
+        );
+        assert_eq!(
+            SpanWrite::at(grid, near_edge, "ABC"),
+            Err(SpanWriteError::CrossesRowEdge),
+            "three Cells do not fit in the two remaining"
+        );
+
+        // the widest write the row does hold is accepted whole
+        assert!(SpanWrite::at(grid, near_edge, "AB").is_ok());
+    }
+
+    #[test]
     fn test_later_effects_win_cell_conflicts_independently() {
         // An earlier producer writes three Cells and a later one writes two,
         // overlapping the third. Resolution is Cell-wise: the later producer
@@ -425,13 +515,8 @@ mod test {
         // least three columns apart. The Source-writing Functions of issues 03
         // and 04 emit exactly this shape of overlapping bundle, so the
         // resolution they rely on is pinned here at the seam that owns it.
-        let plan = resolve(vec![
-            write(10, 'A'),
-            write(11, 'B'),
-            write(12, 'C'),
-            write(12, 'X'),
-            write(13, 'Y'),
-        ]);
+        let grid = Grid::new(20, 3);
+        let plan = resolve(vec![write(grid, 10, "ABC"), write(grid, 12, "XY")]);
 
         assert_eq!(
             plan.writes,
@@ -478,7 +563,7 @@ mod test {
         let plan = resolve(vec![
             Effect::Play(first),
             earlier.clone(),
-            write(10, '0'),
+            write(grid, 10, "0"),
             Effect::Play(second),
             later.clone(),
         ]);
