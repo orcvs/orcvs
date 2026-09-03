@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{
-    Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token, to_atom_note,
-    to_atom_num,
+    Activation, Atom, Atoms, Error as LangError, Expression, Function, Parser, SourceAnalysis,
+    Token, to_atom_note, to_atom_num,
 };
 
 use crate::{
@@ -275,19 +275,46 @@ impl LanguageMap {
         &self.units[units_range(&self.units, self.grid, expression.span)]
     }
 
+    ///
+    /// What one Expression Span analyzes to.
+    ///
+    /// A Span the partition has already named end to end as standalone Atoms is
+    /// assembled from those units; every other Span is read by the Parser, which
+    /// is the only path that touches the characters again.
+    ///
+    fn analyze_span(
+        &self,
+        bytes: &[u8],
+        span: Span,
+        units: std::ops::Range<usize>,
+    ) -> Result<SourceAnalysis, LangError> {
+        // Recomputed only to check the caller, and only in a debug build: the
+        // search itself still happens once, in `parse_span`.
+        debug_assert_eq!(
+            units,
+            units_range(&self.units, self.grid, span),
+            "a Span is analyzed from the units covering it"
+        );
+        if let Some(expression) = standalone_run(&self.units[units], span) {
+            return Ok(SourceAnalysis::Complete(expression));
+        }
+
+        let mut source = String::from_utf8(bytes[span.start().get()..=span.end().get()].to_vec())
+            .expect("Source Cells contain ASCII");
+        Parser::from(&mut source).analyze()
+    }
+
     fn parse_span(&mut self, grid: Grid, bytes: &[u8], span: Span) {
         let start = span.start();
         let end = span.end();
+        // The units covering this Span, named once. Held as a range rather than
+        // a slice so the Span's Cells can be re-glyphed between the two places
+        // that read them.
+        let units = units_range(&self.units, grid, span);
         // A later Expression owns its occupied Cells over any operand-slot
         // hints emitted by an earlier Expression.
         self.glyphs[start.get()..=end.get()].fill(None);
-        let mut source = String::from_utf8(bytes[start.get()..=end.get()].to_vec())
-            .expect("Source Cells contain ASCII");
-        let standalone_run = parse_standalone_run(&source);
-        let analysis = match standalone_run
-            .map(SourceAnalysis::Complete)
-            .map_or_else(|| Parser::from(&mut source).analyze(), Ok)
-        {
+        let analysis = match self.analyze_span(bytes, span, units.clone()) {
             Ok(analysis) => analysis,
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
@@ -306,7 +333,7 @@ impl LanguageMap {
             .error()
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
-        let expression_units = &self.units[units_range(&self.units, grid, span)];
+        let expression_units = &self.units[units];
         let root = executable
             .then(|| {
                 expression_units.iter().find_map(|unit| {
@@ -474,21 +501,62 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
     first..past_last
 }
 
-fn parse_standalone_run(source: &str) -> Option<Expression> {
-    if source.len() < 4 || !source.len().is_multiple_of(2) {
+///
+/// Whether `units` tile `span`: the first begins where the Span begins, each
+/// next begins immediately after the one before it ends, and the last ends
+/// where the Span ends.
+///
+/// A tiled Span has every Cell claimed by a Language Unit, so the length and
+/// parity a run of two-Cell spellings must have are consequences of the tiling
+/// rather than separate tests: an odd Cell count cannot be tiled by two-Cell
+/// units at all, and a Cell the partition diagnosed instead of naming leaves a
+/// hole that no arrangement of units closes.
+///
+/// Adjacency is arithmetic on bare Cell numbers rather than a question for the
+/// Grid, because a Span and the units within it are confined to one row and
+/// share one Grid: the running number is only ever compared, never used to
+/// address a Cell, so no index this Grid cannot answer for comes into being.
+///
+fn units_tile_span(units: &[LanguageUnit], span: Span) -> bool {
+    let mut next = span.start().get();
+    for unit in units {
+        if unit.span().start().get() != next {
+            return false;
+        }
+        next = unit.span().end().get() + 1;
+    }
+    next == span.end().get() + 1
+}
+
+///
+/// The Expression a Span spells when the partition named every one of its
+/// Cells as a standalone Atom — a Bang or an Activation.
+///
+/// The Parser accepts one Language Unit and calls whatever follows it trailing
+/// content, so a run of standalone Atoms is the one shape it cannot take whole.
+/// ADR 0024 makes the partition the single owner of what a two-Cell spelling
+/// is, so the Expression is assembled from the kinds it established rather than
+/// by reading the same characters a second time.
+///
+/// `None` leaves the Span to the Parser: when the units do not tile it, when
+/// any of them is a Function or an Operand Literal, or when the run exceeds the
+/// Expression's capacity. The Parser then answers, and answers as it did before
+/// this path existed — for an over-capacity run of standalone Atoms that is
+/// trailing content after the one unit it accepts, not a capacity error.
+///
+fn standalone_run(units: &[LanguageUnit], span: Span) -> Option<Expression> {
+    if !units_tile_span(units, span) {
         return None;
     }
 
     let mut expression = Expression::new();
-    for spelling in source.as_bytes().as_chunks::<2>().0 {
-        let (token, atom) = match spelling {
-            b"**" => (Token::Bang, Atom::Bang),
-            _ => {
-                let activation = std::str::from_utf8(spelling)
-                    .ok()
-                    .and_then(|spelling| Activation::try_from(spelling).ok())?;
+    for unit in units {
+        let (token, atom) = match unit.kind() {
+            LanguageUnitKind::Bang => (Token::Bang, Atom::Bang),
+            LanguageUnitKind::Activation(activation) => {
                 (Token::Activation, Atom::Activation(activation))
             }
+            LanguageUnitKind::Function(_) | LanguageUnitKind::OperandLiteral => return None,
         };
         expression.add(token, atom).ok()?;
     }
@@ -907,6 +975,31 @@ mod tests {
         assert_eq!(at(0), Some(Glyph::Function));
         assert_eq!(at(7), Some(Glyph::Char));
         assert_eq!(map.expression_diagnostics().count(), 1);
+    }
+
+    #[test]
+    fn a_span_its_units_do_not_tile_is_not_a_standalone_run() {
+        // The standalone-run path is selected by the units tiling their Span,
+        // and that one property is what the retired recognizer's separate
+        // length and parity tests came to. Both of its failures are here.
+        //
+        // An odd Cell count cannot be tiled by two-Cell units: the third `*`
+        // is diagnosed rather than named, and the Span reaches the Parser,
+        // which takes the Bang and calls the rest trailing content.
+        let odd = LanguageMap::build(Grid::new(3, 1), b"***");
+        // An even Cell count is not enough either. This Span is six Cells
+        // holding two Bangs, and the two diagnosed Cells between them leave a
+        // hole no arrangement of units closes.
+        let holed = LanguageMap::build(Grid::new(6, 1), b"**X0**");
+
+        for map in [&odd, &holed] {
+            assert!(map.expressions().next().unwrap().atoms().is_none());
+            assert!(map.diagnostics().any(|diagnostic| {
+                diagnostic
+                    .message
+                    .starts_with("unexpected trailing content")
+            }));
+        }
     }
 
     #[test]
