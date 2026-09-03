@@ -209,7 +209,7 @@ impl SpanWrite {
 }
 
 pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
-    let mut writes = BTreeMap::new();
+    let mut writes: BTreeMap<CellIndex, char> = BTreeMap::new();
     let mut play_commands = Vec::new();
     let mut diagnostics = Vec::new();
 
@@ -219,14 +219,8 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
                 // A validated write fans out Cell-wise here, so ADR 0020's
                 // per-Cell conflict resolution is unchanged: a later producer
                 // still wins each Cell it overlaps, independently.
-                for (idx, content) in write.cells() {
-                    writes.insert(
-                        idx.get(),
-                        CellWrite {
-                            idx: idx.get(),
-                            content,
-                        },
-                    );
+                for (cell, content) in write.cells() {
+                    writes.insert(cell, content);
                 }
             }
             Effect::Play(command) => play_commands.push(command),
@@ -235,7 +229,12 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     }
 
     TickPlan {
-        writes: writes.into_values().collect(),
+        // Cell indices order row-major within one Grid, so draining the map in
+        // key order is the Cell order a Tick Plan describes its changes in.
+        writes: writes
+            .into_iter()
+            .map(|(cell, content)| CellWrite { cell, content })
+            .collect(),
         play_commands,
         diagnostics,
     }
@@ -344,9 +343,17 @@ fn is_terminal_root(atoms: &Atoms) -> bool {
 mod test {
     use super::{Effect, SpanWrite, SpanWriteError, Turn, order_by_anchor, resolve, turns};
     use crate::{
-        grid::Grid,
+        grid::{CellIndex, Grid},
         source::{CellWrite, Diagnostic, PlayCommand, language_map::LanguageMap},
     };
+
+    ///
+    /// The index `grid` mints for `idx`, so a test states an expected planned
+    /// write in the same terms a Tick Plan carries.
+    ///
+    fn cell(grid: Grid, idx: usize) -> CellIndex {
+        grid.cell_index(idx).expect("inside the Grid")
+    }
 
     ///
     /// A Language Map derived from `rows`, each padded to the Grid's width.
@@ -522,19 +529,19 @@ mod test {
             plan.writes,
             vec![
                 CellWrite {
-                    idx: 10,
+                    cell: cell(grid, 10),
                     content: 'A'
                 },
                 CellWrite {
-                    idx: 11,
+                    cell: cell(grid, 11),
                     content: 'B'
                 },
                 CellWrite {
-                    idx: 12,
+                    cell: cell(grid, 12),
                     content: 'X'
                 },
                 CellWrite {
-                    idx: 13,
+                    cell: cell(grid, 13),
                     content: 'Y'
                 },
             ]
@@ -579,7 +586,7 @@ mod test {
         assert_eq!(
             plan.writes,
             vec![CellWrite {
-                idx: 10,
+                cell: cell(grid, 10),
                 content: '0'
             }]
         );

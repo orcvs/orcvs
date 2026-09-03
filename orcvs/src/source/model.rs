@@ -2,7 +2,7 @@ use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError};
 use std::{fmt, sync::Arc};
 use tracing::debug;
 
-use crate::grid::Grid;
+use crate::grid::{CellIndex, Grid};
 
 use super::SourceError;
 use super::language_map::{LanguageMap, Span};
@@ -91,9 +91,14 @@ impl Diagnostic {
     }
 }
 
+/// One Cell a Tick Plan commits, and what it receives.
+///
+/// The Cell is named by the index its Grid minted rather than by a number,
+/// so a planned write cannot address a Cell the Source has no room for and
+/// nothing downstream re-checks the bound.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CellWrite {
-    pub idx: usize,
+    pub cell: CellIndex,
     pub content: char,
 }
 
@@ -209,11 +214,11 @@ impl Source {
     ///
     pub fn set(&mut self, idx: usize, s: &str) -> Result<(), SourceError> {
         debug!("set {idx}: {s}");
-        self.check_idx(idx)?;
+        let cell = self.check_idx(idx)?;
         let byte = Self::check_content(s)?;
         self.check_expression_capacity(idx, byte)?;
 
-        self.edit(idx, byte);
+        self.edit(cell, byte);
         Ok(())
     }
 
@@ -221,9 +226,9 @@ impl Source {
     /// Empties the Cell at `idx` and recalculates the affected Expressions.
     ///
     pub fn unset(&mut self, idx: usize) -> Result<(), SourceError> {
-        self.check_idx(idx)?;
+        let cell = self.check_idx(idx)?;
 
-        self.edit(idx, SPACE_BYTE);
+        self.edit(cell, SPACE_BYTE);
         Ok(())
     }
 
@@ -231,8 +236,8 @@ impl Source {
     /// Applies one already-validated edit. The revision it produces is what
     /// the console observes, so the edit reports nothing of its own.
     ///
-    fn edit(&mut self, idx: usize, byte: u8) {
-        self.set_source(idx, byte);
+    fn edit(&mut self, cell: CellIndex, byte: u8) {
+        self.set_source(cell, byte);
         self.rebuild_derived_state();
     }
 
@@ -253,12 +258,12 @@ impl Source {
     }
 
     ///
-    /// Whether `idx` names a Cell. The Grid decides: an index it cannot
-    /// address is one this Source has no Cell for.
+    /// The Cell `idx` names. The Grid decides: an index it cannot address is
+    /// one this Source has no Cell for.
     ///
-    fn check_idx(&self, idx: usize) -> Result<(), SourceError> {
+    fn check_idx(&self, idx: usize) -> Result<CellIndex, SourceError> {
         match self.grid.cell_index(idx) {
-            Some(_) => Ok(()),
+            Some(cell) => Ok(cell),
             None => Err(SourceError::OutOfRange {
                 idx,
                 len: self.grid.count(),
@@ -348,7 +353,7 @@ impl Source {
     fn commit_tick(&mut self, plan: &TickPlan) {
         // Commit every planned Cell before rebuilding any derived state.
         for write in &plan.writes {
-            self.set_source(write.idx, write.content as u8);
+            self.set_source(write.cell, write.content as u8);
         }
         self.rebuild_derived_state();
     }
@@ -358,18 +363,33 @@ impl Source {
     }
 
     ///
-    /// Writes one already-validated ASCII byte at `idx` without
+    /// Writes one already-validated ASCII byte at `cell` without
     /// recalculating Expressions.
     ///
-    fn set_source(&mut self, idx: usize, byte: u8) {
-        // SAFETY: The `edit` caller receives `byte` only after `Source::set`
-        // validates it with `check_content`. The `commit_tick` caller receives
-        // bytes from a Tick Plan built by `plan_tick`, whose ASCII assertion
-        // also makes its character offsets valid byte offsets. Both callers
-        // bounds-check `idx` before mutation, so the String stays valid UTF-8.
+    fn set_source(&mut self, cell: CellIndex, byte: u8) {
+        // What makes `cell` address a byte of *this* Source. `Grid::cell_index`
+        // and `Grid::index` are the only minters and both bound their answer by
+        // the Grid's Cell count; `inner` is that many bytes from `Source::new`
+        // onward, and nothing below changes its length. A Grid of the same
+        // shape is still a different Grid, which is why identity is what is
+        // asked rather than a number compared.
+        self.grid.assert_owns_index(cell);
+        // SAFETY: only UTF-8 validity is at stake, and every byte involved is
+        // single-byte ASCII. `inner` holds one such byte per Cell — `Source::new`
+        // fills it with spaces, `Deserialize` validates every byte it accepts,
+        // and this is the only place it is written afterwards. `byte` is one
+        // too: `set` takes it from `check_content`, `unset` passes a space, and
+        // `commit_tick` takes it from a Tick Plan whose results
+        // `tick::emit_expression_root` asserts are ASCII. One single-byte value
+        // replacing another leaves the String valid and its length unchanged.
+        //
+        // The Source's own invariant is the narrower printable range, and the
+        // Tick path asserts only `is_ascii`. That is a wider set than a Cell is
+        // supposed to hold, not a wider set than UTF-8 admits, so it is a
+        // question for the Tick path rather than for this block.
         unsafe {
             let bytes = self.inner.as_bytes_mut();
-            bytes[idx] = byte;
+            bytes[cell.get()] = byte;
         }
     }
 }
@@ -387,7 +407,7 @@ mod test {
 
     use crate::{
         glyph::Glyph,
-        grid::Grid,
+        grid::{CellIndex, Grid},
         source::{CellWrite, PlayCommand, Source, SourceError},
         test::trace,
     };
@@ -493,6 +513,14 @@ mod test {
         ///
         fn row_count(&self) -> usize {
             self.grid.rows().count()
+        }
+
+        ///
+        /// The index this Source's Grid mints for `idx`, so a test states an
+        /// expected planned write in the same terms a Tick Plan carries.
+        ///
+        fn cell_index(&self, idx: usize) -> CellIndex {
+            self.grid.cell_index(idx).expect("inside the Grid")
         }
     }
 
@@ -989,9 +1017,9 @@ mod test {
         assert_eq!(src.get(11), Some("3".to_string()));
         assert!(tick.play_commands.is_empty());
         assert_eq!(tick.writes.len(), 2);
-        assert_eq!(tick.writes[0].idx, 10);
+        assert_eq!(tick.writes[0].cell, src.cell_index(10));
         assert_eq!(tick.writes[0].content, '0');
-        assert_eq!(tick.writes[1].idx, 11);
+        assert_eq!(tick.writes[1].cell, src.cell_index(11));
         assert_eq!(tick.writes[1].content, '3');
         assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Char)));
         assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Char)));
@@ -1520,11 +1548,11 @@ mod test {
             tick.writes,
             vec![
                 CellWrite {
-                    idx: 90,
+                    cell: src.cell_index(90),
                     content: '0',
                 },
                 CellWrite {
-                    idx: 91,
+                    cell: src.cell_index(91),
                     content: '3',
                 },
             ]
@@ -1555,11 +1583,11 @@ mod test {
             first.writes,
             vec![
                 CellWrite {
-                    idx: 14,
+                    cell: src.cell_index(14),
                     content: '0',
                 },
                 CellWrite {
-                    idx: 15,
+                    cell: src.cell_index(15),
                     content: '2',
                 },
             ]
@@ -1574,7 +1602,7 @@ mod test {
             second
                 .writes
                 .iter()
-                .any(|write| write.idx == 20 && write.content == '0')
+                .any(|write| write.cell == src.cell_index(20) && write.content == '0')
         );
     }
 
