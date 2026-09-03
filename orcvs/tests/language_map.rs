@@ -86,7 +86,10 @@ fn unmatched_characters_have_revision_consistent_diagnostic_spans() {
         .find(|diagnostic| diagnostic.start() == 2)
         .unwrap();
 
-    assert_eq!(unmatched.anchor(), grid.position(2, 0));
+    assert_eq!(
+        unmatched.anchor(),
+        grid.position(2, 0).expect("inside the Grid")
+    );
     assert_eq!(
         unmatched.span().positions().collect::<Vec<_>>(),
         vec![grid.position(2, 0).unwrap()]
@@ -121,7 +124,10 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     );
     assert_eq!(source.language_map().expressions().count(), 1);
     let diagnostic = source.language_map().diagnostics().next().unwrap();
-    assert_eq!(diagnostic.anchor(), grid.position(4, 0));
+    assert_eq!(
+        diagnostic.anchor(),
+        grid.position(4, 0).expect("inside the Grid")
+    );
     assert_eq!(
         diagnostic.span().positions().collect::<Vec<_>>(),
         vec![grid.position(4, 0).unwrap()]

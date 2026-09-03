@@ -16,14 +16,25 @@ const SPACE_BYTE: u8 = b' ';
 /// Source revision. Diagnostics describe accepted user content; they never
 /// reject an incomplete or invalid Live Edit.
 ///
+/// Every Diagnostic has both an anchor and a Span, and they answer two
+/// different questions. The Span is the run of Cells the problem is about. The
+/// anchor is the one Position responsible for it — where a reader is sent to
+/// fix it. The anchor lies within the Span but need not be its first Cell: a
+/// producer whose effect falls elsewhere than where it sits diagnoses at its
+/// own Position while describing the Cells its Expression occupies.
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Diagnostic {
     pub message: String,
-    anchor: Option<crate::grid::Position>,
+    anchor: crate::grid::Position,
     span: Span,
 }
 
 impl Diagnostic {
+    /// A Diagnostic about a run of Cells, anchored at the first of them.
+    ///
+    /// This is the shape for a problem no single Position is more responsible
+    /// for than any other: an unmatched character, or a parse of a whole Span.
     pub(super) fn for_range(
         grid: Grid,
         start: crate::grid::CellIndex,
@@ -32,19 +43,30 @@ impl Diagnostic {
     ) -> Self {
         Self {
             message,
-            anchor: Some(grid.position_at(start)),
+            anchor: grid.position_at(start),
             span: Span::new(grid, start, end),
         }
     }
 
+    /// A Diagnostic about the Expression covering `span`, anchored at the
+    /// Position that produced it.
+    ///
+    /// The anchor is supplied rather than derived because a producer's own
+    /// Position is not always its Expression's first Cell. It still has to be
+    /// one of the Cells the Diagnostic describes, which is the half of the
+    /// relationship a supplied anchor can get wrong.
     pub(super) fn for_expression(
         anchor: crate::grid::Position,
         span: Span,
         message: String,
     ) -> Self {
+        debug_assert!(
+            span.positions().any(|position| position == anchor),
+            "a Diagnostic's anchor is one of the Cells it describes"
+        );
         Self {
             message,
-            anchor: Some(anchor),
+            anchor,
             span,
         }
     }
@@ -59,7 +81,8 @@ impl Diagnostic {
         self.span.end().get()
     }
 
-    pub fn anchor(&self) -> Option<crate::grid::Position> {
+    /// The Position this Diagnostic sends a reader to. Always inside `span()`.
+    pub fn anchor(&self) -> crate::grid::Position {
         self.anchor
     }
 

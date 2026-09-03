@@ -738,7 +738,10 @@ mod tests {
         let diagnostic = map.diagnostics().next().unwrap();
 
         assert_eq!(first.span().positions().count(), 4);
-        assert_eq!(diagnostic.anchor(), grid.position(0, 0));
+        assert_eq!(
+            diagnostic.anchor(),
+            grid.position(0, 0).expect("inside the Grid")
+        );
         assert_eq!(
             diagnostic
                 .span()
