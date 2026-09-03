@@ -44,6 +44,10 @@ impl LanguageMapId {
 pub struct LanguageMap {
     id: LanguageMapId,
     grid: Grid,
+    /// Established once by `build` and never changed afterwards. An
+    /// `ExpressionEntry` records where its own units sit here as a range, so
+    /// anything that reordered or resized this would silently re-point every
+    /// Expression in the Map.
     units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
     glyphs: Vec<Option<Glyph>>,
@@ -133,6 +137,13 @@ pub struct ExpressionEntry {
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
     span: Span,
+    /// Where this Expression's Language Units sit in its Map's partition,
+    /// established when the Expression was built.
+    ///
+    /// A range into the partition rather than the units themselves: the Map
+    /// owns them, an Expression is one contiguous run of them, and a Map
+    /// outlives every question asked of the Expressions it holds.
+    units: std::ops::Range<usize>,
 }
 
 impl ExpressionEntry {
@@ -272,7 +283,7 @@ impl LanguageMap {
             self.id == expression.map_id,
             "ExpressionEntry belongs to another LanguageMap"
         );
-        &self.units[units_range(&self.units, self.grid, expression.span)]
+        &self.units[expression.units.clone()]
     }
 
     ///
@@ -307,9 +318,8 @@ impl LanguageMap {
     fn parse_span(&mut self, grid: Grid, bytes: &[u8], span: Span) {
         let start = span.start();
         let end = span.end();
-        // The units covering this Span, named once. Held as a range rather than
-        // a slice so the Span's Cells can be re-glyphed between the two places
-        // that read them.
+        // Where this Span's units sit in the partition, searched for once here
+        // and then recorded on the Expression, so nothing asks again.
         let units = units_range(&self.units, grid, span);
         // A later Expression owns its occupied Cells over any operand-slot
         // hints emitted by an earlier Expression.
@@ -323,6 +333,7 @@ impl LanguageMap {
                     diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
                     root: None,
                     span,
+                    units,
                 });
                 return;
             }
@@ -333,7 +344,7 @@ impl LanguageMap {
             .error()
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
-        let expression_units = &self.units[units];
+        let expression_units = &self.units[units.clone()];
         let root = executable
             .then(|| {
                 expression_units.iter().find_map(|unit| {
@@ -362,6 +373,7 @@ impl LanguageMap {
             diagnostic,
             root,
             span,
+            units,
         });
     }
 
