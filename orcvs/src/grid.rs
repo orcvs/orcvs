@@ -667,7 +667,7 @@ mod property {
             let grid = Grid::new(cols, rows);
 
             let pos = grid.position(x, y).expect("inside the grid");
-            prop_assert_eq!(grid.position_at(grid.index(pos)), Some(pos));
+            prop_assert_eq!(grid.position_at(grid.index(pos)), pos);
         }
     }
 }

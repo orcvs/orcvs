@@ -1232,7 +1232,7 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(src.row(1), "**        ");
-        assert_eq!(tick.plan.writes.len(), 2);
+        assert_eq!(tick.writes.len(), 2);
 
         let mut src = source();
         src.write(0, ".=0304");
@@ -1240,8 +1240,8 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(src.row(1), "          ");
-        assert!(tick.plan.writes.is_empty());
-        assert!(tick.plan.diagnostics.is_empty());
+        assert!(tick.writes.is_empty());
+        assert!(tick.diagnostics.is_empty());
     }
 
     #[test]
@@ -1256,9 +1256,9 @@ mod test {
         let tick = src.execute();
 
         assert_eq!(src.row(1), "          ");
-        assert!(tick.plan.writes.is_empty());
-        assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].message, "cannot modulo by zero");
+        assert!(tick.writes.is_empty());
+        assert_eq!(tick.diagnostics.len(), 1);
+        assert_eq!(tick.diagnostics[0].message, "cannot modulo by zero");
     }
 
     #[test]
