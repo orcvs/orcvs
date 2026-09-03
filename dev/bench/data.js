@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788399700368,
+  "lastUpdate": 1788439443111,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -263,6 +263,126 @@ window.BENCHMARK_DATA = {
             "name": "source_edit_rebuild_invalid/64x64",
             "value": 2328257,
             "range": "± 6160",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "distinct": true,
+          "id": "9f8d6a9f6006ca6f4cbbeb132656f97ea9a54fdd",
+          "message": "Specify the Orcvs evaluation machine\n\nNames the machine that evaluates an Expression and states what it guarantees:\na right-to-left walk over a prefix Atom sequence against an Operand Stack that\nlives for one Expression and holds no memory of its own.\n\nOrcvs is not a virtual machine and the ADR says so. There is no bytecode,\nbecause the Atom sequence is re-derived from character Source on every Tick,\nand no control flow, because activation and Portals are Source-resident. ADR\n0003 already makes the Source Snapshot the complete language state; this keeps\nthe Evaluator consistent with it.\n\nThe instruction set becomes one declaration that everything else derives from.\nToday it is spread across four places that cannot check each other: operand\ntypes in the Function definitions, accepted types in ADR 0021, pervasive rules\nin ADR 0007, and operand order in each Function body. The ADR fixes that the\ndeclaration is single, not what form it takes, and leaves the value model open\nbetween ADR 0007 and ADR 0026.\n\nAsking what bounds the machine relies on found a reachable panic, recorded as\ninherited-defects issue 15. A 64-Cell Expression parses to 32 Atoms and\noverflows the 16-slot Operand Stack. The defect predates every current branch,\nso only the record lands here.\n\nClaude-Session: https://claude.ai/code/session_01YJxB65AK7Dbt2c4w3SsJtg",
+          "timestamp": "2026-09-03T20:58:05+10:00",
+          "tree_id": "dfc88297cbcd2f05693305f7cfa03ac5e5ca3f57",
+          "url": "https://github.com/orcvs/orcvs/commit/9f8d6a9f6006ca6f4cbbeb132656f97ea9a54fdd"
+        },
+        "date": 1788439442559,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 125,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 65,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 18,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 503,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 53,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 61,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 114,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2761,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 10662,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 41105,
+            "range": "± 112",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 38954,
+            "range": "± 697",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 277604,
+            "range": "± 5632",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 2986693,
+            "range": "± 68949",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 39911,
+            "range": "± 245",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 282221,
+            "range": "± 5746",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 2982620,
+            "range": "± 30473",
             "unit": "ns/iter"
           }
         ]
