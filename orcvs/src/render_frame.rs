@@ -194,11 +194,19 @@ mod tests {
 
     use crate::{
         glyph::Glyph,
-        grid::Grid,
+        grid::{CellIndex, Grid},
         opts::{HighlightSpacing, MarkerSpacing},
         render_frame::{RenderFrame, RenderFrameConfig},
         source::SourceCommander,
     };
+
+    ///
+    /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
+    /// minted, so a test states the number and the Grid answers with the Cell.
+    ///
+    fn cell(grid: Grid, idx: usize) -> CellIndex {
+        grid.cell_index(idx).expect("inside the Grid")
+    }
 
     fn cell_at(frame: &RenderFrame, position: crate::grid::Position) -> &super::RenderCell {
         frame
@@ -222,7 +230,7 @@ mod tests {
     fn render_frame_is_a_complete_row_structured_visual_snapshot() {
         let grid = Grid::new(2, 2);
         let source = SourceCommander::new(grid);
-        source.set(1, "x").unwrap();
+        source.set(cell(grid, 1), "x").unwrap();
         let selected = grid.position(1, 0).unwrap();
 
         let frame = RenderFrame::derive(
@@ -257,7 +265,7 @@ mod tests {
         let grid = Grid::new(4, 1);
         let source = SourceCommander::new(grid);
         for (index, content) in "***x".chars().enumerate() {
-            source.set(index, &content.to_string()).unwrap();
+            source.set(cell(grid, index), &content.to_string()).unwrap();
         }
 
         let frame = RenderFrame::derive(
@@ -280,8 +288,8 @@ mod tests {
     fn east_activation_is_not_classified_as_a_function() {
         let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
-        source.set(0, ">").unwrap();
-        source.set(1, ">").unwrap();
+        source.set(cell(grid, 0), ">").unwrap();
+        source.set(cell(grid, 1), ">").unwrap();
 
         let frame = RenderFrame::derive(
             source.read_revision(),
@@ -301,7 +309,7 @@ mod tests {
     fn occupied_glyphs_win_over_sector_presentation() {
         let grid = Grid::new(2, 2);
         let source = SourceCommander::new(grid);
-        source.set(0, "x").unwrap();
+        source.set(cell(grid, 0), "x").unwrap();
 
         let frame = RenderFrame::derive(
             source.read_revision(),
@@ -468,7 +476,7 @@ mod tests {
         let grid = Grid::new(8, 2);
         let source = SourceCommander::new(grid);
         for (idx, content) in ".+010E".chars().enumerate() {
-            source.set(idx, &content.to_string()).unwrap();
+            source.set(cell(grid, idx), &content.to_string()).unwrap();
         }
         source.execute();
 
@@ -478,7 +486,9 @@ mod tests {
         let writer = std::thread::spawn(move || {
             writer_start.wait();
             for operand in ['F', 'E'].into_iter().cycle().take(2_000) {
-                writer_source.set(5, &operand.to_string()).unwrap();
+                writer_source
+                    .set(cell(grid, 5), &operand.to_string())
+                    .unwrap();
                 writer_source.execute();
             }
         });

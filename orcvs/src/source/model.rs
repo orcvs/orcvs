@@ -179,7 +179,7 @@ impl<'de> serde::Deserialize<'de> for Source {
 }
 
 impl Source {
-    pub(crate) fn grid(&self) -> Grid {
+    pub fn grid(&self) -> Grid {
         self.grid
     }
 
@@ -200,29 +200,12 @@ impl Source {
     }
 
     ///
-    /// Sets the Cell at `idx` and recalculates the affected Expressions.
-    /// A space empties the Cell, equivalent to `unset`.
-    ///
-    /// ```
-    /// use orcvs::{grid::Grid, source::Source};
-    ///
-    /// let mut source = Source::new(Grid::new(10, 10));
-    /// source.set(33, "!").unwrap();
-    ///
-    /// assert_eq!(source.get(33), Some("!".to_string()));
-    /// ```
-    ///
-    pub fn set(&mut self, idx: usize, s: &str) -> Result<(), SourceError> {
-        self.set_cell(self.check_idx(idx)?, s)
-    }
-
-    ///
     /// Sets `cell` and recalculates the affected Expressions. A space empties
-    /// the Cell, equivalent to `unset_cell`.
+    /// the Cell, equivalent to `unset`.
     ///
-    /// The Cell is named by an index its Grid minted, so there is no index left
-    /// to refuse: this weighs the content and the Expression the edit would
-    /// make, and nothing else.
+    /// The Cell is named by an index its Grid minted, so there is no index to
+    /// refuse: this weighs the content and the Expression the edit would make,
+    /// and nothing else.
     ///
     /// ```
     /// use orcvs::{grid::Grid, source::Source};
@@ -230,12 +213,12 @@ impl Source {
     /// let grid = Grid::new(10, 10);
     /// let mut source = Source::new(grid);
     /// let cell = grid.cell_index(33).expect("inside the Grid");
-    /// source.set_cell(cell, "!").unwrap();
+    /// source.set(cell, "!").unwrap();
     ///
-    /// assert_eq!(source.get_cell(cell), Some("!".to_string()));
+    /// assert_eq!(source.get(cell), Some("!".to_string()));
     /// ```
     ///
-    pub fn set_cell(&mut self, cell: CellIndex, s: &str) -> Result<(), SourceError> {
+    pub fn set(&mut self, cell: CellIndex, s: &str) -> Result<(), SourceError> {
         self.grid.assert_owns_index(cell);
         debug!("set {}: {s}", cell.get());
         let byte = Self::check_content(s)?;
@@ -246,20 +229,12 @@ impl Source {
     }
 
     ///
-    /// Empties the Cell at `idx` and recalculates the affected Expressions.
-    ///
-    pub fn unset(&mut self, idx: usize) -> Result<(), SourceError> {
-        self.unset_cell(self.check_idx(idx)?);
-        Ok(())
-    }
-
-    ///
     /// Empties `cell` and recalculates the affected Expressions.
     ///
     /// Nothing can refuse this. A Cell the Grid minted exists, and emptying a
     /// Cell can only shorten an Expression.
     ///
-    pub fn unset_cell(&mut self, cell: CellIndex) {
+    pub fn unset(&mut self, cell: CellIndex) {
         self.grid.assert_owns_index(cell);
         self.edit(cell, SPACE_BYTE);
     }
@@ -290,19 +265,10 @@ impl Source {
     }
 
     ///
-    /// The Cell `idx` names. The Grid decides: an index it cannot address is
-    /// one this Source has no Cell for.
+    /// The one byte `s` holds, when `s` is one printable single-byte ASCII
+    /// character. This is the only rule the editing seam has left: addressing
+    /// is settled by the index, so content is all a Cell can be refused for.
     ///
-    fn check_idx(&self, idx: usize) -> Result<CellIndex, SourceError> {
-        match self.grid.cell_index(idx) {
-            Some(cell) => Ok(cell),
-            None => Err(SourceError::OutOfRange {
-                idx,
-                len: self.grid.count(),
-            }),
-        }
-    }
-
     fn check_content(s: &str) -> Result<u8, SourceError> {
         match s.as_bytes() {
             [b] if (0x20..=0x7e).contains(b) => Ok(*b),
@@ -340,17 +306,13 @@ impl Source {
         }
     }
 
-    pub fn get(&self, idx: usize) -> Option<String> {
-        self.get_cell(self.grid.cell_index(idx)?)
-    }
-
     ///
     /// What `cell` holds, or `None` when it is empty.
     ///
     /// Total for the Cells this Source has: a Grid-minted index addresses one
     /// of them, so the only `None` here is an empty Cell.
     ///
-    pub fn get_cell(&self, cell: CellIndex) -> Option<String> {
+    pub fn get(&self, cell: CellIndex) -> Option<String> {
         self.grid.assert_owns_index(cell);
 
         match self.inner.as_bytes()[cell.get()] {
@@ -479,7 +441,9 @@ mod test {
     ///
     fn cell(source: &Source, idx: usize) -> (Option<char>, Option<Glyph>) {
         let content = source
-            .get(idx)
+            .grid
+            .cell_index(idx)
+            .and_then(|cell| source.get(cell))
             .and_then(|s| s.chars().next())
             .filter(|c| *c != ' ');
         (content, glyph_at(source, idx))
@@ -517,12 +481,18 @@ mod test {
         }
 
         ///
-        /// Types `s` into consecutive Cells starting at `idx`, one accepted
+        /// Types `s` into consecutive Cells starting at `start`, one accepted
         /// edit per Cell, exactly as a user would.
         ///
-        fn write(&mut self, idx: usize, s: &str) {
-            for (i, c) in s.chars().enumerate() {
-                self.src.set(idx + i, &c.to_string()).unwrap();
+        fn write(&mut self, start: CellIndex, s: &str) {
+            // Typing walks the Source's Cells in order, so each Cell after the
+            // first is a number away from `start` and has to be minted again.
+            // Refusing a foreign `start` is what keeps that arithmetic from
+            // beginning somewhere this Grid never named.
+            self.grid.assert_owns_index(start);
+            for (offset, c) in s.chars().enumerate() {
+                let cell = self.cell_index(start.get() + offset);
+                self.src.set(cell, &c.to_string()).unwrap();
             }
         }
 
@@ -564,6 +534,17 @@ mod test {
         fn cell_index(&self, idx: usize) -> CellIndex {
             self.grid.cell_index(idx).expect("inside the Grid")
         }
+
+        ///
+        /// A function that mints this Source's Cells, so a test can name a
+        /// Cell inside the same call that edits it. It holds a copy of the
+        /// Grid rather than a borrow of the Source, which is what lets
+        /// `src.set(at(5), ..)` be written at all.
+        ///
+        fn cells(&self) -> impl Fn(usize) -> CellIndex + use<> {
+            let grid = self.grid;
+            move |idx| grid.cell_index(idx).expect("inside the Grid")
+        }
     }
 
     impl Deref for SourceUnderTest {
@@ -592,32 +573,12 @@ mod test {
         // helper must read the Cells of *this* Source, not the ones a Grid it
         // was never built from would name.
         let mut src = SourceUnderTest::new(Grid::new(8, 4));
+        let at = src.cells();
 
-        src.write(0, ".+0102");
+        src.write(at(0), ".+0102");
         src.execute();
 
         assert_eq!(src.row(1), "03      ");
-    }
-
-    #[test]
-    fn test_set_rejects_out_of_range_without_mutation() {
-        trace();
-
-        let mut src = source();
-        let before = src.snapshot();
-
-        // one past the last Cell the Grid addresses
-        let past_the_end = src.count();
-        let err = src.set(past_the_end, "x").unwrap_err();
-
-        assert_eq!(
-            err,
-            SourceError::OutOfRange {
-                idx: past_the_end,
-                len: src.count()
-            }
-        );
-        assert_eq!(src.snapshot(), before);
     }
 
     #[cfg(feature = "persistence")]
@@ -626,9 +587,16 @@ mod test {
         let grid = Grid::new(10, 3);
         let mut source = Source::new(grid);
         for (idx, content) in ".+0102".chars().enumerate() {
-            source.set(idx, &content.to_string()).unwrap();
+            source
+                .set(
+                    grid.cell_index(idx).expect("inside the Grid"),
+                    &content.to_string(),
+                )
+                .unwrap();
         }
-        source.set(15, "x").unwrap();
+        source
+            .set(grid.cell_index(15).expect("inside the Grid"), "x")
+            .unwrap();
 
         let encoded = serde_json::to_string(&source).unwrap();
         let mut restored: Source = serde_json::from_str(&encoded).unwrap();
@@ -647,8 +615,17 @@ mod test {
         );
 
         restored.execute();
-        assert_eq!(restored.get(10), Some("0".to_string()));
-        assert_eq!(restored.get(11), Some("3".to_string()));
+        // A restored Source is built from a Grid of its own: persistence
+        // carries the shape, not the identity, so the Cells of the Source that
+        // was written are not the Cells of the Source that was read back.
+        let restored_cell = |idx| {
+            restored
+                .grid()
+                .cell_index(idx)
+                .expect("inside the restored Grid")
+        };
+        assert_eq!(restored.get(restored_cell(10)), Some("0".to_string()));
+        assert_eq!(restored.get(restored_cell(11)), Some("3".to_string()));
     }
 
     #[cfg(feature = "persistence")]
@@ -671,34 +648,17 @@ mod test {
     }
 
     #[test]
-    fn test_unset_rejects_out_of_range_without_mutation() {
-        trace();
-
-        let mut src = source();
-        let before = src.snapshot();
-
-        let err = src.unset(200).unwrap_err();
-
-        assert_eq!(
-            err,
-            SourceError::OutOfRange {
-                idx: 200,
-                len: src.count()
-            }
-        );
-        assert_eq!(src.snapshot(), before);
-    }
-
-    #[test]
     fn test_set_rejects_invalid_content_without_mutation() {
         trace();
 
         let mut src = source();
-        src.set(5, "x").unwrap();
+
+        let at = src.cells();
+        src.set(at(5), "x").unwrap();
         let before = src.snapshot();
 
         for content in ["", "ab", "é", "\n"] {
-            let err = src.set(5, content).unwrap_err();
+            let err = src.set(at(5), content).unwrap_err();
             assert_eq!(
                 err,
                 SourceError::InvalidCell {
@@ -706,25 +666,26 @@ mod test {
                 }
             );
             assert_eq!(src.snapshot(), before);
-            assert_eq!(src.get(5), Some("x".to_string()));
+            assert_eq!(src.get(at(5)), Some("x".to_string()));
         }
     }
 
     #[test]
     fn test_set_rejects_an_expression_beyond_parser_capacity_without_mutation() {
         let mut src = SourceUnderTest::new(Grid::new(80, 1));
+        let at = src.cells();
         // Fifteen nested additions plus sixteen operands occupy 31 parser
         // atoms. Prefixing one more binary Function would also require an
         // empty second operand, exceeding the 32-atom parser capacity.
-        src.write(2, &(".+".repeat(15) + &"00".repeat(16)));
-        src.set(1, "+").unwrap();
+        src.write(at(2), &(".+".repeat(15) + &"00".repeat(16)));
+        src.set(at(1), "+").unwrap();
         let before = src.snapshot();
         let before_diagnostics = diagnostics(&src);
         let before_glyphs = (0..src.count())
             .map(|idx| glyph_at(&src, idx))
             .collect::<Vec<_>>();
 
-        let result = src.set(0, ".");
+        let result = src.set(at(0), ".");
 
         assert_eq!(
             result,
@@ -750,12 +711,14 @@ mod test {
 
         let mut src = source();
 
-        src.set(0, ".").unwrap();
+        let at = src.cells();
+
+        src.set(at(0), ".").unwrap();
         assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Char)));
 
         // completing the `.+` Function reclassifies Cell 0 and marks the four
         // empty operand-slot Cells (two 2-wide Numbers) as Number
-        src.set(1, "+").unwrap();
+        src.set(at(1), "+").unwrap();
 
         let function = |content: char| (Some(content), Some(Glyph::Function));
         let operand_slot = (None, Some(Glyph::Number));
@@ -772,12 +735,14 @@ mod test {
         trace();
 
         let mut src = source();
-        src.set(0, ".").unwrap();
-        src.set(1, "+").unwrap();
+
+        let at = src.cells();
+        src.set(at(0), ".").unwrap();
+        src.set(at(1), "+").unwrap();
 
         // deleting half the Function restores its raw character classification and
         // clears the operand-slot hints
-        src.unset(1).unwrap();
+        src.unset(at(1));
 
         assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Char)));
         for idx in 1..=5 {
@@ -791,10 +756,12 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // `.+` at the last two Cells wants four more operand-slot glyphs
         // than the Source has room for
-        src.set(58, ".").unwrap();
-        src.set(59, "+").unwrap();
+        src.set(at(58), ".").unwrap();
+        src.set(at(59), "+").unwrap();
 
         assert_eq!(glyph_at(&src, 58), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 59), Some(Glyph::Function));
@@ -806,14 +773,15 @@ mod test {
     #[test]
     fn test_editing_an_operand_slot_hint_restores_the_current_glyphs() {
         let mut src = SourceUnderTest::new(Grid::new(10, 1));
-        src.set(0, ".").unwrap();
-        src.set(1, "+").unwrap();
+        let at = src.cells();
+        src.set(at(0), ".").unwrap();
+        src.set(at(1), "+").unwrap();
         assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
 
-        src.set(5, "x").unwrap();
+        src.set(at(5), "x").unwrap();
         assert_eq!(cell(&src, 5), (Some('x'), Some(Glyph::Char)));
 
-        src.unset(5).unwrap();
+        src.unset(at(5));
         assert_eq!(cell(&src, 5), (None, Some(Glyph::Number)));
     }
 
@@ -821,14 +789,16 @@ mod test {
     fn test_editing_an_operand_slot_matches_a_source_rebuilt_from_its_snapshot() {
         let grid = Grid::new(10, 2);
         let mut src = SourceUnderTest::new(grid);
-        src.write(0, ".+");
-        src.write(10, ".+0102");
-        src.set(5, "x").unwrap();
+        let at = src.cells();
+        src.write(at(0), ".+");
+        src.write(at(10), ".+0102");
+        src.set(at(5), "x").unwrap();
 
         let mut rebuilt = Source::new(grid);
         for (idx, content) in src.snapshot().chars().enumerate() {
             if content != ' ' {
-                rebuilt.set(idx, &content.to_string()).unwrap();
+                let cell = grid.cell_index(idx).expect("inside the Grid");
+                rebuilt.set(cell, &content.to_string()).unwrap();
             }
         }
 
@@ -846,16 +816,17 @@ mod test {
     #[test]
     fn test_operand_hints_and_invalidation_stop_at_the_row_edge() {
         let mut src = SourceUnderTest::new(Grid::new(10, 2));
-        src.write(10, ".+0102");
-        src.set(8, ".").unwrap();
+        let at = src.cells();
+        src.write(at(10), ".+0102");
+        src.set(at(8), ".").unwrap();
 
-        src.set(9, "+").unwrap();
+        src.set(at(9), "+").unwrap();
         assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Function)));
         assert_eq!(cell(&src, 9), (Some('+'), Some(Glyph::Function)));
         assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
 
-        src.unset(9).unwrap();
+        src.unset(at(9));
         assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Char)));
         assert_eq!(cell(&src, 9), (None, None));
         assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
@@ -868,8 +839,10 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         for (i, c) in ".+0101".chars().enumerate() {
-            src.set(i, &c.to_string()).unwrap();
+            src.set(at(i), &c.to_string()).unwrap();
         }
 
         let glyphs: Vec<_> = (0..6).map(|i| glyph_at(&src, i)).collect();
@@ -893,8 +866,10 @@ mod test {
 
         let mut src = source();
 
-        src.set(9, ".").unwrap();
-        src.set(10, "+").unwrap();
+        let at = src.cells();
+
+        src.set(at(9), ".").unwrap();
+        src.set(at(10), "+").unwrap();
 
         // the two Cells are adjacent by index but sit in different rows, so
         // neither is classified as part of a Function
@@ -908,8 +883,10 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // The incomplete Function remains visible and is diagnosed immediately.
-        src.write(0, ".+01");
+        src.write(at(0), ".+01");
         assert_eq!(src.row(0), ".+01      ");
         assert_eq!(diagnostics(&src).len(), 1);
         assert_eq!(diagnostics(&src)[0].start(), 0);
@@ -918,23 +895,23 @@ mod test {
 
         // Completing it removes the cause and therefore the diagnostic in the
         // same accepted edit.
-        src.write(4, "02");
+        src.write(at(4), "02");
         assert!(diagnostics(&src).is_empty());
 
         // A valid prefix does not make trailing content disappear from the
         // Expression's diagnostic state.
-        src.set(6, "Z").unwrap();
+        src.set(at(6), "Z").unwrap();
         assert_eq!(
             diagnostics(&src)[0].message,
             "unexpected trailing content \"Z\""
         );
-        src.unset(6).unwrap();
+        src.unset(at(6));
         assert!(diagnostics(&src).is_empty());
 
         // Replacing a valid operand with invalid content creates a fresh
         // diagnostic for the current Expression, without rejecting the edit.
-        src.set(4, "X").unwrap();
-        assert_eq!(src.get(4), Some("X".to_string()));
+        src.set(at(4), "X").unwrap();
+        assert_eq!(src.get(at(4)), Some("X".to_string()));
         assert_eq!(diagnostics(&src).len(), 1);
         assert_eq!(
             diagnostics(&src)[0].message,
@@ -944,7 +921,7 @@ mod test {
         // Removing the Expression removes its diagnostic rather than leaving
         // stale state attached to empty Cells.
         for idx in 0..6 {
-            src.unset(idx).unwrap();
+            src.unset(at(idx));
         }
         assert!(diagnostics(&src).is_empty());
     }
@@ -955,10 +932,12 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // ADR 0015 retired `id` from the Function vocabulary, so Source
         // containing it no longer parses as a Function and diagnoses like any
         // other unknown spelling.
-        src.write(0, "id");
+        src.write(at(0), "id");
 
         assert_eq!(src.row(0), "id        ");
         assert_eq!(diagnostics(&src).len(), 1);
@@ -980,14 +959,16 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // `.+0101` starting at Cell 4; a Tick would write its result one row below
         for (i, c) in ".+0101".chars().enumerate() {
-            src.set(i + 4, &c.to_string()).unwrap();
+            src.set(at(i + 4), &c.to_string()).unwrap();
         }
 
         // Prepending `.+00` joins everything into one Expression at Cell 0;
         // the old Expression starting at Cell 4 no longer exists.
-        src.write(0, ".+00");
+        src.write(at(0), ".+00");
         src.execute();
 
         // `.+00.+0101` commits `02` across Cells 10 and 11. The stale Expression
@@ -1002,12 +983,14 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         for (i, c) in "xx.+0101".chars().enumerate() {
-            src.set(i, &c.to_string()).unwrap();
+            src.set(at(i), &c.to_string()).unwrap();
         }
 
         // deleting Cell 1 splits off a complete `.+0101` Expression at Cell 2
-        src.unset(1).unwrap();
+        src.unset(at(1));
 
         assert_eq!(glyph_at(&src, 1), None);
         let glyphs: Vec<_> = (2..8).map(|i| glyph_at(&src, i)).collect();
@@ -1035,11 +1018,13 @@ mod test {
         trace();
 
         let mut src = source();
-        src.set(5, "x").unwrap();
 
-        src.set(5, " ").unwrap();
+        let at = src.cells();
+        src.set(at(5), "x").unwrap();
 
-        assert_eq!(src.get(5), None);
+        src.set(at(5), " ").unwrap();
+
+        assert_eq!(src.get(at(5)), None);
         assert_eq!(src.snapshot(), " ".repeat(src.count()));
     }
 
@@ -1049,19 +1034,21 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // The README example: `.+0102` is 1 + 2, and a Number is two Cells wide
-        src.write(0, ".+0102");
+        src.write(at(0), ".+0102");
 
         let tick = src.execute();
 
         assert_eq!(src.row(1), "03        ");
-        assert_eq!(src.get(10), Some("0".to_string()));
-        assert_eq!(src.get(11), Some("3".to_string()));
+        assert_eq!(src.get(at(10)), Some("0".to_string()));
+        assert_eq!(src.get(at(11)), Some("3".to_string()));
         assert!(tick.play_commands.is_empty());
         assert_eq!(tick.writes.len(), 2);
-        assert_eq!(tick.writes[0].cell, src.cell_index(10));
+        assert_eq!(tick.writes[0].cell, at(10));
         assert_eq!(tick.writes[0].content, '0');
-        assert_eq!(tick.writes[1].cell, src.cell_index(11));
+        assert_eq!(tick.writes[1].cell, at(11));
         assert_eq!(tick.writes[1].content, '3');
         assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Char)));
         assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Char)));
@@ -1070,10 +1057,11 @@ mod test {
     #[test]
     fn test_root_play_function_emits_one_play_command_without_a_cell_write() {
         let mut src = source();
+        let at = src.cells();
         // The Bang sits north of the root anchor, leaving the row below the
         // Play free to show that a terminal Function writes no result Cell.
-        src.write(0, "**");
-        src.write(10, "!>007FC4");
+        src.write(at(0), "**");
+        src.write(at(10), "!>007FC4");
 
         let tick = src.execute();
 
@@ -1092,8 +1080,9 @@ mod test {
     #[test]
     fn test_play_preserves_zero_velocity_as_an_explicit_command() {
         let mut src = source();
-        src.write(0, "**");
-        src.write(10, "!>0F00A0");
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(10), "!>0F00A0");
 
         let tick = src.execute();
 
@@ -1111,8 +1100,9 @@ mod test {
     #[test]
     fn test_play_velocity_above_midi_range_is_diagnosed() {
         let mut src = source();
-        src.write(0, "**");
-        src.write(10, "!>0080C4");
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(10), "!>0080C4");
 
         let tick = src.execute();
 
@@ -1130,8 +1120,9 @@ mod test {
     #[test]
     fn test_play_channel_above_midi_range_is_diagnosed() {
         let mut src = source();
-        src.write(0, "**");
-        src.write(10, "!>107FC4");
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(10), "!>107FC4");
 
         let tick = src.execute();
 
@@ -1147,7 +1138,8 @@ mod test {
     #[test]
     fn test_nested_play_is_diagnosed_without_emitting_a_command() {
         let mut src = SourceUnderTest::new(Grid::new(12, 3));
-        src.write(0, ".+!>007FC401");
+        let at = src.cells();
+        src.write(at(0), ".+!>007FC401");
 
         let tick = src.execute();
 
@@ -1168,10 +1160,11 @@ mod test {
             ("!>007F.vC4", "expected a note, found \"3C\""),
         ] {
             let mut src = SourceUnderTest::new(Grid::new(expression.len(), 3));
-            src.write(0, expression);
+            let at = src.cells();
+            src.write(at(0), expression);
             // A terminal root diagnoses only when it is evaluated, and it is
             // evaluated only when a Bang activates it.
-            src.write(expression.len(), "**");
+            src.write(at(expression.len()), "**");
 
             let tick = src.execute();
 
@@ -1185,11 +1178,12 @@ mod test {
     #[test]
     fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
         let mut src = source();
+        let at = src.cells();
         // One Bang between the two roots activates both: the row above it is
         // its north anchor and the row below it is its south anchor.
-        src.write(0, "!>0001C4");
-        src.write(10, "**");
-        src.write(20, "!>017FA4");
+        src.write(at(0), "!>0001C4");
+        src.write(at(10), "**");
+        src.write(at(20), "!>017FA4");
 
         let first = src.execute();
         let second = src.execute();
@@ -1215,10 +1209,11 @@ mod test {
     #[test]
     fn test_inactive_terminal_root_emits_neither_a_command_nor_a_diagnostic() {
         let mut src = source();
+        let at = src.cells();
         // Every operand of this Raw Play is outside its MIDI domain. An
         // inactive terminal root is never evaluated, so not even the domain
         // diagnostics it would produce reach the Tick Plan.
-        src.write(0, "!>1080C4");
+        src.write(at(0), "!>1080C4");
 
         let tick = src.execute();
 
@@ -1233,8 +1228,9 @@ mod test {
         // one row south, and at `(0, 1)` the root one row north.
         for (bang, root) in [(0, 10), (10, 0)] {
             let mut src = source();
-            src.write(bang, "**");
-            src.write(root, "!>007FC4");
+            let at = src.cells();
+            src.write(at(bang), "**");
+            src.write(at(root), "!>007FC4");
 
             let tick = src.execute();
 
@@ -1257,9 +1253,10 @@ mod test {
         // root is aligned north of one Bang and south of the other, so both
         // reach it and it still has exactly one turn.
         let mut src = source();
-        src.write(0, "**");
-        src.write(10, "!>007FC4");
-        src.write(20, "**");
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(10), "!>007FC4");
+        src.write(at(20), "**");
 
         let tick = src.execute();
 
@@ -1288,7 +1285,8 @@ mod test {
             // test is horizontal, so a spelling that outran the row would wrap
             // onto the next one and pin nothing.
             let mut src = SourceUnderTest::new(Grid::new(expression.len(), 6));
-            src.write(0, expression);
+            let at = src.cells();
+            src.write(at(0), expression);
 
             assert_eq!(src.row(0), expression, "{expression:?} did not fit one row");
 
@@ -1306,7 +1304,8 @@ mod test {
         // Gating every root behind activation belongs to spatial Tick
         // planning. Until then only terminal roots consult the Bang.
         let mut src = source();
-        src.write(0, ".+0102");
+        let at = src.cells();
+        src.write(at(0), ".+0102");
 
         let tick = src.execute();
 
@@ -1320,7 +1319,8 @@ mod test {
         // that must render as `**`, and the unequal case rides the existing
         // Empty signal and must leave the result row exactly as it found it.
         let mut src = source();
-        src.write(0, ".=0303");
+        let at = src.cells();
+        src.write(at(0), ".=0303");
 
         let tick = src.execute();
 
@@ -1328,7 +1328,9 @@ mod test {
         assert_eq!(tick.writes.len(), 2);
 
         let mut src = source();
-        src.write(0, ".=0304");
+
+        let at = src.cells();
+        src.write(at(0), ".=0304");
 
         let tick = src.execute();
 
@@ -1344,7 +1346,8 @@ mod test {
         // the Tick Plan as a diagnostic AND leave the result row untouched,
         // rather than committing a Cell the next Tick would read as an operand.
         let mut src = source();
-        src.write(0, ".%0A00");
+        let at = src.cells();
+        src.write(at(0), ".%0A00");
 
         let tick = src.execute();
 
@@ -1360,9 +1363,11 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // Numbers are hexadecimal, so 5 + 5 is `0A` — a Cell holding only the
         // leading `0` would be a truncated, and wrong, result
-        src.write(0, ".+0505");
+        src.write(at(0), ".+0505");
 
         src.execute();
 
@@ -1375,16 +1380,18 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // An Expression in the bottom row has nowhere to write: its result
         // falls outside the Source and is discarded, never clamped onto a Cell
         // the user owns
-        src.write(50, ".+0102");
-        src.write(59, "Z");
+        src.write(at(50), ".+0102");
+        src.write(at(59), "Z");
 
         let tick = src.execute();
 
         assert_eq!(src.row(5), ".+0102   Z");
-        assert_eq!(src.get(59), Some("Z".to_string()));
+        assert_eq!(src.get(at(59)), Some("Z".to_string()));
         assert!(tick.writes.is_empty());
         assert_eq!(tick.diagnostics.len(), 1);
         assert_eq!(tick.diagnostics[0].start(), 50);
@@ -1402,10 +1409,12 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // The last-column `.` is one incomplete Expression and `+0102` is an
         // invalid Expression in the next row. Neither can produce the `03`
         // that their formerly wrapped `.+0102` run produced.
-        src.write(9, ".+0102");
+        src.write(at(9), ".+0102");
 
         src.execute();
 
@@ -1419,10 +1428,12 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // The incomplete `.+` occupies the last two Cells of row 0. Its four
         // operand-slot hints have no Cells left in that row, so they must not
         // classify Cells at the beginning of row 1.
-        src.write(8, ".+");
+        src.write(at(8), ".+");
 
         assert_eq!(glyph_at(&src, 8), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 9), Some(Glyph::Function));
@@ -1437,10 +1448,12 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // This formerly parsed as one wrapped `.+0102` Expression. It is now
         // an incomplete `.+` followed by a separate literal `0102`, neither
         // of which can produce the old `03` result.
-        src.write(8, ".+0102");
+        src.write(at(8), ".+0102");
 
         src.execute();
 
@@ -1454,9 +1467,11 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // A bare Number is not a computation: the Interpreter has nothing to
         // apply, so the Expression has no result to commit
-        src.write(0, "03");
+        src.write(at(0), "03");
 
         src.execute();
 
@@ -1468,7 +1483,9 @@ mod test {
         trace();
 
         let mut src = source();
-        src.write(0, ".+0102");
+
+        let at = src.cells();
+        src.write(at(0), ".+0102");
 
         src.execute();
         let after_first_tick = src.snapshot();
@@ -1494,9 +1511,11 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // `.+` with no operands contains a Function, but the Interpreter has
         // no value to add. An empty result must never reach a Cell.
-        src.write(0, ".+");
+        src.write(at(0), ".+");
 
         src.execute();
 
@@ -1509,9 +1528,11 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // `.+0102` is a computation — suppressing literals must not suppress
         // a Function applied to them.
-        src.write(0, ".+0102");
+        src.write(at(0), ".+0102");
 
         src.execute();
 
@@ -1524,10 +1545,12 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // `.+` with no operands is an analysis-only record; the `.+0102` beside
         // it is unrelated and must still commit its `03` in the same Tick.
-        src.write(0, ".+");
-        src.write(3, ".+0102");
+        src.write(at(0), ".+");
+        src.write(at(3), ".+0102");
 
         let tick = src.execute();
 
@@ -1547,13 +1570,14 @@ mod test {
         // order its producers took their turns — row first, then column —
         // rather than in an order of its own.
         let mut src = SourceUnderTest::new(Grid::new(20, 6));
-        src.write(0, "**");
-        src.write(20, "!>0001C4");
-        src.write(30, "**");
-        src.write(40, "./0100");
-        src.write(50, "!>027FA4");
-        src.write(60, ".^80");
-        src.write(70, ".+0102");
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(20), "!>0001C4");
+        src.write(at(30), "**");
+        src.write(at(40), "./0100");
+        src.write(at(50), "!>027FA4");
+        src.write(at(60), ".^80");
+        src.write(at(70), ".+0102");
 
         let tick = src.execute();
 
@@ -1590,11 +1614,11 @@ mod test {
             tick.writes,
             vec![
                 CellWrite {
-                    cell: src.cell_index(90),
+                    cell: at(90),
                     content: '0',
                 },
                 CellWrite {
-                    cell: src.cell_index(91),
+                    cell: at(91),
                     content: '3',
                 },
             ]
@@ -1616,8 +1640,9 @@ mod test {
         // or a Note. Completing an Expression is as close as this Source gets
         // to generating one, and it pins the same rule.
         let mut src = source();
-        src.write(4, ".+0002");
-        src.write(10, ".+01");
+        let at = src.cells();
+        src.write(at(4), ".+0002");
+        src.write(at(10), ".+01");
 
         let first = src.execute();
 
@@ -1625,11 +1650,11 @@ mod test {
             first.writes,
             vec![
                 CellWrite {
-                    cell: src.cell_index(14),
+                    cell: at(14),
                     content: '0',
                 },
                 CellWrite {
-                    cell: src.cell_index(15),
+                    cell: at(15),
                     content: '2',
                 },
             ]
@@ -1644,7 +1669,7 @@ mod test {
             second
                 .writes
                 .iter()
-                .any(|write| write.cell == src.cell_index(20) && write.content == '0')
+                .any(|write| write.cell == at(20) && write.content == '0')
         );
     }
 
@@ -1654,11 +1679,13 @@ mod test {
 
         let mut src = source();
 
+        let at = src.cells();
+
         // The row 0 Expression commits `02` over the first two Cells of the
         // row 1 Expression. Row 1 must still evaluate the `.+0304` that was
         // there when the Tick began, not the `020304` the write leaves behind.
-        src.write(0, ".+0101");
-        src.write(10, ".+0304");
+        src.write(at(0), ".+0101");
+        src.write(at(10), ".+0304");
 
         src.execute();
 

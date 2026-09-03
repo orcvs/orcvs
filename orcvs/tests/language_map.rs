@@ -100,8 +100,9 @@ fn unmatched_characters_have_revision_consistent_diagnostic_spans() {
 fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     let grid = Grid::new(6, 2);
     let mut source = Source::new(grid);
-    source.set(4, ".").unwrap();
-    source.set(5, "+").unwrap();
+    let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+    source.set(cell(4), ".").unwrap();
+    source.set(cell(5), "+").unwrap();
 
     assert_eq!(
         source.language_map().glyph_at(grid.position(4, 0).unwrap()),
@@ -117,7 +118,7 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     );
     assert_eq!(source.language_map().diagnostics().count(), 1);
 
-    source.unset(5).unwrap();
+    source.unset(cell(5));
     assert_eq!(
         source.language_map().glyph_at(grid.position(4, 0).unwrap()),
         Some(Glyph::Char)

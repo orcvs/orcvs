@@ -7,7 +7,7 @@
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use orcvs::app::Orcvs;
-use orcvs::grid::Grid;
+use orcvs::grid::{CellIndex, Grid};
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::source::SourceCommander;
 use std::hint::black_box;
@@ -49,6 +49,12 @@ const EDITED_VALID: &str = "3";
 /// keystrokes that produce it, and that revision is rebuilt and rendered too.
 const EDITED_INVALID: &str = "Z";
 
+/// The index `grid` mints for `idx`. A Cell is named by an index its Grid
+/// minted, so a benchmark states the number and the Grid answers with the Cell.
+fn cell(grid: Grid, idx: usize) -> CellIndex {
+    grid.cell_index(idx).expect("inside the Grid")
+}
+
 /// One Cell per Grid Position. Each row tiles `EXPRESSIONS` from a different
 /// starting point, separated by a space so a row holds several Expression extents
 /// rather than one, and is cut to the column count wherever that lands.
@@ -71,12 +77,13 @@ fn source_text(cols: usize, rows: usize) -> String {
 }
 
 fn populated_source(cols: usize, rows: usize) -> SourceCommander {
-    let source = SourceCommander::new(Grid::new(cols, rows));
+    let grid = Grid::new(cols, rows);
+    let source = SourceCommander::new(grid);
 
     for (idx, content) in source_text(cols, rows).chars().enumerate() {
         if content != ' ' {
             source
-                .set(idx, &content.to_string())
+                .set(cell(grid, idx), &content.to_string())
                 .expect("benchmark Source content is accepted");
         }
     }
@@ -173,18 +180,20 @@ fn edit(c: &mut Criterion, name: &str, content: &'static str) {
 
     for &(cols, rows) in SIZES {
         let source = populated_source(cols, rows);
-        let idx = cols + EDIT_COLUMN;
+        // Minted once, outside the measured closure: an index is what a Cell is
+        // named by, and minting one is not part of what an edit costs.
+        let edited = cell(source.grid(), cols + EDIT_COLUMN);
 
         group.bench_function(size(cols, rows), |b| {
             b.iter_batched(
                 || {
                     source
-                        .set(idx, RESTORED)
+                        .set(edited, RESTORED)
                         .expect("the restored Cell is accepted");
                 },
                 |()| {
                     black_box(&source)
-                        .set(black_box(idx), content)
+                        .set(black_box(edited), content)
                         .expect("the edited Cell is accepted");
                 },
                 BatchSize::PerIteration,

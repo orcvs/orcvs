@@ -54,44 +54,36 @@ impl SourceCommander {
     }
 
     ///
-    /// Synchronous edit: when this returns, every observable part of the
-    /// Source describes the new revision.
+    /// The shape this Source was built from, and so the only Grid that can
+    /// mint an index addressing one of its Cells.
     ///
-    pub fn set(&self, idx: usize, s: &str) -> Result<(), SourceError> {
-        write_recover(&self.inner).set(idx, s)
+    /// A caller editing the Source needs it: a Cell is named by an index, and
+    /// only this Grid mints one. `read_revision` also answers, but copies a
+    /// whole revision to do it.
+    ///
+    pub fn grid(&self) -> Grid {
+        read_recover(&self.inner).grid()
     }
 
     ///
-    /// Synchronous edit addressed by a Grid-minted Cell index: when this
-    /// returns, every observable part of the Source describes the new revision.
+    /// Synchronous edit: when this returns, every observable part of the
+    /// Source describes the new revision.
     ///
-    pub fn set_cell(&self, cell: CellIndex, s: &str) -> Result<(), SourceError> {
-        write_recover(&self.inner).set_cell(cell, s)
+    pub fn set(&self, cell: CellIndex, s: &str) -> Result<(), SourceError> {
+        write_recover(&self.inner).set(cell, s)
     }
 
     ///
     /// Synchronous delete: when this returns, every observable part of the
     /// Source describes the new revision.
     ///
-    pub fn unset(&self, idx: usize) -> Result<(), SourceError> {
-        write_recover(&self.inner).unset(idx)
-    }
-
-    ///
-    /// Synchronous delete addressed by a Grid-minted Cell index: when this
-    /// returns, every observable part of the Source describes the new revision.
-    ///
-    pub fn unset_cell(&self, cell: CellIndex) {
-        write_recover(&self.inner).unset_cell(cell);
-    }
-
-    pub fn get(&self, idx: usize) -> Option<String> {
-        read_recover(&self.inner).get(idx)
+    pub fn unset(&self, cell: CellIndex) {
+        write_recover(&self.inner).unset(cell);
     }
 
     /// What `cell` holds at the current revision, or `None` when it is empty.
-    pub fn get_cell(&self, cell: CellIndex) -> Option<String> {
-        read_recover(&self.inner).get_cell(cell)
+    pub fn get(&self, cell: CellIndex) -> Option<String> {
+        read_recover(&self.inner).get(cell)
     }
 
     ///
@@ -123,7 +115,9 @@ mod tests {
 
     #[test]
     fn source_access_recovers_after_the_lock_is_poisoned() {
-        let source = SourceCommander::new(Grid::new(2, 1));
+        let grid = Grid::new(2, 1);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         let poisoned = source.clone();
 
         assert!(
@@ -136,22 +130,24 @@ mod tests {
         );
 
         assert_eq!(source.snapshot(), "  ");
-        source.set(0, "x").unwrap();
-        assert_eq!(source.get(0).as_deref(), Some("x"));
+        source.set(cell(0), "x").unwrap();
+        assert_eq!(source.get(cell(0)).as_deref(), Some("x"));
     }
 
     #[test]
     fn rejected_overlong_expression_does_not_poison_source_access() {
-        let source = SourceCommander::new(Grid::new(80, 3));
+        let grid = Grid::new(80, 3);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         let at_capacity = ".+".repeat(15) + &"00".repeat(16);
         for (offset, content) in at_capacity.chars().enumerate() {
-            source.set(offset + 2, &content.to_string()).unwrap();
+            source.set(cell(offset + 2), &content.to_string()).unwrap();
         }
-        source.set(1, "+").unwrap();
+        source.set(cell(1), "+").unwrap();
         let before = source.snapshot();
 
         assert_eq!(
-            source.set(0, "."),
+            source.set(cell(0), "."),
             Err(SourceError::ExpressionTooLong {
                 start: 0,
                 end: 63,
@@ -160,37 +156,43 @@ mod tests {
         );
         assert_eq!(source.snapshot(), before);
 
-        source.unset(1).unwrap();
-        source.set(150, ".").unwrap();
-        source.set(151, "+").unwrap();
-        source.set(152, "0").unwrap();
-        source.set(153, "1").unwrap();
-        source.set(154, "0").unwrap();
-        source.set(155, "2").unwrap();
+        source.unset(cell(1));
+        source.set(cell(150), ".").unwrap();
+        source.set(cell(151), "+").unwrap();
+        source.set(cell(152), "0").unwrap();
+        source.set(cell(153), "1").unwrap();
+        source.set(cell(154), "0").unwrap();
+        source.set(cell(155), "2").unwrap();
         let tick = source.execute();
 
         assert!(tick.diagnostics.is_empty());
-        assert_eq!(source.get(150), Some(".".to_string()));
+        assert_eq!(source.get(cell(150)), Some(".".to_string()));
     }
 
     #[test]
     fn tick_suppresses_an_overlong_expression_created_by_its_writes() {
-        let source = SourceCommander::new(Grid::new(100, 3));
+        let grid = Grid::new(100, 3);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
         for (offset, content) in ".+".repeat(15).chars().enumerate() {
-            source.set(100 + offset, &content.to_string()).unwrap();
-            source.set(132 + offset, &content.to_string()).unwrap();
+            source
+                .set(cell(100 + offset), &content.to_string())
+                .unwrap();
+            source
+                .set(cell(132 + offset), &content.to_string())
+                .unwrap();
         }
         for (offset, content) in ".+0102".chars().enumerate() {
-            source.set(30 + offset, &content.to_string()).unwrap();
-            source.set(70 + offset, &content.to_string()).unwrap();
+            source.set(cell(30 + offset), &content.to_string()).unwrap();
+            source.set(cell(70 + offset), &content.to_string()).unwrap();
         }
 
         source.execute();
 
-        assert_eq!(source.get(130), Some("0".to_string()));
-        assert_eq!(source.get(131), Some("3".to_string()));
-        assert_eq!(source.get(170), Some("0".to_string()));
-        assert_eq!(source.get(171), Some("3".to_string()));
+        assert_eq!(source.get(cell(130)), Some("0".to_string()));
+        assert_eq!(source.get(cell(131)), Some("3".to_string()));
+        assert_eq!(source.get(cell(170)), Some("0".to_string()));
+        assert_eq!(source.get(cell(171)), Some("3".to_string()));
         assert!(
             source
                 .read_revision()
@@ -205,62 +207,64 @@ mod tests {
         );
 
         source.execute();
-        source.set(199, "x").unwrap();
+        source.set(cell(199), "x").unwrap();
 
-        assert_eq!(source.get(199), Some("x".to_string()));
-        assert_eq!(source.get(170), Some("0".to_string()));
-        assert_eq!(source.get(171), Some("3".to_string()));
+        assert_eq!(source.get(cell(199)), Some("x".to_string()));
+        assert_eq!(source.get(cell(170)), Some("0".to_string()));
+        assert_eq!(source.get(cell(171)), Some("3".to_string()));
     }
 
     #[test]
-    fn a_cell_is_addressable_by_a_grid_minted_index_and_by_a_number() {
-        // The expand half of the two-step change. Both forms reach the same
-        // Cell and the same rules: setting, clearing and reading each accept
-        // an index the Grid minted, and the number-taking forms still work
-        // because nothing is migrated yet.
+    fn setting_clearing_and_reading_a_cell_all_take_a_grid_minted_index() {
+        // The whole editing seam in one place, now that it has one shape.
+        // Addressing is settled before the Source is asked anything, so the
+        // only rules left are about content.
         let grid = Grid::new(4, 2);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
 
-        source.set_cell(cell(0), ".").unwrap();
-        source.set(1, "+").unwrap();
+        source.set(cell(0), ".").unwrap();
+        source.set(cell(1), "+").unwrap();
 
-        assert_eq!(source.get_cell(cell(0)).as_deref(), Some("."));
-        assert_eq!(source.get(0).as_deref(), Some("."));
-        assert_eq!(source.get_cell(cell(1)).as_deref(), Some("+"));
+        assert_eq!(source.get(cell(0)).as_deref(), Some("."));
+        assert_eq!(source.get(cell(1)).as_deref(), Some("+"));
 
-        // A Cell it cannot store is still refused; that rule is about content,
-        // not about addressing.
+        // A Cell it cannot store is still refused, and refusing it leaves the
+        // Cell as it was. That rule is about content, and it is a separate rule
+        // that keeps its own error.
         assert_eq!(
-            source.set_cell(cell(2), "ab"),
+            source.set(cell(2), "ab"),
             Err(SourceError::InvalidCell {
                 content: "ab".to_string()
             })
         );
+        assert_eq!(source.get(cell(2)), None);
 
-        source.unset_cell(cell(0));
+        source.unset(cell(0));
 
-        assert_eq!(source.get_cell(cell(0)), None);
-        assert_eq!(source.get(0), None);
+        assert_eq!(source.get(cell(0)), None);
+        assert_eq!(source.get(cell(1)).as_deref(), Some("+"));
     }
 
     #[test]
     #[should_panic(expected = "CellIndex belongs to another Grid")]
-    fn the_typed_editing_form_refuses_an_index_minted_by_another_grid() {
-        // What the typed form has instead of an out-of-range error: an index
-        // this Source has no Cell for cannot be presented to it at all.
+    fn the_editing_seam_refuses_an_index_minted_by_another_grid() {
+        // What the seam has instead of an out-of-range error: a Cell this
+        // Source does not have cannot be presented to it at all, and an index
+        // from a Grid of the same shape is still not one of this Source's.
         let source = SourceCommander::new(Grid::new(4, 2));
         let foreign = Grid::new(4, 2).cell_index(0).expect("inside the Grid");
 
-        let _ = source.set_cell(foreign, "x");
+        let _ = source.set(foreign, "x");
     }
 
     #[test]
     fn coherent_read_pairs_every_cell_with_its_source_derived_glyph() {
         let grid = Grid::new(4, 2);
         let source = SourceCommander::new(grid);
-        source.set(0, ".").unwrap();
-        source.set(1, "+").unwrap();
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        source.set(cell(0), ".").unwrap();
+        source.set(cell(1), "+").unwrap();
 
         let read = source.read_revision();
 
@@ -281,9 +285,11 @@ mod tests {
 
     #[test]
     fn unchanged_revision_reads_share_the_language_map() {
-        let source = SourceCommander::new(Grid::new(4, 2));
-        source.set(0, ".").unwrap();
-        source.set(1, "+").unwrap();
+        let grid = Grid::new(4, 2);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        source.set(cell(0), ".").unwrap();
+        source.set(cell(1), "+").unwrap();
 
         let first = source.read_revision();
         let second = source.read_revision();

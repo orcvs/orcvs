@@ -185,11 +185,19 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::Grid;
+    use crate::grid::{CellIndex, Grid};
     use crate::playback::{OutputAdapter, PlaybackEngine};
     use crate::source::{PlayCommand, SourceCommander};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+
+    ///
+    /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
+    /// minted, so a test states the number and the Grid answers with the Cell.
+    ///
+    fn cell(grid: Grid, idx: usize) -> CellIndex {
+        grid.cell_index(idx).expect("inside the Grid")
+    }
 
     #[derive(Default)]
     struct FakeState {
@@ -355,11 +363,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let source = SourceCommander::new(Grid::new(10, 2));
+        let grid = Grid::new(10, 2);
+        let source = SourceCommander::new(grid);
         // The Bang one row below the root anchor keeps the Raw Play active on
         // every Tick; without it a terminal root emits nothing at all.
         for (index, content) in "!>007FC4  **".chars().enumerate() {
-            source.set(index, &content.to_string()).unwrap();
+            source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
@@ -385,11 +394,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn disconnected_output_reports_delivery_failure_once() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let source = SourceCommander::new(Grid::new(10, 2));
+        let grid = Grid::new(10, 2);
+        let source = SourceCommander::new(grid);
         // The Bang one row below the root anchor keeps the Raw Play active on
         // every Tick; without it a terminal root emits nothing at all.
         for (index, content) in "!>007FC4  **".chars().enumerate() {
-            source.set(index, &content.to_string()).unwrap();
+            source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),

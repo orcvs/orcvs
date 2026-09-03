@@ -13,9 +13,11 @@ use wasm_bindgen_test::wasm_bindgen_test;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn write(source: &SourceCommander, content: &str) {
-    for (index, cell) in content.chars().enumerate() {
+    let grid = source.grid();
+    for (index, content) in content.chars().enumerate() {
+        let cell = grid.cell_index(index).expect("inside the Grid");
         source
-            .set(index, &cell.to_string())
+            .set(cell, &content.to_string())
             .expect("valid Source cell");
     }
 }

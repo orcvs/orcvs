@@ -6,8 +6,6 @@ use std::fmt;
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceError {
-    /// The index does not name a Cell in this Source.
-    OutOfRange { idx: usize, len: usize },
     /// A Cell holds exactly one printable single-byte ASCII character.
     InvalidCell { content: String },
     /// The accepted edit would create an Expression the parser cannot hold.
@@ -21,9 +19,6 @@ pub enum SourceError {
 impl fmt::Display for SourceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SourceError::OutOfRange { idx, len } => {
-                write!(f, "index {idx} is out of range for a Source of {len} Cells")
-            }
             SourceError::InvalidCell { content } => {
                 write!(
                     f,

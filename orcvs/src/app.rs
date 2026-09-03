@@ -131,25 +131,23 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// triggers parse of expression
     ///
     pub fn write(&mut self, s: &str) {
-        let idx = self.cursor_index();
+        let cell = self.grid.index(self.cursor.position());
 
-        match self.source.set(idx, s) {
+        match self.source.set(cell, s) {
             Ok(_) => self.cursor.select(self.grid.right(self.cursor.position())),
             Err(e) => error!("rejected edit: {e}"),
         }
     }
 
+    ///
+    /// Empties the Cell under the Cursor and steps left.
+    ///
+    /// The Cursor sits on a Position this Grid minted, so the Cell it names
+    /// exists and emptying it cannot be refused.
+    ///
     fn delete(&mut self) {
-        let idx = self.cursor_index();
-
-        match self.source.unset(idx) {
-            Ok(_) => self.cursor.select(self.grid.left(self.cursor.position())),
-            Err(e) => error!("rejected delete: {e}"),
-        }
-    }
-
-    pub fn cursor_index(&self) -> usize {
-        self.index(self.cursor.position())
+        self.source.unset(self.grid.index(self.cursor.position()));
+        self.cursor.select(self.grid.left(self.cursor.position()));
     }
 
     ///

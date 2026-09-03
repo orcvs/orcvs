@@ -710,7 +710,15 @@ impl<A: OutputAdapter> Drop for PlaybackEngine<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::Grid;
+    use crate::grid::{CellIndex, Grid};
+
+    ///
+    /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
+    /// minted, so a test states the number and the Grid answers with the Cell.
+    ///
+    fn cell(grid: Grid, idx: usize) -> CellIndex {
+        grid.cell_index(idx).expect("inside the Grid")
+    }
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, atomic::AtomicBool, mpsc};
     #[cfg(target_arch = "wasm32")]
@@ -839,8 +847,11 @@ mod tests {
     }
 
     fn write(source: &SourceCommander, start: usize, content: &str) {
-        for (offset, cell) in content.chars().enumerate() {
-            source.set(start + offset, &cell.to_string()).unwrap();
+        let grid = source.grid();
+        for (offset, content) in content.chars().enumerate() {
+            source
+                .set(cell(grid, start + offset), &content.to_string())
+                .unwrap();
         }
     }
 
@@ -899,7 +910,7 @@ mod tests {
         engine.activate_for_test();
 
         engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
-        source.set(6, "D").unwrap();
+        source.set(cell(source.grid(), 6), "D").unwrap();
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
         assert_eq!(adapter.command_lists().len(), 2);
