@@ -258,7 +258,7 @@ impl Source {
         }
 
         let range =
-            LanguageMap::prospective_expression_range(self.grid, self.inner.as_bytes(), idx, byte)
+            LanguageMap::prospective_expression_span(self.grid, self.inner.as_bytes(), idx, byte)
                 .expect("an occupied prospective Cell belongs to one Expression");
         let start = range.start();
         let end = range.end();

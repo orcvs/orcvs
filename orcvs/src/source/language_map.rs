@@ -37,7 +37,7 @@ impl LanguageMapId {
 
 /// The semantic information derived from one complete Source revision.
 ///
-/// This is the single owner of expression extents, parsed expressions, Glyph
+/// This is the single owner of Expression Spans, parsed expressions, Glyph
 /// classifications, and diagnostics. It deliberately exposes only the
 /// semantics the current parser and row-local partition can establish.
 #[derive(Clone)]
@@ -87,7 +87,7 @@ impl LanguageUnit {
 
 /// The Cells one Language Unit, Expression, or Diagnostic occupies.
 ///
-/// A row is the whole horizontal extent there is, so a Span is a contiguous
+/// A row is the whole horizontal run there is, so a Span is a contiguous
 /// run within one row and is named by its first and last Cell rather than by
 /// listing what lies between them. It carries the Grid that minted those
 /// Cells, so it can answer its own Positions.
@@ -167,8 +167,7 @@ impl LanguageMap {
             "LanguageMap Source length must match its Grid"
         );
         let (units, lexical_diagnostics) = partition_units(grid, bytes);
-        let expression_map = ExpressionMap::build(grid, bytes);
-        let ranges = expression_map.ranges().collect::<Vec<_>>();
+        let spans = expression_spans(grid, bytes);
         let mut map = Self {
             id: LanguageMapId::new(),
             grid,
@@ -178,8 +177,8 @@ impl LanguageMap {
             lexical_diagnostics,
         };
 
-        for range in ranges {
-            map.parse_range(grid, bytes, range);
+        for span in spans {
+            map.parse_span(grid, bytes, span);
         }
         for (idx, byte) in bytes.iter().copied().enumerate() {
             if byte != SPACE_BYTE && map.glyphs[idx].is_none() {
@@ -190,15 +189,15 @@ impl LanguageMap {
         map
     }
 
-    /// Answers the Expression extent that would contain `idx` after replacing
+    /// Answers the Expression Span that would contain `idx` after replacing
     /// that Cell with `byte`, without scanning any other row.
-    pub(super) fn prospective_expression_range(
+    pub(super) fn prospective_expression_span(
         grid: Grid,
         bytes: &[u8],
         idx: usize,
         byte: u8,
     ) -> Option<Span> {
-        ExpressionMap::prospective_range(grid, bytes, idx, byte)
+        prospective_span(grid, bytes, idx, byte)
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
@@ -261,9 +260,9 @@ impl LanguageMap {
     ///
     /// The Language Units this Expression is spelled from, in Source order.
     ///
-    /// A foreign Expression is refused. An extent is only Cell numbers, and
-    /// two revisions of one Source share a Grid, so an extent minted by
-    /// another revision addresses this partition perfectly well and would be
+    /// A foreign Expression is refused. A Span is only Cell numbers, and two
+    /// revisions of one Source share a Grid, so a Span minted by another
+    /// revision addresses this partition perfectly well and would be
     /// answered with the wrong units. The Expression's revision identity is
     /// what distinguishes them, the same way a Position's Grid identity names
     /// the Grid that can place it.
@@ -276,9 +275,9 @@ impl LanguageMap {
         &self.units[units_range(&self.units, self.grid, expression.span)]
     }
 
-    fn parse_range(&mut self, grid: Grid, bytes: &[u8], range: Span) {
-        let start = range.start();
-        let end = range.end();
+    fn parse_span(&mut self, grid: Grid, bytes: &[u8], span: Span) {
+        let start = span.start();
+        let end = span.end();
         // A later Expression owns its occupied Cells over any operand-slot
         // hints emitted by an earlier Expression.
         self.glyphs[start.get()..=end.get()].fill(None);
@@ -296,7 +295,7 @@ impl LanguageMap {
                     atoms: None,
                     diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
                     root: None,
-                    span: range,
+                    span,
                 });
                 return;
             }
@@ -307,7 +306,7 @@ impl LanguageMap {
             .error()
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
-        let expression_units = &self.units[units_range(&self.units, grid, range)];
+        let expression_units = &self.units[units_range(&self.units, grid, span)];
         let root = executable
             .then(|| {
                 expression_units.iter().find_map(|unit| {
@@ -335,7 +334,7 @@ impl LanguageMap {
             atoms,
             diagnostic,
             root,
-            span: range,
+            span,
         });
     }
 
@@ -413,7 +412,7 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
     }
 
     // Rows are walked top to bottom and each row's column only ever advances,
-    // so anchors ascend strictly and an Expression extent names a contiguous
+    // so anchors ascend strictly and an Expression Span names a contiguous
     // run of this partition. Nothing downstream may reorder it.
     debug_assert!(
         units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
@@ -432,7 +431,7 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
 /// the Grid is not a Position at all and simply does not appear.
 ///
 /// The west and east anchors are stated here because ADR 0006 states them, but
-/// no Source can reach them today: `row_extents` splits Expression runs only on
+/// no Source can reach them today: `row_spans` splits Expression runs only on
 /// spaces and `##`, so a horizontally adjacent Bang either merges into the
 /// root's own run and forms no root at all, or is separated by a space that
 /// puts its anchor three or more columns away. `spatial-tick-planning/02` owns
@@ -462,15 +461,16 @@ fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
     )
 }
 
-/// Where the Language Units of `range` sit in `units`.
+/// Where the Language Units of `span` sit in `units`.
 ///
 /// `partition_units` establishes its units in ascending anchor order, so an
-/// Expression extent names a contiguous run of them and both ends are found by
-/// search rather than by testing every unit against every extent. The bounds
-/// mirror the extent's own: inclusive at both ends.
-fn units_range(units: &[LanguageUnit], grid: Grid, range: Span) -> std::ops::Range<usize> {
-    let first = units.partition_point(|unit| grid.index(unit.anchor) < range.start());
-    let past_last = units.partition_point(|unit| grid.index(unit.anchor) <= range.end());
+/// Expression Span names a contiguous run of them and both ends are found by
+/// search rather than by testing every unit against every Span. The returned
+/// bounds are positions in `units`, a different index space from the Cell
+/// indices the Span carries; the Span's own bounds are inclusive at both ends.
+fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Range<usize> {
+    let first = units.partition_point(|unit| grid.index(unit.anchor) < span.start());
+    let past_last = units.partition_point(|unit| grid.index(unit.anchor) <= span.end());
     first..past_last
 }
 
@@ -501,55 +501,15 @@ fn expression_parts(expression: Expression, executable: bool) -> (Option<Atoms>,
     (atoms, glyphs)
 }
 
-#[derive(Debug)]
-struct ExpressionMap {
-    inner: Vec<Option<Span>>,
-}
-
-impl ExpressionMap {
-    fn build(grid: Grid, bytes: &[u8]) -> Self {
-        assert_eq!(
-            bytes.len(),
-            grid.count(),
-            "LanguageMap Source length must match its Grid"
-        );
-
-        let mut inner = Vec::with_capacity(bytes.len());
-        for (row_number, row) in bytes.chunks_exact(grid.cols()).enumerate() {
-            inner.extend(row_extents(grid, row_number * grid.cols(), row));
-        }
-        Self { inner }
-    }
-
-    fn prospective_range(grid: Grid, bytes: &[u8], idx: usize, byte: u8) -> Option<Span> {
-        assert_eq!(
-            bytes.len(),
-            grid.count(),
-            "LanguageMap Source length must match its Grid"
-        );
-        assert!(
-            idx < bytes.len(),
-            "prospective Cell must belong to the Source"
-        );
-
-        let cols = grid.cols();
-        let row_start = (idx / cols) * cols;
-        let mut row = bytes[row_start..row_start + cols].to_vec();
-        let row_idx = idx - row_start;
-        row[row_idx] = byte;
-        row_extents(grid, row_start, &row)[row_idx]
-    }
-
-    fn ranges(&self) -> impl Iterator<Item = Span> + '_ {
-        self.inner
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, range)| range.filter(|range| range.start().get() == idx))
-    }
-}
-
-fn row_extents(grid: Grid, row_start: usize, row: &[u8]) -> Vec<Option<Span>> {
-    let mut extents = vec![None; row.len()];
+///
+/// The Expression Spans of one row, left to right.
+///
+/// A row is the whole horizontal extent there is, so a run ends at a space, at
+/// a `##` Comment, or at the row edge. Each run yields one Span; Cells between
+/// runs belong to none.
+///
+fn row_spans(grid: Grid, row_start: usize, row: &[u8]) -> Vec<Span> {
+    let mut spans = Vec::new();
     let mut local_start = 0;
 
     while local_start < row.len() {
@@ -566,17 +526,69 @@ fn row_extents(grid: Grid, row_start: usize, row: &[u8]) -> Vec<Option<Span>> {
             .map_or(row.len() - 1, |idx| idx - 1);
         let cell = |idx: usize| {
             grid.cell_index(idx)
-                .expect("a row extent lies inside the Grid that owns the row")
+                .expect("a row's Span lies inside the Grid that owns the row")
         };
-        let range = Span::new(
+        spans.push(Span::new(
             grid,
             cell(row_start + local_start),
             cell(row_start + local_end),
-        );
-        extents[local_start..=local_end].fill(Some(range));
+        ));
         local_start = local_end + 1;
     }
-    extents
+    spans
+}
+
+///
+/// The Expression Spans of a whole Source revision, in row-major order.
+///
+fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
+    assert_eq!(
+        bytes.len(),
+        grid.count(),
+        "LanguageMap Source length must match its Grid"
+    );
+
+    let cols = grid.cols();
+    let mut spans = Vec::new();
+    for (row_number, row) in bytes.chunks_exact(cols).enumerate() {
+        spans.extend(row_spans(grid, row_number * cols, row));
+    }
+    spans
+}
+
+///
+/// The Span covering `cell`, when one does. Spans within a row do not overlap,
+/// so at most one can answer.
+///
+fn span_containing(spans: &[Span], cell: CellIndex) -> Option<Span> {
+    spans
+        .iter()
+        .copied()
+        .find(|span| span.start() <= cell && cell <= span.end())
+}
+
+///
+/// The Span that would cover `idx` after replacing that Cell with `byte`.
+///
+/// Only the edited row is rebuilt: an Expression is horizontal, so no other
+/// row's Spans can change.
+///
+fn prospective_span(grid: Grid, bytes: &[u8], idx: usize, byte: u8) -> Option<Span> {
+    assert_eq!(
+        bytes.len(),
+        grid.count(),
+        "LanguageMap Source length must match its Grid"
+    );
+    let cell = grid
+        .cell_index(idx)
+        .expect("prospective Cell must belong to the Source");
+
+    let cols = grid.cols();
+    let row_start = (idx / cols) * cols;
+    let mut row = bytes[row_start..row_start + cols].to_vec();
+    row[idx - row_start] = byte;
+
+    span_containing(&row_spans(grid, row_start, &row), cell)
 }
 
 #[cfg(test)]
@@ -585,7 +597,7 @@ mod tests {
 
     use lang::{Activation, Atom};
 
-    use super::{ExpressionMap, LanguageMap, LanguageUnitKind, Span};
+    use super::{LanguageMap, LanguageUnitKind, Span, expression_spans, prospective_span};
 
     #[test]
     fn public_language_map_expression_exposes_root_nested_functions_and_spans() {
@@ -628,10 +640,10 @@ mod tests {
 
     #[test]
     fn each_expression_names_its_own_units_including_the_ones_at_its_edges() {
-        // `units_range` locates an extent's units by search, so both bounds
+        // `units_range` locates a Span's units by search, so both bounds
         // have to be exact: a lower bound one unit too high drops the root a
         // row's first Expression is spelled from, and an exclusive upper bound
-        // drops its last operand. Two extents in one row put a neighbour on
+        // drops its last operand. Two Spans in one row put a neighbour on
         // each side of both edges, so either slip shows up as a missing or
         // borrowed anchor rather than as a crash.
         let grid = Grid::new(9, 1);
@@ -814,71 +826,73 @@ mod tests {
         );
     }
 
-    fn assert_range(grid: Grid, map: &ExpressionMap, start: usize, end: usize) {
-        let range = Span::new(grid, cell(grid, start), cell(grid, end));
-        for idx in start..=end {
-            assert_eq!(map.inner[idx], Some(range));
-        }
-    }
-
     fn cell(grid: Grid, idx: usize) -> crate::grid::CellIndex {
         grid.cell_index(idx).expect("inside the Grid")
     }
 
-    #[test]
-    fn build_leaves_empty_rows_without_expressions() {
-        let map = ExpressionMap::build(Grid::new(5, 1), b"     ");
-        assert!(map.inner.iter().all(Option::is_none));
+    fn span(grid: Grid, start: usize, end: usize) -> Span {
+        Span::new(grid, cell(grid, start), cell(grid, end))
     }
 
     #[test]
-    fn build_maps_every_cell_in_one_run_to_its_inclusive_extent() {
+    fn build_leaves_empty_rows_without_expressions() {
+        assert!(expression_spans(Grid::new(5, 1), b"     ").is_empty());
+    }
+
+    #[test]
+    fn build_names_one_span_per_run_covering_it_inclusively() {
         let grid = Grid::new(5, 1);
-        let map = ExpressionMap::build(grid, b" .+1 ");
-        assert_eq!(map.inner[0], None);
-        assert_range(grid, &map, 1, 3);
-        assert_eq!(map.inner[4], None);
+        let spans = expression_spans(grid, b" .+1 ");
+
+        // one Span for the run, and it covers exactly the run's Cells
+        assert_eq!(spans, vec![span(grid, 1, 3)]);
+        assert_eq!(
+            spans[0].indices().map(|idx| idx.get()).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 
     #[test]
     fn build_separates_multiple_runs_in_one_row() {
         let grid = Grid::new(8, 1);
-        let map = ExpressionMap::build(grid, b".+  .-  ");
-        assert_range(grid, &map, 0, 1);
-        assert_eq!(map.inner[2], None);
-        assert_eq!(map.inner[3], None);
-        assert_range(grid, &map, 4, 5);
-        assert_eq!(map.inner[6], None);
-        assert_eq!(map.inner[7], None);
+
+        // asserting the whole list, not Cell by Cell: a spurious extra Span
+        // shows up here and would not show up in per-Cell probing
+        assert_eq!(
+            expression_spans(grid, b".+  .-  "),
+            vec![span(grid, 0, 1), span(grid, 4, 5)]
+        );
     }
 
     #[test]
     fn build_keeps_edge_touching_runs_inside_their_rows() {
         let grid = Grid::new(4, 2);
-        let map = ExpressionMap::build(grid, b"  .+.-  ");
-        assert_range(grid, &map, 2, 3);
-        assert_range(grid, &map, 4, 5);
-        assert_ne!(map.inner[3], map.inner[4]);
+
+        // the runs touch across the row edge but are two Spans, not one
+        assert_eq!(
+            expression_spans(grid, b"  .+.-  "),
+            vec![span(grid, 2, 3), span(grid, 4, 5)]
+        );
     }
 
     #[test]
-    fn prospective_range_scans_only_the_edited_row() {
+    fn prospective_span_scans_only_the_edited_row() {
         let grid = Grid::new(5, 2);
         let bytes = b".+   .-   ";
         assert_eq!(
-            ExpressionMap::prospective_range(grid, bytes, 2, b'1'),
-            Some(Span::new(grid, cell(grid, 0), cell(grid, 2)))
+            prospective_span(grid, bytes, 2, b'1'),
+            Some(span(grid, 0, 2))
         );
         assert_eq!(
-            ExpressionMap::prospective_range(grid, bytes, 7, b'0'),
-            Some(Span::new(grid, cell(grid, 5), cell(grid, 7)))
+            prospective_span(grid, bytes, 7, b'0'),
+            Some(span(grid, 5, 7))
         );
     }
 
     #[test]
     #[should_panic(expected = "LanguageMap Source length must match its Grid")]
     fn build_rejects_source_content_with_the_wrong_length() {
-        let _ = ExpressionMap::build(Grid::new(5, 1), b"    ");
+        let _ = expression_spans(Grid::new(5, 1), b"    ");
     }
 
     #[test]
