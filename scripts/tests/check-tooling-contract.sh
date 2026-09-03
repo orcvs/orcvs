@@ -78,6 +78,12 @@ test_bench_without_native_dependencies_is_rejected() {
   make_fixture
   perl -pi -e 's/^(        run: sudo apt-get update .*)$/# $1/' "$fixture_dir/.github/workflows/bench.yml"
   assert_rejected "a benchmark workflow that never installs the orcvs native dependencies"
+
+  # Both bench jobs build `orcvs`, so losing the install step from one of them is
+  # just as broken as losing it from both.
+  make_fixture
+  perl -pi -e 'if (!$done && s/^(        run: sudo apt-get update .*)$/# $1/) { $done = 1 }' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow whose first bench job never installs the orcvs native dependencies"
 }
 
 test_unlocked_check_deny_is_rejected() {

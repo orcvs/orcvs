@@ -12,6 +12,18 @@ assert_contains() {
   fi
 }
 
+assert_occurs_exactly() {
+  local file="$1"
+  local pattern="$2"
+  local expected="$3"
+  local actual
+  actual="$(grep -Ev '^[[:space:]]*#' "$file" | grep -Ec "$pattern" || true)"
+  if [ "$actual" -ne "$expected" ]; then
+    echo "expected $file to match $expected times, matched $actual: $pattern" >&2
+    exit 1
+  fi
+}
+
 assert_not_contains() {
   local file="$1"
   local pattern="$2"
@@ -110,9 +122,22 @@ assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --p
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'orcvs/[*][*]'$"
 assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench [|] tee output[.]txt$'
-# `orcvs` links ALSA through `midir` on Linux, so both bench jobs need the same
-# native dependency the test workflow installs.
-assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev$'
+# `orcvs` links ALSA through `midir` on Linux, so every bench job needs the same
+# native dependency the test workflow installs. The count is derived from the jobs
+# the workflow actually declares: a single install step satisfies no more than one
+# of them, and a job added without one fails this check rather than failing in CI.
+bench_job_count="$(awk '
+  /^[[:space:]]*#/ { next }
+  /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+  in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+  in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { count++ }
+  END { print count + 0 }
+' "$root_dir/.github/workflows/bench.yml")"
+if [ "$bench_job_count" -lt 1 ]; then
+  echo "expected $root_dir/.github/workflows/bench.yml to declare at least one job" >&2
+  exit 1
+fi
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev$' "$bench_job_count"
 assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
 assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
