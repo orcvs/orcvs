@@ -59,7 +59,7 @@ Two runs returned intervals too wide to use and are discarded, not averaged:
 ### Numbers
 
 Point estimates, both runs of each commit, so the reader can see the agreement rather than take it
-on trust. `pre` is `f8f7bb6`, the last commit before the Language Map rework; `tip` is `e775dd6`.
+on trust. `pre` is `f8f7bb6`, the last commit before the Language Map rework; `tip` is `31a421c`.
 
 **`source_edit_rebuild_valid` — one accepted keystroke that keeps the Expression valid**
 
@@ -126,7 +126,7 @@ is layout or allocator noise rather than a path that got more expensive, and thi
 
 Checkbox four found nothing to withdraw. No code comment on this branch claims a path got faster;
 `grid.rs`'s "allocation-free Copy values" is a statement about types, verifiable by reading. In the
-commit messages, `93d3211`'s "a Span is Copy and allocates nothing" and `27bb4b8`'s "a run that
+commit messages, `93d3211`'s "a Span is Copy and allocates nothing" and `c1babb9`'s "a run that
 needs no parse allocates nothing" are structural statements about where an allocation sits, each
 true by inspection, not claims about elapsed time. The three commits that changed this path made no
 speed claim at all, which is the debt this ticket discharges: the claim they declined to make is
@@ -157,3 +157,41 @@ CRITERION_HOME=/tmp/crit/tip /tmp/bench-tip/release/deps/source-<hash> --bench -
 Run each twice and discard any case whose interval spans more than a few percent, rather than
 averaging it with a clean one. `uptime` before each run; anything above about 4 on this machine is
 not worth starting.
+
+## Confirmed after the history rewrite
+
+The commits this effort added were rewritten to fold four review-driven follow-ups into the work
+they corrected, which moved every SHA above `85f8dc1`. The two this issue named went with them, so
+the measurement was taken again rather than relabelled: numbers whose commit cannot be checked out
+are not evidence.
+
+Same method — `pre`, `tip`, `tip`, `pre`, Criterion defaults, two target directories and a hash
+comparison so neither binary is measured twice. `pre` is `f8f7bb6`, unchanged and below the rewrite
+point; `tip` is `31a421c`.
+
+| Benchmark                  | Grid  | pre1        | pre2      | tip1      | tip2      |
+| -------------------------- | ----- | ----------- | --------- | --------- | --------- |
+| `source_edit_rebuild_valid`| 16x16 | 28.43 µs    | 26.92 µs  | 10.91 µs  | 10.95 µs  |
+|                            | 32x32 | 181.95 µs   | 177.79 µs | 38.71 µs  | 38.19 µs  |
+|                            | 64x64 | 1.8018 ms   | 1.7261 ms | 144.21 µs | 143.92 µs |
+| `source_edit_rebuild_invalid` | 16x16 | (discarded) | 27.68 µs | 11.41 µs | 11.38 µs |
+|                            | 32x32 | 180.47 µs   | 178.86 µs | 38.49 µs  | 38.35 µs  |
+|                            | 64x64 | 1.7420 ms   | 1.7198 ms | 145.32 µs | 145.46 µs |
+
+`pre1` began at load 7.29 — something else on the machine started between the build and the first
+run — and it shows: its figures sit 2% to 4% above `pre2`'s, and its
+`source_edit_rebuild_invalid/16x16` returned [32.214 µs, 34.184 µs, 36.429 µs], a 12% spread,
+discarded under the same rule as before. `pre2` (load 2.18) and both `tip` runs (4.21, 2.71) are
+clean and agree with each other within 1.4%.
+
+The conclusion is unchanged, and is now supported by two independent sessions rather than one. Every
+clean figure reproduces the original within noise — `pre2`'s 26.92 / 177.79 µs / 1.7261 ms against
+the original 26.32 / 178.18 µs / 1.7183 ms, and the tip's 10.95 / 38.19 / 143.92 µs against 10.92 /
+38.25 / 145.44 µs. Four times the Cells still costs the old code 6.6x then 9.7x, and the new code
+3.5x then 3.8x.
+
+One thing this re-run also settles: the original measurement was taken from a working tree that no
+longer corresponds to any commit, because the last of the review follow-ups was committed while the
+benchmark was running. Its changes were doc comments and test-only code, so the measured binary was
+representative — but "representative" is weaker than "this commit", and the table above is the
+stronger claim.
