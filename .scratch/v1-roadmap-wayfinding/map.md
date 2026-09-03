@@ -59,17 +59,6 @@ evidence-backed, and ready for implementation sessions to execute.
   fills the gaps, and the inventory-backed DoD and final gate now match the graph. See
   [06 — Apply the decided release roadmap](issues/06-apply-the-decided-release-roadmap.md).
 
-## Not yet specified
-
-- The inventory may expose contradictions between accepted language semantics and feasible release
-  slices. Each concrete contradiction graduates into a dedicated decision ticket.
-- The invariant decision may expose additional parser-recovery or diagnostic-model decisions that
-  cannot yet be stated without assuming the relationship between syntax and runtime values.
-- The evidence contract may expose target-specific proof work whose exact question depends on what
-  native, WASM, persistence, or MIDI capability is actually shipped.
-- Roadmap reconciliation may expose stale or overlapping tickets beyond the conflicts already
-  created by the numeric-conversion and benchmark work merged from `origin/main`.
-
 ## Out of scope
 
 - Implementing production Rust, UI, persistence, MIDI, or WASM behavior.

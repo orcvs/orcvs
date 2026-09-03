@@ -26,9 +26,11 @@ release ticket to carry it into the closure, plus distinct candidate-bound artif
 implementation prerequisites remain on their owning tickets. No artificial dependency serializes
 independent work merely to make the displayed route look linear.
 
-The roadmap generator's “critical path” is one unit-weight longest blocker chain to the gate. Every
-other tagged issue appears as parallel work but remains mandatory because it is still in the gate's
-blocker closure. The rendered view must not describe parallel release work as optional.
+The roadmap generator's critical subgraph contains every zero-slack issue on any unit-weight
+longest blocker path to the gate. Tied prerequisite branches are all critical even when they can
+run in parallel; delaying any one delays the gate. Tagged issues with positive slack appear as
+parallel work but remain mandatory because they are still in the gate's blocker closure. The
+rendered view must not describe parallel release work as optional.
 
 The Definition of Done is the human-readable acceptance index. It names the decided shipped
 inventory rather than treating speculative ADR text as shipped, links each requirement to the

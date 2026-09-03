@@ -410,7 +410,8 @@ export interface PlannedReleaseIssue extends TaggedIssue {
 }
 
 export interface ReleasePlan {
-  readonly criticalPath: readonly PlannedReleaseIssue[];
+  /** Every zero-slack issue on at least one longest dependency path to the gate. */
+  readonly criticalSubgraph: readonly PlannedReleaseIssue[];
   readonly parallel: readonly PlannedReleaseIssue[];
 }
 
@@ -427,7 +428,7 @@ export const taggedReference = ({ feature, issue }: TaggedIssue): string => {
 };
 
 /**
- * Unit-weight critical path to the declared release gate. Issue files remain the
+ * Unit-weight critical subgraph to the declared release gate. Issue files remain the
  * dependency source; `ROADMAP.md` names only which sink means "release done".
  */
 export const planRelease = (roadmap: Roadmap, release: ReleaseScope): ReleasePlan => {
@@ -469,7 +470,7 @@ export const planRelease = (roadmap: Roadmap, release: ReleaseScope): ReleasePla
   const planned = open.map((tagged) => ({ ...tagged, depth: depthOf(tagged.reference) }));
   if (release.gate === null) {
     return {
-      criticalPath: [],
+      criticalSubgraph: [],
       parallel: planned.sort(
         (left, right) => left.depth - right.depth || left.reference.localeCompare(right.reference),
       ),
@@ -486,7 +487,7 @@ export const planRelease = (roadmap: Roadmap, release: ReleaseScope): ReleasePla
             .join(', ')}`,
         );
       }
-      return { criticalPath: [], parallel: [] };
+      return { criticalSubgraph: [], parallel: [] };
     }
     throw new Error(`Release gate ${release.gate} is not an open issue tagged ${release.tag}.`);
   }
@@ -510,28 +511,31 @@ export const planRelease = (roadmap: Roadmap, release: ReleaseScope): ReleasePla
     );
   }
 
-  const paths = new Map<string, readonly string[]>();
-  const pathTo = (reference: string): readonly string[] => {
-    const known = paths.get(reference);
-    if (known !== undefined) return known;
+  // An issue that blocks a critical issue and sits one depth below it lies on
+  // a longest path to the gate, so it has zero slack. Walking back from the
+  // gate by single depth steps therefore visits exactly the zero-slack set,
+  // and reaches every tied branch — which is the point: one longest chain
+  // would name an arbitrary one of them and call the rest parallel.
+  const criticalSet = new Set<string>();
+  const includeTiedCriticalPredecessors = (reference: string): void => {
+    if (criticalSet.has(reference)) return;
+    criticalSet.add(reference);
     const tagged = byReference.get(reference);
     if (tagged === undefined) throw new Error(`Unknown open release issue ${reference}.`);
-    const candidates = tagged.issue.unmetBlockers
-      .map((blocker) => pathTo(blocker))
-      .sort(
-        (left, right) =>
-          right.length - left.length || left.join(' ').localeCompare(right.join(' ')),
-      );
-    const path = [...(candidates[0] ?? []), reference];
-    paths.set(reference, path);
-    return path;
+    const criticalPredecessorDepth = depthOf(reference) - 1;
+    for (const blocker of tagged.issue.unmetBlockers) {
+      if (depthOf(blocker) === criticalPredecessorDepth) {
+        includeTiedCriticalPredecessors(blocker);
+      }
+    }
   };
-
-  const criticalReferences = pathTo(release.gate);
-  const criticalSet = new Set(criticalReferences);
+  includeTiedCriticalPredecessors(release.gate);
+  const criticalReferences = [...criticalSet].sort(
+    (left, right) => depthOf(left) - depthOf(right) || left.localeCompare(right),
+  );
   const plannedByReference = new Map(planned.map((issue) => [issue.reference, issue]));
   return {
-    criticalPath: criticalReferences.map((reference) => {
+    criticalSubgraph: criticalReferences.map((reference) => {
       const issue = plannedByReference.get(reference);
       if (issue === undefined) throw new Error(`Missing planned release issue ${reference}.`);
       return issue;
@@ -595,8 +599,8 @@ export const renderRoadmap = (roadmap: Roadmap, release: ReleaseScope | null = n
           ...(release.gate === null || releasePlan === null
             ? openReleaseIssues.map(releaseIssueLine)
             : [
-                `  CRITICAL PATH — ${releasePlan.criticalPath.length}`,
-                ...releasePlan.criticalPath.map(releaseIssueLine),
+                `  CRITICAL SUBGRAPH — ${releasePlan.criticalSubgraph.length}`,
+                ...releasePlan.criticalSubgraph.map(releaseIssueLine),
                 `  PARALLEL WORK — ${releasePlan.parallel.length}`,
                 ...releasePlan.parallel.map(releaseIssueLine),
               ]),
@@ -711,8 +715,8 @@ const htmlReleaseScope = (roadmap: Roadmap, release: ReleaseScope): string => {
     release.gate === null
       ? `<ul>${open.map(htmlReleaseIssue).join('')}</ul>`
       : [
-          `<h3>Critical path<span class="tally">${plan.criticalPath.length}</span></h3>`,
-          `<ol class="release-path">${plan.criticalPath.map(htmlReleaseIssue).join('')}</ol>`,
+          `<h3>Critical subgraph<span class="tally">${plan.criticalSubgraph.length}</span></h3>`,
+          `<ul class="release-path">${plan.criticalSubgraph.map(htmlReleaseIssue).join('')}</ul>`,
           `<h3>Parallel work<span class="tally">${plan.parallel.length}</span></h3>`,
           `<ul>${plan.parallel.map(htmlReleaseIssue).join('')}</ul>`,
         ].join('');

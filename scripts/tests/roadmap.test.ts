@@ -102,7 +102,7 @@ test('planRelease accepts a settled declared gate when all release work is settl
       gate: 'release/01',
     });
 
-    assert.deepEqual(plan, { criticalPath: [], parallel: [] });
+    assert.deepEqual(plan, { criticalSubgraph: [], parallel: [] });
   } finally {
     rmSync(root, { recursive: true });
   }
@@ -164,6 +164,78 @@ test('planRelease rejects tagged work outside the open gate dependency closure',
           gate: 'release/01',
         }),
       /Release gate release\/01 does not depend on tagged release issues: release\/02/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('planRelease includes every tied zero-slack branch in the critical subgraph', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    mkdirSync(join(root, 'release', 'issues'), { recursive: true });
+    for (const [file, title, blockers] of [
+      ['01-left.md', 'Left prerequisite', 'None'],
+      ['02-right.md', 'Right prerequisite', 'None'],
+      ['03-join.md', 'Join', '01, 02'],
+      ['04-gate.md', 'Gate', '03'],
+    ] as const) {
+      writeFileSync(
+        join(root, 'release', 'issues', file),
+        `# ${title}\n\nStatus: ready-for-agent\nTags: release/v1\nBlocked by: ${blockers}\n`,
+      );
+    }
+
+    const plan = planRelease(buildRoadmap(root), {
+      title: 'Release',
+      tag: 'release/v1',
+      goal: 'ship',
+      definition: null,
+      gate: 'release/04',
+    });
+
+    assert.deepEqual(
+      plan.criticalSubgraph.map(({ reference }) => reference),
+      ['release/01', 'release/02', 'release/03', 'release/04'],
+    );
+    assert.deepEqual(plan.parallel, []);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('planRelease leaves positive-slack prerequisites in parallel work', () => {
+  const root = mkdtempSync(join(tmpdir(), 'orcvs-roadmap-'));
+  try {
+    mkdirSync(join(root, 'release', 'issues'), { recursive: true });
+    for (const [file, title, blockers] of [
+      ['01-long-root.md', 'Long root', 'None'],
+      ['02-short-root.md', 'Short root', 'None'],
+      ['03-long-tail.md', 'Long tail', '01'],
+      ['04-join.md', 'Join', '02, 03'],
+      ['05-gate.md', 'Gate', '04'],
+    ] as const) {
+      writeFileSync(
+        join(root, 'release', 'issues', file),
+        `# ${title}\n\nStatus: ready-for-agent\nTags: release/v1\nBlocked by: ${blockers}\n`,
+      );
+    }
+
+    const plan = planRelease(buildRoadmap(root), {
+      title: 'Release',
+      tag: 'release/v1',
+      goal: 'ship',
+      definition: null,
+      gate: 'release/05',
+    });
+
+    assert.deepEqual(
+      plan.criticalSubgraph.map(({ reference }) => reference),
+      ['release/01', 'release/03', 'release/04', 'release/05'],
+    );
+    assert.deepEqual(
+      plan.parallel.map(({ reference }) => reference),
+      ['release/02'],
     );
   } finally {
     rmSync(root, { recursive: true });

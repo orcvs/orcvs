@@ -34,13 +34,14 @@ Gate: <feature-slug>/NN
 `Tag:` and `Goal:` are required if the file exists at all. `Definition:` is an
 optional path (relative to `.scratch/`) to a plain checklist doc; `Gate:` is an
 optional `feature-slug/NN` reference to the one open issue whose resolution
-closes the release — the script uses it to compute a critical path (via the
-existing `Blocked by:` graph) and a parallel-work bucket, both derived, not
-authored. Every open tagged issue must be in the Gate's dependency closure, so
-“parallel” means mandatory independent work rather than optional scope. After
-the Gate resolves, retain the reference as release history: the script accepts
-the settled tagged Gate only when no tagged release work remains open. Without
-a `Gate:`, tagged issues are just listed by dependency depth.
+closes the release — the script uses it to compute the complete zero-slack
+critical subgraph (via the existing `Blocked by:` graph) and a parallel-work
+bucket, both derived, not authored. Every open tagged issue must be in the
+Gate's dependency closure, so “parallel” means mandatory independent work
+rather than optional scope. After the Gate resolves, retain the reference as
+release history: the script accepts the settled tagged Gate only when no
+tagged release work remains open. Without a `Gate:`, tagged issues are just
+listed by dependency depth.
 
 ## When a skill says "publish to the issue tracker"
 
