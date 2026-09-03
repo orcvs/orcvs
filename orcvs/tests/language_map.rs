@@ -127,3 +127,18 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
         vec![grid.position(4, 0).unwrap()]
     );
 }
+
+#[test]
+#[should_panic(expected = "ExpressionEntry belongs to another LanguageMap")]
+fn expression_units_refuses_an_expression_from_another_revision() {
+    // Two revisions of the same Source share a Grid, so an extent minted by
+    // one is a valid extent in the other. Without a revision identity the
+    // foreign Expression is silently answered with this Map's own units:
+    // `[Function(Add), OperandLiteral]` becomes `[OperandLiteral]`.
+    let grid = Grid::new(10, 1);
+    let first = LanguageMap::derive(grid, ".+01      ").unwrap();
+    let second = LanguageMap::derive(grid, ".*0203    ").unwrap();
+    let expression = first.expressions().next().unwrap();
+
+    second.expression_units(expression);
+}

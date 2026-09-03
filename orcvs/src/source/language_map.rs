@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use lang::{
     Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token, to_atom_note,
     to_atom_num,
@@ -12,6 +14,27 @@ use super::Diagnostic;
 
 const SPACE_BYTE: u8 = b' ';
 
+static NEXT_LANGUAGE_MAP_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Which derivation a Map, and the Expressions it owns, came from.
+///
+/// Two revisions of one Source share a Grid, so a Span alone cannot say which
+/// revision minted it. This is the same device `GridId` is for Positions and
+/// Cell indices: an identity only the owner mints, so a value carrying it
+/// names the one collection that can answer for it. Copies of a Map share its
+/// identity, exactly as copies of a Grid do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LanguageMapId(u64);
+
+impl LanguageMapId {
+    fn new() -> Self {
+        let id = NEXT_LANGUAGE_MAP_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("LanguageMap identity space exhausted");
+        Self(id)
+    }
+}
+
 /// The semantic information derived from one complete Source revision.
 ///
 /// This is the single owner of expression extents, parsed expressions, Glyph
@@ -19,6 +42,7 @@ const SPACE_BYTE: u8 = b' ';
 /// semantics the current parser and row-local partition can establish.
 #[derive(Clone)]
 pub struct LanguageMap {
+    id: LanguageMapId,
     grid: Grid,
     units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
@@ -104,6 +128,7 @@ impl Span {
 
 #[derive(Clone)]
 pub struct ExpressionEntry {
+    map_id: LanguageMapId,
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
@@ -145,6 +170,7 @@ impl LanguageMap {
         let expression_map = ExpressionMap::build(grid, bytes);
         let ranges = expression_map.ranges().collect::<Vec<_>>();
         let mut map = Self {
+            id: LanguageMapId::new(),
             grid,
             units,
             expressions: Vec::new(),
@@ -235,10 +261,18 @@ impl LanguageMap {
     ///
     /// The Language Units this Expression is spelled from, in Source order.
     ///
-    /// The Map owns both the Expression and the units it names, so an extent
-    /// cannot address the partition of a different revision.
+    /// A foreign Expression is refused. An extent is only Cell numbers, and
+    /// two revisions of one Source share a Grid, so an extent minted by
+    /// another revision addresses this partition perfectly well and would be
+    /// answered with the wrong units. The Expression's revision identity is
+    /// what distinguishes them, the same way a Position's Grid identity names
+    /// the Grid that can place it.
     ///
     pub fn expression_units(&self, expression: &ExpressionEntry) -> &[LanguageUnit] {
+        assert!(
+            self.id == expression.map_id,
+            "ExpressionEntry belongs to another LanguageMap"
+        );
         &self.units[units_range(&self.units, self.grid, expression.span)]
     }
 
@@ -258,6 +292,7 @@ impl LanguageMap {
             Ok(analysis) => analysis,
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
+                    map_id: self.id,
                     atoms: None,
                     diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
                     root: None,
@@ -296,6 +331,7 @@ impl LanguageMap {
         }
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
+            map_id: self.id,
             atoms,
             diagnostic,
             root,

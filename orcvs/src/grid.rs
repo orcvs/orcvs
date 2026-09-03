@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_GRID_ID: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct GridId(u64);
 
 impl GridId {
@@ -46,7 +46,13 @@ impl Position {
 /// index spaces — offsets within a row, Cell counts, positions in a partition —
 /// and nothing but the type distinguishes them at a glance.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Indices order row-major within one Grid. Grid identity is the first field
+/// so that the derived ordering agrees with equality: two indices compare
+/// `Equal` only when they name the same Cell of the same Grid. Every index of
+/// one Grid shares that Grid's identity, so their order is decided by `idx`
+/// alone; an ordering across Grids is arbitrary but total, which is what
+/// ordered collections require of `Ord`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CellIndex {
     grid_id: GridId,
     idx: usize,
@@ -59,28 +65,6 @@ impl CellIndex {
     #[inline]
     pub fn get(self) -> usize {
         self.idx
-    }
-}
-
-impl Ord for CellIndex {
-    ///
-    /// Row-major order. Two indices are only comparable within one Grid: an
-    /// ordering across Grids would compare Cells of different shapes.
-    ///
-    #[inline]
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        debug_assert_eq!(
-            self.grid_id, other.grid_id,
-            "CellIndex belongs to another Grid"
-        );
-        self.idx.cmp(&other.idx)
-    }
-}
-
-impl PartialOrd for CellIndex {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -477,6 +461,33 @@ mod test {
         let foreign = first.position(1, 0).expect("inside the first Grid");
 
         second.index(foreign);
+    }
+
+    #[test]
+    fn test_cell_index_ordering_agrees_with_equality_across_grids() {
+        trace();
+
+        // `Ord` requires `a.cmp(&b) == Equal` exactly when `a == b`. Two Grids
+        // can each mint an index for the same number, and equality reports
+        // them different because their Grid identities differ. An ordering
+        // that answers `Equal` there contradicts equality and corrupts any
+        // ordered collection holding indices from more than one Grid.
+        let first = Grid::new(4, 2);
+        let second = Grid::new(4, 2);
+        let a = first.cell_index(1).expect("inside the first Grid");
+        let b = second.cell_index(1).expect("inside the second Grid");
+
+        assert_ne!(a, b, "indices from different Grids are not equal");
+        assert_ne!(
+            a.cmp(&b),
+            std::cmp::Ordering::Equal,
+            "ordering must agree with equality"
+        );
+
+        // The corruption this prevents: a BTreeSet keyed on CellIndex holds
+        // both, rather than collapsing them into one.
+        let set = std::collections::BTreeSet::from([a, b]);
+        assert_eq!(set.len(), 2);
     }
 
     #[test]
