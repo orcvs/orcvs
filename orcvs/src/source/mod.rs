@@ -3,7 +3,7 @@ mod language_map;
 pub use language_map::{ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 mod model;
 mod tick;
-use crate::grid::{Grid, Position};
+use crate::grid::{CellIndex, Grid, Position};
 pub use error::SourceError;
 pub use model::{CellWrite, Diagnostic, PlayCommand, Source, TickPlan};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -62,6 +62,14 @@ impl SourceCommander {
     }
 
     ///
+    /// Synchronous edit addressed by a Grid-minted Cell index: when this
+    /// returns, every observable part of the Source describes the new revision.
+    ///
+    pub fn set_cell(&self, cell: CellIndex, s: &str) -> Result<(), SourceError> {
+        write_recover(&self.inner).set_cell(cell, s)
+    }
+
+    ///
     /// Synchronous delete: when this returns, every observable part of the
     /// Source describes the new revision.
     ///
@@ -69,8 +77,21 @@ impl SourceCommander {
         write_recover(&self.inner).unset(idx)
     }
 
+    ///
+    /// Synchronous delete addressed by a Grid-minted Cell index: when this
+    /// returns, every observable part of the Source describes the new revision.
+    ///
+    pub fn unset_cell(&self, cell: CellIndex) {
+        write_recover(&self.inner).unset_cell(cell);
+    }
+
     pub fn get(&self, idx: usize) -> Option<String> {
         read_recover(&self.inner).get(idx)
+    }
+
+    /// What `cell` holds at the current revision, or `None` when it is empty.
+    pub fn get_cell(&self, cell: CellIndex) -> Option<String> {
+        read_recover(&self.inner).get_cell(cell)
     }
 
     ///
@@ -189,6 +210,49 @@ mod tests {
         assert_eq!(source.get(199), Some("x".to_string()));
         assert_eq!(source.get(170), Some("0".to_string()));
         assert_eq!(source.get(171), Some("3".to_string()));
+    }
+
+    #[test]
+    fn a_cell_is_addressable_by_a_grid_minted_index_and_by_a_number() {
+        // The expand half of the two-step change. Both forms reach the same
+        // Cell and the same rules: setting, clearing and reading each accept
+        // an index the Grid minted, and the number-taking forms still work
+        // because nothing is migrated yet.
+        let grid = Grid::new(4, 2);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+
+        source.set_cell(cell(0), ".").unwrap();
+        source.set(1, "+").unwrap();
+
+        assert_eq!(source.get_cell(cell(0)).as_deref(), Some("."));
+        assert_eq!(source.get(0).as_deref(), Some("."));
+        assert_eq!(source.get_cell(cell(1)).as_deref(), Some("+"));
+
+        // A Cell it cannot store is still refused; that rule is about content,
+        // not about addressing.
+        assert_eq!(
+            source.set_cell(cell(2), "ab"),
+            Err(SourceError::InvalidCell {
+                content: "ab".to_string()
+            })
+        );
+
+        source.unset_cell(cell(0));
+
+        assert_eq!(source.get_cell(cell(0)), None);
+        assert_eq!(source.get(0), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "CellIndex belongs to another Grid")]
+    fn the_typed_editing_form_refuses_an_index_minted_by_another_grid() {
+        // What the typed form has instead of an out-of-range error: an index
+        // this Source has no Cell for cannot be presented to it at all.
+        let source = SourceCommander::new(Grid::new(4, 2));
+        let foreign = Grid::new(4, 2).cell_index(0).expect("inside the Grid");
+
+        let _ = source.set_cell(foreign, "x");
     }
 
     #[test]

@@ -194,15 +194,15 @@ impl LanguageMap {
         map
     }
 
-    /// Answers the Expression Span that would contain `idx` after replacing
+    /// Answers the Expression Span that would contain `cell` after replacing
     /// that Cell with `byte`, without scanning any other row.
     pub(super) fn prospective_expression_span(
         grid: Grid,
         bytes: &[u8],
-        idx: usize,
+        cell: CellIndex,
         byte: u8,
     ) -> Option<Span> {
-        prospective_span(grid, bytes, idx, byte)
+        prospective_span(grid, bytes, cell, byte)
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
@@ -675,17 +675,16 @@ fn span_containing(spans: &[Span], cell: CellIndex) -> Option<Span> {
 /// Only the edited row is rebuilt: an Expression is horizontal, so no other
 /// row's Spans can change.
 ///
-fn prospective_span(grid: Grid, bytes: &[u8], idx: usize, byte: u8) -> Option<Span> {
+fn prospective_span(grid: Grid, bytes: &[u8], cell: CellIndex, byte: u8) -> Option<Span> {
     assert_eq!(
         bytes.len(),
         grid.count(),
         "LanguageMap Source length must match its Grid"
     );
-    let cell = grid
-        .cell_index(idx)
-        .expect("prospective Cell must belong to the Source");
+    grid.assert_owns_index(cell);
 
     let cols = grid.cols();
+    let idx = cell.get();
     let row_start = (idx / cols) * cols;
     let mut row = bytes[row_start..row_start + cols].to_vec();
     row[idx - row_start] = byte;
@@ -1014,11 +1013,11 @@ mod tests {
         let grid = Grid::new(5, 2);
         let bytes = b".+   .-   ";
         assert_eq!(
-            prospective_span(grid, bytes, 2, b'1'),
+            prospective_span(grid, bytes, cell(grid, 2), b'1'),
             Some(span(grid, 0, 2))
         );
         assert_eq!(
-            prospective_span(grid, bytes, 7, b'0'),
+            prospective_span(grid, bytes, cell(grid, 7), b'0'),
             Some(span(grid, 5, 7))
         );
     }

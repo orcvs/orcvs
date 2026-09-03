@@ -213,10 +213,33 @@ impl Source {
     /// ```
     ///
     pub fn set(&mut self, idx: usize, s: &str) -> Result<(), SourceError> {
-        debug!("set {idx}: {s}");
-        let cell = self.check_idx(idx)?;
+        self.set_cell(self.check_idx(idx)?, s)
+    }
+
+    ///
+    /// Sets `cell` and recalculates the affected Expressions. A space empties
+    /// the Cell, equivalent to `unset_cell`.
+    ///
+    /// The Cell is named by an index its Grid minted, so there is no index left
+    /// to refuse: this weighs the content and the Expression the edit would
+    /// make, and nothing else.
+    ///
+    /// ```
+    /// use orcvs::{grid::Grid, source::Source};
+    ///
+    /// let grid = Grid::new(10, 10);
+    /// let mut source = Source::new(grid);
+    /// let cell = grid.cell_index(33).expect("inside the Grid");
+    /// source.set_cell(cell, "!").unwrap();
+    ///
+    /// assert_eq!(source.get_cell(cell), Some("!".to_string()));
+    /// ```
+    ///
+    pub fn set_cell(&mut self, cell: CellIndex, s: &str) -> Result<(), SourceError> {
+        self.grid.assert_owns_index(cell);
+        debug!("set {}: {s}", cell.get());
         let byte = Self::check_content(s)?;
-        self.check_expression_capacity(idx, byte)?;
+        self.check_expression_capacity(cell, byte)?;
 
         self.edit(cell, byte);
         Ok(())
@@ -226,10 +249,19 @@ impl Source {
     /// Empties the Cell at `idx` and recalculates the affected Expressions.
     ///
     pub fn unset(&mut self, idx: usize) -> Result<(), SourceError> {
-        let cell = self.check_idx(idx)?;
-
-        self.edit(cell, SPACE_BYTE);
+        self.unset_cell(self.check_idx(idx)?);
         Ok(())
+    }
+
+    ///
+    /// Empties `cell` and recalculates the affected Expressions.
+    ///
+    /// Nothing can refuse this. A Cell the Grid minted exists, and emptying a
+    /// Cell can only shorten an Expression.
+    ///
+    pub fn unset_cell(&mut self, cell: CellIndex) {
+        self.grid.assert_owns_index(cell);
+        self.edit(cell, SPACE_BYTE);
     }
 
     ///
@@ -280,13 +312,13 @@ impl Source {
         }
     }
 
-    fn check_expression_capacity(&self, idx: usize, byte: u8) -> Result<(), SourceError> {
+    fn check_expression_capacity(&self, cell: CellIndex, byte: u8) -> Result<(), SourceError> {
         if byte == SPACE_BYTE {
             return Ok(());
         }
 
         let range =
-            LanguageMap::prospective_expression_span(self.grid, self.inner.as_bytes(), idx, byte)
+            LanguageMap::prospective_expression_span(self.grid, self.inner.as_bytes(), cell, byte)
                 .expect("an occupied prospective Cell belongs to one Expression");
         let start = range.start();
         let end = range.end();
@@ -294,7 +326,7 @@ impl Source {
         let mut expression =
             String::from_utf8(self.inner.as_bytes()[start.get()..=end.get()].to_vec())
                 .expect("Source Cells contain ASCII");
-        let offset = idx - start.get();
+        let offset = cell.get() - start.get();
         expression.replace_range(offset..=offset, &(byte as char).to_string());
         match Parser::from(&mut expression).analyze() {
             Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
@@ -309,11 +341,21 @@ impl Source {
     }
 
     pub fn get(&self, idx: usize) -> Option<String> {
-        let b = *self.inner.as_bytes().get(idx)?;
+        self.get_cell(self.grid.cell_index(idx)?)
+    }
 
-        match b {
+    ///
+    /// What `cell` holds, or `None` when it is empty.
+    ///
+    /// Total for the Cells this Source has: a Grid-minted index addresses one
+    /// of them, so the only `None` here is an empty Cell.
+    ///
+    pub fn get_cell(&self, cell: CellIndex) -> Option<String> {
+        self.grid.assert_owns_index(cell);
+
+        match self.inner.as_bytes()[cell.get()] {
             SPACE_BYTE => None,
-            _ => Some((b as char).to_string()),
+            byte => Some((byte as char).to_string()),
         }
     }
 
