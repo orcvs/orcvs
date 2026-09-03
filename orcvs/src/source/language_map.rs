@@ -172,23 +172,17 @@ impl LanguageMap {
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
-        assert_eq!(
-            bytes.len(),
-            grid.count(),
-            "LanguageMap Source length must match its Grid"
-        );
-        let (units, lexical_diagnostics) = partition_units(grid, bytes);
-        let spans = expression_spans(grid, bytes);
+        let walk = walk_source(grid, bytes);
         let mut map = Self {
             id: LanguageMapId::new(),
             grid,
-            units,
+            units: walk.units,
             expressions: Vec::new(),
             glyphs: vec![None; bytes.len()],
-            lexical_diagnostics,
+            lexical_diagnostics: walk.diagnostics,
         };
 
-        for span in spans {
+        for span in walk.spans {
             map.parse_span(grid, bytes, span);
         }
         for (idx, byte) in bytes.iter().copied().enumerate() {
@@ -391,74 +385,157 @@ impl LanguageMap {
     }
 }
 
-fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnostic>) {
-    let mut units = Vec::new();
-    let mut diagnostics = Vec::new();
+///
+/// Everything one walk of a row establishes.
+///
+/// A row decides three things at once — which Language Units it holds, which
+/// Expression Spans those fall into, and which characters diagnose — and they
+/// are decided by the same rules. Collecting them together is what keeps the
+/// rules from being written twice: ADR 0018 has Expression construction operate
+/// on the partition rather than reinterpret overlapping character pairs, and one
+/// walk is how that is true rather than merely intended.
+///
+/// Spans cannot be derived afterwards from the units: a Span covers Cells that
+/// produce no unit, so a lone unrecognized character is its own Span and no
+/// arrangement of units says so. The walk has to emit both.
+///
+#[derive(Default)]
+struct RowWalk {
+    units: Vec<LanguageUnit>,
+    spans: Vec<Span>,
+    diagnostics: Vec<Diagnostic>,
+}
 
-    for row in grid.rows() {
-        let positions = row.collect::<Vec<_>>();
-        let mut column = 0;
-        while column < positions.len() {
-            let anchor = positions[column];
-            let idx = grid.index(anchor);
-            let at = idx.get();
-            if bytes[at] == SPACE_BYTE {
+///
+/// Why a run of Source ends at `column`, when it does.
+///
+/// A row is the whole horizontal extent there is, so a space, a `##` Comment
+/// and the row's own edge are every way a run can end. Only the first two are
+/// variants: the edge is not a character to recognize but the end of the row
+/// the walk was handed, so it needs no rule and cannot be spelled across.
+///
+/// This is the one place the space rule and the Comment rule are stated, and
+/// `walk_row` is the one caller: the day either rule changes, it changes here.
+///
+enum RunBoundary {
+    /// A space separates one run from the next.
+    Space,
+    /// A `##` Comment. Nothing after it on this row is Source.
+    Comment,
+}
+
+fn run_boundary(row: &[u8], column: usize) -> Option<RunBoundary> {
+    if row[column] == SPACE_BYTE {
+        return Some(RunBoundary::Space);
+    }
+    row[column..]
+        .starts_with(b"##")
+        .then_some(RunBoundary::Comment)
+}
+
+///
+/// What the two-Cell `spelling` is, read from the characters alone.
+///
+/// ADR 0024 makes this the single owner of that decision, and `walk_row` is its
+/// only caller.
+///
+fn unit_kind(spelling: &[u8]) -> Option<LanguageUnitKind> {
+    if spelling == b"**" {
+        return Some(LanguageUnitKind::Bang);
+    }
+
+    let spelling = std::str::from_utf8(spelling).ok()?;
+    Activation::try_from(spelling)
+        .map(LanguageUnitKind::Activation)
+        .ok()
+        .or_else(|| {
+            Function::try_from(spelling)
+                .map(LanguageUnitKind::Function)
+                .ok()
+        })
+        .or_else(|| {
+            (to_atom_num(spelling).is_ok() || to_atom_note(spelling).is_ok())
+                .then_some(LanguageUnitKind::OperandLiteral)
+        })
+}
+
+///
+/// Walks one row left to right, appending everything it establishes to `walk`.
+///
+/// `row` holds exactly the Cells of one row and `row_start` is the Cell index
+/// of its first column, so no byte of another row is reachable from here: a run
+/// cannot straddle the row edge, a `##` cannot be spelled across one, and a
+/// Language Unit ends where the slice does. The row edge needs no rule of its
+/// own for the same reason — a two-Cell spelling that would cross it simply is
+/// not there to read.
+///
+fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
+    let cell = |offset: usize| {
+        grid.cell_index(row_start + offset)
+            .expect("a row's Cells lie inside the Grid that owns the row")
+    };
+
+    let mut column = 0;
+    while column < row.len() {
+        match run_boundary(row, column) {
+            Some(RunBoundary::Space) => {
                 column += 1;
                 continue;
             }
-            if bytes[at] == b'#' && bytes.get(at + 1) == Some(&b'#') && grid.fits(anchor, 2) {
-                break;
-            }
+            Some(RunBoundary::Comment) => break,
+            None => {}
+        }
 
-            let Some(spelling) = bytes.get(at..at + 2).filter(|_| grid.fits(anchor, 2)) else {
-                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[at]));
-                column += 1;
-                continue;
-            };
-            let kind = match spelling {
-                b"**" => Some(LanguageUnitKind::Bang),
-                _ => std::str::from_utf8(spelling).ok().and_then(|spelling| {
-                    Activation::try_from(spelling)
-                        .map(LanguageUnitKind::Activation)
-                        .ok()
-                        .or_else(|| {
-                            Function::try_from(spelling)
-                                .map(LanguageUnitKind::Function)
-                                .ok()
-                        })
-                        .or_else(|| {
-                            (to_atom_num(spelling).is_ok() || to_atom_note(spelling).is_ok())
-                                .then_some(LanguageUnitKind::OperandLiteral)
-                        })
-                }),
-            };
-
-            if let Some(kind) = kind {
-                let last = grid
-                    .offset_in_row(anchor, 1)
-                    .expect("a complete Language Unit fits its row");
-                units.push(LanguageUnit {
-                    kind,
-                    anchor,
-                    span: Span::new(grid, idx, last),
-                });
-                column += 2;
-            } else {
-                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[at]));
-                column += 1;
+        let start = column;
+        while column < row.len() && run_boundary(row, column).is_none() {
+            match row.get(column..column + 2).and_then(unit_kind) {
+                Some(kind) => {
+                    walk.units.push(LanguageUnit {
+                        kind,
+                        anchor: grid.position_at(cell(column)),
+                        span: Span::new(grid, cell(column), cell(column + 1)),
+                    });
+                    column += 2;
+                }
+                None => {
+                    walk.diagnostics
+                        .push(invalid_unit_diagnostic(grid, cell(column), row[column]));
+                    column += 1;
+                }
             }
         }
+        // The inner loop runs at least once and always advances, so the run
+        // holds at least the Cell that opened it.
+        walk.spans
+            .push(Span::new(grid, cell(start), cell(column - 1)));
+    }
+}
+
+///
+/// Walks a whole Source revision, row by row, in row-major order.
+///
+fn walk_source(grid: Grid, bytes: &[u8]) -> RowWalk {
+    assert_eq!(
+        bytes.len(),
+        grid.count(),
+        "LanguageMap Source length must match its Grid"
+    );
+
+    let cols = grid.cols();
+    let mut walk = RowWalk::default();
+    for (row_number, row) in bytes.chunks_exact(cols).enumerate() {
+        walk_row(grid, row_number * cols, row, &mut walk);
     }
 
     // Rows are walked top to bottom and each row's column only ever advances,
     // so anchors ascend strictly and an Expression Span names a contiguous
     // run of this partition. Nothing downstream may reorder it.
     debug_assert!(
-        units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
+        walk.units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
         "Language Units are partitioned in ascending anchor order"
     );
 
-    (units, diagnostics)
+    walk
 }
 
 /// The root anchors a Bang anchored at `bang` activates.
@@ -470,7 +547,7 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
 /// the Grid is not a Position at all and simply does not appear.
 ///
 /// The west and east anchors are stated here because ADR 0006 states them, but
-/// no Source can reach them today: `row_spans` splits Expression runs only on
+/// no Source can reach them today: `walk_row` splits Expression runs only on
 /// spaces and `##`, so a horizontally adjacent Bang either merges into the
 /// root's own run and forms no root at all, or is separated by a space that
 /// puts its anchor three or more columns away. `spatial-tick-planning/02` owns
@@ -502,7 +579,7 @@ fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
 
 /// Where the Language Units of `span` sit in `units`.
 ///
-/// `partition_units` establishes its units in ascending anchor order, so an
+/// `walk_source` establishes its units in ascending anchor order, so an
 /// Expression Span names a contiguous run of them and both ends are found by
 /// search rather than by testing every unit against every Span. The returned
 /// bounds are positions in `units`, a different index space from the Cell
@@ -582,61 +659,6 @@ fn expression_parts(expression: Expression, executable: bool) -> (Option<Atoms>,
 }
 
 ///
-/// The Expression Spans of one row, left to right.
-///
-/// A row is the whole horizontal extent there is, so a run ends at a space, at
-/// a `##` Comment, or at the row edge. Each run yields one Span; Cells between
-/// runs belong to none.
-///
-fn row_spans(grid: Grid, row_start: usize, row: &[u8]) -> Vec<Span> {
-    let mut spans = Vec::new();
-    let mut local_start = 0;
-
-    while local_start < row.len() {
-        if row[local_start..].starts_with(b"##") {
-            break;
-        }
-        if row[local_start] == SPACE_BYTE {
-            local_start += 1;
-            continue;
-        }
-
-        let local_end = (local_start..row.len())
-            .find(|&idx| row[idx] == SPACE_BYTE || row[idx..].starts_with(b"##"))
-            .map_or(row.len() - 1, |idx| idx - 1);
-        let cell = |idx: usize| {
-            grid.cell_index(idx)
-                .expect("a row's Span lies inside the Grid that owns the row")
-        };
-        spans.push(Span::new(
-            grid,
-            cell(row_start + local_start),
-            cell(row_start + local_end),
-        ));
-        local_start = local_end + 1;
-    }
-    spans
-}
-
-///
-/// The Expression Spans of a whole Source revision, in row-major order.
-///
-fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
-    assert_eq!(
-        bytes.len(),
-        grid.count(),
-        "LanguageMap Source length must match its Grid"
-    );
-
-    let cols = grid.cols();
-    let mut spans = Vec::new();
-    for (row_number, row) in bytes.chunks_exact(cols).enumerate() {
-        spans.extend(row_spans(grid, row_number * cols, row));
-    }
-    spans
-}
-
-///
 /// The Span covering `cell`, when one does. Spans within a row do not overlap,
 /// so at most one can answer.
 ///
@@ -668,7 +690,13 @@ fn prospective_span(grid: Grid, bytes: &[u8], idx: usize, byte: u8) -> Option<Sp
     let mut row = bytes[row_start..row_start + cols].to_vec();
     row[idx - row_start] = byte;
 
-    span_containing(&row_spans(grid, row_start, &row), cell)
+    // The same walk the whole revision is built from, given one row. It
+    // establishes that row's units and diagnostics too, which this question
+    // does not need and drops; what matters is that the Spans it answers with
+    // were decided by the rules that decide every other Span.
+    let mut walk = RowWalk::default();
+    walk_row(grid, row_start, &row, &mut walk);
+    span_containing(&walk.spans, cell)
 }
 
 #[cfg(test)]
@@ -677,7 +705,14 @@ mod tests {
 
     use lang::{Activation, Atom};
 
-    use super::{LanguageMap, LanguageUnitKind, Span, expression_spans, prospective_span};
+    use super::{LanguageMap, LanguageUnitKind, Span, prospective_span, walk_source};
+
+    ///
+    /// The Expression Spans of a whole Source revision, in row-major order.
+    ///
+    fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
+        walk_source(grid, bytes).spans
+    }
 
     #[test]
     fn public_language_map_expression_exposes_root_nested_functions_and_spans() {
@@ -932,6 +967,22 @@ mod tests {
         assert_eq!(
             spans[0].indices().map(|idx| idx.get()).collect::<Vec<_>>(),
             vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn a_cell_that_produces_no_language_unit_is_still_its_own_span() {
+        // Spans are not recoverable from the units, which is why the walk emits
+        // both rather than deriving one from the other: neither of these Cells
+        // is half of a two-Cell spelling, so the partition names no unit for
+        // either, and each is still a Span in its own right.
+        let grid = Grid::new(5, 1);
+        let map = LanguageMap::build(grid, b" x  x");
+
+        assert!(map.units().next().is_none());
+        assert_eq!(
+            expression_spans(grid, b" x  x"),
+            vec![span(grid, 1, 1), span(grid, 4, 4)]
         );
     }
 
