@@ -6,14 +6,14 @@ compiling. This is the expand half of a two-step change.
 
 **Blocked by:** 03 — Tidy the Language Map's interfaces.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] Setting, clearing and reading a Cell each accept a Grid-minted index.
-- [ ] The existing number-taking forms still work and are still tested.
-- [ ] The typed form performs no bounds check of its own, because the index already carries one.
-- [ ] No caller is migrated in this ticket.
+- [x] Setting, clearing and reading a Cell each accept a Grid-minted index.
+- [x] The existing number-taking forms still work and are still tested.
+- [x] The typed form performs no bounds check of its own, because the index already carries one.
+- [x] No caller is migrated in this ticket.
 
 ## Comments
 

@@ -9,18 +9,18 @@ Cell write carries a typed Cell index from the moment it is planned to the momen
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] Asking an Expression for its Language Units does not repeat the search performed when the
+- [x] Asking an Expression for its Language Units does not repeat the search performed when the
       Expression was built.
-- [ ] A Diagnostic's anchor is not optional, and the relationship between an anchor and its Span is
+- [x] A Diagnostic's anchor is not optional, and the relationship between an anchor and its Span is
       stated where the type is defined.
-- [ ] A planned write addresses its Cells with a typed index, so the unsafe mutation it reaches
+- [x] A planned write addresses its Cells with a typed index, so the unsafe mutation it reaches
       rests on the index's own guarantee rather than on a comment arguing the bound.
-- [ ] No public editing interface changes; that is issues 04 and 05.
-- [ ] The existing suite passes unchanged.
+- [x] No public editing interface changes; that is issues 04 and 05.
+- [x] The existing suite passes unchanged.
 
 ## Comments
 

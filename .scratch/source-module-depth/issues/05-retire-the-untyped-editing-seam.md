@@ -6,16 +6,16 @@ does not have, so the state that error described stops being reachable.
 
 **Blocked by:** 04 — Offer the editing seam a typed Cell index.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] The console, persistence and every test address Cells with a typed index.
-- [ ] The number-taking editing forms are deleted.
-- [ ] The out-of-range error variant and the check that produced it are deleted.
-- [ ] The two tests that asserted that error are gone, not rewritten — they described a state that
+- [x] The console, persistence and every test address Cells with a typed index.
+- [x] The number-taking editing forms are deleted.
+- [x] The out-of-range error variant and the check that produced it are deleted.
+- [x] The two tests that asserted that error are gone, not rewritten — they described a state that
       can no longer occur.
-- [ ] The Source still refuses content it cannot store, which is a separate rule and keeps its own
+- [x] The Source still refuses content it cannot store, which is a separate rule and keeps its own
       error.
 
 ## Comments

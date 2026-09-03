@@ -8,16 +8,16 @@ established rather than from a recognizer that re-reads the same bytes and re-ap
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] A run of Bangs and Activations derives the Expression it derives today.
-- [ ] No function outside the row partition converts two Source characters into a Bang or an
+- [x] A run of Bangs and Activations derives the Expression it derives today.
+- [x] No function outside the row partition converts two Source characters into a Bang or an
       Activation.
-- [ ] The length and parity checks the retired recognizer performed are expressed as a property of
+- [x] The length and parity checks the retired recognizer performed are expressed as a property of
       the units covering the Span, not restated.
-- [ ] The existing `**`, `^^` and `>>` cases pass unchanged; no new behavioural test is needed.
+- [x] The existing `**`, `^^` and `>>` cases pass unchanged; no new behavioural test is needed.
 
 ## Comments
 

@@ -6,16 +6,16 @@ ends a run in exactly one place in the code, so the day the Comment rule changes
 
 **Blocked by:** 01 — Delete the standalone-run recognizer.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] Language Units, Expression Spans and lexical diagnostics come from a single walk of a row.
-- [ ] The `##` Comment rule and the space rule each appear once.
-- [ ] A Span still covers Cells that produce no Language Unit — a lone unrecognised character is
+- [x] Language Units, Expression Spans and lexical diagnostics come from a single walk of a row.
+- [x] The `##` Comment rule and the space rule each appear once.
+- [x] A Span still covers Cells that produce no Language Unit — a lone unrecognised character is
       its own Span, as it is today.
-- [ ] Prospective Span lookup for one edited Cell still reads only the edited row.
-- [ ] Every existing partition, Span and diagnostic test passes unchanged.
+- [x] Prospective Span lookup for one edited Cell still reads only the edited row.
+- [x] Every existing partition, Span and diagnostic test passes unchanged.
 
 ## Comments
 
