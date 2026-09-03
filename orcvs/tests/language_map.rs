@@ -149,3 +149,21 @@ fn expression_units_refuses_an_expression_from_another_revision() {
 
     second.expression_units(expression);
 }
+
+#[test]
+#[should_panic(expected = "Position belongs to another Grid")]
+fn glyph_at_refuses_a_position_minted_by_another_grid() {
+    // `glyph_at` and its sibling `SourceRevision::content_at` sit either side
+    // of one render loop and have to teach the same rule about the same
+    // argument. Without the refusal, a Position from another Grid reads this
+    // Map's Glyph for whatever Cell the coordinates happen to land on, or
+    // `None` once they land past the end — a plausible wrong answer either way.
+    //
+    // Two Grids of the same shape, because identity is what is being tested:
+    // the coordinates are perfectly valid here, and that is the point.
+    let grid = Grid::new(4, 1);
+    let map = LanguageMap::derive(grid, ".+01").unwrap();
+    let foreign = Grid::new(4, 1).position(0, 0).expect("inside the Grid");
+
+    map.glyph_at(foreign);
+}
