@@ -1074,9 +1074,14 @@ mod test {
     }
 
     #[test]
-    fn retired_identity_source_receives_the_unknown_function_diagnostic() {
+    fn test_retired_id_receives_the_unknown_function_diagnostic() {
+        trace();
+
         let mut src = source();
 
+        // ADR 0015 retired `id` from the Function vocabulary, so Source
+        // containing it no longer parses as a Function and diagnoses like any
+        // other unknown spelling.
         src.write(0, "id");
 
         assert_eq!(src.row(0), "id        ");
@@ -1084,6 +1089,13 @@ mod test {
         assert_eq!(diagnostics(&src)[0].start, 0);
         assert_eq!(diagnostics(&src)[0].end, 1);
         assert_eq!(diagnostics(&src)[0].message, "unknown function \"id\"");
+        // Classification is unaffected: an unrecognized run standing where a
+        // Function is expected keeps the Function Glyph, because a Record that
+        // failed to parse reports the Token its position expected. That is the
+        // same operand-slot hint the editing tests cover, not a claim that `id`
+        // is still a Function.
+        assert_eq!(glyph_at(&src, 0), Some(Glyph::Function));
+        assert_eq!(glyph_at(&src, 1), Some(Glyph::Function));
     }
 
     #[test]
