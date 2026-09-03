@@ -5,7 +5,7 @@ use lang::{
 
 use crate::{
     glyph::Glyph,
-    grid::{Grid, Position},
+    grid::{CellIndex, Grid, Position},
 };
 
 use super::Diagnostic;
@@ -27,9 +27,14 @@ pub struct LanguageMap {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// What the two-Cell spelling at a unit's anchor is, read from the characters
+/// alone.
+///
+/// A literal stays an `OperandLiteral`: the same two characters spell a Number
+/// in a Number slot and a Note in a Note slot, so the Atom type belongs to the
+/// consuming Function's signature and not to the Source. See ADR 0021.
 pub enum LanguageUnitKind {
     OperandLiteral,
-    Atom(Atom),
     Function(Function),
     Bang,
     Activation(Activation),
@@ -66,11 +71,11 @@ impl Footprint {
         self.positions.iter().copied()
     }
 
-    pub(super) fn from_indices(grid: Grid, indices: impl IntoIterator<Item = usize>) -> Self {
+    pub(super) fn from_indices(grid: Grid, indices: impl IntoIterator<Item = CellIndex>) -> Self {
         Self {
             positions: indices
                 .into_iter()
-                .filter_map(|idx| grid.position_at(idx))
+                .map(|idx| grid.position_at(idx))
                 .collect(),
         }
     }
@@ -106,12 +111,12 @@ impl ExpressionEntry {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Range {
-    start: usize,
-    end: usize,
+    start: CellIndex,
+    end: CellIndex,
 }
 
 impl Range {
-    fn new(start: usize, end: usize) -> Self {
+    fn new(start: CellIndex, end: CellIndex) -> Self {
         assert!(
             start <= end,
             "Expression range start must not exceed its end"
@@ -119,12 +124,19 @@ impl Range {
         Self { start, end }
     }
 
-    pub(super) fn start(self) -> usize {
+    pub(super) fn start(self) -> CellIndex {
         self.start
     }
 
-    pub(super) fn end(self) -> usize {
+    pub(super) fn end(self) -> CellIndex {
         self.end
+    }
+
+    ///
+    /// Every Cell index this range covers, first to last.
+    ///
+    pub(super) fn indices(self, grid: Grid) -> impl Iterator<Item = CellIndex> {
+        (self.start.get()..=self.end.get()).filter_map(move |idx| grid.cell_index(idx))
     }
 }
 
@@ -157,17 +169,6 @@ impl LanguageMap {
 
         for range in ranges {
             map.parse_range(grid, bytes, range);
-        }
-        for expression in &map.expressions {
-            for parsed in &expression.units {
-                if let Some(unit) = map
-                    .units
-                    .iter_mut()
-                    .find(|unit| unit.anchor == parsed.anchor)
-                {
-                    unit.kind = parsed.kind;
-                }
-            }
         }
         for (idx, byte) in bytes.iter().copied().enumerate() {
             if byte != SPACE_BYTE && map.glyphs[idx].is_none() {
@@ -241,7 +242,7 @@ impl LanguageMap {
     /// that Cell a language classification.
     pub fn glyph_at(&self, position: Position) -> Option<Glyph> {
         self.glyphs
-            .get(self.grid.index(position))
+            .get(self.grid.index(position).get())
             .copied()
             .flatten()
     }
@@ -260,9 +261,9 @@ impl LanguageMap {
         let end = range.end();
         // A later Expression owns its occupied Cells over any operand-slot
         // hints emitted by an earlier Expression.
-        self.glyphs[start..=end].fill(None);
-        let mut source =
-            String::from_utf8(bytes[start..=end].to_vec()).expect("Source Cells contain ASCII");
+        self.glyphs[start.get()..=end.get()].fill(None);
+        let mut source = String::from_utf8(bytes[start.get()..=end.get()].to_vec())
+            .expect("Source Cells contain ASCII");
         let standalone_run = parse_standalone_run(&source);
         let analysis = match standalone_run
             .map(SourceAnalysis::Complete)
@@ -286,17 +287,7 @@ impl LanguageMap {
             .error()
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
-        let mut expression_units = units_in_range(&self.units, grid, range);
-        if executable {
-            for (unit, (_, atom)) in expression_units.iter_mut().zip(expression.entries()) {
-                unit.kind = match atom {
-                    Atom::Function(function) => LanguageUnitKind::Function(function),
-                    Atom::Bang => LanguageUnitKind::Bang,
-                    Atom::Activation(activation) => LanguageUnitKind::Activation(activation),
-                    atom => LanguageUnitKind::Atom(atom),
-                };
-            }
-        }
+        let expression_units = units_in_range(&self.units, grid, range);
         let root = executable
             .then(|| {
                 expression_units.iter().find_map(|unit| {
@@ -329,15 +320,16 @@ impl LanguageMap {
         });
     }
 
-    fn set_glyphs(&mut self, grid: Grid, start: usize, glyphs: Vec<Glyph>) {
+    fn set_glyphs(&mut self, grid: Grid, start: CellIndex, glyphs: Vec<Glyph>) {
+        let anchor = grid.position_at(start);
         for (offset, glyph) in glyphs.into_iter().enumerate() {
-            let idx = start + offset;
             // Operand-slot hints can extend beyond their Expression, but an
-            // Expression is horizontal: hints stop at the same row edge.
-            if !indices_share_a_row(grid, start, idx) {
+            // Expression is horizontal: hints stop at the same row edge, which
+            // is what `offset_in_row` answers.
+            let Some(idx) = grid.offset_in_row(anchor, offset) else {
                 break;
-            }
-            self.glyphs[idx] = Some(glyph);
+            };
+            self.glyphs[idx.get()] = Some(glyph);
         }
     }
 }
@@ -352,16 +344,17 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
         while column < positions.len() {
             let anchor = positions[column];
             let idx = grid.index(anchor);
-            if bytes[idx] == SPACE_BYTE {
+            let at = idx.get();
+            if bytes[at] == SPACE_BYTE {
                 column += 1;
                 continue;
             }
-            if bytes[idx] == b'#' && bytes.get(idx + 1) == Some(&b'#') && grid.fits(anchor, 2) {
+            if bytes[at] == b'#' && bytes.get(at + 1) == Some(&b'#') && grid.fits(anchor, 2) {
                 break;
             }
 
-            let Some(spelling) = bytes.get(idx..idx + 2).filter(|_| grid.fits(anchor, 2)) else {
-                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[idx]));
+            let Some(spelling) = bytes.get(at..at + 2).filter(|_| grid.fits(anchor, 2)) else {
+                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[at]));
                 column += 1;
                 continue;
             };
@@ -393,11 +386,19 @@ fn partition_units(grid: Grid, bytes: &[u8]) -> (Vec<LanguageUnit>, Vec<Diagnost
                 });
                 column += 2;
             } else {
-                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[idx]));
+                diagnostics.push(invalid_unit_diagnostic(grid, idx, bytes[at]));
                 column += 1;
             }
         }
     }
+
+    // Rows are walked top to bottom and each row's column only ever advances,
+    // so anchors ascend strictly and an Expression extent names a contiguous
+    // run of this partition. Nothing downstream may reorder it.
+    debug_assert!(
+        units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
+        "Language Units are partitioned in ascending anchor order"
+    );
 
     (units, diagnostics)
 }
@@ -432,7 +433,7 @@ fn activated_root_anchors(grid: Grid, bang: Position) -> impl Iterator<Item = Po
     .filter_map(move |(x, y)| grid.position(x, y))
 }
 
-fn invalid_unit_diagnostic(grid: Grid, idx: usize, byte: u8) -> Diagnostic {
+fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
     Diagnostic::for_range(
         grid,
         idx,
@@ -442,7 +443,7 @@ fn invalid_unit_diagnostic(grid: Grid, idx: usize, byte: u8) -> Diagnostic {
 }
 
 fn footprint_for_range(grid: Grid, range: Range) -> Footprint {
-    Footprint::from_indices(grid, range.start()..=range.end())
+    Footprint::from_indices(grid, range.indices(grid))
 }
 
 fn units_in_range(units: &[LanguageUnit], grid: Grid, range: Range) -> Vec<LanguageUnit> {
@@ -483,13 +484,6 @@ fn expression_parts(expression: Expression, executable: bool) -> (Option<Atoms>,
     (atoms, glyphs)
 }
 
-fn indices_share_a_row(grid: Grid, first: usize, second: usize) -> bool {
-    match (grid.position_at(first), grid.position_at(second)) {
-        (Some(first), Some(second)) => first.y() == second.y(),
-        _ => false,
-    }
-}
-
 #[derive(Debug)]
 struct ExpressionMap {
     inner: Vec<Option<Range>>,
@@ -505,7 +499,7 @@ impl ExpressionMap {
 
         let mut inner = Vec::with_capacity(bytes.len());
         for (row_number, row) in bytes.chunks_exact(grid.cols()).enumerate() {
-            inner.extend(row_extents(row_number * grid.cols(), row));
+            inner.extend(row_extents(grid, row_number * grid.cols(), row));
         }
         Self { inner }
     }
@@ -526,18 +520,18 @@ impl ExpressionMap {
         let mut row = bytes[row_start..row_start + cols].to_vec();
         let row_idx = idx - row_start;
         row[row_idx] = byte;
-        row_extents(row_start, &row)[row_idx]
+        row_extents(grid, row_start, &row)[row_idx]
     }
 
     fn ranges(&self) -> impl Iterator<Item = Range> + '_ {
         self.inner
             .iter()
             .enumerate()
-            .filter_map(|(idx, range)| range.filter(|range| range.start() == idx))
+            .filter_map(|(idx, range)| range.filter(|range| range.start().get() == idx))
     }
 }
 
-fn row_extents(row_start: usize, row: &[u8]) -> Vec<Option<Range>> {
+fn row_extents(grid: Grid, row_start: usize, row: &[u8]) -> Vec<Option<Range>> {
     let mut extents = vec![None; row.len()];
     let mut local_start = 0;
 
@@ -553,7 +547,11 @@ fn row_extents(row_start: usize, row: &[u8]) -> Vec<Option<Range>> {
         let local_end = (local_start..row.len())
             .find(|&idx| row[idx] == SPACE_BYTE || row[idx..].starts_with(b"##"))
             .map_or(row.len() - 1, |idx| idx - 1);
-        let range = Range::new(row_start + local_start, row_start + local_end);
+        let cell = |idx: usize| {
+            grid.cell_index(idx)
+                .expect("a row extent lies inside the Grid that owns the row")
+        };
+        let range = Range::new(cell(row_start + local_start), cell(row_start + local_end));
         extents[local_start..=local_end].fill(Some(range));
         local_start = local_end + 1;
     }
@@ -767,10 +765,15 @@ mod tests {
         );
     }
 
-    fn assert_range(map: &ExpressionMap, start: usize, end: usize) {
+    fn assert_range(grid: Grid, map: &ExpressionMap, start: usize, end: usize) {
+        let range = Range::new(cell(grid, start), cell(grid, end));
         for idx in start..=end {
-            assert_eq!(map.inner[idx], Some(Range::new(start, end)));
+            assert_eq!(map.inner[idx], Some(range));
         }
+    }
+
+    fn cell(grid: Grid, idx: usize) -> crate::grid::CellIndex {
+        grid.cell_index(idx).expect("inside the Grid")
     }
 
     #[test]
@@ -781,28 +784,31 @@ mod tests {
 
     #[test]
     fn build_maps_every_cell_in_one_run_to_its_inclusive_extent() {
-        let map = ExpressionMap::build(Grid::new(5, 1), b" .+1 ");
+        let grid = Grid::new(5, 1);
+        let map = ExpressionMap::build(grid, b" .+1 ");
         assert_eq!(map.inner[0], None);
-        assert_range(&map, 1, 3);
+        assert_range(grid, &map, 1, 3);
         assert_eq!(map.inner[4], None);
     }
 
     #[test]
     fn build_separates_multiple_runs_in_one_row() {
-        let map = ExpressionMap::build(Grid::new(8, 1), b".+  .-  ");
-        assert_range(&map, 0, 1);
+        let grid = Grid::new(8, 1);
+        let map = ExpressionMap::build(grid, b".+  .-  ");
+        assert_range(grid, &map, 0, 1);
         assert_eq!(map.inner[2], None);
         assert_eq!(map.inner[3], None);
-        assert_range(&map, 4, 5);
+        assert_range(grid, &map, 4, 5);
         assert_eq!(map.inner[6], None);
         assert_eq!(map.inner[7], None);
     }
 
     #[test]
     fn build_keeps_edge_touching_runs_inside_their_rows() {
-        let map = ExpressionMap::build(Grid::new(4, 2), b"  .+.-  ");
-        assert_range(&map, 2, 3);
-        assert_range(&map, 4, 5);
+        let grid = Grid::new(4, 2);
+        let map = ExpressionMap::build(grid, b"  .+.-  ");
+        assert_range(grid, &map, 2, 3);
+        assert_range(grid, &map, 4, 5);
         assert_ne!(map.inner[3], map.inner[4]);
     }
 
@@ -812,11 +818,11 @@ mod tests {
         let bytes = b".+   .-   ";
         assert_eq!(
             ExpressionMap::prospective_range(grid, bytes, 2, b'1'),
-            Some(Range::new(0, 2))
+            Some(Range::new(cell(grid, 0), cell(grid, 2)))
         );
         assert_eq!(
             ExpressionMap::prospective_range(grid, bytes, 7, b'0'),
-            Some(Range::new(5, 7))
+            Some(Range::new(cell(grid, 5), cell(grid, 7)))
         );
     }
 

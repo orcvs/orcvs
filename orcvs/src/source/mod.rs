@@ -38,7 +38,7 @@ impl SourceRevision {
 
     pub fn content_at(&self, position: Position) -> Option<char> {
         self.grid.assert_owns(position);
-        let byte = self.source.as_bytes()[self.grid.index(position)];
+        let byte = self.source.as_bytes()[self.grid.index(position).get()];
         (byte != b' ').then_some(char::from(byte))
     }
 

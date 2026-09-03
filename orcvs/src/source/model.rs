@@ -49,13 +49,21 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub(super) fn for_range(grid: Grid, start: usize, end: usize, message: String) -> Self {
+    pub(super) fn for_range(
+        grid: Grid,
+        start: crate::grid::CellIndex,
+        end: crate::grid::CellIndex,
+        message: String,
+    ) -> Self {
         Self {
-            start,
-            end,
+            start: start.get(),
+            end: end.get(),
             message,
-            anchor: grid.position_at(start),
-            footprint: Footprint::from_indices(grid, start..=end),
+            anchor: Some(grid.position_at(start)),
+            footprint: Footprint::from_indices(
+                grid,
+                (start.get()..=end.get()).filter_map(move |idx| grid.cell_index(idx)),
+            ),
         }
     }
 
@@ -71,8 +79,8 @@ impl Diagnostic {
             .expect("an Expression Footprint contains at least one Position");
         let end = indices.last().unwrap_or(start);
         Self {
-            start,
-            end,
+            start: start.get(),
+            end: end.get(),
             message,
             anchor: Some(anchor),
             footprint: footprint.clone(),
@@ -265,7 +273,7 @@ impl Source {
     /// address is one this Source has no Cell for.
     ///
     fn check_idx(&self, idx: usize) -> Result<(), SourceError> {
-        match self.grid.position_at(idx) {
+        match self.grid.cell_index(idx) {
             Some(_) => Ok(()),
             None => Err(SourceError::OutOfRange {
                 idx,
@@ -294,14 +302,16 @@ impl Source {
         let start = range.start();
         let end = range.end();
 
-        let mut expression = String::from_utf8(self.inner.as_bytes()[start..=end].to_vec())
-            .expect("Source Cells contain ASCII");
-        expression.replace_range(idx - start..=idx - start, &(byte as char).to_string());
+        let mut expression =
+            String::from_utf8(self.inner.as_bytes()[start.get()..=end.get()].to_vec())
+                .expect("Source Cells contain ASCII");
+        let offset = idx - start.get();
+        expression.replace_range(offset..=offset, &(byte as char).to_string());
         match Parser::from(&mut expression).analyze() {
             Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
                 Err(SourceError::ExpressionTooLong {
-                    start,
-                    end,
+                    start: start.get(),
+                    end: end.get(),
                     capacity: EXP_LEN,
                 })
             }
@@ -491,7 +501,7 @@ mod test {
                 .rows()
                 .nth(row)
                 .expect("a row of the grid")
-                .map(|position| cells[self.grid.index(position)])
+                .map(|position| cells[self.grid.index(position).get()])
                 .collect()
         }
 
@@ -1328,8 +1338,13 @@ mod test {
         // inert; the day the partition Bang activation reads changes, this
         // test says so.
         for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
-            let mut src = source();
+            // The Grid is as wide as the spelling it holds. The geometry under
+            // test is horizontal, so a spelling that outran the row would wrap
+            // onto the next one and pin nothing.
+            let mut src = SourceUnderTest::new(Grid::new(expression.len(), 6));
             src.write(0, expression);
+
+            assert_eq!(src.row(0), expression, "{expression:?} did not fit one row");
 
             let tick = src.execute();
 

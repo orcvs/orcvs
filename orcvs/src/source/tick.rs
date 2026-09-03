@@ -243,10 +243,15 @@ fn emit_expression_root(
         return;
     }
 
-    let target_idx = grid.index(target);
     for (offset, content) in encoded.chars().enumerate() {
+        // The row bound is the Grid's to answer, not this loop's to compute:
+        // `fits` above already refused a result that would cross the edge, so
+        // every offset here names a Cell in the target's own row.
+        let idx = grid
+            .offset_in_row(target, offset)
+            .expect("a result that fits the target row stays inside it");
         effects.push(Effect::Write(CellWrite {
-            idx: target_idx + offset,
+            idx: idx.get(),
             content,
         }));
     }
@@ -324,7 +329,13 @@ mod test {
     }
 
     fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
-        Effect::Diagnose(Diagnostic::for_range(grid, start, end, message.to_string()))
+        let cell = |idx: usize| grid.cell_index(idx).expect("inside the Grid");
+        Effect::Diagnose(Diagnostic::for_range(
+            grid,
+            cell(start),
+            cell(end),
+            message.to_string(),
+        ))
     }
 
     #[test]

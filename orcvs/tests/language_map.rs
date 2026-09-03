@@ -1,4 +1,4 @@
-use lang::{Atom, Function};
+use lang::Function;
 use orcvs::{
     glyph::Glyph,
     grid::Grid,
@@ -22,14 +22,16 @@ fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions
         vec![
             LanguageUnitKind::Function(Function::Add),
             LanguageUnitKind::Function(Function::Multiply),
-            LanguageUnitKind::Atom(Atom::Number(1)),
-            LanguageUnitKind::Atom(Atom::Number(2)),
-            LanguageUnitKind::Atom(Atom::Number(3)),
+            // The operands stay literals. `01` spells a Number here and a Note
+            // in a Note slot; the Source does not carry that decision.
+            LanguageUnitKind::OperandLiteral,
+            LanguageUnitKind::OperandLiteral,
+            LanguageUnitKind::OperandLiteral,
         ]
     );
     assert_eq!(
         map.units().nth(2).unwrap().kind(),
-        LanguageUnitKind::Atom(Atom::Number(1))
+        LanguageUnitKind::OperandLiteral
     );
     assert!(
         expressions[0]

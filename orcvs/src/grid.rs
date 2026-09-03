@@ -38,6 +38,53 @@ impl Position {
 }
 
 ///
+/// The linear index of a Cell in a Grid: `y * cols + x`.
+///
+/// Like a Position, a CellIndex can only be obtained from the Grid that
+/// contains it, so an index outside its Grid cannot exist. It is a type of its
+/// own rather than a bare `usize` because this crate threads several unrelated
+/// index spaces — offsets within a row, Cell counts, positions in a partition —
+/// and nothing but the type distinguishes them at a glance.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CellIndex {
+    grid_id: GridId,
+    idx: usize,
+}
+
+impl CellIndex {
+    ///
+    /// The index as a number, for addressing the Cells of a Source.
+    ///
+    #[inline]
+    pub fn get(self) -> usize {
+        self.idx
+    }
+}
+
+impl Ord for CellIndex {
+    ///
+    /// Row-major order. Two indices are only comparable within one Grid: an
+    /// ordering across Grids would compare Cells of different shapes.
+    ///
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        debug_assert_eq!(
+            self.grid_id, other.grid_id,
+            "CellIndex belongs to another Grid"
+        );
+        self.idx.cmp(&other.idx)
+    }
+}
+
+impl PartialOrd for CellIndex {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+///
 /// The shape a console starts with, until something states another one. A
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
@@ -147,9 +194,38 @@ impl Grid {
     /// A foreign Position is refused: its identity names the Grid that minted it.
     ///
     #[inline]
-    pub fn index(&self, pos: Position) -> usize {
+    pub fn index(&self, pos: Position) -> CellIndex {
         self.assert_owns(pos);
-        pos.y * self.cols + pos.x
+        CellIndex {
+            grid_id: self.id,
+            idx: pos.y * self.cols + pos.x,
+        }
+    }
+
+    ///
+    /// The only way to obtain a CellIndex from a bare number. `None` when the
+    /// number is past the last Cell, so an index this Grid cannot address
+    /// never comes into being.
+    ///
+    #[inline]
+    pub fn cell_index(&self, idx: usize) -> Option<CellIndex> {
+        (idx < self.count()).then_some(CellIndex {
+            grid_id: self.id,
+            idx,
+        })
+    }
+
+    ///
+    /// The index `offset` Cells along `pos`'s row. `None` when the offset runs
+    /// past the row's end: a row is the whole horizontal extent there is, and
+    /// an index that wrapped onto the next row would name a Cell the caller
+    /// did not ask for.
+    ///
+    #[inline]
+    pub fn offset_in_row(&self, pos: Position, offset: usize) -> Option<CellIndex> {
+        self.assert_owns(pos);
+        self.position(pos.x.checked_add(offset)?, pos.y)
+            .map(|pos| self.index(pos))
     }
 
     /// Whether `pos` was minted by this Grid or one of its copies.
@@ -159,12 +235,17 @@ impl Grid {
     }
 
     ///
-    /// The Cell an index addresses, and so which row and column it is in.
-    /// `None` when the index is past the last Cell. The inverse of `index`.
+    /// The Cell an index addresses, and so which row and column it is in. The
+    /// inverse of `index`.
+    ///
+    /// Total: a CellIndex can only come from a Grid, so it is in range for the
+    /// Grid that minted it. A foreign index is refused.
     ///
     #[inline]
-    pub fn position_at(&self, idx: usize) -> Option<Position> {
-        self.position(idx % self.cols, idx / self.cols)
+    pub fn position_at(&self, idx: CellIndex) -> Position {
+        self.assert_owns_index(idx);
+        self.position(idx.idx % self.cols, idx.idx / self.cols)
+            .expect("a CellIndex is inside the Grid that minted it")
     }
 
     ///
@@ -273,6 +354,11 @@ impl Grid {
     pub(crate) fn assert_owns(&self, pos: Position) {
         assert!(self.owns(pos), "Position belongs to another Grid");
     }
+
+    #[inline]
+    pub(crate) fn assert_owns_index(&self, idx: CellIndex) {
+        assert!(self.id == idx.grid_id, "CellIndex belongs to another Grid");
+    }
 }
 
 #[cfg(test)]
@@ -303,7 +389,11 @@ mod test {
         assert_eq!(rows[1], vec![at(0, 1), at(1, 1), at(2, 1), at(3, 1)]);
 
         // flattened, exactly the Source's own index order
-        let indices: Vec<usize> = rows.iter().flatten().map(|p| grid.index(*p)).collect();
+        let indices: Vec<usize> = rows
+            .iter()
+            .flatten()
+            .map(|p| grid.index(*p).get())
+            .collect();
         assert_eq!(indices, (0..grid.count()).collect::<Vec<usize>>());
     }
 
@@ -367,7 +457,10 @@ mod test {
 
         let grid = Grid::new(4, 2);
 
-        let index = |x, y| grid.index(grid.position(x, y).expect("inside the grid"));
+        let index = |x, y| {
+            grid.index(grid.position(x, y).expect("inside the grid"))
+                .get()
+        };
 
         // first row runs 0..4, second row starts at 4
         assert_eq!(index(0, 0), 0);
@@ -393,7 +486,7 @@ mod test {
         let position = grid.position(1, 0).expect("inside the Grid");
 
         assert!(copied.owns(position));
-        assert_eq!(copied.index(position), 1);
+        assert_eq!(copied.index(position).get(), 1);
     }
 
     #[test]
@@ -405,9 +498,10 @@ mod test {
         // every index names a Position, and that Position converts back to the
         // index it came from: no two Cells share an index, and none is missed
         for idx in 0..grid.count() {
-            let position = grid.position_at(idx).expect("inside the grid");
+            let cell = grid.cell_index(idx).expect("inside the grid");
+            let position = grid.position_at(cell);
 
-            assert_eq!(grid.index(position), idx);
+            assert_eq!(grid.index(position), cell);
         }
     }
 
@@ -472,15 +566,18 @@ mod test {
         let grid = Grid::new(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        // the inverse of `index`: row order, first row then second
-        assert_eq!(grid.position_at(0), Some(at(0, 0)));
-        assert_eq!(grid.position_at(3), Some(at(3, 0)));
-        assert_eq!(grid.position_at(4), Some(at(0, 1)));
-        assert_eq!(grid.position_at(7), Some(at(3, 1)));
+        let cell = |idx| grid.cell_index(idx).expect("inside the grid");
 
-        // past the last Cell: no Position, rather than one wrapped back inside
-        assert_eq!(grid.position_at(8), None);
-        assert_eq!(grid.position_at(100), None);
+        // the inverse of `index`: row order, first row then second
+        assert_eq!(grid.position_at(cell(0)), at(0, 0));
+        assert_eq!(grid.position_at(cell(3)), at(3, 0));
+        assert_eq!(grid.position_at(cell(4)), at(0, 1));
+        assert_eq!(grid.position_at(cell(7)), at(3, 1));
+
+        // past the last Cell: no index at all, rather than one wrapped back
+        // inside. An index this Grid cannot address never comes into being.
+        assert_eq!(grid.cell_index(8), None);
+        assert_eq!(grid.cell_index(100), None);
     }
 
     #[test]

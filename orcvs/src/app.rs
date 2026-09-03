@@ -158,7 +158,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// Grid that minted it.
     ///
     pub fn index(&self, position: Position) -> usize {
-        self.grid.index(position)
+        self.grid.index(position).get()
     }
 
     pub fn render_frame(&self) -> RenderFrame {
