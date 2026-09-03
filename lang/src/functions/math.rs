@@ -1,4 +1,4 @@
-use crate::{Atom, Error, Function, InterpretationError, interpreter::Context};
+use crate::{Atom, Error, Function, InterpretationError, Value, interpreter::Context};
 
 /// Absolute Difference: `.| left right`.
 ///
@@ -7,12 +7,9 @@ use crate::{Atom, Error, Function, InterpretationError, interpreter::Context};
 /// from `.-` rather than a spelling of it: `abs_diff` is symmetric and has no
 /// borrow to wrap.
 #[inline(always)]
-pub fn absolute_difference(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn absolute_difference(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::AbsoluteDifference)?;
-    Ok(absolute_difference_impl(
-        operands.number(0),
-        operands.number(1),
-    ))
+    Ok(absolute_difference_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]
@@ -22,9 +19,9 @@ fn absolute_difference_impl(a: u8, b: u8) -> Atom {
 }
 
 #[inline(always)]
-pub fn add(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn add(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Add)?;
-    Ok(add_impl(operands.number(0), operands.number(1)))
+    Ok(add_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]
@@ -34,10 +31,10 @@ fn add_impl(a: u8, b: u8) -> Atom {
 }
 
 #[inline(always)]
-pub fn divide(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Divide)?;
 
-    divide_impl(operands.number(0), operands.number(1))
+    divide_impl(operands.number(0), operands.number(1)).map(Into::into)
 }
 
 #[inline(always)]
@@ -57,9 +54,9 @@ fn divide_impl(a: u8, b: u8) -> Result<Atom, Error> {
 /// Number for the unequal case would put a Cell meaning "false" into the
 /// Source, where the next Tick would read it as an ordinary operand.
 #[inline(always)]
-pub fn equality(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn equality(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Equality)?;
-    Ok(equality_impl(operands.number(0), operands.number(1)))
+    Ok(equality_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]
@@ -69,9 +66,9 @@ fn equality_impl(a: u8, b: u8) -> Atom {
 
 /// Maximum: `.> left right`.
 #[inline(always)]
-pub fn maximum(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn maximum(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Maximum)?;
-    Ok(maximum_impl(operands.number(0), operands.number(1)))
+    Ok(maximum_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]
@@ -82,9 +79,9 @@ fn maximum_impl(a: u8, b: u8) -> Atom {
 
 /// Minimum: `.< left right`.
 #[inline(always)]
-pub fn minimum(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn minimum(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Minimum)?;
-    Ok(minimum_impl(operands.number(0), operands.number(1)))
+    Ok(minimum_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]
@@ -99,10 +96,10 @@ fn minimum_impl(a: u8, b: u8) -> Atom {
 /// Atom rather than inventing one, exactly as Division does. The diagnostic is
 /// its own so the Source learns which Function it wrote.
 #[inline(always)]
-pub fn modulo(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn modulo(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Modulo)?;
 
-    modulo_impl(operands.number(0), operands.number(1))
+    modulo_impl(operands.number(0), operands.number(1)).map(Into::into)
 }
 
 #[inline(always)]
@@ -115,9 +112,9 @@ fn modulo_impl(a: u8, b: u8) -> Result<Atom, Error> {
 }
 
 #[inline(always)]
-pub fn multiply(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn multiply(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Multiply)?;
-    Ok(multiply_impl(operands.number(0), operands.number(1)))
+    Ok(multiply_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]
@@ -127,9 +124,9 @@ fn multiply_impl(a: u8, b: u8) -> Atom {
 }
 
 #[inline(always)]
-pub fn subtract(ctx: &mut Context) -> Result<Atom, Error> {
+pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
     let operands = ctx.stack.extract(Function::Subtract)?;
-    Ok(subtract_impl(operands.number(0), operands.number(1)))
+    Ok(subtract_impl(operands.number(0), operands.number(1)).into())
 }
 
 #[inline(always)]

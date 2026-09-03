@@ -40,7 +40,10 @@ impl Interpreter {
         for (index, atom) in atoms.iter().enumerate().rev() {
             // info!("atoms: {:?}", atoms);
             // info!("stack: {:?}", stack);
-            let atom = match atom {
+            // Every Function answers a language Value, so a Function that returns
+            // a Sequence needs an arm here and nothing else: the push below already
+            // carries whichever shape the Value holds.
+            let value = match atom {
                 // A Terminal Output Function performs an effect and answers
                 // with no language value, so the only place it can stand is
                 // the one place nothing consumes an answer: the Expression
@@ -66,9 +69,9 @@ impl Interpreter {
                         return Ok(Interpretation::Play(functions::play(&mut ctx)?));
                     }
                 },
-                atom => *atom,
+                atom => (*atom).into(),
             };
-            ctx.stack.push(atom);
+            ctx.stack.push(value);
         }
 
         // A non-terminal Expression leaves one language value on the stack.
