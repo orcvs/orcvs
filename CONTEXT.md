@@ -25,15 +25,15 @@ One position in the Source, containing exactly one single-byte ASCII character; 
 _Avoid_: Character slot, text position
 
 **Language Unit**:
-One semantic value or operation recognized in a Source revision, such as a Function or Atom. A Language Unit has one anchor Position and a footprint of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit.
+One semantic value or operation recognized in a Source revision, such as a Function or Atom. A Language Unit has one anchor Position and a Span of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit.
 _Avoid_: Logical Cell, token Cell, glyph
 
-**Footprint**:
-The character Cells occupied by one Language Unit in a Source revision. Spatial behavior moves, replaces, or tests the complete Footprint while every Position remains a Position in the character Grid.
-_Avoid_: Cell structure, semantic Grid, bounding box
+**Span**:
+The character Cells occupied by one Language Unit, Expression, or Diagnostic in a Source revision. A row is the whole horizontal extent there is, so a Span is a contiguous run within one row, named by its first and last Cell. Spatial behavior moves, replaces, or tests the complete Span while every Position remains a Position in the character Grid.
+_Avoid_: Footprint, extent, range, Cell structure, semantic Grid, bounding box
 
 **Language Map**:
-The semantic view derived from one Source revision. It identifies Expressions, roots, Language Units, their anchor Positions, and their Footprints without adding stored program state or a second coordinate system. It partitions each row from left to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that complete Footprint, and an unmatched character diagnoses without participating in an overlapping unit.
+The semantic view derived from one Source revision. It identifies Expressions, roots, Language Units, their anchor Positions, and their Spans without adding stored program state or a second coordinate system. It partitions each row from left to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that complete Span, and an unmatched character diagnoses without participating in an overlapping unit.
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
 **Operand Literal**:
@@ -61,11 +61,11 @@ A one-Tick pulse Atom encoded as `**`, distinct from every Number and Function. 
 _Avoid_: Boolean, trigger flag
 
 **Directional Bang Function**:
-One of the four activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Footprint in the selected direction. The emitted Function first receives a turn from the following Source Snapshot.
+One of the four activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Span in the selected direction. The emitted Function first receives a turn from the following Source Snapshot.
 _Avoid_: Always Function, movement Function, automatic mode
 
 **Self-Banging Function**:
-One of the root-only Source Functions `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. At its Source-order turn it intrinsically receives Bang activation without creating a Source-resident `**`, then advances its complete two-Cell Footprint by one Cell in its retained direction. A successful move atomically clears the current Footprint and writes the Function's own spelling at the shifted destination. A blocked or out-of-Grid move instead changes its current Footprint to `**`. Complete aligned contact with an Expression root delivers Bang activation when that root's turn has not passed. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. A Self-Banging Function is not an operand, runtime value, or Sequence member.
+One of the root-only Source Functions `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. At its Source-order turn it intrinsically receives Bang activation without creating a Source-resident `**`, then advances its complete two-Cell Span by one Cell in its retained direction. A successful move atomically clears the current Span and writes the Function's own spelling at the shifted destination. A blocked or out-of-Grid move instead changes its current Span to `**`. Complete aligned contact with an Expression root delivers Bang activation when that root's turn has not passed. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. A Self-Banging Function is not an operand, runtime value, or Sequence member.
 _Avoid_: Activation Character, Self-Activating Function, Arrow Function, moving Bang, projectile
 
 **Halt Function**:
@@ -73,7 +73,7 @@ The Activation Function `*!`. When active at its Source-order turn, it locks the
 _Avoid_: Stop Function, control phase, retroactive suppression
 
 **Jump Function**:
-One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies exactly one aligned two-Cell Language Unit from the side opposite its direction to the far side of a consecutive chain with the same spelling. The chain head is the member adjacent to the input; only the head relays, while later members produce no effect. Horizontal members have touching Footprints with anchors two columns apart; vertical members share an anchor column on adjacent rows. A gap, misalignment, or different spelling ends the chain. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Footprint. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump reads only the Source Snapshot, but its Bang output can activate a later root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
+One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies exactly one aligned two-Cell Language Unit from the side opposite its direction to the far side of a consecutive chain with the same spelling. The chain head is the member adjacent to the input; only the head relays, while later members produce no effect. Horizontal members have touching Spans with anchors two columns apart; vertical members share an anchor column on adjacent rows. A gap, misalignment, or different spelling ends the chain. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Span. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump reads only the Source Snapshot, but its Bang output can activate a later root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
 _Avoid_: Jumper, Jymper, Sequence transport
 
 **Number**:

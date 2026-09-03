@@ -379,7 +379,7 @@ mod test {
     }
 
     #[test]
-    fn source_analysis_preserves_invalid_nested_operand_footprint() {
+    fn source_analysis_preserves_invalid_nested_operand_span() {
         let source = ".+.-01XY02";
         let expression = Parser::from(&mut source.to_owned())
             .analyze()

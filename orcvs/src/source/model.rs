@@ -6,7 +6,7 @@ use crate::glyph::Glyph;
 use crate::grid::Grid;
 
 use super::SourceError;
-use super::language_map::{Footprint, LanguageMap};
+use super::language_map::{LanguageMap, Span};
 use super::tick;
 
 pub const SPACE: &str = " ";
@@ -41,11 +41,9 @@ pub struct Change {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Diagnostic {
-    pub start: usize,
-    pub end: usize,
     pub message: String,
     anchor: Option<crate::grid::Position>,
-    footprint: Footprint,
+    span: Span,
 }
 
 impl Diagnostic {
@@ -56,43 +54,40 @@ impl Diagnostic {
         message: String,
     ) -> Self {
         Self {
-            start: start.get(),
-            end: end.get(),
             message,
             anchor: Some(grid.position_at(start)),
-            footprint: Footprint::from_indices(
-                grid,
-                (start.get()..=end.get()).filter_map(move |idx| grid.cell_index(idx)),
-            ),
+            span: Span::new(grid, start, end),
         }
     }
 
     pub(super) fn for_expression(
-        grid: Grid,
         anchor: crate::grid::Position,
-        footprint: &Footprint,
+        span: Span,
         message: String,
     ) -> Self {
-        let mut indices = footprint.positions().map(|position| grid.index(position));
-        let start = indices
-            .next()
-            .expect("an Expression Footprint contains at least one Position");
-        let end = indices.last().unwrap_or(start);
         Self {
-            start: start.get(),
-            end: end.get(),
             message,
             anchor: Some(anchor),
-            footprint: footprint.clone(),
+            span,
         }
+    }
+
+    /// The first Cell this Diagnostic covers, as a Source index.
+    pub fn start(&self) -> usize {
+        self.span.start().get()
+    }
+
+    /// The last Cell this Diagnostic covers, as a Source index. Inclusive.
+    pub fn end(&self) -> usize {
+        self.span.end().get()
     }
 
     pub fn anchor(&self) -> Option<crate::grid::Position> {
         self.anchor
     }
 
-    pub fn footprint(&self) -> &Footprint {
-        &self.footprint
+    pub fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -951,8 +946,8 @@ mod test {
         src.write(0, ".+01");
         assert_eq!(src.row(0), ".+01      ");
         assert_eq!(diagnostics(&src).len(), 1);
-        assert_eq!(diagnostics(&src)[0].start, 0);
-        assert_eq!(diagnostics(&src)[0].end, 3);
+        assert_eq!(diagnostics(&src)[0].start(), 0);
+        assert_eq!(diagnostics(&src)[0].end(), 3);
         assert_eq!(diagnostics(&src)[0].message, "expected a token");
 
         // Completing it removes the cause and therefore the diagnostic in the
@@ -1001,8 +996,8 @@ mod test {
 
         assert_eq!(src.row(0), "id        ");
         assert_eq!(diagnostics(&src).len(), 1);
-        assert_eq!(diagnostics(&src)[0].start, 0);
-        assert_eq!(diagnostics(&src)[0].end, 1);
+        assert_eq!(diagnostics(&src)[0].start(), 0);
+        assert_eq!(diagnostics(&src)[0].end(), 1);
         assert_eq!(diagnostics(&src)[0].message, "unknown function \"id\"");
         // Classification is unaffected: an unrecognized run standing where a
         // Function is expected keeps the Function Glyph, because a Record that
@@ -1173,8 +1168,8 @@ mod test {
         assert!(tick.plan.play_commands.is_empty());
         assert!(tick.plan.writes.is_empty());
         assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].start, 10);
-        assert_eq!(tick.plan.diagnostics[0].end, 17);
+        assert_eq!(tick.plan.diagnostics[0].start(), 10);
+        assert_eq!(tick.plan.diagnostics[0].end(), 17);
         assert_eq!(
             tick.plan.diagnostics[0].message,
             "MIDI velocity 80 is outside the range 00–7F"
@@ -1441,8 +1436,8 @@ mod test {
         assert_eq!(src.get(59), Some("Z".to_string()));
         assert!(tick.plan.writes.is_empty());
         assert_eq!(tick.plan.diagnostics.len(), 1);
-        assert_eq!(tick.plan.diagnostics[0].start, 50);
-        assert_eq!(tick.plan.diagnostics[0].end, 55);
+        assert_eq!(tick.plan.diagnostics[0].start(), 50);
+        assert_eq!(tick.plan.diagnostics[0].end(), 55);
         assert_eq!(
             tick.plan.diagnostics[0].message,
             "result \"03\" falls below the Source"
@@ -1633,7 +1628,7 @@ mod test {
             tick.plan
                 .diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.start, diagnostic.message.as_str()))
+                .map(|diagnostic| (diagnostic.start(), diagnostic.message.as_str()))
                 .collect::<Vec<_>>(),
             vec![
                 (40, "cannot divide by zero"),

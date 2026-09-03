@@ -209,9 +209,8 @@ fn emit_expression_root(
         }
         Err(error) => {
             effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                grid,
                 root,
-                expression.footprint(),
+                expression.span(),
                 error.to_string(),
             )));
             return;
@@ -226,18 +225,16 @@ fn emit_expression_root(
     // emitted, so a rejected destination contributes no partial write.
     let Some(target) = grid.below(root) else {
         effects.push(Effect::Diagnose(Diagnostic::for_expression(
-            grid,
             root,
-            expression.footprint(),
+            expression.span(),
             format!("result {encoded:?} falls below the Source"),
         )));
         return;
     };
     if !grid.fits(target, encoded.chars().count()) {
         effects.push(Effect::Diagnose(Diagnostic::for_expression(
-            grid,
             root,
-            expression.footprint(),
+            expression.span(),
             format!("result {encoded:?} crosses the row edge"),
         )));
         return;

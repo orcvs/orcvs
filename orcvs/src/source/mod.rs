@@ -1,6 +1,6 @@
 pub mod error;
 mod language_map;
-pub use language_map::{ExpressionEntry, Footprint, LanguageMap, LanguageUnit, LanguageUnitKind};
+pub use language_map::{ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 mod model;
 mod tick;
 use crate::grid::{Grid, Position};
@@ -176,8 +176,8 @@ mod tests {
                 .language_map()
                 .diagnostics()
                 .any(|diagnostic| {
-                    diagnostic.start == 100
-                        && diagnostic.end == 161
+                    diagnostic.start() == 100
+                        && diagnostic.end() == 161
                         && diagnostic.message
                             == "expression exceeds the parser capacity of 32 atoms"
                 })

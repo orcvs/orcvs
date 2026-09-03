@@ -15,8 +15,8 @@ fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions
     assert_eq!(expressions[0].root(), grid.position(0, 0));
     assert_eq!(expressions[1].root(), None);
     assert_eq!(
-        expressions[0]
-            .units()
+        map.expression_units(expressions[0])
+            .iter()
             .map(|unit| unit.kind())
             .collect::<Vec<_>>(),
         vec![
@@ -35,13 +35,13 @@ fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions
     );
     assert!(
         expressions[0]
-            .footprint()
+            .span()
             .positions()
             .all(|position| position.y() == 0)
     );
     assert!(
         expressions[1]
-            .footprint()
+            .span()
             .positions()
             .all(|position| position.y() == 1)
     );
@@ -78,17 +78,17 @@ fn language_map_reports_literal_incomplete_invalid_and_over_capacity_outcomes() 
 }
 
 #[test]
-fn unmatched_characters_have_revision_consistent_diagnostic_footprints() {
+fn unmatched_characters_have_revision_consistent_diagnostic_spans() {
     let grid = Grid::new(3, 1);
     let map = LanguageMap::derive(grid, "***").unwrap();
     let unmatched = map
         .diagnostics()
-        .find(|diagnostic| diagnostic.start == 2)
+        .find(|diagnostic| diagnostic.start() == 2)
         .unwrap();
 
     assert_eq!(unmatched.anchor(), grid.position(2, 0));
     assert_eq!(
-        unmatched.footprint().positions().collect::<Vec<_>>(),
+        unmatched.span().positions().collect::<Vec<_>>(),
         vec![grid.position(2, 0).unwrap()]
     );
 }
@@ -123,7 +123,7 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     let diagnostic = source.language_map().diagnostics().next().unwrap();
     assert_eq!(diagnostic.anchor(), grid.position(4, 0));
     assert_eq!(
-        diagnostic.footprint().positions().collect::<Vec<_>>(),
+        diagnostic.span().positions().collect::<Vec<_>>(),
         vec![grid.position(4, 0).unwrap()]
     );
 }
