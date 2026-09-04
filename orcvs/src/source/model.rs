@@ -1,4 +1,4 @@
-use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError};
+use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError, Tick};
 use std::{fmt, sync::Arc};
 use tracing::debug;
 
@@ -329,8 +329,13 @@ impl Source {
     /// committed by one Expression can never become another Expression's input
     /// within the same Tick.
     ///
-    pub fn execute(&mut self) -> TickPlan {
-        let plan = self.plan_tick();
+    /// `tick` is the absolute Tick this Snapshot is interpreted at. Musical
+    /// time belongs to the Playback Engine and ADR 0003 keeps every piece of
+    /// language state in the Source Snapshot, so it arrives as an input rather
+    /// than being counted here.
+    ///
+    pub fn execute(&mut self, tick: Tick) -> TickPlan {
+        let plan = self.plan_tick(tick);
         self.commit_tick(&plan);
 
         plan
@@ -345,10 +350,10 @@ impl Source {
     /// gains no turn of its own and a Function a write generates first becomes
     /// actionable in the next Source Snapshot.
     ///
-    fn plan_tick(&self) -> TickPlan {
+    fn plan_tick(&self, tick: Tick) -> TickPlan {
         let mut effects = Vec::new();
         for turn in tick::turns(self.grid, &self.language_map) {
-            turn.emit(self.grid, &self.language_map, &mut effects);
+            turn.emit(self.grid, &self.language_map, tick, &mut effects);
         }
 
         tick::resolve(effects)
@@ -412,7 +417,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::{CellIndex, Grid},
-        source::{CellWrite, PlayCommand, Source, SourceError},
+        source::{CellWrite, PlayCommand, Source, SourceError, Tick},
         test::trace,
     };
 
@@ -576,7 +581,7 @@ mod test {
         let at = src.cells();
 
         src.write(at(0), ".+0102");
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "03      ");
     }
@@ -614,7 +619,7 @@ mod test {
                 .collect::<Vec<_>>()
         );
 
-        restored.execute();
+        restored.execute(Tick::ZERO);
         // A restored Source is built from a Grid of its own: persistence
         // carries the shape, not the identity, so the Cells of the Source that
         // was written are not the Cells of the Source that was read back.
@@ -969,7 +974,7 @@ mod test {
         // Prepending `.+00` joins everything into one Expression at Cell 0;
         // the old Expression starting at Cell 4 no longer exists.
         src.write(at(0), ".+00");
-        src.execute();
+        src.execute(Tick::ZERO);
 
         // `.+00.+0101` commits `02` across Cells 10 and 11. The stale Expression
         // at Cell 4 would commit its own `02` over Cells 14 and 15, so the row
@@ -1009,7 +1014,7 @@ mod test {
         // the split-off Expression evaluates on the next Tick and commits its
         // whole two-Cell result; the lone `x` left at Cell 0 is a literal and
         // commits nothing
-        src.execute();
+        src.execute(Tick::ZERO);
         assert_eq!(src.row(1), "  02      ");
     }
 
@@ -1039,7 +1044,7 @@ mod test {
         // The README example: `.+0102` is 1 + 2, and a Number is two Cells wide
         src.write(at(0), ".+0102");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "03        ");
         assert_eq!(src.get(at(10)), Some("0".to_string()));
@@ -1063,7 +1068,7 @@ mod test {
         src.write(at(0), "**");
         src.write(at(10), "!>007FC4");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(
             tick.play_commands,
@@ -1084,7 +1089,7 @@ mod test {
         src.write(at(0), "**");
         src.write(at(10), "!>0F00A0");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(
             tick.play_commands,
@@ -1104,7 +1109,7 @@ mod test {
         src.write(at(0), "**");
         src.write(at(10), "!>0080C4");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
@@ -1124,7 +1129,7 @@ mod test {
         src.write(at(0), "**");
         src.write(at(10), "!>107FC4");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
@@ -1141,7 +1146,7 @@ mod test {
         let at = src.cells();
         src.write(at(0), ".+!>007FC401");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
@@ -1166,7 +1171,7 @@ mod test {
             // evaluated only when a Bang activates it.
             src.write(at(expression.len()), "**");
 
-            let tick = src.execute();
+            let tick = src.execute(Tick::ZERO);
 
             assert!(tick.play_commands.is_empty(), "{expression}");
             assert!(tick.writes.is_empty(), "{expression}");
@@ -1185,8 +1190,10 @@ mod test {
         src.write(at(10), "**");
         src.write(at(20), "!>017FA4");
 
-        let first = src.execute();
-        let second = src.execute();
+        // Two successive Ticks of one Playback run, which is what "every Tick"
+        // means: the same commands at Tick `0` and again at Tick `1`.
+        let first = src.execute(Tick::ZERO);
+        let second = src.execute(Tick::ZERO.next());
         let expected = vec![
             PlayCommand::Raw {
                 channel: 0,
@@ -1215,7 +1222,7 @@ mod test {
         // diagnostics it would produce reach the Tick Plan.
         src.write(at(0), "!>1080C4");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.diagnostics.is_empty());
@@ -1232,7 +1239,7 @@ mod test {
             src.write(at(bang), "**");
             src.write(at(root), "!>007FC4");
 
-            let tick = src.execute();
+            let tick = src.execute(Tick::ZERO);
 
             assert_eq!(
                 tick.play_commands,
@@ -1258,7 +1265,7 @@ mod test {
         src.write(at(10), "!>007FC4");
         src.write(at(20), "**");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(
             tick.play_commands,
@@ -1290,7 +1297,7 @@ mod test {
 
             assert_eq!(src.row(0), expression, "{expression:?} did not fit one row");
 
-            let tick = src.execute();
+            let tick = src.execute(Tick::ZERO);
 
             assert!(
                 tick.play_commands.is_empty(),
@@ -1307,7 +1314,7 @@ mod test {
         let at = src.cells();
         src.write(at(0), ".+0102");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(tick.writes.len(), 2);
     }
@@ -1322,7 +1329,7 @@ mod test {
         let at = src.cells();
         src.write(at(0), ".=0303");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "**        ");
         assert_eq!(tick.writes.len(), 2);
@@ -1332,7 +1339,7 @@ mod test {
         let at = src.cells();
         src.write(at(0), ".=0304");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "          ");
         assert!(tick.writes.is_empty());
@@ -1349,7 +1356,7 @@ mod test {
         let at = src.cells();
         src.write(at(0), ".%0A00");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "          ");
         assert!(tick.writes.is_empty());
@@ -1369,7 +1376,7 @@ mod test {
         // leading `0` would be a truncated, and wrong, result
         src.write(at(0), ".+0505");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "0A        ");
     }
@@ -1388,7 +1395,7 @@ mod test {
         src.write(at(50), ".+0102");
         src.write(at(59), "Z");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(5), ".+0102   Z");
         assert_eq!(src.get(at(59)), Some("Z".to_string()));
@@ -1416,7 +1423,7 @@ mod test {
         // that their formerly wrapped `.+0102` run produced.
         src.write(at(9), ".+0102");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "+0102     ");
         assert_eq!(src.row(2), "          ");
@@ -1455,7 +1462,7 @@ mod test {
         // of which can produce the old `03` result.
         src.write(at(8), ".+0102");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "0102      ");
         assert_eq!(src.row(2), "          ");
@@ -1473,7 +1480,7 @@ mod test {
         // apply, so the Expression has no result to commit
         src.write(at(0), "03");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "          ");
     }
@@ -1487,13 +1494,13 @@ mod test {
         let at = src.cells();
         src.write(at(0), ".+0102");
 
-        src.execute();
+        src.execute(Tick::ZERO);
         let after_first_tick = src.snapshot();
 
         // A committed result is not itself a computation, so re-Ticking the
         // same Source re-commits the same Cells and never marches down the grid
         for _ in 0..4 {
-            src.execute();
+            src.execute(Tick::ZERO);
             assert_eq!(src.snapshot(), after_first_tick);
         }
 
@@ -1517,7 +1524,7 @@ mod test {
         // no value to add. An empty result must never reach a Cell.
         src.write(at(0), ".+");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "          ");
     }
@@ -1534,7 +1541,7 @@ mod test {
         // a Function applied to them.
         src.write(at(0), ".+0102");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "03        ");
     }
@@ -1552,7 +1559,7 @@ mod test {
         src.write(at(0), ".+");
         src.write(at(3), ".+0102");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "   03     ");
         assert_eq!(tick.writes.len(), 2);
@@ -1579,7 +1586,7 @@ mod test {
         src.write(at(60), ".^80");
         src.write(at(70), ".+0102");
 
-        let tick = src.execute();
+        let tick = src.execute(Tick::ZERO);
 
         // (0, 1) then (10, 2): the second Play's anchor is further right and
         // one row lower.
@@ -1644,7 +1651,7 @@ mod test {
         src.write(at(4), ".+0002");
         src.write(at(10), ".+01");
 
-        let first = src.execute();
+        let first = src.execute(Tick::ZERO);
 
         assert_eq!(
             first.writes,
@@ -1662,7 +1669,7 @@ mod test {
         assert_eq!(src.row(1), ".+0102    ");
         assert_eq!(src.row(2), "          ");
 
-        let second = src.execute();
+        let second = src.execute(Tick::ZERO);
 
         assert_eq!(src.row(2), "03        ");
         assert!(
@@ -1671,6 +1678,44 @@ mod test {
                 .iter()
                 .any(|write| write.cell == at(20) && write.content == '0')
         );
+    }
+
+    #[test]
+    fn test_one_source_snapshot_at_one_tick_plans_one_tick_plan() {
+        trace();
+
+        // ADR 0012 makes the Tick an explicit input so that the Tick Plan stays
+        // a function of the Source Snapshot and the Tick together. Two Sources
+        // typed identically on one Grid and interpreted at the same Tick must
+        // plan the same writes, Play Commands, and diagnostics. Nothing today
+        // reads the Tick, which is exactly why this is pinned now: the first
+        // Function that reads a clock or a static instead of its input breaks
+        // this test and nothing else.
+        //
+        // One Grid for both, because a Tick Plan names Cells by index and an
+        // index belongs to the Grid that minted it: two Grids of one shape
+        // would differ here without either Snapshot differing.
+        let grid = grid();
+        let plan_at = |tick| {
+            let mut src = SourceUnderTest::new(grid);
+            let at = src.cells();
+            // Arithmetic that writes, an activated Raw Play that commands, and
+            // a result with no row beneath it to land in, which diagnoses: one
+            // of each part of a Tick Plan.
+            src.write(at(0), ".+0102");
+            src.write(at(20), "!>007FC4");
+            src.write(at(30), "**");
+            src.write(at(50), ".+0304");
+            src.execute(tick)
+        };
+
+        let first = plan_at(Tick::new(7));
+        let second = plan_at(Tick::new(7));
+
+        assert!(!first.writes.is_empty());
+        assert!(!first.play_commands.is_empty());
+        assert!(!first.diagnostics.is_empty());
+        assert_eq!(first, second);
     }
 
     #[test]
@@ -1687,7 +1732,7 @@ mod test {
         src.write(at(0), ".+0101");
         src.write(at(10), ".+0304");
 
-        src.execute();
+        src.execute(Tick::ZERO);
 
         assert_eq!(src.row(1), "020304    ");
         assert_eq!(src.row(2), "07        ");

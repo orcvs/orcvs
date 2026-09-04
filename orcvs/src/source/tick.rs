@@ -13,7 +13,7 @@
 //! where they need one an `Effect` variant with its `resolve` arm. None of them
 //! adds a second ordering pass.
 
-use lang::{Atom, Atoms, Interpretation, Interpreter};
+use lang::{Anchor, Atom, Atoms, Interpretation, Interpreter, Tick, TickInputs};
 use std::collections::BTreeMap;
 
 use crate::grid::{CellIndex, Grid, Position};
@@ -124,10 +124,16 @@ impl Turn<'_> {
     /// Appends every effect this producer contributes, in the order it emits
     /// them.
     ///
-    pub(super) fn emit(&self, grid: Grid, language_map: &LanguageMap, effects: &mut Vec<Effect>) {
+    pub(super) fn emit(
+        &self,
+        grid: Grid,
+        language_map: &LanguageMap,
+        tick: Tick,
+        effects: &mut Vec<Effect>,
+    ) {
         match self.producer {
             Producer::ExpressionRoot(expression) => {
-                emit_expression_root(grid, language_map, self.anchor, expression, effects);
+                emit_expression_root(grid, language_map, self.anchor, tick, expression, effects);
             }
         }
     }
@@ -241,12 +247,26 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
 }
 
 ///
+/// ADR 0012's explicit inputs for one root's evaluation.
+///
+/// The Tick comes from the Playback Engine, which owns musical time; the
+/// anchor is this root's own Grid-minted Position, converted to the plain pair
+/// of coordinates the language crate carries. Only the two numbers cross the
+/// boundary: a Position can be obtained solely from the Grid that contains it,
+/// and that invariant belongs to this crate.
+///
+fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
+    TickInputs::new(tick, Anchor::new(root.x(), root.y()))
+}
+
+///
 /// The effects of one Expression root's turn.
 ///
 fn emit_expression_root(
     grid: Grid,
     language_map: &LanguageMap,
     root: Position,
+    tick: Tick,
     expression: &ExpressionEntry,
     effects: &mut Vec<Effect>,
 ) {
@@ -263,7 +283,7 @@ fn emit_expression_root(
         return;
     }
 
-    let encoded = match Interpreter::execute(atoms) {
+    let encoded = match Interpreter::execute(atoms, tick_inputs(tick, root)) {
         Ok(Interpretation::Cell(Atom::Empty)) => return,
         Ok(Interpretation::Cell(result)) => result.to_string(),
         // Per ADR 0007 an empty Sequence emits no Cell writes, exactly as the
@@ -341,7 +361,9 @@ fn is_terminal_root(atoms: &Atoms) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::{Effect, SpanWrite, SpanWriteError, Turn, order_by_anchor, resolve, turns};
+    use super::{
+        Effect, SpanWrite, SpanWriteError, Tick, Turn, order_by_anchor, resolve, tick_inputs, turns,
+    };
     use crate::{
         grid::{CellIndex, Grid},
         source::{CellWrite, Diagnostic, PlayCommand, language_map::LanguageMap},
@@ -384,7 +406,7 @@ mod test {
     fn emitted(grid: Grid, language_map: &LanguageMap) -> Vec<Effect> {
         let mut effects = Vec::new();
         for turn in turns(grid, language_map) {
-            turn.emit(grid, language_map, &mut effects);
+            turn.emit(grid, language_map, Tick::ZERO, &mut effects);
         }
         effects
     }
@@ -436,6 +458,46 @@ mod test {
     }
 
     #[test]
+    fn test_each_root_is_told_the_shared_tick_and_its_own_anchor_position() {
+        // ADR 0012 gives one Tick to the whole Source Snapshot, and ADR 0013
+        // seeds Random from the Function's own column and row. So the two
+        // explicit inputs a root is evaluated with differ in exactly one way:
+        // every root of a Tick is told the same Tick, and each is told its own
+        // anchor.
+        //
+        // The expected anchors are written out rather than read back from the
+        // same turns, so the assertion cannot be satisfied by the code it is
+        // testing. They are asymmetric for the same reason: a transposed
+        // column and row would otherwise pass. `.-0504` sits at column 2 of
+        // row 1, and is the one root whose column and row differ.
+        //
+        // What this does not pin is that `emit_expression_root` hands these
+        // inputs to the Interpreter. Nothing observable comes back out of
+        // evaluation until a Function reads them, so `tick-functions/02` —
+        // Clock, Delay, and Euclidean — is the first ticket that can pin the
+        // read end to end. Withholding `Default` from `TickInputs` is what
+        // rules out the seam being silently satisfied with inputs nobody
+        // chose in the meantime.
+        let grid = Grid::new(20, 3);
+        let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
+        let tick = Tick::new(11);
+
+        let inputs: Vec<_> = turns(grid, &map)
+            .iter()
+            .map(|turn| tick_inputs(tick, turn.anchor()))
+            .collect();
+
+        assert!(inputs.iter().all(|inputs| inputs.tick() == tick));
+        assert_eq!(
+            inputs
+                .iter()
+                .map(|inputs| (inputs.anchor().column(), inputs.anchor().row()))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (7, 0), (2, 1)],
+        );
+    }
+
+    #[test]
     fn test_each_expression_root_takes_exactly_one_turn() {
         // ADR 0006: multiple Bangs never give one root a second turn, and a
         // root whose turn has passed is never revisited. Both Bangs are
@@ -458,9 +520,9 @@ mod test {
         let turn = turns.first().expect("the root takes a turn");
 
         let mut first = Vec::new();
-        turn.emit(grid, &map, &mut first);
+        turn.emit(grid, &map, Tick::ZERO, &mut first);
         let mut second = Vec::new();
-        turn.emit(grid, &map, &mut second);
+        turn.emit(grid, &map, Tick::ZERO, &mut second);
 
         assert_eq!(first, vec![write(grid, 10, "03")]);
         assert_eq!(first, second);

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant as ClockInstant;
 
-use crate::source::{PlayCommand, SourceCommander, TickPlan};
+use crate::source::{PlayCommand, SourceCommander, Tick, TickPlan};
 
 pub trait OutputAdapter {
     fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError>;
@@ -179,6 +179,17 @@ struct PlaybackInner<A> {
     generation: u64,
     cancellation: Option<CancellationToken>,
     last_tick_at: Option<ClockInstant>,
+    ///
+    /// The absolute Tick the next executed Tick interprets its Source Snapshot
+    /// at.
+    ///
+    /// It lives here because the Playback Engine owns musical time and ADR 0003
+    /// keeps every piece of language state in the Source Snapshot: a counter
+    /// beside the Source would be neither. It counts executed Ticks, so a Tick
+    /// this engine declines to run — stopped, superseded, or overrun — leaves it
+    /// where it was.
+    ///
+    tick: Tick,
 }
 
 pub struct PlaybackEngine<A: OutputAdapter> {
@@ -290,7 +301,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             return None;
         }
         self.last_tick_at = Some(ClockInstant::now());
-        let plan = self.source.execute();
+        // One Tick executed, one increment. The advance sits with the
+        // execution rather than with the clock so that a Tick the engine
+        // declines above never consumes an absolute Tick.
+        let plan = self.source.execute(self.tick);
+        self.tick = self.tick.next();
         if self.connected {
             match self.adapter.submit(&plan.play_commands) {
                 Ok(()) => self.last_output_failure = None,
@@ -314,6 +329,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
                 generation: 0,
                 cancellation: None,
                 last_tick_at: None,
+                tick: Tick::ZERO,
             })),
             handle_count: Arc::new(AtomicUsize::new(1)),
         }
@@ -360,6 +376,14 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     #[cfg(test)]
     fn diagnostics(&self) -> Vec<PlaybackDiagnostic> {
         self.inner.lock().unwrap().diagnostics.clone()
+    }
+
+    ///
+    /// The absolute Tick the next executed Tick will interpret at.
+    ///
+    #[cfg(test)]
+    fn current_tick(&self) -> Tick {
+        self.inner.lock().unwrap().tick
     }
 
     #[cfg(test)]
@@ -566,6 +590,10 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             inner.generation = inner.generation.wrapping_add(1);
             inner.playing = true;
             inner.last_tick_at = None;
+            // ADR 0012: each Playback run begins at absolute Tick `0`. The
+            // matching line is absent from `retune` on purpose — retuning
+            // changes the Tick period of the run it is already in.
+            inner.tick = Tick::ZERO;
             let cancellation = CancellationToken::new();
             inner.cancellation = Some(cancellation.clone());
             (inner.generation, cancellation, Arc::downgrade(&self.inner))
@@ -616,6 +644,10 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             inner.generation = inner.generation.wrapping_add(1);
             inner.playing = true;
             inner.last_tick_at = None;
+            // ADR 0012: each Playback run begins at absolute Tick `0`. The
+            // matching line is absent from `retune` on purpose — retuning
+            // changes the Tick period of the run it is already in.
+            inner.tick = Tick::ZERO;
             let cancellation = CancellationToken::new();
             inner.cancellation = Some(cancellation.clone());
             (inner.generation, cancellation, Arc::downgrade(&self.inner))
@@ -901,6 +933,126 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn playback_begins_at_the_first_tick_and_advances_one_per_executed_tick() {
+        // ADR 0012's counter in full: the first Tick of a run is absolute Tick
+        // `0`, and each executed Tick increments it by exactly one. Reading the
+        // counter is the whole of what is observable today — no Function reads
+        // the Tick yet — so the count is what is pinned.
+        let engine = PlaybackEngine::new(
+            SourceCommander::new(Grid::new(10, 3)),
+            InMemoryOutputAdapter::default(),
+        );
+        engine.activate_for_test();
+
+        assert_eq!(engine.current_tick(), Tick::ZERO);
+
+        for executed in 1..=4u64 {
+            engine
+                .clock_tick(scheduled(
+                    Duration::from_secs(executed - 1),
+                    Duration::from_secs(executed - 1),
+                ))
+                .expect("a scheduled Tick runs");
+
+            assert_eq!(engine.current_tick(), Tick::new(executed));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_tick_the_engine_declines_consumes_no_absolute_tick() {
+        // The counter counts executed Ticks, not clock ticks: a Tick that
+        // returns before interpreting a Source Snapshot planned nothing, so
+        // there is no Tick for it to have been. Each of the three ways the
+        // engine declines one is pinned, because each is a separate early
+        // return that a later change could move the increment above.
+        let engine = PlaybackEngine::new(
+            SourceCommander::new(Grid::new(10, 3)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        // Stopped: nothing is playing, so nothing is interpreted.
+        assert!(
+            engine
+                .clock_tick(scheduled(Duration::ZERO, Duration::ZERO))
+                .is_none()
+        );
+        assert_eq!(engine.current_tick(), Tick::ZERO);
+
+        engine.activate_for_test();
+        engine
+            .clock_tick(scheduled(Duration::ZERO, Duration::ZERO))
+            .expect("a scheduled Tick runs");
+        assert_eq!(engine.current_tick(), Tick::new(1));
+
+        // Overrun: the Tick is dropped rather than played late.
+        assert!(
+            engine
+                .clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(5)))
+                .is_none()
+        );
+        assert_eq!(engine.current_tick(), Tick::new(1));
+
+        // Superseded: a clock from an earlier run cannot drive this one.
+        let mut inner = engine.inner.lock().unwrap();
+        let superseded = inner.generation.wrapping_sub(1);
+        assert!(
+            inner
+                .tick(
+                    superseded,
+                    scheduled(Duration::from_secs(1), Duration::from_secs(1))
+                )
+                .is_none()
+        );
+        assert_eq!(inner.tick, Tick::new(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_playback_run_begins_again_at_the_first_tick() {
+        // ADR 0012's first-Tick rule is about a Playback run, not about the
+        // lifetime of the engine: a run that is stopped and started again is a
+        // new run and counts from `0` again.
+        let engine = PlaybackEngine::new(
+            SourceCommander::new(Grid::new(10, 3)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        // A paused clock fires once at the epoch, so one yield is one executed
+        // Tick — the exact count the tests around this one are written against.
+        engine.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(engine.current_tick(), Tick::new(1));
+
+        engine.stop();
+        tokio::task::yield_now().await;
+        engine.start(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(engine.current_tick(), Tick::ZERO);
+
+        // And the new run counts from there, rather than resuming the old one.
+        tokio::task::yield_now().await;
+        assert_eq!(engine.current_tick(), Tick::new(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retuning_keeps_the_absolute_tick_of_the_run_it_retunes() {
+        // Retuning changes the Tick period of the run already in progress; it
+        // does not end that run. Resetting the counter here would silently
+        // restart every Tick-reading Function's cycle each time the tempo moved.
+        let engine = PlaybackEngine::new(
+            SourceCommander::new(Grid::new(10, 3)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(engine.current_tick(), Tick::new(1));
+
+        engine.retune(Duration::from_secs(2)).unwrap();
+
+        assert_eq!(engine.current_tick(), Tick::new(1));
+    }
+
+    #[tokio::test]
     async fn live_editing_changes_the_next_unsampled_tick() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!>007FC4");
@@ -913,6 +1065,11 @@ mod tests {
         source.set(cell(source.grid(), 6), "D").unwrap();
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
+        // ADR 0012's other half of Live Editing: the edit lands in the next
+        // Source Snapshot because a Snapshot is taken per Tick, and the run
+        // keeps counting, because editing the Source is not starting a
+        // Playback run.
+        assert_eq!(engine.current_tick(), Tick::new(2));
         assert_eq!(adapter.command_lists().len(), 2);
         assert_eq!(
             adapter.command_lists()[0][0],

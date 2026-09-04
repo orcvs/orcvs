@@ -197,7 +197,7 @@ mod tests {
         grid::{CellIndex, Grid},
         opts::{HighlightSpacing, MarkerSpacing},
         render_frame::{RenderFrame, RenderFrameConfig},
-        source::SourceCommander,
+        source::{SourceCommander, Tick},
     };
 
     ///
@@ -478,7 +478,7 @@ mod tests {
         for (idx, content) in ".+010E".chars().enumerate() {
             source.set(cell(grid, idx), &content.to_string()).unwrap();
         }
-        source.execute();
+        source.execute(Tick::ZERO);
 
         let start = Arc::new(Barrier::new(2));
         let writer_source = source.clone();
@@ -489,7 +489,7 @@ mod tests {
                 writer_source
                     .set(cell(grid, 5), &operand.to_string())
                     .unwrap();
-                writer_source.execute();
+                writer_source.execute(Tick::ZERO);
             }
         });
 

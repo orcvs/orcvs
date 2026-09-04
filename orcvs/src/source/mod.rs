@@ -5,6 +5,7 @@ mod model;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
 pub use error::SourceError;
+pub use lang::Tick;
 pub use model::{CellWrite, Diagnostic, PlayCommand, Source, TickPlan};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -103,14 +104,22 @@ impl SourceCommander {
         }
     }
 
-    pub(crate) fn execute(&self) -> TickPlan {
-        write_recover(&self.inner).execute()
+    ///
+    /// Runs one Tick against the current Source revision at absolute Tick
+    /// `tick`.
+    ///
+    /// The Tick is supplied rather than counted here: the Playback Engine owns
+    /// musical time, and a counter living beside the Source would be language
+    /// state outside the Source Snapshot.
+    ///
+    pub(crate) fn execute(&self, tick: Tick) -> TickPlan {
+        write_recover(&self.inner).execute(tick)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceCommander, SourceError};
+    use super::{SourceCommander, SourceError, Tick};
     use crate::grid::Grid;
 
     #[test]
@@ -163,7 +172,7 @@ mod tests {
         source.set(cell(153), "1").unwrap();
         source.set(cell(154), "0").unwrap();
         source.set(cell(155), "2").unwrap();
-        let tick = source.execute();
+        let tick = source.execute(Tick::ZERO);
 
         assert!(tick.diagnostics.is_empty());
         assert_eq!(source.get(cell(150)), Some(".".to_string()));
@@ -187,7 +196,7 @@ mod tests {
             source.set(cell(70 + offset), &content.to_string()).unwrap();
         }
 
-        source.execute();
+        source.execute(Tick::ZERO);
 
         assert_eq!(source.get(cell(130)), Some("0".to_string()));
         assert_eq!(source.get(cell(131)), Some("3".to_string()));
@@ -206,7 +215,7 @@ mod tests {
                 })
         );
 
-        source.execute();
+        source.execute(Tick::ZERO);
         source.set(cell(199), "x").unwrap();
 
         assert_eq!(source.get(cell(199)), Some("x".to_string()));
