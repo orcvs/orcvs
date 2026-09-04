@@ -15,3 +15,5 @@ south, with no separate control phase.
 - [ ] Halt is never revisited after its turn.
 - [ ] A lock cannot retroactively suppress a root whose turn already passed.
 - [ ] Multiple Halts and activations retain ADR 0020 producer order.
+- [ ] Halt is refused Sequence membership at ADR 0025's single construction point, by name rather
+      than by admitting the Function family, per ADR 0029.
