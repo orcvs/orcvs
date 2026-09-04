@@ -60,8 +60,12 @@ _Avoid_: Spatial operator, grid function
 A one-Tick pulse Atom encoded as `**`, distinct from every Number and Function. For a Bang anchored at `(x, y)`, its aligned cardinal root anchors are north `(x, y-1)`, south `(x, y+1)`, west `(x-2, y)`, and east `(x+2, y)`; only complete Expression roots at those anchors activate when their Source-order turns occur. A Bang present in the Source Snapshot is removed by that Tick's atomic commit. A Bang generated during planning is written at the current commit, remains visible in the next Source Snapshot, and is removed by that next Tick's commit. Direct same-Tick delivery to a root is an activation event separate from the stored glyph; it does not overwrite the Function and applies only if the root's turn has not passed.
 _Avoid_: Boolean, trigger flag
 
+**Activation Function**:
+One of the five Source Functions that act on activation itself rather than producing a value: the four Directional Bang Functions `*^`, `*v`, `*<`, and `*>`, and the Halt Function `*!`. A Directional Bang carries activation across the Grid by emitting a Self-Banging Function; Halt withholds activation from the Expression root directly south. No member is an operand, runtime value, or Sequence member, and no member answers with a language value.
+_Avoid_: Control Function, trigger Function, spatial operator
+
 **Directional Bang Function**:
-One of the four activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Span in the selected direction. The emitted Function first receives a turn from the following Source Snapshot.
+One of the four Activation Functions `*^`, `*v`, `*<`, and `*>`. It emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Span in the selected direction. The emitted Function first receives a turn from the following Source Snapshot.
 _Avoid_: Always Function, movement Function, automatic mode
 
 **Self-Banging Function**:
@@ -89,7 +93,7 @@ One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Sequence**:
-A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function, which is a root-only Source effect rather than a value, and the empty result an Expression leaves when it produces no value, which has no Source encoding of its own. Per ADR 0025 membership is checked at the single point every Sequence is constructed through. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function or an Activation Function, which are root-only Source effects rather than values, and the empty result an Expression leaves when it produces no value, which has no Source encoding of its own. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check names the excluded Activation Functions rather than admitting the Function family. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
 _Avoid_: Pattern, Cell batch, write list, string
 
 **Range Function**:
@@ -189,7 +193,7 @@ The one Cell the console is editing: a Position, plus the blink state that draws
 _Avoid_: Caret, pointer, insertion point
 
 **Glyph**:
-The classification that decides how a Cell is painted: Function, Note, Number or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
+The classification that decides how a Cell is painted: Function, Note, Number, Bang or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
 _Avoid_: Style, token, syntax highlight
 
 **Marker**:

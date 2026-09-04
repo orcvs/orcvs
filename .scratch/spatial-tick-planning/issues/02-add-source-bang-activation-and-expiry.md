@@ -12,7 +12,7 @@ root activation behavior from `CONTEXT.md` and ADR 0020.
 - [ ] Snapshot Bang activates only complete aligned cardinal Expression roots.
 - [ ] Horizontal root anchors are two columns away; vertical anchors are one row away.
 - [ ] Activation takes effect only at a later root turn and evaluates the root at most once.
-- [ ] Snapshot Bang plans expiry of its complete two-Cell Footprint.
+- [ ] Snapshot Bang plans expiry of its complete two-Cell Span.
 - [ ] A newly planned Bang remains visible for the following Source Snapshot before expiring.
 - [ ] Direct activation does not overwrite the target Function.
 - [ ] Partial or non-root contact does not activate.

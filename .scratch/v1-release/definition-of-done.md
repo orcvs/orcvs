@@ -1,20 +1,20 @@
 # First Release Candidate Definition of Done
 
 The First Release Candidate proves the inventory decided in
-`v1-roadmap-wayfinding/issues/01-name-the-shipped-language-inventory.md`. ADRs and `CONTEXT.md`
-remain design inputs until implementation and this evidence agree; glossary presence alone does not
-make a capability shipped.
+`v1-roadmap-wayfinding/issues/01-name-the-shipped-language-inventory.md`. That issue is the
+inventory of record: it names every member and gives the state of each one, so no count of shipped
+or unshipped members is copied into this document. ADRs and `CONTEXT.md` remain design inputs until
+implementation and this evidence agree; glossary presence alone does not make a capability shipped.
 
 ## Language and Source
 
-- [ ] Canonical two-Cell syntax and generation cover every shipped Function, Bang, Activation
-      Character, Number, Note, and Comment; Number and Note identity is contextual and Comments
-      begin with `##`.
+- [ ] Canonical two-Cell syntax and generation cover every shipped Function, Bang, Number, Note,
+      and Comment; Number and Note identity is contextual and Comments begin with `##`.
 - [ ] Every successfully parsed evaluable Expression entry pairs one syntax expectation with one
       real runtime value. Incomplete and invalid Live Edits remain editable, diagnose without
       panicking, and never acquire placeholder values.
 - [ ] The Language Map is the sole Source-derived interface for Language Units, Expressions, roots,
-      Positions, Footprints, Glyphs, and diagnostics; Source remains the only stored program state.
+      Positions, Spans, Glyphs, and diagnostics; Source remains the only stored program state.
 - [ ] Every shipped spelling and fixed signature is compiler-checked, unique, and round-trips
       through canonical Source.
 
@@ -27,8 +27,8 @@ make a capability shipped.
 - [ ] Tick Functions `~.`, `~*`, `~+`, `~?`, `~%`, and `~>` use explicit Tick/Position inputs,
       deterministic randomness, and visible Source feedback without hidden cross-Tick state.
 - [ ] Spatial behavior covers Bang activation and expiry, all four Directional Bang forms and
-      Activation movements, Jump chains `&^`, `&v`, `&<`, `&>`, Halt `*!`, Source-order turns,
-      atomic writes, conflicts, later-root activation, and boundary diagnostics.
+      Self-Banging Function movements, Jump chains `&^`, `&v`, `&<`, `&>`, Halt `*!`, Source-order
+      turns, atomic writes, conflicts, later-root activation, and boundary diagnostics.
 - [ ] MIDI terminal output covers Raw `!>`, Timed `!~`, Monophonic `!%`, Control Change `!c`, and
       Pitch Bend `!b` with explicit operand types, protocol ranges, ordering, scheduling, ownership,
       device lifecycle, and exact wire bytes.

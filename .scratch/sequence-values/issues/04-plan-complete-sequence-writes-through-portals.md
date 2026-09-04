@@ -9,7 +9,7 @@ atomic Tick Plan Cell writes, following ADR 0009.
 
 **Tags:** release/v1
 
-- [ ] A non-empty value validates its entire encoded Footprint before planning writes.
+- [ ] Cell writes validate their whole destination before any Cell of them is emitted.
 - [ ] Out-of-Grid or non-fitting output diagnoses and plans no partial write.
 - [ ] Empty Sequence plans no writes.
 - [ ] Current encoding never clears a stale tail from an earlier result.
