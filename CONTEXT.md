@@ -105,7 +105,7 @@ The Atom an Expression answers when it leaves no value. It displays as `_` but h
 _Avoid_: Null, nil, empty value, empty Sequence, void
 
 **Sequence**:
-A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function, a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function, a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. The Self-Banging Function and the Absence Marker are refused there today; the effect-Function clause is not, because `FunctionKind` still separates value from Terminal Output rather than value from effect, and widening it is `evaluation-machine/05`. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
 _Avoid_: Pattern, Cell batch, write list, string
 
 **Range Function**:

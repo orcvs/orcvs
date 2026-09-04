@@ -356,6 +356,51 @@ macro_rules! define_functions {
             )+
         }
 
+        /// Every Function's declared operand token and its bind must agree.
+        ///
+        /// `operand_token!` decides what `Stack::extract` accepts and
+        /// `operand_bind!` decides what it then reads. They are separate arms
+        /// keyed on the same declared type, so a disagreement between them is
+        /// not a compile error: the bind falls through to its `unreachable!`
+        /// and panics inside Tick planning, under the Source lock, which is
+        /// exactly the third option ADR 0028 rules out. Extracting every
+        /// Function once from operands built out of its own signature turns
+        /// that into a test failure at the moment the operand type is added.
+        #[cfg(test)]
+        mod declaration_agreement {
+            use crate::{Atom, Note, Stack, Token};
+
+            /// The lowest value each token can carry. Every domain declared
+            /// over a token so far contains it; a domain that excluded its
+            /// token's minimum would fail here and need its own witness, which
+            /// is the right way to find that out.
+            fn lowest(token: Token) -> Atom {
+                match token {
+                    Token::Number => Atom::Number(0),
+                    Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
+                    other => panic!("no operand is declared as {other:?}"),
+                }
+            }
+
+            #[test]
+            fn every_declared_operand_binds_the_atom_its_token_accepts() {
+                $({
+                    let function = crate::Function::$variant;
+                    let mut stack: Stack<16> = Stack::new();
+
+                    // Pushed in reverse so extraction pops them in signature order.
+                    for token in function.signature().iter().copied().rev() {
+                        stack.push(lowest(token));
+                    }
+
+                    assert!(
+                        stack.extract::<super::operands::$variant>().is_ok(),
+                        "{function:?} declares a token its bind does not read",
+                    );
+                })+
+            }
+        }
+
         impl TryFrom<&str> for Function {
             type Error = Error;
 
