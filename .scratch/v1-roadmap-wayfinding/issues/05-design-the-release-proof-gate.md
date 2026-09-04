@@ -2,8 +2,7 @@
 
 Type: grilling
 
-Blocked by: 03 — Define the release evidence contract; 04 — Reconcile roadmap membership and
-dependencies.
+Blocked by: 03 — Define the release evidence contract; 04 — Reconcile roadmap membership and dependencies.
 
 Status: resolved
 

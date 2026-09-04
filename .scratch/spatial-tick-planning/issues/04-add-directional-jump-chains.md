@@ -3,7 +3,7 @@
 **What to build:** Implement `&^`, `&v`, `&<`, and `&>` chains that relay one complete aligned
 two-Cell Language Unit according to ADR 0014.
 
-**Blocked by:** 01 — Order effects by Language Map Position.
+**Blocked by:** 01 — Order effects by Language Map Position; 02 — Add Source Bang activation and expiry.
 
 **Status:** ready-for-agent
 
@@ -11,7 +11,7 @@ two-Cell Language Unit according to ADR 0014.
 
 - [ ] Consecutive same-direction Jump Functions form one chain with one relaying head.
 - [ ] Direction-specific input, member alignment, and output anchors match ADR 0014.
-- [ ] Ordinary units overwrite one complete destination Footprint atomically.
+- [ ] Ordinary units overwrite one complete destination Span atomically.
 - [ ] Completely empty input clears the destination; partial/invalid input diagnoses and writes nothing.
 - [ ] Bang activates a later root, writes into empty Source, and diagnoses at occupied non-root Source.
 - [ ] Out-of-Grid destinations receive no partial write.

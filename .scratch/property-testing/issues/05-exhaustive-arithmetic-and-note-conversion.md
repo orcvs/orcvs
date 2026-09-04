@@ -3,9 +3,7 @@
 **What to build:** Test the byte arithmetic and the MIDI Note conversions exhaustively, with loops
 rather than properties. The domains are small enough to cover completely.
 
-**Blocked by:** property-testing/07 — Make Number and Note Source encodings canonical;
-orcvs-language-migration/05 — Add explicit Number and Note conversions;
-orcvs-language-migration/07 — Complete the numeric Function family.
+**Blocked by:** property-testing/07 — Make Number and Note Source encodings canonical; orcvs-language-migration/05 — Add explicit Number and Note conversions; orcvs-language-migration/07 — Complete the numeric Function family.
 
 **Status:** ready-for-agent
 
