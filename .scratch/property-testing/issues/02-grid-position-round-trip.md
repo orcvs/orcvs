@@ -3,7 +3,7 @@
 **What to build:** Encode the Grid laws that CONTEXT.md states. Generate Grid dimensions and
 candidate coordinates, and check containment, the index round trip, and row coverage.
 
-**Blocked by:** 01 — Add proptest for native targets.
+**Blocked by:** 01 — Add proptest for native targets; source-module-depth/07 — Decide whether a Grid still answers what fits in a row.
 
 **Status:** ready-for-agent
 

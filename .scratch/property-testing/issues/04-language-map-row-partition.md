@@ -22,7 +22,7 @@ over a Grid, build the Language Map, and check that the recognised units partiti
 
 The sentence being encoded is the one clarified in commit 8183720: "It partitions each row from left
 to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that
-complete Footprint, and an unmatched character diagnoses without participating in an overlapping
+complete Span, and an unmatched character diagnoses without participating in an overlapping
 unit."
 
 ADR 0018 gives the worked cases: `***` is Bang `**` then one invalid `*`; `<<<` is `<<` then one
