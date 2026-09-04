@@ -27,7 +27,13 @@ pub(crate) trait Operands: Sized {
     /// produces one only after checking every Atom against `FUNCTION`'s
     /// signature. That is what keeps a mistyped bind unreachable rather than
     /// merely uncalled.
-    fn from_operands(operands: Extracted<'_>) -> Self;
+    ///
+    /// It is fallible because a declared operand type may be narrower than the
+    /// `Token` the signature checks: a MIDI channel is read as a Number and is
+    /// a channel only once its domain conversion succeeds. Every arity and type
+    /// diagnostic is already raised by the time this runs, so a domain
+    /// diagnostic can never displace one.
+    fn from_operands(operands: Extracted<'_>) -> Result<Self, Error>;
 }
 
 /// Operands [`Stack::extract`] has checked against a Function's signature.
@@ -110,6 +116,11 @@ impl<const N: usize> Stack<N> {
     }
 
     /// Pops and validates the operands `O` declares, in signature order.
+    ///
+    /// The whole pop loop runs before any operand is bound, so every arity and
+    /// type diagnostic precedes every domain diagnostic: the loop below can
+    /// only answer "too few operands" or "wrong type", and `from_operands` can
+    /// only answer "outside its domain".
     #[inline(always)]
     pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
         let signature = O::FUNCTION.signature();
@@ -136,7 +147,7 @@ impl<const N: usize> Stack<N> {
             operands.push(atom);
         }
 
-        Ok(O::from_operands(Extracted { atoms: &operands }))
+        O::from_operands(Extracted { atoms: &operands })
     }
 }
 
@@ -200,8 +211,8 @@ fn map_arity(err: Error, expected: usize, found: usize) -> Error {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, Error, Note, Sequence, SequenceError, Stack, TypeError, Value,
-        atom::operands,
+        ArgumentError, Atom, Error, InterpretationError, Note, Sequence, SequenceError, Stack,
+        TypeError, Value, atom::operands,
     };
 
     fn empty_stack() -> Stack<16> {
@@ -272,6 +283,107 @@ mod test {
                 expected: 2,
                 found: 1
             }))
+        ));
+    }
+
+    #[test]
+    fn every_arity_and_type_diagnostic_precedes_every_domain_diagnostic() {
+        // `extract` runs its whole pop loop before binding any operand, so a
+        // declared domain can only ever be the last thing to fail. Each case
+        // below supplies an operand that is out of its domain *and* a second
+        // fault the pop loop sees first; the pop loop's diagnostic must win.
+        let note = Atom::Note(Note::try_from(60).unwrap());
+
+        // Too few operands, with the one supplied outside the channel domain.
+        let mut stack = empty_stack();
+        stack.push(Atom::Number(0xFF));
+
+        assert!(
+            matches!(
+                stack.extract::<operands::Play>(),
+                Err(Error::Argument(ArgumentError::Arity {
+                    expected: 3,
+                    found: 1
+                }))
+            ),
+            "an arity fault was displaced by a domain fault"
+        );
+
+        // Every operand present, the note operand mistyped, and both Numbers
+        // outside their domains.
+        let mut stack = empty_stack();
+        stack.push(Atom::Number(60));
+        stack.push(Atom::Number(0xFF));
+        stack.push(Atom::Number(0xFF));
+
+        assert!(
+            matches!(
+                stack.extract::<operands::Play>(),
+                Err(Error::Type(TypeError::Note(found))) if found == "3C"
+            ),
+            "a type fault was displaced by a domain fault"
+        );
+
+        // A Sequence where a scalar operand belongs, ahead of the same two
+        // out-of-domain Numbers.
+        let mut stack = empty_stack();
+        stack.push(note);
+        stack.push(Atom::Number(0xFF));
+        stack.push(sequence());
+
+        assert!(
+            matches!(
+                stack.extract::<operands::Play>(),
+                Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
+            ),
+            "a shape fault was displaced by a domain fault"
+        );
+
+        // With nothing left for the pop loop to answer, the domain fault is
+        // reached, which is what makes the three cases above meaningful.
+        let mut stack = empty_stack();
+        stack.push(note);
+        stack.push(Atom::Number(0xFF));
+        stack.push(Atom::Number(0xFF));
+
+        assert!(matches!(
+            stack.extract::<operands::Play>(),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0xFF
+            )))
+        ));
+    }
+
+    #[test]
+    fn a_domain_diagnostic_names_the_first_operand_in_signature_order() {
+        // Two operands out of their domains at once: the earlier role in the
+        // declaration is the one the Source is told about, matching the pop
+        // loop above it.
+        let mut stack = empty_stack();
+        stack.push(Atom::Note(Note::try_from(60).unwrap()));
+        stack.push(Atom::Number(0x80));
+        stack.push(Atom::Number(0x10));
+
+        assert!(matches!(
+            stack.extract::<operands::Play>(),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0x10
+            )))
+        ));
+    }
+
+    #[test]
+    fn a_non_numeric_operand_diagnoses_where_a_numeric_conversion_pops_it() {
+        // `TypeError::Numeric` is reachable from Source as `.^.=0101`: equal
+        // operands make `.=` answer a Bang, which `.^` then pops.
+        let mut stack = empty_stack();
+        stack.push(Atom::Bang);
+
+        let result: Result<crate::stack::NumericValue, Error> = stack.try_pop(1, 0);
+
+        assert!(matches!(
+            result,
+            Err(Error::Type(TypeError::Numeric(found))) if found == "**"
         ));
     }
 

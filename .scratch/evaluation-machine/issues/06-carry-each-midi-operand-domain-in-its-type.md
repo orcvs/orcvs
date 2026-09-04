@@ -4,20 +4,20 @@
 
 **Blocked by:** None — can start immediately. It edits `define_functions!`, which `05` also edits; whichever lands second rebases.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Sources of truth:** ADR 0016 states every MIDI terminal Function's operand domains and says each one validates protocol ranges; `CONTEXT.md` says the output adapter alone assembles the wire message; `lang/src/atom.rs:9` is the `Note` newtype this follows; `03` established the operand role declaration this extends.
 
-- [ ] Each MIDI operand *role* has its own type, with a private field and a fallible conversion, in the shape `Note` already uses. One shared public data-byte type does not satisfy this: `controller` and `value`, and `lsb` and `msb`, must not be assignable to one another.
-- [ ] No `PlayCommand` variant field is a bare `u8` that has a domain.
-- [ ] The two `debug_assert!` calls at `orcvs/src/midi.rs:156` and `:160` are deleted, because the types carry what they were re-deriving.
-- [ ] The domains are declared in `define_functions!` and converted during extraction, so no Function body contains a validation call and a new MIDI terminal Function inherits validation from its declaration.
-- [ ] Extraction still reports every arity and type diagnostic before any domain diagnostic, and a test pins that precedence rather than leaving it to the reading.
-- [ ] No Function body hands two same-typed operands to a positional call.
-- [ ] ADR 0028 records that transposing two role names inside the single declaration cannot be compiler-checked, and names what carries it instead.
-- [ ] Only the domain predicate moves into the new types' constructors; every test asserting which operand reaches which role survives, and `play_carries_each_operand_into_the_role_its_signature_names` is extended to run from Source text, keeping operand values that differ from one another so a transposition changes the answer.
-- [ ] The coverage gaps named below are closed, and each new type's conversion is tested exhaustively over all 256 inputs.
-- [ ] `PlayCommand` is a public type across three crates: the evaluator benchmark is run before and after with its command and results recorded, and the changed signature gets human API review.
+- [x] Each MIDI operand *role* has its own type, with a private field and a fallible conversion, in the shape `Note` already uses. One shared public data-byte type does not satisfy this: `controller` and `value`, and `lsb` and `msb`, must not be assignable to one another.
+- [x] No `PlayCommand` variant field is a bare `u8` that has a domain.
+- [x] The two `debug_assert!` calls at `orcvs/src/midi.rs:156` and `:160` are deleted, because the types carry what they were re-deriving.
+- [x] The domains are declared in `define_functions!` and converted during extraction, so no Function body contains a validation call and a new MIDI terminal Function inherits validation from its declaration.
+- [x] Extraction still reports every arity and type diagnostic before any domain diagnostic, and a test pins that precedence rather than leaving it to the reading.
+- [x] No Function body hands two same-typed operands to a positional call.
+- [x] ADR 0028 records that transposing two role names inside the single declaration cannot be compiler-checked, and names what carries it instead.
+- [x] Only the domain predicate moves into the new types' constructors; every test asserting which operand reaches which role survives, and `play_carries_each_operand_into_the_role_its_signature_names` is extended to run from Source text, keeping operand values that differ from one another so a transposition changes the answer.
+- [x] The coverage gaps named below are closed, and each new type's conversion is tested exhaustively over all 256 inputs.
+- [ ] `PlayCommand` is a public type across three crates: the evaluator benchmark is run before and after with its command and results recorded, and the changed signature gets human API review. — benchmark done; human API review outstanding.
 
 ## Comments
 
@@ -65,3 +65,34 @@ impl MidiChannel {
 What is missing and matters: the order test at `lang/src/functions/math.rs` extended across every non-commutative Function rather than three of them; an assertion inside `lang` that Raw Play evaluates to a Play interpretation from its Source spelling, which only `orcvs` currently checks; and `TypeError::Numeric` at `lang/src/stack.rs`, which has no test and is reachable from Source as `.^.=0101`. Use exhaustive enumeration, not `proptest`, wherever the space is two bytes wide: the suite already enumerates 65,536 pairs in well under a second, and a sampled 32 cases is strictly weaker. Reserve `proptest` for the structural spaces, as `lang/src/parser.rs` already does.
 
 **Not in scope.** Whether the evaluation dispatch is derived from the table belongs to `04`, which should weigh a generated per-Function evaluation trait as one of its options: that shape would absorb this ticket's positional handoff and carry `05`'s value-or-effect distinction as an associated type, but it is a dispatch decision and does not belong here. The `Stack<16>` bound stays with `pre-split-defects/15`, and so does the test that reaches it. A totality property over parser-accepted Source is the right shape for that ticket's fourth checkbox, which already requires a regression test that evaluation does not panic, but it cannot be added here: it would fail on arrival, and a ticket must not require a test that its own scope forbids it to make pass.
+
+**Resolution note.** Two decisions the checkboxes above did not settle.
+
+*Which roles were minted.* `MidiChannel` and `Velocity` exist; `controller`, `value`, `lsb`, and `msb` do not, because `!c` and `!b` do not. What the ticket asked for structurally is in place: `define_data_byte_roles!` in `lang/src/atom.rs` mints a distinct public type per role over one private predicate, and adding a role is one line with its diagnostic word. Minting the other four now would ship public API for Functions that have no evaluation, and the Control Change value role would have to be named around `lang::Value`, which the Sequence value model already owns. That naming call belongs with the ticket that adds `!c`, alongside the ticket's own open question about naming a type for its domain rather than its protocol.
+
+*The `Eq` derive.* Dropped. The ticket's code block derives it; `Note`, `Atom`, `Function`, and `PlayCommand` in the same files stop at `PartialEq`. A `Velocity: Eq` sitting beside a `Note: !Eq` of identical shape is the mismatch, so the new types match their neighbours. Nothing needs `Eq` today; the first thing that does should add it to `Note` in the same change.
+
+**Verified by mutation, since `cargo-mutants` cannot see macro-generated bodies.** Each mutation was applied with `sed`, run under `cargo nextest run --package lang --locked`, and reverted from a backup copy.
+
+- Complete role swap, `[velocity: Velocity, channel: MidiChannel, note: Note]` — compiles, and fails four tests: the role test, both range tests, and the Source-level domain test.
+- Partial role swap, `[velocity: MidiChannel, channel: Velocity, note: Note]` — two type errors at the `PlayCommand::Raw` construction, as the ticket predicted.
+- `Modulo => [right: Number, left: Number]` — fails the enumerated order test.
+- `subtract`'s body transposed — fails the enumerated order test.
+- `MidiChannel` widened to `0x1F`, and the shared data-byte predicate widened to `0xFF` — each fails both domain tests.
+
+**Benchmark.** `cargo bench --package lang --benches --locked -- --output-format bencher`
+
+- before (`40fb1a8`), two runs: `parse 64/64, parse_invalid 42/41, execute 12/12, parse_source 309/309` ns/iter
+- after, four runs: `parse 63-66, parse_invalid 41-44, execute 12, parse_source 308-324` ns/iter
+
+Unmoved, as expected of `Copy` newtypes over a byte. Two runs taken while another `cargo bench` was live on the same machine reported `parse 146` and `parse_source 623`, with reported variances of the same order; those are contention on paths this change does not touch, and the quiet runs are what is recorded. The spread above is every quiet run, not the best one.
+
+**Two departures from the coverage list, both deliberate.**
+
+*Two tests relocated, not one.* The ticket expected only `the_shared_midi_domains_accept_exactly_their_protocol_ranges` to move. `a_rejected_data_byte_names_the_operand_role_that_supplied_it` moved with it, because the predicate it exercises moved into `lang/src/atom.rs` beside the types. Its claim is unchanged: the five role words still pin the diagnostic wording, and `Velocity` is asserted to supply its own.
+
+*Every non-commutative arithmetic Function is three of them.* The ticket asked for the order test "extended across every non-commutative Function rather than three of them". Subtract, Divide, and Modulo are the complete list; the other six answer the same for either operand order. The extension delivered is therefore in strength rather than in breadth: three named pairs became the whole 65,536-pair byte square, checked against a reference that names `left` and `right`.
+
+**Carried forward to the Control Change and Pitch Bend tickets.** Because `controller`, `value`, `lsb`, and `msb` are not minted here, nothing in the code stops `!c` arriving with one shared data-byte type for its two same-domain operands — which is the failure this ticket exists to prevent, arriving one ticket later. `define_data_byte_roles!` makes the right answer one line each, but it is a convention, not a compile error. Whichever ticket adds `!c` or `!b` must require a distinct role type per operand as a checkbox of its own.
+
+**Review surface.** The human API review this ticket defers covers four public types, not one: `PlayCommand`'s changed field types, plus `MidiChannel` and `Velocity` newly exported from `lang` and re-exported through `orcvs::source` alongside `Note`.

@@ -1,40 +1,14 @@
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
-use crate::{Error, InterpretationError, PlayCommand, atom::operands, interpreter::Context};
-
-/// The MIDI channel domain, shared by every Terminal Output Function.
-///
-/// Orcvs sends direct hexadecimal MIDI values, so an operand outside the
-/// protocol range is a Source error rather than something to scale or clamp.
-/// Validation lives here instead of in each Function so `!c` and `!b` inherit
-/// the same domain and the same diagnostic wording as `!>`.
-#[inline(always)]
-pub(crate) fn midi_channel(channel: u8) -> Result<u8, Error> {
-    match channel {
-        0x00..=0x0F => Ok(channel),
-        _ => Err(InterpretationError::MidiChannel(channel).into()),
-    }
-}
-
-/// The MIDI data-byte domain, named by the operand role it is checking.
-///
-/// A Play velocity, a Control Change controller or value, and a Pitch Bend LSB
-/// or MSB all occupy `00`–`7F`; only the word the diagnostic uses differs, so
-/// `role` is the whole difference between them.
-#[inline(always)]
-pub(crate) fn midi_data_byte(role: &'static str, value: u8) -> Result<u8, Error> {
-    match value {
-        0x00..=0x7F => Ok(value),
-        _ => Err(InterpretationError::MidiDataByte { role, value }.into()),
-    }
-}
+use crate::{Error, PlayCommand, atom::operands, interpreter::Context};
 
 /// Raw Play: `!> channel velocity note`.
 ///
-/// Every operand is checked against its MIDI domain before any Play Command
-/// exists, so a Function that diagnoses emits nothing at all. The Note operand
-/// needs no check here: `Stack::extract` accepts only a `Note`, whose own
-/// construction already enforces `00`–`7F`.
+/// There is no validation call here. Each operand's domain is declared beside
+/// its role in `define_functions!` and converted during extraction, so a
+/// Function that diagnoses has produced no Play Command at all, and a new MIDI
+/// terminal Function inherits its validation from its declaration rather than
+/// from a body that remembers to ask for it.
 #[inline(always)]
 pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
     let operands::Play {
@@ -42,10 +16,6 @@ pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
         velocity,
         note,
     } = ctx.stack.extract()?;
-
-    let channel = midi_channel(channel)?;
-    let velocity = midi_data_byte("velocity", velocity)?;
-    let note = note.value();
 
     Ok(PlayCommand::Raw {
         channel,
@@ -56,18 +26,32 @@ pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
 
 #[cfg(test)]
 mod test {
-    use super::{midi_channel, midi_data_byte, play};
+    use super::play;
     use crate::{
-        Anchor, ArgumentError, Atom, Error, InterpretationError, PlayCommand, Tick, TickInputs,
-        interpreter::Context,
+        Anchor, ArgumentError, Atom, Error, Interpretation, InterpretationError, Interpreter,
+        MidiChannel, Note, Parser, PlayCommand, Tick, TickInputs, Velocity, interpreter::Context,
     };
 
     ///
-    /// A Context for a test about operands rather than about time or Position:
-    /// the first Tick of a Playback run, at the Grid origin.
+    /// The Tick inputs for a test about operands rather than about time or
+    /// Position: the first Tick of a Playback run, at the Grid origin.
+    ///
+    fn inputs() -> TickInputs {
+        TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
+    }
+
+    ///
+    /// A Context for a test about operands rather than about time or Position.
     ///
     fn context() -> Context {
-        Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)))
+        Context::new(inputs())
+    }
+
+    /// Evaluates `source` as one Expression, exactly as a Tick would.
+    fn interpret(source: &str) -> Result<Interpretation, Error> {
+        let mut source = source.to_string();
+        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        Interpreter::execute(&atoms, inputs())
     }
 
     /// Pins the Play arity contract before issue 04 replaces the placeholder.
@@ -88,9 +72,9 @@ mod test {
         assert_eq!(
             result,
             PlayCommand::Raw {
-                channel: 0,
-                velocity: 0x7F,
-                note: 60,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap(),
             }
         );
 
@@ -101,22 +85,32 @@ mod test {
 
     #[test]
     fn play_carries_each_operand_into_the_role_its_signature_names() {
-        // 01 and 02 are legal as a channel and as a data byte, so neither
-        // domain check can tell a transposed channel and velocity apart: only
-        // the roles the declaration names decide which is which.
-        let mut ctx = Context::new();
+        // 01 and 02 are legal as a channel and as a data byte, and a complete
+        // role swap inside the declaration carries each name with its own type,
+        // so it still compiles and every operand still lands in a legal domain.
+        // Only differing operand values separate a correct declaration from a
+        // transposed one, which is why this test cannot be replaced by the
+        // domain types it sits beside.
+        let mut ctx = context();
         ctx.stack
             .push(Atom::Note(crate::Note::try_from(60).unwrap()));
         ctx.stack.push(Atom::Number(0x02));
         ctx.stack.push(Atom::Number(0x01));
 
+        let expected = PlayCommand::Raw {
+            channel: MidiChannel::try_from(0x01).unwrap(),
+            velocity: Velocity::try_from(0x02).unwrap(),
+            note: Note::try_from(60).unwrap(),
+        };
+
+        assert_eq!(play(&mut ctx).unwrap(), expected);
+
+        // The same claim from Source text, which adds the parse and the
+        // right-to-left walk to what the extraction alone proves: `!>` reads
+        // channel, then velocity, then note, left to right in the Cells.
         assert_eq!(
-            play(&mut ctx).unwrap(),
-            PlayCommand::Raw {
-                channel: 0x01,
-                velocity: 0x02,
-                note: 60,
-            }
+            interpret("!>0102C4").unwrap(),
+            Interpretation::Play(expected)
         );
     }
 
@@ -213,33 +207,26 @@ mod test {
     }
 
     #[test]
-    fn the_shared_midi_domains_accept_exactly_their_protocol_ranges() {
-        for value in 0..=u8::MAX {
-            assert_eq!(midi_channel(value).is_ok(), value <= 0x0F, "{value:02X}");
-            assert_eq!(
-                midi_data_byte("velocity", value).is_ok(),
-                value <= 0x7F,
-                "{value:02X}"
-            );
-        }
+    fn a_non_numeric_value_diagnoses_where_a_numeric_conversion_consumes_it() {
+        // `TypeError::Numeric` is reachable from Source: `.=` answers a Bang
+        // for equal operands, and `.^` pops it expecting a Number or a Note.
+        // The stack seam is unit-tested where it lives; this is the Source
+        // spelling that proves it is reachable at all.
+        assert!(matches!(
+            interpret(".^.=0101"),
+            Err(Error::Type(crate::TypeError::Numeric(found))) if found == "**"
+        ));
     }
 
     #[test]
-    fn a_rejected_data_byte_names_the_operand_role_that_supplied_it() {
-        // Issues 02-04 reuse this seam unchanged: only the role word differs
-        // between a Play velocity, a Control Change value, and a Pitch Bend MSB.
-        for role in ["velocity", "controller", "value", "lsb", "msb"] {
-            let error = midi_data_byte(role, 0x80).unwrap_err();
-
-            assert_eq!(
-                error.to_string(),
-                format!("MIDI {role} 80 is outside the range 00–7F")
-            );
-        }
-
-        assert_eq!(
-            midi_channel(0x10).unwrap_err().to_string(),
-            "MIDI channel 10 is outside the range 00–0F"
-        );
+    fn an_out_of_domain_operand_produces_no_play_command_at_all() {
+        // The domain conversion happens during extraction, so a Play that
+        // diagnoses has never constructed a PlayCommand to be discarded.
+        assert!(matches!(
+            interpret("!>107FC4"),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0x10
+            )))
+        ));
     }
 }

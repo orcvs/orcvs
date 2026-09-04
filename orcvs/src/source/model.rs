@@ -105,7 +105,7 @@ pub struct CellWrite {
 /// One interpreted MIDI instruction emitted by an active Terminal Output
 /// Function. Tick planning decides which terminal roots are active and in what
 /// order their commands appear; the output adapter turns each one into MIDI.
-pub use lang::PlayCommand;
+pub use lang::{MidiChannel, Note, PlayCommand, Velocity};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {
@@ -417,7 +417,10 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::{CellIndex, Grid},
-        source::{CellWrite, PlayCommand, Source, SourceError, Tick, TickPlan},
+        source::{
+            CellWrite, MidiChannel, Note, PlayCommand, Source, SourceError, Tick, TickPlan,
+            Velocity,
+        },
         test::trace,
     };
 
@@ -1153,9 +1156,9 @@ mod test {
         assert_eq!(
             tick.play_commands,
             vec![PlayCommand::Raw {
-                channel: 0,
-                velocity: 0x7F,
-                note: 60,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap()
             }]
         );
         assert!(tick.writes.is_empty());
@@ -1174,9 +1177,9 @@ mod test {
         assert_eq!(
             tick.play_commands,
             vec![PlayCommand::Raw {
-                channel: 0xF,
-                velocity: 0,
-                note: 21,
+                channel: MidiChannel::try_from(0xF).unwrap(),
+                velocity: Velocity::try_from(0).unwrap(),
+                note: Note::try_from(21).unwrap()
             }]
         );
         assert!(tick.diagnostics.is_empty());
@@ -1276,14 +1279,14 @@ mod test {
         let second = src.execute();
         let expected = vec![
             PlayCommand::Raw {
-                channel: 0,
-                velocity: 1,
-                note: 60,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(1).unwrap(),
+                note: Note::try_from(60).unwrap(),
             },
             PlayCommand::Raw {
-                channel: 1,
-                velocity: 0x7F,
-                note: 69,
+                channel: MidiChannel::try_from(1).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(69).unwrap(),
             },
         ];
 
@@ -1324,9 +1327,9 @@ mod test {
             assert_eq!(
                 tick.play_commands,
                 vec![PlayCommand::Raw {
-                    channel: 0,
-                    velocity: 0x7F,
-                    note: 60,
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(0x7F).unwrap(),
+                    note: Note::try_from(60).unwrap()
                 }],
                 "Bang at {bang}, root at {root}"
             );
@@ -1350,9 +1353,9 @@ mod test {
         assert_eq!(
             tick.play_commands,
             vec![PlayCommand::Raw {
-                channel: 0,
-                velocity: 0x7F,
-                note: 60,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap()
             }]
         );
     }
@@ -1677,14 +1680,14 @@ mod test {
             tick.play_commands,
             vec![
                 PlayCommand::Raw {
-                    channel: 0,
-                    velocity: 1,
-                    note: 60,
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(1).unwrap(),
+                    note: Note::try_from(60).unwrap()
                 },
                 PlayCommand::Raw {
-                    channel: 2,
-                    velocity: 0x7F,
-                    note: 69,
+                    channel: MidiChannel::try_from(2).unwrap(),
+                    velocity: Velocity::try_from(0x7F).unwrap(),
+                    note: Note::try_from(69).unwrap()
                 },
             ]
         );

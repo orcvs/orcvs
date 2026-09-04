@@ -1,7 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use gloo_timers::future::TimeoutFuture;
-use lang::PlayCommand;
+use lang::{MidiChannel, Note, PlayCommand, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
 use orcvs::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
@@ -61,9 +61,9 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
     assert_eq!(engine.observe().state, PlaybackState::Playing);
     assert!(adapter.command_lists().iter().any(|commands| commands
         == &[PlayCommand::Raw {
-            channel: 0,
-            velocity: 0x7F,
-            note: 60,
+            channel: MidiChannel::try_from(0).unwrap(),
+            velocity: Velocity::try_from(0x7F).unwrap(),
+            note: Note::try_from(60).unwrap()
         }]));
     engine.stop();
 }
