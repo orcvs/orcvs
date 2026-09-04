@@ -928,6 +928,16 @@ mod test {
 /// stopped producing Expressions the parser accepts, or stopped nesting them,
 /// would fail rather than quietly test nothing.
 ///
+/// What this property cannot do is catch the regression that prompted the
+/// bound. Reaching a depth of seventeen needs one narrow shape — an
+/// arity-three root whose first operand is a chain of exactly fourteen and
+/// whose other two operands are literals — which is on the order of one draw
+/// in forty thousand here, so reverting `Args` to `Stack<16>` fails the two
+/// deterministic tests above and not this one. Read a pass here as evidence
+/// about the breadth of shape, never about the tight boundary; that half of
+/// the division belongs to the enumeration, and weakening it is not something
+/// this property would report.
+///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
 ///
