@@ -76,7 +76,17 @@ impl Tick {
 /// Grid. What interpretation needs is the two numbers, which is what ADR 0013
 /// folds into Random's seed.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Deliberately unordered, exactly as the Position it is minted from is. An
+/// anchor's order is its Grid's `y * cols + x` — the row-major Source order ADR
+/// 0020 takes turns in — and that index can only be computed by the crate that
+/// owns the Grid, because only it knows how wide a row is. A derived ordering
+/// here would sort by the fields in declaration order, column before row, which
+/// is the opposite of Source order: it would place a root far along row 0 after
+/// a root near the start of row 1. Withholding `PartialOrd` and `Ord` is what
+/// stops a later `BTreeMap<Anchor, _>` or `sort` from quietly emitting a Tick's
+/// effects in an order no ADR describes.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Anchor {
     column: usize,
     row: usize,

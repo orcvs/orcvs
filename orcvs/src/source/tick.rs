@@ -13,7 +13,9 @@
 //! where they need one an `Effect` variant with its `resolve` arm. None of them
 //! adds a second ordering pass.
 
-use lang::{Anchor, Atom, Atoms, Interpretation, Interpreter, Tick, TickInputs};
+use lang::{
+    Anchor, Atom, Atoms, Error as LangError, Interpretation, Interpreter, Tick, TickInputs,
+};
 use std::collections::BTreeMap;
 
 use crate::grid::{CellIndex, Grid, Position};
@@ -260,6 +262,56 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
 }
 
 ///
+/// Evaluates one root's Atoms against the explicit inputs it was given.
+///
+/// The one place this crate calls the Interpreter, so it is the one place the
+/// ADR 0012 inputs cross into evaluation. Nothing observable comes back out of
+/// a Tick to say which Tick and which anchor a root was told — a result is the
+/// same two Cells however it was seeded, and stays that way until
+/// `tick-functions/02` gives Clock a Tick to read and `tick-functions/04`
+/// gives Random an anchor. Until then the thread from the Playback Engine to
+/// `Interpreter::execute` is only as good as something watching it, so under
+/// `cfg(test)` this records what it was handed before delegating. A production
+/// build compiles the recording out entirely: what remains is one inlineable
+/// call that forwards its two arguments unchanged.
+///
+fn interpret(atoms: &Atoms, inputs: TickInputs) -> Result<Interpretation, LangError> {
+    #[cfg(test)]
+    observed::record(inputs);
+
+    Interpreter::execute(atoms, inputs)
+}
+
+///
+/// What the Interpreter was actually handed during this test.
+///
+/// A test-only seam, per thread and so per test: `cargo nextest` gives each
+/// test its own process and `cargo test` its own thread, so no two tests can
+/// see each other's Ticks. `take` both reads and clears, which is what lets a
+/// test state the inputs of exactly the Playback run it drove rather than of
+/// everything its thread has ever interpreted.
+///
+#[cfg(test)]
+mod observed {
+    use lang::TickInputs;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static INTERPRETED: RefCell<Vec<TickInputs>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Records one evaluation's explicit inputs, in the order it was evaluated.
+    pub(super) fn record(inputs: TickInputs) {
+        INTERPRETED.with_borrow_mut(|interpreted| interpreted.push(inputs));
+    }
+
+    /// Every recorded input since the last `take`, clearing the record.
+    pub(super) fn take() -> Vec<TickInputs> {
+        INTERPRETED.with_borrow_mut(std::mem::take)
+    }
+}
+
+///
 /// The effects of one Expression root's turn.
 ///
 fn emit_expression_root(
@@ -283,7 +335,7 @@ fn emit_expression_root(
         return;
     }
 
-    let encoded = match Interpreter::execute(atoms, tick_inputs(tick, root)) {
+    let encoded = match interpret(atoms, tick_inputs(tick, root)) {
         Ok(Interpretation::Cell(Atom::Empty)) => return,
         Ok(Interpretation::Cell(result)) => result.to_string(),
         // Per ADR 0007 an empty Sequence emits no Cell writes, exactly as the
@@ -362,7 +414,8 @@ fn is_terminal_root(atoms: &Atoms) -> bool {
 #[cfg(test)]
 mod test {
     use super::{
-        Effect, SpanWrite, SpanWriteError, Tick, Turn, order_by_anchor, resolve, tick_inputs, turns,
+        Effect, SpanWrite, SpanWriteError, Tick, Turn, observed, order_by_anchor, resolve,
+        tick_inputs, turns,
     };
     use crate::{
         grid::{CellIndex, Grid},
@@ -471,13 +524,11 @@ mod test {
         // column and row would otherwise pass. `.-0504` sits at column 2 of
         // row 1, and is the one root whose column and row differ.
         //
-        // What this does not pin is that `emit_expression_root` hands these
-        // inputs to the Interpreter. Nothing observable comes back out of
-        // evaluation until a Function reads them, so `tick-functions/02` —
-        // Clock, Delay, and Euclidean — is the first ticket that can pin the
-        // read end to end. Withholding `Default` from `TickInputs` is what
-        // rules out the seam being silently satisfied with inputs nobody
-        // chose in the meantime.
+        // This is about the conversion alone — the Grid-minted Position of a
+        // turn becoming the plain column and row that cross the crate
+        // boundary. That the Interpreter is then handed these same inputs is a
+        // separate claim, pinned by
+        // `test_the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor`.
         let grid = Grid::new(20, 3);
         let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
         let tick = Tick::new(11);
@@ -494,6 +545,50 @@ mod test {
                 .map(|inputs| (inputs.anchor().column(), inputs.anchor().row()))
                 .collect::<Vec<_>>(),
             vec![(0, 0), (7, 0), (2, 1)],
+        );
+    }
+
+    #[test]
+    fn test_the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor() {
+        // The claim the conversion test above cannot make: that the inputs
+        // `emit_expression_root` builds are the inputs evaluation actually
+        // receives. This drives a real Tick of a Source Snapshot through
+        // `turns` and `Turn::emit` and reads back what reached the Interpreter,
+        // so severing the thread — passing a fixed Tick and anchor at the call
+        // site instead of this root's own — fails here rather than passing
+        // unnoticed until ADR 0013's Random seeds every Position identically.
+        //
+        // The expected anchors are literals rather than anything read back from
+        // the turns, so the assertion cannot be satisfied by the code under
+        // test. They are asymmetric so that a transposed column and row is
+        // visible: `.-0504` sits at column 2 of row 1. The Tick is not
+        // `Tick::ZERO`, so a hardcoded first Tick is visible too.
+        let grid = Grid::new(20, 3);
+        let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
+        let tick = Tick::new(11);
+
+        // whatever an earlier Playback run on this thread interpreted is not
+        // part of this Tick
+        let _ = observed::take();
+
+        let mut effects = Vec::new();
+        for turn in turns(grid, &map) {
+            turn.emit(grid, &map, tick, &mut effects);
+        }
+        let interpreted = observed::take();
+
+        assert_eq!(interpreted.len(), 3, "each of the three roots is evaluated");
+        assert!(
+            interpreted.iter().all(|inputs| inputs.tick() == tick),
+            "one Tick is given to the whole Source Snapshot"
+        );
+        assert_eq!(
+            interpreted
+                .iter()
+                .map(|inputs| (inputs.anchor().column(), inputs.anchor().row()))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (7, 0), (2, 1)],
+            "each root is told its own anchor, in row-major turn order"
         );
     }
 
