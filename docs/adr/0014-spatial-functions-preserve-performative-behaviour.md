@@ -16,4 +16,4 @@ A Jump relays Bang through its output Portal rather than applying ordinary overw
 
 Every Jump reads only the Source Snapshot. A relayed Bang may activate another later root, including another Jump, in the same Tick. That root reads its own Snapshot input rather than planned writes. Every root has one turn, so backward routing and cycles stop at a root whose turn has passed. Ordinary planned writes do not become inputs or executable code during the same Tick. More complex Cell addressing remains deferred.
 
-Halt `*!` is an Activation Function. When active at its turn, it locks the Expression root whose anchor Position is one row directly south before that root's later turn. An empty target is a no-op, and an occupied non-root target diagnoses. Orcvs does not revisit Halt after its turn, and a suppressed Halt does not lock its own target.
+Halt `*!` withholds activation along a fixed spatial relation: its target is the Expression root one row directly south, and it locks that root rather than writing to Source, which is what separates it from the Jump Functions above. ADR 0006 states the complete Halt contract, and it is not restated here.

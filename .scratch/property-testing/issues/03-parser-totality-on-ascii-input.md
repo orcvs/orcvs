@@ -16,7 +16,7 @@ the full printable ASCII range, not only valid Orcvs spellings.
 - [ ] Input longer than `EXP_LEN` produces `ExpressionTooLong` rather than a panic or a truncation.
 - [ ] A successful strict parse consumes the whole Expression, leaving no trailing content.
 - [ ] Recovery advances at the documented Cell and every diagnostic refers to the same Language Map
-      revision as its Position or Footprint.
+      revision as its Position or Span.
 - [ ] Every `Atom` renders through `Display` and parses back to an equal `Atom`.
 - [ ] The generator covers the space character, incomplete `#`, and the `##` Comment introducer.
 

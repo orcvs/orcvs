@@ -3,7 +3,7 @@
 **What to build:** Implement `*^`, `*v`, `*<`, and `*>` plus the root-only Self-Banging Functions
 `^^`, `vv`, `<<`, and `>>` using the representation selected by the focused prototype.
 
-**Blocked by:** 02 — Add Source Bang activation and expiry; activation-representation/01 — Prototype the Activation representation; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
+**Blocked by:** 02 — Add Source Bang activation and expiry; activation-representation/01 — Prototype the Activation representation.
 
 **Status:** ready-for-agent
 
@@ -24,8 +24,8 @@ defines producer and emission order.
 - [ ] Blocked or out-of-Grid movement replaces the current Span with Bang.
 - [ ] Self-Banging Functions remain root-only Source effects, not operands, runtime values, or
       Sequence members.
-- [ ] The Directional Bang Functions are refused Sequence membership at ADR 0025's single
-      construction point, by name rather than by admitting the Function family, per ADR 0029.
+- [ ] The Directional Bang Functions answer an effect rather than a value, so ADR 0025's single
+      construction point refuses them by their declared kind, per ADR 0029.
 - [ ] A generated Self-Banging Function first receives a turn from the next Source Snapshot.
 - [ ] Complete root contact can activate; partial Language Unit contact diagnoses and activates nothing.
 - [ ] Tick-by-Tick Source Grid tests cover all four directions and row edges.

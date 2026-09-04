@@ -41,9 +41,11 @@ edge, and `LanguageMap::derive` (`orcvs/src/source/language_map.rs:380`) uses it
 effort exists to remove.
 
 The two open options in the original statement are therefore settled as the deletion, and the
-issue is `ready-for-agent` on that basis. The `release/v1` tag stays: the issue blocks
-`v1-release/03`, and untagging an open blocker of the gate makes `scripts/roadmap.ts` throw.
+issue is `ready-for-agent` on that basis. The `release/v1` tag stays: `v1-release/03` names this
+issue as a blocker, and `scripts/roadmap.ts` throws when a tagged open issue names a blocker that
+is not itself open and tagged.
 
 The paired change lives in `property-testing/02`: its sixth acceptance line named `fits(p, width)`
-and now names `offset_in_row`. Do this deletion before that property suite starts, or the two
-issues specify opposite things.
+and now names `offset_in_row`. That ordering is encoded rather than described — `property-testing/02`
+lists this issue as a blocker — so the deletion lands before the property suite starts and the two
+issues cannot specify opposite things.

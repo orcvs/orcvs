@@ -14,8 +14,8 @@ design or with the current state of the code.
       two-Cell Span: the matching two-Cell Self-Banging Function sits in the two Cells
       immediately outside the active Directional Bang Function. The present wording says "adjacent",
       which admits a one-Cell reading.
-- [x] `midi-output-family/issues/01` carries `Status: resolved`. Its criteria are all complete and the
-      PlayCommand implementation has landed, but the file still says `ready-for-agent`.
+- [x] `midi-output-family/issues/01` carries `Status: resolved`. Its criteria are all complete and
+      the PlayCommand implementation has landed.
 - [ ] `native-midi/issues/02` states whether the WASM leg of the feature matrix uses default features
       or `--no-default-features`, and requires `wasm32-unknown-unknown` alongside the native targets
       for default features, persistence, `--no-default-features`, and `--no-default-features` with
