@@ -18,6 +18,10 @@ inclusive byte-range mapping.
 - [ ] Sequence index distinguishes broadcast elements.
 - [ ] `rand_chacha` is added only to `lang`, with default features disabled and dependency audit.
 - [ ] Native and `wasm32-unknown-unknown` results match.
+- [ ] `CONTEXT.md` gains a glossary entry for the Random Function `~?`, naming its spelling, its
+      seed/minimum/maximum operands, and the determinism rule that its stream is a function of seed,
+      absolute Tick, Position, and Sequence index. Glossary text lands with the issue that builds the
+      behaviour, as `spatial-tick-planning/01` did for `Turn`, `Producer`, and `Effect`.
 
 ## Comments
 
