@@ -390,7 +390,7 @@ macro_rules! define_functions {
 
                     // Pushed in reverse so extraction pops them in signature order.
                     for token in function.signature().iter().copied().rev() {
-                        stack.push(lowest(token));
+                        stack.push(lowest(token)).unwrap();
                     }
 
                     assert!(

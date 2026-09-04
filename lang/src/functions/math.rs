@@ -107,8 +107,8 @@ mod test {
         // Arithmetic reads no Tick and no Position, so the first Tick at the
         // Grid origin is as good as any other.
         let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)));
-        ctx.stack.push(Atom::Number(right));
-        ctx.stack.push(Atom::Number(left));
+        ctx.stack.push(Atom::Number(right)).unwrap();
+        ctx.stack.push(Atom::Number(left)).unwrap();
         function(&mut ctx)
     }
 

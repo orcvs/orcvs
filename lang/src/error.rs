@@ -73,6 +73,15 @@ pub enum InterpretationError {
     #[error("MIDI channel {0:02X} is outside the range 00–0F")]
     MidiChannel(u8),
 
+    /// The Operand Stack had no slot left for a value.
+    ///
+    /// No Expression the parser accepts can raise this: the `Args` declaration
+    /// carries the proof. It exists because ADR 0028 requires every bound the
+    /// machine relies on to be proven or diagnosed, and a proof alone still
+    /// leaves the push one edit away from panicking inside a Tick.
+    #[error("the Operand Stack cannot hold more than {capacity} values")]
+    OperandStackExhausted { capacity: usize },
+
     /// `role` names the operand the Source supplied so one diagnostic serves
     /// every data byte in the Terminal Output family: a Play velocity, a
     /// Control Change controller or value, a Pitch Bend LSB or MSB.
