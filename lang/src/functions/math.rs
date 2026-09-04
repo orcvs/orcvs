@@ -90,13 +90,15 @@ pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
 #[cfg(test)]
 mod test {
     use super::{divide, modulo, subtract};
-    use crate::{Anchor, Atom, Error, Tick, TickInputs, Value, interpreter::Context};
+    use crate::{
+        Anchor, Atom, Error, InterpretationError, Tick, TickInputs, Value, interpreter::Context,
+    };
 
     type Arithmetic = fn(&mut Context) -> Result<Value, Error>;
 
     /// What a Function should answer for one operand pair, read in signature
-    /// order. `None` means the pair diagnoses.
-    type Reference = fn(u8, u8) -> Option<Atom>;
+    /// order, naming the diagnostic where the pair has no answer.
+    type Reference = fn(u8, u8) -> Result<Atom, InterpretationError>;
 
     /// Evaluates `function` against the two operands its signature names
     /// `left` and `right`, pushed so that extraction pops them in signature
@@ -117,20 +119,23 @@ mod test {
         // The whole byte square is enumerated against a reference that names
         // `left` and `right` explicitly, so a transposition inside the
         // declaration or the body changes the answer for every asymmetric pair
-        // rather than for a sampled few. `None` means the reference diagnoses.
+        // rather than for a sampled few. The reference names which diagnostic
+        // a zero divisor answers, so Modulo cannot pass by raising Division's.
         // These three are every non-commutative arithmetic Function there is:
         // the other six answer the same for either operand order, so no test
         // of theirs can observe a transposition, and only the role names in
         // the declaration say which Cell is which.
         let cases: [(Arithmetic, Reference); 3] = [
             (subtract, |left, right| {
-                Some(Atom::Number(left.wrapping_sub(right)))
+                Ok(Atom::Number(left.wrapping_sub(right)))
             }),
-            (divide, |left, right| {
-                (right != 0).then(|| Atom::Number(left / right))
+            (divide, |left, right| match right {
+                0 => Err(InterpretationError::DivisionByZero),
+                right => Ok(Atom::Number(left / right)),
             }),
-            (modulo, |left, right| {
-                (right != 0).then(|| Atom::Number(left % right))
+            (modulo, |left, right| match right {
+                0 => Err(InterpretationError::ModuloByZero),
+                right => Ok(Atom::Number(left % right)),
             }),
         ];
 
@@ -138,10 +143,19 @@ mod test {
             for left in 0..=u8::MAX {
                 for right in 0..=u8::MAX {
                     match (evaluate(function, left, right), reference(left, right)) {
-                        (Ok(answer), Some(expected)) => {
+                        (Ok(answer), Ok(expected)) => {
                             assert_eq!(answer, expected.into(), "{left:02X} {right:02X}");
                         }
-                        (Err(_), None) => {}
+                        // `InterpretationError` derives no `PartialEq`, and the
+                        // wording is what the Source is shown, so the rendered
+                        // diagnostic is the thing worth comparing.
+                        (Err(answer), Err(expected)) => {
+                            assert_eq!(
+                                answer.to_string(),
+                                expected.to_string(),
+                                "{left:02X} {right:02X}"
+                            );
+                        }
                         (answer, expected) => {
                             panic!("{left:02X} {right:02X}: {answer:?} is not {expected:?}")
                         }

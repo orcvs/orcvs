@@ -79,6 +79,7 @@ What is missing and matters: the order test at `lang/src/functions/math.rs` exte
 - `Modulo => [right: Number, left: Number]` — fails the enumerated order test.
 - `subtract`'s body transposed — fails the enumerated order test.
 - `MidiChannel` widened to `0x1F`, and the shared data-byte predicate widened to `0xFF` — each fails both domain tests.
+- Modulo raising Division's zero-divisor diagnostic — fails the enumerated order test, whose reference names which diagnostic each Function owes.
 
 **Benchmark.** `cargo bench --package lang --benches --locked -- --output-format bencher`
 
