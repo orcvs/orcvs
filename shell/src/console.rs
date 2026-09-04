@@ -348,11 +348,17 @@ fn show_source_scene(
         view.rect = viewport.scene_view(source, available);
     }
     // The fitted scale has to be reachable, or the Scene clamps it and the Grid
-    // stops filling the console. Only the ceiling gives: the floor is the
-    // viewer's zoom limit and the fit never needs it lowered.
+    // stops filling the console. A console smaller than the viewer's zoom
+    // limits allows fits it out on either side, so both ends give. A console
+    // with no area answers a scale of zero, which is no fit to reach.
     let fitted_zoom = viewport.scale(source);
+    let min_zoom = if fitted_zoom > 0.0 {
+        MIN_ZOOM.min(fitted_zoom)
+    } else {
+        MIN_ZOOM
+    };
     let response = egui::Scene::new()
-        .zoom_range(MIN_ZOOM..=MAX_ZOOM.max(fitted_zoom))
+        .zoom_range(min_zoom..=MAX_ZOOM.max(fitted_zoom))
         .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE)
         .show(ui, &mut view.rect, |ui| {
             show_source(ui, orcvs, frame, font_family);
@@ -706,6 +712,39 @@ mod tests {
 
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
             assert_eq!(selected_cell(&orcvs), (0, 0));
+
+            let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+            click(&ctx, screen, target, &mut orcvs, &mut view);
+
+            assert_eq!(
+                selected_cell(&orcvs),
+                (3, 1),
+                "a click at {target:?} in a {screen_size:?} console"
+            );
+        }
+    }
+
+    ///
+    /// The other end of the same clamp: a console too small for the Source fits
+    /// it at a scale below MIN_ZOOM, where a Scene whose zoom range excluded the
+    /// fitted scale would clamp it up and spill the Grid out of the console.
+    ///
+    #[test]
+    fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_the_zoom_floor() {
+        // A 32 by 32 Source is 800 points wide, so these shapes fit it at 0.2:
+        // below the 0.25 floor.
+        for screen_size in [Vec2::new(400.0, 160.0), Vec2::new(160.0, 400.0)] {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
+            let mut orcvs = Orcvs::new(32, 32);
+            let mut view = SourceView::default();
+
+            let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            assert!(
+                viewport.rect.width() <= screen.width() + 1e-3
+                    && viewport.rect.height() <= screen.height() + 1e-3,
+                "the viewport {viewport:?} left the {screen_size:?} console"
+            );
 
             let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
             click(&ctx, screen, target, &mut orcvs, &mut view);
