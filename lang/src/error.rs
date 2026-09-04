@@ -29,9 +29,14 @@ pub enum Error {
 /// may be a member at all, and whether two operands have compatible lengths.
 #[derive(Error, Debug)]
 pub enum SequenceError {
-    /// Raised where a scalar signature requires one Atom. Issue 02 replaces
-    /// this diagnostic for Atomic Functions with broadcasting; the Functions
-    /// that stay scalar keep it.
+    /// A Sequence at an operand position of a Function that declares it does
+    /// not pervade. The Terminal Output Functions `!>` and `!~` are those
+    /// Functions today; ADR 0012's Increment and Interpolation join them when
+    /// they arrive, and each one is refused by its declared pervasion rather
+    /// than by a check written beside it. The scalar pop `Stack::pop` offers
+    /// outside Function evaluation raises the same diagnostic under the same
+    /// rule: a Sequence has no scalar reading, and answering with its first
+    /// Atom would silently discard the rest.
     #[error("expected an Atom, found the Sequence {0:?}")]
     ExpectedAtom(String),
 
@@ -44,9 +49,12 @@ pub enum SequenceError {
     #[error("{0:?} cannot be a Sequence member")]
     Member(String),
 
-    /// Two non-scalar operands of unequal length. ADR 0007 pairs equal-length
-    /// Sequences element-wise and diagnoses everything else; issue 02 raises
-    /// this when it broadcasts.
+    /// Two non-scalar operands of unequal length, named in signature order.
+    /// ADR 0007 pairs equal-length Sequences element-wise and diagnoses
+    /// everything else, including an empty Sequence against a non-empty one:
+    /// an empty operand is a length rather than a scalar that repeats. The
+    /// shape of an operation is settled before any of its elements is read, so
+    /// this precedes every diagnostic about one element.
     #[error("incompatible Sequence lengths {left} and {right}")]
     IncompatibleLengths { left: usize, right: usize },
 
@@ -133,9 +141,6 @@ pub enum ArgumentError {
     #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
     // #[diagnostic(code(ArgumentError))]
     Arity { expected: usize, found: usize },
-
-    #[error("expected an argument")]
-    Expected,
 
     #[error("expected a function")]
     ExpectedFunction,
