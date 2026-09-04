@@ -8,22 +8,45 @@
 
 **Sources of truth:** ADR 0016 states every MIDI terminal Function's operand domains and says each one validates protocol ranges; `CONTEXT.md` says the output adapter alone assembles the wire message; `lang/src/atom.rs:9` is the `Note` newtype this follows; `03` established the operand role declaration this extends.
 
-- [ ] Each MIDI operand domain is a type constructed only through a fallible conversion, in the shape `Note` already uses.
+- [ ] Each MIDI operand *role* has its own type, with a private field and a fallible conversion, in the shape `Note` already uses. One shared public data-byte type does not satisfy this: `controller` and `value`, and `lsb` and `msb`, must not be assignable to one another.
 - [ ] No `PlayCommand` variant field is a bare `u8` that has a domain.
 - [ ] The two `debug_assert!` calls at `orcvs/src/midi.rs:156` and `:160` are deleted, because the types carry what they were re-deriving.
-- [ ] The domains are declared in `define_functions!`, so a new MIDI terminal Function inherits validation from its declaration rather than from a body someone remembers to write.
-- [ ] Extraction still reports every arity and type diagnostic before any domain diagnostic.
+- [ ] The domains are declared in `define_functions!` and converted during extraction, so no Function body contains a validation call and a new MIDI terminal Function inherits validation from its declaration.
+- [ ] Extraction still reports every arity and type diagnostic before any domain diagnostic, and a test pins that precedence rather than leaving it to the reading.
 - [ ] No Function body hands two same-typed operands to a positional call.
 - [ ] ADR 0028 records that transposing two role names inside the single declaration cannot be compiler-checked, and names what carries it instead.
-- [ ] Only the domain predicate moves into the new types' constructors; every test asserting which operand reaches which role survives, and `play_carries_each_operand_into_the_role_its_signature_names` is extended to run from Source text.
-- [ ] The coverage gaps named below are closed.
+- [ ] Only the domain predicate moves into the new types' constructors; every test asserting which operand reaches which role survives, and `play_carries_each_operand_into_the_role_its_signature_names` is extended to run from Source text, keeping operand values that differ from one another so a transposition changes the answer.
+- [ ] The coverage gaps named below are closed, and each new type's conversion is tested exhaustively over all 256 inputs.
 - [ ] `PlayCommand` is a public type across three crates: the evaluator benchmark is run before and after with its command and results recorded, and the changed signature gets human API review.
 
 ## Comments
 
 **The domains are already stated three times and enforced once.** ADR 0016 says channel is a Number in `00`–`0F` and velocity a Number in `00`–`7F`. `CONTEXT.md` repeats it in the Play Function entry and again in the Terminal Output Function entry. `lang/src/functions/mod.rs:12` and `:25` enforce it. But `midi_channel` and `midi_data_byte` each take a `u8`, prove a domain, and return the same `u8`, so the proof dies at the assignment. `lang/src/lib.rs:38` then declares `Raw { channel: u8, velocity: u8, note: u8 }`, and `orcvs/src/midi.rs:156` re-derives both domains with `debug_assert!` because it cannot trust three primitives. The domain is checked once and then thrown away twice.
 
-**`Note` is the precedent, not a new idea.** `lang/src/atom.rs:9` is already a validated newtype whose `TryFrom<u8>` enforces `00`–`7F`, and it is already an operand type in `define_functions!`. `CONTEXT.md` defines it as one MIDI note value. So the operand-type column already holds a validated MIDI domain, and `channel` and `velocity` are the inconsistent entries rather than the novel ones. This ticket makes them match `note`.
+**`Note` is the precedent, not a new idea.** `lang/src/atom.rs:9` is already a validated newtype whose `TryFrom<u8>` enforces `00`–`7F`, and it is already an operand type in `define_functions!`. `CONTEXT.md` defines it as one MIDI note value. So the operand-type column already holds a validated MIDI domain, and `channel` and `velocity` are the inconsistent entries rather than the novel ones. This ticket makes them match `note`. The shape to follow:
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MidiChannel(u8);
+
+impl TryFrom<u8> for MidiChannel {
+    type Error = InterpretationError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        (value <= 0x0F)
+            .then_some(Self(value))
+            .ok_or(InterpretationError::MidiChannel(value))
+    }
+}
+
+impl MidiChannel {
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+```
+
+**Distinct public types, shared private validation.** Six roles over two predicates would be six near-identical `TryFrom` impls if written by hand, and one public type if collapsed — the first is boilerplate and the second gives up the protection this ticket exists for. Share the machinery privately instead and keep the public types distinct. `InterpretationError::MidiDataByte { role, value }` already carries the role word, so one private constructor taking that word serves every data-byte role, and each public type passes its own. That also keeps `a_rejected_data_byte_names_the_operand_role_that_supplied_it` true without change: the role word moves from an argument at the call site to a property of the type.
 
 **The blast radius is test ergonomics.** `PlayCommand::Raw` appears at 24 sites. Two are production — one construction at `lang/src/functions/mod.rs:50` and one destructure at `orcvs/src/midi.rs:148`. The other 22 are test constructions across `orcvs` and `shell/tests/wasm.rs`, which gain a fallible conversion each.
 
