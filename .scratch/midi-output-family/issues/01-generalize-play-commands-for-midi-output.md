@@ -33,7 +33,7 @@ table and drives both the Interpreter's nesting guard
 outward, and an inactive terminal root is skipped before evaluation, so it emits neither a
 command nor a diagnostic.
 
-Known limitation, deliberately left for `spatial-tick-planning/01`: a Bang horizontally
+Known limitation, deliberately left for `spatial-tick-planning/02`: a Bang horizontally
 adjacent to a root cannot activate it today, in any spelling. `row_extents` splits Expression
 runs only on spaces and `##`, so `**!>007FC4` is one run that parses as a Bang followed by
 unexpected trailing content and forms no root at all; the same applies to a Bang immediately
@@ -63,7 +63,7 @@ Known cost, deliberately left unoptimized: `LanguageMap::is_root_active` re-scan
 Unit for every terminal root, so activation is O(roots x units) per Tick. A precomputed
 Bang-anchor set would have to be built after `LanguageMap::build`'s reclassification pass, which
 rewrites `unit.kind` — caching it now would add ordering fragility for a gain no benchmark shows
-matters, and `spatial-tick-planning/01` rebuilds this path anyway.
+matters, and `spatial-tick-planning/02` rebuilds this path anyway.
 
 Also out of scope here and left to `spatial-tick-planning`: Bang one-Tick expiry (a
 Source-resident Bang persists across Ticks, so an activated terminal root repeats every Tick),
