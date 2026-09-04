@@ -11,8 +11,9 @@ implementation and this evidence agree; glossary presence alone does not make a 
 - [ ] Canonical two-Cell syntax and generation cover every shipped Function, Bang, Number, Note,
       and Comment; Number and Note identity is contextual and Comments begin with `##`.
 - [ ] Every successfully parsed evaluable Expression entry pairs one syntax expectation with one
-      real runtime value. Incomplete and invalid Live Edits remain editable, diagnose without
-      panicking, and never acquire placeholder values.
+      real outcome: a runtime value where the root Function answers a value, or an effect where it
+      answers an effect, per ADR 0028. Incomplete and invalid Live Edits remain editable, diagnose
+      without panicking, and never acquire placeholder values.
 - [ ] The Language Map is the sole Source-derived interface for Language Units, Expressions, roots,
       Positions, Spans, Glyphs, and diagnostics; Source remains the only stored program state.
 - [ ] Every shipped spelling and fixed signature is compiler-checked, unique, and round-trips
