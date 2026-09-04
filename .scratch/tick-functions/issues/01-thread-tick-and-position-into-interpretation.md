@@ -21,18 +21,12 @@ Position while keeping the Source Snapshot and Tick Plan deterministic.
 Tick belongs to one Playback run; tests should pin restart behavior without adding another clock
 seam.
 
-### Anchor granularity is per root, not per Function — check this before 04
+### Anchor granularity is per root, not per Function
 
-`emit_expression_root` builds one `TickInputs` for the whole Expression and hands it to the
-Interpreter, so a *nested* Function sees its root's anchor rather than its own. That matches this
-ticket's wording — the Language Map mints root anchors — but ADR 0013 seeds Random from "the
-Function column" and "the Function row", and requires that "Functions at different Positions have
-independent reproducible streams". Two Randoms nested in one Expression would share a stream.
-
-The Interpreter walks a flat `Atoms` sequence with no per-Atom Position, so closing this means
-carrying a Position per Language Unit through parsing, not widening `TickInputs`.
-`tick-functions/04` either reopens this seam or records why root granularity is the intended
-reading.
+`emit_expression_root` builds one `TickInputs` for the whole Expression, so a nested Function is
+told its root's anchor rather than its own. That is fine for the Tick, which an Expression shares,
+and fine for issues 02 and 03. Random is the first Function it breaks, and the design work now sits
+on `tick-functions/04`, which carries the analysis.
 
 ## Answer
 
