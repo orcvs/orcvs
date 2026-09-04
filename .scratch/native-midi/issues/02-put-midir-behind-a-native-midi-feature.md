@@ -16,3 +16,16 @@ Feature name is `native-midi`, not `midi`: the target-agnostic MIDI vocabulary â
 - [ ] Verification exercises the feature disabled, enabled, and crossed with `persistence`, rather than assuming the two compose.
 - [ ] Tooling checks and documentation record the feature, its default, and what disabling it gives up.
 - [ ] `mise run check`, `mise run test_persistence`, `mise run check_wasm`, and `mise run audit_deps` pass.
+
+## Comments
+
+### Release freeze
+
+Recorded during the `release/v1` issue alignment on 2026-09-04. This issue carries no
+`release/v1` tag and is not release work, but it must not land inside the release window: from the
+moment `v1-release/03` cuts the candidate SHA until `v1-release/01` records the GO decision.
+
+The reason is evidence, not behaviour. `v1-release/03` records a `cargo deny --locked check` result
+that describes one dependency tree. Making `midir` optional changes that tree, so a merge inside the
+window leaves the recorded result describing a build that is no longer the candidate. Land it before
+the SHA is cut, or after GO.

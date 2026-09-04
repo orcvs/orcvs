@@ -70,4 +70,25 @@ since — once by `source-module-depth/05`, which changed how every caller names
 `language-map/05`, which added a test. Neither touched an assertion's meaning, so the intent behind
 the line holds; the letter of it does not, and it is not ticked.
 
-Nothing to do. Closing this shortens the critical path: it is a direct blocker of `v1-release/01`.
+Nothing to do. This issue is resolved, and it has since been removed from the `Blocked by:` line of
+`v1-release/01`, so it is no longer a blocker.
+
+### Correction: the two unticked lines are settled, not outstanding
+
+Added during the `release/v1` issue alignment on 2026-09-04, in the shape
+`property-testing/issues/01` uses for the same situation.
+
+This file reads `**Status:** resolved` above five acceptance lines, two of which are unticked. That
+looks like a contradiction to anything scanning checkboxes — an audit, a reviewer, or a future
+reader deciding whether this issue is really done. It is not one. The Answer above states why each
+line stays unticked; this note says so where the boxes are, so the two are not read apart:
+
+- "The kind assigned to each unit and the anchor semantics are unchanged" is **superseded**. ADR
+  0024 (`ccab028`) changed what a kind records, from a parsed Atom type to the spelling the
+  characters hold. The line described a constraint the language then dropped, so it cannot be
+  ticked and must not be.
+- "`orcvs/tests/language_map.rs` passes unmodified" is **untrue as written and satisfied in
+  intent**. The file was edited twice afterwards, by `source-module-depth/05` and `language-map/05`,
+  and neither edit changed an assertion's meaning.
+
+Neither line has work left in it. Do not reopen this issue on the strength of an empty box.

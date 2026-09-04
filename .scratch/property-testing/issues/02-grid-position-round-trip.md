@@ -14,7 +14,8 @@ candidate coordinates, and check containment, the index round trip, and row cove
 - [ ] `index(position_at(i).unwrap()) == i` for every `i` below `count()`.
 - [ ] `owns(p)` holds for every Position the Grid mints.
 - [ ] `rows()` yields exactly `count()` Positions, each index appearing once.
-- [ ] `fits(p, width)` agrees with the column arithmetic at the right-hand edge.
+- [ ] `offset_in_row(p, offset)` agrees with the column arithmetic at the right-hand edge: it
+      returns `Some` exactly while `p` plus the offset stays inside `p`'s own row.
 - [ ] `up`, `down`, `left`, and `right` always return a Position the Grid owns.
 - [ ] Generated Grids include the one-column and one-row cases.
 

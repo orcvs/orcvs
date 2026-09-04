@@ -68,3 +68,21 @@ lookups either side of one render loop teaching two different rules about the sa
 now teach the same rule, and a test says so.
 
 Also fixed while here: this file's heading said "04", duplicating the ticket beside it.
+
+### Correction: the unticked line is void, not outstanding
+
+Added during the `release/v1` issue alignment on 2026-09-04, in the shape
+`property-testing/issues/01` uses for the same situation.
+
+This file reads `**Status:** resolved` above four acceptance lines, one of which is unticked. That
+reads as unfinished work to anything scanning checkboxes. It is not:
+
+- "`parse_range` asserts that the Expression Unit count equals the parsed Atom count before the
+  positional `zip`" is **void**. ADR 0024 (`ccab028`) deleted `parse_range` and the
+  `expression_units.iter_mut().zip(expression.entries())` loop the line named. There is no positional
+  `zip` left, so there are no two counts to disagree and nothing for an assertion to guard. The
+  failure mode is unreachable rather than unguarded, which is why the box stays empty.
+
+Note also that this file carries no `Tags:` line, so it is not one of the `release/v1` issues and
+does not appear in the roadmap's release view. That is correct — it is ordinary effort work — and it
+is recorded here so a future audit does not read the absence as a missing tag.

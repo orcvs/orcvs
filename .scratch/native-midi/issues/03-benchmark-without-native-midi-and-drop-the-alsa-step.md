@@ -14,3 +14,16 @@ Worth confirming rather than assuming: the benchmark command selects two package
 - [ ] The tooling contract asserts the featureless benchmark command and no longer requires the native dependency step it currently demands.
 - [ ] `mise run bench` passes and emits every measurement in the CI-compatible output format.
 - [ ] The scoped Rust gates pass.
+
+## Comments
+
+### Release freeze
+
+Recorded during the `release/v1` issue alignment on 2026-09-04. Like `02`, this issue is untagged
+and is not release work, and like `02` it must not land between the candidate SHA cut in
+`v1-release/03` and the GO decision in `v1-release/01`.
+
+The reason here is the benchmark environment. `v1-release/01` compares `mise run bench` on the
+candidate against a named stable baseline, which holds the measured build constant. Dropping
+`midir` and the ALSA step changes what the benchmark jobs compile and link, so a merge inside the
+window breaks the comparison the GO decision rests on. Land it before the SHA is cut, or after GO.

@@ -6,7 +6,7 @@ the rule a Cell really has. Every other statement of that rule is the printable 
 
 **Blocked by:** None.
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 **Tags:** release/v1
 

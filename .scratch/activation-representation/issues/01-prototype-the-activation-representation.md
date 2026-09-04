@@ -133,3 +133,29 @@ The executable comparison model was intentionally throwaway and has been removed
 covered the acceptance scenarios above. The retained declarative presentation makes the same
 Tick-by-Tick Source Grids, diagnostics, and model comparison reviewable without preserving either
 candidate implementation; this ticket records the decision and its production constraints.
+
+## Comments
+
+### Which answer is the true one, 2026-09-04
+
+Read this file from the top and the six ticked acceptance lines appear to describe the design
+recorded immediately below them. They do not. The ticked boxes were written against the **superseded
+answer** — the distinct spatial `LanguageUnitKind::Activation(Direction)` Language Unit — and that
+design was discarded.
+
+The design of record is the **Revised answer — Self-Banging Functions** section: `^^`, `vv`, `<<`
+and `>>` are root-only, zero-operand Source Functions that intrinsically receive Bang activation at
+their own Source-order turn and plan movement as ordered Source writes through Portals. Its
+"Revised constraints for `spatial-tick-planning/03`" are the constraints that ticket inherits;
+`CONTEXT.md` states the same design in its Self-Banging Function entry, which lists "Activation
+Character" under `_Avoid_`.
+
+The superseded section is kept deliberately, because it carries the comparison table and the
+evidence that rejected the runtime-value model, and that reasoning still holds. But nothing below
+the "Superseded answer" heading may be cited as a constraint. In particular the phrase "Activation
+Character", the `LanguageUnitKind::Activation(Direction)` unit kind, and the constraint list under
+that heading are all retired vocabulary and retired design.
+
+The acceptance lines are not re-ticked or reworded. They record that the prototype ran and that a
+choice was made from evidence, which is true of both passes; it is only the answer they sit above
+that changed.
