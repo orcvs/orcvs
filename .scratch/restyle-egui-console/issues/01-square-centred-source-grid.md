@@ -45,11 +45,16 @@ does — so the delta is not geometry but stickiness: that reset was a one-shot
 fit that cropped again on the next resize, while clearing `adjusted` makes the
 fit hold across every later resize.
 
-**The Scene's zoom ceiling has to admit the fit.** A console taller than the
-Source's own 1600 points fits it at more than the 2.0 maximum, and
+**The Scene's zoom range has to admit the fit at both ends.** A console taller
+than the Source's own 1600 points fits it at more than the 2.0 maximum, and
 `fit_to_rect_in_scene` clamps the scale it computes, so the Grid would stop
-filling the console. Only the ceiling gives: the 0.25 floor is the viewer's zoom
-limit and lowering it would let a small console pinch below the intended stop.
+filling the console. The floor clamps the same way in the other direction: a
+console under 200 points on its shorter axis fits an 800 point Source below
+0.25, and the clamp there spilled the Grid out of the console and put Cells
+under the wrong pointer positions. So both ends give to the fit, and only to the
+fit — a console with no area answers a scale of zero, which is no fit to reach,
+and keeps the floor. The viewer's own zoom stays bounded by 0.25 and 2.0
+wherever those bounds still contain the fit.
 
 **Hit-testing goes through the same geometry.** Nothing in the console maps a
 pointer position back to a Cell: each Cell is an egui button inside the Scene's
