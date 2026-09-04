@@ -12,9 +12,11 @@ use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::source::SourceCommander;
 use std::hint::black_box;
 
-/// Representative Source shapes. A console opens at 32x32, and the two shapes
-/// bracketing it each change the Cell count fourfold, so whole-map work shows up
-/// as growth across the series instead of hiding inside one fixed size.
+/// Representative Source shapes. A console opens on 1000 Cells, which 32x32
+/// stands for, and the two shapes bracketing it each change the Cell count
+/// fourfold, so whole-map work shows up as growth across the series instead of
+/// hiding inside one fixed size. The series is held at these shapes so the
+/// measurements already recorded against them stay comparable.
 const SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64)];
 
 /// The Expression shapes an editing session actually holds: complete arithmetic,

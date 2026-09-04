@@ -1,5 +1,6 @@
 use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
 
+use crate::grid_viewport::{GridViewport, grid_viewport};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::midi::MidiDeviceSelection;
 use crate::style::{PALETTE, cell_visuals, sector_line, style};
@@ -17,8 +18,27 @@ const CELL_SIZE: f32 = 25.0;
 const CELL_PADDING: f32 = 0.5;
 const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
-const INITIAL_ZOOM: f32 = 1.0;
-const INITIAL_SOURCE_X_OFFSET: f32 = 15.0;
+const MIN_ZOOM: f32 = 0.25;
+const MAX_ZOOM: f32 = 2.0;
+
+/// The height the top panel takes from the window, leaving the rest to the
+/// console. It is the panel's own minimum, which the menu bar does not exceed.
+const TOP_PANEL_HEIGHT: f32 = 32.0;
+
+///
+/// The window size that presents the default Grid at the Source's own Cell
+/// size: the Source's own points, and the chrome above the console.
+///
+/// A console opened at this size fits the Grid at a scale of exactly one, so
+/// the Grid fills it with no letterboxing and Glyphs are drawn at the size they
+/// are rasterised at. Every other window size still presents the Grid — fitted,
+/// centred, and letterboxed on the longer axis — so this is where the console
+/// opens, not a shape it holds the viewer to.
+///
+pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
+    DEFAULT_COL_COUNT as f32 * CELL_SIZE,
+    DEFAULT_ROW_COUNT as f32 * CELL_SIZE + TOP_PANEL_HEIGHT,
+];
 
 fn translate_event(event: Event) -> Option<InputEvent> {
     match event {
@@ -41,20 +61,7 @@ fn translate_event(event: Event) -> Option<InputEvent> {
     }
 }
 
-fn top_right_source_view(
-    source: Rect,
-    viewport_size: Vec2,
-    zoom: f32,
-    source_x_offset: f32,
-) -> Rect {
-    let view_size = viewport_size / zoom;
-    Rect::from_min_size(
-        egui::pos2(source.right() - view_size.x - source_x_offset, source.top()),
-        view_size,
-    )
-}
-
-fn source_bounds(frame: &RenderFrame) -> Rect {
+fn source_dimensions(frame: &RenderFrame) -> (usize, usize) {
     let rows = frame.rows();
     let col_count = rows
         .first()
@@ -65,10 +72,35 @@ fn source_bounds(frame: &RenderFrame) -> Rect {
         "a Render Frame has the Grid's fixed rectangular shape"
     );
 
+    (col_count, rows.len())
+}
+
+fn source_bounds(columns: usize, rows: usize) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
-        Vec2::new(col_count as f32, rows.len() as f32) * CELL_SIZE,
+        Vec2::new(columns as f32, rows as f32) * CELL_SIZE,
     )
+}
+
+///
+/// The region of the Source the Scene shows, and whether the viewer has moved
+/// it.
+///
+/// While the viewer has not panned or zoomed, the region follows the fitted
+/// square viewport, so every resize re-fits rather than cropping.
+///
+struct SourceView {
+    rect: Rect,
+    adjusted: bool,
+}
+
+impl Default for SourceView {
+    fn default() -> Self {
+        Self {
+            rect: Rect::ZERO,
+            adjusted: false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -112,8 +144,7 @@ pub struct Console {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     midi: MidiDeviceSelection<MidirBackend>,
     font_family: egui::FontFamily,
-    /// The visible region of the egui Scene containing the Source.
-    source_view_rect: Rect,
+    source_view: SourceView,
     diagnostics_open: bool,
     tempo_edit: TempoEdit,
 }
@@ -167,7 +198,7 @@ impl Console {
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
-            source_view_rect: Rect::ZERO,
+            source_view: SourceView::default(),
             diagnostics_open: false,
             tempo_edit: TempoEdit::default(),
         }
@@ -178,10 +209,9 @@ fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
 }
 
-fn scene_zoom(viewport_size: Vec2, source_view_rect: Rect) -> Option<f32> {
-    (source_view_rect.is_positive() && viewport_size.x > 0.0 && viewport_size.y > 0.0).then(|| {
-        (viewport_size.x / source_view_rect.width())
-            .min(viewport_size.y / source_view_rect.height())
+fn scene_zoom(console_area: Vec2, source_view_rect: Rect) -> Option<f32> {
+    (source_view_rect.is_positive() && console_area.x > 0.0 && console_area.y > 0.0).then(|| {
+        (console_area.x / source_view_rect.width()).min(console_area.y / source_view_rect.height())
     })
 }
 
@@ -190,7 +220,8 @@ fn show_diagnostics(
     open: &mut bool,
     frame: &eframe::Frame,
     source_view_rect: Rect,
-    viewport_size: Vec2,
+    console_area: Vec2,
+    cell_size: f32,
 ) {
     let frame_time = ctx.input(|input| input.stable_dt);
     egui::Window::new("Diagnostics")
@@ -222,9 +253,13 @@ fn show_diagnostics(
                     );
                     ui.end_row();
 
+                    ui.label("Cell size");
+                    ui.monospace(format!("{cell_size:.1} pt"));
+                    ui.end_row();
+
                     ui.label("Source zoom");
                     ui.monospace(
-                        scene_zoom(viewport_size, source_view_rect)
+                        scene_zoom(console_area, source_view_rect)
                             .map(|zoom| format!("{zoom:.2}×"))
                             .unwrap_or_else(|| "—".to_owned()),
                     );
@@ -255,7 +290,7 @@ fn show_source(
     orcvs: &mut Orcvs,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
-) -> Rect {
+) {
     ui.spacing_mut().item_spacing = Vec2::ZERO;
     ui.spacing_mut().button_padding = Vec2::splat(CELL_PADDING);
     ui.spacing_mut().interact_size = Vec2::ZERO;
@@ -305,8 +340,60 @@ fn show_source(
             }
         });
     }
+}
 
-    ui.min_rect()
+///
+/// Shows the Source in the largest square-Celled viewport the console area
+/// holds, centred so the surplus is letterboxing, and answers the geometry it
+/// was presented under.
+///
+/// The Scene is the one place the Source is scaled, so a Cell's two axes cannot
+/// part company: a Scene scales both under a single factor. Every Cell, and so
+/// every click that lands on one, goes through this geometry.
+///
+fn show_source_scene(
+    ui: &mut egui::Ui,
+    orcvs: &mut Orcvs,
+    frame: &RenderFrame,
+    font_family: &egui::FontFamily,
+    view: &mut SourceView,
+) -> GridViewport {
+    let available = ui.available_rect_before_wrap();
+    let (columns, rows) = source_dimensions(frame);
+    let source = source_bounds(columns, rows);
+    let viewport = grid_viewport(available, columns, rows);
+
+    if !view.adjusted {
+        view.rect = viewport.scene_view(source, available);
+    }
+    // The fitted scale has to be reachable, or the Scene clamps it and the Grid
+    // stops filling the console. A console smaller than the viewer's zoom
+    // limits allows fits it out on either side, so both ends give. A console
+    // with no area answers a scale of zero, which is no fit to reach.
+    let fitted_zoom = viewport.scale(source);
+    let min_zoom = if fitted_zoom > 0.0 {
+        MIN_ZOOM.min(fitted_zoom)
+    } else {
+        MIN_ZOOM
+    };
+    let response = egui::Scene::new()
+        .zoom_range(min_zoom..=MAX_ZOOM.max(fitted_zoom))
+        .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE)
+        .show(ui, &mut view.rect, |ui| {
+            show_source(ui, orcvs, frame, font_family);
+        })
+        .response;
+
+    // Panning or zooming moves the view off the fitted viewport and holds it
+    // there; a double click hands it back. A frame that does both is a reset:
+    // the double click is the later intent.
+    if response.double_clicked() {
+        view.adjusted = false;
+    } else if response.changed() {
+        view.adjusted = true;
+    }
+
+    viewport
 }
 
 fn cell_line_width(_selected: bool, _cursor_visible: bool) -> f32 {
@@ -330,7 +417,9 @@ impl eframe::App for Console {
                 tracing::error!("Playback failure: {message}");
             }
         }
-        let top_panel = egui::Panel::top("top_panel").resizable(true).min_size(32.0);
+        let top_panel = egui::Panel::top("top_panel")
+            .resizable(true)
+            .min_size(TOP_PANEL_HEIGHT);
 
         // let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
         //     .resizable(false)
@@ -414,41 +503,23 @@ impl eframe::App for Console {
         self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
 
-        let mut viewport_size = Vec2::ZERO;
+        let mut console_area = Vec2::ZERO;
+        let mut cell_size = 0.0;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(PALETTE.source))
             .show(root, |ui| {
-                viewport_size = ui.available_size_before_wrap();
-                let scene = egui::Scene::new()
-                    .zoom_range(0.25..=2.0)
-                    .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE);
-                let mut source_rect = Rect::NAN;
+                console_area = ui.available_size_before_wrap();
                 let Console {
                     orcvs,
                     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
                         midi: _,
                     font_family,
-                    source_view_rect,
+                    source_view,
                     diagnostics_open: _,
                     tempo_edit: _,
                 } = self;
-                if *source_view_rect == Rect::ZERO {
-                    *source_view_rect = top_right_source_view(
-                        source_bounds(&frame),
-                        viewport_size,
-                        INITIAL_ZOOM,
-                        INITIAL_SOURCE_X_OFFSET,
-                    );
-                }
-                let response = scene
-                    .show(ui, source_view_rect, |ui| {
-                        source_rect = show_source(ui, orcvs, &frame, font_family);
-                    })
-                    .response;
-
-                if response.double_clicked() && source_rect.is_finite() {
-                    *source_view_rect = source_rect;
-                }
+                cell_size =
+                    show_source_scene(ui, orcvs, &frame, font_family, source_view).cell_size;
 
                 ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
             });
@@ -458,8 +529,9 @@ impl eframe::App for Console {
                 &ctx,
                 &mut self.diagnostics_open,
                 eframe,
-                self.source_view_rect,
-                viewport_size,
+                self.source_view.rect,
+                console_area,
+                cell_size,
             );
         }
     }
@@ -470,8 +542,13 @@ mod tests {
     use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
     use orcvs::app::{InputEvent, InputKey, Orcvs};
 
+    use crate::grid_viewport::GridViewport;
+    use crate::style::PALETTE;
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
+
     use super::{
-        frames_per_second, scene_zoom, source_bounds, top_right_source_view, translate_event,
+        CELL_SIZE, DEFAULT_VIEW_SIZE, SourceView, TOP_PANEL_HEIGHT, frames_per_second, scene_zoom,
+        show_source_scene, source_bounds, source_dimensions, translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -525,20 +602,323 @@ mod tests {
         assert_eq!(scene_zoom(Vec2::ZERO, Rect::ZERO), None);
     }
 
-    #[test]
-    fn initial_source_view_is_one_to_one_and_offset_right() {
-        let source = Rect::from_min_size(Pos2::new(100.0, 200.0), Vec2::new(800.0, 800.0));
-        let view = top_right_source_view(source, Vec2::new(600.0, 400.0), 1.0, 15.0);
+    fn console_frame(
+        ctx: &egui::Context,
+        screen: Rect,
+        events: Vec<Event>,
+        orcvs: &mut Orcvs,
+        view: &mut SourceView,
+    ) -> GridViewport {
+        let frame = orcvs.render_frame();
+        let mut presented = None;
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |root| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new())
+                    .show(root, |ui| {
+                        presented = Some(show_source_scene(
+                            ui,
+                            orcvs,
+                            &frame,
+                            &egui::FontFamily::Monospace,
+                            view,
+                        ));
+                    });
+            },
+        );
+        output.drop_without_applying_deltas();
 
-        assert_eq!(view.size(), Vec2::new(600.0, 400.0));
-        assert_eq!(view.top(), source.top());
-        assert_eq!(source.right() - view.right(), 15.0);
+        presented.expect("the central panel showed the Source")
+    }
+
+    fn click_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ]
+    }
+
+    fn release_at(point: Pos2) -> Vec<Event> {
+        vec![Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }]
+    }
+
+    fn click(
+        ctx: &egui::Context,
+        screen: Rect,
+        point: Pos2,
+        orcvs: &mut Orcvs,
+        view: &mut SourceView,
+    ) {
+        console_frame(ctx, screen, click_at(point), orcvs, view);
+        console_frame(ctx, screen, release_at(point), orcvs, view);
+    }
+
+    ///
+    /// A pinch zoom over `point`. Zoom is not smoothed over later frames the
+    /// way a wheel scroll is, so the frames after it are quiet.
+    ///
+    fn zoom_at(point: Pos2) -> Vec<Event> {
+        vec![Event::PointerMoved(point), Event::Zoom(1.2)]
+    }
+
+    fn double_click(
+        ctx: &egui::Context,
+        screen: Rect,
+        point: Pos2,
+        orcvs: &mut Orcvs,
+        view: &mut SourceView,
+    ) {
+        click(ctx, screen, point, orcvs, view);
+        click(ctx, screen, point, orcvs, view);
+    }
+
+    ///
+    /// A point in the surplus the viewport does not cover, if there is any.
+    ///
+    fn letterboxing(screen: Rect, viewport: Rect) -> Option<Pos2> {
+        if screen.width() > viewport.width() + 1.0 {
+            Some(Pos2::new(
+                (screen.left() + viewport.left()) / 2.0,
+                screen.center().y,
+            ))
+        } else if screen.height() > viewport.height() + 1.0 {
+            Some(Pos2::new(
+                screen.center().x,
+                (screen.top() + viewport.top()) / 2.0,
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn selected_cell(orcvs: &Orcvs) -> (usize, usize) {
+        let frame = orcvs.render_frame();
+        let cell = frame
+            .rows()
+            .iter()
+            .flatten()
+            .find(|cell| cell.selected())
+            .expect("the Cursor is on a Cell");
+
+        (cell.position().x(), cell.position().y())
+    }
+
+    #[test]
+    fn a_click_selects_the_cell_under_the_pointer_in_a_letterboxed_console() {
+        // The last shape fits the Source at a scale above MAX_ZOOM, where a
+        // Scene whose zoom range excluded the fitted scale would clamp it and
+        // put the Cells somewhere else.
+        for screen_size in [
+            Vec2::new(400.0, 200.0),
+            Vec2::new(200.0, 400.0),
+            Vec2::new(600.0, 300.0),
+        ] {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
+            let mut orcvs = Orcvs::new(4, 4);
+            let mut view = SourceView::default();
+
+            let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            assert_eq!(selected_cell(&orcvs), (0, 0));
+
+            let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+            click(&ctx, screen, target, &mut orcvs, &mut view);
+
+            assert_eq!(
+                selected_cell(&orcvs),
+                (3, 1),
+                "a click at {target:?} in a {screen_size:?} console"
+            );
+        }
+    }
+
+    ///
+    /// The other end of the same clamp: a console too small for the Source fits
+    /// it at a scale below MIN_ZOOM, where a Scene whose zoom range excluded the
+    /// fitted scale would clamp it up and spill the Grid out of the console.
+    ///
+    #[test]
+    fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_the_zoom_floor() {
+        // A 32 by 32 Source is 800 points wide, so these shapes fit it at 0.2:
+        // below the 0.25 floor.
+        for screen_size in [Vec2::new(400.0, 160.0), Vec2::new(160.0, 400.0)] {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
+            let mut orcvs = Orcvs::new(32, 32);
+            let mut view = SourceView::default();
+
+            let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            assert!(
+                viewport.rect.width() <= screen.width() + 1e-3
+                    && viewport.rect.height() <= screen.height() + 1e-3,
+                "the viewport {viewport:?} left the {screen_size:?} console"
+            );
+
+            let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+            click(&ctx, screen, target, &mut orcvs, &mut view);
+
+            assert_eq!(
+                selected_cell(&orcvs),
+                (3, 1),
+                "a click at {target:?} in a {screen_size:?} console"
+            );
+        }
+    }
+
+    #[test]
+    fn the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell() {
+        for screen_size in [
+            Vec2::new(400.0, 200.0),
+            Vec2::new(200.0, 400.0),
+            Vec2::new(300.0, 300.0),
+        ] {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
+            let mut orcvs = Orcvs::new(8, 8);
+            let mut view = SourceView::default();
+
+            let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            let half_cell = Vec2::splat(viewport.cell_size / 2.0);
+
+            // The far corner Cell of the Grid sits in the far corner of the
+            // viewport, so the Grid fills it rather than a part of it.
+            click(
+                &ctx,
+                screen,
+                viewport.rect.max - half_cell,
+                &mut orcvs,
+                &mut view,
+            );
+            assert_eq!(
+                selected_cell(&orcvs),
+                (7, 7),
+                "the last Cell of a {screen_size:?} console"
+            );
+
+            // The surplus is letterboxing rather than stretched Cells, so a
+            // click there selects nothing and the Cursor stays where it was.
+            if let Some(surplus) = letterboxing(screen, viewport.rect) {
+                click(&ctx, screen, surplus, &mut orcvs, &mut view);
+                assert_eq!(
+                    selected_cell(&orcvs),
+                    (7, 7),
+                    "a click on the letterboxing of a {screen_size:?} console"
+                );
+            }
+
+            click(
+                &ctx,
+                screen,
+                viewport.rect.min + half_cell,
+                &mut orcvs,
+                &mut view,
+            );
+            assert_eq!(
+                selected_cell(&orcvs),
+                (0, 0),
+                "the first Cell of a {screen_size:?} console"
+            );
+        }
+    }
+
+    ///
+    /// The console opens on the whole Grid at the Source's own Cell size, so
+    /// the default window spends every point it has on Cells and none on
+    /// letterboxing, and no Glyph is resampled to be shown.
+    ///
+    #[test]
+    fn the_default_window_presents_the_default_grid_at_its_own_scale() {
+        let ctx = egui::Context::default();
+        let console = Vec2::new(
+            DEFAULT_VIEW_SIZE[0],
+            DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT,
+        );
+        let screen = Rect::from_min_size(Pos2::ZERO, console);
+        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            viewport.cell_size, CELL_SIZE,
+            "the default console fits the Grid at a scale other than one"
+        );
+        assert_eq!(
+            viewport.rect, screen,
+            "the default console letterboxes the Grid it was sized for"
+        );
+    }
+
+    ///
+    /// The default window size holds back exactly the height the top panel
+    /// takes, so the rest reaches the console. The menu bar is rebuilt here
+    /// rather than shared, so this also asserts that no menu makes the panel
+    /// taller than its minimum.
+    ///
+    #[test]
+    fn the_top_panel_takes_the_height_the_default_window_holds_back() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Vec2::ZERO;
+
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |root| {
+                egui::Panel::top("top_panel")
+                    .resizable(true)
+                    .min_size(TOP_PANEL_HEIGHT)
+                    .show(root, |ui| {
+                        egui::MenuBar::new().ui(ui, |ui| {
+                            ui.menu_button("File", |_ui| {});
+                            ui.add_space(16.0);
+                            ui.menu_button("MIDI", |_ui| {});
+                            ui.menu_button("View", |_ui| {});
+                            ui.menu_button("Tempo", |_ui| {});
+                        });
+                    });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(PALETTE.source))
+                    .show(root, |ui| {
+                        console = ui.available_size_before_wrap();
+                    });
+            },
+        );
+        output.drop_without_applying_deltas();
+
+        assert_eq!(
+            console,
+            Vec2::new(
+                DEFAULT_VIEW_SIZE[0],
+                DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT
+            )
+        );
     }
 
     #[test]
     fn source_bounds_are_available_before_the_first_scene_render() {
         let orcvs = Orcvs::new(32, 16);
-        let bounds = source_bounds(&orcvs.render_frame());
+        let (columns, rows) = source_dimensions(&orcvs.render_frame());
+        let bounds = source_bounds(columns, rows);
 
         assert_eq!(
             bounds,
@@ -576,6 +956,73 @@ mod tests {
         output.drop_without_applying_deltas();
 
         assert_eq!(button_size, Vec2::splat(super::CELL_SIZE));
+    }
+
+    const WIDE: Vec2 = Vec2::new(400.0, 200.0);
+    const TALL: Vec2 = Vec2::new(200.0, 400.0);
+
+    #[test]
+    fn a_resize_re_fits_the_viewport_while_the_view_is_unpinned() {
+        let ctx = egui::Context::default();
+        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let tall = Rect::from_min_size(Pos2::ZERO, TALL);
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
+        let wide_region = view.rect;
+        let viewport = console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
+
+        assert!(!view.adjusted, "an untouched view was pinned");
+        assert_ne!(view.rect, wide_region, "the resize did not re-fit");
+        // The Grid follows the re-fitted viewport rather than the old one.
+        click(
+            &ctx,
+            tall,
+            viewport.rect.max - Vec2::splat(viewport.cell_size / 2.0),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(selected_cell(&orcvs), (7, 7));
+    }
+
+    #[test]
+    fn a_zoom_pins_the_view_and_a_later_resize_leaves_it_where_the_viewer_put_it() {
+        let ctx = egui::Context::default();
+        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let tall = Rect::from_min_size(Pos2::ZERO, TALL);
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
+        let over_the_scene = letterboxing(wide, viewport.rect).expect("a wide console letterboxes");
+        console_frame(&ctx, wide, zoom_at(over_the_scene), &mut orcvs, &mut view);
+
+        assert!(view.adjusted, "zooming did not pin the view");
+        let pinned = view.rect;
+        console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(view.rect, pinned, "the resize discarded the viewer's zoom");
+    }
+
+    #[test]
+    fn a_double_click_unpins_the_view_and_hands_it_back_to_the_fit() {
+        let ctx = egui::Context::default();
+        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
+        let fitted = view.rect;
+        let over_the_scene = letterboxing(wide, viewport.rect).expect("a wide console letterboxes");
+        console_frame(&ctx, wide, zoom_at(over_the_scene), &mut orcvs, &mut view);
+        assert!(view.adjusted, "zooming did not pin the view");
+
+        double_click(&ctx, wide, over_the_scene, &mut orcvs, &mut view);
+        assert!(!view.adjusted, "the double click did not unpin the view");
+
+        console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.rect, fitted, "the view did not return to the fit");
     }
 
     #[test]
