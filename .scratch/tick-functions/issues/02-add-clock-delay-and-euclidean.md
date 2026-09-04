@@ -17,3 +17,7 @@ Number operands.
 - [ ] Note operands diagnose in Clock, Delay, and Euclidean tests rather than converting implicitly.
 - [ ] Sequence operands follow the ordinary broadcasting rules once available.
 - [ ] Tick-by-Tick tests use explicit Source Grids and diagnostics.
+- [ ] `CONTEXT.md` gains a glossary entry for the Clock Function `~.`, the Delay Function `~*`, and
+      the Euclidean Function `~%`, naming each spelling, its operands, and its `_Avoid_` terms.
+      Glossary text lands with the issue that builds the behaviour, as `spatial-tick-planning/01`
+      did for `Turn`, `Producer`, and `Effect`.
