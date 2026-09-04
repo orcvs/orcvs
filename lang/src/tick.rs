@@ -62,7 +62,21 @@ impl Tick {
     #[inline]
     #[must_use]
     pub const fn next(self) -> Self {
-        Self(self.0.saturating_add(1))
+        self.after(1)
+    }
+
+    ///
+    /// The Tick `ticks` after this one.
+    ///
+    /// Saturating for the reason [`Tick::next`] gives, and saturating in the
+    /// same place: a Timed Play length added to an absolute Tick must not
+    /// return a scheduled Note Off to the beginning of the run, where it would
+    /// stop a note that has not started.
+    ///
+    #[inline]
+    #[must_use]
+    pub const fn after(self, ticks: u64) -> Self {
+        Self(self.0.saturating_add(ticks))
     }
 }
 
@@ -174,12 +188,28 @@ mod test {
     }
 
     #[test]
+    fn a_lifetime_lands_on_the_tick_its_length_counts_to() {
+        // What a Timed Play schedules: a length of `N` Ticks from Tick `T` is
+        // due at `T + N`, and a length of no Ticks is due at `T` itself, which
+        // is what makes it the lifetime that never sounds.
+        assert_eq!(Tick::new(4).after(3), Tick::new(7));
+        assert_eq!(Tick::new(4).after(0), Tick::new(4));
+        assert_eq!(Tick::ZERO.after(0xFF), Tick::new(255));
+        assert_eq!(Tick::new(4).after(1), Tick::new(4).next());
+    }
+
+    #[test]
     fn the_absolute_tick_saturates_rather_than_returning_to_the_first_tick() {
         // Unreachable in a Playback run, and pinned anyway: wrapping here would
         // silently restart every Tick-reading Function's cycle, which is the
         // one outcome the saturating choice exists to rule out.
         assert_eq!(Tick::new(u64::MAX).next(), Tick::new(u64::MAX));
         assert_ne!(Tick::new(u64::MAX).next(), Tick::ZERO);
+
+        // And the same for a whole lifetime added at once, which is the other
+        // way a run reaches the end of the counter.
+        assert_eq!(Tick::new(u64::MAX).after(0xFF), Tick::new(u64::MAX));
+        assert_eq!(Tick::new(u64::MAX - 1).after(0xFF), Tick::new(u64::MAX));
     }
 
     #[test]

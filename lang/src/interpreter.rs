@@ -99,8 +99,11 @@ impl Interpreter {
                     Function::Modulo => math::modulo(&mut ctx)?,
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
-                    Function::Play => {
-                        return Ok(Interpretation::Play(functions::play(&mut ctx)?));
+                    Function::RawPlay => {
+                        return Ok(Interpretation::Play(functions::raw_play(&mut ctx)?));
+                    }
+                    Function::TimedPlay => {
+                        return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
                     }
                 },
                 atom => (*atom).into(),
@@ -428,16 +431,16 @@ mod test {
     fn direct_play_evaluation_enforces_each_operand_type() {
         let note = Atom::Note(crate::Note::try_from(60).unwrap());
         for atoms in [
-            vec![Function::Play.into(), note, Atom::Number(0x7F), note],
-            vec![Function::Play.into(), Atom::Number(0), note, note],
+            vec![Function::RawPlay.into(), note, Atom::Number(0x7F), note],
+            vec![Function::RawPlay.into(), Atom::Number(0), note, note],
             vec![
-                Function::Play.into(),
+                Function::RawPlay.into(),
                 Atom::Number(0),
                 Atom::Number(0x7F),
                 Atom::Number(60),
             ],
             vec![
-                Function::Play.into(),
+                Function::RawPlay.into(),
                 Atom::Number(0),
                 Atom::Number(0x7F),
                 Atom::Char('C'),

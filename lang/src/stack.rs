@@ -247,7 +247,7 @@ mod test {
     #[test]
     fn a_sequence_diagnoses_where_a_scalar_signature_requires_an_atom() {
         assert_a_sequence_is_refused::<operands::Add>();
-        assert_a_sequence_is_refused::<operands::Play>();
+        assert_a_sequence_is_refused::<operands::RawPlay>();
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod test {
 
         assert!(
             matches!(
-                stack.extract::<operands::Play>(),
+                stack.extract::<operands::RawPlay>(),
                 Err(Error::Argument(ArgumentError::Arity {
                     expected: 3,
                     found: 1
@@ -318,7 +318,7 @@ mod test {
 
         assert!(
             matches!(
-                stack.extract::<operands::Play>(),
+                stack.extract::<operands::RawPlay>(),
                 Err(Error::Type(TypeError::Note(found))) if found == "3C"
             ),
             "a type fault was displaced by a domain fault"
@@ -333,7 +333,7 @@ mod test {
 
         assert!(
             matches!(
-                stack.extract::<operands::Play>(),
+                stack.extract::<operands::RawPlay>(),
                 Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
             ),
             "a shape fault was displaced by a domain fault"
@@ -347,7 +347,7 @@ mod test {
         stack.push(Atom::Number(0xFF));
 
         assert!(matches!(
-            stack.extract::<operands::Play>(),
+            stack.extract::<operands::RawPlay>(),
             Err(Error::Interpretation(InterpretationError::MidiChannel(
                 0xFF
             )))
@@ -365,7 +365,7 @@ mod test {
         stack.push(Atom::Number(0x10));
 
         assert!(matches!(
-            stack.extract::<operands::Play>(),
+            stack.extract::<operands::RawPlay>(),
             Err(Error::Interpretation(InterpretationError::MidiChannel(
                 0x10
             )))

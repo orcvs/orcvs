@@ -5,7 +5,13 @@ use crate::{EXP_LEN, Error, TypeError, midi_note_to_number, midi_number_to_note,
 
 pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The MIDI note domain: `00`–`7F`.
+///
+/// Ordered as well as compared, because the Playback Engine keys a Timed
+/// Play's ownership by the channel and note it sounds on. Ordering a note by
+/// its number is the protocol's own order, and carrying the key as the two
+/// domain types keeps the engine from re-deriving either domain from a byte.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Note(u8);
 
 impl Note {
@@ -33,8 +39,9 @@ impl TryFrom<u8> for Note {
 /// protocol range is a Source error rather than something to scale or clamp.
 /// Carrying the domain in the type rather than proving it and handing back a
 /// `u8` is what lets [`crate::PlayCommand`] and the output adapter rely on the
-/// range instead of re-deriving it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// range instead of re-deriving it. Ordered for the same reason [`Note`] is:
+/// the two together key a Timed Play's ownership inside the Playback Engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MidiChannel(u8);
 
 impl MidiChannel {
@@ -88,6 +95,14 @@ macro_rules! define_data_byte_roles {
         pub struct $name(u8);
 
         impl $name {
+            /// The zero data byte, which every role in this domain contains.
+            ///
+            /// A constant rather than a conversion a caller has to unwrap: the
+            /// Playback Engine delivers a scheduled Note Off as MIDI's
+            /// zero-velocity stop, and a `try_from(0)` there would be an
+            /// unreachable failure path inside a Tick.
+            pub const ZERO: Self = Self(0);
+
             #[inline(always)]
             pub const fn value(self) -> u8 {
                 self.0
@@ -112,6 +127,40 @@ define_data_byte_roles! {
     /// A Play velocity. `00` is not an absent note but MIDI's explicit stop,
     /// so the domain starts at zero like every other data byte.
     Velocity => "velocity",
+}
+
+/// The Timed and Monophonic Play lifetime: a Number in `00`–`FF`.
+///
+/// Every byte is a length, so this converts where the MIDI domains validate.
+/// It is a type of its own regardless, because a length is a count of Ticks
+/// rather than a MIDI value: nothing else keeps it out of a data-byte position,
+/// and nothing else says that the Playback Engine, not the output adapter, is
+/// what reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Length(u8);
+
+impl Length {
+    /// The lifetime that starts no note.
+    pub const ZERO: Self = Self(0);
+
+    /// This length's Number, as the Source wrote it.
+    #[inline(always)]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    /// How many Ticks this length lasts.
+    #[inline(always)]
+    pub const fn ticks(self) -> u64 {
+        self.0 as u64
+    }
+}
+
+impl From<u8> for Length {
+    #[inline(always)]
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
@@ -199,6 +248,9 @@ macro_rules! operand_token {
     (Velocity) => {
         crate::Token::Number
     };
+    (Length) => {
+        crate::Token::Number
+    };
 }
 
 macro_rules! operand_type {
@@ -213,6 +265,9 @@ macro_rules! operand_type {
     };
     (Velocity) => {
         crate::Velocity
+    };
+    (Length) => {
+        crate::Length
     };
 }
 
@@ -258,6 +313,19 @@ macro_rules! operand_bind {
             Some(crate::Atom::Number(value)) => {
                 crate::Velocity::try_from(value).map_err(crate::Error::from)
             }
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Number for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+    // The one declared domain that is the whole byte, so this converts where
+    // the others validate. It still binds through the same arm, because what
+    // makes a length a length is the type it arrives as, not a check it passed.
+    (Length, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Number(value)) => Ok::<_, crate::Error>(crate::Length::from(value)),
             _ => unreachable!(concat!(
                 "typed extraction guarantees a Number for the ",
                 stringify!($role),
@@ -430,8 +498,9 @@ define_functions! {
     Minimum => (".<", Value, [left: Number, right: Number]),
     Modulo => (".%", Value, [left: Number, right: Number]),
     Multiply => (".x", Value, [left: Number, right: Number]),
-    Play => ("!>", Terminal, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    RawPlay => ("!>", Terminal, [channel: MidiChannel, velocity: Velocity, note: Note]),
     Subtract => (".-", Value, [left: Number, right: Number]),
+    TimedPlay => ("!~", Terminal, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -498,7 +567,7 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
-    use super::{Activation, Atom, Function, MidiChannel, Note, Velocity, to_atom_num};
+    use super::{Activation, Atom, Function, Length, MidiChannel, Note, Velocity, to_atom_num};
     use crate::InterpretationError;
 
     #[test]
@@ -519,6 +588,27 @@ mod test {
             );
             assert_eq!(Note::try_from(value).is_ok(), value <= 0x7F, "{value:02X}");
         }
+    }
+
+    #[test]
+    fn the_timed_play_length_domain_is_the_whole_byte() {
+        // ADR 0016 gives length `00`–`FF`, so unlike every MIDI domain beside
+        // it there is no value to refuse — and none to alter either.
+        for value in 0..=u8::MAX {
+            assert_eq!(Length::from(value).value(), value, "{value:02X}");
+            assert_eq!(Length::from(value).ticks(), u64::from(value), "{value:02X}");
+        }
+
+        assert_eq!(Length::ZERO, Length::from(0));
+    }
+
+    #[test]
+    fn the_zero_data_byte_is_available_without_a_conversion_to_unwrap() {
+        // The Playback Engine delivers a scheduled Note Off as MIDI's
+        // zero-velocity stop, inside a Tick, where a fallible conversion would
+        // be an unreachable failure path.
+        assert_eq!(Velocity::ZERO, Velocity::try_from(0).unwrap());
+        assert_eq!(Velocity::ZERO.value(), 0);
     }
 
     #[test]
@@ -614,7 +704,7 @@ mod test {
             Atom::Char('v'),
             Atom::Empty,
             Atom::Function(Function::Add),
-            Atom::Function(Function::Play),
+            Atom::Function(Function::RawPlay),
         ] {
             assert_eq!(String::from(atom), atom.to_string(), "{atom:?}");
         }
@@ -648,8 +738,9 @@ mod test {
     }
 
     #[test]
-    fn play_function_displays_with_the_terminal_output_family_spelling() {
-        assert_eq!(Function::Play.to_string(), "!>");
+    fn play_functions_display_with_the_terminal_output_family_spellings() {
+        assert_eq!(Function::RawPlay.to_string(), "!>");
+        assert_eq!(Function::TimedPlay.to_string(), "!~");
     }
 
     #[test]
@@ -667,7 +758,7 @@ mod test {
             );
         }
 
-        assert!(Function::Play.is_terminal());
+        assert!(Function::RawPlay.is_terminal());
         assert!(!Function::Add.is_terminal());
     }
 

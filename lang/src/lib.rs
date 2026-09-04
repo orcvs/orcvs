@@ -10,7 +10,8 @@ mod stack;
 mod tick;
 
 pub use atom::{
-    Activation, Atom, Atoms, Function, MidiChannel, Note, Velocity, to_atom_note, to_atom_num,
+    Activation, Atom, Atoms, Function, Length, MidiChannel, Note, Velocity, to_atom_note,
+    to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
@@ -45,6 +46,22 @@ pub enum PlayCommand {
         channel: MidiChannel,
         velocity: Velocity,
         note: Note,
+    },
+    ///
+    /// ADR 0016's Timed Play, carrying the whole lifetime the Source wrote.
+    ///
+    /// The length is in the command rather than resolved here because a Note
+    /// Off due at Tick `T + length` belongs to a Playback run: interpretation
+    /// plans one Tick, and a Tick has nowhere to put an effect due at another
+    /// one. Handing the length on is what lets the Playback Engine schedule
+    /// the stop without inferring musical intent, which is the seam ADR 0001
+    /// draws.
+    ///
+    Timed {
+        channel: MidiChannel,
+        velocity: Velocity,
+        note: Note,
+        length: Length,
     },
 }
 
