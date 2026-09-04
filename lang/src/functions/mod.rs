@@ -85,11 +85,12 @@ mod test {
         let mut ctx = context();
 
         // A fourth atom below the three arguments must survive untouched
-        ctx.stack.push(Atom::Char('z'));
+        ctx.stack.push(Atom::Char('z')).unwrap();
         ctx.stack
-            .push(Atom::Note(crate::Note::try_from(60).unwrap())); // n
-        ctx.stack.push(Atom::Number(0x7F)); // v
-        ctx.stack.push(Atom::Number(0x0)); // c
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .unwrap(); // n
+        ctx.stack.push(Atom::Number(0x7F)).unwrap(); // v
+        ctx.stack.push(Atom::Number(0x0)).unwrap(); // c
 
         let result = raw_play(&mut ctx).unwrap();
 
@@ -117,9 +118,10 @@ mod test {
         // domain types it sits beside.
         let mut ctx = context();
         ctx.stack
-            .push(Atom::Note(crate::Note::try_from(60).unwrap()));
-        ctx.stack.push(Atom::Number(0x02));
-        ctx.stack.push(Atom::Number(0x01));
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .unwrap();
+        ctx.stack.push(Atom::Number(0x02)).unwrap();
+        ctx.stack.push(Atom::Number(0x01)).unwrap();
 
         let expected = PlayCommand::Raw {
             channel: MidiChannel::try_from(0x01).unwrap(),
@@ -147,11 +149,12 @@ mod test {
         // Channel and length are the exposed pair here — `01` and `04` are
         // legal in both domains — which is why they are the two furthest apart.
         let mut ctx = context();
-        ctx.stack.push(Atom::Number(0x04));
+        ctx.stack.push(Atom::Number(0x04)).unwrap();
         ctx.stack
-            .push(Atom::Note(crate::Note::try_from(60).unwrap()));
-        ctx.stack.push(Atom::Number(0x02));
-        ctx.stack.push(Atom::Number(0x01));
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .unwrap();
+        ctx.stack.push(Atom::Number(0x02)).unwrap();
+        ctx.stack.push(Atom::Number(0x01)).unwrap();
 
         let expected = PlayCommand::Timed {
             channel: MidiChannel::try_from(0x01).unwrap(),
@@ -186,7 +189,7 @@ mod test {
         for found in 0..4 {
             let mut ctx = context();
             for argument in operands.iter().take(found).rev() {
-                ctx.stack.push(*argument);
+                ctx.stack.push(*argument).unwrap();
             }
 
             let error = timed_play(&mut ctx).unwrap_err();
@@ -248,7 +251,7 @@ mod test {
         for found in 0..3 {
             let mut ctx = context();
             for _ in 0..found {
-                ctx.stack.push(Atom::Number(1));
+                ctx.stack.push(Atom::Number(1)).unwrap();
             }
 
             let error = raw_play(&mut ctx).unwrap_err();
@@ -280,7 +283,7 @@ mod test {
         ] {
             let mut ctx = context();
             for argument in arguments.into_iter().rev() {
-                ctx.stack.push(argument);
+                ctx.stack.push(argument).unwrap();
             }
 
             assert!(matches!(raw_play(&mut ctx), Err(Error::Type(_))));
@@ -299,7 +302,7 @@ mod test {
             .into_iter()
             .rev()
             {
-                ctx.stack.push(argument);
+                ctx.stack.push(argument).unwrap();
             }
 
             assert!(matches!(
@@ -322,7 +325,7 @@ mod test {
             .into_iter()
             .rev()
             {
-                ctx.stack.push(argument);
+                ctx.stack.push(argument).unwrap();
             }
 
             assert!(matches!(

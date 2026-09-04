@@ -1,4 +1,7 @@
-use crate::{ArgumentError, Atom, Error, Function, Note, SequenceError, Token, TypeError, Value};
+use crate::{
+    ArgumentError, Atom, Error, Function, InterpretationError, Note, SequenceError, Token,
+    TypeError, Value,
+};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
@@ -72,9 +75,20 @@ impl<const N: usize> Stack<N> {
         }
     }
 
+    /// Pushes one value, diagnosing a stack with no slot left.
+    ///
+    /// The caller that sizes the stack is responsible for the bound — `Args`
+    /// states why `EXP_LEN` slots suffice for every Expression the parser
+    /// accepts — so this answer is unreachable from Source today. It is an
+    /// answer rather than a panic because the Evaluator runs inside a Tick,
+    /// under the Source write guard, and a panic there stops Playback on the
+    /// native target and takes the editor with it on `wasm32`. A diagnostic
+    /// costs one `?` and leaves the failure describable.
     #[inline(always)]
-    pub fn push(&mut self, value: impl Into<Value>) {
-        self.inner.push(value.into());
+    pub fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {
+        self.inner
+            .try_push(value.into())
+            .map_err(|_| InterpretationError::OperandStackExhausted { capacity: N }.into())
     }
 
     /// Pops one slot, requiring the scalar Atom every current signature asks
@@ -228,7 +242,7 @@ mod test {
         // The point of the seam: what one Function pushes, the next pops
         // unchanged, without ever being encoded for the Source.
         let mut stack = empty_stack();
-        stack.push(sequence());
+        stack.push(sequence()).unwrap();
 
         assert_eq!(stack.pop_value(), Some(Value::Sequence(sequence())));
         assert_eq!(stack.pop_value(), None);
@@ -236,7 +250,7 @@ mod test {
 
     fn assert_a_sequence_is_refused<O: crate::stack::Operands>() {
         let mut stack = empty_stack();
-        stack.push(sequence());
+        stack.push(sequence()).unwrap();
 
         assert!(matches!(
             stack.extract::<O>(),
@@ -253,7 +267,7 @@ mod test {
     #[test]
     fn a_sequence_diagnoses_where_a_numeric_conversion_requires_an_atom() {
         let mut stack = empty_stack();
-        stack.push(sequence());
+        stack.push(sequence()).unwrap();
 
         let result: Result<crate::stack::NumericValue, Error> = stack.try_pop(1, 0);
 
@@ -266,8 +280,8 @@ mod test {
     #[test]
     fn scalar_operand_diagnostics_are_unchanged_by_the_sequence_seam() {
         let mut stack = empty_stack();
-        stack.push(Atom::Number(1));
-        stack.push(Atom::Note(Note::try_from(60).unwrap()));
+        stack.push(Atom::Number(1)).unwrap();
+        stack.push(Atom::Note(Note::try_from(60).unwrap())).unwrap();
 
         assert!(matches!(
             stack.extract::<operands::Add>(),
@@ -275,7 +289,7 @@ mod test {
         ));
 
         let mut stack = empty_stack();
-        stack.push(Atom::Number(1));
+        stack.push(Atom::Number(1)).unwrap();
 
         assert!(matches!(
             stack.extract::<operands::Add>(),
@@ -296,7 +310,7 @@ mod test {
 
         // Too few operands, with the one supplied outside the channel domain.
         let mut stack = empty_stack();
-        stack.push(Atom::Number(0xFF));
+        stack.push(Atom::Number(0xFF)).unwrap();
 
         assert!(
             matches!(
@@ -312,9 +326,9 @@ mod test {
         // Every operand present, the note operand mistyped, and both Numbers
         // outside their domains.
         let mut stack = empty_stack();
-        stack.push(Atom::Number(60));
-        stack.push(Atom::Number(0xFF));
-        stack.push(Atom::Number(0xFF));
+        stack.push(Atom::Number(60)).unwrap();
+        stack.push(Atom::Number(0xFF)).unwrap();
+        stack.push(Atom::Number(0xFF)).unwrap();
 
         assert!(
             matches!(
@@ -327,9 +341,9 @@ mod test {
         // A Sequence where a scalar operand belongs, ahead of the same two
         // out-of-domain Numbers.
         let mut stack = empty_stack();
-        stack.push(note);
-        stack.push(Atom::Number(0xFF));
-        stack.push(sequence());
+        stack.push(note).unwrap();
+        stack.push(Atom::Number(0xFF)).unwrap();
+        stack.push(sequence()).unwrap();
 
         assert!(
             matches!(
@@ -342,9 +356,9 @@ mod test {
         // With nothing left for the pop loop to answer, the domain fault is
         // reached, which is what makes the three cases above meaningful.
         let mut stack = empty_stack();
-        stack.push(note);
-        stack.push(Atom::Number(0xFF));
-        stack.push(Atom::Number(0xFF));
+        stack.push(note).unwrap();
+        stack.push(Atom::Number(0xFF)).unwrap();
+        stack.push(Atom::Number(0xFF)).unwrap();
 
         assert!(matches!(
             stack.extract::<operands::RawPlay>(),
@@ -360,9 +374,9 @@ mod test {
         // declaration is the one the Source is told about, matching the pop
         // loop above it.
         let mut stack = empty_stack();
-        stack.push(Atom::Note(Note::try_from(60).unwrap()));
-        stack.push(Atom::Number(0x80));
-        stack.push(Atom::Number(0x10));
+        stack.push(Atom::Note(Note::try_from(60).unwrap())).unwrap();
+        stack.push(Atom::Number(0x80)).unwrap();
+        stack.push(Atom::Number(0x10)).unwrap();
 
         assert!(matches!(
             stack.extract::<operands::RawPlay>(),
@@ -377,7 +391,7 @@ mod test {
         // `TypeError::Numeric` is reachable from Source as `.^.=0101`: equal
         // operands make `.=` answer a Bang, which `.^` then pops.
         let mut stack = empty_stack();
-        stack.push(Atom::Bang);
+        stack.push(Atom::Bang).unwrap();
 
         let result: Result<crate::stack::NumericValue, Error> = stack.try_pop(1, 0);
 
@@ -385,6 +399,29 @@ mod test {
             result,
             Err(Error::Type(TypeError::Numeric(found))) if found == "**"
         ));
+    }
+
+    #[test]
+    fn an_exhausted_operand_stack_diagnoses_rather_than_panicking() {
+        // `Args` sizes the Operand Stack so no Expression the parser accepts
+        // can reach this, and the answer exists anyway: the Evaluator runs
+        // inside a Tick under the Source write guard, where a panic costs
+        // Playback rather than the Expression. A two-slot stack states the
+        // behaviour without depending on the size `Args` chooses.
+        let mut stack: Stack<2> = Stack::new();
+        stack.push(Atom::Number(0)).unwrap();
+        stack.push(Atom::Number(1)).unwrap();
+
+        assert!(matches!(
+            stack.push(Atom::Number(2)),
+            Err(Error::Interpretation(
+                InterpretationError::OperandStackExhausted { capacity: 2 }
+            ))
+        ));
+
+        // The refused value displaced nothing already on the stack.
+        assert_eq!(Atom::from(stack.pop().unwrap()), Atom::Number(1));
+        assert_eq!(Atom::from(stack.pop().unwrap()), Atom::Number(0));
     }
 
     #[test]
