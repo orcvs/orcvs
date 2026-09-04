@@ -205,12 +205,16 @@ mod test {
     fn timed_play_takes_the_same_midi_domains_as_raw_play_and_a_whole_byte_of_length() {
         // The domains ADR 0016 fixes for `!~`, each proven by the operand that
         // leaves them: a length is the one operand with nothing outside it.
-        assert!(matches!(
-            interpret("!~107FC401"),
-            Err(Error::Interpretation(InterpretationError::MidiChannel(
-                0x10
-            )))
-        ));
+        for channel in 0x10..=u8::MAX {
+            assert!(
+                matches!(
+                    interpret(&format!("!~{channel:02X}7FC401")),
+                    Err(Error::Interpretation(InterpretationError::MidiChannel(value)))
+                        if value == channel
+                ),
+                "channel {channel:02X}"
+            );
+        }
         assert!(matches!(
             interpret("!~0080C401"),
             Err(Error::Interpretation(InterpretationError::MidiDataByte {

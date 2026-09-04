@@ -61,11 +61,22 @@ that routes through `stop`. Both selection paths — `PlaybackEngine::select_mid
 the `MidiSelectionHandle` the shell holds — now call one `PlaybackInner::select_destination`, so
 what a destination change owes is stated once rather than twice.
 
-Deliberately not cleared: a submission failure. `MidiOutputAdapter` drops its connection and
-attempts all-notes-off on a failed send, and `connected` stays true, so a claim can outlive the
-delivery that made it. Its expiry is then a redundant stop into a failed connection rather than a
-wrong one. Clearing there is a question about what a delivery failure means to ownership, which
-belongs with whatever ticket revisits reconnection.
+A refused submission changes nothing at all. The schedule describes notes that are sounding, so
+a Tick is resolved against a copy of it and the copy is adopted only once the adapter has
+accepted the delivery: every claim and every expiry stands, and the stop the refused Tick drained
+is drained again by the next executed Tick. `MidiOutputAdapter` alone would not have needed this,
+since it gives up its connection on a failed send and a discarded stop would have been a stop
+into a dead connection either way. But `OutputAdapter` is a trait and this module is generic over
+it, so for an adapter that survives a refusal — `InMemoryOutputAdapter` is one — committing
+before the submission means a hanging note with no retry and no diagnostic. The copy is two maps
+of the notes currently sounding, taken once per executed Tick.
+
+### Left open
+
+A Timed expiry stops whatever stands on its voice, so a Raw Play of the same channel and note
+started between a claim and its expiry is stopped by that expiry. One note is sounding on the
+voice and one stop ends it, which is arguably what the wire means, but ADR 0016 says nothing
+either way. Recorded for whoever revisits the ADR rather than settled here.
 
 ### Tests
 
@@ -77,3 +88,13 @@ carrying the schedule alone. `a_scheduled_stop_is_due_at_an_absolute_tick_rather
 drives a declined overrun Tick between the start and the stop, pinning that an expiry counts
 executed Ticks rather than clock ticks. The destination-change test uses the paused-clock MIDI
 fake, advancing one Tick period at a time.
+
+Three properties needed a Tick that carries more than one thing, and each was proven by watching
+the test fail without the code that provides it. The delivery order is pinned by a Tick that
+carries both a due stop and a Raw Play of the voice that stop names: appending the stops last
+instead silences the note that Tick sounds. Ownership per channel *and* note is pinned by a
+second note on one channel and by one note on two channels: a key that compares either field
+alone stops the standing note to start the new one, cutting it short. And two commands for one
+voice within one Tick pin that ownership is resolved in Tick Plan order rather than once per
+Tick. The refused-submission test drives the failure at the Tick a stop is due and reads the
+stop from the Tick after it.

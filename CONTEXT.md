@@ -161,7 +161,7 @@ The time-driven process that requests a new Tick Plan for each Tick and dispatch
 _Avoid_: Player, sequencer
 
 **Playback Engine**:
-The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. It owns that schedule per channel and note, each claim carrying a generation token, so a stop retired by a replacement or by an explicit stop cannot cut a later note short. Beginning a run, stopping, disconnecting, and changing destination each clear the schedule. Stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
+The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. It owns that schedule per channel and note, each claim carrying a generation token, so a stop retired by a replacement or by an explicit stop cannot cut a later note short. Beginning a run, stopping, disconnecting, and changing destination each clear the schedule. The schedule records only what an output adapter accepted, so a refused submission leaves it standing and the stop is delivered again at the next executed Tick. Stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
 **Live Editing**:
