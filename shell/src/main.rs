@@ -7,7 +7,9 @@ use std::sync::Once;
 #[cfg(not(target_arch = "wasm32"))]
 static INIT: Once = Once::new();
 
-pub const DEFAULT_VIEW_SIZE: [f32; 2] = [800.0, 600.0];
+#[cfg(not(target_arch = "wasm32"))]
+use shell::console::DEFAULT_VIEW_SIZE;
+
 pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
 
 #[cfg(not(target_arch = "wasm32"))]

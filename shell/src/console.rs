@@ -21,6 +21,25 @@ const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 2.0;
 
+/// The height the top panel takes from the window, leaving the rest to the
+/// console. It is the panel's own minimum, which the menu bar does not exceed.
+const TOP_PANEL_HEIGHT: f32 = 32.0;
+
+///
+/// The window size that presents the default Grid at the Source's own Cell
+/// size: the Source's own points, and the chrome above the console.
+///
+/// A console opened at this size fits the Grid at a scale of exactly one, so
+/// the Grid fills it with no letterboxing and Glyphs are drawn at the size they
+/// are rasterised at. Every other window size still presents the Grid — fitted,
+/// centred, and letterboxed on the longer axis — so this is where the console
+/// opens, not a shape it holds the viewer to.
+///
+pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
+    DEFAULT_COL_COUNT as f32 * CELL_SIZE,
+    DEFAULT_ROW_COUNT as f32 * CELL_SIZE + TOP_PANEL_HEIGHT,
+];
+
 fn translate_event(event: Event) -> Option<InputEvent> {
     match event {
         Event::Key {
@@ -398,7 +417,9 @@ impl eframe::App for Console {
                 tracing::error!("Playback failure: {message}");
             }
         }
-        let top_panel = egui::Panel::top("top_panel").resizable(true).min_size(32.0);
+        let top_panel = egui::Panel::top("top_panel")
+            .resizable(true)
+            .min_size(TOP_PANEL_HEIGHT);
 
         // let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
         //     .resizable(false)
@@ -522,10 +543,12 @@ mod tests {
     use orcvs::app::{InputEvent, InputKey, Orcvs};
 
     use crate::grid_viewport::GridViewport;
+    use crate::style::PALETTE;
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
-        SourceView, frames_per_second, scene_zoom, show_source_scene, source_bounds,
-        source_dimensions, translate_event,
+        CELL_SIZE, DEFAULT_VIEW_SIZE, SourceView, TOP_PANEL_HEIGHT, frames_per_second, scene_zoom,
+        show_source_scene, source_bounds, source_dimensions, translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -811,6 +834,84 @@ mod tests {
                 "the first Cell of a {screen_size:?} console"
             );
         }
+    }
+
+    ///
+    /// The console opens on the whole Grid at the Source's own Cell size, so
+    /// the default window spends every point it has on Cells and none on
+    /// letterboxing, and no Glyph is resampled to be shown.
+    ///
+    #[test]
+    fn the_default_window_presents_the_default_grid_at_its_own_scale() {
+        let ctx = egui::Context::default();
+        let console = Vec2::new(
+            DEFAULT_VIEW_SIZE[0],
+            DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT,
+        );
+        let screen = Rect::from_min_size(Pos2::ZERO, console);
+        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            viewport.cell_size, CELL_SIZE,
+            "the default console fits the Grid at a scale other than one"
+        );
+        assert_eq!(
+            viewport.rect, screen,
+            "the default console letterboxes the Grid it was sized for"
+        );
+    }
+
+    ///
+    /// The default window size holds back exactly the height the top panel
+    /// takes, so the rest reaches the console. The menu bar is rebuilt here
+    /// rather than shared, so this also asserts that no menu makes the panel
+    /// taller than its minimum.
+    ///
+    #[test]
+    fn the_top_panel_takes_the_height_the_default_window_holds_back() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Vec2::ZERO;
+
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |root| {
+                egui::Panel::top("top_panel")
+                    .resizable(true)
+                    .min_size(TOP_PANEL_HEIGHT)
+                    .show(root, |ui| {
+                        egui::MenuBar::new().ui(ui, |ui| {
+                            ui.menu_button("File", |_ui| {});
+                            ui.add_space(16.0);
+                            ui.menu_button("MIDI", |_ui| {});
+                            ui.menu_button("View", |_ui| {});
+                            ui.menu_button("Tempo", |_ui| {});
+                        });
+                    });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(PALETTE.source))
+                    .show(root, |ui| {
+                        console = ui.available_size_before_wrap();
+                    });
+            },
+        );
+        output.drop_without_applying_deltas();
+
+        assert_eq!(
+            console,
+            Vec2::new(
+                DEFAULT_VIEW_SIZE[0],
+                DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT
+            )
+        );
     }
 
     #[test]

@@ -87,3 +87,40 @@ recorded for a domain-modelling pass.
 **No palette, Cursor, Playback, or persistence behaviour changed.** The only
 other visible change is a Cell size row in the Diagnostics window, which reports
 the answered square Cell size.
+
+### The default shape, 2026-09-04
+
+**Square Cells settle the geometry; they do not settle the shape.** A square
+Grid in a wide console is all fit and no fill: the default was 32 by 32, an 800
+point square Source, opened in an 800 by 600 window, so the console spent a
+quarter of its width on letterboxing before the viewer touched anything. The fit
+was doing what it was asked; it was being asked with two shapes that disagreed.
+
+**One ratio, stated once, and derived from there.** The default Grid is now 40
+by 25. Cells are square, so those counts are the ratio: 8 by 5, which reads left
+to right in time and is the proportion a console is most often given. The
+default window follows from the Grid rather than standing beside it —
+`DEFAULT_VIEW_SIZE` is the Source's own points plus the height the top panel
+takes — so the two cannot drift apart, and changing the Grid moves the window
+with it. The Cell count is 1000, against 1024 before, so the workspace is the
+same size in a more usable shape.
+
+**The console opens at a scale of exactly one.** Measured from the running app,
+the default window gives the console 1000 by 625 points, the viewport is that
+same rectangle, and the Cell size is 25: the Grid fills the console with no
+letterboxing and Glyphs are drawn at the size they are rasterised at. That is
+the resampling softness recorded above, gone from the case a viewer sees first.
+
+**What this does not do.** The window is 1000 by 657, because it carries the top
+panel: the console is 8 by 5, the window is not, and no Grid size makes both so
+while the window carries chrome. The fit is exact at that one size and
+letterboxes at every other, so this makes the default exact rather than making
+letterboxing impossible. A Grid whose Cell counts follow the console would fill
+any window at any shape and retire the question, at the cost of dynamic Grid
+dimensions across the Source, persistence and Cursor bounds. That is a different
+design and is not this one.
+
+**Two tests hold the two halves together.** One asserts the default console
+presents the default Grid at `CELL_SIZE` with the viewport equal to the console
+area; the other asserts the top panel takes exactly the height the default
+window holds back, so neither constant can move without the other.
