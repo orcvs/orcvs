@@ -9,7 +9,9 @@ mod sequence;
 mod stack;
 mod tick;
 
-pub use atom::{Activation, Atom, Atoms, Function, Note, to_atom_note, to_atom_num};
+pub use atom::{
+    Activation, Atom, Atoms, Function, MidiChannel, Note, Velocity, to_atom_note, to_atom_num,
+};
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
@@ -29,15 +31,21 @@ pub const EXP_LEN: usize = 32;
 /// This is a tagged variant set rather than one note triple because the
 /// Terminal Output family is wider than Raw Play: Timed and Monophonic Play,
 /// Control Change, and Pitch Bend each carry different validated data and
-/// arrive here as variants of their own. Every variant holds MIDI values that
-/// the emitting Function has already checked against their domains, and none
-/// holds wire bytes: assembling a MIDI message belongs to the output adapter,
-/// so Source interpretation never learns the protocol encoding.
+/// arrive here as variants of their own. Every field is a domain type rather
+/// than a byte, so the check the emitting Function made travels with the value
+/// and no consumer has to repeat it; and none holds wire bytes, because
+/// assembling a MIDI message belongs to the output adapter and Source
+/// interpretation never learns the protocol encoding. A field whose domain is
+/// carried by a type also cannot be transposed with a field of another domain.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PlayCommand {
     /// ADR 0016's Raw Play. Velocity `00` is not an absent note but the
     /// explicit stop MIDI's zero-velocity convention gives the Source.
-    Raw { channel: u8, velocity: u8, note: u8 },
+    Raw {
+        channel: MidiChannel,
+        velocity: Velocity,
+        note: Note,
+    },
 }
 
 #[inline(always)]

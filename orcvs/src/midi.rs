@@ -151,17 +151,12 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
                     note,
                 } => {
                     // `0x90 | channel` is a channel nibble only while the
-                    // channel is in range; a wider value would rewrite the
-                    // status byte into a different MIDI message entirely.
-                    debug_assert!(
-                        channel <= 0x0F,
-                        "Play channel {channel:02X} is out of range"
-                    );
-                    debug_assert!(
-                        velocity <= 0x7F,
-                        "Play velocity {velocity:02X} is out of range"
-                    );
-                    [0x90 | channel, note, velocity]
+                    // channel is in range, and a wider value would rewrite the
+                    // status byte into a different MIDI message entirely. The
+                    // range is not re-derived here: `MidiChannel` and
+                    // `Velocity` cannot hold one, so the interpreter's check is
+                    // the only check there is.
+                    [0x90 | channel.value(), note.value(), velocity.value()]
                 }
             };
             if let Err(error) = connection.send(&message) {
@@ -187,7 +182,7 @@ mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
     use crate::playback::{OutputAdapter, PlaybackEngine};
-    use crate::source::{PlayCommand, SourceCommander};
+    use crate::source::{MidiChannel, Note, PlayCommand, SourceCommander, Velocity};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -253,14 +248,14 @@ mod tests {
         adapter
             .submit(&[
                 PlayCommand::Raw {
-                    channel: 0x0f,
-                    velocity: 0,
-                    note: 0x15,
+                    channel: MidiChannel::try_from(0x0f).unwrap(),
+                    velocity: Velocity::try_from(0).unwrap(),
+                    note: Note::try_from(0x15).unwrap(),
                 },
                 PlayCommand::Raw {
-                    channel: 2,
-                    velocity: 0x7f,
-                    note: 0x45,
+                    channel: MidiChannel::try_from(2).unwrap(),
+                    velocity: Velocity::try_from(0x7f).unwrap(),
+                    note: Note::try_from(0x45).unwrap(),
                 },
             ])
             .unwrap();
@@ -310,9 +305,9 @@ mod tests {
 
         let error = adapter
             .submit(&[PlayCommand::Raw {
-                channel: 0,
-                velocity: 0x7f,
-                note: 60,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7f).unwrap(),
+                note: Note::try_from(60).unwrap(),
             }])
             .unwrap_err();
 
@@ -322,9 +317,9 @@ mod tests {
         assert_eq!(
             adapter
                 .submit(&[PlayCommand::Raw {
-                    channel: 0,
-                    velocity: 1,
-                    note: 60,
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(1).unwrap(),
+                    note: Note::try_from(60).unwrap()
                 }])
                 .unwrap_err(),
             OutputAdapterError::new("device lost")
@@ -333,9 +328,9 @@ mod tests {
         adapter.select(&MidiDestinationId::new("one")).unwrap();
         adapter
             .submit(&[PlayCommand::Raw {
-                channel: 1,
-                velocity: 1,
-                note: 61,
+                channel: MidiChannel::try_from(1).unwrap(),
+                velocity: Velocity::try_from(1).unwrap(),
+                note: Note::try_from(61).unwrap(),
             }])
             .unwrap();
 

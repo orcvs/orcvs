@@ -776,6 +776,7 @@ impl<A: OutputAdapter> Drop for PlaybackEngine<A> {
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
+    use crate::source::{MidiChannel, Note, Velocity};
 
     ///
     /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
@@ -1137,17 +1138,17 @@ mod tests {
         assert_eq!(
             adapter.command_lists()[0][0],
             PlayCommand::Raw {
-                channel: 0,
-                velocity: 0x7F,
-                note: 60,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap()
             }
         );
         assert_eq!(
             adapter.command_lists()[1][0],
             PlayCommand::Raw {
-                channel: 0,
-                velocity: 0x7F,
-                note: 62,
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(62).unwrap()
             }
         );
     }
@@ -1205,14 +1206,14 @@ mod tests {
             adapter.command_lists(),
             vec![vec![
                 PlayCommand::Raw {
-                    channel: 0,
-                    velocity: 1,
-                    note: 60,
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(1).unwrap(),
+                    note: Note::try_from(60).unwrap()
                 },
                 PlayCommand::Raw {
-                    channel: 1,
-                    velocity: 0x7F,
-                    note: 69,
+                    channel: MidiChannel::try_from(1).unwrap(),
+                    velocity: Velocity::try_from(0x7F).unwrap(),
+                    note: Note::try_from(69).unwrap()
                 },
             ]]
         );

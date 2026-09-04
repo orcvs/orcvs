@@ -6,7 +6,7 @@ with distinct signatures, per ADR 0007 and ADR 0023. Each fixes its own operand 
 and returns an inclusive chromatic Sequence of Notes. Neither selects its behaviour from its
 operands, and neither converts implicitly.
 
-**Blocked by:** 01 — Add the Sequence language value; 04 — Plan complete Sequence writes through Portals; orcvs-language-migration/04 — Confirm contextual Number and Note literals; inherited-defects/15 — Bound the Operand Stack by the Expression length.
+**Blocked by:** 01 — Add the Sequence language value; 04 — Plan complete Sequence writes through Portals; orcvs-language-migration/04 — Confirm contextual Number and Note literals; pre-split-defects/15 — Bound the Operand Stack by the Expression length.
 
 **Status:** ready-for-agent
 

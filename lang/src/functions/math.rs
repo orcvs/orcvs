@@ -1,4 +1,4 @@
-use crate::{Atom, Error, Function, InterpretationError, Value, interpreter::Context};
+use crate::{Atom, Error, InterpretationError, Value, atom::operands, interpreter::Context};
 
 /// Absolute Difference: `.| left right`.
 ///
@@ -8,42 +8,24 @@ use crate::{Atom, Error, Function, InterpretationError, Value, interpreter::Cont
 /// borrow to wrap.
 #[inline(always)]
 pub fn absolute_difference(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::AbsoluteDifference)?;
-    Ok(absolute_difference_impl(operands.number(0), operands.number(1)).into())
-}
-
-#[inline(always)]
-fn absolute_difference_impl(a: u8, b: u8) -> Atom {
-    let res = a.abs_diff(b);
-    Atom::Number(res)
+    let operands::AbsoluteDifference { left, right } = ctx.stack.extract()?;
+    Ok(Atom::Number(left.abs_diff(right)).into())
 }
 
 #[inline(always)]
 pub fn add(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Add)?;
-    Ok(add_impl(operands.number(0), operands.number(1)).into())
-}
-
-#[inline(always)]
-fn add_impl(a: u8, b: u8) -> Atom {
-    let res = a.wrapping_add(b);
-    Atom::Number(res)
+    let operands::Add { left, right } = ctx.stack.extract()?;
+    Ok(Atom::Number(left.wrapping_add(right)).into())
 }
 
 #[inline(always)]
 pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Divide)?;
+    let operands::Divide { left, right } = ctx.stack.extract()?;
 
-    divide_impl(operands.number(0), operands.number(1)).map(Into::into)
-}
-
-#[inline(always)]
-fn divide_impl(a: u8, b: u8) -> Result<Atom, Error> {
-    if b == 0 {
+    if right == 0 {
         return Err(InterpretationError::DivisionByZero.into());
     }
-    let res = a / b;
-    Ok(Atom::Number(res))
+    Ok(Atom::Number(left / right).into())
 }
 
 /// Equality: `.= left right`.
@@ -55,39 +37,27 @@ fn divide_impl(a: u8, b: u8) -> Result<Atom, Error> {
 /// Source, where the next Tick would read it as an ordinary operand.
 #[inline(always)]
 pub fn equality(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Equality)?;
-    Ok(equality_impl(operands.number(0), operands.number(1)).into())
-}
-
-#[inline(always)]
-fn equality_impl(a: u8, b: u8) -> Atom {
-    if a == b { Atom::Bang } else { Atom::Empty }
+    let operands::Equality { left, right } = ctx.stack.extract()?;
+    Ok(if left == right {
+        Atom::Bang
+    } else {
+        Atom::Empty
+    }
+    .into())
 }
 
 /// Maximum: `.> left right`.
 #[inline(always)]
 pub fn maximum(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Maximum)?;
-    Ok(maximum_impl(operands.number(0), operands.number(1)).into())
-}
-
-#[inline(always)]
-fn maximum_impl(a: u8, b: u8) -> Atom {
-    let res = a.max(b);
-    Atom::Number(res)
+    let operands::Maximum { left, right } = ctx.stack.extract()?;
+    Ok(Atom::Number(left.max(right)).into())
 }
 
 /// Minimum: `.< left right`.
 #[inline(always)]
 pub fn minimum(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Minimum)?;
-    Ok(minimum_impl(operands.number(0), operands.number(1)).into())
-}
-
-#[inline(always)]
-fn minimum_impl(a: u8, b: u8) -> Atom {
-    let res = a.min(b);
-    Atom::Number(res)
+    let operands::Minimum { left, right } = ctx.stack.extract()?;
+    Ok(Atom::Number(left.min(right)).into())
 }
 
 /// Modulo: `.% left right`.
@@ -97,40 +67,101 @@ fn minimum_impl(a: u8, b: u8) -> Atom {
 /// its own so the Source learns which Function it wrote.
 #[inline(always)]
 pub fn modulo(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Modulo)?;
+    let operands::Modulo { left, right } = ctx.stack.extract()?;
 
-    modulo_impl(operands.number(0), operands.number(1)).map(Into::into)
-}
-
-#[inline(always)]
-fn modulo_impl(a: u8, b: u8) -> Result<Atom, Error> {
-    if b == 0 {
+    if right == 0 {
         return Err(InterpretationError::ModuloByZero.into());
     }
-    let res = a % b;
-    Ok(Atom::Number(res))
+    Ok(Atom::Number(left % right).into())
 }
 
 #[inline(always)]
 pub fn multiply(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Multiply)?;
-    Ok(multiply_impl(operands.number(0), operands.number(1)).into())
-}
-
-#[inline(always)]
-fn multiply_impl(a: u8, b: u8) -> Atom {
-    let res = a.wrapping_mul(b);
-    Atom::Number(res)
+    let operands::Multiply { left, right } = ctx.stack.extract()?;
+    Ok(Atom::Number(left.wrapping_mul(right)).into())
 }
 
 #[inline(always)]
 pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Subtract)?;
-    Ok(subtract_impl(operands.number(0), operands.number(1)).into())
+    let operands::Subtract { left, right } = ctx.stack.extract()?;
+    Ok(Atom::Number(left.wrapping_sub(right)).into())
 }
 
-#[inline(always)]
-fn subtract_impl(a: u8, b: u8) -> Atom {
-    let res = a.wrapping_sub(b);
-    Atom::Number(res)
+#[cfg(test)]
+mod test {
+    use super::{divide, modulo, subtract};
+    use crate::{
+        Anchor, Atom, Error, InterpretationError, Tick, TickInputs, Value, interpreter::Context,
+    };
+
+    type Arithmetic = fn(&mut Context) -> Result<Value, Error>;
+
+    /// What a Function should answer for one operand pair, read in signature
+    /// order, naming the diagnostic where the pair has no answer.
+    type Reference = fn(u8, u8) -> Result<Atom, InterpretationError>;
+
+    /// Evaluates `function` against the two operands its signature names
+    /// `left` and `right`, pushed so that extraction pops them in signature
+    /// order.
+    fn evaluate(function: Arithmetic, left: u8, right: u8) -> Result<Value, Error> {
+        // Arithmetic reads no Tick and no Position, so the first Tick at the
+        // Grid origin is as good as any other.
+        let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)));
+        ctx.stack.push(Atom::Number(right));
+        ctx.stack.push(Atom::Number(left));
+        function(&mut ctx)
+    }
+
+    #[test]
+    fn the_non_commutative_functions_read_left_and_right_in_signature_order() {
+        // Both operands share the Number domain, so neither `Stack::extract`
+        // nor the compiler can tell the two roles apart; only the answer can.
+        // The whole byte square is enumerated against a reference that names
+        // `left` and `right` explicitly, so a transposition inside the
+        // declaration or the body changes the answer for every asymmetric pair
+        // rather than for a sampled few. The reference names which diagnostic
+        // a zero divisor answers, so Modulo cannot pass by raising Division's.
+        // These three are every non-commutative arithmetic Function there is:
+        // the other six answer the same for either operand order, so no test
+        // of theirs can observe a transposition, and only the role names in
+        // the declaration say which Cell is which.
+        let cases: [(Arithmetic, Reference); 3] = [
+            (subtract, |left, right| {
+                Ok(Atom::Number(left.wrapping_sub(right)))
+            }),
+            (divide, |left, right| match right {
+                0 => Err(InterpretationError::DivisionByZero),
+                right => Ok(Atom::Number(left / right)),
+            }),
+            (modulo, |left, right| match right {
+                0 => Err(InterpretationError::ModuloByZero),
+                right => Ok(Atom::Number(left % right)),
+            }),
+        ];
+
+        for (function, reference) in cases {
+            for left in 0..=u8::MAX {
+                for right in 0..=u8::MAX {
+                    match (evaluate(function, left, right), reference(left, right)) {
+                        (Ok(answer), Ok(expected)) => {
+                            assert_eq!(answer, expected.into(), "{left:02X} {right:02X}");
+                        }
+                        // `InterpretationError` derives no `PartialEq`, and the
+                        // wording is what the Source is shown, so the rendered
+                        // diagnostic is the thing worth comparing.
+                        (Err(answer), Err(expected)) => {
+                            assert_eq!(
+                                answer.to_string(),
+                                expected.to_string(),
+                                "{left:02X} {right:02X}"
+                            );
+                        }
+                        (answer, expected) => {
+                            panic!("{left:02X} {right:02X}: {answer:?} is not {expected:?}")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -6,7 +6,9 @@ mod tick;
 use crate::grid::{CellIndex, Grid, Position};
 pub use error::SourceError;
 pub use lang::Tick;
-pub use model::{CellWrite, Diagnostic, PlayCommand, Source, TickPlan};
+pub use model::{
+    CellWrite, Diagnostic, MidiChannel, Note, PlayCommand, Source, TickPlan, Velocity,
+};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 fn read_recover<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {

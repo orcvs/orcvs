@@ -419,7 +419,10 @@ mod test {
     };
     use crate::{
         grid::{CellIndex, Grid},
-        source::{CellWrite, Diagnostic, PlayCommand, language_map::LanguageMap},
+        source::{
+            CellWrite, Diagnostic, MidiChannel, Note, PlayCommand, Velocity,
+            language_map::LanguageMap,
+        },
     };
 
     ///
@@ -712,14 +715,14 @@ mod test {
         // each diagnostic keeps the place its producer's turn gave it.
         let grid = Grid::new(10, 3);
         let first = PlayCommand::Raw {
-            channel: 0,
-            velocity: 1,
-            note: 60,
+            channel: MidiChannel::try_from(0).unwrap(),
+            velocity: Velocity::try_from(1).unwrap(),
+            note: Note::try_from(60).unwrap(),
         };
         let second = PlayCommand::Raw {
-            channel: 1,
-            velocity: 2,
-            note: 61,
+            channel: MidiChannel::try_from(1).unwrap(),
+            velocity: Velocity::try_from(2).unwrap(),
+            note: Note::try_from(61).unwrap(),
         };
         let earlier = diagnostic(grid, 0, 5, "earlier producer");
         let later = diagnostic(grid, 20, 25, "later producer");

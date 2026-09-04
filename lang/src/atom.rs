@@ -27,6 +27,93 @@ impl TryFrom<u8> for Note {
     }
 }
 
+/// The MIDI channel domain: a Number in `00`–`0F`.
+///
+/// Orcvs sends direct hexadecimal MIDI values, so an operand outside the
+/// protocol range is a Source error rather than something to scale or clamp.
+/// Carrying the domain in the type rather than proving it and handing back a
+/// `u8` is what lets [`crate::PlayCommand`] and the output adapter rely on the
+/// range instead of re-deriving it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MidiChannel(u8);
+
+impl MidiChannel {
+    #[inline(always)]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for MidiChannel {
+    type Error = crate::InterpretationError;
+
+    #[inline(always)]
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00..=0x0F => Ok(Self(value)),
+            _ => Err(crate::InterpretationError::MidiChannel(value)),
+        }
+    }
+}
+
+/// The MIDI data-byte domain, `00`–`7F`, shared privately by every role that
+/// occupies it.
+///
+/// A Play velocity, a Control Change controller or value, and a Pitch Bend LSB
+/// or MSB all take the same range; only the word the diagnostic uses differs.
+/// Sharing the predicate here and minting one public type per role below is
+/// what keeps two operands of the same Function from being assignable to one
+/// another. One shared public data-byte type would validate the range just as
+/// well and leave a controller-for-value swap invisible, which is the failure
+/// the role types exist to stop.
+#[inline(always)]
+fn midi_data_byte(role: &'static str, value: u8) -> Result<u8, crate::InterpretationError> {
+    match value {
+        0x00..=0x7F => Ok(value),
+        _ => Err(crate::InterpretationError::MidiDataByte { role, value }),
+    }
+}
+
+/// Mints one MIDI data-byte role as a distinct public type over the shared
+/// private predicate.
+///
+/// The role word becomes a property of the type rather than an argument every
+/// call site has to remember, so a role that arrives with Control Change or
+/// Pitch Bend is one line here and inherits both the domain and the diagnostic
+/// wording.
+macro_rules! define_data_byte_roles {
+    ($($(#[$doc:meta])* $name:ident => $role:literal),+ $(,)?) => {$(
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub struct $name(u8);
+
+        impl $name {
+            #[inline(always)]
+            pub const fn value(self) -> u8 {
+                self.0
+            }
+        }
+
+        impl TryFrom<u8> for $name {
+            type Error = crate::InterpretationError;
+
+            #[inline(always)]
+            fn try_from(value: u8) -> Result<Self, Self::Error> {
+                match midi_data_byte($role, value) {
+                    Ok(value) => Ok(Self(value)),
+                    Err(error) => Err(error),
+                }
+            }
+        }
+    )+};
+}
+
+define_data_byte_roles! {
+    /// A Play velocity. `00` is not an absent note but MIDI's explicit stop,
+    /// so the domain starts at zero like every other data byte.
+    Velocity => "velocity",
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
@@ -86,9 +173,103 @@ enum FunctionKind {
     Terminal,
 }
 
+// An operand's declared type decides three things, one per macro below: the
+// `Token` its signature is checked against, the Rust value a Function body
+// receives for it, and how the checked `Atom` becomes that value. A new operand
+// type needs one arm in each of the three, so a Function definition cannot name
+// a type the extraction does not already know how to check and bind.
+//
+// The column therefore answers two questions rather than one. `Token` is what
+// the parser reads from two Cells; the bound type is the domain the interpreter
+// accepts, which may be narrower. `MidiChannel` and `Velocity` are both read as
+// a `Number` and are neither a `Number` nor each other once bound. That is one
+// refinement chain from Cells to Number to a domain, declared where the role is
+// declared, which is what lets a new MIDI terminal Function inherit its
+// validation from the table instead of from a body that remembers to ask.
+macro_rules! operand_token {
+    (Number) => {
+        crate::Token::Number
+    };
+    (Note) => {
+        crate::Token::Note
+    };
+    (MidiChannel) => {
+        crate::Token::Number
+    };
+    (Velocity) => {
+        crate::Token::Number
+    };
+}
+
+macro_rules! operand_type {
+    (Number) => {
+        u8
+    };
+    (Note) => {
+        crate::Note
+    };
+    (MidiChannel) => {
+        crate::MidiChannel
+    };
+    (Velocity) => {
+        crate::Velocity
+    };
+}
+
+// A bind answers a `Result` because a declared domain is narrower than the
+// `Token` the parser checked: `Stack::extract` proves the operand is a Number,
+// and only the conversion here proves it is a channel. The domain diagnostic is
+// therefore raised by the declaration rather than by a Function body.
+macro_rules! operand_bind {
+    (Number, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Number(value)) => Ok::<_, crate::Error>(value),
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Number for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+    (Note, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Note(value)) => Ok::<_, crate::Error>(value),
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Note for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+    (MidiChannel, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Number(value)) => {
+                crate::MidiChannel::try_from(value).map_err(crate::Error::from)
+            }
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Number for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+    (Velocity, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Number(value)) => {
+                crate::Velocity::try_from(value).map_err(crate::Error::from)
+            }
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Number for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, [$($operand:expr),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -127,8 +308,96 @@ macro_rules! define_functions {
 
             pub(crate) fn signature(self) -> &'static [crate::Token] {
                 match self {
-                    $(Self::$variant => &[$($operand,)*],)+
+                    $(Self::$variant => &[$(operand_token!($operand),)*],)+
                 }
+            }
+        }
+
+        /// The operands each Function declares, one struct per Function, with a
+        /// field named for the role that position plays.
+        ///
+        /// A Function body destructures the struct its Function declares, so an
+        /// operand's position is written once — here, beside the role name and
+        /// the type — and never restated in the body that reads it. Transposing
+        /// two same-typed operands is therefore an edit to the declaration
+        /// rather than a silent edit inside a body.
+        pub(crate) mod operands {
+            use crate::{Error, Function, stack::{Extracted, Operands}};
+
+            $(
+                // Every Function in the table gets a struct, including the two
+                // whose evaluation deliberately takes a numeric value rather
+                // than the single type their signature declares: ADR 0021's
+                // idempotence for nested values, which `lang-foundations/06`
+                // records as an exclusion. Those two structs are generated and
+                // unread, which is the table staying uniform rather than dead
+                // code to delete — dropping them would mean the declaration no
+                // longer covered every Function.
+                #[allow(dead_code)]
+                pub(crate) struct $variant {
+                    $(pub(crate) $role: operand_type!($operand),)*
+                }
+
+                impl Operands for $variant {
+                    const FUNCTION: Function = Function::$variant;
+
+                    #[inline(always)]
+                    fn from_operands(operands: Extracted<'_>) -> Result<Self, Error> {
+                        let mut operands = operands.atoms().iter().copied();
+
+                        // Field initialisers evaluate in signature order, so
+                        // the first operand outside its domain is the one that
+                        // diagnoses, exactly as the pop loop above it.
+                        Ok(Self {
+                            $($role: operand_bind!($operand, operands.next(), $role)?,)*
+                        })
+                    }
+                }
+            )+
+        }
+
+        /// Every Function's declared operand token and its bind must agree.
+        ///
+        /// `operand_token!` decides what `Stack::extract` accepts and
+        /// `operand_bind!` decides what it then reads. They are separate arms
+        /// keyed on the same declared type, so a disagreement between them is
+        /// not a compile error: the bind falls through to its `unreachable!`
+        /// and panics inside Tick planning, under the Source lock, which is
+        /// exactly the third option ADR 0028 rules out. Extracting every
+        /// Function once from operands built out of its own signature turns
+        /// that into a test failure at the moment the operand type is added.
+        #[cfg(test)]
+        mod declaration_agreement {
+            use crate::{Atom, Note, Stack, Token};
+
+            /// The lowest value each token can carry. Every domain declared
+            /// over a token so far contains it; a domain that excluded its
+            /// token's minimum would fail here and need its own witness, which
+            /// is the right way to find that out.
+            fn lowest(token: Token) -> Atom {
+                match token {
+                    Token::Number => Atom::Number(0),
+                    Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
+                    other => panic!("no operand is declared as {other:?}"),
+                }
+            }
+
+            #[test]
+            fn every_declared_operand_binds_the_atom_its_token_accepts() {
+                $({
+                    let function = crate::Function::$variant;
+                    let mut stack: Stack<16> = Stack::new();
+
+                    // Pushed in reverse so extraction pops them in signature order.
+                    for token in function.signature().iter().copied().rev() {
+                        stack.push(lowest(token));
+                    }
+
+                    assert!(
+                        stack.extract::<super::operands::$variant>().is_ok(),
+                        "{function:?} declares a token its bind does not read",
+                    );
+                })+
             }
         }
 
@@ -151,18 +420,18 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, [crate::Token::Number, crate::Token::Number]),
-    Add => (".+", Value, [crate::Token::Number, crate::Token::Number]),
-    ConvertToNote => (".^", Value, [crate::Token::Number]),
-    ConvertToNumber => (".v", Value, [crate::Token::Note]),
-    Divide => ("./", Value, [crate::Token::Number, crate::Token::Number]),
-    Equality => (".=", Value, [crate::Token::Number, crate::Token::Number]),
-    Maximum => (".>", Value, [crate::Token::Number, crate::Token::Number]),
-    Minimum => (".<", Value, [crate::Token::Number, crate::Token::Number]),
-    Modulo => (".%", Value, [crate::Token::Number, crate::Token::Number]),
-    Multiply => (".x", Value, [crate::Token::Number, crate::Token::Number]),
-    Play => ("!>", Terminal, [crate::Token::Number, crate::Token::Number, crate::Token::Note]),
-    Subtract => (".-", Value, [crate::Token::Number, crate::Token::Number]),
+    AbsoluteDifference => (".|", Value, [left: Number, right: Number]),
+    Add => (".+", Value, [left: Number, right: Number]),
+    ConvertToNote => (".^", Value, [value: Number]),
+    ConvertToNumber => (".v", Value, [value: Note]),
+    Divide => ("./", Value, [left: Number, right: Number]),
+    Equality => (".=", Value, [left: Number, right: Number]),
+    Maximum => (".>", Value, [left: Number, right: Number]),
+    Minimum => (".<", Value, [left: Number, right: Number]),
+    Modulo => (".%", Value, [left: Number, right: Number]),
+    Multiply => (".x", Value, [left: Number, right: Number]),
+    Play => ("!>", Terminal, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    Subtract => (".-", Value, [left: Number, right: Number]),
 }
 
 #[inline(always)]
@@ -229,7 +498,65 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
-    use super::{Activation, Atom, Function, Note, to_atom_num};
+    use super::{Activation, Atom, Function, MidiChannel, Note, Velocity, to_atom_num};
+    use crate::InterpretationError;
+
+    #[test]
+    fn each_midi_domain_type_accepts_exactly_its_protocol_range() {
+        // Relocated from the two validator functions this replaced. The domain
+        // is now a property of the type, so the conversion is what has to hold
+        // over the whole byte, and every input is cheap enough to enumerate.
+        for value in 0..=u8::MAX {
+            assert_eq!(
+                MidiChannel::try_from(value).is_ok(),
+                value <= 0x0F,
+                "{value:02X}"
+            );
+            assert_eq!(
+                Velocity::try_from(value).is_ok(),
+                value <= 0x7F,
+                "{value:02X}"
+            );
+            assert_eq!(Note::try_from(value).is_ok(), value <= 0x7F, "{value:02X}");
+        }
+    }
+
+    #[test]
+    fn each_midi_domain_type_carries_the_value_it_was_given() {
+        // A newtype that quietly altered its value would satisfy the range test
+        // above and still be wrong, so the accepted half is checked too.
+        for value in 0..=0x0F {
+            assert_eq!(MidiChannel::try_from(value).unwrap().value(), value);
+        }
+        for value in 0..=0x7F {
+            assert_eq!(Velocity::try_from(value).unwrap().value(), value);
+            assert_eq!(Note::try_from(value).unwrap().value(), value);
+        }
+    }
+
+    #[test]
+    fn a_rejected_data_byte_names_the_operand_role_that_supplied_it() {
+        // The role word moved from an argument at the call site to a property
+        // of the type. Control Change and Pitch Bend mint their roles from the
+        // same private predicate, so the diagnostic each one answers is fixed
+        // here rather than at whatever body happens to construct it.
+        assert_eq!(
+            Velocity::try_from(0x80).unwrap_err().to_string(),
+            "MIDI velocity 80 is outside the range 00\u{2013}7F"
+        );
+
+        for role in ["velocity", "controller", "value", "lsb", "msb"] {
+            assert_eq!(
+                InterpretationError::MidiDataByte { role, value: 0x80 }.to_string(),
+                format!("MIDI {role} 80 is outside the range 00\u{2013}7F")
+            );
+        }
+
+        assert_eq!(
+            MidiChannel::try_from(0x10).unwrap_err().to_string(),
+            "MIDI channel 10 is outside the range 00\u{2013}0F"
+        );
+    }
 
     #[test]
     fn test_number_displays_as_two_uppercase_hex_digits() {
