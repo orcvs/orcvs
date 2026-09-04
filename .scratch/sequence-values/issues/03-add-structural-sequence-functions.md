@@ -3,7 +3,7 @@
 **What to build:** Implement the four structural Sequence Functions — Reverse `:<`, Concatenate
 `:&`, Select `:?`, and Replace `:=` — with the exact contracts in ADR 0007.
 
-**Blocked by:** 01 — Add the Sequence language value; orcvs-language-migration/01; lang-foundations/02; inherited-defects/15 — Bound the Operand Stack by the Expression length.
+**Blocked by:** 01 — Add the Sequence language value; orcvs-language-migration/01; lang-foundations/02; pre-split-defects/15 — Bound the Operand Stack by the Expression length.
 
 **Status:** ready-for-agent
 
