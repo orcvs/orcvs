@@ -4,16 +4,16 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Sources of truth:** ADR 0028 requires each operand's role name to be derived from the single declaration; `lang-foundations/02` established `define_functions!`; `lang-foundations/06` established `Stack::extract`.
 
-- [ ] A Function's operand roles are declared once, beside its spelling, kind, and operand types.
-- [ ] A Function body names the operand it reads rather than indexing it by position.
-- [ ] Transposing two same-typed operands of one Function fails to compile, or fails a test that names both roles.
-- [ ] `Operands::number` and `Operands::note` retain the property that a mistyped read is unreachable, which `Stack::extract` already guarantees.
-- [ ] Raw Play's channel, velocity, and note are each named at the point they are read.
-- [ ] The evaluator benchmark workload is run before and after; the exact command and results are recorded, and measured forced-inlining choices are retained unless the results justify a change.
+- [x] A Function's operand roles are declared once, beside its spelling, kind, and operand types.
+- [x] A Function body names the operand it reads rather than indexing it by position.
+- [x] Transposing two same-typed operands of one Function fails to compile, or fails a test that names both roles.
+- [x] `Operands::number` and `Operands::note` retain the property that a mistyped read is unreachable, which `Stack::extract` already guarantees.
+- [x] Raw Play's channel, velocity, and note are each named at the point they are read.
+- [x] The evaluator benchmark workload is run before and after; the exact command and results are recorded, and measured forced-inlining choices are retained unless the results justify a change.
 
 ## Comments
 

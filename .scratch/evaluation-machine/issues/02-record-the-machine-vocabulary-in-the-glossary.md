@@ -4,16 +4,16 @@
 
 **Blocked by:** 01 — Correct the evaluation machine decision.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Sources of truth:** ADR 0028 defines the machine; `CLAUDE.md` makes `CONTEXT.md` authoritative for vocabulary; `CONTEXT.md` shows the entry format.
 
-- [ ] `CONTEXT.md` defines Atom.
-- [ ] `CONTEXT.md` defines Evaluator, and its `_Avoid_` line refuses virtual machine, VM, and interpreter loop.
-- [ ] `CONTEXT.md` defines Operand Stack, stating that it is created for one Expression and discarded when that Expression answers.
-- [ ] `CONTEXT.md` defines the absence marker, and distinguishes it from the empty Sequence.
-- [ ] Each entry carries an `_Avoid_` line in the existing format.
-- [ ] No entry restates a rule the ADRs own; each names the thing and points at the deciding ADR where a rule is needed.
+- [x] `CONTEXT.md` defines Atom.
+- [x] `CONTEXT.md` defines Evaluator, and its `_Avoid_` line refuses virtual machine, VM, and interpreter loop.
+- [x] `CONTEXT.md` defines Operand Stack, stating that it is created for one Expression and discarded when that Expression answers.
+- [x] `CONTEXT.md` defines the absence marker, and distinguishes it from the empty Sequence.
+- [x] Each entry carries an `_Avoid_` line in the existing format.
+- [x] No entry restates a rule the ADRs own; each names the thing and points at the deciding ADR where a rule is needed.
 
 ## Comments
 

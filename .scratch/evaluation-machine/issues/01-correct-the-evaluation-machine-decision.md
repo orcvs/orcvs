@@ -4,15 +4,15 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Sources of truth:** the code cited below; `pre-split-defects/15` for the Operand Stack proof; `lang-foundations/02` and `06` for what the single declaration already covers.
 
-- [ ] The fifth paragraph no longer says that exceeding the Operand Stack bound "aborts the process".
-- [ ] The fifth paragraph states what a panic there actually does, and the severity argument survives the correction.
-- [ ] The fifth paragraph no longer requires the sufficiency proof to be restated whenever a Function's arity grows.
-- [ ] The third paragraph credits the declaration that exists and names only the parts that are genuinely spread.
-- [ ] No statement in the ADR contradicts `pre-split-defects/15`.
+- [x] The fifth paragraph no longer says that exceeding the Operand Stack bound "aborts the process".
+- [x] The fifth paragraph states what a panic there actually does, and the severity argument survives the correction.
+- [x] The fifth paragraph no longer requires the sufficiency proof to be restated whenever a Function's arity grows.
+- [x] The third paragraph credits the declaration that exists and names only the parts that are genuinely spread.
+- [x] No statement in the ADR contradicts `pre-split-defects/15`.
 
 ## Comments
 
