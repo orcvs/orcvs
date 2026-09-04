@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788504841191,
+  "lastUpdate": 1788517804653,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -743,6 +743,126 @@ window.BENCHMARK_DATA = {
             "name": "source_edit_rebuild_invalid/64x64",
             "value": 188831,
             "range": "± 2818",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d90059d7769098fecfd75f8debc905c096b52ee6",
+          "message": "Merge pull request #13 from orcvs/15-bound-the-operand-stack\n\nBound the Operand Stack by the Expression length",
+          "timestamp": "2026-09-04T20:23:24+10:00",
+          "tree_id": "8a01637bc931607eac5335d0ae40336ea99df409",
+          "url": "https://github.com/orcvs/orcvs/commit/d90059d7769098fecfd75f8debc905c096b52ee6"
+        },
+        "date": 1788517803924,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 86,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 44,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 16,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 324,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 36,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 42,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 84,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2131,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 8384,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 33205,
+            "range": "± 397",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 10769,
+            "range": "± 156",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 38543,
+            "range": "± 434",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 151684,
+            "range": "± 1185",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 11005,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 38965,
+            "range": "± 1506",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 155062,
+            "range": "± 1454",
             "unit": "ns/iter"
           }
         ]
