@@ -1,4 +1,4 @@
-# 02 — Prototype-aligned semantic console palette
+# 02 — Prototype-aligned console palette
 
 **What to build:** One decided, named console palette that `restyle-egui-console/03` can falsify a capture against. `shell/src/style.rs` already holds the single `ConsolePalette` struct and the `PALETTE` const that every rendering colour comes from, and `shell/src/theme.md` already records the 22 token values in hex. This issue makes that record the decision rather than a description: the palette below is the one the captures must match, token by token. Where the shipped code is the only evidence for a choice, this issue says so and leaves the choice open for `03` to settle against the prototype.
 
@@ -11,7 +11,7 @@ The palette is a charcoal page over near-black Source, subtle one-pixel Cell gri
 **Tags:** release/v1
 
 - [ ] Semantic colours are derived from one theme boundary rather than scattered rendering literals: the `ConsolePalette` struct and the `PALETTE` const in `shell/src/style.rs`.
-- [ ] Glyph classification remains responsible for semantic colour choice while Grid rendering owns geometry.
+- [ ] Glyph classification remains responsible for Glyph colour choice while Grid rendering owns geometry.
 - [ ] The 22 palette tokens hold exactly these values, and `shell/src/theme.md` states the same ones:
       page `#0B1112`; source `#070D0D`; grid line `rgba(29, 55, 49, 0.28)`; sector line
       `rgba(55, 101, 86, 0.43)`; ordinary `#A5B7B2`; function `#68E0B8`; bang and error `#FF7F87`;
