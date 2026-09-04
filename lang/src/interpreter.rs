@@ -1,10 +1,22 @@
 use crate::{
-    Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Sequence, Stack, TickInputs,
-    Value,
+    Atom, Atoms, EXP_LEN, Error, Function, InterpretationError, PlayCommand, Sequence, Stack,
+    TickInputs, Value,
     functions::{self, math, numeric_conversion},
 };
 
-pub type Args = Stack<16>;
+/// The Operand Stack one Expression evaluates against, sized by the parser's
+/// own bound.
+///
+/// `EXP_LEN` is derived rather than chosen: no Atom raises the depth by more
+/// than one, so the peak depth of a walk can never exceed the Atom count, and
+/// the parser already refuses an Expression of more than `EXP_LEN` Atoms with
+/// `SyntaxError::ExpressionTooLong`. A literal Atom pushes one value. A
+/// Function pushes one value only after popping the operands its signature
+/// declares, so its net change is never positive for any declared arity, and
+/// even a nullary Function would raise the depth by one like a literal. Nothing
+/// an arity change can do invalidates that, which is why widening a signature
+/// needs no new proof here.
+pub type Args = Stack<EXP_LEN>;
 
 pub struct Interpreter {}
 
@@ -105,7 +117,7 @@ impl Interpreter {
                 },
                 atom => (*atom).into(),
             };
-            ctx.stack.push(value);
+            ctx.stack.push(value)?;
         }
 
         // A non-terminal Expression leaves one language value on the stack.
@@ -123,8 +135,9 @@ impl Interpreter {
 mod test {
 
     use crate::{
-        Anchor, ArgumentError, Atom, Error, Function, InterpretationError, Parser, Tick,
-        TickInputs, TypeError, interpreter::Interpreter, trace,
+        Anchor, ArgumentError, Atom, EXP_LEN, Error, Function, Interpretation, InterpretationError,
+        MidiChannel, Note, Parser, PlayCommand, Tick, TickInputs, Token, TypeError, Velocity,
+        interpreter::Interpreter, trace,
     };
     use tracing::info;
 
@@ -712,6 +725,91 @@ mod test {
     }
 
     #[test]
+    fn an_expression_at_the_parser_bound_evaluates_without_exhausting_the_operand_stack() {
+        // The witness for the bound `Args` declares. These 64 Cells parse to
+        // exactly `EXP_LEN` Atoms, and the sixteen Operand Literals stand above
+        // the Note before the first `.+` consumes any of them, so the walk
+        // reaches a depth of seventeen. A stack sized by an arity rather than
+        // by `EXP_LEN` cannot hold that.
+        let mut source =
+            "!>.+.+.+.+.+.+.+.+.+.+.+.+.+.+01010101010101010101010101010101C4".to_owned();
+        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        assert_eq!(atoms.len(), EXP_LEN);
+
+        // The chain sums fifteen of the sixteen Operand Literals into the
+        // channel, leaving the sixteenth as the velocity.
+        assert_eq!(
+            Interpreter::execute(&atoms, inputs()).unwrap(),
+            Interpretation::Play(PlayCommand::Raw {
+                channel: MidiChannel::try_from(0x0F).unwrap(),
+                velocity: Velocity::try_from(0x01).unwrap(),
+                note: Note::try_from(60).unwrap(),
+            })
+        );
+    }
+
+    #[test]
+    fn every_chain_the_parser_accepts_evaluates_without_exhausting_the_operand_stack() {
+        // The reproduction above is one point on this boundary; this is the
+        // whole of it. A left-leaning chain is the shape that grows the Operand
+        // Stack, because prefix order puts every Function ahead of every
+        // operand and the walk therefore pushes all of a chain's literals
+        // before its innermost Function consumes one. Every chain length is
+        // enumerated under every root, so the widest root reaches the deepest
+        // walk a Source can write, and a root Function added later is covered
+        // by its own definition.
+        fn literal(token: Token) -> &'static str {
+            match token {
+                Token::Number => "01",
+                Token::Note => "C4",
+                other => panic!("no operand is declared as {other:?}"),
+            }
+        }
+
+        let mut reached_the_parser_bound = false;
+
+        for function in Function::ALL.iter().copied() {
+            for chain in 0..EXP_LEN {
+                // The chain stands in the first operand, which the
+                // right-to-left walk reaches last and so with the most already
+                // on the stack.
+                let mut source = function.spelling().to_owned();
+                source.push_str(&".+".repeat(chain));
+                source.push_str(&"01".repeat(chain + 1));
+                for token in function.signature().iter().skip(1) {
+                    source.push_str(literal(*token));
+                }
+
+                let Ok(atoms) = Parser::from(&mut source).try_parse() else {
+                    // Refusing an over-long Expression is the parser's half of
+                    // the bound, and an acceptable outcome here.
+                    continue;
+                };
+
+                reached_the_parser_bound |= atoms.len() == EXP_LEN;
+
+                // Any diagnostic but one is an acceptable answer: an operand
+                // may be mistyped or out of its domain. Exhaustion is the one
+                // the bound rules out, and a panic fails the test outright.
+                assert!(
+                    !matches!(
+                        Interpreter::execute(&atoms, inputs()),
+                        Err(Error::Interpretation(
+                            InterpretationError::OperandStackExhausted { .. }
+                        ))
+                    ),
+                    "{function:?} over a chain of {chain} exhausted the Operand Stack",
+                );
+            }
+        }
+
+        assert!(
+            reached_the_parser_bound,
+            "no enumerated chain reached the parser's own bound, so nothing here tested it",
+        );
+    }
+
+    #[test]
     fn general_arithmetic_wraps_for_every_pair_of_bytes() {
         for left in 0..=u8::MAX {
             for right in 0..=u8::MAX {
@@ -738,6 +836,154 @@ mod test {
                     );
                 }
             }
+        }
+    }
+}
+
+///
+/// The parser/Evaluator boundary as a property: every Expression the parser
+/// accepts is one the Evaluator answers, rather than one it panics on. The
+/// bound `Args` declares is what makes that true of the Operand Stack, and a
+/// property is what keeps it true of Expressions nobody wrote down.
+///
+/// This is breadth rather than depth. The tight boundary — the one Expression
+/// shape that reaches the deepest walk `EXP_LEN` Atoms admit — is narrow enough
+/// that sampling would miss it, so
+/// `test::every_chain_the_parser_accepts_evaluates_without_exhausting_the_operand_stack`
+/// enumerates it instead, and this covers the shapes an enumeration cannot.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod property {
+    use crate::{
+        Anchor, EXP_LEN, Error, Function, InterpretationError, Interpreter, Parser, Tick,
+        TickInputs, midi_number_to_note,
+    };
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+    use proptest::sample::select;
+
+    /// One Function applied to Source text for each of its operands.
+    fn apply(function: Function, operands: &[String]) -> String {
+        let mut source = function.spelling().to_owned();
+        source.extend(operands.iter().map(String::as_str));
+        source
+    }
+
+    /// Source text for one Operand Literal, in either type a signature names.
+    fn literal_source() -> impl Strategy<Value = String> {
+        prop_oneof![
+            any::<u8>().prop_map(|number| format!("{number:02X}")),
+            (0x00u8..=0x7F).prop_map(|note| midi_number_to_note(note).expect("a MIDI Note")),
+        ]
+    }
+
+    /// Every Value Function, read from the definitions rather than listed, so a
+    /// Function added later is generated the day it exists.
+    fn value_functions() -> Vec<Function> {
+        Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| !function.is_terminal())
+            .collect()
+    }
+
+    /// The binary Value Functions, which are the ones a chain is built from.
+    fn binary_value_functions() -> Vec<Function> {
+        value_functions()
+            .into_iter()
+            .filter(|function| function.signature().len() == 2)
+            .collect()
+    }
+
+    /// A left-leaning chain of binary Value Functions: `.+.+.+ a b c d`.
+    ///
+    /// This shape is generated deliberately rather than left to the recursion
+    /// below, because it is the one that grows the Operand Stack. Prefix order
+    /// puts every Function ahead of every operand, so the right-to-left walk
+    /// pushes all `k + 1` literals before the innermost Function consumes any
+    /// of them. A balanced tree of the same Atom count never reaches a fraction
+    /// of that depth, and a uniform recursion almost never produces a chain.
+    ///
+    /// The chain length runs past what `EXP_LEN` admits, because an Expression
+    /// the parser refuses is half of the property: the stack stays in bounds by
+    /// the parser's bound, so a generator that never reached it would never
+    /// test the two together.
+    fn chain_source() -> impl Strategy<Value = String> {
+        vec(select(binary_value_functions()), 0..EXP_LEN)
+            .prop_flat_map(|functions| {
+                let literals = functions.len() + 1;
+                (Just(functions), vec(literal_source(), literals))
+            })
+            .prop_map(|(functions, literals)| {
+                let mut source: String = functions.iter().map(|f| f.spelling()).collect();
+                source.extend(literals.iter().map(String::as_str));
+                source
+            })
+    }
+
+    /// Source text for one operand: a literal, a chain, or a Value Function
+    /// applied to operands generated the same way.
+    fn operand_source() -> impl Strategy<Value = String> {
+        let leaf = prop_oneof![2 => literal_source(), 1 => chain_source()];
+
+        leaf.prop_recursive(8, 48, 2, move |operand| {
+            select(value_functions())
+                .prop_flat_map(move |function| {
+                    (
+                        Just(function),
+                        vec(operand.clone(), function.signature().len()),
+                    )
+                })
+                .prop_map(|(function, operands)| apply(function, &operands))
+        })
+    }
+
+    /// Source text for one whole Expression. The root is any Function at all,
+    /// including the terminal one, whose three operands make it the widest
+    /// root a Source can write and so the deepest walk one can ask for.
+    fn expression_source() -> impl Strategy<Value = String> {
+        select(Function::ALL).prop_flat_map(|function| {
+            vec(operand_source(), function.signature().len())
+                .prop_map(move |operands| apply(function, &operands))
+        })
+    }
+
+    ///
+    /// The Tick inputs for a property about Atoms rather than about time or
+    /// Position: the first Tick of a Playback run, at the Grid origin.
+    ///
+    fn inputs() -> TickInputs {
+        TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
+    }
+
+    proptest! {
+        ///
+        /// Evaluation is total over the Expressions strict parsing accepts, and
+        /// never exhausts the Operand Stack. A panic fails a case outright,
+        /// which is what a 64-Cell Expression used to produce; a mistyped or
+        /// out-of-domain operand is an acceptable answer, and exhaustion is the
+        /// one diagnostic the bound rules out.
+        ///
+        #[test]
+        fn evaluating_every_expression_the_parser_accepts_returns_rather_than_panicking(
+            source in expression_source(),
+        ) {
+            let mut source = source;
+            let Ok(atoms) = Parser::from(&mut source).try_parse() else {
+                // An over-long Expression is the parser's to refuse, and its
+                // refusal is what the Operand Stack's bound rests on.
+                return Ok(());
+            };
+
+            let exhausted = matches!(
+                Interpreter::execute(&atoms, inputs()),
+                Err(Error::Interpretation(InterpretationError::OperandStackExhausted { .. }))
+            );
+
+            prop_assert!(!exhausted, "{source:?} exhausted the Operand Stack");
         }
     }
 }

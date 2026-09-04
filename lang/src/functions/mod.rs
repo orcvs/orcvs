@@ -61,11 +61,12 @@ mod test {
         let mut ctx = context();
 
         // A fourth atom below the three arguments must survive untouched
-        ctx.stack.push(Atom::Char('z'));
+        ctx.stack.push(Atom::Char('z')).unwrap();
         ctx.stack
-            .push(Atom::Note(crate::Note::try_from(60).unwrap())); // n
-        ctx.stack.push(Atom::Number(0x7F)); // v
-        ctx.stack.push(Atom::Number(0x0)); // c
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .unwrap(); // n
+        ctx.stack.push(Atom::Number(0x7F)).unwrap(); // v
+        ctx.stack.push(Atom::Number(0x0)).unwrap(); // c
 
         let result = play(&mut ctx).unwrap();
 
@@ -93,9 +94,10 @@ mod test {
         // domain types it sits beside.
         let mut ctx = context();
         ctx.stack
-            .push(Atom::Note(crate::Note::try_from(60).unwrap()));
-        ctx.stack.push(Atom::Number(0x02));
-        ctx.stack.push(Atom::Number(0x01));
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .unwrap();
+        ctx.stack.push(Atom::Number(0x02)).unwrap();
+        ctx.stack.push(Atom::Number(0x01)).unwrap();
 
         let expected = PlayCommand::Raw {
             channel: MidiChannel::try_from(0x01).unwrap(),
@@ -119,7 +121,7 @@ mod test {
         for found in 0..3 {
             let mut ctx = context();
             for _ in 0..found {
-                ctx.stack.push(Atom::Number(1));
+                ctx.stack.push(Atom::Number(1)).unwrap();
             }
 
             let error = play(&mut ctx).unwrap_err();
@@ -151,7 +153,7 @@ mod test {
         ] {
             let mut ctx = context();
             for argument in arguments.into_iter().rev() {
-                ctx.stack.push(argument);
+                ctx.stack.push(argument).unwrap();
             }
 
             assert!(matches!(play(&mut ctx), Err(Error::Type(_))));
@@ -170,7 +172,7 @@ mod test {
             .into_iter()
             .rev()
             {
-                ctx.stack.push(argument);
+                ctx.stack.push(argument).unwrap();
             }
 
             assert!(matches!(
@@ -193,7 +195,7 @@ mod test {
             .into_iter()
             .rev()
             {
-                ctx.stack.push(argument);
+                ctx.stack.push(argument).unwrap();
             }
 
             assert!(matches!(
