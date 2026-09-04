@@ -7,6 +7,7 @@ mod parser;
 mod portal;
 mod sequence;
 mod stack;
+mod tick;
 
 pub use atom::{Activation, Atom, Atoms, Function, Note, to_atom_note, to_atom_num};
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
@@ -16,6 +17,7 @@ pub use parser::{Parser, SourceAnalysis};
 pub use portal::Portal;
 pub use sequence::{Sequence, Value};
 pub use stack::Stack;
+pub use tick::{Anchor, Tick, TickInputs};
 
 use std::sync::Once;
 

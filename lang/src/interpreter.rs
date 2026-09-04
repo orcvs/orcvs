@@ -1,5 +1,6 @@
 use crate::{
-    Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Sequence, Stack, Value,
+    Atom, Atoms, Error, Function, InterpretationError, PlayCommand, Sequence, Stack, TickInputs,
+    Value,
     functions::{self, math, numeric_conversion},
 };
 
@@ -22,20 +23,53 @@ pub enum Interpretation {
     Play(PlayCommand),
 }
 
+///
+/// What one evaluation has to work with: the operands it has resolved so far,
+/// and the explicit inputs ADR 0012 supplies alongside the Source Snapshot.
+///
+/// A Function reaching for the Tick or its anchor takes `&mut Context` exactly
+/// as an arithmetic Function does today, so a Tick-reading Function is a new
+/// arm in `execute` rather than a new evaluation path.
+///
 pub struct Context {
     pub stack: Args,
+    /// The explicit inputs ADR 0012 supplies alongside the Source Snapshot.
+    ///
+    /// `dead_code` reads an unread field as one to delete, and here that
+    /// conclusion is wrong rather than merely early: this field is the input
+    /// side of the seam, and its value is already chosen by the Playback
+    /// Engine and threaded through every caller. Deleting it would delete the
+    /// threading, not an unused field. Clock, Delay, and Euclidean read the
+    /// Tick and Random also reads the anchor. `expect` rather than `allow`, so
+    /// the first Function to read the field turns this attribute into the
+    /// error that deletes it.
+    #[expect(
+        dead_code,
+        reason = "an unread input is not an unused one: this is the seam its consumers read"
+    )]
+    pub inputs: TickInputs,
 }
 
 impl Context {
-    pub fn new() -> Self {
-        Self { stack: Args::new() }
+    pub fn new(inputs: TickInputs) -> Self {
+        Self {
+            stack: Args::new(),
+            inputs,
+        }
     }
 }
 
 impl Interpreter {
+    ///
+    /// Evaluates one Expression's Atoms against `inputs`.
+    ///
+    /// `inputs` is the whole of what evaluation knows beyond the Atoms
+    /// themselves: nothing here reads a clock, a static, or a thread-local, so
+    /// the same Atoms and the same inputs answer the same way every time.
+    ///
     #[inline(always)]
-    pub fn execute(atoms: &Atoms) -> Result<Interpretation, Error> {
-        let mut ctx = Context::new();
+    pub fn execute(atoms: &Atoms, inputs: TickInputs) -> Result<Interpretation, Error> {
+        let mut ctx = Context::new(inputs);
 
         for (index, atom) in atoms.iter().enumerate().rev() {
             // info!("atoms: {:?}", atoms);
@@ -89,10 +123,18 @@ impl Interpreter {
 mod test {
 
     use crate::{
-        ArgumentError, Atom, Error, Function, InterpretationError, Parser, TypeError,
-        interpreter::Interpreter, trace,
+        Anchor, ArgumentError, Atom, Error, Function, InterpretationError, Parser, Tick,
+        TickInputs, TypeError, interpreter::Interpreter, trace,
     };
     use tracing::info;
+
+    ///
+    /// The explicit inputs for a test that is about neither time nor Position:
+    /// the first Tick of a Playback run, at the Grid origin.
+    ///
+    fn inputs() -> TickInputs {
+        TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
+    }
 
     fn interpret(exp: String) -> Atom {
         let mut exp = exp.clone();
@@ -101,7 +143,7 @@ mod test {
 
         info!("Parsed: {:?}", parsed);
 
-        match Interpreter::execute(&parsed).unwrap() {
+        match Interpreter::execute(&parsed, inputs()).unwrap() {
             super::Interpretation::Cell(atom) => atom,
             other => panic!("expected a Cell result, found {other:?}"),
         }
@@ -109,7 +151,7 @@ mod test {
 
     fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
         let atoms = exp.into_iter().collect();
-        Interpreter::execute(&atoms).map(|result| match result {
+        Interpreter::execute(&atoms, inputs()).map(|result| match result {
             super::Interpretation::Cell(atom) => atom,
             other => panic!("expected a Cell result, found {other:?}"),
         })
@@ -225,7 +267,7 @@ mod test {
         let mut exp = String::from("./0100");
         let parsed = Parser::from(&mut exp).try_parse().unwrap();
         assert!(matches!(
-            Interpreter::execute(&parsed),
+            Interpreter::execute(&parsed, inputs()),
             Err(Error::Interpretation(InterpretationError::DivisionByZero))
         ));
     }
@@ -402,7 +444,10 @@ mod test {
             ],
         ] {
             let atoms = atoms.into_iter().collect();
-            assert!(matches!(Interpreter::execute(&atoms), Err(Error::Type(_))));
+            assert!(matches!(
+                Interpreter::execute(&atoms, inputs()),
+                Err(Error::Type(_))
+            ));
         }
     }
 
@@ -421,7 +466,7 @@ mod test {
 
             assert!(
                 matches!(
-                    Interpreter::execute(&atoms),
+                    Interpreter::execute(&atoms, inputs()),
                     Err(Error::Interpretation(
                         InterpretationError::NestedTerminalFunction
                     ))
@@ -498,7 +543,7 @@ mod test {
         let mut source = ".^C4".to_owned();
         let atoms = Parser::from(&mut source).try_parse().unwrap();
         assert!(matches!(
-            Interpreter::execute(&atoms),
+            Interpreter::execute(&atoms, inputs()),
             Err(Error::Interpretation(InterpretationError::NoteConversion(
                 0xC4
             )))
@@ -661,7 +706,7 @@ mod test {
         let mut source = ".+.=010203".to_owned();
         let atoms = Parser::from(&mut source).try_parse().unwrap();
         assert!(matches!(
-            Interpreter::execute(&atoms),
+            Interpreter::execute(&atoms, inputs()),
             Err(Error::Type(TypeError::Number(found))) if found == "_"
         ));
     }

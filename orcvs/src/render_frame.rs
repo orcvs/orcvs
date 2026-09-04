@@ -197,7 +197,7 @@ mod tests {
         grid::{CellIndex, Grid},
         opts::{HighlightSpacing, MarkerSpacing},
         render_frame::{RenderFrame, RenderFrameConfig},
-        source::SourceCommander,
+        source::{SourceCommander, Tick},
     };
 
     ///
@@ -478,18 +478,27 @@ mod tests {
         for (idx, content) in ".+010E".chars().enumerate() {
             source.set(cell(grid, idx), &content.to_string()).unwrap();
         }
-        source.execute();
+        // Tick `0` of this Playback run, before either thread starts: it is
+        // what puts a committed result in row 1 for the reader to observe.
+        source.execute(Tick::ZERO);
 
         let start = Arc::new(Barrier::new(2));
         let writer_source = source.clone();
         let writer_start = start.clone();
         let writer = std::thread::spawn(move || {
             writer_start.wait();
+            // ADR 0012 numbers each Tick after the first one on from the last,
+            // so the writer carries the run forward from Tick `1` rather than
+            // re-running Tick `0` two thousand times. What the reader is
+            // watching for is a torn Render Frame, and a Playback run this
+            // test could not otherwise describe is no basis for pinning one.
+            let mut tick = Tick::ZERO.next();
             for operand in ['F', 'E'].into_iter().cycle().take(2_000) {
                 writer_source
                     .set(cell(grid, 5), &operand.to_string())
                     .unwrap();
-                writer_source.execute();
+                writer_source.execute(tick);
+                tick = tick.next();
             }
         });
 

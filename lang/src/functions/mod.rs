@@ -54,14 +54,23 @@ pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
 mod test {
     use super::{midi_channel, midi_data_byte, play};
     use crate::{
-        ArgumentError, Atom, Error, InterpretationError, PlayCommand, interpreter::Context,
+        Anchor, ArgumentError, Atom, Error, InterpretationError, PlayCommand, Tick, TickInputs,
+        interpreter::Context,
     };
+
+    ///
+    /// A Context for a test about operands rather than about time or Position:
+    /// the first Tick of a Playback run, at the Grid origin.
+    ///
+    fn context() -> Context {
+        Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)))
+    }
 
     /// Pins the Play arity contract before issue 04 replaces the placeholder.
     /// See `.scratch/source-playback-engine/issues/04-interpret-terminal-play-functions-into-play-commands.md`
     #[test]
     fn test_play_consumes_exactly_three_arguments() {
-        let mut ctx = Context::new();
+        let mut ctx = context();
 
         // A fourth atom below the three arguments must survive untouched
         ctx.stack.push(Atom::Char('z'));
@@ -89,7 +98,7 @@ mod test {
     #[test]
     fn test_play_requires_three_arguments() {
         for found in 0..3 {
-            let mut ctx = Context::new();
+            let mut ctx = context();
             for _ in 0..found {
                 ctx.stack.push(Atom::Number(1));
             }
@@ -121,7 +130,7 @@ mod test {
             ],
             [Atom::Number(0), Atom::Number(0x7F), Atom::Number(60)],
         ] {
-            let mut ctx = Context::new();
+            let mut ctx = context();
             for argument in arguments.into_iter().rev() {
                 ctx.stack.push(argument);
             }
@@ -133,7 +142,7 @@ mod test {
     #[test]
     fn play_rejects_channels_outside_the_midi_range() {
         for channel in 0x10..=u8::MAX {
-            let mut ctx = Context::new();
+            let mut ctx = context();
             for argument in [
                 Atom::Number(channel),
                 Atom::Number(0x7F),
@@ -156,7 +165,7 @@ mod test {
     #[test]
     fn play_rejects_velocities_outside_the_midi_data_byte_range() {
         for velocity in 0x80..=u8::MAX {
-            let mut ctx = Context::new();
+            let mut ctx = context();
             for argument in [
                 Atom::Number(0),
                 Atom::Number(velocity),

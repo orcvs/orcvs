@@ -1,4 +1,4 @@
-use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError};
+use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError, Tick};
 use std::{fmt, sync::Arc};
 use tracing::debug;
 
@@ -329,8 +329,13 @@ impl Source {
     /// committed by one Expression can never become another Expression's input
     /// within the same Tick.
     ///
-    pub fn execute(&mut self) -> TickPlan {
-        let plan = self.plan_tick();
+    /// `tick` is the absolute Tick this Snapshot is interpreted at. Musical
+    /// time belongs to the Playback Engine and ADR 0003 keeps every piece of
+    /// language state in the Source Snapshot, so it arrives as an input rather
+    /// than being counted here.
+    ///
+    pub fn execute(&mut self, tick: Tick) -> TickPlan {
+        let plan = self.plan_tick(tick);
         self.commit_tick(&plan);
 
         plan
@@ -345,10 +350,10 @@ impl Source {
     /// gains no turn of its own and a Function a write generates first becomes
     /// actionable in the next Source Snapshot.
     ///
-    fn plan_tick(&self) -> TickPlan {
+    fn plan_tick(&self, tick: Tick) -> TickPlan {
         let mut effects = Vec::new();
         for turn in tick::turns(self.grid, &self.language_map) {
-            turn.emit(self.grid, &self.language_map, &mut effects);
+            turn.emit(self.grid, &self.language_map, tick, &mut effects);
         }
 
         tick::resolve(effects)
@@ -412,7 +417,7 @@ mod test {
     use crate::{
         glyph::Glyph,
         grid::{CellIndex, Grid},
-        source::{CellWrite, PlayCommand, Source, SourceError},
+        source::{CellWrite, PlayCommand, Source, SourceError, Tick, TickPlan},
         test::trace,
     };
 
@@ -465,11 +470,16 @@ mod test {
     /// replacement. Two different shapes are not expressible, and a Source
     /// built outside it has no row helper to call.
     ///
+    /// It also owns the Playback run's absolute Tick, so a test that Ticks
+    /// twice describes a Playback run that ADR 0012 admits without restating
+    /// the counter. See `execute`.
+    ///
     /// It derefs to the Source so a test still speaks to a Source directly.
     ///
     struct SourceUnderTest {
         grid: Grid,
         src: Source,
+        tick: Tick,
     }
 
     impl SourceUnderTest {
@@ -477,7 +487,52 @@ mod test {
             Self {
                 grid,
                 src: Source::new(grid),
+                // ADR 0012: the first Tick of a Playback run is absolute Tick
+                // `0`. A Source that has not run yet is a run about to begin.
+                tick: Tick::ZERO,
             }
+        }
+
+        ///
+        /// Runs the next Tick of this Source's Playback run.
+        ///
+        /// ADR 0012 numbers the first Playback Tick `0` and increments that
+        /// counter by one for each Tick after it, so a test that executes
+        /// twice is describing Ticks `0` and `1`. Counting here rather than at
+        /// every call site is what makes the alternative — a run that executes
+        /// two consecutive Ticks at one absolute Tick, which no Playback run
+        /// does — unwritable: a test cannot pass a Tick it does not name.
+        ///
+        /// Inherent, so it wins over the `DerefMut` fall-through to
+        /// `Source::execute` and a plain `src.execute()` reaches this counter
+        /// rather than an unnumbered Tick.
+        ///
+        fn execute(&mut self) -> TickPlan {
+            self.execute_at(self.tick)
+        }
+
+        ///
+        /// Runs one Tick at the absolute Tick `tick`, and resumes the run from
+        /// the Tick after it.
+        ///
+        /// For the tests that are *about* a particular absolute Tick — a Tick
+        /// Plan pinned as a function of the Snapshot and the Tick together —
+        /// rather than about a Playback run's ordinary progress.
+        ///
+        fn execute_at(&mut self, tick: Tick) -> TickPlan {
+            self.tick = tick.next();
+            self.src.execute(tick)
+        }
+
+        ///
+        /// The absolute Tick the next execution interprets at.
+        ///
+        /// This is the Tick itself, not a second count of it: `execute_at` is
+        /// the only writer, and it writes what it just handed to
+        /// interpretation.
+        ///
+        fn tick(&self) -> Tick {
+            self.tick
         }
 
         ///
@@ -581,6 +636,36 @@ mod test {
         assert_eq!(src.row(1), "03      ");
     }
 
+    #[test]
+    fn test_the_source_under_test_executes_consecutive_ticks_of_one_playback_run() {
+        trace();
+
+        // Every multi-Tick test in this module reads its Tick numbering from
+        // the helper rather than stating one, so this is where that numbering
+        // is pinned. ADR 0012: the first Playback Tick is absolute Tick `0`,
+        // and each Tick after it is one on from the last. A helper that handed
+        // interpretation the same Tick twice would describe a Playback run
+        // that cannot exist, and would silently stop a test that Ticks twice
+        // from exercising a second Tick once a Function reads the Tick.
+        let mut src = source();
+
+        assert_eq!(src.tick(), Tick::ZERO, "a run begins at absolute Tick 0");
+        for expected in 1..=4 {
+            src.execute();
+            assert_eq!(
+                src.tick(),
+                Tick::new(expected),
+                "execution {expected} left the run on the wrong absolute Tick"
+            );
+        }
+
+        // A pinned Tick is a Tick of the same run: `execute_at` names the Tick
+        // it interprets at, and the run carries on from the Tick after it.
+        src.execute_at(Tick::new(7));
+
+        assert_eq!(src.tick(), Tick::new(8));
+    }
+
     #[cfg(feature = "persistence")]
     #[test]
     fn test_source_round_trip_restores_shape_contents_and_derived_state() {
@@ -614,7 +699,7 @@ mod test {
                 .collect::<Vec<_>>()
         );
 
-        restored.execute();
+        restored.execute(Tick::ZERO);
         // A restored Source is built from a Grid of its own: persistence
         // carries the shape, not the identity, so the Cells of the Source that
         // was written are not the Cells of the Source that was read back.
@@ -1185,6 +1270,8 @@ mod test {
         src.write(at(10), "**");
         src.write(at(20), "!>017FA4");
 
+        // Two successive Ticks of one Playback run, which is what "every Tick"
+        // means: the same commands at Tick `0` and again at Tick `1`.
         let first = src.execute();
         let second = src.execute();
         let expected = vec![
@@ -1491,7 +1578,10 @@ mod test {
         let after_first_tick = src.snapshot();
 
         // A committed result is not itself a computation, so re-Ticking the
-        // same Source re-commits the same Cells and never marches down the grid
+        // same Source re-commits the same Cells and never marches down the
+        // grid. Ticks `1` through `4` of the same Playback run, not Tick `0`
+        // four times: the helper counts, so what is re-Ticked here is a run
+        // ADR 0012 admits.
         for _ in 0..4 {
             src.execute();
             assert_eq!(src.snapshot(), after_first_tick);
@@ -1671,6 +1761,50 @@ mod test {
                 .iter()
                 .any(|write| write.cell == at(20) && write.content == '0')
         );
+    }
+
+    #[test]
+    fn test_one_source_snapshot_at_one_tick_plans_one_tick_plan() {
+        trace();
+
+        // ADR 0012 makes the Tick an explicit input so that the Tick Plan stays
+        // a function of the Source Snapshot and the Tick together. Two Sources
+        // typed identically on one Grid and interpreted at the same absolute
+        // Tick must plan the same writes, Play Commands, and diagnostics.
+        //
+        // What that pins is determinism at a fixed Tick: interpretation of one
+        // Source Snapshot carries nothing over from an earlier interpretation
+        // of it, so a Tick Plan is reproducible from the Snapshot and the Tick
+        // alone. It does not pin that a Function reads time from its Tick
+        // input rather than from a clock — two executions this close together
+        // read the same coarse clock and agree anyway — and it does not pin
+        // that a different Tick plans a different Tick Plan. Those are the
+        // other half of ADR 0012, and they need a test that varies the Tick.
+        //
+        // One Grid for both, because a Tick Plan names Cells by index and an
+        // index belongs to the Grid that minted it: two Grids of one shape
+        // would differ here without either Snapshot differing.
+        let grid = grid();
+        let plan_at = |tick| {
+            let mut src = SourceUnderTest::new(grid);
+            let at = src.cells();
+            // Arithmetic that writes, an activated Raw Play that commands, and
+            // a result with no row beneath it to land in, which diagnoses: one
+            // of each part of a Tick Plan.
+            src.write(at(0), ".+0102");
+            src.write(at(20), "!>007FC4");
+            src.write(at(30), "**");
+            src.write(at(50), ".+0304");
+            src.execute_at(tick)
+        };
+
+        let first = plan_at(Tick::new(7));
+        let second = plan_at(Tick::new(7));
+
+        assert!(!first.writes.is_empty());
+        assert!(!first.play_commands.is_empty());
+        assert!(!first.diagnostics.is_empty());
+        assert_eq!(first, second);
     }
 
     #[test]

@@ -5,7 +5,7 @@
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use lang::{Interpreter, Parser};
+use lang::{Anchor, Interpreter, Parser, Tick, TickInputs};
 use std::hint::black_box;
 
 /// Nested arithmetic: the shape an Expression takes once a Function consumes
@@ -55,13 +55,17 @@ fn parse_invalid(c: &mut Criterion) {
 }
 
 fn execute(c: &mut Criterion) {
+    // The first Tick of a Playback run, at the Grid origin: no Function reads
+    // either input yet, and the measurement is of evaluation rather than of
+    // any one Tick.
+    let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     let mut source = String::from(NESTED);
     let atoms = Parser::from(source.as_mut_str())
         .try_parse()
         .expect("NESTED is a valid Expression");
 
     c.bench_function("execute", |b| {
-        b.iter(|| Interpreter::execute(black_box(&atoms)))
+        b.iter(|| Interpreter::execute(black_box(&atoms), black_box(inputs)))
     });
 }
 
