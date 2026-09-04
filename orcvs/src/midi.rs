@@ -197,6 +197,7 @@ mod tests {
     struct FakeState {
         messages: Vec<Vec<u8>>,
         fail_next_send: bool,
+        fail_next_connect: bool,
         connection_count: usize,
     }
 
@@ -213,7 +214,13 @@ mod tests {
             &mut self,
             _destination_id: &MidiDestinationId,
         ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            self.state.lock().unwrap().connection_count += 1;
+            let mut state = self.state.lock().unwrap();
+            if state.fail_next_connect {
+                state.fail_next_connect = false;
+                return Err(MidiError::new("device unplugged"));
+            }
+            state.connection_count += 1;
+            drop(state);
             Ok(Box::new(FakeConnection {
                 state: self.state.clone(),
             }))
@@ -462,6 +469,60 @@ mod tests {
 
         assert_eq!(state.lock().unwrap().messages.len(), delivered);
         assert_eq!(state.lock().unwrap().connection_count, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_destination_change_that_fails_to_connect_clears_the_scheduled_stop() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let grid = Grid::new(10, 3);
+        let source = SourceCommander::new(grid);
+        // The same Timed Play the successful change uses: a note stopped two
+        // Ticks after it starts, and the Bang one row below its root.
+        for (index, content) in "!~007FC402**".chars().enumerate() {
+            source.set(cell(grid, index), &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source.clone(), adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            state.lock().unwrap().messages.last(),
+            Some(&vec![0x90, 60, 0x7f])
+        );
+
+        // Retire the Bang, then attempt a change the device refuses. The
+        // all-notes-off that precedes the connection is sent regardless, so the
+        // note is silenced whether or not the new destination is reached: a
+        // change that silences the old device owes the same cleared schedule
+        // whether it completes or fails.
+        source.unset(cell(grid, 10));
+        source.unset(cell(grid, 11));
+        state.lock().unwrap().fail_next_connect = true;
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap_err();
+        let delivered = state.lock().unwrap().messages.len();
+
+        for _ in 0..3 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            tokio::task::yield_now().await;
+        }
+
+        // Read both counters out before asserting: a guard held across a
+        // failing assertion poisons the fake, and the engine's own drop then
+        // panics inside a destructor and hides which assertion failed.
+        let (sent, connections) = {
+            let state = state.lock().unwrap();
+            (state.messages.len(), state.connection_count)
+        };
+        assert_eq!(sent, delivered);
+        assert_eq!(connections, 1);
     }
 
     #[test]

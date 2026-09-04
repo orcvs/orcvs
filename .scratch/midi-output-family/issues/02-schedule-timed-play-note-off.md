@@ -59,7 +59,12 @@ MIDI's zero-velocity Note On, the same explicit stop Raw Play already gives the 
 Beginning a run, stopping, disconnecting, and changing destination, plus the final-handle drop
 that routes through `stop`. Both selection paths — `PlaybackEngine::select_midi_destination` and
 the `MidiSelectionHandle` the shell holds — now call one `PlaybackInner::select_destination`, so
-what a destination change owes is stated once rather than twice.
+what a destination change owes is stated once rather than twice. It clears before it connects,
+because `MidiOutputAdapter::select` sends all-notes-off on the destination it is leaving and only
+then reaches the new one: a change that cannot connect has silenced the old device just the same,
+and a claim carried across it would stop whatever the Source starts on that voice afterwards.
+Nothing is owned while disconnected, so clearing first discards nothing a failed change should
+have kept.
 
 A refused submission changes nothing at all. The schedule describes notes that are sounding, so
 a Tick is resolved against a copy of it and the copy is adopted only once the adapter has
@@ -72,6 +77,12 @@ before the submission means a hanging note with no retry and no diagnostic. The 
 of the notes currently sounding, taken once per executed Tick.
 
 ### Left open
+
+Monophonic Play's ownership moved with Timed Play's. ADR 0016 gives the selected output adapter
+at most one Mono voice per channel and has it schedule that voice's Note Off, which an Output
+Command carrying one message and no lifetime leaves nowhere to put. CONTEXT.md's Monophonic Play
+entry now names the Playback Engine and flags the contradiction; issue 03 either follows it or
+reopens the ADR, rather than discovering the seam has already moved.
 
 A Timed expiry stops whatever stands on its voice, so a Raw Play of the same channel and note
 started between a claim and its expiry is stopped by that expiry. One note is sounding on the

@@ -723,15 +723,21 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
         &mut self,
         destination_id: &crate::midi::MidiDestinationId,
     ) -> Result<(), crate::midi::MidiError> {
+        // The notes this engine owned are sounding on the destination it is
+        // leaving, which is sent all-notes-off before the new connection is
+        // reached. Their scheduled stops would arrive at a device that never
+        // started them, so the schedule goes with the attempt rather than with
+        // its success: a change that cannot connect has silenced the old
+        // device just the same, and a claim kept across it would stop a note
+        // the Source starts on that voice afterwards. Nothing is owned while
+        // disconnected, so clearing before a failure that leaves this engine
+        // connected to the destination it already had discards nothing else.
+        self.timed.clear();
         let selection = self.adapter.select(destination_id)?;
         self.last_output_failure = None;
         if let Some(error) = selection.safety_failure() {
             self.record_output_failure(OutputAdapterError::new(error.message));
         }
-        // The notes this engine owned are sounding on the destination it just
-        // left, which was sent all-notes-off as it went. Their scheduled stops
-        // would arrive at a device that never started them.
-        self.timed.clear();
         self.connected = true;
         Ok(())
     }

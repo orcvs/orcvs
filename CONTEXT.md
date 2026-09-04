@@ -197,7 +197,7 @@ The terminal `!b channel lsb msb` Function. It accepts hexadecimal Number bytes,
 _Avoid_: PB scaling, normalized bend value, combined integer bend
 
 **Monophonic Play Function**:
-The terminal `!% channel velocity note length` Function with the same operand domains as Timed Play. Each output adapter owns one Mono voice per MIDI channel. Every command stops the prior Mono-owned note on that channel first. Velocity `00` or length `00` then starts nothing, replacing the voice with silence. Otherwise, a positive length starts the replacement and schedules its Note Off at Tick `T + length`; a later replacement cancels that expiry. Raw Play and Timed Play notes do not enter Mono ownership.
+The terminal `!% channel velocity note length` Function with the same operand domains as Timed Play. The Playback Engine owns one Mono voice per MIDI channel, beside the Timed schedule and cleared by the same lifecycle actions. This contradicts ADR 0016, which gives Mono ownership and its expiry to the selected output adapter, and is recorded here rather than settled: an Output Command is one message carrying no lifetime, so an adapter has nothing left to schedule with, and reopening ADR 0016 is what decides whether that is the right seam. Every command stops the prior Mono-owned note on that channel first. Velocity `00` or length `00` then starts nothing, replacing the voice with silence. Otherwise, a positive length starts the replacement and schedules its Note Off at Tick `T + length`; a later replacement cancels that expiry. Raw Play and Timed Play notes do not enter Mono ownership.
 _Avoid_: Global Mono voice, Play-wide voice stealing, implicit channel sharing
 
 **Application Command Function**:
