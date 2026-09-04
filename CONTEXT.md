@@ -36,6 +36,10 @@ _Avoid_: Footprint, extent, range, Cell structure, semantic Grid, bounding box
 The semantic view derived from one Source revision. It identifies Expressions, roots, Language Units, their anchor Positions, and their Spans without adding stored program state or a second coordinate system. It partitions each row from left to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that complete Span, and an unmatched character diagnoses without participating in an overlapping unit.
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
+**Atom**:
+One parsed value or operation an Expression is made of: a Number, a Note, a Char, a Bang, a Self-Banging Function, a Function, or the absence marker. An Atom is what the Evaluator walks and what a Sequence holds. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
+_Avoid_: Token, glyph, symbol, cell value
+
 **Operand Literal**:
 Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context, so a standalone operand literal is invalid.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
@@ -47,6 +51,14 @@ _Avoid_: Program state, runtime state
 **Expression**:
 A contiguous horizontal run of occupied Cells in one Source row that is parsed as one Orcvs language expression. Its first Function is the root Function; activating that root evaluates every nested Function needed by the Expression. An Expression never wraps across rows.
 _Avoid_: Formula, statement
+
+**Evaluator**:
+The stack-based expression evaluator that turns one Expression's Atoms into its answer, walking them from last Atom to first against an Operand Stack so that a Function's operands reach it in signature order. ADR 0028 specifies the machine and states why it is not a virtual machine: it has no bytecode, because the Atoms are re-derived from character Source on every Tick rather than compiled; no control flow, because activation and Portals are Source-resident behaviour rather than machine instructions; and no registers, heap, or persistent variables, because ADR 0003 already makes the Source Snapshot the complete language state.
+_Avoid_: Virtual machine, VM, interpreter loop, runtime
+
+**Operand Stack**:
+The stack of values one Expression is evaluated against. A literal Atom pushes one value onto it, and a Function pops the operands its signature declares and pushes one value in their place; an effect is never pushed onto it. It is created for one Expression and discarded when that Expression answers, so nothing carries from one Expression to the next or from one Tick to the next. ADR 0028 requires its depth to be proven sufficient for every Expression the parser accepts, or exhausting it to answer a diagnostic.
+_Avoid_: Value stack, call stack, machine memory, register
 
 **Function**:
 A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility.
@@ -88,8 +100,12 @@ _Avoid_: Number, note-shaped Number, intrinsically typed literal
 One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Their Source literal signatures are monomorphic: `.v` consumes a Note literal and returns its underlying Number, while `.^` consumes a Number literal from `00` through `7F` and returns the corresponding Note, diagnosing `80` through `FF`. During evaluation, either Function also accepts an already-typed value of its result type as an identity; this supports composition and atom-wise Sequence extension without making an overlapping Operand Literal ambiguous.
 _Avoid_: Cast, implicit coercion, sticky Note
 
+**Absence Marker**:
+The Atom an Expression answers when it leaves no value. It displays as `_` but has no Source encoding of its own, and it is not a language value: no Function takes it as an operand, it is refused as a Sequence member, and an Expression answering it plans no Cell write. The empty Sequence that ADR 0007 defines plans no Cell write either, but it is a value holding no Atoms rather than the absence of a value, so the two agree on effect and differ in kind and each is handled on its own where a result becomes Source.
+_Avoid_: Null, nil, empty value, empty Sequence, void
+
 **Sequence**:
-A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function or a Function that answers an effect rather than a value, and the empty result an Expression leaves when it produces no value, which has no Source encoding of its own. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function, a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
 _Avoid_: Pattern, Cell batch, write list, string
 
 **Range Function**:
