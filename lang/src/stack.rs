@@ -1,6 +1,4 @@
-use crate::{
-    ArgumentError, Atom, EXP_LEN, Error, Function, Note, SequenceError, Token, TypeError, Value,
-};
+use crate::{ArgumentError, Atom, Error, Function, Note, SequenceError, Token, TypeError, Value};
 use arrayvec::ArrayVec;
 use std::ops::Deref;
 
@@ -11,25 +9,41 @@ pub(crate) enum NumericValue {
     Number(u8),
 }
 
-pub(crate) struct Operands {
-    inner: ArrayVec<Atom, EXP_LEN>,
+/// The operands one Function declares, named by the role each position plays.
+///
+/// `define_functions!` generates one implementation per Function from the same
+/// table that declares its spelling, kind, and operand types, so a role, its
+/// position, and its type are declared together and once. A Function body
+/// destructures the struct instead of indexing the operands it was handed,
+/// which is what leaves the declaration as the only place an operand order
+/// exists.
+pub(crate) trait Operands: Sized {
+    /// The Function whose signature these operands are extracted against.
+    const FUNCTION: Function;
+
+    /// Binds each declared role to its operand, in signature order.
+    ///
+    /// Only [`Stack::extract`] can produce the [`Extracted`] this takes, and it
+    /// produces one only after checking every Atom against `FUNCTION`'s
+    /// signature. That is what keeps a mistyped bind unreachable rather than
+    /// merely uncalled.
+    fn from_operands(operands: Extracted<'_>) -> Self;
 }
 
-impl Operands {
-    #[inline(always)]
-    pub(crate) fn number(&self, index: usize) -> u8 {
-        match self.inner[index] {
-            Atom::Number(value) => value,
-            _ => unreachable!("typed extraction guarantees a Number operand"),
-        }
-    }
+/// Operands [`Stack::extract`] has checked against a Function's signature.
+///
+/// The field is private to this module, so holding one is proof of having been
+/// handed it by `extract`. Nothing else in the crate can present a short or
+/// mistyped slice to [`Operands::from_operands`].
+pub(crate) struct Extracted<'a> {
+    atoms: &'a [Atom],
+}
 
+impl Extracted<'_> {
+    /// The checked operands, in signature order.
     #[inline(always)]
-    pub(crate) fn note(&self, index: usize) -> Note {
-        match self.inner[index] {
-            Atom::Note(value) => value,
-            _ => unreachable!("typed extraction guarantees a Note operand"),
-        }
+    pub(crate) fn atoms(&self) -> &[Atom] {
+        self.atoms
     }
 }
 
@@ -95,11 +109,15 @@ impl<const N: usize> Stack<N> {
             .map_err(|err| map_arity(err, expected, count))
     }
 
-    /// Pops and validates the operands declared by `function`, in signature order.
+    /// Pops and validates the operands `O` declares, in signature order.
     #[inline(always)]
-    pub(crate) fn extract(&mut self, function: Function) -> Result<Operands, Error> {
-        let signature = function.signature();
-        let mut operands = ArrayVec::new();
+    pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
+        let signature = O::FUNCTION.signature();
+        // One Atom per operand popped, and a pop only yields one while this
+        // stack still holds a value, so the buffer can never outgrow the stack
+        // it drains. Sizing it `N` makes that a bound the type carries rather
+        // than a second number to keep in step with the first.
+        let mut operands: ArrayVec<Atom, N> = ArrayVec::new();
 
         for (found, expected) in signature.iter().copied().enumerate() {
             let atom = self.pop()?.0.ok_or_else(|| {
@@ -118,7 +136,7 @@ impl<const N: usize> Stack<N> {
             operands.push(atom);
         }
 
-        Ok(Operands { inner: operands })
+        Ok(O::from_operands(Extracted { atoms: &operands }))
     }
 }
 
@@ -182,8 +200,8 @@ fn map_arity(err: Error, expected: usize, found: usize) -> Error {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, Error, Function, Note, Sequence, SequenceError, Stack, TypeError,
-        Value,
+        ArgumentError, Atom, Error, Note, Sequence, SequenceError, Stack, TypeError, Value,
+        atom::operands,
     };
 
     fn empty_stack() -> Stack<16> {
@@ -205,20 +223,20 @@ mod test {
         assert_eq!(stack.pop_value(), None);
     }
 
+    fn assert_a_sequence_is_refused<O: crate::stack::Operands>() {
+        let mut stack = empty_stack();
+        stack.push(sequence());
+
+        assert!(matches!(
+            stack.extract::<O>(),
+            Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
+        ));
+    }
+
     #[test]
     fn a_sequence_diagnoses_where_a_scalar_signature_requires_an_atom() {
-        for function in [Function::Add, Function::Play] {
-            let mut stack = empty_stack();
-            stack.push(sequence());
-
-            assert!(
-                matches!(
-                    stack.extract(function),
-                    Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
-                ),
-                "{function:?}"
-            );
-        }
+        assert_a_sequence_is_refused::<operands::Add>();
+        assert_a_sequence_is_refused::<operands::Play>();
     }
 
     #[test]
@@ -241,7 +259,7 @@ mod test {
         stack.push(Atom::Note(Note::try_from(60).unwrap()));
 
         assert!(matches!(
-            stack.extract(Function::Add),
+            stack.extract::<operands::Add>(),
             Err(Error::Type(TypeError::Number(found))) if found == "C4"
         ));
 
@@ -249,7 +267,7 @@ mod test {
         stack.push(Atom::Number(1));
 
         assert!(matches!(
-            stack.extract(Function::Add),
+            stack.extract::<operands::Add>(),
             Err(Error::Argument(ArgumentError::Arity {
                 expected: 2,
                 found: 1

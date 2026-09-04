@@ -1,4 +1,4 @@
-use crate::{Atom, Error, Function, InterpretationError, Value, interpreter::Context};
+use crate::{Atom, Error, InterpretationError, Value, atom::operands, interpreter::Context};
 
 /// Absolute Difference: `.| left right`.
 ///
@@ -8,8 +8,8 @@ use crate::{Atom, Error, Function, InterpretationError, Value, interpreter::Cont
 /// borrow to wrap.
 #[inline(always)]
 pub fn absolute_difference(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::AbsoluteDifference)?;
-    Ok(absolute_difference_impl(operands.number(0), operands.number(1)).into())
+    let operands::AbsoluteDifference { left, right } = ctx.stack.extract()?;
+    Ok(absolute_difference_impl(left, right).into())
 }
 
 #[inline(always)]
@@ -20,8 +20,8 @@ fn absolute_difference_impl(a: u8, b: u8) -> Atom {
 
 #[inline(always)]
 pub fn add(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Add)?;
-    Ok(add_impl(operands.number(0), operands.number(1)).into())
+    let operands::Add { left, right } = ctx.stack.extract()?;
+    Ok(add_impl(left, right).into())
 }
 
 #[inline(always)]
@@ -32,9 +32,9 @@ fn add_impl(a: u8, b: u8) -> Atom {
 
 #[inline(always)]
 pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Divide)?;
+    let operands::Divide { left, right } = ctx.stack.extract()?;
 
-    divide_impl(operands.number(0), operands.number(1)).map(Into::into)
+    divide_impl(left, right).map(Into::into)
 }
 
 #[inline(always)]
@@ -55,8 +55,8 @@ fn divide_impl(a: u8, b: u8) -> Result<Atom, Error> {
 /// Source, where the next Tick would read it as an ordinary operand.
 #[inline(always)]
 pub fn equality(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Equality)?;
-    Ok(equality_impl(operands.number(0), operands.number(1)).into())
+    let operands::Equality { left, right } = ctx.stack.extract()?;
+    Ok(equality_impl(left, right).into())
 }
 
 #[inline(always)]
@@ -67,8 +67,8 @@ fn equality_impl(a: u8, b: u8) -> Atom {
 /// Maximum: `.> left right`.
 #[inline(always)]
 pub fn maximum(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Maximum)?;
-    Ok(maximum_impl(operands.number(0), operands.number(1)).into())
+    let operands::Maximum { left, right } = ctx.stack.extract()?;
+    Ok(maximum_impl(left, right).into())
 }
 
 #[inline(always)]
@@ -80,8 +80,8 @@ fn maximum_impl(a: u8, b: u8) -> Atom {
 /// Minimum: `.< left right`.
 #[inline(always)]
 pub fn minimum(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Minimum)?;
-    Ok(minimum_impl(operands.number(0), operands.number(1)).into())
+    let operands::Minimum { left, right } = ctx.stack.extract()?;
+    Ok(minimum_impl(left, right).into())
 }
 
 #[inline(always)]
@@ -97,9 +97,9 @@ fn minimum_impl(a: u8, b: u8) -> Atom {
 /// its own so the Source learns which Function it wrote.
 #[inline(always)]
 pub fn modulo(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Modulo)?;
+    let operands::Modulo { left, right } = ctx.stack.extract()?;
 
-    modulo_impl(operands.number(0), operands.number(1)).map(Into::into)
+    modulo_impl(left, right).map(Into::into)
 }
 
 #[inline(always)]
@@ -113,8 +113,8 @@ fn modulo_impl(a: u8, b: u8) -> Result<Atom, Error> {
 
 #[inline(always)]
 pub fn multiply(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Multiply)?;
-    Ok(multiply_impl(operands.number(0), operands.number(1)).into())
+    let operands::Multiply { left, right } = ctx.stack.extract()?;
+    Ok(multiply_impl(left, right).into())
 }
 
 #[inline(always)]
@@ -125,12 +125,52 @@ fn multiply_impl(a: u8, b: u8) -> Atom {
 
 #[inline(always)]
 pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
-    let operands = ctx.stack.extract(Function::Subtract)?;
-    Ok(subtract_impl(operands.number(0), operands.number(1)).into())
+    let operands::Subtract { left, right } = ctx.stack.extract()?;
+    Ok(subtract_impl(left, right).into())
 }
 
 #[inline(always)]
 fn subtract_impl(a: u8, b: u8) -> Atom {
     let res = a.wrapping_sub(b);
     Atom::Number(res)
+}
+
+#[cfg(test)]
+mod test {
+    use super::{divide, modulo, subtract};
+    use crate::{Atom, Error, Value, interpreter::Context};
+
+    /// Evaluates `function` against the two operands its signature names
+    /// `left` and `right`, pushed so that extraction pops them in signature
+    /// order.
+    fn evaluate(
+        function: fn(&mut Context) -> Result<Value, Error>,
+        left: u8,
+        right: u8,
+    ) -> Result<Value, Error> {
+        let mut ctx = Context::new();
+        ctx.stack.push(Atom::Number(right));
+        ctx.stack.push(Atom::Number(left));
+        function(&mut ctx)
+    }
+
+    #[test]
+    fn the_non_commutative_functions_read_left_and_right_in_signature_order() {
+        // Both operands share the Number domain, so neither `Stack::extract`
+        // nor the compiler can tell the two roles apart; only the answer can.
+        // Every case here is asymmetric, so transposing `left` and `right`
+        // changes the result instead of raising a diagnostic.
+        assert_eq!(
+            evaluate(subtract, 0x09, 0x03).unwrap(),
+            Atom::Number(0x06).into()
+        );
+        assert_eq!(
+            evaluate(divide, 0x09, 0x03).unwrap(),
+            Atom::Number(0x03).into()
+        );
+        assert_eq!(
+            evaluate(modulo, 0x09, 0x04).unwrap(),
+            Atom::Number(0x01).into()
+        );
+    }
 }

@@ -86,9 +86,55 @@ enum FunctionKind {
     Terminal,
 }
 
+// An operand's declared type decides three things, one per macro below: the
+// `Token` its signature is checked against, the Rust value a Function body
+// receives for it, and the `Atom` that carries it. A new operand type needs one
+// arm in each of the three, so a Function definition cannot name a type the
+// extraction does not already know how to check and bind.
+macro_rules! operand_token {
+    (Number) => {
+        crate::Token::Number
+    };
+    (Note) => {
+        crate::Token::Note
+    };
+}
+
+macro_rules! operand_type {
+    (Number) => {
+        u8
+    };
+    (Note) => {
+        crate::Note
+    };
+}
+
+macro_rules! operand_bind {
+    (Number, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Number(value)) => value,
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Number for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+    (Note, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(crate::Atom::Note(value)) => value,
+            _ => unreachable!(concat!(
+                "typed extraction guarantees a Note for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, [$($operand:expr),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -127,9 +173,49 @@ macro_rules! define_functions {
 
             pub(crate) fn signature(self) -> &'static [crate::Token] {
                 match self {
-                    $(Self::$variant => &[$($operand,)*],)+
+                    $(Self::$variant => &[$(operand_token!($operand),)*],)+
                 }
             }
+        }
+
+        /// The operands each Function declares, one struct per Function, with a
+        /// field named for the role that position plays.
+        ///
+        /// A Function body destructures the struct its Function declares, so an
+        /// operand's position is written once — here, beside the role name and
+        /// the type — and never restated in the body that reads it. Transposing
+        /// two same-typed operands is therefore an edit to the declaration
+        /// rather than a silent edit inside a body.
+        pub(crate) mod operands {
+            use crate::{Function, stack::{Extracted, Operands}};
+
+            $(
+                // Every Function in the table gets a struct, including the two
+                // whose evaluation deliberately takes a numeric value rather
+                // than the single type their signature declares: ADR 0021's
+                // idempotence for nested values, which `lang-foundations/06`
+                // records as an exclusion. Those two structs are generated and
+                // unread, which is the table staying uniform rather than dead
+                // code to delete — dropping them would mean the declaration no
+                // longer covered every Function.
+                #[allow(dead_code)]
+                pub(crate) struct $variant {
+                    $(pub(crate) $role: operand_type!($operand),)*
+                }
+
+                impl Operands for $variant {
+                    const FUNCTION: Function = Function::$variant;
+
+                    #[inline(always)]
+                    fn from_operands(operands: Extracted<'_>) -> Self {
+                        let mut operands = operands.atoms().iter().copied();
+
+                        Self {
+                            $($role: operand_bind!($operand, operands.next(), $role),)*
+                        }
+                    }
+                }
+            )+
         }
 
         impl TryFrom<&str> for Function {
@@ -151,18 +237,18 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, [crate::Token::Number, crate::Token::Number]),
-    Add => (".+", Value, [crate::Token::Number, crate::Token::Number]),
-    ConvertToNote => (".^", Value, [crate::Token::Number]),
-    ConvertToNumber => (".v", Value, [crate::Token::Note]),
-    Divide => ("./", Value, [crate::Token::Number, crate::Token::Number]),
-    Equality => (".=", Value, [crate::Token::Number, crate::Token::Number]),
-    Maximum => (".>", Value, [crate::Token::Number, crate::Token::Number]),
-    Minimum => (".<", Value, [crate::Token::Number, crate::Token::Number]),
-    Modulo => (".%", Value, [crate::Token::Number, crate::Token::Number]),
-    Multiply => (".x", Value, [crate::Token::Number, crate::Token::Number]),
-    Play => ("!>", Terminal, [crate::Token::Number, crate::Token::Number, crate::Token::Note]),
-    Subtract => (".-", Value, [crate::Token::Number, crate::Token::Number]),
+    AbsoluteDifference => (".|", Value, [left: Number, right: Number]),
+    Add => (".+", Value, [left: Number, right: Number]),
+    ConvertToNote => (".^", Value, [value: Number]),
+    ConvertToNumber => (".v", Value, [value: Note]),
+    Divide => ("./", Value, [left: Number, right: Number]),
+    Equality => (".=", Value, [left: Number, right: Number]),
+    Maximum => (".>", Value, [left: Number, right: Number]),
+    Minimum => (".<", Value, [left: Number, right: Number]),
+    Modulo => (".%", Value, [left: Number, right: Number]),
+    Multiply => (".x", Value, [left: Number, right: Number]),
+    Play => ("!>", Terminal, [channel: Number, velocity: Number, note: Note]),
+    Subtract => (".-", Value, [left: Number, right: Number]),
 }
 
 #[inline(always)]

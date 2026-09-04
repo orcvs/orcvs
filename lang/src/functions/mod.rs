@@ -1,6 +1,6 @@
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
-use crate::{Error, Function, InterpretationError, PlayCommand, interpreter::Context};
+use crate::{Error, InterpretationError, PlayCommand, atom::operands, interpreter::Context};
 
 /// The MIDI channel domain, shared by every Terminal Output Function.
 ///
@@ -37,11 +37,15 @@ pub(crate) fn midi_data_byte(role: &'static str, value: u8) -> Result<u8, Error>
 /// construction already enforces `00`–`7F`.
 #[inline(always)]
 pub fn play(ctx: &mut Context) -> Result<PlayCommand, Error> {
-    let operands = ctx.stack.extract(Function::Play)?;
+    let operands::Play {
+        channel,
+        velocity,
+        note,
+    } = ctx.stack.extract()?;
 
-    let channel = midi_channel(operands.number(0))?;
-    let velocity = midi_data_byte("velocity", operands.number(1))?;
-    let note = operands.note(2).value();
+    let channel = midi_channel(channel)?;
+    let velocity = midi_data_byte("velocity", velocity)?;
+    let note = note.value();
 
     Ok(PlayCommand::Raw {
         channel,
@@ -93,6 +97,27 @@ mod test {
         // Exactly three arguments were consumed
         assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Char('z'));
         assert_eq!(Atom::from(ctx.stack.pop().unwrap()), Atom::Empty);
+    }
+
+    #[test]
+    fn play_carries_each_operand_into_the_role_its_signature_names() {
+        // 01 and 02 are legal as a channel and as a data byte, so neither
+        // domain check can tell a transposed channel and velocity apart: only
+        // the roles the declaration names decide which is which.
+        let mut ctx = Context::new();
+        ctx.stack
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()));
+        ctx.stack.push(Atom::Number(0x02));
+        ctx.stack.push(Atom::Number(0x01));
+
+        assert_eq!(
+            play(&mut ctx).unwrap(),
+            PlayCommand::Raw {
+                channel: 0x01,
+                velocity: 0x02,
+                note: 60,
+            }
+        );
     }
 
     #[test]
