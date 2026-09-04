@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 #[cfg(any(test, target_arch = "wasm32"))]
 use std::future::Future;
@@ -10,10 +11,38 @@ use tokio_util::sync::CancellationToken;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant as ClockInstant;
 
-use crate::source::{PlayCommand, SourceCommander, Tick, TickPlan};
+use crate::source::{
+    Length, MidiChannel, Note, PlayCommand, SourceCommander, Tick, TickPlan, Velocity,
+};
+
+///
+/// One MIDI message the Playback Engine hands an output adapter.
+///
+/// A Play Command says what the Source asked for; an Output Command says what
+/// is delivered. The two differ wherever this module owns the difference: ADR
+/// 0016 gives Timed Play a Tick lifetime, and resolving that lifetime into a
+/// start now and a stop at Tick `T + length` belongs to the engine that counts
+/// Ticks. Every variant here is one message an adapter assembles immediately,
+/// so an adapter holding a lifetime it would have to schedule is
+/// unrepresentable rather than merely avoided.
+///
+/// A tagged variant set for the same reason [`PlayCommand`] is one: Control
+/// Change and Pitch Bend join it as variants of their own, carried through
+/// unresolved because nothing about them is the engine's to resolve.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OutputCommand {
+    /// MIDI's Note On, whose velocity `00` is the explicit stop the protocol
+    /// gives both Raw Play and a scheduled expiry.
+    NoteOn {
+        channel: MidiChannel,
+        velocity: Velocity,
+        note: Note,
+    },
+}
 
 pub trait OutputAdapter {
-    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError>;
+    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError>;
     fn all_notes_off(&mut self) -> Result<(), OutputAdapterError>;
 }
 
@@ -127,9 +156,205 @@ impl fmt::Display for PlaybackStartError {
     }
 }
 
+///
+/// The channel and note one Timed Play command sounds on.
+///
+/// Ownership is per channel *and* note: Timed Play is polyphonic, and ADR 0016
+/// gives one voice per channel to Monophonic Play alone. The key carries the
+/// two domain types the interpreter proved rather than their bytes, so the
+/// stop this module delivers re-derives neither.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct TimedVoice {
+    channel: MidiChannel,
+    note: Note,
+}
+
+///
+/// Which claim on a voice a scheduled stop belongs to.
+///
+/// ADR 0016's generation token. An expiry is scheduled at the Tick it is due
+/// at and cannot be found again when the note it would stop is replaced or
+/// stopped early, so a stale one is left in the schedule and refused when it
+/// comes due: it carries the claim that scheduled it, and only the claim still
+/// standing then is stopped. Without it a Source that stops a note and starts
+/// it again would have the first command's expiry cut the second note short.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Claim(u64);
+
+/// One scheduled stop, and the claim it belongs to.
+#[derive(Clone, Copy, Debug)]
+struct Expiry {
+    voice: TimedVoice,
+    claim: Claim,
+}
+
+///
+/// Every note a Timed Play command owns, and the Tick each is stopped at.
+///
+/// ADR 0001 keeps musical intent out of the output adapter and ADR 0016 puts a
+/// Timed Play's whole lifetime in the Tick Plan, which leaves exactly this
+/// between them: the engine reads the length, delivers the start in Tick Plan
+/// order, and delivers the stop when the run reaches the Tick it is due at.
+///
+/// It is the only state here that outlives one Tick, and it describes notes
+/// that are sounding, so everything that silences output clears it: beginning
+/// a run, stopping, disconnecting, and changing destination.
+///
+#[derive(Clone, Default)]
+struct TimedNotes {
+    owned: BTreeMap<TimedVoice, Claim>,
+    expiries: BTreeMap<Tick, Vec<Expiry>>,
+    next_claim: u64,
+}
+
+///
+/// The explicit stop for `voice`.
+///
+/// MIDI's zero-velocity Note On, which is the stop Raw Play already gives the
+/// Source through velocity `00`: a scheduled expiry is delivered as a message
+/// a Source could have written for itself rather than as a shape of its own.
+///
+fn note_off(voice: TimedVoice) -> OutputCommand {
+    OutputCommand::NoteOn {
+        channel: voice.channel,
+        velocity: Velocity::ZERO,
+        note: voice.note,
+    }
+}
+
+impl TimedNotes {
+    ///
+    /// This Tick's delivery: every stop due at `tick`, then `commands`
+    /// resolved against ownership, in Tick Plan order.
+    ///
+    /// One list rather than two submissions, because the order is the whole of
+    /// what ADR 0016 requires here — a scheduled Note Off arrives at the
+    /// beginning of executed Tick `T + length`, before that Tick's new Play
+    /// Commands — and a Tick that submitted twice would leave that order to
+    /// the adapter to keep.
+    ///
+    fn deliver(&mut self, tick: Tick, commands: &[PlayCommand]) -> Vec<OutputCommand> {
+        let mut delivery = self.expired_at(tick);
+
+        for command in commands {
+            match *command {
+                // Raw notes do not enter Timed ownership: what the Source
+                // wrote is delivered, and nothing stops it that the Source did
+                // not ask to stop.
+                PlayCommand::Raw {
+                    channel,
+                    velocity,
+                    note,
+                } => delivery.push(OutputCommand::NoteOn {
+                    channel,
+                    velocity,
+                    note,
+                }),
+                PlayCommand::Timed {
+                    channel,
+                    velocity,
+                    note,
+                    length,
+                } => {
+                    let voice = TimedVoice { channel, note };
+                    if velocity == Velocity::ZERO {
+                        // An explicit stop, whatever length accompanies it,
+                        // scheduling no expiry. Releasing the claim is what
+                        // keeps the expiry this note already had from stopping
+                        // whatever sounds on the voice next.
+                        self.release(voice);
+                        delivery.push(note_off(voice));
+                    } else if length == Length::ZERO {
+                        // A lifetime of no Ticks never starts, and is not a
+                        // stop: the note this voice owns and the expiry it is
+                        // due both stand.
+                    } else {
+                        // A replacement stops the instance it replaces before
+                        // it starts, and retires that instance's expiry with it.
+                        if self.release(voice) {
+                            delivery.push(note_off(voice));
+                        }
+                        delivery.push(OutputCommand::NoteOn {
+                            channel,
+                            velocity,
+                            note,
+                        });
+                        self.claim(voice, tick.after(length.ticks()));
+                    }
+                }
+            }
+        }
+
+        delivery
+    }
+
+    ///
+    /// The stops due at `tick`, in the order they were scheduled.
+    ///
+    /// Everything due at or before it, though an ordinary run reaches every
+    /// Tick in turn: a Tick the engine declines consumes no absolute Tick, so
+    /// nothing is skipped, and draining the whole range regardless is what
+    /// keeps an expiry from outliving the Tick it was due at by the Ticks a
+    /// future scheduling rule might skip. One expiry is beyond it — a stop
+    /// `Tick::after` saturated at the last Tick, which the counter it is
+    /// compared against can no longer reach — and a run whose absolute Tick
+    /// has stopped advancing has already lost more than a Note Off.
+    ///
+    fn expired_at(&mut self, tick: Tick) -> Vec<OutputCommand> {
+        let later = self.expiries.split_off(&tick.next());
+        let due = std::mem::replace(&mut self.expiries, later);
+
+        let mut stops = Vec::new();
+        for expiry in due.into_values().flatten() {
+            // A stale expiry stops nothing: its claim was released when the
+            // voice was replaced or stopped, so what sounds there now is not
+            // what it was scheduled for.
+            if self.owned.get(&expiry.voice) == Some(&expiry.claim) {
+                self.owned.remove(&expiry.voice);
+                stops.push(note_off(expiry.voice));
+            }
+        }
+        stops
+    }
+
+    ///
+    /// Claims `voice` until `due`, so the Tick it is due at stops it.
+    ///
+    fn claim(&mut self, voice: TimedVoice, due: Tick) {
+        // Unreachable for the reason `Tick::next`'s saturation is unreachable:
+        // a run would have to claim a voice every nanosecond for five hundred
+        // years to wrap this counter.
+        let claim = Claim(self.next_claim);
+        self.next_claim = self.next_claim.wrapping_add(1);
+        self.owned.insert(voice, claim);
+        self.expiries
+            .entry(due)
+            .or_default()
+            .push(Expiry { voice, claim });
+    }
+
+    ///
+    /// Gives up any claim on `voice`, invalidating the stop it scheduled, and
+    /// answers whether a note was standing.
+    ///
+    fn release(&mut self, voice: TimedVoice) -> bool {
+        self.owned.remove(&voice).is_some()
+    }
+
+    ///
+    /// Forgets every claim and every scheduled stop.
+    ///
+    fn clear(&mut self) {
+        self.owned.clear();
+        self.expiries.clear();
+    }
+}
+
 #[derive(Default)]
 struct InMemoryOutputState {
-    command_lists: Vec<Vec<PlayCommand>>,
+    command_lists: Vec<Vec<OutputCommand>>,
     all_notes_off_count: usize,
     next_failure: Option<OutputAdapterError>,
 }
@@ -140,7 +365,7 @@ pub struct InMemoryOutputAdapter {
 }
 
 impl InMemoryOutputAdapter {
-    pub fn command_lists(&self) -> Vec<Vec<PlayCommand>> {
+    pub fn command_lists(&self) -> Vec<Vec<OutputCommand>> {
         self.state.lock().unwrap().command_lists.clone()
     }
 
@@ -154,7 +379,7 @@ impl InMemoryOutputAdapter {
 }
 
 impl OutputAdapter for InMemoryOutputAdapter {
-    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
+    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
         let mut state = self.state.lock().unwrap();
         if let Some(error) = state.next_failure.take() {
             return Err(error);
@@ -190,6 +415,15 @@ struct PlaybackInner<A> {
     /// where it was.
     ///
     tick: Tick,
+    ///
+    /// The notes Timed Play owns, and the Tick each is stopped at.
+    ///
+    /// Here rather than beside the Source for the reason the absolute Tick is:
+    /// a scheduled stop belongs to one Playback run, and ADR 0003 keeps every
+    /// piece of language state in the Source Snapshot, which a schedule of
+    /// future effects is not.
+    ///
+    timed: TimedNotes,
 }
 
 pub struct PlaybackEngine<A: OutputAdapter> {
@@ -232,13 +466,7 @@ impl<B: crate::midi::MidiBackend> MidiSelectionHandle<B> {
     ) -> Result<(), crate::midi::MidiError> {
         let inner = self.inner()?;
         let mut inner = lock_recover(&inner);
-        let selection = inner.adapter.select(destination_id)?;
-        inner.last_output_failure = None;
-        if let Some(error) = selection.safety_failure() {
-            inner.record_output_failure(OutputAdapterError::new(error.message));
-        }
-        inner.connected = true;
-        Ok(())
+        inner.select_destination(destination_id)
     }
 
     pub fn selected_destination_id(
@@ -273,6 +501,12 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 self.send_all_notes_off();
             }
         }
+        // All-notes-off has stopped whatever was sounding, so every claim is
+        // over and every scheduled stop is redundant. Clearing unconditionally
+        // rather than alongside the all-notes-off above is deliberate: a run
+        // that is already stopped owns nothing, and an engine that reached
+        // here holding a claim would otherwise carry it into the next run.
+        self.timed.clear();
     }
 
     fn send_all_notes_off(&mut self) {
@@ -313,6 +547,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         self.playing = true;
         self.last_tick_at = None;
         self.tick = Tick::ZERO;
+        // A scheduled stop is due at an absolute Tick, and this run's absolute
+        // Ticks begin again at zero, so an inherited expiry would stop a note
+        // of the new run that has not started. Discarding the schedule is part
+        // of beginning a run for the same reason resetting the counter is.
+        self.timed.clear();
         if let Some(previous) = self.cancellation.take() {
             previous.cancel();
         }
@@ -342,11 +581,32 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // One Tick executed, one increment. The advance sits with the
         // execution rather than with the clock so that a Tick the engine
         // declines above never consumes an absolute Tick.
-        let plan = self.source.execute(self.tick);
-        self.tick = self.tick.next();
+        let tick = self.tick;
+        let plan = self.source.execute(tick);
+        self.tick = tick.next();
         if self.connected {
-            match self.adapter.submit(&plan.play_commands) {
-                Ok(()) => self.last_output_failure = None,
+            // Nothing is delivered while disconnected, so nothing is owned
+            // while disconnected either: resolving the Tick Plan here rather
+            // than above keeps a Note Off from being scheduled for a note that
+            // never sounded.
+            //
+            // The schedule describes notes that are sounding, so it may record
+            // only what the adapter accepted. The Tick is resolved against a
+            // copy and adopted once the submission is: a refused submission
+            // leaves every claim and every expiry standing, and the stop this
+            // Tick drained is drained again by the next executed Tick rather
+            // than discarded with no retry and no diagnostic. `OutputAdapter`
+            // is a trait, so the alternative would rest on every
+            // implementation giving up its connection the way
+            // `MidiOutputAdapter` does. The copy is two maps of the notes
+            // currently sounding, taken once per executed Tick.
+            let mut timed = self.timed.clone();
+            let delivery = timed.deliver(tick, &plan.play_commands);
+            match self.adapter.submit(&delivery) {
+                Ok(()) => {
+                    self.timed = timed;
+                    self.last_output_failure = None;
+                }
                 Err(error) => self.record_output_failure(error),
             }
         }
@@ -368,6 +628,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
                 cancellation: None,
                 last_tick_at: None,
                 tick: Tick::ZERO,
+                timed: TimedNotes::default(),
             })),
             handle_count: Arc::new(AtomicUsize::new(1)),
         }
@@ -395,6 +656,10 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
             inner.send_all_notes_off();
             inner.connected = false;
         }
+        // Nothing this engine owns is sounding on a disconnected output, and
+        // nothing it delivers while disconnected can start a note, so the
+        // schedule goes with the connection.
+        inner.timed.clear();
     }
 
     #[cfg(test)]
@@ -431,6 +696,51 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     fn is_playing(&self) -> bool {
         self.inner.lock().unwrap().playing
     }
+
+    ///
+    /// Whether any Timed Play note is claimed or any stop still scheduled.
+    ///
+    /// The lifecycle rule is that nothing survives a run, and a run that has
+    /// ended delivers nothing more for a test to read: what is left to observe
+    /// is the state itself.
+    ///
+    #[cfg(test)]
+    fn holds_timed_ownership(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        !inner.timed.owned.is_empty() || !inner.timed.expiries.is_empty()
+    }
+}
+
+impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B>> {
+    ///
+    /// Connects this engine's output to `destination_id`.
+    ///
+    /// Both ways a destination is chosen — this engine's own method and the
+    /// selection handle the shell holds — arrive here, so what a change of
+    /// destination owes is stated once rather than twice.
+    ///
+    fn select_destination(
+        &mut self,
+        destination_id: &crate::midi::MidiDestinationId,
+    ) -> Result<(), crate::midi::MidiError> {
+        // The notes this engine owned are sounding on the destination it is
+        // leaving, which is sent all-notes-off before the new connection is
+        // reached. Their scheduled stops would arrive at a device that never
+        // started them, so the schedule goes with the attempt rather than with
+        // its success: a change that cannot connect has silenced the old
+        // device just the same, and a claim kept across it would stop a note
+        // the Source starts on that voice afterwards. Nothing is owned while
+        // disconnected, so clearing before a failure that leaves this engine
+        // connected to the destination it already had discards nothing else.
+        self.timed.clear();
+        let selection = self.adapter.select(destination_id)?;
+        self.last_output_failure = None;
+        if let Some(error) = selection.safety_failure() {
+            self.record_output_failure(OutputAdapterError::new(error.message));
+        }
+        self.connected = true;
+        Ok(())
+    }
 }
 
 impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<B>> {
@@ -444,14 +754,7 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
         &self,
         destination_id: &crate::midi::MidiDestinationId,
     ) -> Result<(), crate::midi::MidiError> {
-        let mut inner = lock_recover(&self.inner);
-        let selection = inner.adapter.select(destination_id)?;
-        inner.last_output_failure = None;
-        if let Some(error) = selection.safety_failure() {
-            inner.record_output_failure(OutputAdapterError::new(error.message));
-        }
-        inner.connected = true;
-        Ok(())
+        lock_recover(&self.inner).select_destination(destination_id)
     }
 
     pub fn selected_midi_destination_id(&self) -> Option<crate::midi::MidiDestinationId> {
@@ -776,7 +1079,6 @@ impl<A: OutputAdapter> Drop for PlaybackEngine<A> {
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
-    use crate::source::{MidiChannel, Note, Velocity};
 
     ///
     /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
@@ -785,6 +1087,27 @@ mod tests {
     fn cell(grid: Grid, idx: usize) -> CellIndex {
         grid.cell_index(idx).expect("inside the Grid")
     }
+
+    ///
+    /// The Note On an adapter is handed for `channel`, `velocity` and `note`,
+    /// stated as the three Numbers a Source writes.
+    ///
+    fn note_on(channel: u8, velocity: u8, note: u8) -> OutputCommand {
+        OutputCommand::NoteOn {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
+            note: Note::try_from(note).expect("a MIDI note"),
+        }
+    }
+
+    ///
+    /// The stop an adapter is handed for `channel` and `note`: MIDI's
+    /// zero-velocity Note On, named for what it does rather than what it is.
+    ///
+    fn stop(channel: u8, note: u8) -> OutputCommand {
+        note_on(channel, 0, note)
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, atomic::AtomicBool, mpsc};
     #[cfg(target_arch = "wasm32")]
@@ -808,7 +1131,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingAdapter {
-        command_lists: Vec<Vec<PlayCommand>>,
+        command_lists: Vec<Vec<OutputCommand>>,
         source: Option<SourceCommander>,
         source_at_submission: Vec<String>,
     }
@@ -823,7 +1146,7 @@ mod tests {
     }
 
     impl OutputAdapter for RecordingAdapter {
-        fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
             if let Some(source) = &self.source {
                 self.source_at_submission.push(source.snapshot());
             }
@@ -883,7 +1206,7 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for PanickingOutputAdapter {
-        fn submit(&mut self, _commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
             self.delivery_started.store(true, Ordering::SeqCst);
             panic!("test output panic");
         }
@@ -895,7 +1218,7 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for BlockingOutputAdapter {
-        fn submit(&mut self, _commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
             let (lock, changed) = &*self.control.state;
             let mut state = lock.lock().unwrap();
             state.delivery_started = true;
@@ -919,6 +1242,57 @@ mod tests {
                 .set(cell(grid, start + offset), &content.to_string())
                 .unwrap();
         }
+    }
+
+    ///
+    /// Clears `len` Cells from `start`, so a test can retire the Bang that
+    /// activates a terminal root.
+    ///
+    /// A Source-resident Bang persists across Ticks, so an activated terminal
+    /// root repeats on every Tick until `spatial-tick-planning/02` gives the
+    /// Bang its one-Tick expiry. A test about what the Playback Engine
+    /// schedules retires the Bang instead, which leaves every Tick after it
+    /// carrying the schedule alone.
+    ///
+    fn erase(source: &SourceCommander, start: usize, len: usize) {
+        let grid = source.grid();
+        for offset in 0..len {
+            source.unset(cell(grid, start + offset));
+        }
+    }
+
+    ///
+    /// Runs the Tick numbered `tick` of a hand-driven run, on time.
+    ///
+    /// The engine counts executed Ticks, so a test that runs them in order
+    /// names each by its absolute Tick and states the schedule under test in
+    /// the same numbers ADR 0016 does.
+    ///
+    fn run_tick<A: OutputAdapter>(engine: &PlaybackEngine<A>, tick: u64) {
+        engine
+            .clock_tick(scheduled(
+                Duration::from_secs(tick),
+                Duration::from_secs(tick),
+            ))
+            .expect("a scheduled Tick runs");
+    }
+
+    ///
+    /// A hand-driven run that has executed one Tick of a Timed Play, so it
+    /// owns a note whose stop is due at a Tick it has not reached.
+    ///
+    fn engine_owning_a_timed_note() -> (PlaybackEngine<InMemoryOutputAdapter>, InMemoryOutputAdapter)
+    {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC40A");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source, adapter.clone());
+        engine.activate_for_test();
+        run_tick(&engine, 0);
+
+        assert!(engine.holds_timed_ownership());
+        (engine, adapter)
     }
 
     fn scheduled(scheduled_at: Duration, observed_at: Duration) -> TickTiming {
@@ -963,7 +1337,11 @@ mod tests {
         let inner = engine.inner.lock().unwrap();
         assert_eq!(&inner.adapter.source_at_submission[0][10..12], "03");
         assert_eq!(&source.snapshot()[10..12], "03");
-        assert_eq!(inner.adapter.command_lists, vec![tick.play_commands]);
+        assert_eq!(tick.play_commands.len(), 1);
+        assert_eq!(
+            inner.adapter.command_lists,
+            vec![vec![note_on(0, 0x7F, 60)]]
+        );
     }
 
     #[tokio::test]
@@ -1135,22 +1513,8 @@ mod tests {
         // Playback run.
         assert_eq!(engine.current_tick(), Tick::new(2));
         assert_eq!(adapter.command_lists().len(), 2);
-        assert_eq!(
-            adapter.command_lists()[0][0],
-            PlayCommand::Raw {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7F).unwrap(),
-                note: Note::try_from(60).unwrap()
-            }
-        );
-        assert_eq!(
-            adapter.command_lists()[1][0],
-            PlayCommand::Raw {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7F).unwrap(),
-                note: Note::try_from(62).unwrap()
-            }
-        );
+        assert_eq!(adapter.command_lists()[0][0], note_on(0, 0x7F, 60));
+        assert_eq!(adapter.command_lists()[1][0], note_on(0, 0x7F, 62));
     }
 
     #[tokio::test]
@@ -1185,7 +1549,7 @@ mod tests {
         // The engine submits once for every Tick it runs, so the proof is not
         // a missing submission but an empty one: the Tick reached the adapter
         // and carried no command.
-        assert_eq!(adapter.command_lists(), vec![Vec::<PlayCommand>::new()]);
+        assert_eq!(adapter.command_lists(), vec![Vec::<OutputCommand>::new()]);
     }
 
     #[tokio::test]
@@ -1204,19 +1568,438 @@ mod tests {
 
         assert_eq!(
             adapter.command_lists(),
-            vec![vec![
-                PlayCommand::Raw {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(60).unwrap()
-                },
-                PlayCommand::Raw {
-                    channel: MidiChannel::try_from(1).unwrap(),
-                    velocity: Velocity::try_from(0x7F).unwrap(),
-                    note: Note::try_from(69).unwrap()
-                },
-            ]]
+            vec![vec![note_on(0, 1, 60), note_on(1, 0x7F, 69)]]
         );
+    }
+
+    #[tokio::test]
+    async fn a_timed_play_starts_in_tick_plan_order_and_stops_at_the_tick_its_length_names() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC402");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=3 {
+            run_tick(&engine, tick);
+        }
+
+        // The start is delivered in the Tick that planned it and the stop at
+        // the beginning of Tick `0 + 02`, with the Tick between them carrying
+        // neither: a submission per executed Tick, so an empty one is the
+        // engine saying this Tick owed no MIDI rather than not having run.
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![],
+                vec![stop(0, 60)],
+                vec![],
+            ]
+        );
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_repeated_timed_play_stops_the_instance_it_replaces_and_retires_its_expiry() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        // The Bang stands, so the root plays again on each of these three
+        // Ticks, each command replacing the instance the last one owned.
+        for tick in 0..=2 {
+            run_tick(&engine, tick);
+        }
+        erase(&source, 10, 2);
+        for tick in 3..=5 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![stop(0, 60), note_on(0, 0x7F, 60)],
+                vec![stop(0, 60), note_on(0, 0x7F, 60)],
+                // Ticks 3 and 4 are where the first two commands scheduled
+                // their stops. Both claims were retired by the replacement
+                // that followed them, so neither stop is delivered — and only
+                // the surviving claim, from Tick 2, stops at Tick 5.
+                vec![],
+                vec![],
+                vec![stop(0, 60)],
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_timed_play_with_velocity_zero_stops_the_note_and_schedules_nothing() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // A stop still carries and validates its length, and the length still
+        // schedules nothing: ADR 0016 keeps the arity fixed either way.
+        write(&source, 0, "!~0000C405");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=6 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(adapter.command_lists()[0], vec![stop(0, 60)]);
+        assert!(
+            adapter.command_lists()[1..]
+                .iter()
+                .all(|commands| commands.is_empty()),
+            "{:?}",
+            adapter.command_lists()
+        );
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_timed_play_with_no_length_emits_nothing_and_leaves_the_note_it_finds_standing() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // A lifetime of no Ticks, live-edited into the length operand. It is
+        // not a stop, so the note started at Tick 0 keeps both its sound and
+        // the stop it is due.
+        write(&source, 8, "00");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=3 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![],
+                vec![],
+                vec![stop(0, 60)],
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_expiry_cannot_stop_the_note_claimed_after_it() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        // Tick 0 claims the voice until Tick 3. Tick 1 stops it explicitly,
+        // which retires that claim while leaving its scheduled stop where it
+        // was, and Tick 2 claims the same voice again until Tick 7.
+        run_tick(&engine, 0);
+        write(&source, 4, "00");
+        run_tick(&engine, 1);
+        write(&source, 4, "7F");
+        write(&source, 8, "05");
+        run_tick(&engine, 2);
+        erase(&source, 10, 2);
+        for tick in 3..=7 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![stop(0, 60)],
+                vec![note_on(0, 0x7F, 60)],
+                // Tick 3 is where the first claim's stop was due. Delivering
+                // it here would cut the note claimed at Tick 2 short by four
+                // Ticks, which is exactly what its claim exists to prevent.
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![stop(0, 60)],
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_due_this_tick_is_delivered_before_the_play_commands_that_tick_plans() {
+        let source = SourceCommander::new(Grid::new(10, 5));
+        write(&source, 0, "!~007FC401");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // Retire the Timed root and activate a Raw Play of the note it owns,
+        // so Tick 1 carries both a stop due from Tick 0 and a command of its
+        // own for the voice that stop names.
+        erase(&source, 10, 2);
+        write(&source, 30, "!>007FC4");
+        write(&source, 40, "**");
+        run_tick(&engine, 1);
+
+        // The order is the whole of what ADR 0016 asks of the Tick a stop
+        // comes due at. Delivered the other way round, the note this Tick
+        // sounds is silenced by the stop of the note it succeeds.
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![stop(0, 60), note_on(0, 0x7F, 60)],
+            ]
+        );
+        // The Raw note that outlives the stop is the Source's to end.
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn two_notes_on_one_channel_are_owned_and_stopped_independently() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // A second note on the channel the first is sounding on. Timed Play is
+        // polyphonic, and ADR 0016 gives one voice per channel to Monophonic
+        // Play alone, so this starts a note rather than replacing one.
+        write(&source, 6, "E4");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=4 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                // Owned per channel alone, this Tick would stop C4 to sound
+                // E4, cutting a note the Source gave three Ticks short by two.
+                vec![note_on(0, 0x7F, 64)],
+                vec![],
+                vec![stop(0, 60)],
+                vec![stop(0, 64)],
+            ]
+        );
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn one_note_on_two_channels_is_owned_and_stopped_independently() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // The same note on a second channel, which is a second instrument
+        // sounding it: the channel discriminates as the note does.
+        write(&source, 2, "01");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=4 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![note_on(1, 0x7F, 60)],
+                vec![],
+                vec![stop(0, 60)],
+                vec![stop(1, 60)],
+            ]
+        );
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn two_timed_plays_for_one_voice_within_one_tick_leave_the_second_owning_it() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // One Bang between the two roots activates both, so one Tick Plan
+        // carries two commands for the same voice.
+        write(&source, 0, "!~007FC405");
+        write(&source, 10, "**");
+        write(&source, 20, "!~007FC402");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=5 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                // The second command replaces what the first started, inside
+                // the one submission the Tick makes: ownership is resolved in
+                // Tick Plan order, not once per Tick.
+                vec![note_on(0, 0x7F, 60), stop(0, 60), note_on(0, 0x7F, 60)],
+                vec![],
+                vec![stop(0, 60)],
+                // Tick 5 is where the first command's stop was due. Its claim
+                // was retired before the Tick that scheduled it had ended.
+                vec![],
+                vec![],
+                vec![],
+            ]
+        );
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_refused_submission_leaves_the_schedule_standing_for_the_next_tick() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC402");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        run_tick(&engine, 1);
+        // The adapter refuses the Tick the stop is due at. The schedule
+        // describes what is sounding, so a stop no device received leaves the
+        // note it stops owned: an adapter that survives a refusal is one this
+        // engine still owes a Note Off.
+        adapter.fail_next_submission("output unavailable");
+        run_tick(&engine, 2);
+        assert!(engine.holds_timed_ownership());
+        run_tick(&engine, 3);
+
+        // Three submissions were accepted: the start, the Tick between, and
+        // the stop the next executed Tick drains again.
+        assert_eq!(
+            adapter.command_lists(),
+            vec![vec![note_on(0, 0x7F, 60)], vec![], vec![stop(0, 60)]]
+        );
+        assert!(!engine.holds_timed_ownership());
+        assert_eq!(
+            engine.diagnostics(),
+            vec![PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
+                "output unavailable"
+            ))]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scheduled_stop_is_due_at_an_absolute_tick_rather_than_at_a_clock_tick() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!~007FC402");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        // A Tick the engine declines consumes no absolute Tick, so it moves
+        // nothing towards the stop either: the note lasts the two Ticks it
+        // was given however many clock ticks pass.
+        assert!(
+            engine
+                .clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(5)))
+                .is_none()
+        );
+        run_tick(&engine, 1);
+        run_tick(&engine, 2);
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![vec![note_on(0, 0x7F, 60)], vec![], vec![stop(0, 60)]]
+        );
+        assert_eq!(
+            engine.diagnostics(),
+            vec![PlaybackDiagnostic::Overrun {
+                scheduled_at: Duration::from_secs(1),
+                observed_at: Duration::from_secs(5),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_play_notes_never_enter_timed_ownership() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=4 {
+            run_tick(&engine, tick);
+        }
+
+        // Raw Play leaves Note Off under Source control, so nothing this
+        // engine owns can stop a note the Source did not ask to stop.
+        assert_eq!(adapter.command_lists()[0], vec![note_on(0, 0x7F, 60)]);
+        assert!(
+            adapter.command_lists()[1..]
+                .iter()
+                .all(|commands| commands.is_empty()),
+            "{:?}",
+            adapter.command_lists()
+        );
+        assert!(!engine.holds_timed_ownership());
+    }
+
+    #[tokio::test]
+    async fn every_lifecycle_action_that_silences_output_clears_the_timed_schedule() {
+        // Each of these silences the output the schedule describes, so a stop
+        // left standing would be delivered to a device that has already been
+        // told to stop everything, or into a run that never started the note.
+        let (engine, _) = engine_owning_a_timed_note();
+        engine.stop();
+        assert!(!engine.holds_timed_ownership());
+
+        let (engine, _) = engine_owning_a_timed_note();
+        engine.disconnect();
+        assert!(!engine.holds_timed_ownership());
+
+        // Beginning a run restarts the absolute Tick at zero, so an inherited
+        // stop would come due before the note it stops had been played.
+        let (engine, _) = engine_owning_a_timed_note();
+        engine.activate_for_test();
+        assert!(!engine.holds_timed_ownership());
+
+        // Dropping the final handle stops the run, and stopping is what clears
+        // the schedule. What is left to observe once the engine is gone is the
+        // safety the owned note is silenced by.
+        let (engine, adapter) = engine_owning_a_timed_note();
+        drop(engine);
+        assert_eq!(adapter.all_notes_off_count(), 1);
+        assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
     }
 
     #[tokio::test]

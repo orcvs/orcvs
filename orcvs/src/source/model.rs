@@ -105,7 +105,7 @@ pub struct CellWrite {
 /// One interpreted MIDI instruction emitted by an active Terminal Output
 /// Function. Tick planning decides which terminal roots are active and in what
 /// order their commands appear; the output adapter turns each one into MIDI.
-pub use lang::{MidiChannel, Note, PlayCommand, Velocity};
+pub use lang::{Length, MidiChannel, Note, PlayCommand, Velocity};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {
@@ -418,7 +418,7 @@ mod test {
         glyph::Glyph,
         grid::{CellIndex, Grid},
         source::{
-            CellWrite, MidiChannel, Note, PlayCommand, Source, SourceError, Tick, TickPlan,
+            CellWrite, Length, MidiChannel, Note, PlayCommand, Source, SourceError, Tick, TickPlan,
             Velocity,
         },
         test::trace,
@@ -1163,6 +1163,59 @@ mod test {
         );
         assert!(tick.writes.is_empty());
         assert_eq!(src.row(2), "          ");
+    }
+
+    #[test]
+    fn test_root_timed_play_function_emits_one_command_carrying_its_whole_lifetime() {
+        let mut src = source();
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(10), "!~017FC403");
+
+        let tick = src.execute();
+
+        // ADR 0016 puts the lifetime in the Tick Plan rather than resolving it
+        // here: a Tick plans one Tick, and the Note Off this command owes is
+        // due at another one. Each operand also differs from the others, so a
+        // transposed declaration changes this answer rather than diagnosing.
+        assert_eq!(
+            tick.play_commands,
+            vec![PlayCommand::Timed {
+                channel: MidiChannel::try_from(1).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap(),
+                length: Length::from(3),
+            }]
+        );
+        assert!(tick.writes.is_empty());
+        assert!(tick.diagnostics.is_empty());
+        assert_eq!(src.row(2), "          ");
+    }
+
+    #[test]
+    fn test_timed_play_operands_outside_their_domains_diagnose_and_emit_nothing() {
+        for (expression, message) in [
+            (
+                "!~107FC403",
+                "MIDI channel 10 is outside the range 00\u{2013}0F",
+            ),
+            (
+                "!~0080C403",
+                "MIDI velocity 80 is outside the range 00\u{2013}7F",
+            ),
+        ] {
+            let mut src = source();
+            let at = src.cells();
+            src.write(at(0), "**");
+            src.write(at(10), expression);
+
+            let tick = src.execute();
+
+            assert!(tick.play_commands.is_empty(), "{expression}");
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert_eq!(tick.diagnostics.len(), 1, "{expression}");
+            assert_eq!(tick.diagnostics[0].message, message, "{expression}");
+        }
     }
 
     #[test]

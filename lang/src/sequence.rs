@@ -217,7 +217,7 @@ mod test {
             note(0x7F),
             Atom::Bang,
             Atom::Char('z'),
-            Atom::Function(Function::Play),
+            Atom::Function(Function::RawPlay),
         ] {
             let sequence = Sequence::promote(atom).unwrap();
 

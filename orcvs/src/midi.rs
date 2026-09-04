@@ -1,5 +1,4 @@
-use crate::playback::{OutputAdapter, OutputAdapterError};
-use crate::source::PlayCommand;
+use crate::playback::{OutputAdapter, OutputAdapterError, OutputCommand};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MidiDestinationId(String);
@@ -136,16 +135,16 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
 }
 
 impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
-    fn submit(&mut self, commands: &[PlayCommand]) -> Result<(), OutputAdapterError> {
+    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
         let Some(connection) = self.connection.as_mut() else {
             return self.delivery_failure.clone().map_or(Ok(()), Err);
         };
         for command in commands {
-            // The Play Command carries validated MIDI values; turning them
+            // The Output Command carries validated MIDI values; turning them
             // into a status byte and its data bytes is this adapter's whole
             // job, and the only place in Orcvs that knows the wire format.
             let message = match *command {
-                PlayCommand::Raw {
+                OutputCommand::NoteOn {
                     channel,
                     velocity,
                     note,
@@ -181,8 +180,8 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
-    use crate::playback::{OutputAdapter, PlaybackEngine};
-    use crate::source::{MidiChannel, Note, PlayCommand, SourceCommander, Velocity};
+    use crate::playback::{OutputAdapter, OutputCommand, PlaybackEngine};
+    use crate::source::{MidiChannel, Note, SourceCommander, Velocity};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -198,6 +197,7 @@ mod tests {
     struct FakeState {
         messages: Vec<Vec<u8>>,
         fail_next_send: bool,
+        fail_next_connect: bool,
         connection_count: usize,
     }
 
@@ -214,7 +214,13 @@ mod tests {
             &mut self,
             _destination_id: &MidiDestinationId,
         ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            self.state.lock().unwrap().connection_count += 1;
+            let mut state = self.state.lock().unwrap();
+            if state.fail_next_connect {
+                state.fail_next_connect = false;
+                return Err(MidiError::new("device unplugged"));
+            }
+            state.connection_count += 1;
+            drop(state);
             Ok(Box::new(FakeConnection {
                 state: self.state.clone(),
             }))
@@ -247,12 +253,12 @@ mod tests {
 
         adapter
             .submit(&[
-                PlayCommand::Raw {
+                OutputCommand::NoteOn {
                     channel: MidiChannel::try_from(0x0f).unwrap(),
                     velocity: Velocity::try_from(0).unwrap(),
                     note: Note::try_from(0x15).unwrap(),
                 },
-                PlayCommand::Raw {
+                OutputCommand::NoteOn {
                     channel: MidiChannel::try_from(2).unwrap(),
                     velocity: Velocity::try_from(0x7f).unwrap(),
                     note: Note::try_from(0x45).unwrap(),
@@ -304,7 +310,7 @@ mod tests {
         state.lock().unwrap().fail_next_send = true;
 
         let error = adapter
-            .submit(&[PlayCommand::Raw {
+            .submit(&[OutputCommand::NoteOn {
                 channel: MidiChannel::try_from(0).unwrap(),
                 velocity: Velocity::try_from(0x7f).unwrap(),
                 note: Note::try_from(60).unwrap(),
@@ -316,7 +322,7 @@ mod tests {
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
             adapter
-                .submit(&[PlayCommand::Raw {
+                .submit(&[OutputCommand::NoteOn {
                     channel: MidiChannel::try_from(0).unwrap(),
                     velocity: Velocity::try_from(1).unwrap(),
                     note: Note::try_from(60).unwrap()
@@ -327,7 +333,7 @@ mod tests {
 
         adapter.select(&MidiDestinationId::new("one")).unwrap();
         adapter
-            .submit(&[PlayCommand::Raw {
+            .submit(&[OutputCommand::NoteOn {
                 channel: MidiChannel::try_from(1).unwrap(),
                 velocity: Velocity::try_from(1).unwrap(),
                 note: Note::try_from(61).unwrap(),
@@ -418,6 +424,105 @@ mod tests {
                 OutputAdapterError::new("device lost")
             )]
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn changing_destination_clears_the_scheduled_timed_stop() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let grid = Grid::new(10, 3);
+        let source = SourceCommander::new(grid);
+        // A Timed Play whose note is stopped two Ticks after it starts, and
+        // the Bang one row below the root anchor that activates it.
+        for (index, content) in "!~007FC402**".chars().enumerate() {
+            source.set(cell(grid, index), &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source.clone(), adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            state.lock().unwrap().messages.last(),
+            Some(&vec![0x90, 60, 0x7f])
+        );
+
+        // Retire the Bang so nothing new plays, then change destination. The
+        // note is sounding on the destination being left, which is sent
+        // all-notes-off as it goes, so its scheduled stop belongs to a device
+        // this engine no longer holds.
+        source.unset(cell(grid, 10));
+        source.unset(cell(grid, 11));
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        let delivered = state.lock().unwrap().messages.len();
+
+        for _ in 0..3 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(state.lock().unwrap().messages.len(), delivered);
+        assert_eq!(state.lock().unwrap().connection_count, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_destination_change_that_fails_to_connect_clears_the_scheduled_stop() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let grid = Grid::new(10, 3);
+        let source = SourceCommander::new(grid);
+        // The same Timed Play the successful change uses: a note stopped two
+        // Ticks after it starts, and the Bang one row below its root.
+        for (index, content) in "!~007FC402**".chars().enumerate() {
+            source.set(cell(grid, index), &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source.clone(), adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            state.lock().unwrap().messages.last(),
+            Some(&vec![0x90, 60, 0x7f])
+        );
+
+        // Retire the Bang, then attempt a change the device refuses. The
+        // all-notes-off that precedes the connection is sent regardless, so the
+        // note is silenced whether or not the new destination is reached: a
+        // change that silences the old device owes the same cleared schedule
+        // whether it completes or fails.
+        source.unset(cell(grid, 10));
+        source.unset(cell(grid, 11));
+        state.lock().unwrap().fail_next_connect = true;
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap_err();
+        let delivered = state.lock().unwrap().messages.len();
+
+        for _ in 0..3 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            tokio::task::yield_now().await;
+        }
+
+        // Read both counters out before asserting: a guard held across a
+        // failing assertion poisons the fake, and the engine's own drop then
+        // panics inside a destructor and hides which assertion failed.
+        let (sent, connections) = {
+            let state = state.lock().unwrap();
+            (state.messages.len(), state.connection_count)
+        };
+        assert_eq!(sent, delivered);
+        assert_eq!(connections, 1);
     }
 
     #[test]

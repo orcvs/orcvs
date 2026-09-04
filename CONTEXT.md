@@ -161,7 +161,7 @@ The time-driven process that requests a new Tick Plan for each Tick and dispatch
 _Avoid_: Player, sequencer
 
 **Playback Engine**:
-The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. Stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
+The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. It owns that schedule per channel and note, each claim carrying a generation token, so a stop retired by a replacement or by an explicit stop cannot cut a later note short. Beginning a run, stopping, disconnecting, and changing destination each clear the schedule. The schedule records only what an output adapter accepted, so a refused submission leaves it standing and the stop is delivered again at the next executed Tick. Stopping Playback or disconnecting an output adapter triggers all-notes-off as a safety action.
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
 **Live Editing**:
@@ -171,6 +171,10 @@ _Avoid_: Hot reload, live coding
 **Play Command**:
 One interpreted MIDI instruction emitted by an active Terminal Output Function for delivery during a Tick. It is an explicit variant per spelling — a Raw Play note, and in turn the Timed and Monophonic Play, Control Change, and Pitch Bend outputs — carrying values already validated against their MIDI domains rather than assembled wire bytes, so the output adapter alone knows the protocol encoding. Play Commands are ordered within their Tick Plan and delivered to the Playback Engine as one list; velocity `00` explicitly stops a note using MIDI's zero-velocity convention.
 _Avoid_: Performance command, MIDI event
+
+**Output Command**:
+One MIDI message the Playback Engine hands an output adapter. A Play Command says what the Source asked for; an Output Command says what is delivered, and the two differ wherever the Playback Engine owns the difference: a Timed Play's lifetime becomes a Note On in its Tick Plan order and a Note Off at the beginning of Tick `T + length`, while a command with nothing to resolve is carried through unchanged. Every Output Command is one message the adapter assembles immediately, so an adapter is never handed a lifetime it would have to schedule.
+_Avoid_: Wire command, output event, delivered Play Command
 
 **Terminal Output Function**:
 The family of `!`-spelled Functions that perform an effect and answer with no language value: Raw Play `!>`, and in turn Timed Play `!~`, Monophonic Play `!%`, Control Change `!c`, Pitch Bend `!b`, and Application Command `!$`. Every member performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result. Activation gates evaluation itself, so an inactive terminal root reports no evaluation-time diagnostic either: ADR 0016's operand diagnostics are outcomes of evaluation, and an Expression that never evaluates has no outcome to report. Lexical and syntax diagnostics are unaffected and still fire regardless of activation. Each MIDI member emits a Play Command carrying operands already validated against their MIDI domains, so the output adapter alone assembles the wire message.
@@ -193,7 +197,7 @@ The terminal `!b channel lsb msb` Function. It accepts hexadecimal Number bytes,
 _Avoid_: PB scaling, normalized bend value, combined integer bend
 
 **Monophonic Play Function**:
-The terminal `!% channel velocity note length` Function with the same operand domains as Timed Play. Each output adapter owns one Mono voice per MIDI channel. Every command stops the prior Mono-owned note on that channel first. Velocity `00` or length `00` then starts nothing, replacing the voice with silence. Otherwise, a positive length starts the replacement and schedules its Note Off at Tick `T + length`; a later replacement cancels that expiry. Raw Play and Timed Play notes do not enter Mono ownership.
+The terminal `!% channel velocity note length` Function with the same operand domains as Timed Play. The Playback Engine owns one Mono voice per MIDI channel, beside the Timed schedule and cleared by the same lifecycle actions. This contradicts ADR 0016, which gives Mono ownership and its expiry to the selected output adapter, and is recorded here rather than settled: an Output Command is one message carrying no lifetime, so an adapter has nothing left to schedule with, and reopening ADR 0016 is what decides whether that is the right seam. Every command stops the prior Mono-owned note on that channel first. Velocity `00` or length `00` then starts nothing, replacing the voice with silence. Otherwise, a positive length starts the replacement and schedules its Note Off at Tick `T + length`; a later replacement cancels that expiry. Raw Play and Timed Play notes do not enter Mono ownership.
 _Avoid_: Global Mono voice, Play-wide voice stealing, implicit channel sharing
 
 **Application Command Function**:

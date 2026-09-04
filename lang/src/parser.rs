@@ -597,7 +597,7 @@ mod test {
         let parsed = try_parse(&mut s).unwrap();
 
         let v = vec![
-            Atom::Function(Function::Play),
+            Atom::Function(Function::RawPlay),
             Atom::Number(1),
             Atom::Number(10),
             Atom::Note(crate::Note::try_from(60).unwrap()),
