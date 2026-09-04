@@ -3,7 +3,7 @@
 **What to build:** Close the release definition with the complete candidate-bound evidence bundle
 and an explicit, unwaived human GO/NO-GO decision.
 
-**Blocked by:** 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; language-map/04 — Propagate unit kinds by Grid index; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
+**Blocked by:** 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
 
 **Status:** ready-for-agent
 
@@ -25,6 +25,10 @@ and an explicit, unwaived human GO/NO-GO decision.
 - [ ] `mise run bench` output compares the candidate with a named stable baseline, links archived
       output, reviews series history for cumulative drift, and records the reviewer's performance
       judgment.
+- [ ] The Criterion baseline commit is nominated, with its toolchain pinned, before `v1-release/03`
+      cuts the candidate SHA — not chosen afterwards from whatever the comparison favours. Nominate
+      it from the series `benchmarks/03` publishes to `gh-pages`, and record the nomination here
+      with its date.
 - [ ] Known defects, Improvement-only work, accepted deferrals, `CONTEXT.md`, and user-facing
       documentation are reconciled against implemented behavior rather than speculative scope.
 - [ ] A named reviewer and date conclude with `GO` only when every requirement passes; otherwise the

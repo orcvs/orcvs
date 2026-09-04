@@ -2,8 +2,7 @@
 
 Type: grilling
 
-Blocked by: 01 — Name the shipped language inventory; 02 — Decide the Expression, Language Unit,
-and runtime value invariant.
+Blocked by: 01 — Name the shipped language inventory; 02 — Decide the Expression, Language Unit, and runtime value invariant.
 
 Status: resolved
 
