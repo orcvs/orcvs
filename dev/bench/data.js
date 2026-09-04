@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788517804653,
+  "lastUpdate": 1788528429384,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -863,6 +863,126 @@ window.BENCHMARK_DATA = {
             "name": "source_edit_rebuild_invalid/64x64",
             "value": 155062,
             "range": "± 1454",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f9e3fec23e131646dc2e1fb5cf53449ddd4f860",
+          "message": "Merge pull request #15 from orcvs/02-schedule-timed-play-note-off\n\nSchedule each Timed Play's Note Off at the Tick its length names",
+          "timestamp": "2026-09-04T23:20:36+10:00",
+          "tree_id": "83dd61c8f68b181b33b57e1aad8cbd1adfdf87d0",
+          "url": "https://github.com/orcvs/orcvs/commit/5f9e3fec23e131646dc2e1fb5cf53449ddd4f860"
+        },
+        "date": 1788528428413,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 126,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 69,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 485,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 39,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 111,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2906,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 11328,
+            "range": "± 41",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 44980,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 14385,
+            "range": "± 98",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 51601,
+            "range": "± 180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 207518,
+            "range": "± 1284",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 14645,
+            "range": "± 172",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 50993,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 206104,
+            "range": "± 1483",
             "unit": "ns/iter"
           }
         ]
