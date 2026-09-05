@@ -4,7 +4,6 @@ mod expression;
 mod functions;
 mod interpreter;
 mod parser;
-mod portal;
 mod sequence;
 mod stack;
 mod tick;
@@ -17,7 +16,6 @@ pub use error::{ArgumentError, Error, InterpretationError, SequenceError, Syntax
 pub use expression::{Expression, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
-pub use portal::Portal;
 pub use sequence::{Sequence, Value};
 pub use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};

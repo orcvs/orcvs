@@ -12,7 +12,7 @@ instead.
 
 - [ ] `Grid::fits` is gone from `orcvs/src/grid.rs`, and `test_grid_answers_whether_a_width_fits_in_the_row`
       goes with it.
-- [ ] No production call site changes, because there is none: `SpanWrite::at` and
+- [ ] No production call site changes, because there is none: `Portal::admit` and
       `LanguageMap::derive` already ask `offset_in_row`.
 - [ ] No behaviour changes; this is a question about what a Grid is asked, not about what it
       answers.
@@ -26,7 +26,7 @@ second byte to read at the row's edge — the row edge stopped needing a rule at
 It is `pub`, so no lint fires and nothing forces the decision. That is exactly why it needs one
 made deliberately: a Grid answering a question nobody asks is the kind of surface that quietly
 grows a second, differently-shaped answer later. `spatial-tick-planning` adds producers that
-write to Source and may well want to ask whether a result fits its row — `SpanWrite::at` currently
+write to Source and may well want to ask whether a result fits its row — `Portal::admit` currently
 asks `offset_in_row` instead — so the honest options are a caller or a deletion, not a shrug.
 
 ### Decision: delete it
@@ -34,8 +34,8 @@ asks `offset_in_row` instead — so the honest options are a caller or a deletio
 Taken during the `release/v1` issue alignment on 2026-09-04. `Grid::fits` has no production
 caller. Its only callers are the six assertions inside its own test,
 `test_grid_answers_whether_a_width_fits_in_the_row` at `orcvs/src/grid.rs:618-627`. The question
-it answers is already asked elsewhere, in the form production code needs: `SpanWrite::at`
-(`orcvs/src/source/tick.rs:194`) uses `offset_in_row` to reject a write that would cross the row
+it answers is already asked elsewhere, in the form production code needs: `Portal::admit`
+(`orcvs/src/source/portal.rs`) uses `offset_in_row` to reject a write that would cross the row
 edge, and `LanguageMap::derive` (`orcvs/src/source/language_map.rs:380`) uses it to bound a Span.
 `fits` is a second, differently-shaped answer to that one question, which is the surface this
 effort exists to remove.
@@ -49,3 +49,10 @@ The paired change lives in `property-testing/02`: its sixth acceptance line name
 and now names `offset_in_row`. That ordering is encoded rather than described — `property-testing/02`
 lists this issue as a blocker — so the deletion lands before the property suite starts and the two
 issues cannot specify opposite things.
+
+### Renamed by `sequence-values/04`, 2026-09-05
+
+The caller this issue names is now `Portal::admit` in `orcvs/src/source/portal.rs`. It was
+`SpanWrite::at` in `orcvs/src/source/tick.rs` when the decision above was taken; that constructor
+was folded into the Portal and no longer exists under either name or location. The decision is
+unaffected — the caller still asks `offset_in_row`, and `Grid::fits` still has none.

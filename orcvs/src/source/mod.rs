@@ -1,7 +1,10 @@
+mod cell;
+pub use cell::CellContent;
 pub mod error;
 mod language_map;
 pub use language_map::{ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 mod model;
+mod portal;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
 pub use error::SourceError;
