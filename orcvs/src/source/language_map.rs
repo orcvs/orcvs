@@ -10,7 +10,7 @@ use crate::{
     grid::{CellIndex, Grid, Position},
 };
 
-use super::Diagnostic;
+use super::{CellContent, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
 
@@ -167,8 +167,9 @@ impl LanguageMap {
     /// Returns `None` when `source` is not exactly one printable-ASCII Cell per
     /// Position in `grid`.
     pub fn derive(grid: Grid, source: &str) -> Option<Self> {
-        (source.len() == grid.count() && source.bytes().all(|byte| (0x20..=0x7e).contains(&byte)))
-            .then(|| Self::build(grid, source.as_bytes()))
+        (source.len() == grid.count()
+            && source.bytes().all(|byte| CellContent::new(byte).is_some()))
+        .then(|| Self::build(grid, source.as_bytes()))
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {

@@ -4,9 +4,9 @@ use tracing::debug;
 
 use crate::grid::{CellIndex, Grid};
 
-use super::SourceError;
 use super::language_map::{LanguageMap, Span};
 use super::tick;
+use super::{CellContent, SourceError};
 
 pub const SPACE: &str = " ";
 const SPACE_BYTE: u8 = b' ';
@@ -99,7 +99,7 @@ impl Diagnostic {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CellWrite {
     pub cell: CellIndex,
-    pub content: char,
+    pub content: CellContent,
 }
 
 /// One interpreted MIDI instruction emitted by an active Terminal Output
@@ -164,7 +164,7 @@ impl<'de> serde::Deserialize<'de> for Source {
         if !persisted
             .inner
             .bytes()
-            .all(|byte| (0x20..=0x7e).contains(&byte))
+            .all(|byte| CellContent::new(byte).is_some())
         {
             return Err(D::Error::custom(
                 "persisted Source contains a non-Cell character",
@@ -222,7 +222,7 @@ impl Source {
         self.grid.assert_owns_index(cell);
         debug!("set {}: {s}", cell.get());
         let byte = Self::check_content(s)?;
-        self.check_expression_capacity(cell, byte)?;
+        self.check_expression_capacity(cell, byte.byte())?;
 
         self.edit(cell, byte);
         Ok(())
@@ -236,14 +236,14 @@ impl Source {
     ///
     pub fn unset(&mut self, cell: CellIndex) {
         self.grid.assert_owns_index(cell);
-        self.edit(cell, SPACE_BYTE);
+        self.edit(cell, CellContent::SPACE);
     }
 
     ///
     /// Applies one already-validated edit. The revision it produces is what
     /// the console observes, so the edit reports nothing of its own.
     ///
-    fn edit(&mut self, cell: CellIndex, byte: u8) {
+    fn edit(&mut self, cell: CellIndex, byte: CellContent) {
         self.set_source(cell, byte);
         self.rebuild_derived_state();
     }
@@ -269,13 +269,14 @@ impl Source {
     /// character. This is the only rule the editing seam has left: addressing
     /// is settled by the index, so content is all a Cell can be refused for.
     ///
-    fn check_content(s: &str) -> Result<u8, SourceError> {
-        match s.as_bytes() {
-            [b] if (0x20..=0x7e).contains(b) => Ok(*b),
-            _ => Err(SourceError::InvalidCell {
-                content: s.to_string(),
-            }),
-        }
+    fn check_content(s: &str) -> Result<CellContent, SourceError> {
+        let content = match s.as_bytes() {
+            [byte] => CellContent::new(*byte),
+            _ => None,
+        };
+        content.ok_or_else(|| SourceError::InvalidCell {
+            content: s.to_string(),
+        })
     }
 
     fn check_expression_capacity(&self, cell: CellIndex, byte: u8) -> Result<(), SourceError> {
@@ -362,7 +363,7 @@ impl Source {
     fn commit_tick(&mut self, plan: &TickPlan) {
         // Commit every planned Cell before rebuilding any derived state.
         for write in &plan.writes {
-            self.set_source(write.cell, write.content as u8);
+            self.set_source(write.cell, write.content);
         }
         self.rebuild_derived_state();
     }
@@ -375,7 +376,7 @@ impl Source {
     /// Writes one already-validated ASCII byte at `cell` without
     /// recalculating Expressions.
     ///
-    fn set_source(&mut self, cell: CellIndex, byte: u8) {
+    fn set_source(&mut self, cell: CellIndex, content: CellContent) {
         // What makes `cell` address a byte of *this* Source. `Grid::cell_index`
         // and `Grid::index` are the only minters and both bound their answer by
         // the Grid's Cell count; `inner` is that many bytes from `Source::new`
@@ -383,22 +384,13 @@ impl Source {
         // shape is still a different Grid, which is why identity is what is
         // asked rather than a number compared.
         self.grid.assert_owns_index(cell);
-        // SAFETY: only UTF-8 validity is at stake, and every byte involved is
-        // single-byte ASCII. `inner` holds one such byte per Cell — `Source::new`
-        // fills it with spaces, `Deserialize` validates every byte it accepts,
-        // and this is the only place it is written afterwards. `byte` is one
-        // too: `set` takes it from `check_content`, `unset` passes a space, and
-        // `commit_tick` takes it from a Tick Plan whose results
-        // `tick::emit_expression_root` asserts are ASCII. One single-byte value
-        // replacing another leaves the String valid and its length unchanged.
-        //
-        // The Source's own invariant is the narrower printable range, and the
-        // Tick path asserts only `is_ascii`. That is a wider set than a Cell is
-        // supposed to hold, not a wider set than UTF-8 admits, so it is a
-        // question for the Tick path rather than for this block.
+        // SAFETY: Source construction and deserialization establish one
+        // printable ASCII byte per Cell. Every subsequent write takes a
+        // CellContent, whose private byte is printable ASCII by construction.
+        // Replacing one such byte preserves UTF-8 validity and String length.
         unsafe {
             let bytes = self.inner.as_bytes_mut();
-            bytes[cell.get()] = byte;
+            bytes[cell.get()] = content.byte();
         }
     }
 }
@@ -412,17 +404,64 @@ impl fmt::Display for Source {
 #[cfg(test)]
 mod test {
 
+    use lang::{Atom, Function, Interpretation, Sequence};
     use std::ops::{Deref, DerefMut};
 
     use crate::{
         glyph::Glyph,
-        grid::{CellIndex, Grid},
+        grid::{CellIndex, Grid, Position},
         source::{
             CellWrite, Length, MidiChannel, Note, PlayCommand, Source, SourceError, Tick, TickPlan,
             Velocity,
+            tick::{resolve, result_effect},
         },
         test::trace,
     };
+
+    #[test]
+    fn editing_and_derivation_agree_on_every_byte_character() {
+        let grid = Grid::new(1, 1);
+        let cell = grid.cell_index(0).unwrap();
+        let mut source = Source::new(grid);
+        for byte in u8::MIN..=u8::MAX {
+            let input = char::from(byte).to_string();
+            let accepted = byte == b' ' || byte.is_ascii_graphic();
+            let before = source.snapshot();
+            assert_eq!(source.set(cell, &input).is_ok(), accepted);
+            assert_eq!(
+                crate::source::LanguageMap::derive(grid, &input).is_some(),
+                accepted,
+            );
+            assert_eq!(source.snapshot(), if accepted { input } else { before });
+        }
+    }
+
+    #[test]
+    fn every_printable_character_survives_portal_commit() {
+        let encoding: String = (u8::MIN..=u8::MAX)
+            .filter(|byte| *byte == b' ' || byte.is_ascii_graphic())
+            .map(char::from)
+            .collect();
+        let grid = Grid::new(encoding.len(), 2);
+        let mut source = Source::new(grid);
+        let root = grid.position(0, 0).unwrap();
+        source.commit_tick(&plan_result(
+            grid,
+            root,
+            Interpretation::Sequence(Sequence::new(encoding.chars().map(Atom::Char)).unwrap()),
+        ));
+        assert_eq!(
+            source.snapshot(),
+            format!("{}{encoding}", " ".repeat(encoding.len()))
+        );
+
+        #[cfg(feature = "persistence")]
+        {
+            let encoded = serde_json::to_string(&source).unwrap();
+            let restored: Source = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(restored.snapshot(), source.snapshot());
+        }
+    }
 
     ///
     /// The default shape for tests in this module. Rectangular on purpose: a
@@ -455,6 +494,34 @@ mod test {
             .and_then(|s| s.chars().next())
             .filter(|c| *c != ' ');
         (content, glyph_at(source, idx))
+    }
+
+    ///
+    /// Every Cell's Glyph at the current revision, in Source order.
+    ///
+    fn glyphs(source: &Source) -> Vec<Option<Glyph>> {
+        (0..source.grid.count())
+            .map(|idx| glyph_at(source, idx))
+            .collect()
+    }
+
+    ///
+    /// What the current revision diagnoses, as the Cells each problem covers
+    /// and what it says. Two Sources are built on Grids of their own, so their
+    /// Diagnostics are never equal as values however alike they are; this is
+    /// the part of one that two Sources can share.
+    ///
+    fn reported(source: &Source) -> Vec<(usize, usize, String)> {
+        diagnostics(source)
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.start(),
+                    diagnostic.end(),
+                    diagnostic.message.clone(),
+                )
+            })
+            .collect()
     }
 
     fn diagnostics(source: &Source) -> Vec<super::Diagnostic> {
@@ -621,6 +688,23 @@ mod test {
 
     fn source() -> SourceUnderTest {
         SourceUnderTest::new(grid())
+    }
+
+    /// Supply an evaluation answer through production delivery, then resolve
+    /// its Effect. The synthetic root occupies one Cell because no parseable
+    /// Function supplies these Sequence answers yet. Commit remains Source's.
+    fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
+        let anchor = grid.index(root);
+        let span = super::Span::new(grid, anchor, anchor);
+        resolve(
+            result_effect(grid, root, span, Ok(result))
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    fn numbers(values: &[u8]) -> Interpretation {
+        Interpretation::Sequence(Sequence::new(values.iter().copied().map(Atom::Number)).unwrap())
     }
 
     #[test]
@@ -1135,9 +1219,9 @@ mod test {
         assert!(tick.play_commands.is_empty());
         assert_eq!(tick.writes.len(), 2);
         assert_eq!(tick.writes[0].cell, at(10));
-        assert_eq!(tick.writes[0].content, '0');
+        assert_eq!(tick.writes[0].content.as_char(), '0');
         assert_eq!(tick.writes[1].cell, at(11));
-        assert_eq!(tick.writes[1].content, '3');
+        assert_eq!(tick.writes[1].content.as_char(), '3');
         assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Char)));
         assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Char)));
     }
@@ -1761,11 +1845,11 @@ mod test {
             vec![
                 CellWrite {
                     cell: at(90),
-                    content: '0',
+                    content: crate::source::CellContent::new(b'0').unwrap(),
                 },
                 CellWrite {
                     cell: at(91),
-                    content: '3',
+                    content: crate::source::CellContent::new(b'3').unwrap(),
                 },
             ]
         );
@@ -1797,11 +1881,11 @@ mod test {
             vec![
                 CellWrite {
                     cell: at(14),
-                    content: '0',
+                    content: crate::source::CellContent::new(b'0').unwrap(),
                 },
                 CellWrite {
                     cell: at(15),
-                    content: '2',
+                    content: crate::source::CellContent::new(b'2').unwrap(),
                 },
             ]
         );
@@ -1815,7 +1899,7 @@ mod test {
             second
                 .writes
                 .iter()
-                .any(|write| write.cell == at(20) && write.content == '0')
+                .any(|write| write.cell == at(20) && write.content.as_char() == '0')
         );
     }
 
@@ -1881,5 +1965,161 @@ mod test {
 
         assert_eq!(src.row(1), "020304    ");
         assert_eq!(src.row(2), "07        ");
+    }
+
+    #[test]
+    fn a_shorter_result_leaves_the_earlier_results_tail_standing() {
+        // ADR 0007: an ordinary result "writes exactly its current encoding and
+        // never infers or clears Cells beyond that Span from an earlier, longer
+        // result". Three Atoms at one Tick and one Atom at the next is the case
+        // that catches the two ways that goes wrong — clearing the destination
+        // row before writing, or remembering how wide the last result was — and
+        // a same-width pair of results catches neither. The Cells the shorter
+        // result does not reach still hold the earlier Sequence's characters,
+        // not spaces.
+        //
+        // The results are planned through the Portal an evaluated Function's
+        // answer passes through, and committed by the Source's own commit, so
+        // what is read back is what two Ticks of a Playback run would leave.
+        let mut src = source();
+        let grid = src.grid;
+        let root = grid.position(0, 0).expect("inside the Grid");
+
+        src.commit_tick(&plan_result(grid, root, numbers(&[0x0A, 0x0B, 0x0C])));
+        let shorter = plan_result(grid, root, Interpretation::Cell(Atom::Number(0x0D)));
+        src.commit_tick(&shorter);
+
+        assert_eq!(shorter.writes.len(), 2, "a result plans only its own Cells");
+        assert_eq!(src.row(1), "0D0B0C    ");
+    }
+
+    #[test]
+    fn cells_generated_by_a_sequence_result_are_read_as_ordinary_source() {
+        // ADR 0007: successfully encoded Cells become ordinary Source content
+        // under the same parsing, diagnostic, and generated-code rules as a
+        // single Atom, "without a privileged literal-Sequence interpretation".
+        // The way to state that is a comparison rather than a list of expected
+        // Glyphs: a Source that was written by a Sequence result and a Source
+        // the same characters were typed into are indistinguishable afterwards,
+        // Cell for Cell, Glyph for Glyph, and diagnostic for diagnostic.
+        //
+        // Three adjacent Numbers read as one Expression whose head is an
+        // unknown Function, so this pair shares a syntax diagnostic. That is
+        // the point rather than a flaw in the case: ADR 0020 says the Source a
+        // Tick writes "may intentionally contain an alignment or syntax
+        // diagnostic on the next Tick", and a result that suppressed it would
+        // be the privileged interpretation ADR 0007 rules out. A case whose
+        // characters happened to parse cleanly could not tell the two apart.
+        //
+        // Diagnostics are compared as their Cells and their message because a
+        // Diagnostic carries the Grid that minted its Span, and these two
+        // Sources are built on Grids of their own.
+        let mut generated = source();
+        let grid = generated.grid;
+        let root = grid.position(0, 0).expect("inside the Grid");
+        generated.commit_tick(&plan_result(grid, root, numbers(&[0x0A, 0x0B, 0x0C])));
+
+        let mut typed = source();
+        let at = typed.cells();
+        typed.write(at(10), "0A0B0C");
+
+        assert_eq!(generated.snapshot(), typed.snapshot());
+        assert_eq!(glyphs(&generated), glyphs(&typed));
+        assert_eq!(reported(&generated), reported(&typed));
+        assert_eq!(
+            reported(&generated),
+            vec![(10, 15, "unknown function \"0A\"".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_committed_number_sequence_plans_nothing_of_its_own_on_the_next_tick() {
+        // The other half of ADR 0007's generated-code rule, and the half a
+        // comparison cannot make: what a Tick does when it meets the Cells an
+        // earlier one wrote. These Number encodings contain no Function, so
+        // the next Tick plans no writes or commands. A Sequence containing a
+        // Function spelling can compute, as the adjacent test demonstrates.
+        let mut src = source();
+        let grid = src.grid;
+        let root = grid.position(0, 0).expect("inside the Grid");
+        src.commit_tick(&plan_result(grid, root, numbers(&[0x0A, 0x0B, 0x0C])));
+
+        let tick = src.execute();
+
+        assert!(tick.writes.is_empty());
+        assert!(tick.play_commands.is_empty());
+        assert_eq!(src.row(1), "0A0B0C    ");
+        for row in 2..src.row_count() {
+            assert_eq!(src.row(row), "          ", "row {row} is untouched");
+        }
+    }
+
+    #[test]
+    fn a_generated_function_sequence_computes_on_the_next_tick() {
+        let mut generated = source();
+        let grid = generated.grid;
+        let root = grid.position(0, 0).unwrap();
+        let result = Interpretation::Sequence(
+            Sequence::new([
+                Atom::Function(Function::Add),
+                Atom::Number(1),
+                Atom::Number(2),
+            ])
+            .unwrap(),
+        );
+        generated.commit_tick(&plan_result(grid, root, result));
+        assert_eq!(generated.row(1), ".+0102    ");
+        assert_eq!(generated.row(2), "          ");
+
+        let mut typed = source();
+        let at = typed.cells();
+        typed.write(at(10), ".+0102");
+        assert_eq!(glyphs(&generated), glyphs(&typed));
+        assert_eq!(reported(&generated), reported(&typed));
+
+        let plan = generated.execute();
+        typed.execute();
+        assert_eq!(generated.snapshot(), typed.snapshot());
+        assert_eq!(generated.row(2), "03        ");
+        assert_eq!(plan.writes.len(), 2);
+        assert!(plan.diagnostics.is_empty());
+        assert!(plan.play_commands.is_empty());
+    }
+
+    #[test]
+    fn an_empty_sequence_needs_no_destination_and_preserves_source() {
+        let mut src = source();
+        let grid = src.grid;
+        let root = grid.position(0, src.row_count() - 1).unwrap();
+        let before = src.snapshot();
+        let plan = plan_result(grid, root, Interpretation::Sequence(Sequence::empty()));
+        src.commit_tick(&plan);
+        assert_eq!(src.snapshot(), before);
+        assert!(plan.writes.is_empty());
+        assert!(plan.diagnostics.is_empty());
+        assert!(plan.play_commands.is_empty());
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn a_persisted_source_carries_only_its_grid_and_its_character_cells() {
+        // ADR 0009: a Portal is internal destination state, never a persisted
+        // object. Most of that argument is one the compiler makes — `Portal` is
+        // internal to the Source module, absent from the language crate, and
+        // derives no `Serialize` — and this is the half a test can hold: the
+        // persisted form has exactly two members, so no destination, and
+        // nothing else one Tick resolved, can have joined it unnoticed.
+        let source = Source::new(Grid::new(4, 2));
+
+        let persisted = serde_json::to_value(&source).unwrap();
+
+        assert_eq!(
+            persisted
+                .as_object()
+                .expect("a persisted Source is a JSON object")
+                .keys()
+                .collect::<Vec<_>>(),
+            vec!["grid", "inner"]
+        );
     }
 }

@@ -21,7 +21,8 @@ use std::collections::BTreeMap;
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::language_map::{ExpressionEntry, LanguageMap, Span};
-use super::{CellWrite, Diagnostic, PlayCommand, TickPlan};
+use super::portal::{Portal, PortalError, SpanWrite};
+use super::{CellContent, CellWrite, Diagnostic, PlayCommand, TickPlan};
 
 ///
 /// One producer's turn in a Tick, taken at its anchor Position.
@@ -54,9 +55,9 @@ enum Producer<'map> {
 pub(super) enum Effect {
     ///
     /// One complete write. ADR 0004 and ADR 0009 validate a write's whole
-    /// destination before any of its Cells is emitted; a `SpanWrite` exists
-    /// only when its whole destination was accepted, so a partial write is
-    /// unrepresentable rather than merely avoided.
+    /// destination before any of its Cells is emitted; a [`SpanWrite`] exists
+    /// only because a [`Portal`] accepted its whole destination, so a partial
+    /// write is unrepresentable rather than merely avoided.
     ///
     Write(SpanWrite),
 
@@ -151,73 +152,8 @@ impl Turn<'_> {
 /// one predictable order, which is a separate question from which producer
 /// owns each Cell.
 ///
-///
-/// A validated write of one encoding to a contiguous run of Cells.
-///
-/// The two ways a whole destination is refused are the two variants of
-/// `SpanWriteError`; each producer turns them into its own diagnostic, and
-/// neither yields a `SpanWrite`. Cells are addressed only when the Tick Plan
-/// resolves, so no producer can emit half of one.
-///
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct SpanWrite {
-    span: Span,
-    content: String,
-}
-
-///
-/// Why a whole destination was refused.
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SpanWriteError {
-    /// There is no row below the producer's root.
-    BelowSource,
-    /// The encoding is wider than the destination row's remaining Cells.
-    CrossesRowEdge,
-}
-
-impl SpanWrite {
-    ///
-    /// The write that places `content` in the row below `root`, starting at
-    /// `root`'s column. `content` is one or more ASCII Cells.
-    ///
-    pub(super) fn below(grid: Grid, root: Position, content: &str) -> Result<Self, SpanWriteError> {
-        let target = grid.below(root).ok_or(SpanWriteError::BelowSource)?;
-        Self::at(grid, target, content)
-    }
-
-    ///
-    /// The write that places `content` at `start` and along its row.
-    /// `content` is one or more ASCII Cells.
-    ///
-    pub(super) fn at(grid: Grid, start: Position, content: &str) -> Result<Self, SpanWriteError> {
-        debug_assert!(!content.is_empty(), "a write places at least one Cell");
-        debug_assert!(
-            content.is_ascii(),
-            "a write preserves the Source ASCII invariant"
-        );
-
-        let width = content.chars().count();
-        let last = grid
-            .offset_in_row(start, width - 1)
-            .ok_or(SpanWriteError::CrossesRowEdge)?;
-
-        Ok(Self {
-            span: Span::new(grid, grid.index(start), last),
-            content: content.to_string(),
-        })
-    }
-
-    ///
-    /// Each Cell this write covers, paired with what it receives.
-    ///
-    fn cells(&self) -> impl Iterator<Item = (CellIndex, char)> + '_ {
-        self.span.indices().zip(self.content.chars())
-    }
-}
-
 pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
-    let mut writes: BTreeMap<CellIndex, char> = BTreeMap::new();
+    let mut writes: BTreeMap<CellIndex, CellContent> = BTreeMap::new();
     let mut play_commands = Vec::new();
     let mut diagnostics = Vec::new();
 
@@ -335,65 +271,86 @@ fn emit_expression_root(
         return;
     }
 
-    let encoded = match interpret(atoms, tick_inputs(tick, root)) {
-        Ok(Interpretation::Cell(Atom::Empty)) => return,
+    effects.extend(result_effect(
+        grid,
+        root,
+        expression.span(),
+        interpret(atoms, tick_inputs(tick, root)),
+    ));
+}
+
+///
+/// The optional Effect of one evaluation answer, delivered from `root`.
+///
+/// Delivery owns encoding, admission, and diagnostics. Its caller owns when
+/// this Effect is emitted, resolved against other writes, and committed.
+///
+/// Split from the turn that drove the evaluation because the two halves are
+/// answerable separately: which roots evaluate, and with what, is ADR 0020's
+/// question, while what an answer becomes is ADR 0007's and ADR 0009's. A
+/// producer kind that computes differently — the Source-writing Functions of
+/// ADR 0004 among them — still delivers an ordinary result the same way, and a
+/// test can state one answer without a Source that spells it. That second use
+/// is not incidental: no Source-parseable Function returns a Sequence yet, so
+/// naming this step is the only way the Sequence half of the result path is
+/// reachable at all before issues 02 and 03 add the Functions that spell one.
+///
+pub(super) fn result_effect(
+    grid: Grid,
+    root: Position,
+    span: Span,
+    result: Result<Interpretation, LangError>,
+) -> Option<Effect> {
+    let encoded = match result {
+        Ok(Interpretation::Cell(Atom::Empty)) => return None,
         Ok(Interpretation::Cell(result)) => result.to_string(),
         // Per ADR 0007 an empty Sequence emits no Cell writes, exactly as the
         // absence marker above emits none. A non-empty one is encoded and
-        // routed through the same below-root, complete-fit, horizontal-write
-        // path a single Atom takes: an intact Sequence is one ordinary result,
-        // not a batch of Cell writes. Resolving a destination other than the
-        // Cell below the root, and clearing a stale tail, belong to ADR 0009
-        // and issue 04.
-        //
-        // No Source-parseable Function returns a Sequence yet, so no Source
-        // text reaches this arm; issues 02 and 03 add the producers that
-        // exercise it.
-        Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => return,
+        // routed through the same Portal a single Atom passes through: an
+        // intact Sequence is one ordinary result, not a batch of Cell writes,
+        // and the complete-fit rule ADR 0007 states for it is the rule the
+        // Portal already applies to any encoding.
+        Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => return None,
         Ok(Interpretation::Sequence(sequence)) => sequence.to_string(),
-        Ok(Interpretation::Play(command)) => {
-            effects.push(Effect::Play(command));
-            return;
-        }
+        Ok(Interpretation::Play(command)) => return Some(Effect::Play(command)),
         Err(error) => {
-            effects.push(Effect::Diagnose(Diagnostic::for_expression(
+            return Some(Effect::Diagnose(Diagnostic::for_expression(
                 root,
-                expression.span(),
+                span,
                 error.to_string(),
             )));
-            return;
         }
     };
-    assert!(
-        encoded.is_ascii(),
-        "Interpreter results must preserve the Source ASCII invariant"
-    );
-
-    match SpanWrite::below(grid, root, &encoded) {
-        Ok(write) => effects.push(Effect::Write(write)),
-        Err(reason) => effects.push(Effect::Diagnose(Diagnostic::for_expression(
-            root,
-            expression.span(),
-            match reason {
-                SpanWriteError::BelowSource => {
-                    format!("result {encoded:?} falls below the Source")
-                }
-                SpanWriteError::CrossesRowEdge => {
-                    format!("result {encoded:?} crosses the row edge")
-                }
-            },
-        ))),
-    }
+    // Resolution and fit are one expression because a producer answers both
+    // refusals the same way: no write at all, and a diagnostic saying which it
+    // was. The encoding is fanned out into Cells only when the Tick Plan
+    // resolves, so nothing between here and there holds part of a result.
+    Some(
+        match Portal::ordinary_result(grid, root).and_then(|portal| portal.admit(&encoded)) {
+            Ok(write) => Effect::Write(write),
+            Err(reason) => Effect::Diagnose(Diagnostic::for_expression(
+                root,
+                span,
+                match reason {
+                    PortalError::BelowSource => {
+                        format!("result {encoded:?} falls below the Source")
+                    }
+                    PortalError::CrossesRowEdge => {
+                        format!("result {encoded:?} crosses the row edge")
+                    }
+                },
+            )),
+        },
+    )
 }
 
 ///
 /// Whether an Expression computes anything.
 ///
 /// An Expression with no Function is a literal — the Interpreter has no
-/// Function to apply, so a Tick produces no result to commit for it. This is
-/// what stops a committed result from feeding itself: the value a Tick writes
-/// is valid Source, but on the next Tick it parses to a literal and so commits
-/// nothing of its own.
+/// Function to apply, so a Tick produces no result to commit for it. Generated
+/// Cells follow the same rule as typed Source: Number-only results do not
+/// compute, while a result encoding a Function can compute on the next Tick.
 ///
 fn is_computation(atoms: &Atoms) -> bool {
     atoms.iter().any(|a| matches!(a, Atom::Function(_)))
@@ -414,14 +371,16 @@ fn is_terminal_root(atoms: &Atoms) -> bool {
 #[cfg(test)]
 mod test {
     use super::{
-        Effect, SpanWrite, SpanWriteError, Tick, Turn, observed, order_by_anchor, resolve,
-        tick_inputs, turns,
+        Effect, Portal, Tick, Turn, observed, order_by_anchor, resolve, result_effect, tick_inputs,
+        turns,
     };
+    use lang::{Atom, Interpretation, Sequence};
+
     use crate::{
         grid::{CellIndex, Grid},
         source::{
-            CellWrite, Diagnostic, MidiChannel, Note, PlayCommand, Velocity,
-            language_map::LanguageMap,
+            CellWrite, Diagnostic, MidiChannel, Note, PlayCommand, TickPlan, Velocity,
+            language_map::{LanguageMap, Span},
         },
     };
 
@@ -469,11 +428,40 @@ mod test {
 
     ///
     /// A complete write of `content` starting at `idx`. One Effect covers the
-    /// whole run, which is the shape a producer emits.
+    /// whole run, which is the shape a producer emits, and it is admitted by a
+    /// Portal because that is the only way one comes into being.
     ///
     fn write(grid: Grid, idx: usize, content: &str) -> Effect {
-        let start = grid.position_at(grid.cell_index(idx).expect("inside the Grid"));
-        Effect::Write(SpanWrite::at(grid, start, content).expect("the write fits its row"))
+        let destination = grid.position_at(grid.cell_index(idx).expect("inside the Grid"));
+        Effect::Write(
+            Portal::at(grid, destination)
+                .admit(content)
+                .expect("the encoding fits its row"),
+        )
+    }
+
+    ///
+    /// One Sequence of Numbers, as evaluation would answer with it. Numbers
+    /// are used throughout because their encoding is two Cells wide and
+    /// self-evident in an expected row, so a test states what it means about
+    /// destinations rather than about Atom spellings.
+    ///
+    fn sequence(numbers: &[u8]) -> Interpretation {
+        Interpretation::Sequence(
+            Sequence::new(numbers.iter().copied().map(Atom::Number))
+                .expect("a Number is a Sequence member"),
+        )
+    }
+
+    ///
+    /// The Cells `plan` writes, as plain numbers and characters, so an
+    /// expected Source row reads as one.
+    ///
+    fn planned(plan: &TickPlan) -> Vec<(usize, char)> {
+        plan.writes
+            .iter()
+            .map(|write| (write.cell.get(), write.content.as_char()))
+            .collect()
     }
 
     fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
@@ -647,30 +635,6 @@ mod test {
     }
 
     #[test]
-    fn test_a_refused_destination_yields_no_write_at_all() {
-        // The property ADR 0004 states — validate the whole destination before
-        // emitting any Cell of it — is now a property of the constructor, so it
-        // is checked here without a Source, a producer, or a Tick.
-        let grid = Grid::new(4, 2);
-        let bottom_row = grid.position(0, 1).expect("inside the Grid");
-        let near_edge = grid.position(2, 0).expect("inside the Grid");
-
-        assert_eq!(
-            SpanWrite::below(grid, bottom_row, "03"),
-            Err(SpanWriteError::BelowSource),
-            "there is no row below the last one"
-        );
-        assert_eq!(
-            SpanWrite::at(grid, near_edge, "ABC"),
-            Err(SpanWriteError::CrossesRowEdge),
-            "three Cells do not fit in the two remaining"
-        );
-
-        // the widest write the row does hold is accepted whole
-        assert!(SpanWrite::at(grid, near_edge, "AB").is_ok());
-    }
-
-    #[test]
     fn test_later_effects_win_cell_conflicts_independently() {
         // An earlier producer writes three Cells and a later one writes two,
         // overlapping the third. Resolution is Cell-wise: the later producer
@@ -690,19 +654,19 @@ mod test {
             vec![
                 CellWrite {
                     cell: cell(grid, 10),
-                    content: 'A'
+                    content: crate::source::CellContent::new(b'A').unwrap()
                 },
                 CellWrite {
                     cell: cell(grid, 11),
-                    content: 'B'
+                    content: crate::source::CellContent::new(b'B').unwrap()
                 },
                 CellWrite {
                     cell: cell(grid, 12),
-                    content: 'X'
+                    content: crate::source::CellContent::new(b'X').unwrap()
                 },
                 CellWrite {
                     cell: cell(grid, 13),
-                    content: 'Y'
+                    content: crate::source::CellContent::new(b'Y').unwrap()
                 },
             ]
         );
@@ -747,8 +711,225 @@ mod test {
             plan.writes,
             vec![CellWrite {
                 cell: cell(grid, 10),
-                content: '0'
+                content: crate::source::CellContent::new(b'0').unwrap()
             }]
         );
+    }
+
+    #[test]
+    fn a_sequence_result_is_delivered_through_one_portal_below_its_root() {
+        // ADR 0007: a non-empty Sequence encodes horizontally from the
+        // ordinary result Position through one Portal carrying the intact
+        // Sequence. Three Atoms are one Effect, not three, and become six
+        // Cells only when the Tick Plan resolves — which is what makes the
+        // whole Sequence validated before any Cell of it exists.
+        //
+        // No Source text reaches this arm yet, because no Source-parseable
+        // Function returns a Sequence until issues 02 and 03 add Range,
+        // Reverse, and Concatenate. The result is stated directly instead, at
+        // the seam a Function's answer arrives through.
+        let grid = Grid::new(10, 3);
+        let root = grid.position(0, 0).expect("inside the Grid");
+        let span = Span::new(grid, cell(grid, 0), cell(grid, 5));
+
+        let mut effects = Vec::new();
+        effects.extend(result_effect(
+            grid,
+            root,
+            span,
+            Ok(sequence(&[0x0A, 0x0B, 0x0C])),
+        ));
+
+        assert_eq!(effects, vec![write(grid, 10, "0A0B0C")]);
+        assert_eq!(
+            planned(&resolve(effects)),
+            vec![
+                (10, '0'),
+                (11, 'A'),
+                (12, '0'),
+                (13, 'B'),
+                (14, '0'),
+                (15, 'C'),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_sequence_wider_than_its_destination_row_plans_no_partial_write() {
+        // ADR 0007: if the complete encoding cannot fit, interpretation reports
+        // a diagnostic and plans no partial write. Five Atoms need ten Cells
+        // and the destination row has eight left, so the whole Sequence is
+        // refused — the four Atoms that would have fitted are not admitted on
+        // their own, which is the failure this pins.
+        let grid = Grid::new(10, 3);
+        let root = grid.position(2, 0).expect("inside the Grid");
+        let span = Span::new(grid, cell(grid, 2), cell(grid, 7));
+
+        let mut effects = Vec::new();
+        effects.extend(result_effect(
+            grid,
+            root,
+            span,
+            Ok(sequence(&[0x0A, 0x0B, 0x0C, 0x0D, 0x0E])),
+        ));
+
+        assert_eq!(
+            effects,
+            vec![diagnostic(
+                grid,
+                2,
+                7,
+                "result \"0A0B0C0D0E\" crosses the row edge"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_sequence_result_with_no_row_below_it_plans_no_write() {
+        // The other way ADR 0009 refuses a whole destination: out of Grid
+        // rather than non-fitting. A root in the last row resolves no Portal
+        // at all, and a Sequence answers for that the same way a single Atom
+        // does — one diagnostic naming the encoding, and nothing planned.
+        let grid = Grid::new(10, 2);
+        let root = grid.position(0, 1).expect("inside the Grid");
+        let span = Span::new(grid, cell(grid, 10), cell(grid, 15));
+
+        let mut effects = Vec::new();
+        effects.extend(result_effect(grid, root, span, Ok(sequence(&[0x0A, 0x0B]))));
+
+        assert_eq!(
+            effects,
+            vec![diagnostic(
+                grid,
+                10,
+                15,
+                "result \"0A0B\" falls below the Source"
+            )]
+        );
+    }
+
+    #[test]
+    fn the_cells_of_two_overlapping_sequence_results_are_contested_one_by_one() {
+        // ADR 0009: every admitted write participates Cell-wise in ADR 0020's
+        // producer order. A Sequence is one validated write while it is being
+        // planned and as many independently contested Cells as it has
+        // characters once it is resolved, so the later root takes only the four
+        // Cells the two encodings share and the earlier root's first two Cells
+        // still stand.
+        //
+        // Two roots two columns apart is a shape no Source can express today —
+        // a two-Cell Atom result never overlaps a neighbour's — and exactly the
+        // shape Sequence results make ordinary.
+        let grid = Grid::new(20, 3);
+        let earlier = grid.position(0, 0).expect("inside the Grid");
+        let later = grid.position(2, 0).expect("inside the Grid");
+
+        let mut effects = Vec::new();
+        effects.extend(result_effect(
+            grid,
+            earlier,
+            Span::new(grid, cell(grid, 0), cell(grid, 5)),
+            Ok(sequence(&[0x0A, 0x0B, 0x0C])),
+        ));
+        effects.extend(result_effect(
+            grid,
+            later,
+            Span::new(grid, cell(grid, 2), cell(grid, 7)),
+            Ok(sequence(&[0x0D, 0x0E, 0x0F])),
+        ));
+
+        assert_eq!(
+            planned(&resolve(effects)),
+            vec![
+                (20, '0'),
+                (21, 'A'),
+                (22, '0'),
+                (23, 'D'),
+                (24, '0'),
+                (25, 'E'),
+                (26, '0'),
+                (27, 'F'),
+            ]
+        );
+    }
+}
+
+///
+/// The Cell-wise half of ADR 0020, over overlap shapes no example states.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod property {
+    use super::{Effect, Portal, resolve};
+    use crate::grid::Grid;
+    use proptest::prelude::*;
+
+    /// How wide the Grid every generated write lands in is. Stated once, so
+    /// the column strategy, the Grid, and the row the oracle scans cannot
+    /// drift apart into three literals that must be changed together.
+    const WIDTH: usize = 16;
+
+    proptest! {
+        ///
+        /// "Later Cell effects win conflicts at each Cell independently", and
+        /// its unstated other half: a Tick Plan contains a Cell exactly when
+        /// some admitted write covers it. Together those are ADR 0009's
+        /// promise that an ordinary result "writes only its current encoding
+        /// and never clears a stale tail outside that Span" — no shorter later
+        /// write can reach a Cell it does not cover, in either direction.
+        ///
+        /// A property rather than an example because the interesting input is
+        /// the shape of the overlaps: partial at either end, one write wholly
+        /// inside another, two writes on the very same Cells, and runs that
+        /// stop short of a row's end. Examples state one shape each, and the
+        /// third one written by hand is already an enumeration.
+        ///
+        /// The expectation is computed by scanning the writes in reverse for
+        /// the last one covering each Cell, which is a different computation
+        /// from the forward fold under test rather than a copy of it. Writes
+        /// the Portal refuses are dropped rather than made to fit, so what is
+        /// resolved is only ever a set of complete writes.
+        ///
+        #[test]
+        fn a_tick_plan_gives_each_cell_to_the_last_admitted_write_covering_it(
+            requested in prop::collection::vec((0usize..WIDTH, "[A-Z]{1,8}"), 0..5),
+        ) {
+            let grid = Grid::new(WIDTH, 2);
+            // The first Cell of the destination row, asked of the same Grid the
+            // writes are admitted through rather than recomputed from its width.
+            let destination_row = grid
+                .index(grid.position(0, 1).expect("inside the Grid"))
+                .get();
+            let mut admitted: Vec<(usize, String)> = Vec::new();
+            let mut effects: Vec<Effect> = Vec::new();
+            for (column, encoding) in requested {
+                let destination = grid.position(column, 1).expect("inside the Grid");
+                if let Ok(write) = Portal::at(grid, destination).admit(&encoding) {
+                    effects.push(Effect::Write(write));
+                    admitted.push((column, encoding));
+                }
+            }
+
+            let plan = resolve(effects);
+
+            let owner = |idx: usize| {
+                admitted.iter().rev().find_map(|(column, encoding)| {
+                    encoding
+                        .chars()
+                        .nth(idx.checked_sub(destination_row + column)?)
+                })
+            };
+            prop_assert_eq!(
+                plan.writes
+                    .iter()
+                    .map(|write| (write.cell.get(), write.content.as_char()))
+                    .collect::<Vec<_>>(),
+                (destination_row..grid.count())
+                    .filter_map(|idx| owner(idx).map(|content| (idx, content)))
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

@@ -21,7 +21,7 @@ The column and row of one Cell of a Grid. A Position can be obtained only from t
 _Avoid_: Coord, coordinate, point
 
 **Cell**:
-One position in the Source, containing exactly one single-byte ASCII character; a space represents an empty Cell.
+One position in the Source, containing exactly one printable single-byte ASCII character; a space represents an empty Cell.
 _Avoid_: Character slot, text position
 
 **Language Unit**:
