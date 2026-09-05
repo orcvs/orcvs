@@ -90,3 +90,17 @@ Narrowed, deferred, or only partly witnessed:
   unrelated to its closure, so a two-operand Function is a type error at the call site instead of a
   run-time surprise; and `assemble` defaults an impossible scalar shape to the absence marker,
   which plans no write, rather than panicking under the Source write guard as ADR 0028 forbids.
+
+### The scalar path cost, and where it is owned, 2026-09-05
+
+The broadcast seam regressed the scalar path by 11.2x, from 12.1 ns to 135.8 ns on the `lang`
+`execute` bench. Review found it; `mise run bench` was not run when the seam landed, and no
+correctness gate could have caught it. `5c2d095` recovers 79 ns of the 124 ns by answering a
+`Shape::Scalar` operation directly in `apply` and `convert`, and by sizing the broadcast buffers to
+the widest declared signature — a new `MAX_OPERANDS`, read off the Function table — rather than to
+`EXP_LEN`. Five scalar-shape regression tests went in before the change, because the scalar shape
+had thinner cover here than the widened one and that is what let the regression through.
+
+The remaining 4.7x over the pre-broadcast base belongs to the seam, not to this fix, and is left
+standing deliberately. It is recorded against ADR 0026 in `sequence-values/03`, with the baseline
+numbers, the measurement method, and what a uniform value model has to do to recover it.

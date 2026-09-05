@@ -32,3 +32,54 @@ Range `:-` and `:#` are now owned together by `issues/05-add-the-range-functions
 line that read "Range handles ascending, descending, equal, Number, Note, and mixed-type bounds" is
 not deleted, only moved: issue 05 carries the mixed-type diagnostic explicitly, because that is the
 behaviour `orcvs-language-migration/04` settled and it must not be lost in the split.
+
+### ADR 0026: validate the value model against a measured baseline, 2026-09-05
+
+ADR 0026 names this issue as half of its own revisit trigger — the choice can be made "when the
+broadcasting Atomic Functions and the structural Sequence Functions have landed". Broadcasting
+landed in `sequence-values/02`. When this issue lands, the trigger is complete. Three things for
+whoever picks that up.
+
+**The ADR's cost paragraph is out of date on a point of fact.** It records that "Every scalar
+allocates, which ... is not a live concern but is unmeasured". Both halves have moved. The scalar
+path no longer allocates at all: `Stack::apply` and `Stack::convert` answer a `Shape::Scalar`
+operation where they bind it, since `5c2d095`. And the cost is measured now. It is not allocation.
+It is that `Value` is 24 bytes, is not `Copy`, and carries a `Drop` implementation because one of
+its two variants owns a `Vec`. That drop glue stops the compiler holding the operand buffer in
+registers, on every path, whether or not a Sequence exists. Amending the ADR is a call for a human;
+this note only records that its premise moved.
+
+**The measured baseline.** `lang` bench `execute` (`.+.+0101.-0A05`, three scalar Functions),
+lowest of six interleaved rounds:
+
+| revision | time |
+| --- | --- |
+| before broadcasting (`469971d`) | 12.1 ns |
+| broadcasting, first cut (`46a19be`) | 135.8 ns |
+| after the scalar fast path (`5c2d095`) | 56.6 ns |
+
+The remaining 4.7x over the pre-broadcast base is the seam itself: the 24-byte non-`Copy` `Value`
+move, `broadcast()` returning the whole structure by value with no inline attribute, and three reads
+of the operands where the base did one. It was left standing deliberately. Reshaping `Broadcast` to
+close it is the change most likely to make ADR 0026 harder to adopt later, and the uniform model
+deletes the cause rather than working around it.
+
+**What to validate, and against what.** Re-run the same benchmark and compare against 12.1 ns, not
+against 56.6 ns. Note that one shape is not by itself the property that recovers the time. A
+Sequence that owns a `Vec` still has drop glue and still allocates for every scalar, which is what
+the ADR's own cost paragraph predicts; removing the wrapper removes a discriminant and a 24-byte
+move, not the drop glue. The property that matters is that a value is `Copy`. Two measurements for
+reference: an `enum { Atom(Atom), Sequence(u32) }` handle into an arena is 8 bytes and needs no
+drop, and a bare `Atom` is 8 bytes and needs no drop. So the representation question — inline
+singleton, or handle — has to be answered alongside the shape question, or the unification can
+land and leave the scalar path where it is.
+
+Do not answer it by inlining the members. Backing `Sequence` with `ArrayVec<Atom, 256>` in place of
+`Vec<Atom>` was measured on the same bench at 1581.8 ns, 125x the pre-broadcast base: `Value` must
+be as large as its largest variant, so the operand buffer becomes about 8 KB and moves on every
+operation. `Vec` is 24 bytes and is the smaller of the two.
+
+**Method.** `cargo bench` compiles and links immediately before it measures, and the readings are
+badly contaminated — one round of it read 53.8 ns for the base and 778 ns for the first cut. Build
+the bench binary first, run the binary directly, alternate the revisions, and take the lowest
+result.
