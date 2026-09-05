@@ -283,6 +283,21 @@ macro_rules! operand_token {
     };
 }
 
+// The domain half of a bind, for one Atom, with the bound value discarded.
+//
+// It is written through `operand_bind!` rather than beside it so a declared
+// domain still has exactly one definition: an arm added here could narrow
+// differently from the arm that binds, and the two are asked the same question
+// about the same Atom. The three arms above stay the whole cost of a new
+// operand type.
+macro_rules! operand_domain {
+    ($operand:ident, $role:ident) => {
+        (|atom: crate::Atom| -> Result<(), crate::Error> {
+            operand_bind!($operand, Some(atom), $role).map(|_| ())
+        }) as fn(crate::Atom) -> Result<(), crate::Error>
+    };
+}
+
 macro_rules! operand_type {
     (Number) => {
         u8
@@ -438,6 +453,21 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => &[$(operand_token!($operand),)*],)+
+                }
+            }
+
+            /// One domain check per declared operand, in signature order.
+            ///
+            /// The narrowing a declaration states — a `MidiChannel` is a
+            /// `Number` the parser read and a channel only once its domain
+            /// admits it — is ordinarily answered as an element binds, which
+            /// covers every operand at every width but one. At width zero no
+            /// element binds, so the Operand Stack asks here instead, and a
+            /// scalar operand beside an empty Sequence is checked against the
+            /// domain it declares rather than only against its `Token`.
+            pub(crate) fn domains(self) -> &'static [fn(crate::Atom) -> Result<(), crate::Error>] {
+                match self {
+                    $(Self::$variant => const { &[$(operand_domain!($operand, $role),)*] },)+
                 }
             }
         }

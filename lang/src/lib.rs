@@ -84,13 +84,19 @@ pub enum PlayCommand {
 ///
 /// Equality compares shapes, so `One(command)` and a `Many` holding that same
 /// one command are unequal even though [`Performance::commands`] reads them
-/// identically. That is sound because `Stack::perform` is the only constructor
-/// and it answers `Many` only for a widened operation, never for a group of
-/// one: the shape is a fact about the Expression rather than an incidental
-/// choice of representation, so comparing shapes is comparing values. It is
-/// also load-bearing, which is why the derive is not flattened to compare
-/// `commands()` — that is what lets a test state that a scalar Play answers one
-/// command and not a group of one, and a flattened equality would accept both.
+/// identically. That is sound because the shape is a fact about the Expression
+/// rather than an incidental choice of representation: `Stack::perform` answers
+/// `One` for an operation of Atoms alone and `Many` for one a Sequence operand
+/// widened, so comparing shapes is comparing values. The two are therefore not
+/// distinguished by count. A one-element Sequence operand widens an operation
+/// to width one and answers `Many` holding a single command, which is right —
+/// a Sequence of one is not an Atom, and the Expression that spelled it is not
+/// the Expression that spelled a scalar. What `One` says is that the operands
+/// were scalar, not that there is exactly one command.
+///
+/// The derive is deliberately not flattened to compare `commands()`, because
+/// that is what lets a test state that a scalar Play answers one command and
+/// not a group of one; a flattened equality would accept both.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Performance {
     /// A scalar Expression, whose one command is answered without a group
@@ -201,8 +207,8 @@ fn midi_number_to_note(note: u8) -> Option<String> {
 #[cfg(test)]
 mod test {
     use super::{
-        Atom, Interpretation, MidiChannel, Note, Performance, PlayCommand, Velocity,
-        midi_note_to_number, midi_number_to_note, str_to_num,
+        Atom, MidiChannel, Note, Performance, PlayCommand, Velocity, midi_note_to_number,
+        midi_number_to_note, str_to_num,
     };
 
     fn raw(note: u8) -> PlayCommand {
@@ -247,7 +253,18 @@ mod test {
     }
 
     #[test]
+    // The figures are pointer-width dependent, and the prose below explains
+    // them in terms of a 64-bit niche. Declaring that to the compiler rather
+    // than to the reader is what keeps a 32-bit target reporting no defect
+    // instead of a size it was never measured at.
+    #[cfg(target_pointer_width = "64")]
     fn the_answer_seam_is_the_size_the_execute_benchmark_was_measured_against() {
+        // Imported here rather than beside the module's other imports so the
+        // import carries exactly the gate its only use carries: at a pointer
+        // width this test is compiled out at, an import up there is unused,
+        // and `-D warnings` refuses the `wasm32` build over it.
+        use super::Interpretation;
+
         // A layout claim, pinned because a benchmark explanation rests on it.
         // `Interpretation` was 24 bytes before this type existed: its widest
         // variant held a `Sequence`, which is a `Vec`, and the non-null pointer
@@ -260,10 +277,11 @@ mod test {
         // Output Functions.
         //
         // A failure here is notice rather than a defect: the answer seam has
-        // changed shape, and `execute` is the measurement to take again. The
-        // numbers are for a 64-bit target, which is the only place these unit
-        // tests run — `wasm32` builds the library but runs its regressions in
-        // the `shell` crate.
+        // changed shape, and `execute` is the measurement to take again. That
+        // is only worth being told where the figures mean something, which is
+        // what the `target_pointer_width` gate above says — `wasm32` builds the
+        // library and runs its regressions in the `shell` crate, so today the
+        // gate excludes nothing that runs.
         assert_eq!(size_of::<Performance>(), 24);
         assert_eq!(size_of::<Interpretation>(), 32);
     }
