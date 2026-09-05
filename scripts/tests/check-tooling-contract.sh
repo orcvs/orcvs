@@ -443,23 +443,35 @@ test_invalid_fresh_fixture_is_rejected() {
 }
 
 test_fixture_cleanup_removes_tmp_dirs_on_failure() {
-  local tmp_root before after leaked_dirs leaked
-  tmp_root="$(dirname "$(mktemp -u)")"
-  before="$(find "$tmp_root" -mindepth 1 -maxdepth 1 -name 'tmp.*' 2>/dev/null | sort)"
+  local tmp_root leaked_dirs status
+  # A temporary root private to this scenario. Scanning the shared one instead
+  # read every `tmp.*` directory in it as a candidate leak, so any concurrent
+  # `mktemp -d` — another mise task, a parallel CI step, a second agent, cargo —
+  # was reported as a leak and then deleted by the cleanup below.
+  tmp_root="$(mktemp -d)"
   # invalid-fixture drives make_fixture down its early-failure path (an invalid
   # CHECKER_SOURCE), which is exactly the case where a leaked fixture dir would
   # otherwise survive the run.
-  bash "$0" invalid-fixture >/dev/null 2>&1 || true
-  after="$(find "$tmp_root" -mindepth 1 -maxdepth 1 -name 'tmp.*' 2>/dev/null | sort)"
-  leaked_dirs="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))"
+  TMPDIR="$tmp_root" bash "$0" invalid-fixture >/dev/null 2>&1 || true
+  # Everything under a root this scenario created is this scenario's own, so no
+  # before-and-after comparison is needed to tell a leak from a bystander.
+  leaked_dirs="$(find "$tmp_root" -mindepth 1 -maxdepth 1 -name 'tmp.*' 2>/dev/null | sort)"
+  status=0
   if [ -n "$leaked_dirs" ]; then
     echo "expected no fixture directories to remain in $tmp_root after a failed scenario, found:" >&2
     printf '%s\n' "$leaked_dirs" >&2
-    while IFS= read -r leaked; do
-      [ -n "$leaked" ] && rm -rf "$leaked"
-    done <<< "$leaked_dirs"
-    return 1
+    status=1
   fi
+  rm -rf "$tmp_root"
+  return "$status"
+}
+
+test_folded_merge_guard_is_rejected() {
+  make_fixture
+  # A folded scalar keeps the expression off the `if:` line entirely, which is
+  # the spelling an assertion anchored to `if: ${{` cannot see.
+  perl -pi -e "s/^(  wasm:)\$/\$1\n    if: >-\n      \\\$\{\{ github.event_name != 'pull_request' \}\}/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge guard folded onto the line after the key"
 }
 
 case "${1:-all}" in
@@ -520,6 +532,7 @@ case "${1:-all}" in
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
   misplaced-persistence) test_persistence_command_in_wrong_task_is_rejected ;;
   fixture-cleanup) test_fixture_cleanup_removes_tmp_dirs_on_failure ;;
+  folded-merge-guard) test_folded_merge_guard_is_rejected ;;
   all)
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
@@ -569,6 +582,7 @@ case "${1:-all}" in
     test_major_bump_of_a_pinned_action_is_rejected
     test_mutable_major_tag_for_a_tool_action_is_rejected
     test_expression_form_merge_guard_is_rejected
+    test_folded_merge_guard_is_rejected
     test_dropped_native_merge_component_is_rejected
     test_untimed_workflow_job_is_rejected
     test_advisory_audit_without_a_schedule_is_rejected
