@@ -65,8 +65,9 @@ comment names `offset_in_row` where it listed `fits` among the Grid suite the pr
 effort will cover, so it agrees with `property-testing/02`'s sixth acceptance line rather than
 pointing at a method that no longer exists. No production call site changed, because there was
 none: `Portal::admit` and `LanguageMap::derive` still ask `offset_in_row`. The remaining
-occurrences of the word in `orcvs/`, `shell/`, and `docs/` are ordinary prose or
-expect-messages, not references to the method.
+occurrences of the word are not references to the method: two expect-messages in `orcvs/`
+(`source/portal.rs` and `source/tick.rs`), ordinary prose in `shell/` and `lang/`, and the
+historical narrative in `.scratch/`. `docs/` has none.
 
 Verification:
 
@@ -79,9 +80,25 @@ Verification:
 - `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
 - `cargo nextest run --workspace --locked` — passed, 395 tests.
 - `mise run check_wasm` — passed: WASM Clippy and both WASM application builds.
+- `mise run check_pull_request` — passed.
+- `mise run check_merge_native` — passed: `test_persistence`, `RUSTDOCFLAGS="-D warnings" cargo
+  doc --workspace --no-deps`, and `cargo deny --locked check` (advisories, bans, licenses,
+  sources all ok). This is the public-API risk gate CLAUDE.md names for removing a `pub fn`.
 - `pnpm roadmap` — passed, reports `source-module-depth (8)` COMPLETE.
 
-Run against `8cb169e`, the `main` this branch is rebased onto.
+Not run: `mise run check` — it cannot pass on this repository state, and both blockers are
+pre-existing on `main` rather than introduced here. `scripts/check-tooling-contract.sh`
+requires `actions/checkout@<sha> # v4` while `.github/workflows/test.yml` pins `# v7.0.1`, and
+`mise run test_wasm` fails to compile `shell/tests/wasm.rs:63`, which compares `OutputCommand`
+with `PlayCommand`. Both were reproduced against `main` in a separate worktree; this branch
+touches neither `.github/`, `scripts/`, nor `shell/`. Everything in `mise run check` other than
+those two steps was run and passed, as listed above.
+
+Run against `27adb0b`, the `main` this branch is rebased onto. The counts above are from a
+private `CARGO_TARGET_DIR`: `~/.cargo/config.toml` points every worktree at one shared
+`target-dir`, so a concurrent build in a sibling worktree can fail this one with types that do
+not exist in this tree. Verification here is only trustworthy when the target directory is
+isolated.
 
 Risk: a `pub` method is removed from an internal, unpublished crate with no caller inside or
 outside it; workspace compilation confirms that. No unsafe, dependency, feature, concurrency, or
