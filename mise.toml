@@ -7,6 +7,17 @@
 "cargo:cargo-deny" = "0.20.2"
 "cargo:trunk" = "0.21.14"
 "cargo:wasm-pack" = "0.15.0"
+# The roadmap planner and its test suite are TypeScript run through node's own
+# type stripping and test runner, so the gate that executes them needs a pinned
+# runtime like every other tool here. `package.json` declares the floor the type
+# stripping needs; this pin is the version the gate actually runs.
+node = "22.23.1"
+# The workflows are the one part of the verification surface no compiler reads.
+# `actionlint` checks their syntax and expressions; `zizmor` audits them for
+# injection and permission findings. Both are pinned like every other tool here so
+# a linter version bump is a reviewed change rather than a surprise red gate.
+"aqua:rhysd/actionlint" = "1.7.12"
+"aqua:zizmorcore/zizmor" = "1.30.0"
 
 [tasks.run]
 alias = 'r'
@@ -46,7 +57,6 @@ run = 'cargo bench --package lang --package orcvs --benches --locked -- --output
 [tasks.check]
 description = "Full repository verification gate"
 run = '''
-bash scripts/check-tooling-contract.sh
 mise run check_pull_request
 mise run check_merge
 '''
@@ -58,10 +68,20 @@ description = "Pull-request verification tier"
 # scripts/check-tooling-contract.sh pins.
 env = { PROPTEST_CASES = '32' }
 run = '''
+bash scripts/check-tooling-contract.sh
+bash scripts/tests/check-tooling-contract.sh
+actionlint
+zizmor --offline .github/workflows
+node --test scripts/tests/roadmap.test.ts
+node scripts/roadmap.ts > /dev/null
+mise run audit_deps
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
 cargo nextest run --workspace --profile ci --locked
+cargo nextest run --workspace --tests --features persistence --profile ci --locked
 cargo test --workspace --doc --locked
+cargo test --workspace --doc --features persistence --locked
 '''
 
 [tasks.check_merge]
@@ -69,10 +89,11 @@ description = "Merge verification tier"
 run = '''
 case "${ORCVS_MERGE_COMPONENT:-all}" in
   native) mise run check_merge_native ;;
-  wasm)
-    mise run check_wasm
-    mise run test_wasm
-    ;;
+  # What is merge-only on the WASM side is the browser run. The compile-and-build
+  # half is `check_wasm`, which the WASM job runs as its own step on every event,
+  # so this component narrows to what the step before it did not do. `all` below
+  # still runs both, which is the path a local `mise run check` takes.
+  wasm) mise run test_wasm ;;
   all)
     mise run check_merge_native
     mise run check_wasm
@@ -103,7 +124,10 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistenc
 [tasks.check_wasm]
 description = "Check and build the WASM application"
 run = '''
-cargo clippy --workspace --lib --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
+# `--lib` type-checks no test target, which is how the browser regression suite
+# stopped compiling and stayed that way. `--all-targets` covers every member's
+# library exactly as `--lib` did and adds the test targets beside them.
+cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
 cd shell
 env -u NO_COLOR trunk build --locked
 env -u NO_COLOR trunk build --features persistence --locked

@@ -54,7 +54,6 @@ wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
 lang = { path = "../lang", version = "0.1.0" }
-tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 
 [package.metadata.docs.rs]

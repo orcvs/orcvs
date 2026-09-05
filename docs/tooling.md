@@ -6,15 +6,88 @@ CI, so the same checkout executes the same gates.
 
 Verification has two trigger tiers:
 
-- `mise run check_pull_request` runs formatting, clippy, native tests, and doctests. Pull requests
-  run this tier on Linux and macOS.
-- `mise run check_merge` runs the persistence, WASM build, browser test, dependency audit, and
-  rustdoc gates. CI distributes these gates across the existing Linux and WASM jobs after a push
-  to `main`.
+- `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
+  workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
+  and without `persistence`, and the native tests and doctests under both feature sets.
+  `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
+  the application. Pull requests run the first on Linux and macOS and the second on the WASM job.
+- `mise run check_merge` runs the browser regression suite, the rustdoc gates, and the persistence
+  tier at proptest's full case count. CI distributes these gates across the existing Linux and WASM
+  jobs after a push to `main` or a manual dispatch.
 
 `mise run check` runs both tiers locally. A failure in the merge tier makes `main` red and must be
-fixed before normal development continues. The delayed tier means a WASM regression can be found
-after merge rather than before it.
+fixed before normal development continues. What the delayed tier holds is behaviour rather than
+compilation: a browser regression can still be found after merge, but a browser test that no longer
+compiles fails the pull request that wrote it. The same is true one feature over — the persistence
+tests live in a test-only module behind a dev-dependency, so no library build can reach them, and
+the pull-request tier reaches them by building all targets with the feature enabled. The doctests
+follow the same rule: a doctest on a `persistence`-gated item is compiled by no default-feature run,
+so the tier runs `cargo test --doc` under both feature sets rather than only the default one.
+
+`mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
+is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the
+merge tier is the only place the properties run at proptest's 256-case default. What is genuinely
+merge-only is the browser run, the rustdoc gates, and that full-case run.
+
+Dependency auditing runs in the pull-request tier through `mise run audit_deps`, which checks
+advisories, licences, and sources and prints the feature-resolved dependency tree. Dependabot's
+weekly grouped bumps are exactly the pull requests it exists for, so it gates them rather than
+reporting on them once they are already on `main`. `mise run check_merge_native` runs `cargo deny`
+again after a merge; the audit is cheap, and each tier reading correctly on its own is worth more
+than removing the overlap.
+
+A third trigger runs the same audit on a schedule. `cargo deny` sees the dependency graph whenever a
+commit changes the graph, and an advisory is published against code nobody changed, so between two
+quiet weeks a new RUSTSEC entry can land against a locked dependency with nothing in the repository
+reporting it until the next pull request happens to open. `.github/workflows/advisories.yml` runs
+`mise run audit_deps` weekly and on manual dispatch, so the trigger is time rather than change. It
+runs the repository's own task rather than a bespoke `cargo deny` line, so the scheduled answer and
+the pull-request answer are the same answer. Scheduled workflows run on the default branch only,
+which is the branch the question is about.
+
+The workflows themselves are the one part of the verification surface no compiler reads, and they
+are the part that decides whether the rest of it runs. `actionlint` checks their syntax and
+expressions; `zizmor` audits them for injection and permission findings. Both run in the
+pull-request tier beside the tooling contract, on the same reasoning: they read the repository's own
+configuration, they cost seconds, and they fail before the tier spends twenty minutes compiling.
+Neither reports anything against the workflows as they stand — every action is SHA-pinned and every
+job declares its permissions — and that is what they are for. They hold that shape rather than
+discovering it, in a file format where a typo in an `if:` key is accepted silently and a job simply
+stops running.
+
+Every job in every workflow declares `timeout-minutes`. Without one a job inherits the six-hour
+runner limit, and the shape that would spend it is a `wasm-pack test --headless --firefox` waiting
+on a browser that never answers; the jobs otherwise finish in about ninety seconds. The contract
+derives the expected number of bounds from the number of jobs each file declares rather than from a
+literal, so a job added without one fails the contract instead of quietly inheriting the default.
+
+Every commit that reaches `main` gets its own merge-tier run. The workflow's concurrency group is
+keyed on the pull request number for a pull request and on the commit for anything else, so a later
+merge cannot cancel an earlier commit's run, and `cancel-in-progress` is confined to pull requests.
+The merge-tier steps are guarded on the event not being a pull request rather than on its being a
+push, so a manual dispatch — the obvious way to re-verify a commit — runs the merge tier instead of
+reporting green having run only the pull-request tier.
+
+Caches are written only from `main`. GitHub scopes a cache to the ref that saved it, so an entry
+written on `refs/pull/N/merge` is readable by that pull request and by nothing else, while the
+repository's quota is shared across all of them. Left ungated, pull-request runs filled that quota
+with entries no later run could read and evicted the `main` entries every run restores from — the
+repository sat at 9.8 GB of a 10 GB limit, under continuous eviction. Every `Swatinem/rust-cache`
+step carries `save-if` and every `jdx/mise-action` step carries `cache_save`, both gated on the
+default branch. Restoring is deliberately not gated: a pull request still reads `main`'s cache
+through the key prefix, so the gate costs a pull request nothing and it saves nothing worth keeping.
+The two benchmark jobs additionally share one key, because they build the same tree under the same
+profile and only ever one of them runs. `scripts/check-tooling-contract.sh` counts the gates against
+the number of caching steps in each workflow, so a job added with an ungated cache fails the
+pull-request tier rather than quietly filling the quota again.
+
+Two gates advise rather than block, and both are recorded here rather than assumed. The benchmark
+comparison in `.github/workflows/bench.yml` fails on a threefold regression but is not a required
+status context, and `main`'s branch protection does not enforce against administrators, so a direct
+push skips every required context. Closing either needs repository administration rather than a
+change to a checkout, so
+`.scratch/verification-gaps/issues/09-require-the-benchmark-and-close-the-protection-bypasses.md`
+records the intended settings and holds the decision.
 
 A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
 in both `lang` and `orcvs` and prints them in the bencher output format. `lang` covers language
@@ -41,8 +114,22 @@ from a checkout; the comparison is not, because it lives in the action rather th
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
   profile, including non-fail-fast reporting.
 - `cargo-deny` audits the locked dependency graph for advisories, bans, licences, and sources.
+- `actionlint` checks the workflow files for syntax and expression errors. Actions accepts an
+  unrecognised key by ignoring it, so a misspelled `if:` does not fail a run — it silently changes
+  which jobs execute, which is the failure this branch exists to close, one file over from where it
+  was found. It is the cheapest check that reads the workflows as a language rather than as text.
+- `zizmor` audits the same files for injection, permission, and credential findings. It overlaps
+  `actionlint` deliberately: the two answer different questions about one file, and the file decides
+  whether every other gate here runs. Neither has anything to report against the workflows as they
+  stand, so both are regression protection for a shape already reached rather than a repair.
 - `trunk` builds the browser application and performs its WASM asset pipeline.
 - `wasm-pack` executes the browser regression suite through `wasm-bindgen-test`.
+- `node` runs `scripts/roadmap.ts` and its test suite through its own type stripping and test
+  runner. The pull-request tier runs both, and it needs both: the suite drives `buildRoadmap` and
+  `planRelease` over temporary fixtures and never reads `.scratch/`, so the throws that catch tracker
+  drift — a dangling `Blocked by:`, a dependency cycle, an untagged release blocker — are reached
+  only by running the planner against the real tree. `package.json` declares the floor the type
+  stripping needs and `mise.toml` pins the version the gate runs.
 
 `AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests;
 fuzz when exposure warrants it", and the parser is the widest input surface in the workspace because
@@ -63,8 +150,9 @@ contract script pins the exact text of those lines.
 
 Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
 directory beside each crate's `src`, one file per module, and no ignore rule excludes them. The
-contract script pins the representative path for each crate — `lang/proptest-regressions/parser.txt`
-and `orcvs/proptest-regressions/grid.txt` — by asking `git check-ignore` rather than reading
+contract script pins the path for each property — `lang/proptest-regressions/parser.txt`,
+`lang/proptest-regressions/interpreter.txt`, and `orcvs/proptest-regressions/grid.txt` — by asking
+`git check-ignore` rather than reading
 `.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule. A
 counterexample that CI can see and a developer cannot reproduce is worse than no property at all, so
 the shrunk input travels with the repository and the next run replays it before generating anything
@@ -72,6 +160,19 @@ new.
 
 The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
 installed. That is a separate decision with its own cost, and it is not taken here.
+
+Every version this repository pins is bumped by something that watches the file it lives in.
+`.github/dependabot.yml` covers three ecosystems weekly: `cargo` for the workspace manifests,
+`github-actions` for the SHA pins in the workflows, and `rust-toolchain` for the channel in
+`rust-toolchain.toml`. The third is a separate ecosystem rather than a setting on the first —
+`cargo` never reads the toolchain file — and its absence is why the channel sat at 1.98.0 while
+1.98.1 was current.
+
+`mise.toml`'s `[tools]` table is the remaining exception, and it is an exception because Dependabot
+has no mise ecosystem and no near prospect of one. The seven pins there move only when a human edits
+the line. `.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automatically.md` records
+what that costs and the three options for closing it; the decision is about which bots run against
+the repository and what write permission they hold, so it is not one a checkout can take.
 
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.

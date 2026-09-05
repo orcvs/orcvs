@@ -47,7 +47,10 @@ risk gate:
 - persistence: `mise run test_persistence`
 - WASM or platform code: `mise run check_wasm`
 - dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
-- unsafe, FFI, layout, raw pointer, or atomic changes: Miri and focused tests where supported
+- unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
+  `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused
+  tests on every affected target and platform. Miri is the tool this gate would prefer, and it
+  ships on nightly only; run it deliberately under nightly rather than expecting it of a change.
 - public API: doctests, examples, rustdoc warnings, and human API review
 - concurrency: cancellation, shutdown, ownership, backpressure, ordering, and race-sensitive tests
 - parser/protocol boundary: boundary or property tests; fuzz when exposure warrants it

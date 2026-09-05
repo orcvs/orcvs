@@ -9,5 +9,5 @@ description: Implement or review Rust involving unsafe blocks, unsafe functions 
 2. Prefer a safe implementation; otherwise minimize the unsafe scope and expose a safe wrapper.
 3. Put a `SAFETY:` comment immediately above each unsafe block, proving every required invariant.
 4. Test invalid boundaries and invariant-preserving behaviour; add target, property, or concurrency tests where the risk requires them.
-5. Run the scoped gate, `mise run check`, and Miri on supported focused tests. For FFI or layout, also check each supported target and external contract.
+5. Run the scoped gate and `mise run check`. The clippy gate denies `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, so a safety invariant left unstated fails it. For FFI or layout, also check each supported target and external contract. Miri is the tool this gate would prefer and ships on nightly only, so run it deliberately under nightly rather than treating it as required.
 6. Report the safety argument, commands run, unsupported checks, and residual risk.

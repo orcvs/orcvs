@@ -1,10 +1,10 @@
 #![cfg(target_arch = "wasm32")]
 
 use gloo_timers::future::TimeoutFuture;
-use lang::{MidiChannel, Note, PlayCommand, Velocity};
+use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
-use orcvs::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
+use orcvs::playback::{InMemoryOutputAdapter, OutputCommand, PlaybackEngine, PlaybackState};
 use orcvs::source::SourceCommander;
 use shell::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use std::time::Duration;
@@ -60,7 +60,7 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
 
     assert_eq!(engine.observe().state, PlaybackState::Playing);
     assert!(adapter.command_lists().iter().any(|commands| commands
-        == &[PlayCommand::Raw {
+        == &[OutputCommand::NoteOn {
             channel: MidiChannel::try_from(0).unwrap(),
             velocity: Velocity::try_from(0x7F).unwrap(),
             note: Note::try_from(60).unwrap()

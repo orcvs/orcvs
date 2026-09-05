@@ -10,16 +10,16 @@ uses, and remove the two placeholder tests that occupy the crate's test surface.
 - [ ] `shell/` becomes `console/`, and `[package] name`, `[lib] name`, `[[bin]] name` and both `path`
       fields follow.
 - [ ] The workspace `members` list in the root `Cargo.toml` names `console`.
-- [ ] `Trunk.toml`, `index.html`, `check.sh`, `.typos.toml`, `.gitignore` and `assets/` move with the crate.
+- [ ] `Trunk.toml`, `index.html`, `.gitignore` and `assets/` move with the crate. `check.sh` and
+      `.typos.toml` are gone: `verification-gaps/10` removed both as surface that proved nothing.
 - [ ] `mise.toml` follows: the `test_shell` task and its `ts` alias, `check_wasm`'s `cd shell`, and
       `test_wasm`'s `wasm-pack test --headless --firefox shell --test wasm` line.
 - [ ] `scripts/check-tooling-contract.sh` is updated in the same change, because it pins the
       `test_wasm` run line byte-identically and will otherwise fail.
 - [ ] `.github/workflows/test.yml` is checked; it calls mise tasks only, so it is expected to need no change.
-- [ ] `console/src/lib.rs`'s `test_something` is deleted along with the `trace` helper it calls. It
-      logs `"etc"` and asserts nothing.
-- [ ] `console/tests/app_test.rs` is deleted. It contains only a commented-out `test_terminator`.
-      `tests/common/mod.rs` goes with it: `tests/wasm.rs` does not reference it.
+- [x] `console/src/lib.rs`'s `test_something`, `console/tests/app_test.rs` and `tests/common/mod.rs`
+      are already deleted by `verification-gaps/10`, along with the `tokio` dev-dependency the
+      helper was the last consumer of. Nothing here remains for the rename to do.
 - [ ] Path citations in `restyle-egui-console/02` that name `shell/src/style.rs` and
       `shell/src/console.rs` are updated to the new crate.
 - [ ] `mise run check` passes.

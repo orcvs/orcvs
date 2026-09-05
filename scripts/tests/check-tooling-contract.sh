@@ -22,11 +22,11 @@ make_fixture() {
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
-  cp "$repo_root/shell/check.sh" "$fixture_dir/shell/"
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
@@ -42,6 +42,16 @@ assert_rejected() {
     return 1
   fi
   printf '%s\n' "$output"
+}
+
+assert_accepted() {
+  local scenario="$1"
+  local output
+  if ! output="$(bash "$fixture_dir/scripts/check-tooling-contract.sh" 2>&1)"; then
+    echo "expected tooling contract to accept $scenario" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
 }
 
 test_commented_requirement_is_rejected() {
@@ -259,10 +269,170 @@ test_commented_dependency_table_version_is_rejected() {
   assert_rejected "a crate-local dependency version in a TOML table with a trailing comment"
 }
 
+test_shared_push_concurrency_group_is_rejected() {
+  make_fixture
+  perl -pi -e 's/github[.]event[.]pull_request[.]number [|][|] github[.]sha/github.event.pull_request.number || github.ref/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a concurrency group that collapses every push to main into one run"
+}
+
+test_unconditional_cancellation_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(  cancel-in-progress:).*\$/\$1 true/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "cancellation that is not confined to pull requests"
+}
+
+test_dispatch_skipping_the_merge_tier_is_rejected() {
+  make_fixture
+  perl -pi -e "s/if: github[.]event_name != 'pull_request'/if: github.event_name == 'push'/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "merge-tier steps a manual dispatch would skip"
+}
+
+test_merge_only_wasm_job_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(  wasm:)\$/\$1\n    if: github.event_name != 'pull_request'/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a WASM job that stopped running on pull requests"
+}
+
+test_patch_bump_of_a_pinned_action_is_accepted() {
+  make_fixture
+  perl -pi -e 's/# v7[.]0[.]1$/# v7.0.2/; s/# v4[.]3[.]0$/# v4.4.0/' "$fixture_dir/.github/workflows/test.yml"
+  assert_accepted "a patch bump of a SHA-pinned action"
+}
+
+test_major_bump_of_a_pinned_action_is_rejected() {
+  make_fixture
+  perl -pi -e 's/# v7[.]0[.]1$/# v8.0.0/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a major bump of a SHA-pinned action"
+}
+
+test_mutable_major_tag_for_a_tool_action_is_rejected() {
+  make_fixture
+  printf '\n      - uses: some-org/nextest@v1\n' >> "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a tool-install action pinned to a mutable major tag"
+}
+
+test_expression_form_merge_guard_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(  wasm:)\$/\$1\n    if: \\\$\{\{ github.event_name != 'pull_request' \}\}/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge guard written in expression syntax the count cannot see"
+}
+
+test_dropped_native_merge_component_is_rejected() {
+  make_fixture
+  perl -pi -e 's/ORCVS_MERGE_COMPONENT: native$/ORCVS_MERGE_COMPONENT: wasm/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a workflow that no longer runs the native merge component"
+}
+
+test_untimed_workflow_job_is_rejected() {
+  make_fixture
+  printf '\n  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo a job with no bound on its runtime\n' >> "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a workflow job added without a timeout"
+
+  # The count is per file, so a job that loses its timeout has to fail in the
+  # file that lost it rather than being covered by another workflow's total.
+  make_fixture
+  perl -pi -e 'if (!$done && s/^(    timeout-minutes: [0-9]+)$/# $1/) { $done = 1 }' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark job whose timeout was commented out"
+}
+
+test_advisory_audit_without_a_schedule_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(    - cron: )/# $1/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "an advisory audit with no schedule to run it"
+
+  # The cron line surviving under a commented-out `schedule:` key is the same
+  # silence with a plausible-looking file to point at, so both halves are pinned.
+  make_fixture
+  perl -pi -e 's/^  schedule:$/# schedule:/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "an advisory workflow whose schedule trigger was commented out"
+}
+
+test_advisory_workflow_without_the_audit_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(      - run: )mise run audit_deps$/$1mise run check_pull_request/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "a scheduled workflow that runs something other than the advisory audit"
+
+  # The pinning rules are per file, so the newest workflow needs them asserted
+  # against it rather than inherited from the two that came before.
+  make_fixture
+  perl -pi -e 's/^(      - uses: jdx\/mise-action@)[0-9a-f]{40}( +# v4.*)$/$1v4/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "an advisory workflow whose mise-action is pinned to a mutable tag"
+}
+
+test_unpinned_workflow_linter_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^("aqua:rhysd\/actionlint" = )"[0-9.]+"$/$1"latest"/' "$fixture_dir/mise.toml"
+  assert_rejected "a workflow syntax linter tracking latest rather than a pinned version"
+
+  make_fixture
+  perl -pi -e 's/^("aqua:zizmorcore\/zizmor" = )"[0-9.]+"$/$1"1"/' "$fixture_dir/mise.toml"
+  assert_rejected "a workflow security linter pinned only to a major version"
+}
+
+test_pull_request_tier_without_workflow_linting_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^actionlint\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never checks the workflows for syntax"
+
+  make_fixture
+  perl -pi -e 's/^zizmor --offline [.]github\/workflows\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never audits the workflows for injection and permission findings"
+}
+
+test_unwatched_rust_toolchain_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(  - package-ecosystem: rust-toolchain)$/# $1/' "$fixture_dir/.github/dependabot.yml"
+  assert_rejected "a Dependabot config that never reads the pinned Rust channel"
+
+  # `cargo` and `rust-toolchain` are separate ecosystems: the first never touches
+  # the channel, so satisfying this by renaming the other entry is not satisfying it.
+  make_fixture
+  perl -pi -e 's/^(  - package-ecosystem: )cargo$/$1rust-toolchain/' "$fixture_dir/.github/dependabot.yml"
+  assert_rejected "a Dependabot config that watches the channel instead of the manifests"
+}
+
+test_pull_request_tier_without_persistence_doctests_is_rejected() {
+  make_fixture
+  perl -0pi -e 's/cargo test --workspace --doc --locked\ncargo test --workspace --doc --features persistence --locked\n/cargo test --workspace --doc --locked\n/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles the persistence doctests"
+}
+
 test_prohibited_action_main_ref_is_rejected() {
   make_fixture
   printf '\n      - uses: taiki-e/install-action@main\n' >> "$fixture_dir/.github/workflows/test.yml"
   assert_rejected "a prohibited action using an unpinned ref"
+}
+
+test_ungated_rust_cache_save_is_rejected() {
+  make_fixture
+  # A caching step that writes on every ref, which is how the shared quota filled
+  # with pull-request entries no run can read.
+  perl -0pi -e "s/^          save-if: .*\n//m" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a rust-cache step that saves on every ref"
+
+  # The count is against the number of caching steps, so a new job arriving with
+  # an ungated cache has to fail too rather than only a gate being deleted.
+  make_fixture
+  printf '\n  extra:\n    timeout-minutes: 20\n    runs-on: ubuntu-latest\n    steps:\n      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2\n' >> "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a job whose cache step arrived without the save gate"
+}
+
+test_ungated_mise_cache_save_is_rejected() {
+  make_fixture
+  perl -0pi -e "s/^          cache_save: .*\n//m" "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "a mise-action step that saves on every ref"
+}
+
+test_unshared_bench_cache_key_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^          shared-key: bench$/          shared-key: publish/' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "benchmark jobs keyed apart from each other"
+}
+
+test_stale_bench_action_pin_is_rejected() {
+  make_fixture
+  perl -pi -e 's{^(      - uses: actions/checkout\@[0-9a-f]{40} )# v7([.][0-9]+)*$}{$1# v4}' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark checkout pinned a major behind the other workflows"
 }
 
 test_invalid_fresh_fixture_is_rejected() {
@@ -326,7 +496,27 @@ case "${1:-all}" in
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
+  shared-push-concurrency) test_shared_push_concurrency_group_is_rejected ;;
+  unconditional-cancellation) test_unconditional_cancellation_is_rejected ;;
+  dispatch-skips-merge-tier) test_dispatch_skipping_the_merge_tier_is_rejected ;;
+  merge-only-wasm-job) test_merge_only_wasm_job_is_rejected ;;
+  patch-bump-accepted) test_patch_bump_of_a_pinned_action_is_accepted ;;
+  major-bump) test_major_bump_of_a_pinned_action_is_rejected ;;
+  mutable-major-tag) test_mutable_major_tag_for_a_tool_action_is_rejected ;;
+  expression-merge-guard) test_expression_form_merge_guard_is_rejected ;;
+  dropped-native-component) test_dropped_native_merge_component_is_rejected ;;
+  untimed-job) test_untimed_workflow_job_is_rejected ;;
+  unscheduled-advisories) test_advisory_audit_without_a_schedule_is_rejected ;;
+  advisories-without-audit) test_advisory_workflow_without_the_audit_is_rejected ;;
+  unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
+  workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
+  unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
+  persistence-doctests) test_pull_request_tier_without_persistence_doctests_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
+  ungated-rust-cache) test_ungated_rust_cache_save_is_rejected ;;
+  ungated-mise-cache) test_ungated_mise_cache_save_is_rejected ;;
+  unshared-bench-key) test_unshared_bench_cache_key_is_rejected ;;
+  stale-bench-pin) test_stale_bench_action_pin_is_rejected ;;
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
   misplaced-persistence) test_persistence_command_in_wrong_task_is_rejected ;;
   fixture-cleanup) test_fixture_cleanup_removes_tmp_dirs_on_failure ;;
@@ -367,6 +557,26 @@ case "${1:-all}" in
     test_dependency_table_version_is_rejected
     test_commented_dependency_table_version_is_rejected
     test_prohibited_action_main_ref_is_rejected
+    test_ungated_rust_cache_save_is_rejected
+    test_ungated_mise_cache_save_is_rejected
+    test_unshared_bench_cache_key_is_rejected
+    test_stale_bench_action_pin_is_rejected
+    test_shared_push_concurrency_group_is_rejected
+    test_unconditional_cancellation_is_rejected
+    test_dispatch_skipping_the_merge_tier_is_rejected
+    test_merge_only_wasm_job_is_rejected
+    test_patch_bump_of_a_pinned_action_is_accepted
+    test_major_bump_of_a_pinned_action_is_rejected
+    test_mutable_major_tag_for_a_tool_action_is_rejected
+    test_expression_form_merge_guard_is_rejected
+    test_dropped_native_merge_component_is_rejected
+    test_untimed_workflow_job_is_rejected
+    test_advisory_audit_without_a_schedule_is_rejected
+    test_advisory_workflow_without_the_audit_is_rejected
+    test_unpinned_workflow_linter_is_rejected
+    test_pull_request_tier_without_workflow_linting_is_rejected
+    test_unwatched_rust_toolchain_is_rejected
+    test_pull_request_tier_without_persistence_doctests_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;
   *) echo "unknown test: $1" >&2; exit 2 ;;
