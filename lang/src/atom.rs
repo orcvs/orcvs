@@ -236,6 +236,19 @@ enum FunctionKind {
 #[derive(Clone, Copy)]
 enum Pervasion {
     Pervasive,
+    /// No row declares this today. ADR 0030 removed the last two that did —
+    /// the Terminal Output Functions were declared scalar from an
+    /// implementation brief rather than from a decision — and ADR 0012's
+    /// Increment and Interpolation, which are the rows that state the exception
+    /// on their own terms, are unbuilt. Deleting the answer would leave the
+    /// column with one value and make the exception impossible to declare,
+    /// which is the opposite of what declaring it beside the signature is for.
+    /// `expect` rather than `allow`, so the first Function to declare it turns
+    /// this attribute into the error that deletes it.
+    #[expect(
+        dead_code,
+        reason = "the exception ADR 0012 states has no built Function yet: this is the answer it will declare"
+    )]
     Scalar,
 }
 
@@ -267,6 +280,21 @@ macro_rules! operand_token {
     };
     (Length) => {
         crate::Token::Number
+    };
+}
+
+// The domain half of a bind, for one Atom, with the bound value discarded.
+//
+// It is written through `operand_bind!` rather than beside it so a declared
+// domain still has exactly one definition: an arm added here could narrow
+// differently from the arm that binds, and the two are asked the same question
+// about the same Atom. The three arms above stay the whole cost of a new
+// operand type.
+macro_rules! operand_domain {
+    ($operand:ident, $role:ident) => {
+        (|atom: crate::Atom| -> Result<(), crate::Error> {
+            operand_bind!($operand, Some(atom), $role).map(|_| ())
+        }) as fn(crate::Atom) -> Result<(), crate::Error>
     };
 }
 
@@ -427,6 +455,21 @@ macro_rules! define_functions {
                     $(Self::$variant => &[$(operand_token!($operand),)*],)+
                 }
             }
+
+            /// One domain check per declared operand, in signature order.
+            ///
+            /// The narrowing a declaration states — a `MidiChannel` is a
+            /// `Number` the parser read and a channel only once its domain
+            /// admits it — is ordinarily answered as an element binds, which
+            /// covers every operand at every width but one. At width zero no
+            /// element binds, so the Operand Stack asks here instead, and a
+            /// scalar operand beside an empty Sequence is checked against the
+            /// domain it declares rather than only against its `Token`.
+            pub(crate) fn domains(self) -> &'static [fn(crate::Atom) -> Result<(), crate::Error>] {
+                match self {
+                    $(Self::$variant => const { &[$(operand_domain!($operand, $role),)*] },)+
+                }
+            }
         }
 
         /// The operands each Function declares, one struct per Function, with a
@@ -548,9 +591,9 @@ define_functions! {
     Minimum => (".<", Value, Pervasive, [left: Number, right: Number]),
     Modulo => (".%", Value, Pervasive, [left: Number, right: Number]),
     Multiply => (".x", Value, Pervasive, [left: Number, right: Number]),
-    RawPlay => ("!>", Terminal, Scalar, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    RawPlay => ("!>", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note]),
     Subtract => (".-", Value, Pervasive, [left: Number, right: Number]),
-    TimedPlay => ("!~", Terminal, Scalar, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    TimedPlay => ("!~", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -817,11 +860,14 @@ mod test {
         // ADR 0007 makes pervasive extension the rule for Atomic Functions and
         // ADR 0012 makes Increment and Interpolation exceptions to it, so the
         // property cannot be inferred from a family prefix the way
-        // `is_terminal` can. It is declared per Function instead, and this
-        // match is exhaustive over `Function` with no wildcard: a Function
-        // added later has to be classified here as well as in the table, so
-        // neither an omission nor a copied row can make it broadcast by
-        // accident.
+        // `is_terminal` can. ADR 0030 settles the other family the same way:
+        // the Terminal Output Functions extend as well, so pervasion is not a
+        // property of answering a value either, and a `!`-spelled row is no
+        // more predictable from its spelling than a `.`-spelled one. It is
+        // declared per Function instead, and this match is exhaustive over
+        // `Function` with no wildcard: a Function added later has to be
+        // classified here as well as in the table, so neither an omission nor a
+        // copied row can make it broadcast by accident.
         for function in Function::ALL.iter().copied() {
             let expected = match function {
                 Function::AbsoluteDifference
@@ -834,8 +880,9 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
-                | Function::Subtract => true,
-                Function::RawPlay | Function::TimedPlay => false,
+                | Function::RawPlay
+                | Function::Subtract
+                | Function::TimedPlay => true,
             };
 
             assert_eq!(function.is_pervasive(), expected, "{function:?}");
