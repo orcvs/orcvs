@@ -63,6 +63,69 @@ pub enum PlayCommand {
     },
 }
 
+/// The ordered group of Play Commands one Terminal Output Function Expression
+/// performs.
+///
+/// ADR 0030 extends the Terminal Output Functions pervasively over a Sequence
+/// operand, so one Expression can perform many times while still answering no
+/// value: ADR 0028 bounds the kind of answer an instruction gives, not how much
+/// of it, and a Play Command is never encoded into Cells, so the rules that
+/// make a Sequence expensive where a result becomes Source do not reach an
+/// effect. Order within the group is element index, which ADR 0030 chooses
+/// because it is the only order the Source can read — the order the Cells would
+/// have if the same notes were written left to right as separate Expressions.
+///
+/// Two shapes rather than one, the way [`Value`] keeps `Atom` beside
+/// `Sequence`. Every Play a Source has written so far is scalar, and answering
+/// a group of one for it would put a heap allocation on the path that has none.
+/// [`Performance::Many`] is legitimately empty: an empty Sequence operand is a
+/// real width of no elements, and an Expression of no elements performs no MIDI
+/// output rather than diagnosing.
+///
+/// Equality compares shapes, so `One(command)` and a `Many` holding that same
+/// one command are unequal even though [`Performance::commands`] reads them
+/// identically. That is sound because `Stack::perform` is the only constructor
+/// and it answers `Many` only for a widened operation, never for a group of
+/// one: the shape is a fact about the Expression rather than an incidental
+/// choice of representation, so comparing shapes is comparing values. It is
+/// also load-bearing, which is why the derive is not flattened to compare
+/// `commands()` — that is what lets a test state that a scalar Play answers one
+/// command and not a group of one, and a flattened equality would accept both.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Performance {
+    /// A scalar Expression, whose one command is answered without a group
+    /// around it.
+    One(PlayCommand),
+    /// A widened Expression, whose commands are ordered by element index.
+    Many(Vec<PlayCommand>),
+}
+
+impl Performance {
+    /// The commands in order.
+    ///
+    /// One shape reading, so a consumer delivering a Performance never learns
+    /// which of the two it was handed: `Playback` dispatches a Tick Plan's
+    /// commands as one list, and the distinction ADR 0026 will revisit is about
+    /// what evaluation costs rather than about what delivery sees.
+    #[inline(always)]
+    pub fn commands(&self) -> &[PlayCommand] {
+        match self {
+            Self::One(command) => std::slice::from_ref(command),
+            Self::Many(commands) => commands,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a Performance {
+    type Item = &'a PlayCommand;
+    type IntoIter = std::slice::Iter<'a, PlayCommand>;
+
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        self.commands().iter()
+    }
+}
+
 #[inline(always)]
 pub fn str_to_num(s: &str) -> Result<u8, Error> {
     if s.len() != 2
@@ -137,7 +200,73 @@ fn midi_number_to_note(note: u8) -> Option<String> {
 
 #[cfg(test)]
 mod test {
-    use super::{Atom, Note, midi_note_to_number, midi_number_to_note, str_to_num};
+    use super::{
+        Atom, Interpretation, MidiChannel, Note, Performance, PlayCommand, Velocity,
+        midi_note_to_number, midi_number_to_note, str_to_num,
+    };
+
+    fn raw(note: u8) -> PlayCommand {
+        PlayCommand::Raw {
+            channel: MidiChannel::try_from(0).unwrap(),
+            velocity: Velocity::try_from(0x7F).unwrap(),
+            note: Note::try_from(note).unwrap(),
+        }
+    }
+
+    #[test]
+    fn both_performance_shapes_read_back_as_one_ordered_list_of_commands() {
+        // The two shapes exist for what evaluation costs, not for what delivery
+        // sees: Playback dispatches a Tick Plan's commands as one list, so a
+        // consumer must never have to ask which shape it was handed. A scalar
+        // Expression reads back as exactly one command — not as a group of one —
+        // and a widened one reads back in element index order.
+        assert_eq!(Performance::One(raw(60)).commands(), &[raw(60)]);
+        assert_eq!(
+            Performance::Many(vec![raw(60), raw(64), raw(67)]).commands(),
+            &[raw(60), raw(64), raw(67)]
+        );
+
+        // Iteration is the accessor's order, so the seam that flattens a group
+        // into a Tick Plan cannot reorder it.
+        assert_eq!(
+            Performance::Many(vec![raw(60), raw(64)])
+                .into_iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![raw(60), raw(64)]
+        );
+
+        // An empty group is a legitimate answer rather than an absent one: an
+        // empty Sequence operand is a real width of no elements.
+        assert!(Performance::Many(Vec::new()).commands().is_empty());
+
+        // The shapes are not interchangeable, which is what the derived
+        // equality is for: a scalar Expression answers `One`, and a test that
+        // says so must be able to fail when a group of one is answered instead.
+        assert_ne!(Performance::One(raw(60)), Performance::Many(vec![raw(60)]));
+    }
+
+    #[test]
+    fn the_answer_seam_is_the_size_the_execute_benchmark_was_measured_against() {
+        // A layout claim, pinned because a benchmark explanation rests on it.
+        // `Interpretation` was 24 bytes before this type existed: its widest
+        // variant held a `Sequence`, which is a `Vec`, and the non-null pointer
+        // left a niche the discriminant fitted into. `Performance` is itself a
+        // 24-byte enum that has already spent that niche on its own tag, so
+        // `Interpretation` needs one of its own and reads 32. That eight bytes
+        // and the discriminant read beside it are what moved the `execute`
+        // benchmark from 46 ns to 52 ns — a representation change rather than
+        // work added, and the only measured cost of extending the Terminal
+        // Output Functions.
+        //
+        // A failure here is notice rather than a defect: the answer seam has
+        // changed shape, and `execute` is the measurement to take again. The
+        // numbers are for a 64-bit target, which is the only place these unit
+        // tests run — `wasm32` builds the library but runs its regressions in
+        // the `shell` crate.
+        assert_eq!(size_of::<Performance>(), 24);
+        assert_eq!(size_of::<Interpretation>(), 32);
+    }
 
     #[test]
     fn test_str_to_num_rejects_a_leading_sign() {

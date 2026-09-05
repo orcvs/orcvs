@@ -103,9 +103,12 @@ pub struct CellWrite {
 }
 
 /// One interpreted MIDI instruction emitted by an active Terminal Output
-/// Function. Tick planning decides which terminal roots are active and in what
-/// order their commands appear; the output adapter turns each one into MIDI.
-pub use lang::{Length, MidiChannel, Note, PlayCommand, Velocity};
+/// Function, and the ordered group of them one Expression performs. Tick
+/// planning decides which terminal roots are active and in what order their
+/// commands appear; the output adapter turns each one into MIDI. Per ADR 0030
+/// one Expression can perform many commands, ordered by element index, so a
+/// Performance crosses the seam and a Tick Plan holds the flattened list.
+pub use lang::{Length, MidiChannel, Note, Performance, PlayCommand, Velocity};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {

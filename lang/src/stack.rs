@@ -1,6 +1,6 @@
 use crate::{
-    ArgumentError, Atom, Error, Function, InterpretationError, Note, Sequence, SequenceError,
-    Token, TypeError, Value,
+    ArgumentError, Atom, Error, Function, InterpretationError, Note, Performance, PlayCommand,
+    Sequence, SequenceError, Token, TypeError, Value,
 };
 use arrayvec::ArrayVec;
 use std::ops::Deref;
@@ -180,6 +180,16 @@ impl Broadcast {
     ///
     /// `None` is exactly the scalar shape, so a caller that binds one element
     /// can refuse a widened one without an impossible branch to describe.
+    ///
+    /// Read only by [`Stack::extract`], and so unread outside tests for the
+    /// reason given there.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the scalar seam it serves has no declaring Function since ADR 0030"
+        )
+    )]
     #[inline(always)]
     fn first_sequence(&self) -> Option<&Sequence> {
         self.operands.iter().find_map(|operand| match operand {
@@ -390,6 +400,22 @@ impl<const N: usize> Stack<N> {
     /// of a Sequence and discard the rest, silently, inside a Tick — the exact
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
+    ///
+    /// No Function declares itself scalar since ADR 0030 reversed the two that
+    /// did, and ADR 0012's Increment and Interpolation — the exception stated
+    /// on its own terms — are unbuilt, so this has no evaluation caller today.
+    /// It stays for the reason the `Scalar` pervasion stays: deleting the seam
+    /// would make the exception impossible to declare, and the declaration
+    /// table is where an exception is supposed to be stated. It is also what
+    /// `declaration_agreement` checks every Function's bind through, so the
+    /// suppression is scoped to builds where the tests are absent.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the exception ADR 0012 states has no built Function yet: this is the seam it will bind through"
+        )
+    )]
     #[inline(always)]
     pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;
@@ -433,6 +459,46 @@ impl<const N: usize> Stack<N> {
         }
 
         Broadcast::assemble(results)
+    }
+
+    /// Performs one pervasive Terminal Output Function across the shape its
+    /// operands decide.
+    ///
+    /// The effect twin of [`Stack::apply`], and deliberately the same shape:
+    /// ADR 0030 extends the Terminal Output Functions under ADR 0007's rules
+    /// rather than under rules of their own, so `element` states one Play
+    /// Command exactly as `math::add` states one Atom, and the scalar path,
+    /// the repetition, the pairing, and the diagnostic ordering are the ones
+    /// every other Function already runs on.
+    ///
+    /// What it does not share is the assembly. A Play Command is not an Atom,
+    /// has no membership rule and no Source encoding, so there is no
+    /// `Sequence::new` for a group of them to be constructed through and no
+    /// [`Broadcast::assemble`] equivalent here. The all-or-nothing answer ADR
+    /// 0030 requires is not lost with it: nothing is returned until every
+    /// element has produced its command, so a fault at any element diagnoses
+    /// the complete operation and performs nothing at all. That is what stops a
+    /// partly sounded chord, which the Source could not tell from a chord
+    /// written that way.
+    #[inline(always)]
+    pub(crate) fn perform<O, F>(&mut self, element: F) -> Result<Performance, Error>
+    where
+        O: Operands,
+        F: Fn(O) -> Result<PlayCommand, Error>,
+    {
+        let broadcast = self.checked::<O>()?;
+
+        if broadcast.is_scalar() {
+            return Ok(Performance::One(element(broadcast.bind(0)?)?));
+        }
+
+        let mut commands = Vec::with_capacity(broadcast.width());
+
+        for index in 0..broadcast.width() {
+            commands.push(element(broadcast.bind(index)?)?);
+        }
+
+        Ok(Performance::Many(commands))
     }
 
     /// Evaluates one pervasive whole-value predicate across the shape its
@@ -587,8 +653,8 @@ impl TryFrom<Atom> for NumericValue {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, EXP_LEN, Error, Function, InterpretationError, Note, Sequence,
-        SequenceError, Stack, TypeError, Value,
+        ArgumentError, Atom, EXP_LEN, Error, Function, InterpretationError, Length, MidiChannel,
+        Note, Performance, PlayCommand, Sequence, SequenceError, Stack, TypeError, Value, Velocity,
         atom::operands,
         stack::{MAX_OPERANDS, NumericValue},
     };
@@ -646,6 +712,73 @@ mod test {
         })
     }
 
+    /// Raw Play, per element, as `functions::raw_play` states it.
+    ///
+    /// The Terminal Output half of the broadcast: ADR 0030 has `!>` extend
+    /// under ADR 0007's rules like any Atomic Function, and differ only in
+    /// answering a Play Command where an Atomic Function answers an Atom.
+    fn play(stack: &mut Stack<16>) -> Result<Performance, Error> {
+        stack.perform(
+            |operands::RawPlay {
+                 channel,
+                 velocity,
+                 note,
+             }: operands::RawPlay| {
+                Ok(PlayCommand::Raw {
+                    channel,
+                    velocity,
+                    note,
+                })
+            },
+        )
+    }
+
+    /// Timed Play, per element, as `functions::timed_play` states it: the
+    /// Terminal Output Function with a fourth operand, so a Sequence has a
+    /// position beyond Raw Play's to stand in and each element carries its own
+    /// length.
+    fn timed_play(stack: &mut Stack<16>) -> Result<Performance, Error> {
+        stack.perform(
+            |operands::TimedPlay {
+                 channel,
+                 velocity,
+                 note,
+                 length,
+             }: operands::TimedPlay| {
+                Ok(PlayCommand::Timed {
+                    channel,
+                    velocity,
+                    note,
+                    length,
+                })
+            },
+        )
+    }
+
+    /// One Raw Play Command, from the bytes a Source would have written.
+    fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
+        PlayCommand::Raw {
+            channel: MidiChannel::try_from(channel).unwrap(),
+            velocity: Velocity::try_from(velocity).unwrap(),
+            note: Note::try_from(note).unwrap(),
+        }
+    }
+
+    /// One Timed Play Command, from the bytes a Source would have written.
+    fn timed(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
+        PlayCommand::Timed {
+            channel: MidiChannel::try_from(channel).unwrap(),
+            velocity: Velocity::try_from(velocity).unwrap(),
+            note: Note::try_from(note).unwrap(),
+            length: Length::from(length),
+        }
+    }
+
+    /// A Sequence of Notes, for the operand position a chord is spelled in.
+    fn note_sequence(values: impl IntoIterator<Item = u8>) -> Sequence {
+        Sequence::new(values.into_iter().map(note)).unwrap()
+    }
+
     /// Pushes `operands` so extraction pops them in signature order.
     fn push_all(stack: &mut Stack<16>, operands: impl IntoIterator<Item = Value>) {
         let operands: Vec<Value> = operands.into_iter().collect();
@@ -690,50 +823,292 @@ mod test {
         assert_eq!(stack.pop_value(), None);
     }
 
-    /// Pushes a complete, otherwise well-typed operand list for `O` with a
-    /// Sequence standing at each position in turn, and requires the shape
-    /// diagnostic every time.
-    fn assert_a_sequence_is_refused_at_every_position<O: crate::stack::Operands>(base: &[Atom]) {
-        for position in 0..base.len() {
-            let mut stack = empty_stack();
-            push_all(
-                &mut stack,
-                base.iter().enumerate().map(|(index, atom)| {
-                    if index == position {
-                        sequence().into()
-                    } else {
-                        (*atom).into()
-                    }
-                }),
-            );
+    #[test]
+    fn a_scalar_play_answers_exactly_one_command_and_not_a_group_of_one() {
+        // ADR 0030 extends the Terminal Output Functions without changing what
+        // an Expression of Atoms performs. `Performance::One` is a shape of its
+        // own rather than a `Many` of length one, for the reason `Value` keeps
+        // `Atom` beside `Sequence`: every Play a Source has written so far is
+        // this shape, and answering a group here would put an allocation on the
+        // one path that has none.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x7F).into(),
+                note(60).into(),
+            ],
+        );
 
-            assert!(
-                matches!(
-                    stack.extract::<O>(),
-                    Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
-                ),
-                "a Sequence was accepted at operand {position}"
-            );
-        }
+        assert_eq!(
+            play(&mut stack).unwrap(),
+            Performance::One(raw(0x01, 0x7F, 60))
+        );
+        assert_eq!(stack.pop_value(), None);
     }
 
     #[test]
-    fn a_sequence_diagnoses_where_a_scalar_function_requires_an_atom() {
-        // The Terminal Output Functions are the Scalar rows of the Function
-        // table, so `ExpectedAtom` stays reachable for exactly the Functions
-        // that declare they do not broadcast — at every operand position, not
-        // only the one the pop loop happens to reach first.
-        assert_a_sequence_is_refused_at_every_position::<operands::RawPlay>(&[
-            Atom::Number(0),
-            Atom::Number(0x7F),
-            note(60),
-        ]);
-        assert_a_sequence_is_refused_at_every_position::<operands::TimedPlay>(&[
-            Atom::Number(0),
-            Atom::Number(0x7F),
-            note(60),
-            Atom::Number(0x04),
-        ]);
+    fn a_sequence_at_any_operand_position_answers_one_command_per_element_in_order() {
+        // ADR 0030 grants the extension to the Function and not to one favoured
+        // operand, so a Sequence widens `!>` wherever it stands and the scalars
+        // beside it repeat. Each position is widened in turn with members that
+        // differ from one another, so a group assembled in reverse, or a repeat
+        // that landed on the wrong operand, answers different commands rather
+        // than the same ones.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                numbers([0x00, 0x01, 0x02]).into(),
+                Atom::Number(0x7F).into(),
+                note(60).into(),
+            ],
+        );
+
+        assert_eq!(
+            play(&mut stack).unwrap(),
+            Performance::Many(vec![
+                raw(0x00, 0x7F, 60),
+                raw(0x01, 0x7F, 60),
+                raw(0x02, 0x7F, 60),
+            ])
+        );
+
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                numbers([0x10, 0x20, 0x30]).into(),
+                note(60).into(),
+            ],
+        );
+
+        assert_eq!(
+            play(&mut stack).unwrap(),
+            Performance::Many(vec![
+                raw(0x01, 0x10, 60),
+                raw(0x01, 0x20, 60),
+                raw(0x01, 0x30, 60),
+            ])
+        );
+
+        // The note position is the chord ADR 0030 is written for: one
+        // Expression, one channel, one velocity, three notes sounding together.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x7F).into(),
+                note_sequence([60, 64, 67]).into(),
+            ],
+        );
+
+        assert_eq!(
+            play(&mut stack).unwrap(),
+            Performance::Many(vec![
+                raw(0x01, 0x7F, 60),
+                raw(0x01, 0x7F, 64),
+                raw(0x01, 0x7F, 67),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_scalar_operand_repeats_across_every_element_of_a_timed_chord() {
+        // Three scalars and one Sequence, through the Function of four
+        // operands: the repetition ADR 0007 describes reaches the fourth
+        // position as well, so a chord sounds on one channel, at one velocity,
+        // for one length.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x02).into(),
+                Atom::Number(0x40).into(),
+                note_sequence([60, 64, 67]).into(),
+                Atom::Number(0x08).into(),
+            ],
+        );
+
+        assert_eq!(
+            timed_play(&mut stack).unwrap(),
+            Performance::Many(vec![
+                timed(0x02, 0x40, 60, 0x08),
+                timed(0x02, 0x40, 64, 0x08),
+                timed(0x02, 0x40, 67, 0x08),
+            ])
+        );
+    }
+
+    #[test]
+    fn equal_length_sequence_operands_pair_element_wise_for_a_terminal_output_function() {
+        // Every operand widened, with members that differ from one another
+        // within each: a pairing that reversed one side, or transposed two
+        // operands, answers a different group rather than the same one. Each
+        // element sounds its own note on its own channel at its own velocity
+        // for its own length.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                numbers([0x00, 0x01, 0x02]).into(),
+                numbers([0x10, 0x20, 0x30]).into(),
+                note_sequence([60, 64, 67]).into(),
+                numbers([0x04, 0x08, 0x0C]).into(),
+            ],
+        );
+
+        assert_eq!(
+            timed_play(&mut stack).unwrap(),
+            Performance::Many(vec![
+                timed(0x00, 0x10, 60, 0x04),
+                timed(0x01, 0x20, 64, 0x08),
+                timed(0x02, 0x30, 67, 0x0C),
+            ])
+        );
+    }
+
+    #[test]
+    fn incompatible_non_scalar_lengths_diagnose_and_perform_nothing() {
+        // The shape rule belongs to the operation rather than to the Atomic
+        // family, so two Sequence operands that cannot pair diagnose here
+        // exactly as they do for `.-`. Nothing is answered at all, so the two
+        // elements that could have paired sound nothing.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                numbers([0x00, 0x01]).into(),
+                Atom::Number(0x7F).into(),
+                note_sequence([60, 64, 67]).into(),
+            ],
+        );
+
+        assert!(matches!(
+            play(&mut stack),
+            Err(Error::Sequence(SequenceError::IncompatibleLengths {
+                left: 2,
+                right: 3
+            }))
+        ));
+    }
+
+    #[test]
+    fn an_empty_sequence_operand_performs_no_output() {
+        // Width zero is a real width for an effect as much as for a value: the
+        // operation is well formed, the Function body never runs, and the answer
+        // is a group of no commands rather than a diagnostic or an Expression
+        // that quietly did nothing.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x7F).into(),
+                Sequence::empty().into(),
+            ],
+        );
+
+        assert_eq!(play(&mut stack).unwrap(), Performance::Many(Vec::new()));
+    }
+
+    #[test]
+    fn a_domain_fault_at_one_element_performs_nothing_at_all() {
+        // The claim ADR 0030 rests on. A partly sounded chord would be worse
+        // than a silent one, because the Source could not tell it from a chord
+        // written that way. The out-of-domain member is in the middle of an
+        // otherwise valid Sequence, and a domain is checked as an element binds
+        // rather than while the operands are walked, so an implementation that
+        // handed each command on as it was built would already have sounded the
+        // first note when the second diagnosed.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                numbers([0x40, 0x80, 0x50]).into(),
+                note_sequence([60, 64, 67]).into(),
+            ],
+        );
+
+        assert!(
+            matches!(
+                play(&mut stack),
+                Err(Error::Interpretation(InterpretationError::MidiDataByte {
+                    role: "velocity",
+                    value: 0x80
+                }))
+            ),
+            "a velocity outside its domain left earlier elements performable"
+        );
+
+        // And the same for `!~`, whose fourth operand changes neither the rule
+        // nor which stage raises it.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                numbers([0x00, 0x10, 0x02]).into(),
+                Atom::Number(0x7F).into(),
+                note_sequence([60, 64, 67]).into(),
+                Atom::Number(0x08).into(),
+            ],
+        );
+
+        assert!(
+            matches!(
+                timed_play(&mut stack),
+                Err(Error::Interpretation(InterpretationError::MidiChannel(
+                    0x10
+                )))
+            ),
+            "a channel outside its domain left earlier elements performable"
+        );
+    }
+
+    #[test]
+    fn a_type_fault_at_one_element_performs_nothing_at_all() {
+        // The same all-or-nothing answer one stage earlier. The mistyped member
+        // is the last one, so an implementation that checked only the first
+        // element — or checked each element as it bound it — would answer a
+        // group of two commands instead of a diagnostic.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x7F).into(),
+                Sequence::new([note(60), note(64), Atom::Number(67)])
+                    .unwrap()
+                    .into(),
+            ],
+        );
+
+        assert!(matches!(
+            play(&mut stack),
+            Err(Error::Type(TypeError::Note(found))) if found == "43"
+        ));
+
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x7F).into(),
+                note_sequence([60, 64, 67]).into(),
+                Sequence::new([Atom::Number(0x04), Atom::Number(0x08), note(67)])
+                    .unwrap()
+                    .into(),
+            ],
+        );
+
+        assert!(matches!(
+            timed_play(&mut stack),
+            Err(Error::Type(TypeError::Number(found))) if found == "G4"
+        ));
     }
 
     #[test]
@@ -1113,16 +1488,25 @@ mod test {
             }))
         ));
 
-        // And for a Scalar Function, ahead of the shape diagnostic that would
-        // otherwise refuse the same Sequence.
+        // And for a Terminal Output Function, ahead of the incompatible lengths
+        // the operands already read would otherwise decide. `!>` declares three
+        // operands and two are present, so what the Source is told about is the
+        // one that is missing rather than the shape of an operand list the pop
+        // loop has not finished reading.
         let mut stack = empty_stack();
-        stack.push(sequence()).unwrap();
+        push_all(
+            &mut stack,
+            [
+                numbers([0x00, 0x01]).into(),
+                numbers([0x10, 0x20, 0x30]).into(),
+            ],
+        );
 
         assert!(matches!(
-            stack.extract::<operands::RawPlay>(),
+            play(&mut stack),
             Err(Error::Argument(ArgumentError::Arity {
                 expected: 3,
-                found: 1
+                found: 2
             }))
         ));
     }
@@ -1254,7 +1638,7 @@ mod test {
 
         assert!(
             matches!(
-                stack.extract::<operands::RawPlay>(),
+                play(&mut stack),
                 Err(Error::Argument(ArgumentError::Arity {
                     expected: 3,
                     found: 1
@@ -1277,28 +1661,34 @@ mod test {
 
         assert!(
             matches!(
-                stack.extract::<operands::RawPlay>(),
+                play(&mut stack),
                 Err(Error::Type(TypeError::Note(found))) if found == "3C"
             ),
             "a type fault was displaced by a domain fault"
         );
 
-        // A Sequence where a Scalar Function's operand belongs, ahead of the
-        // same two out-of-domain Numbers.
+        // Two Sequence operands that cannot pair, ahead of the out-of-domain
+        // Numbers standing in one of them. ADR 0030 makes a Sequence at a Play
+        // operand position a shape to run rather than a shape to refuse, so the
+        // shape fault that precedes a domain fault is now the one about two
+        // lengths.
         let mut stack = empty_stack();
         push_all(
             &mut stack,
             [
-                sequence().into(),
+                numbers([0xFF, 0xFE]).into(),
                 Atom::Number(0xFF).into(),
-                note(60).into(),
+                note_sequence([60, 64, 67]).into(),
             ],
         );
 
         assert!(
             matches!(
-                stack.extract::<operands::RawPlay>(),
-                Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
+                play(&mut stack),
+                Err(Error::Sequence(SequenceError::IncompatibleLengths {
+                    left: 2,
+                    right: 3
+                }))
             ),
             "a shape fault was displaced by a domain fault"
         );
@@ -1316,7 +1706,7 @@ mod test {
         );
 
         assert!(matches!(
-            stack.extract::<operands::RawPlay>(),
+            play(&mut stack),
             Err(Error::Interpretation(InterpretationError::MidiChannel(
                 0xFF
             )))
@@ -1339,7 +1729,7 @@ mod test {
         );
 
         assert!(matches!(
-            stack.extract::<operands::RawPlay>(),
+            play(&mut stack),
             Err(Error::Interpretation(InterpretationError::MidiChannel(
                 0x10
             )))
