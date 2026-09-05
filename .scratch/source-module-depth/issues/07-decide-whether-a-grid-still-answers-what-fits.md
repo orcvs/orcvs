@@ -6,15 +6,15 @@ instead.
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] `Grid::fits` is gone from `orcvs/src/grid.rs`, and `test_grid_answers_whether_a_width_fits_in_the_row`
+- [x] `Grid::fits` is gone from `orcvs/src/grid.rs`, and `test_grid_answers_whether_a_width_fits_in_the_row`
       goes with it.
-- [ ] No production call site changes, because there is none: `Portal::admit` and
+- [x] No production call site changes, because there is none: `Portal::admit` and
       `LanguageMap::derive` already ask `offset_in_row`.
-- [ ] No behaviour changes; this is a question about what a Grid is asked, not about what it
+- [x] No behaviour changes; this is a question about what a Grid is asked, not about what it
       answers.
 
 ## Comments
@@ -56,3 +56,50 @@ The caller this issue names is now `Portal::admit` in `orcvs/src/source/portal.r
 `SpanWrite::at` in `orcvs/src/source/tick.rs` when the decision above was taken; that constructor
 was folded into the Portal and no longer exists under either name or location. The decision is
 unaffected — the caller still asks `offset_in_row`, and `Grid::fits` still has none.
+
+### Deleted, 2026-09-05
+
+`Grid::fits` and its doc comment are gone from `orcvs/src/grid.rs`, and
+`test_grid_answers_whether_a_width_fits_in_the_row` went with it. The `property` module's doc
+comment names `offset_in_row` where it listed `fits` among the Grid suite the property-testing
+effort will cover, so it agrees with `property-testing/02`'s sixth acceptance line rather than
+pointing at a method that no longer exists. No production call site changed, because there was
+none: `Portal::admit` and `LanguageMap::derive` still ask `offset_in_row`. The remaining
+occurrences of the word are not references to the method: two expect-messages in `orcvs/`
+(`source/portal.rs` and `source/tick.rs`), ordinary prose in `shell/` and `lang/`, and the
+historical narrative in `.scratch/`. `docs/` has none.
+
+Verification:
+
+- `cargo fmt --all -- --check` — passed.
+- `cargo check --package orcvs --all-targets --locked` — passed.
+- `cargo clippy --package orcvs --all-targets --locked -- -D warnings` — passed.
+- `cargo nextest run --package orcvs --locked` — passed, 218 tests.
+- `cargo test --package orcvs --doc --locked` — passed, 8 doctests.
+- `cargo check --workspace --all-targets --locked` — passed.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
+- `cargo nextest run --workspace --locked` — passed, 395 tests.
+- `mise run check_wasm` — passed: WASM Clippy and both WASM application builds.
+- `mise run check_pull_request` — passed.
+- `mise run check_merge_native` — passed: `test_persistence`, `RUSTDOCFLAGS="-D warnings" cargo
+  doc --workspace --no-deps`, and `cargo deny --locked check` (advisories, bans, licenses,
+  sources all ok). This is the public-API risk gate CLAUDE.md names for removing a `pub fn`.
+- `pnpm roadmap` — passed, reports `source-module-depth (8)` COMPLETE.
+
+Not run: `mise run check` — it cannot pass on this repository state, and both blockers are
+pre-existing on `main` rather than introduced here. `scripts/check-tooling-contract.sh`
+requires `actions/checkout@<sha> # v4` while `.github/workflows/test.yml` pins `# v7.0.1`, and
+`mise run test_wasm` fails to compile `shell/tests/wasm.rs:63`, which compares `OutputCommand`
+with `PlayCommand`. Both were reproduced against `main` in a separate worktree; this branch
+touches neither `.github/`, `scripts/`, nor `shell/`. Everything in `mise run check` other than
+those two steps was run and passed, as listed above.
+
+Run against `27adb0b`, the `main` this branch is rebased onto. The counts above are from a
+private `CARGO_TARGET_DIR`: `~/.cargo/config.toml` points every worktree at one shared
+`target-dir`, so a concurrent build in a sibling worktree can fail this one with types that do
+not exist in this tree. Verification here is only trustworthy when the target directory is
+isolated.
+
+Risk: a `pub` method is removed from an internal, unpublished crate with no caller inside or
+outside it; workspace compilation confirms that. No unsafe, dependency, feature, concurrency, or
+performance change.

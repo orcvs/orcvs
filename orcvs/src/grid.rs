@@ -249,19 +249,6 @@ impl Grid {
     }
 
     ///
-    /// Whether a value `width` Cells wide fits in `pos`'s row, counting `pos`
-    /// as its first Cell. A row is the whole horizontal extent there is:
-    /// nothing continues onto the next one.
-    ///
-    /// A foreign Position is refused: its identity names the Grid that minted it.
-    ///
-    #[inline]
-    pub fn fits(&self, pos: Position, width: usize) -> bool {
-        self.assert_owns(pos);
-        width <= self.cols.saturating_sub(pos.x)
-    }
-
-    ///
     /// The Position one row above `pos`, clamped at the top row.
     ///
     #[inline]
@@ -611,33 +598,13 @@ mod test {
         assert_eq!(grid.below(at(3, 1)), None);
         assert_eq!(grid.down(at(3, 1)), at(3, 1));
     }
-
-    #[test]
-    fn test_grid_answers_whether_a_width_fits_in_the_row() {
-        trace();
-
-        let grid = Grid::new(4, 2);
-        let at = |x, y| grid.position(x, y).expect("inside the grid");
-
-        // from the first column the whole row is available
-        assert!(grid.fits(at(0, 1), 4));
-        assert!(!grid.fits(at(0, 1), 5));
-
-        // from the third column of a 4 column Grid, two Cells are left
-        assert!(grid.fits(at(2, 0), 2));
-        assert!(!grid.fits(at(2, 0), 3));
-
-        // the last column holds one Cell, and nothing wraps onto the next row
-        assert!(grid.fits(at(3, 0), 1));
-        assert!(!grid.fits(at(3, 0), 2));
-    }
 }
 
 ///
 /// The wiring seed for the property-testing effort: one narrow property that
 /// proves the native-only proptest dependency and its `cfg` gate are real.
-/// The full Grid suite — containment, `owns`, `rows`, `fits`, and directional
-/// movement — belongs to
+/// The full Grid suite — containment, `owns`, `rows`, `offset_in_row`, and
+/// directional movement — belongs to
 /// `.scratch/property-testing/issues/02-grid-position-round-trip.md`.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
