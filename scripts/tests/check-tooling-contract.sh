@@ -22,7 +22,6 @@ make_fixture() {
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
-  cp "$repo_root/shell/check.sh" "$fixture_dir/shell/"
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
@@ -259,6 +258,30 @@ test_commented_dependency_table_version_is_rejected() {
   assert_rejected "a crate-local dependency version in a TOML table with a trailing comment"
 }
 
+test_shared_push_concurrency_group_is_rejected() {
+  make_fixture
+  perl -pi -e 's/github[.]event[.]pull_request[.]number [|][|] github[.]sha/github.event.pull_request.number || github.ref/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a concurrency group that collapses every push to main into one run"
+}
+
+test_unconditional_cancellation_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(  cancel-in-progress:).*\$/\$1 true/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "cancellation that is not confined to pull requests"
+}
+
+test_dispatch_skipping_the_merge_tier_is_rejected() {
+  make_fixture
+  perl -pi -e "s/if: github[.]event_name != 'pull_request'/if: github.event_name == 'push'/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "merge-tier steps a manual dispatch would skip"
+}
+
+test_merge_only_wasm_job_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(  wasm:)\$/\$1\n    if: github.event_name != 'pull_request'/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a WASM job that stopped running on pull requests"
+}
+
 test_prohibited_action_main_ref_is_rejected() {
   make_fixture
   printf '\n      - uses: taiki-e/install-action@main\n' >> "$fixture_dir/.github/workflows/test.yml"
@@ -326,6 +349,10 @@ case "${1:-all}" in
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
   commented-dependency-table) test_commented_dependency_table_version_is_rejected ;;
+  shared-push-concurrency) test_shared_push_concurrency_group_is_rejected ;;
+  unconditional-cancellation) test_unconditional_cancellation_is_rejected ;;
+  dispatch-skips-merge-tier) test_dispatch_skipping_the_merge_tier_is_rejected ;;
+  merge-only-wasm-job) test_merge_only_wasm_job_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
   misplaced-persistence) test_persistence_command_in_wrong_task_is_rejected ;;
@@ -367,6 +394,10 @@ case "${1:-all}" in
     test_dependency_table_version_is_rejected
     test_commented_dependency_table_version_is_rejected
     test_prohibited_action_main_ref_is_rejected
+    test_shared_push_concurrency_group_is_rejected
+    test_unconditional_cancellation_is_rejected
+    test_dispatch_skipping_the_merge_tier_is_rejected
+    test_merge_only_wasm_job_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;
   *) echo "unknown test: $1" >&2; exit 2 ;;

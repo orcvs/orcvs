@@ -11,8 +11,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A pull request's runs supersede each other; a commit on `main` has nothing to
+  # supersede it. The group interpolated the pull request number, which is empty
+  # on a push, so every push to `main` collapsed into one group and a later merge
+  # cancelled an earlier commit's run — reported as `cancelled` rather than
+  # `failure`, so nothing alerted. Keying a push on its own commit gives each
+  # commit a group of its own, and cancellation is confined to pull requests.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -32,7 +38,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - run: mise run check_pull_request
-      - if: github.event_name == 'push'
+      - if: github.event_name != 'pull_request'
         env:
           ORCVS_MERGE_COMPONENT: native
         run: mise run check_merge
@@ -51,7 +57,6 @@ jobs:
       - run: mise run check_pull_request
 
   wasm:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,6 +67,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-      - env:
+      - run: mise run check_wasm
+      - if: github.event_name != 'pull_request'
+        env:
           ORCVS_MERGE_COMPONENT: wasm
         run: mise run check_merge

@@ -334,6 +334,14 @@ mod test {
         assert_eq!(adapter.command_lists().len(), 2);
     }
 
+    ///
+    /// Native only: the retune failure this states is a Playback Engine that
+    /// finds no Tokio runtime, and staging it means building one by hand.
+    /// `tokio::runtime::Runtime::new` is the multi-threaded builder, which the
+    /// `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` table pulls
+    /// in and a browser target never has.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn failed_tempo_retune_keeps_existing_playback_running() {
         let runtime = tokio::runtime::Runtime::new().unwrap();

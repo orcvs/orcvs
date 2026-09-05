@@ -1108,7 +1108,14 @@ mod property {
     ///
     #[test]
     fn evaluating_every_expression_the_parser_accepts_returns_rather_than_panicking() {
-        let config = Config::default();
+        // Naming the source file is what `proptest!` would have done. The
+        // persistence layer derives a regression file's name from it, and
+        // declines to write one when it is unset, so driving the runner
+        // directly to count the cases means saying where this property lives.
+        let config = Config {
+            source_file: Some(file!()),
+            ..Config::default()
+        };
         let cases = config.cases as usize;
         let evaluated = Cell::new(0usize);
         let deepest_walk = Cell::new(0usize);

@@ -94,11 +94,36 @@ assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:spa
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:trunk"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:wasm-pack"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+# The roadmap suite runs through node's own test runner, so the tier that runs it
+# needs the runtime pinned here rather than inherited from whatever the machine has.
+assert_contains "$root_dir/mise.toml" '^node[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_pull_request$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_merge$'
+# The contract and its own tests run in the pull-request tier: nothing else
+# executes them, so a gate that only a local run reaches is a gate that drifts.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/check-tooling-contract.sh$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/tests/check-tooling-contract.sh$'
+# The roadmap planner throws on tracker inconsistency, so its suite guards
+# invariants agents edit constantly. It had never run automatically, and had
+# already drifted by two tests before anything executed it.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^node --test scripts/tests/roadmap.test.ts$'
+# The suite runs the planner over temporary fixtures and never reads `.scratch/`,
+# so the throws that catch tracker drift — a dangling `Blocked by:`, a dependency
+# cycle, an untagged release blocker — need the planner run against the real tree.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^node scripts/roadmap[.]ts > /dev/null$'
+# `audit_deps` had no caller at all. Dependabot's weekly grouped bumps are exactly
+# the pull requests an advisory, licence, and source audit exists for, and the
+# feature-resolved tree it prints was inspected only when a human typed it.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run audit_deps$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo fmt --all -- --check$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --locked -- -D warnings$'
+# The three persistence tests live in a test-only module and depend on serde_json,
+# a dev-dependency absent from the normal graph, so no library build can reach
+# them. Only an all-targets build with the feature enabled compiles them, and that
+# ran behind the push guard: they were neither run nor type-checked before a merge.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --profile ci --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --tests --features persistence --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_merge_native$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_wasm$'
@@ -113,6 +138,13 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clipp
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo test --workspace --doc --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
+# `--lib` type-checks no test target, so the browser regressions compiled only
+# under `wasm-pack test` in the merge tier. Compiling the test targets here is
+# what keeps a break in them off main. The scope is the workspace rather than one
+# package: it was shell alone only while orcvs built an unguarded Tokio runtime in
+# a test, which no longer holds.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --features persistence --locked -- -D warnings$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cd shell$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --features persistence --locked.$'
@@ -138,8 +170,6 @@ if [ "$bench_job_count" -lt 1 ]; then
   exit 1
 fi
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev$' "$bench_job_count"
-assert_contains "$root_dir/shell/check.sh" 'mise run check_wasm'
-assert_contains "$root_dir/shell/check.sh" 'mise run test_persistence'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
@@ -171,13 +201,28 @@ assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_merge$'
-assert_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
+assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_wasm$'
+# A push to `main` must not cancel an earlier commit's run. The group interpolated
+# the pull request number, which is empty on a push, so every push shared one
+# group; `dd20cba6` landed with two of three jobs cancelled and was never re-run.
+# A cancelled run reports `cancelled` rather than `failure`, so nothing alerted.
+assert_contains "$root_dir/.github/workflows/test.yml" '^  group: [$][{][{] github[.]workflow [}][}]-[$][{][{] github[.]event[.]pull_request[.]number [|][|] github[.]sha [}][}]$'
+assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [\$][{][{] github[.]event_name == 'pull_request' [}][}]$"
+# Two steps are merge-only — the native and WASM `check_merge` runs — and
+# nothing else is. A third occurrence is a job that stopped running on pull
+# requests, which is how the WASM tier came to be skipped before a merge.
+# The guard tests "not a pull request" rather than "is a push" so that a manual
+# dispatch — the obvious way to re-verify a commit whose run was cancelled — runs
+# the merge tier instead of reporting three green jobs that ran only the
+# pull-request tier.
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 2
+assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
 assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@[0-9]'
 assert_not_contains "$root_dir/.github/workflows/test.yml" 'taiki-e/install-action'
-assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v4$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7[.]0[.]1$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v3$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4[.]3[.]0$'
 
 # Criterion covers both benchmarked paths: language execution in `lang`, and
 # populated Source rendering and editing in `orcvs`. It stays a plain versioned
@@ -240,7 +285,7 @@ fi
 # check-ignore answers 0 for ignored and 1 for not ignored, but 128 for its own
 # failures. Collapsing 128 into "not ignored" would make this check pass silently
 # wherever git cannot answer, so only 1 is accepted as the clean result.
-for regressions_path in lang/proptest-regressions/parser.txt orcvs/proptest-regressions/grid.txt; do
+for regressions_path in lang/proptest-regressions/parser.txt lang/proptest-regressions/interpreter.txt orcvs/proptest-regressions/grid.txt; do
   ignore_status=0
   git -C "$root_dir" check-ignore -q "$regressions_path" || ignore_status=$?
   case "$ignore_status" in
