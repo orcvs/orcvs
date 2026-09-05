@@ -8,7 +8,7 @@ Verification has two trigger tiers:
 
 - `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the
   roadmap planner's test suite, the dependency audit, formatting, clippy with and without
-  `persistence`, the native tests under both feature sets, and doctests. `mise run check_wasm`
+  `persistence`, and the native tests and doctests under both feature sets. `mise run check_wasm`
   compiles every crate's test targets for `wasm32-unknown-unknown` and builds the application. Pull
   requests run the first on Linux and macOS and the second on the WASM job.
 - `mise run check_merge` runs the browser regression suite, the rustdoc gates, and the persistence
@@ -20,7 +20,9 @@ fixed before normal development continues. What the delayed tier holds is behavi
 compilation: a browser regression can still be found after merge, but a browser test that no longer
 compiles fails the pull request that wrote it. The same is true one feature over — the persistence
 tests live in a test-only module behind a dev-dependency, so no library build can reach them, and
-the pull-request tier reaches them by building all targets with the feature enabled.
+the pull-request tier reaches them by building all targets with the feature enabled. The doctests
+follow the same rule: a doctest on a `persistence`-gated item is compiled by no default-feature run,
+so the tier runs `cargo test --doc` under both feature sets rather than only the default one.
 
 `mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
 is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the

@@ -21,12 +21,17 @@ Confirmed by listing the tests each gate would run: the pull-request tier's set 
 
 ## Decision — `test_persistence` keeps its place in the merge tier
 
-`check_pull_request` gained the two commands that reach the tests:
+`check_pull_request` gained the commands that reach the tests:
 
 ```
 cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
-cargo nextest run --workspace --all-targets --features persistence --profile ci --locked
+cargo nextest run --workspace --tests --features persistence --profile ci --locked
+cargo test --workspace --doc --features persistence --locked
 ```
+
+The doctest line is there for the same reason as the other two. A doctest on a `persistence`-gated
+item is compiled by no default-feature run, so leaving it in the merge tier alone would have kept one
+persistence path in exactly the found-after-merge class this ticket exists to close.
 
 `test_persistence` was not emptied to match, and the overlap is deliberate. `check_pull_request` sets
 `PROPTEST_CASES` to 32; the merge tier leaves proptest's 256-case default in place. Moving the

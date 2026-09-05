@@ -43,6 +43,16 @@ assert_rejected() {
   printf '%s\n' "$output"
 }
 
+assert_accepted() {
+  local scenario="$1"
+  local output
+  if ! output="$(bash "$fixture_dir/scripts/check-tooling-contract.sh" 2>&1)"; then
+    echo "expected tooling contract to accept $scenario" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+}
+
 test_commented_requirement_is_rejected() {
   make_fixture
   perl -pi -e 's/^(RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked)$/# $1/' "$fixture_dir/mise.toml"
@@ -282,6 +292,42 @@ test_merge_only_wasm_job_is_rejected() {
   assert_rejected "a WASM job that stopped running on pull requests"
 }
 
+test_patch_bump_of_a_pinned_action_is_accepted() {
+  make_fixture
+  perl -pi -e 's/# v7[.]0[.]1$/# v7.0.2/; s/# v4[.]3[.]0$/# v4.4.0/' "$fixture_dir/.github/workflows/test.yml"
+  assert_accepted "a patch bump of a SHA-pinned action"
+}
+
+test_major_bump_of_a_pinned_action_is_rejected() {
+  make_fixture
+  perl -pi -e 's/# v7[.]0[.]1$/# v8.0.0/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a major bump of a SHA-pinned action"
+}
+
+test_mutable_major_tag_for_a_tool_action_is_rejected() {
+  make_fixture
+  printf '\n      - uses: some-org/nextest@v1\n' >> "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a tool-install action pinned to a mutable major tag"
+}
+
+test_expression_form_merge_guard_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(  wasm:)\$/\$1\n    if: \\\$\{\{ github.event_name != 'pull_request' \}\}/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge guard written in expression syntax the count cannot see"
+}
+
+test_dropped_native_merge_component_is_rejected() {
+  make_fixture
+  perl -pi -e 's/ORCVS_MERGE_COMPONENT: native$/ORCVS_MERGE_COMPONENT: wasm/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a workflow that no longer runs the native merge component"
+}
+
+test_pull_request_tier_without_persistence_doctests_is_rejected() {
+  make_fixture
+  perl -0pi -e 's/cargo test --workspace --doc --locked\ncargo test --workspace --doc --features persistence --locked\n/cargo test --workspace --doc --locked\n/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles the persistence doctests"
+}
+
 test_prohibited_action_main_ref_is_rejected() {
   make_fixture
   printf '\n      - uses: taiki-e/install-action@main\n' >> "$fixture_dir/.github/workflows/test.yml"
@@ -353,6 +399,12 @@ case "${1:-all}" in
   unconditional-cancellation) test_unconditional_cancellation_is_rejected ;;
   dispatch-skips-merge-tier) test_dispatch_skipping_the_merge_tier_is_rejected ;;
   merge-only-wasm-job) test_merge_only_wasm_job_is_rejected ;;
+  patch-bump-accepted) test_patch_bump_of_a_pinned_action_is_accepted ;;
+  major-bump) test_major_bump_of_a_pinned_action_is_rejected ;;
+  mutable-major-tag) test_mutable_major_tag_for_a_tool_action_is_rejected ;;
+  expression-merge-guard) test_expression_form_merge_guard_is_rejected ;;
+  dropped-native-component) test_dropped_native_merge_component_is_rejected ;;
+  persistence-doctests) test_pull_request_tier_without_persistence_doctests_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
   misplaced-persistence) test_persistence_command_in_wrong_task_is_rejected ;;
@@ -398,6 +450,12 @@ case "${1:-all}" in
     test_unconditional_cancellation_is_rejected
     test_dispatch_skipping_the_merge_tier_is_rejected
     test_merge_only_wasm_job_is_rejected
+    test_patch_bump_of_a_pinned_action_is_accepted
+    test_major_bump_of_a_pinned_action_is_rejected
+    test_mutable_major_tag_for_a_tool_action_is_rejected
+    test_expression_form_merge_guard_is_rejected
+    test_dropped_native_merge_component_is_rejected
+    test_pull_request_tier_without_persistence_doctests_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;
   *) echo "unknown test: $1" >&2; exit 2 ;;

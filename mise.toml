@@ -73,6 +73,7 @@ cargo clippy --workspace --all-targets --features persistence --locked -- -D war
 cargo nextest run --workspace --profile ci --locked
 cargo nextest run --workspace --tests --features persistence --profile ci --locked
 cargo test --workspace --doc --locked
+cargo test --workspace --doc --features persistence --locked
 '''
 
 [tasks.check_merge]

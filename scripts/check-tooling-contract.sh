@@ -125,6 +125,10 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo cli
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --tests --features persistence --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --locked$'
+# A doctest on a `persistence`-gated item is compiled by no default-feature run,
+# so leaving this in the merge tier alone kept one persistence path in the
+# found-after-merge class the tier beside it had just left.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_merge_native$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_wasm$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run test_wasm$'
@@ -198,9 +202,13 @@ assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=(vtha|parser_benchmark)'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_merge$'
+# Counting each component pins which merge tier runs, not merely that some step
+# carries a guard: dropping the native step while adding a guard elsewhere leaves
+# the guard count at two, and rustdoc, `cargo deny` and the 256-case persistence
+# run stop reaching `main` with the contract still green.
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$' 1
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$' 1
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'run: mise run check_merge$' 2
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_wasm$'
 # A push to `main` must not cancel an earlier commit's run. The group interpolated
 # the pull request number, which is empty on a push, so every push shared one
@@ -217,12 +225,22 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 # pull-request tier.
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 2
 assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
-assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@[0-9]'
+# The count above reads the bare literal. GitHub accepts the same guard written
+# as an expression, which would slip a job out of the pull-request trigger while
+# the count still read two, so the expression spelling is refused outright.
+assert_not_contains "$root_dir/.github/workflows/test.yml" 'if: [$][{][{].*github[.]event_name'
+# `@v1` is how a mutable tag is usually written, so matching a bare digit after
+# the `@` let the common spelling of the thing this forbids straight through.
+assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
 assert_not_contains "$root_dir/.github/workflows/test.yml" 'taiki-e/install-action'
-assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7[.]0[.]1$'
+# Dependabot rewrites the version comment beside the SHA on every bump, and this
+# script is the first line of `check_pull_request`, so pinning the patch would
+# turn each of its own bump pull requests red on all three jobs. The major is
+# what deserves a human: it is where an action's inputs and node runtime move.
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
-assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4[.]3[.]0$'
+assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
 
 # Criterion covers both benchmarked paths: language execution in `lang`, and
 # populated Source rendering and editing in `orcvs`. It stays a plain versioned
