@@ -371,6 +371,17 @@ impl<const N: usize> Stack<N> {
     /// order, and within it the earlier member — which is the only ordering a
     /// reader can follow, because the diagnostic carries the offending Atom and
     /// not its index.
+    ///
+    /// Width zero needs that same argument made about the other half of an
+    /// operand's declared type. A domain narrower than its `Token` — a channel,
+    /// a velocity, a length — is ordinarily answered as an element binds, and
+    /// at every width above zero a scalar operand is repeated into element 0
+    /// and answered there. At width zero nothing binds, so the domain is asked
+    /// here instead, and whether a Source is told its channel byte is out of
+    /// range stops depending on the length of an unrelated operand. It is asked
+    /// only at that width because everywhere else the bind has already asked
+    /// it, and everywhere else is the path every Expression a Source writes
+    /// takes.
     #[inline(always)]
     fn checked<O: Operands>(&mut self) -> Result<Broadcast, Error> {
         let broadcast = self.broadcast(O::FUNCTION)?;
@@ -383,6 +394,18 @@ impl<const N: usize> Stack<N> {
                     for atom in sequence {
                         check_token(expected, *atom)?;
                     }
+                }
+            }
+        }
+
+        if broadcast.width() == 0 {
+            // Every Sequence operand is empty at this width, so the Atoms left
+            // to answer for are exactly the scalars, and the pass above has
+            // already read all of them: a domain fault raised here can never
+            // displace a type fault.
+            for (domain, operand) in O::FUNCTION.domains().iter().zip(&broadcast.operands) {
+                if let Value::Atom(atom) = operand {
+                    domain(*atom)?;
                 }
             }
         }
@@ -1013,6 +1036,177 @@ mod test {
         );
 
         assert_eq!(play(&mut stack).unwrap(), Performance::Many(Vec::new()));
+    }
+
+    #[test]
+    fn a_one_element_sequence_operand_widens_rather_than_reading_as_a_scalar() {
+        // `Performance::One` says the operands were scalar, not that there is
+        // exactly one command. A Sequence of one is not an Atom — the Source
+        // spelled a Sequence — so it widens the operation to width one and
+        // answers a group holding one command, which is unequal to the `One`
+        // holding the same command. Pinning it here so the two shapes cannot
+        // quietly start being distinguished by count instead.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x7F).into(),
+                Sequence::promote(note(60)).unwrap().into(),
+            ],
+        );
+
+        let performance = play(&mut stack).unwrap();
+
+        assert_eq!(performance, Performance::Many(vec![raw(0x01, 0x7F, 60)]));
+        assert_ne!(performance, Performance::One(raw(0x01, 0x7F, 60)));
+    }
+
+    #[test]
+    fn a_sequence_operand_is_refused_exactly_where_a_function_declares_it_does_not_pervade() {
+        // The pervasion arm of `broadcast` has no Function to reach it today:
+        // ADR 0030 flipped the last two rows that declared `Scalar`, and ADR
+        // 0012's Increment and Interpolation are unbuilt. Stating the rule over
+        // the table rather than over two named Functions is what keeps it a
+        // witness anyway — the first row to declare `Scalar` is covered by
+        // being declared, which is the discipline `declaration_agreement`
+        // already applies to the bind, and it is the coverage the two named
+        // tests provided before their Functions stopped being Scalar.
+        //
+        // `broadcast` settles arity and shape and nothing else, so a Number
+        // stands at every position regardless of the Token declared there.
+        for function in Function::ALL.iter().copied() {
+            let declared = function.signature().len();
+
+            for position in 0..declared {
+                let mut stack = empty_stack();
+                push_all(
+                    &mut stack,
+                    (0..declared).map(|index| {
+                        if index == position {
+                            sequence().into()
+                        } else {
+                            Atom::Number(0).into()
+                        }
+                    }),
+                );
+
+                let widened = stack.broadcast(function);
+
+                if function.is_pervasive() {
+                    assert!(
+                        widened.is_ok(),
+                        "{function:?} refused a Sequence at operand {position}"
+                    );
+                } else {
+                    assert!(
+                        matches!(
+                            widened,
+                            Err(Error::Sequence(SequenceError::ExpectedAtom(found))) if found == "0001"
+                        ),
+                        "{function:?} accepted a Sequence at operand {position}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_scalar_operand_outside_its_domain_diagnoses_at_width_zero() {
+        // A scalar operand belongs to the operation whether or not any element
+        // repeats it, and that reaches the domain its declaration narrows to
+        // and not only the Token the signature checks. At width zero no element
+        // binds, so a domain answered only as an element binds is not answered
+        // at all, and whether the Source is told its channel byte is out of
+        // range would depend on the length of an unrelated operand.
+        //
+        // This is the half `sequence-values/02` had no pervasive witness for:
+        // every domain narrower than its Token belonged to a Terminal Output
+        // Function, and those were the Functions ADR 0030 has just made
+        // pervasive.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0xFF).into(),
+                Atom::Number(0x7F).into(),
+                Sequence::empty().into(),
+            ],
+        );
+
+        assert!(matches!(
+            play(&mut stack),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0xFF
+            )))
+        ));
+
+        // And the velocity, whose declaration narrows the same Token to a
+        // different domain, so one operand's answer is not standing in for the
+        // column.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x80).into(),
+                Sequence::empty().into(),
+            ],
+        );
+
+        assert!(matches!(
+            play(&mut stack),
+            Err(Error::Interpretation(InterpretationError::MidiDataByte {
+                role: "velocity",
+                value: 0x80
+            }))
+        ));
+
+        // The fourth operand of `!~` too, so an operand position beyond the
+        // widened one is not the position that happens to be walked first.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x10).into(),
+                Atom::Number(0x7F).into(),
+                Sequence::empty().into(),
+                Atom::Number(0x08).into(),
+            ],
+        );
+
+        assert!(matches!(
+            timed_play(&mut stack),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0x10
+            )))
+        ));
+    }
+
+    #[test]
+    fn a_type_fault_still_precedes_a_domain_fault_at_width_zero() {
+        // The ordering `checked` fixes is unchanged by answering domains from
+        // the operand walk: the Token pass runs over every operand before any
+        // domain does, so a Note standing in a Number position is what the
+        // Source is told about even when an earlier operand is also out of
+        // range.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0xFF).into(),
+                note(60).into(),
+                Sequence::empty().into(),
+            ],
+        );
+
+        assert!(
+            matches!(
+                play(&mut stack),
+                Err(Error::Type(TypeError::Number(found))) if found == "C4"
+            ),
+            "a type fault was displaced by a domain fault at width zero"
+        );
     }
 
     #[test]
