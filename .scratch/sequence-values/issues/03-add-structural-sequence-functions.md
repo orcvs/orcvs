@@ -67,18 +67,25 @@ deletes the cause rather than working around it.
 **What to validate, and against what.** Re-run the same benchmark and compare against 12.1 ns, not
 against the current figure.
 
-Do not expect a uniform value model to recover the time on its own, and do not assume the drop glue
-is the cost. That was the first hypothesis here and a measurement refuted it. Backing `Sequence`
-with `ManuallyDrop<Vec<Atom>>` removes the `Drop` implementation from `Value` entirely — a probe
-that leaks, and is only a probe — and it moved the bench from 40.7 ns to 38.5 ns. The pre-broadcast
-base is 12.4 ns. So making the value `Copy` is worth about 2 ns of a 26 ns gap, not the gap.
+Do not assume the drop glue is the cost. That was the first hypothesis here and a measurement
+refuted it. Backing `Sequence` with `ManuallyDrop<Vec<Atom>>` removes the `Drop` implementation from
+`Value` entirely — a probe that leaks, and is only a probe — and it moved the bench from 40.7 ns to
+38.5 ns against a 12.4 ns pre-broadcast base. Two nanoseconds of twenty-six. Ownership is not what
+this costs.
 
-Where the other 26 ns sits is not attributed. The candidates are the size of the `Broadcast`
-structure itself, about 120 bytes moved for each operation whether or not it is dropped; the
-two-pass walk, which validates every operand before it binds any; and the `ArrayVec<Atom, 4>` that
-`element()` builds for each bind. Attribute it before you design against it. The uniform model
-changes the first of those three, so it may well pay — but the reason is size, not ownership, and
-the number to beat is 12.4 ns.
+Be careful what that refutes, because it is narrower than it first looks. The probe removes the
+`Drop` implementation and nothing else: a `ManuallyDrop<Vec<Atom>>` Sequence is still 24 bytes and
+still travels through the same two-variant `Value` enum, discriminant and all. What ADR 0026 removes
+is the enum itself. The probe never tested that, so the uniform model's payoff is **unquantified,
+not refuted**. Do not carry a number for it — including this one — until something measures a
+one-shape representation directly.
+
+Where the 26 ns sits is likewise not attributed. The candidates are the size of the `Broadcast`
+structure, about 120 bytes moved for each operation whether or not it is dropped; the two-pass walk,
+which validates every operand before it binds any; and the `ArrayVec<Atom, 4>` that `element()`
+builds for each bind. The uniform model plausibly moves the first, which is a size argument rather
+than an ownership one — but plausibly is the honest word. Attribute the 26 ns before designing
+against it, and beat 12.4 ns.
 
 Do not answer it by inlining the members. Backing `Sequence` with `ArrayVec<Atom, 256>` in place of
 `Vec<Atom>` was measured on the same bench at 1581.8 ns, 125x the pre-broadcast base: `Value` must
