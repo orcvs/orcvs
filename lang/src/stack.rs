@@ -88,18 +88,52 @@ enum Shape {
     Sequence(usize),
 }
 
+/// The widest operand list any Function declares, and the capacity of every
+/// per-operation buffer below.
+///
+/// Read off the Function table rather than written down beside it, so a
+/// Function that declared a fifth operand would widen these buffers by being
+/// declared rather than by someone remembering to. It is a bound of its own and
+/// not `EXP_LEN` because the two count different things: `EXP_LEN` bounds the
+/// Atoms one Expression may hold, while what bounds an operand list is the
+/// signature the Function declares. Sizing an operand buffer at `EXP_LEN`
+/// spends 32 `Value` slots — the better part of a kilobyte moved out of
+/// [`Stack::broadcast`] on every operation — where the widest signature in the
+/// table reads four.
+const MAX_OPERANDS: usize = {
+    let mut widest = 0;
+    let mut index = 0;
+
+    while index < Function::ALL.len() {
+        let declared = Function::ALL[index].signature().len();
+
+        if declared > widest {
+            widest = declared;
+        }
+
+        index += 1;
+    }
+
+    widest
+};
+
 /// One operation's popped operands and the single shape they decided.
 ///
 /// This is deliberately not two mechanisms. The table-driven Functions and the
 /// numeric conversions differ only in the type layer above this — a signature
 /// check for the first, ADR 0021's `NumericValue` for the second — and share
 /// the pop, the shape, the per-element operands, and the assembly.
-struct Broadcast<const N: usize> {
-    operands: ArrayVec<Value, N>,
+///
+/// It is not generic in the Operand Stack's capacity. What bounds an operand
+/// list is the signature its Function declares, not how many values the stack
+/// it was drained from can hold, and taking the stack's bound here would size
+/// every operation's buffer for an operand list no Function can ask for.
+struct Broadcast {
+    operands: ArrayVec<Value, MAX_OPERANDS>,
     shape: Shape,
 }
 
-impl<const N: usize> Broadcast<N> {
+impl Broadcast {
     /// How many elements the operation evaluates.
     #[inline(always)]
     fn width(&self) -> usize {
@@ -107,6 +141,21 @@ impl<const N: usize> Broadcast<N> {
             Shape::Scalar => 1,
             Shape::Sequence(width) => width,
         }
+    }
+
+    /// Whether every operand was one Atom, so the operation is the single
+    /// element [`Shape::Scalar`] names.
+    ///
+    /// Both evaluation seams ask before they reserve anything. A scalar
+    /// operation is not a second mechanism beside the widened one: it is the
+    /// same pop, the same check, and the same bind, with only the Sequence
+    /// assembly left out, because at width one there is no Sequence to assemble
+    /// and no buffer to fill on the way to an answer that is one Atom. That
+    /// path is the one every Expression a Source writes today takes, so what it
+    /// leaves out is worth leaving out.
+    #[inline(always)]
+    fn is_scalar(&self) -> bool {
+        matches!(self.shape, Shape::Scalar)
     }
 
     /// The operands for one element, in signature order.
@@ -117,7 +166,7 @@ impl<const N: usize> Broadcast<N> {
     /// Sequence operand only where its length is the width, and every caller
     /// walks `0..width`.
     #[inline(always)]
-    fn element(&self, index: usize) -> ArrayVec<Atom, N> {
+    fn element(&self, index: usize) -> ArrayVec<Atom, MAX_OPERANDS> {
         self.operands
             .iter()
             .map(|operand| match operand {
@@ -147,26 +196,22 @@ impl<const N: usize> Broadcast<N> {
         })
     }
 
-    /// Assembles the elements' answers into the operation's one answer.
+    /// Assembles a widened operation's element answers into its one Sequence.
     ///
     /// Nothing reaches here until every element has answered, which is what
     /// makes a fault at any element diagnose the complete operation instead of
-    /// leaving a partial Sequence behind. A Sequence answer is built through
+    /// leaving a partial Sequence behind. The answer is built through
     /// [`Sequence::new`], so a broadcast result inherits the one membership
     /// rule every other Sequence is constructed under.
+    ///
+    /// Only a widened operation is assembled. A scalar operation answers the
+    /// Atom its Function returned, and answering it as a singleton Sequence
+    /// instead would both change what the Interpreter hands tick planning and
+    /// hold that Atom to a membership rule an ordinary scalar answer has never
+    /// been held to.
     #[inline(always)]
-    fn assemble(&self, results: Vec<Atom>) -> Result<Value, Error> {
-        match self.shape {
-            // Every caller pushes one Atom per element and a scalar shape has
-            // exactly one element, so the default below is unreachable rather
-            // than a behaviour. It is a default and not a panic because this
-            // runs inside a Tick under the Source write guard, where ADR 0028
-            // rules the panic out; the absence marker is the one answer that
-            // plans no write, so an impossible state costs a missing result
-            // rather than Playback.
-            Shape::Scalar => Ok(results.into_iter().next().unwrap_or(Atom::Empty).into()),
-            Shape::Sequence(_) => Ok(Sequence::new(results)?.into()),
-        }
+    fn assemble(results: Vec<Atom>) -> Result<Value, Error> {
+        Ok(Sequence::new(results)?.into())
     }
 }
 
@@ -247,13 +292,14 @@ impl<const N: usize> Stack<N> {
     /// pervades. Every other Function refuses one wherever it stands, so the
     /// scalar exceptions ADR 0012 names are refused by their declaration rather
     /// than by an omission somewhere in a body.
-    fn broadcast(&mut self, function: Function) -> Result<Broadcast<N>, Error> {
+    fn broadcast(&mut self, function: Function) -> Result<Broadcast, Error> {
         let signature = function.signature();
-        // One Value per operand popped, and a pop only yields one while this
-        // stack still holds a value, so the buffer can never outgrow the stack
-        // it drains. Sizing it `N` makes that a bound the type carries rather
-        // than a second number to keep in step with the first.
-        let mut operands: ArrayVec<Value, N> = ArrayVec::new();
+        // One Value per operand the signature declares, and `MAX_OPERANDS` is
+        // the widest signature the table holds, so the push below is total: no
+        // Function can declare an operand list this buffer cannot take. The
+        // capacity is derived from the same declarations the loop reads, which
+        // is what keeps the two from drifting apart.
+        let mut operands: ArrayVec<Value, MAX_OPERANDS> = ArrayVec::new();
 
         for found in 0..signature.len() {
             operands.push(self.inner.pop().ok_or(ArgumentError::Arity {
@@ -308,7 +354,7 @@ impl<const N: usize> Stack<N> {
     /// reader can follow, because the diagnostic carries the offending Atom and
     /// not its index.
     #[inline(always)]
-    fn checked<O: Operands>(&mut self) -> Result<Broadcast<N>, Error> {
+    fn checked<O: Operands>(&mut self) -> Result<Broadcast, Error> {
         let broadcast = self.broadcast(O::FUNCTION)?;
         let signature = O::FUNCTION.signature().iter().copied();
 
@@ -353,6 +399,13 @@ impl<const N: usize> Stack<N> {
     /// Sequences, which is the point of putting the broadcast here: `math::add`
     /// says that addition wraps and says it once, whether it is answering about
     /// one pair of Numbers or two hundred.
+    ///
+    /// A scalar operation is answered where it is bound. It runs the same
+    /// validation, the same bind, and the same closure the widened path runs —
+    /// the ordering `checked` fixes is unchanged, because the check is over
+    /// operands and happens before either path begins — and then answers the
+    /// Atom the Function returned, without reserving a Sequence's worth of room
+    /// for a single element on the way.
     #[inline(always)]
     pub(crate) fn apply<O, F>(&mut self, element: F) -> Result<Value, Error>
     where
@@ -360,13 +413,18 @@ impl<const N: usize> Stack<N> {
         F: Fn(O) -> Result<Atom, Error>,
     {
         let broadcast = self.checked::<O>()?;
+
+        if broadcast.is_scalar() {
+            return Ok(element(broadcast.bind(0)?)?.into());
+        }
+
         let mut results = Vec::with_capacity(broadcast.width());
 
         for index in 0..broadcast.width() {
             results.push(element(broadcast.bind(index)?)?);
         }
 
-        broadcast.assemble(results)
+        Broadcast::assemble(results)
     }
 
     /// Evaluates one pervasive whole-value predicate across the shape its
@@ -410,7 +468,8 @@ impl<const N: usize> Stack<N> {
     /// instead of against the single `Token` their literal signature declares.
     /// That is one type layer replaced; the pop, the shape, the ordering, and
     /// the all-or-nothing assembly are the same ones every other pervasive
-    /// Function runs on.
+    /// Function runs on — including the scalar shape, which is answered as the
+    /// one Atom it is rather than through the widened path's two buffers.
     #[inline(always)]
     pub(crate) fn convert<O, F>(&mut self, element: F) -> Result<Value, Error>
     where
@@ -418,6 +477,26 @@ impl<const N: usize> Stack<N> {
         F: Fn(NumericValue) -> Result<Atom, Error>,
     {
         let broadcast = self.broadcast(O::FUNCTION)?;
+
+        if broadcast.is_scalar() {
+            // One declared operand at the scalar shape is one Atom, so reading
+            // its type and converting it is the complete operation: the "every
+            // element before any element" ordering below is satisfied here by
+            // there being no second element to order against. The default is
+            // unreachable — `UnaryOperands` declares the operand and
+            // `broadcast` refuses to answer without it — and it is a default
+            // rather than a panic because this runs inside a Tick under the
+            // Source write guard, where ADR 0028 rules the panic out. The
+            // absence marker is not numeric, so an impossible state costs a
+            // type diagnostic rather than Playback.
+            let atom = broadcast
+                .element(0)
+                .into_iter()
+                .next()
+                .unwrap_or(Atom::Empty);
+
+            return Ok(element(NumericValue::try_from(atom)?)?.into());
+        }
 
         // Every element's type before any element converts, for the reason
         // `checked` gives: a Sequence whose last member is not numeric must
@@ -439,7 +518,7 @@ impl<const N: usize> Stack<N> {
             results.push(element(value)?);
         }
 
-        broadcast.assemble(results)
+        Broadcast::assemble(results)
     }
 }
 
@@ -500,8 +579,10 @@ impl TryFrom<Atom> for NumericValue {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, Error, InterpretationError, Note, Sequence, SequenceError, Stack,
-        TypeError, Value, atom::operands, stack::NumericValue,
+        ArgumentError, Atom, EXP_LEN, Error, Function, InterpretationError, Note, Sequence,
+        SequenceError, Stack, TypeError, Value,
+        atom::operands,
+        stack::{MAX_OPERANDS, NumericValue},
     };
 
     fn empty_stack() -> Stack<16> {
@@ -563,6 +644,31 @@ mod test {
         for operand in operands.into_iter().rev() {
             stack.push(operand).unwrap();
         }
+    }
+
+    #[test]
+    fn no_function_declares_more_operands_than_one_broadcast_buffer_holds() {
+        // A broadcast sizes its buffers to the widest signature rather than to
+        // `EXP_LEN`, and `ArrayVec::push` panics on overflow — inside a Tick,
+        // under the Source write guard ADR 0028 rules that out. The capacity is
+        // derived from the same table the signatures come from, so this reads
+        // that table a second way rather than restating a number: a Function
+        // that declared a fifth operand would have to widen the buffer by being
+        // declared, and this fails if it ever stops doing so.
+        let widest = Function::ALL
+            .iter()
+            .map(|function| function.signature().len())
+            .max()
+            .expect("the Function table declares at least one Function");
+
+        assert_eq!(
+            MAX_OPERANDS, widest,
+            "a declared operand list outgrows the buffer a broadcast pops it into"
+        );
+        assert!(
+            widest < EXP_LEN,
+            "the operand buffer is the parser's Expression bound under another name"
+        );
     }
 
     #[test]
@@ -889,6 +995,48 @@ mod test {
     }
 
     #[test]
+    fn a_scalar_operation_type_checks_its_operands_before_it_evaluates_the_element() {
+        // The scalar analogue of the element walk below: `./ C4 00` is mistyped
+        // in its left operand and has no quotient in its right, so a path that
+        // bound and evaluated the one element before checking the operand list
+        // would answer `DivisionByZero`. Validation strictly precedes
+        // evaluation at width one for the same reason it does at width four —
+        // which diagnostic the Source is shown must not depend on how many
+        // elements the operands happened to make.
+        let mut stack = empty_stack();
+        push_all(&mut stack, [note(60).into(), Atom::Number(0).into()]);
+
+        assert!(
+            matches!(
+                quotient(&mut stack),
+                Err(Error::Type(TypeError::Number(found))) if found == "C4"
+            ),
+            "a scalar type fault was displaced by an evaluation fault"
+        );
+    }
+
+    #[test]
+    fn an_evaluation_fault_in_a_scalar_operation_answers_the_fault_the_function_raised() {
+        // Every other evaluation-fault case here is a widened one. A scalar
+        // operation assembles nothing, so the Function's own diagnostic must
+        // reach the Source unwrapped rather than as something about a Sequence
+        // that was never built.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [Atom::Number(0x10).into(), Atom::Number(0x00).into()],
+        );
+
+        assert!(
+            matches!(
+                quotient(&mut stack),
+                Err(Error::Interpretation(InterpretationError::DivisionByZero))
+            ),
+            "a scalar evaluation fault answered as something other than itself"
+        );
+    }
+
+    #[test]
     fn every_element_is_type_checked_before_any_element_is_evaluated() {
         // Element 0 divides by zero and element 3 is mistyped. Only checking
         // every element of every operand before evaluating any of them lets
@@ -998,6 +1146,38 @@ mod test {
         assert_eq!(
             to_note(&mut stack).unwrap(),
             Value::Sequence(Sequence::empty())
+        );
+    }
+
+    #[test]
+    fn a_conversion_over_one_atom_evaluates_once_and_answers_an_ordinary_atom() {
+        // The scalar shape of a conversion, at the seam rather than at the
+        // Function: `.^ 3C` answered a Note before broadcasting existed and
+        // must answer one still. A singleton Sequence would encode identically
+        // and reach tick planning through the other arm.
+        let mut stack = empty_stack();
+        stack.push(Atom::Number(0x3C)).unwrap();
+
+        assert_eq!(to_note(&mut stack).unwrap(), Value::Atom(note(0x3C)));
+        assert_eq!(stack.pop_value(), None);
+    }
+
+    #[test]
+    fn an_evaluation_fault_in_a_scalar_conversion_answers_the_fault_the_conversion_raised() {
+        // `80` names no MIDI Note, and with one element there is nothing to
+        // assemble, so the conversion's own diagnostic is what the Source is
+        // told about.
+        let mut stack = empty_stack();
+        stack.push(Atom::Number(0x80)).unwrap();
+
+        assert!(
+            matches!(
+                to_note(&mut stack),
+                Err(Error::Interpretation(InterpretationError::NoteConversion(
+                    0x80
+                )))
+            ),
+            "a scalar conversion fault answered as something other than itself"
         );
     }
 
