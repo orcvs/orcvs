@@ -87,3 +87,8 @@ Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
 ### Syntax prototypes
 
 Syntax and evaluation prototypes use Tick-by-Tick Orcvs Source Grids with diagnostic context. See `docs/agents/syntax-prototypes.md`.
+
+### Skills
+
+The repository's skills live in `.agents/skills/` and are exposed to Claude Code through tracked
+symlinks in `.claude/skills/`. See `docs/agents/skills.md`.
