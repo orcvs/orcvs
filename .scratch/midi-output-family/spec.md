@@ -13,6 +13,7 @@ contracts while preserving the Source/Playback Engine and output adapter seams.
 2. `issues/02-schedule-timed-play-note-off.md`
 3. `issues/03-own-monophonic-voices-per-channel.md`
 4. `issues/04-send-control-change-and-pitch-bend.md`
+5. `issues/05-extend-terminal-output-functions-over-sequences.md`
 
 ## Required behavior
 
