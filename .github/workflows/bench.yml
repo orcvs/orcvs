@@ -55,11 +55,22 @@ jobs:
       group: bench-publish-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      # A cache saved on a pull request's ref can only ever be read back by that
+      # same pull request, so saving there fills the repository's shared quota
+      # with entries nobody reads and evicts the ones on `main` that every run
+      # restores from. Restoring is unaffected: a pull request still reads
+      # `main`'s cache through the key prefix.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          # Both jobs below build the same tree under the same profile, and only
+          # one of them ever runs. Without a shared key each gets a cache of its
+          # own keyed on the job id, so the same bytes are stored twice.
+          shared-key: bench
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `orcvs` depends on `midir`, which links ALSA on Linux. Without this the bench
       # jobs fail while building `alsa-sys` and publish nothing.
       - name: Install native dependencies
@@ -67,9 +78,10 @@ jobs:
       # `mise run bench` needs only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install: false
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The first run after a fresh compile is contaminated: measured locally,
       # parse_source reported 1,204 ns on the first run and a settled 417 ns on the
       # three that followed. CI only ever runs a freshly compiled binary, so the
@@ -108,11 +120,17 @@ jobs:
       group: bench-pr-${{ github.ref }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          # Both jobs below build the same tree under the same profile, and only
+          # one of them ever runs. Without a shared key each gets a cache of its
+          # own keyed on the job id, so the same bytes are stored twice.
+          shared-key: bench
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `orcvs` depends on `midir`, which links ALSA on Linux. Without this the bench
       # jobs fail while building `alsa-sys` and publish nothing.
       - name: Install native dependencies
@@ -120,9 +138,10 @@ jobs:
       # `mise run bench` needs only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install: false
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Warm up
         run: mise run bench > /dev/null
       - name: Run benchmarks

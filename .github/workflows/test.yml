@@ -38,10 +38,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy,rustfmt
+      # A cache saved on a pull request's ref can only ever be read back by that
+      # same pull request, so saving there fills the repository's shared quota
+      # with entries nobody reads and evicts the ones on `main` that every run
+      # restores from. Restoring is unaffected: a pull request still reads
+      # `main`'s cache through the key prefix.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run check_pull_request
       - if: github.event_name != 'pull_request'
         env:
@@ -59,7 +68,11 @@ jobs:
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run check_pull_request
 
   wasm:
@@ -73,7 +86,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run check_wasm
       - if: github.event_name != 'pull_request'
         env:

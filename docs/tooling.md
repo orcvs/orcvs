@@ -68,6 +68,19 @@ The merge-tier steps are guarded on the event not being a pull request rather th
 push, so a manual dispatch — the obvious way to re-verify a commit — runs the merge tier instead of
 reporting green having run only the pull-request tier.
 
+Caches are written only from `main`. GitHub scopes a cache to the ref that saved it, so an entry
+written on `refs/pull/N/merge` is readable by that pull request and by nothing else, while the
+repository's quota is shared across all of them. Left ungated, pull-request runs filled that quota
+with entries no later run could read and evicted the `main` entries every run restores from — the
+repository sat at 9.8 GB of a 10 GB limit, under continuous eviction. Every `Swatinem/rust-cache`
+step carries `save-if` and every `jdx/mise-action` step carries `cache_save`, both gated on the
+default branch. Restoring is deliberately not gated: a pull request still reads `main`'s cache
+through the key prefix, so the gate costs a pull request nothing and it saves nothing worth keeping.
+The two benchmark jobs additionally share one key, because they build the same tree under the same
+profile and only ever one of them runs. `scripts/check-tooling-contract.sh` counts the gates against
+the number of caching steps in each workflow, so a job added with an ungated cache fails the
+pull-request tier rather than quietly filling the quota again.
+
 Two gates advise rather than block, and both are recorded here rather than assumed. The benchmark
 comparison in `.github/workflows/bench.yml` fails on a threefold regression but is not a required
 status context, and `main`'s branch protection does not enforce against administrators, so a direct

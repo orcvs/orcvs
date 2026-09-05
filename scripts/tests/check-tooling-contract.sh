@@ -403,6 +403,38 @@ test_prohibited_action_main_ref_is_rejected() {
   assert_rejected "a prohibited action using an unpinned ref"
 }
 
+test_ungated_rust_cache_save_is_rejected() {
+  make_fixture
+  # A caching step that writes on every ref, which is how the shared quota filled
+  # with pull-request entries no run can read.
+  perl -0pi -e "s/^          save-if: .*\n//m" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a rust-cache step that saves on every ref"
+
+  # The count is against the number of caching steps, so a new job arriving with
+  # an ungated cache has to fail too rather than only a gate being deleted.
+  make_fixture
+  printf '\n  extra:\n    timeout-minutes: 20\n    runs-on: ubuntu-latest\n    steps:\n      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2\n' >> "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a job whose cache step arrived without the save gate"
+}
+
+test_ungated_mise_cache_save_is_rejected() {
+  make_fixture
+  perl -0pi -e "s/^          cache_save: .*\n//m" "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "a mise-action step that saves on every ref"
+}
+
+test_unshared_bench_cache_key_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^          shared-key: bench$/          shared-key: publish/' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "benchmark jobs keyed apart from each other"
+}
+
+test_stale_bench_action_pin_is_rejected() {
+  make_fixture
+  perl -pi -e 's{^(      - uses: actions/checkout\@[0-9a-f]{40} )# v7([.][0-9]+)*$}{$1# v4}' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark checkout pinned a major behind the other workflows"
+}
+
 test_invalid_fresh_fixture_is_rejected() {
   if CHECKER_SOURCE="$repo_root/Cargo.toml" make_fixture 2>/dev/null; then
     echo "expected fixture setup to reject an invalid fresh fixture" >&2
@@ -481,6 +513,10 @@ case "${1:-all}" in
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   persistence-doctests) test_pull_request_tier_without_persistence_doctests_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
+  ungated-rust-cache) test_ungated_rust_cache_save_is_rejected ;;
+  ungated-mise-cache) test_ungated_mise_cache_save_is_rejected ;;
+  unshared-bench-key) test_unshared_bench_cache_key_is_rejected ;;
+  stale-bench-pin) test_stale_bench_action_pin_is_rejected ;;
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
   misplaced-persistence) test_persistence_command_in_wrong_task_is_rejected ;;
   fixture-cleanup) test_fixture_cleanup_removes_tmp_dirs_on_failure ;;
@@ -521,6 +557,10 @@ case "${1:-all}" in
     test_dependency_table_version_is_rejected
     test_commented_dependency_table_version_is_rejected
     test_prohibited_action_main_ref_is_rejected
+    test_ungated_rust_cache_save_is_rejected
+    test_ungated_mise_cache_save_is_rejected
+    test_unshared_bench_cache_key_is_rejected
+    test_stale_bench_action_pin_is_rejected
     test_shared_push_concurrency_group_is_rejected
     test_unconditional_cancellation_is_rejected
     test_dispatch_skipping_the_merge_tier_is_rejected

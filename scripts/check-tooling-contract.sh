@@ -103,6 +103,12 @@ workflow_job_count() {
   ' "$1"
 }
 
+# The count of a pattern outside comment lines, for assertions whose expected
+# number is another property of the same file rather than a literal.
+count_matches() {
+  grep -Ev '^[[:space:]]*#' "$1" | grep -Ec "$2" || true
+}
+
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
@@ -287,6 +293,14 @@ assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: dtolnay/rust
 assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/advisories.yml" 'taiki-e/install-action'
 assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
+# Stated against `bench.yml` for the same reason: unasserted, its `checkout` and
+# `mise-action` pins sat a major behind the other two workflows, and the split
+# mise-action major stored every mise cache under two key shapes at once.
+assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
+assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_not_contains "$root_dir/.github/workflows/bench.yml" 'taiki-e/install-action'
 
 # Every job in every workflow carries a bound on its runtime. Without one a job
 # inherits the six-hour runner limit, and the shape that would spend it is a
@@ -296,6 +310,28 @@ assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest
 # bound fails this check instead of quietly inheriting the default. Four spaces is
 # the job-level indent; a step-level `timeout-minutes` sits deeper and is not
 # counted, so a bound on one step cannot stand in for the job's.
+# A cache saved on a pull request's ref can only ever be read back by that same
+# pull request. Saving there fills the repository's shared quota with entries no
+# run reads and evicts the ones on `main` that every run restores from, so each
+# caching action's write is gated on the default branch. Restoring is deliberately
+# not gated: a pull request still reads `main`'s cache through the key prefix, so
+# the gate costs a pull request nothing. The expected count is the number of
+# caching steps the file declares rather than a literal, so a job added with an
+# ungated cache fails this check instead of quietly filling the quota.
+for workflow in "$root_dir"/.github/workflows/*.yml; do
+  assert_occurs_exactly "$workflow" \
+    "^          save-if: [\$][{][{] github[.]ref == 'refs/heads/main' [}][}]\$" \
+    "$(count_matches "$workflow" 'uses: Swatinem/rust-cache@')"
+  assert_occurs_exactly "$workflow" \
+    "^          cache_save: [\$][{][{] github[.]ref == 'refs/heads/main' [}][}]\$" \
+    "$(count_matches "$workflow" 'uses: jdx/mise-action@')"
+done
+
+# Both benchmark jobs build the same tree under the same profile and only one of
+# them ever runs, so they share one cache entry. Without the shared key each is
+# keyed on its own job id and the same bytes are stored twice.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          shared-key: bench$' 2
+
 for workflow in "$root_dir"/.github/workflows/*.yml; do
   workflow_jobs="$(workflow_job_count "$workflow")"
   if [ "$workflow_jobs" -lt 1 ]; then
