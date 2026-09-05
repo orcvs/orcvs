@@ -292,6 +292,14 @@ impl<const N: usize> Stack<N> {
     /// pervades. Every other Function refuses one wherever it stands, so the
     /// scalar exceptions ADR 0012 names are refused by their declaration rather
     /// than by an omission somewhere in a body.
+    ///
+    /// Inlined, unlike its size would suggest, because it returns a `Broadcast`
+    /// of about 120 bytes inside a `Result` and every caller consumes it
+    /// immediately. Left as an ordinary call it moved that buffer through a
+    /// return slot on every operation: measured at 50.1 ns for the `execute`
+    /// bench against 40.7 ns with this attribute, and no change in the compiled
+    /// library size.
+    #[inline(always)]
     fn broadcast(&mut self, function: Function) -> Result<Broadcast, Error> {
         let signature = function.signature();
         // One Value per operand the signature declares, and `MAX_OPERANDS` is

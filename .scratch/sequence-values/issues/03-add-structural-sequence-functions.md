@@ -65,14 +65,20 @@ close it is the change most likely to make ADR 0026 harder to adopt later, and t
 deletes the cause rather than working around it.
 
 **What to validate, and against what.** Re-run the same benchmark and compare against 12.1 ns, not
-against 56.6 ns. Note that one shape is not by itself the property that recovers the time. A
-Sequence that owns a `Vec` still has drop glue and still allocates for every scalar, which is what
-the ADR's own cost paragraph predicts; removing the wrapper removes a discriminant and a 24-byte
-move, not the drop glue. The property that matters is that a value is `Copy`. Two measurements for
-reference: an `enum { Atom(Atom), Sequence(u32) }` handle into an arena is 8 bytes and needs no
-drop, and a bare `Atom` is 8 bytes and needs no drop. So the representation question — inline
-singleton, or handle — has to be answered alongside the shape question, or the unification can
-land and leave the scalar path where it is.
+against the current figure.
+
+Do not expect a uniform value model to recover the time on its own, and do not assume the drop glue
+is the cost. That was the first hypothesis here and a measurement refuted it. Backing `Sequence`
+with `ManuallyDrop<Vec<Atom>>` removes the `Drop` implementation from `Value` entirely — a probe
+that leaks, and is only a probe — and it moved the bench from 40.7 ns to 38.5 ns. The pre-broadcast
+base is 12.4 ns. So making the value `Copy` is worth about 2 ns of a 26 ns gap, not the gap.
+
+Where the other 26 ns sits is not attributed. The candidates are the size of the `Broadcast`
+structure itself, about 120 bytes moved for each operation whether or not it is dropped; the
+two-pass walk, which validates every operand before it binds any; and the `ArrayVec<Atom, 4>` that
+`element()` builds for each bind. Attribute it before you design against it. The uniform model
+changes the first of those three, so it may well pay — but the reason is size, not ownership, and
+the number to beat is 12.4 ns.
 
 Do not answer it by inlining the members. Backing `Sequence` with `ArrayVec<Atom, 256>` in place of
 `Vec<Atom>` was measured on the same bench at 1581.8 ns, 125x the pre-broadcast base: `Value` must
