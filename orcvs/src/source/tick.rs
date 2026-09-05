@@ -301,6 +301,8 @@ pub(super) fn result_effect(
     span: Span,
     result: Result<Interpretation, LangError>,
 ) -> Option<Effect> {
+    grid.assert_owns_index(span.start());
+    grid.assert_owns_index(span.end());
     let encoded = match result {
         Ok(Interpretation::Cell(Atom::Empty)) => return None,
         Ok(Interpretation::Cell(result)) => result.to_string(),
@@ -321,8 +323,8 @@ pub(super) fn result_effect(
             )));
         }
     };
-    // Resolution and fit are one expression because a producer answers both
-    // refusals the same way: no write at all, and a diagnostic saying which it
+    // Resolution, validity, and fit are one expression because a producer
+    // answers all refusals the same way: no write, and a diagnostic saying which it
     // was. The encoding is fanned out into Cells only when the Tick Plan
     // resolves, so nothing between here and there holds part of a result.
     Some(
@@ -337,6 +339,9 @@ pub(super) fn result_effect(
                     }
                     PortalError::CrossesRowEdge => {
                         format!("result {encoded:?} crosses the row edge")
+                    }
+                    PortalError::InvalidContent => {
+                        format!("result {encoded:?} contains Cells outside printable ASCII")
                     }
                 },
             )),
@@ -717,6 +722,19 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "CellIndex belongs to another Grid")]
+    fn result_effect_rejects_a_span_from_another_grid() {
+        let grid = Grid::new(10, 1);
+        let other_grid = Grid::new(10, 1);
+        let root = grid.position(0, 0).expect("inside the Grid");
+        let span = Span::new(other_grid, cell(other_grid, 0), cell(other_grid, 5));
+
+        // With no row below the root, delivery would otherwise produce a
+        // diagnostic whose Cells belong to a different Source.
+        let _ = result_effect(grid, root, span, Ok(sequence(&[0x0A])));
+    }
+
+    #[test]
     fn a_sequence_result_is_delivered_through_one_portal_below_its_root() {
         // ADR 0007: a non-empty Sequence encodes horizontally from the
         // ordinary result Position through one Portal carrying the intact
@@ -752,6 +770,34 @@ mod test {
                 (15, 'C'),
             ]
         );
+    }
+
+    #[test]
+    fn a_sequence_with_nonprintable_characters_diagnoses_without_partial_writes() {
+        let grid = Grid::new(10, 3);
+        let root = grid.position(2, 0).expect("inside the Grid");
+        let span = Span::new(grid, cell(grid, 2), cell(grid, 7));
+
+        for character in ['\0', '\x1f', '\x7f', 'é'] {
+            let encoded = format!("0A{character}");
+            let sequence = Sequence::new([Atom::Number(0x0A), Atom::Char(character)])
+                .expect("Numbers and Chars are Sequence members");
+            let effects: Vec<_> =
+                result_effect(grid, root, span, Ok(Interpretation::Sequence(sequence)))
+                    .into_iter()
+                    .collect();
+
+            assert_eq!(
+                effects,
+                vec![diagnostic(
+                    grid,
+                    2,
+                    7,
+                    &format!("result {encoded:?} contains Cells outside printable ASCII")
+                )]
+            );
+            assert!(resolve(effects).writes.is_empty());
+        }
     }
 
     #[test]

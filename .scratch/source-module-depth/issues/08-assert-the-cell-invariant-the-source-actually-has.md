@@ -20,7 +20,7 @@ the rule a Cell really has. Every other statement of that rule is the printable 
 
 `Source::check_content` accepts `0x20..=0x7e`, the persistence `Deserialize` validates
 `0x20..=0x7e`, and `LanguageMap::derive` refuses anything outside `0x20..=0x7e`. The Tick path
-asserts `encoded.is_ascii()` in `tick::emit_result`, and `Portal::admit` asserts it again over the
+asserts `encoded.is_ascii()` in `tick::result_effect`, and `Portal::admit` asserts it again over the
 same encoding; both admit control bytes.
 
 Nothing produces one today — every Interpreter result is a hexadecimal Number, a Note name, or a
@@ -39,7 +39,7 @@ type says less than the code assumes.
 
 ### Restated by `sequence-values/04`, 2026-09-05
 
-Two things moved. The Tick-path assert is now in `tick::emit_result`, the seam that turns one
+Two things moved. The Tick-path assert is now in `tick::result_effect`, the seam that turns one
 evaluation's answer into effects; `emit_expression_root` still exists but delegates to it. And
 `Portal::admit` (`orcvs/src/source/portal.rs`) now asserts `is_ascii` over the same encoding a few
 lines later, because it is the sole constructor of a `SpanWrite` and the `set_source` SAFETY

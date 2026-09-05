@@ -34,7 +34,7 @@ commit.
 Much of the behaviour this issue names was already standing from issue 01: the below-root
 complete-fit path, the empty-Sequence early return, per-Cell conflict resolution in `resolve`, and
 `is_computation` deciding whether generated Cells compute again. What this issue adds is the name,
-the seam, and the evidence. `tick::emit_result` is the new seam — "an Interpretation plus an anchor
+the seam, and the evidence. `tick::result_effect` is the new seam — "an Interpretation plus an anchor
 becomes effects" — and it is the only way the Sequence half of the result path can be reached
 before issues 02 and 03 add the Functions that spell one. No test-only Function was added and no
 Function spelling was prejudged.

@@ -49,10 +49,10 @@ pub(super) struct Portal {
 ///
 /// Why a Portal refused a whole destination.
 ///
-/// Failing to resolve a destination and failing to fit an encoding into one
+/// Destination resolution, encoding validity, and row fit
 /// are different questions, and they answer into one type because every
 /// producer treats them identically: ADR 0004 admits no partial write, so
-/// either one costs the whole write and yields a diagnostic instead. A
+/// any refusal costs the whole write and yields a diagnostic instead. A
 /// producer distinguishes them only to say which it was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PortalError {
@@ -61,6 +61,8 @@ pub(super) enum PortalError {
     BelowSource,
     /// The encoding is wider than the destination row's remaining Cells.
     CrossesRowEdge,
+    /// The encoding contains bytes outside printable ASCII.
+    InvalidContent,
 }
 
 impl Portal {
@@ -102,8 +104,8 @@ impl Portal {
     /// keeps. A refused encoding leaves nothing behind to emit half of: there
     /// is no value describing part of a write.
     ///
-    /// `encoding` contains one or more printable ASCII Cells. Invalid content
-    /// is an internal defect, so it asserts even in release builds. The write
+    /// `encoding` must contain one or more printable ASCII Cells. Invalid
+    /// content refuses the whole write through [`PortalError`]. The write
     /// retains validated CellContent values through resolution and commit.
     ///
     /// An empty Sequence encodes to the empty string and plans no writes at
@@ -114,8 +116,8 @@ impl Portal {
         assert!(!encoding.is_empty(), "a write places at least one Cell");
         let content: Vec<CellContent> = encoding
             .bytes()
-            .map(|byte| CellContent::new(byte).expect("a write contains printable ASCII Cells"))
-            .collect();
+            .map(|byte| CellContent::new(byte).ok_or(PortalError::InvalidContent))
+            .collect::<Result<_, _>>()?;
         let width = content.len();
         let last = self
             .grid
@@ -132,9 +134,9 @@ impl Portal {
 ///
 /// A validated write of one encoding to a contiguous run of Cells.
 ///
-/// The two ways a whole destination is refused are the two variants of
+/// The ways a whole write is refused are the variants of
 /// [`PortalError`]; each producer turns them into its own diagnostic, and
-/// neither yields a `SpanWrite`. [`Portal::admit`] is the only constructor, so
+/// none yields a `SpanWrite`. [`Portal::admit`] is the only constructor, so
 /// a `SpanWrite` exists only because some Portal accepted its whole
 /// destination, and a partial write is unrepresentable rather than merely
 /// avoided. Cells are addressed only when the Tick Plan resolves, so no
@@ -165,11 +167,19 @@ mod test {
     use crate::grid::{CellIndex, Grid};
 
     #[test]
-    #[should_panic(expected = "printable ASCII")]
-    fn generated_control_characters_are_internal_defects() {
+    fn nonprintable_encodings_are_refused_without_a_partial_write() {
         let grid = Grid::new(4, 2);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        let _ = portal.admit("A\n");
+        for encoding in ["A\0", "A\x1f", "A\x7f", "Aé"] {
+            assert_eq!(
+                portal.admit(encoding).err(),
+                Some(PortalError::InvalidContent)
+            );
+        }
+        assert_eq!(
+            placed(&portal, " ~"),
+            vec![(cell(grid, 0), ' '), (cell(grid, 1), '~')]
+        );
     }
 
     ///
