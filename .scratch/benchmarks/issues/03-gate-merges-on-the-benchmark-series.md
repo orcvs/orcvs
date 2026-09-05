@@ -42,3 +42,35 @@ First CI measurement, against the settled local numbers: parse 143 ns (104 local
 The path lists are written out twice rather than shared through a YAML anchor. GitHub Actions does not support anchors in workflow files.
 
 The filter is safe only while these jobs are not required status checks. `main` requires `full-gate`, `macos`, and `wasm`; adding a filtered job to that list would block every pull request that does not touch the filtered paths, because a skipped job reports no status at all.
+
+### The gate's first real failure, and a deliberate re-baseline, 2026-09-05
+
+`sequence-values/02` moved `execute` from 19 ns to 106 ns on the runner, a ratio of 5.58 against a
+failure threshold of 3.00. The gate did exactly what it was built to do: it is the only check that
+caught the regression, every correctness gate passed throughout, and the branch author had not run
+`mise run bench`. Two fixes brought it to 70 ns, a ratio of 3.68, which still fails.
+
+It was merged anyway. Recording why, and what that costs.
+
+The gate is not a required status check — `main` requires `full-gate`, `macos`, and `wasm` — so no
+override was needed and none was used. The remaining cost is understood rather than unexplained: it
+is the broadcast seam, it is measured, and it is owned by ADR 0026 through the note in
+`sequence-values/03`. Closing it means reshaping `Broadcast` so it no longer owns its operands,
+which is the change most likely to make ADR 0026 harder to adopt later. A worse number now was
+judged cheaper than a design that has to be undone.
+
+**The cost of that choice is that this alert happens once.** After the merge, `main` publishes a
+point near 70 ns and the series re-baselines. The next pull request compares against 70 ns, not
+19 ns, and the gate will never mention this again. The number to restore is 19 ns on CI, or 12.4 ns
+on the local rig the attribution was done on. Nothing enforces it. If the ADR 0026 revisit lands and
+leaves `execute` at 70 ns, no automated check will say so.
+
+Two things follow, neither of them built here:
+
+- A deliberate baseline move is invisible to this gate afterwards. If that matters, the gate needs
+  somewhere to record an accepted move and the figure it moved from — a floor for a named
+  benchmark, checked separately from the ratio against the previous point. Worth an issue if the
+  situation repeats; one occurrence is not yet evidence of a pattern.
+- The ratio differs by machine. This branch measured 4.03x locally where CI measured 5.58x, and
+  3.27x locally where CI measured 3.68x. A local measurement is not a prediction of the gate. Run
+  the gate, or expect to be surprised by it.

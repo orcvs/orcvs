@@ -29,12 +29,14 @@ pub enum Interpretation {
     Cell(Atom),
     /// A Sequence value leaving evaluation intact.
     ///
-    /// No Source-parseable Function returns a Sequence yet — Range, Reverse,
-    /// and Concatenate arrive with issues 02 and 03 — so nothing reaches this
-    /// variant from Source text today. It exists now because the whole point
-    /// of the Sequence value is that it can cross Function evaluation and
-    /// leave it without first becoming Source writes; adding it later would
-    /// mean the consumer had already been written as though it could not.
+    /// The Atomic Functions broadcast over a Sequence operand and answer one,
+    /// but no Source-parseable Function produces the operand yet: the
+    /// structural Sequence Functions arrive with issue 03 and the Range
+    /// Functions with issue 05, so nothing reaches this variant from Source
+    /// text today. It exists now because the whole point of the Sequence value
+    /// is that it can cross Function evaluation and leave it without first
+    /// becoming Source writes; adding it later would mean the consumer had
+    /// already been written as though it could not.
     Sequence(Sequence),
     Play(PlayCommand),
 }

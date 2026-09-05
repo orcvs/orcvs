@@ -222,6 +222,23 @@ enum FunctionKind {
     Terminal,
 }
 
+/// Whether a Function extends across a Sequence operand or requires a scalar
+/// one.
+///
+/// ADR 0007 makes pervasive extension the rule for the Atomic Functions, and
+/// ADR 0012 makes Increment and Interpolation exceptions to it because element
+/// identity across Ticks would need hidden state their one visible Atom cannot
+/// hold. An exception that arrived by omission would therefore be silent, so
+/// this is declared beside every other property of a Function rather than
+/// inferred from a family prefix or assumed from a signature: `is_terminal`
+/// can be read off the `!` family, and this cannot, because two Functions of
+/// the same family and the same signature differ in it.
+#[derive(Clone, Copy)]
+enum Pervasion {
+    Pervasive,
+    Scalar,
+}
+
 // An operand's declared type decides three things, one per macro below: the
 // `Token` its signature is checked against, the Rust value a Function body
 // receives for it, and how the checked `Atom` becomes that value. A new operand
@@ -335,9 +352,20 @@ macro_rules! operand_bind {
     };
 }
 
+// A Function of exactly one declared role gets the `UnaryOperands` marker and
+// every other Function gets nothing, decided by which arm the role list matches
+// rather than by a second list to keep in step. The single-role arm is written
+// first because a one-element list matches both.
+macro_rules! unary_operands {
+    ($variant:ident, [$role:ident]) => {
+        impl crate::stack::UnaryOperands for $variant {}
+    };
+    ($variant:ident, [$($role:ident),*]) => {};
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $pervasion:ident, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -364,6 +392,12 @@ macro_rules! define_functions {
                 }
             }
 
+            const fn pervasion(self) -> Pervasion {
+                match self {
+                    $(Self::$variant => Pervasion::$pervasion,)+
+                }
+            }
+
             /// Whether this Function performs a Terminal Output effect instead
             /// of producing a value. Both the Interpreter's nesting guard and
             /// tick planning's activation gate ask this rather than naming
@@ -374,7 +408,21 @@ macro_rules! define_functions {
                 matches!(self.kind(), FunctionKind::Terminal)
             }
 
-            pub(crate) fn signature(self) -> &'static [crate::Token] {
+            /// Whether this Function extends pervasively across a Sequence
+            /// operand instead of requiring one Atom per position.
+            ///
+            /// The Operand Stack asks this before it decides the shape of an
+            /// operation, so broadcasting is something a Function declares
+            /// rather than something the shape of its operands decides for it:
+            /// a Sequence reaching a Scalar Function is refused with the same
+            /// diagnostic whether that Function is Terminal or, like Increment,
+            /// an ordinary value Function that ADR 0012 keeps scalar.
+            #[inline(always)]
+            pub const fn is_pervasive(self) -> bool {
+                matches!(self.pervasion(), Pervasion::Pervasive)
+            }
+
+            pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => &[$(operand_token!($operand),)*],)+
                 }
@@ -421,6 +469,8 @@ macro_rules! define_functions {
                         })
                     }
                 }
+
+                unary_operands!($variant, [$($role),*]);
             )+
         }
 
@@ -488,19 +538,19 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, [left: Number, right: Number]),
-    Add => (".+", Value, [left: Number, right: Number]),
-    ConvertToNote => (".^", Value, [value: Number]),
-    ConvertToNumber => (".v", Value, [value: Note]),
-    Divide => ("./", Value, [left: Number, right: Number]),
-    Equality => (".=", Value, [left: Number, right: Number]),
-    Maximum => (".>", Value, [left: Number, right: Number]),
-    Minimum => (".<", Value, [left: Number, right: Number]),
-    Modulo => (".%", Value, [left: Number, right: Number]),
-    Multiply => (".x", Value, [left: Number, right: Number]),
-    RawPlay => ("!>", Terminal, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    Subtract => (".-", Value, [left: Number, right: Number]),
-    TimedPlay => ("!~", Terminal, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    AbsoluteDifference => (".|", Value, Pervasive, [left: Number, right: Number]),
+    Add => (".+", Value, Pervasive, [left: Number, right: Number]),
+    ConvertToNote => (".^", Value, Pervasive, [value: Number]),
+    ConvertToNumber => (".v", Value, Pervasive, [value: Note]),
+    Divide => ("./", Value, Pervasive, [left: Number, right: Number]),
+    Equality => (".=", Value, Pervasive, [left: Number, right: Number]),
+    Maximum => (".>", Value, Pervasive, [left: Number, right: Number]),
+    Minimum => (".<", Value, Pervasive, [left: Number, right: Number]),
+    Modulo => (".%", Value, Pervasive, [left: Number, right: Number]),
+    Multiply => (".x", Value, Pervasive, [left: Number, right: Number]),
+    RawPlay => ("!>", Terminal, Scalar, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    Subtract => (".-", Value, Pervasive, [left: Number, right: Number]),
+    TimedPlay => ("!~", Terminal, Scalar, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -760,6 +810,36 @@ mod test {
 
         assert!(Function::RawPlay.is_terminal());
         assert!(!Function::Add.is_terminal());
+    }
+
+    #[test]
+    fn every_function_declares_whether_it_extends_over_a_sequence() {
+        // ADR 0007 makes pervasive extension the rule for Atomic Functions and
+        // ADR 0012 makes Increment and Interpolation exceptions to it, so the
+        // property cannot be inferred from a family prefix the way
+        // `is_terminal` can. It is declared per Function instead, and this
+        // match is exhaustive over `Function` with no wildcard: a Function
+        // added later has to be classified here as well as in the table, so
+        // neither an omission nor a copied row can make it broadcast by
+        // accident.
+        for function in Function::ALL.iter().copied() {
+            let expected = match function {
+                Function::AbsoluteDifference
+                | Function::Add
+                | Function::ConvertToNote
+                | Function::ConvertToNumber
+                | Function::Divide
+                | Function::Equality
+                | Function::Maximum
+                | Function::Minimum
+                | Function::Modulo
+                | Function::Multiply
+                | Function::Subtract => true,
+                Function::RawPlay | Function::TimedPlay => false,
+            };
+
+            assert_eq!(function.is_pervasive(), expected, "{function:?}");
+        }
     }
 
     #[test]
