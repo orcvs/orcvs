@@ -261,9 +261,12 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 2
 assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
 # The count above reads the bare literal. GitHub accepts the same guard written
-# as an expression, which would slip a job out of the pull-request trigger while
-# the count still read two, so the expression spelling is refused outright.
-assert_not_contains "$root_dir/.github/workflows/test.yml" 'if: [$][{][{].*github[.]event_name'
+# as an expression, and a block or folded scalar puts that expression on the line
+# after the key, where nothing anchored to `if:` can see it. Requiring the file's
+# total number of `if:` keys to equal the number spelled as the literal leaves no
+# spelling that GitHub accepts and this check misses: a substituted guard either
+# drops the literal count below two or lifts the total above it.
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if:' 2
 # `@v1` is how a mutable tag is usually written, so matching a bare digit after
 # the `@` let the common spelling of the thing this forbids straight through.
 assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
