@@ -1108,6 +1108,59 @@ mod tests {
         note_on(channel, 0, note)
     }
 
+    ///
+    /// One Timed Play Command, stated as the four Numbers a Source writes.
+    ///
+    fn timed_play(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
+        PlayCommand::Timed {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
+            note: Note::try_from(note).expect("a MIDI note"),
+            length: Length::from(length),
+        }
+    }
+
+    #[test]
+    fn a_chord_of_timed_plays_stops_each_element_at_its_own_length() {
+        // ADR 0030 widens `!~` over a Sequence, so one Expression hands the
+        // engine several Timed Play commands at once, in element index order.
+        // Ownership is already keyed by channel and note and each command
+        // already carries its own length, so nothing here was added for the
+        // group — this states that nothing needed to be, rather than assuming
+        // it.
+        //
+        // Three notes with three different lengths in one delivery: an engine
+        // that read one length for the whole group, or that let a later
+        // element's claim displace an earlier one, stops the wrong notes at the
+        // wrong Ticks.
+        let mut timed = TimedNotes::default();
+
+        let started = timed.deliver(
+            Tick::ZERO,
+            &[
+                timed_play(0, 0x7F, 60, 1),
+                timed_play(0, 0x7F, 64, 2),
+                timed_play(0, 0x7F, 67, 3),
+            ],
+        );
+
+        // Delivery is in slice order, which is the element index order the Tick
+        // Plan carried across the seam.
+        assert_eq!(
+            started,
+            vec![
+                note_on(0, 0x7F, 60),
+                note_on(0, 0x7F, 64),
+                note_on(0, 0x7F, 67),
+            ]
+        );
+
+        assert_eq!(timed.deliver(Tick::new(1), &[]), vec![stop(0, 60)]);
+        assert_eq!(timed.deliver(Tick::new(2), &[]), vec![stop(0, 64)]);
+        assert_eq!(timed.deliver(Tick::new(3), &[]), vec![stop(0, 67)]);
+        assert_eq!(timed.deliver(Tick::new(4), &[]), Vec::new());
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, atomic::AtomicBool, mpsc};
     #[cfg(target_arch = "wasm32")]

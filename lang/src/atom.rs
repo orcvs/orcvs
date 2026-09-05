@@ -236,6 +236,19 @@ enum FunctionKind {
 #[derive(Clone, Copy)]
 enum Pervasion {
     Pervasive,
+    /// No row declares this today. ADR 0030 removed the last two that did —
+    /// the Terminal Output Functions were declared scalar from an
+    /// implementation brief rather than from a decision — and ADR 0012's
+    /// Increment and Interpolation, which are the rows that state the exception
+    /// on their own terms, are unbuilt. Deleting the answer would leave the
+    /// column with one value and make the exception impossible to declare,
+    /// which is the opposite of what declaring it beside the signature is for.
+    /// `expect` rather than `allow`, so the first Function to declare it turns
+    /// this attribute into the error that deletes it.
+    #[expect(
+        dead_code,
+        reason = "the exception ADR 0012 states has no built Function yet: this is the answer it will declare"
+    )]
     Scalar,
 }
 
@@ -548,9 +561,9 @@ define_functions! {
     Minimum => (".<", Value, Pervasive, [left: Number, right: Number]),
     Modulo => (".%", Value, Pervasive, [left: Number, right: Number]),
     Multiply => (".x", Value, Pervasive, [left: Number, right: Number]),
-    RawPlay => ("!>", Terminal, Scalar, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    RawPlay => ("!>", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note]),
     Subtract => (".-", Value, Pervasive, [left: Number, right: Number]),
-    TimedPlay => ("!~", Terminal, Scalar, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    TimedPlay => ("!~", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -817,11 +830,14 @@ mod test {
         // ADR 0007 makes pervasive extension the rule for Atomic Functions and
         // ADR 0012 makes Increment and Interpolation exceptions to it, so the
         // property cannot be inferred from a family prefix the way
-        // `is_terminal` can. It is declared per Function instead, and this
-        // match is exhaustive over `Function` with no wildcard: a Function
-        // added later has to be classified here as well as in the table, so
-        // neither an omission nor a copied row can make it broadcast by
-        // accident.
+        // `is_terminal` can. ADR 0030 settles the other family the same way:
+        // the Terminal Output Functions extend as well, so pervasion is not a
+        // property of answering a value either, and a `!`-spelled row is no
+        // more predictable from its spelling than a `.`-spelled one. It is
+        // declared per Function instead, and this match is exhaustive over
+        // `Function` with no wildcard: a Function added later has to be
+        // classified here as well as in the table, so neither an omission nor a
+        // copied row can make it broadcast by accident.
         for function in Function::ALL.iter().copied() {
             let expected = match function {
                 Function::AbsoluteDifference
@@ -834,8 +850,9 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
-                | Function::Subtract => true,
-                Function::RawPlay | Function::TimedPlay => false,
+                | Function::RawPlay
+                | Function::Subtract
+                | Function::TimedPlay => true,
             };
 
             assert_eq!(function.is_pervasive(), expected, "{function:?}");
