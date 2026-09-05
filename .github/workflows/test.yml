@@ -25,6 +25,11 @@ env:
 
 jobs:
   full-gate:
+    # Every job here finishes in about ninety seconds. Unbounded, one that hangs —
+    # `wasm-pack test --headless --firefox` waiting on a browser that never
+    # answers is the obvious candidate — holds a runner for the six-hour limit
+    # instead. The bound is generous against the real cost and cheap against that.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,6 +49,7 @@ jobs:
         run: mise run check_merge
 
   macos:
+    timeout-minutes: 20
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,6 +63,7 @@ jobs:
       - run: mise run check_pull_request
 
   wasm:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

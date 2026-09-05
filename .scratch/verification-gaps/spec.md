@@ -40,3 +40,4 @@ macOS runs the pull-request tier and no merge-only gate. That is deliberate unde
 - `issues/10-remove-the-verification-surface-that-proves-nothing.md`
 - `issues/11-persist-the-interpreter-property-counterexamples.md`
 - `issues/12-name-an-unsafe-review-gate-that-runs.md`
+- `issues/13-bump-the-mise-tool-pins-automatically.md`

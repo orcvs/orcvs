@@ -42,6 +42,10 @@ jobs:
   # Measures the merged result and appends it to the series on gh-pages.
   publish:
     if: github.event_name != 'pull_request'
+    # A release build of both benchmarked crates, then criterion twice: the warm-up
+    # run and the measured one. Generous against that, and still far short of the
+    # six hours an unbounded job can hold.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -96,6 +100,7 @@ jobs:
   # It reads the series and never writes it: no token, no push, no stored result.
   pull-request:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
       contents: read

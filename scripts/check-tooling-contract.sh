@@ -89,6 +89,20 @@ assert_toml_task_contains() {
   fi
 }
 
+# Counts the jobs a workflow declares: the keys at exactly one indent level
+# inside `jobs:`, which is where a job name lives and where nothing else does.
+# Assertions that must hold once per job derive their expected count from this
+# rather than from a literal, so a job added without them fails here.
+workflow_job_count() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { count++ }
+    END { print count + 0 }
+  ' "$1"
+}
+
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
@@ -97,12 +111,26 @@ assert_contains "$root_dir/mise.toml" '^"cargo:wasm-pack"[[:space:]]*=[[:space:]
 # The roadmap suite runs through node's own test runner, so the tier that runs it
 # needs the runtime pinned here rather than inherited from whatever the machine has.
 assert_contains "$root_dir/mise.toml" '^node[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+# The workflows are the only part of the verification surface no compiler reads,
+# and they are the part that decides whether the rest runs at all. `actionlint`
+# checks their syntax and expressions, `zizmor` audits them for injection and
+# permission findings; both are pinned exactly like the cargo tools, because a
+# linter that follows its own latest release turns an unrelated pull request red.
+assert_contains "$root_dir/mise.toml" '^"aqua:rhysd/actionlint"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+assert_contains "$root_dir/mise.toml" '^"aqua:zizmorcore/zizmor"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_pull_request$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_merge$'
 # The contract and its own tests run in the pull-request tier: nothing else
 # executes them, so a gate that only a local run reaches is a gate that drifts.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/check-tooling-contract.sh$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/tests/check-tooling-contract.sh$'
+# Both linters run beside the contract script, on the same reasoning: they check
+# the repository's own configuration, they cost seconds, and they fail before the
+# tier spends twenty minutes compiling. Expect little from them — the workflows
+# already SHA-pin every action and declare permissions per job — which is the
+# point. They hold that shape rather than discovering it.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^actionlint$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^zizmor --offline [.]github/workflows$'
 # The roadmap planner throws on tracker inconsistency, so its suite guards
 # invariants agents edit constantly. It had never run automatically, and had
 # already drifted by two tests before anything executed it.
@@ -162,13 +190,7 @@ assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: mise run 
 # native dependency the test workflow installs. The count is derived from the jobs
 # the workflow actually declares: a single install step satisfies no more than one
 # of them, and a job added without one fails this check rather than failing in CI.
-bench_job_count="$(awk '
-  /^[[:space:]]*#/ { next }
-  /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
-  in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
-  in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { count++ }
-  END { print count + 0 }
-' "$root_dir/.github/workflows/bench.yml")"
+bench_job_count="$(workflow_job_count "$root_dir/.github/workflows/bench.yml")"
 if [ "$bench_job_count" -lt 1 ]; then
   echo "expected $root_dir/.github/workflows/bench.yml to declare at least one job" >&2
   exit 1
@@ -201,6 +223,13 @@ assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=(vtha|parser_benchmark)'
+# Every version this repository pins is bumped by something that watches the file
+# it lives in. `rust-toolchain.toml` was watched by nothing, which is why the
+# channel sat at 1.98.0 while 1.98.1 was current. Dependabot reads it under its own
+# ecosystem; the `cargo` entry does not, so the two are asserted separately.
+assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: cargo$'
+assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: github-actions$'
+assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: rust-toolchain$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
 # Counting each component pins which merge tier runs, not merely that some step
 # carries a guard: dropping the native step while adding a guard elsewhere leaves
@@ -241,6 +270,40 @@ assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+
+# `cargo deny` sees the graph whenever a commit changes it, and an advisory is
+# published against code nobody changed. Without a trigger that is time rather
+# than change, a RUSTSEC entry landing against a locked dependency waits for the
+# next pull request to be reported. The schedule is the whole gate, so it is
+# pinned here alongside the command it runs — a workflow left with only its
+# manual dispatch would be the same silence with a file to point at.
+assert_contains "$root_dir/.github/workflows/advisories.yml" '^  schedule:$'
+assert_contains "$root_dir/.github/workflows/advisories.yml" "^    - cron: '[-0-9*/,]+ [-0-9*/,]+ [-0-9*/,]+ [-0-9*/,]+ [-0-9*/,]+'\$"
+assert_contains "$root_dir/.github/workflows/advisories.yml" '^      - run: mise run audit_deps$'
+# The pinning rules are asserted per file, so the newest workflow needs them
+# stated against it rather than inherited from the two written before it.
+assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
+assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: dtolnay/rust-toolchain@[0-9a-f]{40}[[:space:]]+# 1[.]98[.]0$'
+assert_contains "$root_dir/.github/workflows/advisories.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
+assert_not_contains "$root_dir/.github/workflows/advisories.yml" 'taiki-e/install-action'
+assert_not_contains "$root_dir/.github/workflows/advisories.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
+
+# Every job in every workflow carries a bound on its runtime. Without one a job
+# inherits the six-hour runner limit, and the shape that would spend it is a
+# `wasm-pack test --headless --firefox` waiting on a browser that never answers —
+# jobs here otherwise finish in about ninety seconds. The expected count is the
+# number of jobs the file declares rather than a literal, so a job added without a
+# bound fails this check instead of quietly inheriting the default. Four spaces is
+# the job-level indent; a step-level `timeout-minutes` sits deeper and is not
+# counted, so a bound on one step cannot stand in for the job's.
+for workflow in "$root_dir"/.github/workflows/*.yml; do
+  workflow_jobs="$(workflow_job_count "$workflow")"
+  if [ "$workflow_jobs" -lt 1 ]; then
+    echo "expected $workflow to declare at least one job" >&2
+    exit 1
+  fi
+  assert_occurs_exactly "$workflow" '^    timeout-minutes: [0-9]+$' "$workflow_jobs"
+done
 
 # Criterion covers both benchmarked paths: language execution in `lang`, and
 # populated Source rendering and editing in `orcvs`. It stays a plain versioned

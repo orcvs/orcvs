@@ -25,7 +25,8 @@ make_fixture() {
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
@@ -322,6 +323,74 @@ test_dropped_native_merge_component_is_rejected() {
   assert_rejected "a workflow that no longer runs the native merge component"
 }
 
+test_untimed_workflow_job_is_rejected() {
+  make_fixture
+  printf '\n  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo a job with no bound on its runtime\n' >> "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a workflow job added without a timeout"
+
+  # The count is per file, so a job that loses its timeout has to fail in the
+  # file that lost it rather than being covered by another workflow's total.
+  make_fixture
+  perl -pi -e 'if (!$done && s/^(    timeout-minutes: [0-9]+)$/# $1/) { $done = 1 }' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark job whose timeout was commented out"
+}
+
+test_advisory_audit_without_a_schedule_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(    - cron: )/# $1/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "an advisory audit with no schedule to run it"
+
+  # The cron line surviving under a commented-out `schedule:` key is the same
+  # silence with a plausible-looking file to point at, so both halves are pinned.
+  make_fixture
+  perl -pi -e 's/^  schedule:$/# schedule:/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "an advisory workflow whose schedule trigger was commented out"
+}
+
+test_advisory_workflow_without_the_audit_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(      - run: )mise run audit_deps$/$1mise run check_pull_request/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "a scheduled workflow that runs something other than the advisory audit"
+
+  # The pinning rules are per file, so the newest workflow needs them asserted
+  # against it rather than inherited from the two that came before.
+  make_fixture
+  perl -pi -e 's/^(      - uses: jdx\/mise-action@)[0-9a-f]{40}( +# v4.*)$/$1v4/' "$fixture_dir/.github/workflows/advisories.yml"
+  assert_rejected "an advisory workflow whose mise-action is pinned to a mutable tag"
+}
+
+test_unpinned_workflow_linter_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^("aqua:rhysd\/actionlint" = )"[0-9.]+"$/$1"latest"/' "$fixture_dir/mise.toml"
+  assert_rejected "a workflow syntax linter tracking latest rather than a pinned version"
+
+  make_fixture
+  perl -pi -e 's/^("aqua:zizmorcore\/zizmor" = )"[0-9.]+"$/$1"1"/' "$fixture_dir/mise.toml"
+  assert_rejected "a workflow security linter pinned only to a major version"
+}
+
+test_pull_request_tier_without_workflow_linting_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^actionlint\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never checks the workflows for syntax"
+
+  make_fixture
+  perl -pi -e 's/^zizmor --offline [.]github\/workflows\n$//' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never audits the workflows for injection and permission findings"
+}
+
+test_unwatched_rust_toolchain_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(  - package-ecosystem: rust-toolchain)$/# $1/' "$fixture_dir/.github/dependabot.yml"
+  assert_rejected "a Dependabot config that never reads the pinned Rust channel"
+
+  # `cargo` and `rust-toolchain` are separate ecosystems: the first never touches
+  # the channel, so satisfying this by renaming the other entry is not satisfying it.
+  make_fixture
+  perl -pi -e 's/^(  - package-ecosystem: )cargo$/$1rust-toolchain/' "$fixture_dir/.github/dependabot.yml"
+  assert_rejected "a Dependabot config that watches the channel instead of the manifests"
+}
+
 test_pull_request_tier_without_persistence_doctests_is_rejected() {
   make_fixture
   perl -0pi -e 's/cargo test --workspace --doc --locked\ncargo test --workspace --doc --features persistence --locked\n/cargo test --workspace --doc --locked\n/' "$fixture_dir/mise.toml"
@@ -404,6 +473,12 @@ case "${1:-all}" in
   mutable-major-tag) test_mutable_major_tag_for_a_tool_action_is_rejected ;;
   expression-merge-guard) test_expression_form_merge_guard_is_rejected ;;
   dropped-native-component) test_dropped_native_merge_component_is_rejected ;;
+  untimed-job) test_untimed_workflow_job_is_rejected ;;
+  unscheduled-advisories) test_advisory_audit_without_a_schedule_is_rejected ;;
+  advisories-without-audit) test_advisory_workflow_without_the_audit_is_rejected ;;
+  unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
+  workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
+  unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   persistence-doctests) test_pull_request_tier_without_persistence_doctests_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   invalid-fixture) test_invalid_fresh_fixture_is_rejected ;;
@@ -455,6 +530,12 @@ case "${1:-all}" in
     test_mutable_major_tag_for_a_tool_action_is_rejected
     test_expression_form_merge_guard_is_rejected
     test_dropped_native_merge_component_is_rejected
+    test_untimed_workflow_job_is_rejected
+    test_advisory_audit_without_a_schedule_is_rejected
+    test_advisory_workflow_without_the_audit_is_rejected
+    test_unpinned_workflow_linter_is_rejected
+    test_pull_request_tier_without_workflow_linting_is_rejected
+    test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_persistence_doctests_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;

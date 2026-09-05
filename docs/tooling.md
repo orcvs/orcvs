@@ -6,11 +6,11 @@ CI, so the same checkout executes the same gates.
 
 Verification has two trigger tiers:
 
-- `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the
-  roadmap planner's test suite, the dependency audit, formatting, clippy with and without
-  `persistence`, and the native tests and doctests under both feature sets. `mise run check_wasm`
-  compiles every crate's test targets for `wasm32-unknown-unknown` and builds the application. Pull
-  requests run the first on Linux and macOS and the second on the WASM job.
+- `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
+  workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
+  and without `persistence`, and the native tests and doctests under both feature sets.
+  `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
+  the application. Pull requests run the first on Linux and macOS and the second on the WASM job.
 - `mise run check_merge` runs the browser regression suite, the rustdoc gates, and the persistence
   tier at proptest's full case count. CI distributes these gates across the existing Linux and WASM
   jobs after a push to `main` or a manual dispatch.
@@ -35,6 +35,31 @@ weekly grouped bumps are exactly the pull requests it exists for, so it gates th
 reporting on them once they are already on `main`. `mise run check_merge_native` runs `cargo deny`
 again after a merge; the audit is cheap, and each tier reading correctly on its own is worth more
 than removing the overlap.
+
+A third trigger runs the same audit on a schedule. `cargo deny` sees the dependency graph whenever a
+commit changes the graph, and an advisory is published against code nobody changed, so between two
+quiet weeks a new RUSTSEC entry can land against a locked dependency with nothing in the repository
+reporting it until the next pull request happens to open. `.github/workflows/advisories.yml` runs
+`mise run audit_deps` weekly and on manual dispatch, so the trigger is time rather than change. It
+runs the repository's own task rather than a bespoke `cargo deny` line, so the scheduled answer and
+the pull-request answer are the same answer. Scheduled workflows run on the default branch only,
+which is the branch the question is about.
+
+The workflows themselves are the one part of the verification surface no compiler reads, and they
+are the part that decides whether the rest of it runs. `actionlint` checks their syntax and
+expressions; `zizmor` audits them for injection and permission findings. Both run in the
+pull-request tier beside the tooling contract, on the same reasoning: they read the repository's own
+configuration, they cost seconds, and they fail before the tier spends twenty minutes compiling.
+Neither reports anything against the workflows as they stand — every action is SHA-pinned and every
+job declares its permissions — and that is what they are for. They hold that shape rather than
+discovering it, in a file format where a typo in an `if:` key is accepted silently and a job simply
+stops running.
+
+Every job in every workflow declares `timeout-minutes`. Without one a job inherits the six-hour
+runner limit, and the shape that would spend it is a `wasm-pack test --headless --firefox` waiting
+on a browser that never answers; the jobs otherwise finish in about ninety seconds. The contract
+derives the expected number of bounds from the number of jobs each file declares rather than from a
+literal, so a job added without one fails the contract instead of quietly inheriting the default.
 
 Every commit that reaches `main` gets its own merge-tier run. The workflow's concurrency group is
 keyed on the pull request number for a pull request and on the commit for anything else, so a later
@@ -76,6 +101,14 @@ from a checkout; the comparison is not, because it lives in the action rather th
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
   profile, including non-fail-fast reporting.
 - `cargo-deny` audits the locked dependency graph for advisories, bans, licences, and sources.
+- `actionlint` checks the workflow files for syntax and expression errors. Actions accepts an
+  unrecognised key by ignoring it, so a misspelled `if:` does not fail a run — it silently changes
+  which jobs execute, which is the failure this branch exists to close, one file over from where it
+  was found. It is the cheapest check that reads the workflows as a language rather than as text.
+- `zizmor` audits the same files for injection, permission, and credential findings. It overlaps
+  `actionlint` deliberately: the two answer different questions about one file, and the file decides
+  whether every other gate here runs. Neither has anything to report against the workflows as they
+  stand, so both are regression protection for a shape already reached rather than a repair.
 - `trunk` builds the browser application and performs its WASM asset pipeline.
 - `wasm-pack` executes the browser regression suite through `wasm-bindgen-test`.
 - `node` runs `scripts/roadmap.ts` and its test suite through its own type stripping and test
@@ -114,6 +147,19 @@ new.
 
 The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
 installed. That is a separate decision with its own cost, and it is not taken here.
+
+Every version this repository pins is bumped by something that watches the file it lives in.
+`.github/dependabot.yml` covers three ecosystems weekly: `cargo` for the workspace manifests,
+`github-actions` for the SHA pins in the workflows, and `rust-toolchain` for the channel in
+`rust-toolchain.toml`. The third is a separate ecosystem rather than a setting on the first —
+`cargo` never reads the toolchain file — and its absence is why the channel sat at 1.98.0 while
+1.98.1 was current.
+
+`mise.toml`'s `[tools]` table is the remaining exception, and it is an exception because Dependabot
+has no mise ecosystem and no near prospect of one. The seven pins there move only when a human edits
+the line. `.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automatically.md` records
+what that costs and the three options for closing it; the decision is about which bots run against
+the repository and what write permission they hold, so it is not one a checkout can take.
 
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.

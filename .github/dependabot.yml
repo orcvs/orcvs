@@ -14,3 +14,12 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+  # `rust-toolchain.toml` pins the channel every gate compiles under and drifted by
+  # hand: 1.98.0 while 1.98.1 was current. Dependabot has read the file under its
+  # own ecosystem since August 2025 — `cargo` above never touches the channel, so
+  # this is a third entry rather than a setting on the first. Ungrouped: it moves
+  # one line in one file, and a channel bump deserves its own pull request.
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly

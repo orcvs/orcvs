@@ -12,6 +12,12 @@
 # runtime like every other tool here. `package.json` declares the floor the type
 # stripping needs; this pin is the version the gate actually runs.
 node = "22.23.1"
+# The workflows are the one part of the verification surface no compiler reads.
+# `actionlint` checks their syntax and expressions; `zizmor` audits them for
+# injection and permission findings. Both are pinned like every other tool here so
+# a linter version bump is a reviewed change rather than a surprise red gate.
+"aqua:rhysd/actionlint" = "1.7.12"
+"aqua:zizmorcore/zizmor" = "1.30.0"
 
 [tasks.run]
 alias = 'r'
@@ -64,6 +70,8 @@ env = { PROPTEST_CASES = '32' }
 run = '''
 bash scripts/check-tooling-contract.sh
 bash scripts/tests/check-tooling-contract.sh
+actionlint
+zizmor --offline .github/workflows
 node --test scripts/tests/roadmap.test.ts
 node scripts/roadmap.ts > /dev/null
 mise run audit_deps

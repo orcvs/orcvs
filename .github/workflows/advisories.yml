@@ -1,0 +1,42 @@
+name: Advisories
+
+# `cargo deny` runs on every pull request and after every merge, so it sees the
+# dependency graph whenever the graph changes. Advisories are published against
+# code nobody changed. Between two quiet weeks a new RUSTSEC entry lands against
+# a locked dependency and nothing in the repository reports it until the next
+# pull request happens to open. This trigger is time rather than change, so the
+# audit meets the advisory rather than waiting for a commit to carry it.
+#
+# Scheduled workflows run on the default branch only, which is the branch the
+# question is about: what is presently shipping on `main`.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, early Monday UTC, ahead of Dependabot's own weekly bumps so the
+    # audit reads `main` as it stands rather than as a bump has just left it.
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    # `mise run audit_deps` resolves and audits; it compiles nothing in the
+    # workspace. The bound is here for the same reason it is on every other job:
+    # unbounded, a hung step holds a runner for the six-hour limit.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      # The same task the pull-request tier runs: advisories, licences, sources,
+      # and the feature-resolved tree. Running the repository's own gate rather
+      # than a bespoke `cargo deny` line keeps the scheduled answer and the
+      # pull-request answer the same answer.
+      - run: mise run audit_deps
