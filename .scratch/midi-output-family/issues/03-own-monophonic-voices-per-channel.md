@@ -38,7 +38,8 @@ sits beside the Timed schedule, and ADR 0016's Monophonic paragraph now says so 
 an adapter handed a lifetime has nothing to schedule with, and giving it one would put musical
 time on the far side of the seam ADR 0001 draws. ADR 0008 and ADR 0019 each carried the same
 "per output adapter and MIDI channel" phrasing and are corrected in step, so the old seam is not
-left standing anywhere. CONTEXT.md's Monophonic Play entry now states the settled seam instead of
+left standing anywhere. ADR 0001 is amended too, though it never carried that phrasing: it scoped
+scheduled Note Off to "a Timed Play Command", which a second owning spelling makes false. CONTEXT.md's Monophonic Play entry now states the settled seam instead of
 recording an open question, and its Playback Engine, Play Command, Output Command, and Terminal
 Output Function entries follow.
 
@@ -54,8 +55,10 @@ twice and let one of them drift.
 Distinct variants are also what keeps the two ownerships apart in both directions: a Mono command
 cannot find a Timed claim to replace, and a Timed expiry cannot stop a Mono note, because neither
 key can name the other's voice. A Mono note and a Timed note may therefore sound the same pitch
-on the same channel and expire independently, which is what ADR 0016 asks for and what the wire
-will carry as two Note Ons and two Note Offs.
+on the same channel and each expire on its own claim, which is what ADR 0016 asks for. The
+independence is this engine's and not the wire's: two Note Ons and two Note Offs go out, but a
+Note Off carries only a channel and a note, so at the receiver the first stop silences whichever
+of the two is sounding. That is the aliasing the "Left open" section records, not a second one.
 
 The map's value gained a note beside the claim. A Mono key names a channel and not a note, so the
 note a stop needs cannot be read back off the key; recording it in the claim means only a claim
@@ -97,7 +100,7 @@ clearing its Cells after the Tick that matters, which leaves the Ticks after it 
 schedule alone.
 
 Each non-obvious property was proven by watching the tests fail without the code that provides
-it, five mutations in all. Keying the Mono voice by channel *and* note fails three tests: the one
+it, seven mutations in all. Keying the Mono voice by channel *and* note fails three tests: the one
 that changes note on a held channel, the one that stops with a note operand that is not the note
 sounding, and the two-commands-in-one-Tick test. Releasing the channel only when the command goes
 on to start something fails the velocity-`00`, length-`00`, and stale-expiry tests. Dropping the
@@ -108,8 +111,15 @@ and a command for the voice it names delivers one stop rather than two and does 
 note it starts. Reversing the Tick Plan order fails the two-commands-in-one-Tick test. And keying
 Mono in Timed's own key space fails `timed_and_mono_own_separately_and_neither_owns_a_raw_note`,
 which sounds one channel and one note through all three spellings and counts two stops where a
-shared key delivers one.
+shared key delivers one. And stopping unconditionally in the Mono arm, the way the Timed arm
+does, fails `a_monophonic_stop_on_a_channel_it_never_owned_delivers_nothing`, which pins the
+other half of that asymmetry: Timed Play's velocity `00` names the note it stops and is delivered
+whether or not a claim stands, while a Monophonic stop with no claim behind it has no note to
+name and would otherwise silence whatever else sounds that pitch on the channel.
 
 The lifecycle test is now a loop over a Timed and a Mono Expression, asserting stop, disconnect,
 begin-run, and final-handle drop of each, because the two share one schedule and a clear that
-reached only one of them would leave the other hanging.
+reached only one of them would leave the other hanging. The refused-submission test loops the two
+for the same reason: a Tick is resolved against a copy of the whole schedule and adopted only
+when the adapter accepts it, so the retry CONTEXT.md promises belongs to both claims or neither.
+Both spellings were watched failing with the copy adopted regardless of refusal.

@@ -406,6 +406,15 @@ impl OwnedNotes {
     /// it.
     ///
     fn claim(&mut self, voice: Voice, note: Note, due: Tick) {
+        // A Timed key names the note it sounds, and the claim records it
+        // again, so the two must agree: `expired_at` reads the note from the
+        // claim, and a disagreement here would stop a note this voice never
+        // sounded and leave the one it did standing. A Mono key names no note
+        // and has nothing to agree with.
+        debug_assert!(
+            !matches!(voice, Voice::Timed { note: keyed, .. } if keyed != note),
+            "a Timed voice claimed a note its key does not name"
+        );
         // Unreachable for the reason `Tick::next`'s saturation is unreachable:
         // a run would have to claim a voice every nanosecond for five hundred
         // years to wrap this counter.
@@ -2122,6 +2131,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_monophonic_stop_on_a_channel_it_never_owned_delivers_nothing() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // Velocity `00` on a channel this engine holds no claim on. Timed
+        // Play's velocity `00` is an explicit stop and is delivered whether or
+        // not a claim stands, because the Source named the note it stops.
+        // Monophonic Play stops the note its claim recorded, so with no claim
+        // there is no note to name and nothing to send: the voice was already
+        // silent, and a Note Off here would stop whatever else is sounding
+        // that pitch on the channel.
+        write(&source, 0, "!%0000C405");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=5 {
+            run_tick(&engine, tick);
+        }
+
+        assert!(
+            adapter
+                .command_lists()
+                .iter()
+                .all(|commands| commands.is_empty()),
+            "{:?}",
+            adapter.command_lists()
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
     async fn a_monophonic_play_with_no_length_replaces_the_voice_with_silence() {
         let source = SourceCommander::new(Grid::new(10, 3));
         write(&source, 0, "!%007FC405");
@@ -2348,38 +2390,47 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_submission_leaves_the_schedule_standing_for_the_next_tick() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC402");
-        write(&source, 10, "**");
-        let adapter = InMemoryOutputAdapter::default();
-        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
-        engine.activate_for_test();
+        // Both owning spellings, for the reason the lifecycle test loops them:
+        // the retry is a property of the one schedule they share, and a Tick
+        // resolved against a copy adopts or discards every claim in it at
+        // once. Asserting it of `!~` alone would leave the claim CONTEXT.md
+        // makes the same promise to untested.
+        for expression in ["!~007FC402", "!%007FC402"] {
+            let source = SourceCommander::new(Grid::new(10, 3));
+            write(&source, 0, expression);
+            write(&source, 10, "**");
+            let adapter = InMemoryOutputAdapter::default();
+            let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+            engine.activate_for_test();
 
-        run_tick(&engine, 0);
-        erase(&source, 10, 2);
-        run_tick(&engine, 1);
-        // The adapter refuses the Tick the stop is due at. The schedule
-        // describes what is sounding, so a stop no device received leaves the
-        // note it stops owned: an adapter that survives a refusal is one this
-        // engine still owes a Note Off.
-        adapter.fail_next_submission("output unavailable");
-        run_tick(&engine, 2);
-        assert!(engine.holds_note_ownership());
-        run_tick(&engine, 3);
+            run_tick(&engine, 0);
+            erase(&source, 10, 2);
+            run_tick(&engine, 1);
+            // The adapter refuses the Tick the stop is due at. The schedule
+            // describes what is sounding, so a stop no device received leaves
+            // the note it stops owned: an adapter that survives a refusal is
+            // one this engine still owes a Note Off.
+            adapter.fail_next_submission("output unavailable");
+            run_tick(&engine, 2);
+            assert!(engine.holds_note_ownership(), "{expression}");
+            run_tick(&engine, 3);
 
-        // Three submissions were accepted: the start, the Tick between, and
-        // the stop the next executed Tick drains again.
-        assert_eq!(
-            adapter.command_lists(),
-            vec![vec![note_on(0, 0x7F, 60)], vec![], vec![stop(0, 60)]]
-        );
-        assert!(!engine.holds_note_ownership());
-        assert_eq!(
-            engine.diagnostics(),
-            vec![PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
-                "output unavailable"
-            ))]
-        );
+            // Three submissions were accepted: the start, the Tick between,
+            // and the stop the next executed Tick drains again.
+            assert_eq!(
+                adapter.command_lists(),
+                vec![vec![note_on(0, 0x7F, 60)], vec![], vec![stop(0, 60)]],
+                "{expression}"
+            );
+            assert!(!engine.holds_note_ownership(), "{expression}");
+            assert_eq!(
+                engine.diagnostics(),
+                vec![PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
+                    "output unavailable"
+                ))],
+                "{expression}"
+            );
+        }
     }
 
     #[tokio::test]
