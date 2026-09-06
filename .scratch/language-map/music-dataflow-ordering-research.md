@@ -1,6 +1,6 @@
 # Music and dataflow execution order: evidence for Orcvs
 
-Researched 2026-09-06 against primary documentation. This note is design research, not an accepted language decision. The working-Source implementation and ADR 0031 are a provisional ordered fallback while the broader `parse → establish order → execute → output` direction is considered.
+Researched 2026-09-06 against primary documentation. This note is the design research behind [ADR 0032](../../docs/adr/0032-schedule-tick-execution-by-dependency.md), which accepted the `parse → establish order → execute → output` direction for its initial scope. The working-Source implementation and ADR 0031 are historical: they were the ordered fallback while that question was open.
 
 ## Verified behavior in other systems
 

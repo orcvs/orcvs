@@ -411,20 +411,25 @@ fn schedule<'a>(
     // consumer waiting on it can be told.
     let mut excluded = Vec::new();
     let mut unstable: Vec<(Position, CellIndex)> = Vec::new();
-    let mut layouts = Vec::with_capacity(roots.len());
-    roots.retain(|root| match root_layout(grid, root) {
-        Ok(layout) => {
-            layouts.push(layout);
-            true
-        }
-        Err(diagnostic) => {
-            if let Ok(Some(output)) = root.output {
-                unstable.push((root.anchor, grid.index(output)));
+    // Paired and then unzipped, so a layout belongs to its root by
+    // construction. A slot names its consumer by index into `roots`, and
+    // building the two lists side by side would leave that correspondence
+    // resting on the order a predicate happened to be called in — true today,
+    // and silent about it if it ever stopped being.
+    let (kept, layouts): (Vec<_>, Vec<_>) = std::mem::take(&mut roots)
+        .into_iter()
+        .filter_map(|root| match root_layout(grid, &root) {
+            Ok(layout) => Some((root, layout)),
+            Err(diagnostic) => {
+                if let Ok(Some(output)) = root.output {
+                    unstable.push((root.anchor, grid.index(output)));
+                }
+                excluded.push(diagnostic);
+                None
             }
-            excluded.push(diagnostic);
-            false
-        }
-    });
+        })
+        .unzip();
+    roots = kept;
     // The only question asked of the slots is which of them a two-Cell output
     // lands on. Scanning all of them for every producer answers it in the
     // product of the two, and a Tick pays that under the playback deadline, so

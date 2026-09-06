@@ -1,6 +1,6 @@
 # Dependency ordering for one musical Tick
 
-Research date: 2026-09-06. Status: research and a constrained design candidate, not an accepted execution contract. The working row-major implementation is a provisional fallback. This note supersedes the earlier suggestion that an upward Bang inherently needs an impractically complicated scheduler.
+Research date: 2026-09-06. Status: the research behind [ADR 0032](../../docs/adr/0032-schedule-tick-execution-by-dependency.md), which accepted the dependency scheduler this note argues for. Row-major execution is historical: it was the fallback while this was open, and no implementation of it survives. This note supersedes the earlier suggestion that an upward Bang inherently needs an impractically complicated scheduler.
 
 The user's proposed pipeline is sound as a direction:
 
