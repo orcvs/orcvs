@@ -8,9 +8,11 @@ pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 /// The MIDI note domain: `00`–`7F`.
 ///
 /// Ordered as well as compared, because the Playback Engine keys a Timed
-/// Play's ownership by the channel and note it sounds on. Ordering a note by
-/// its number is the protocol's own order, and carrying the key as the two
-/// domain types keeps the engine from re-deriving either domain from a byte.
+/// Play's ownership by the two domain types it sounds on, channel and note.
+/// Monophonic Play keys by channel alone and carries the note in the claim
+/// instead, so a Note reaches the schedule either way. Ordering a note by its
+/// number is the protocol's own order, and carrying the key as the domain
+/// types keeps the engine from re-deriving either domain from a byte.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Note(u8);
 
@@ -40,7 +42,8 @@ impl TryFrom<u8> for Note {
 /// Carrying the domain in the type rather than proving it and handing back a
 /// `u8` is what lets [`crate::PlayCommand`] and the output adapter rely on the
 /// range instead of re-deriving it. Ordered for the same reason [`Note`] is:
-/// the two together key a Timed Play's ownership inside the Playback Engine.
+/// the two together key a Timed Play's ownership inside the Playback Engine,
+/// and the channel alone keys a Monophonic Play's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MidiChannel(u8);
 
@@ -590,6 +593,7 @@ define_functions! {
     Maximum => (".>", Value, Pervasive, [left: Number, right: Number]),
     Minimum => (".<", Value, Pervasive, [left: Number, right: Number]),
     Modulo => (".%", Value, Pervasive, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Pervasive, [left: Number, right: Number]),
     RawPlay => ("!>", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note]),
     Subtract => (".-", Value, Pervasive, [left: Number, right: Number]),
@@ -834,6 +838,7 @@ mod test {
     fn play_functions_display_with_the_terminal_output_family_spellings() {
         assert_eq!(Function::RawPlay.to_string(), "!>");
         assert_eq!(Function::TimedPlay.to_string(), "!~");
+        assert_eq!(Function::MonophonicPlay.to_string(), "!%");
     }
 
     #[test]
@@ -879,6 +884,7 @@ mod test {
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
+                | Function::MonophonicPlay
                 | Function::Multiply
                 | Function::RawPlay
                 | Function::Subtract

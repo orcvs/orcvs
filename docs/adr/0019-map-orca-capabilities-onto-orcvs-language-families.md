@@ -38,7 +38,7 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Comment | `#` | Retain | `#` | Existing language contract |
 | Raw MIDI note | `:` | Retain without an implicit lifetime | `!>` | ADR 0016 |
 | Timed MIDI note | optional Orca `:` lifetime | Make a distinct fixed-arity Function | `!~` | ADR 0016 |
-| Monophonic MIDI note | `%` | Retain with one owned voice per adapter and channel | `!%` | ADRs 0008 and 0016 |
+| Monophonic MIDI note | `%` | Retain with one owned voice per MIDI channel | `!%` | ADRs 0008 and 0016 |
 | MIDI Control Change | `!` | Retain with direct hexadecimal MIDI bytes | `!c` | ADRs 0008 and 0016 |
 | MIDI Pitch Bend | `?` | Retain as direct LSB and MSB bytes | `!b` | ADRs 0008 and 0016 |
 | UDP | `;` | Defer until Orcvs has a text or message value | `!u` reserved | ADRs 0008 and 0016 |

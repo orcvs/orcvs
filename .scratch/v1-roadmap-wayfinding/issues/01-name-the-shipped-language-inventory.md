@@ -76,7 +76,7 @@ The FRC ships all five accepted MIDI forms:
 
 - Raw Play `!>` with channel `00`–`0F`, velocity `00`–`7F`, and typed Note.
 - Timed Play `!~` with explicit length, zero rules, and Note Off at Tick `T + length`.
-- Monophonic Play `!%` with one owned voice per output adapter and MIDI channel.
+- Monophonic Play `!%` with one Playback-Engine-owned voice per MIDI channel.
 - Control Change `!c` with direct controller/value data bytes.
 - Pitch Bend `!b` with direct LSB then MSB data bytes.
 
