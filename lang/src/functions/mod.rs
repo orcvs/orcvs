@@ -100,13 +100,64 @@ pub fn monophonic_play(ctx: &mut Context) -> Result<Performance, Error> {
     )
 }
 
+/// Control Change: `!c channel controller value`.
+///
+/// No validation call here either, and no wire byte: what `0xB0` does with a
+/// controller and its value is the output adapter's, and what makes each
+/// operand legal is declared beside its role in `define_functions!`. The two
+/// data bytes share a domain and differ in type, so this body cannot hand one
+/// role's operand to the other even by writing the fields out of order.
+///
+/// One command per element, like every other terminal spelling: ADR 0030
+/// widens `!c` under ADR 0007's rules, so a Sequence in the controller
+/// position sweeps a bank of controllers from one Expression and a Sequence in
+/// the value position sends one controller a series. Nothing about that is
+/// stated here, because `Stack::perform` owns the width and this body owns the
+/// command.
+#[inline(always)]
+pub fn control_change(ctx: &mut Context) -> Result<Performance, Error> {
+    ctx.stack.perform(
+        |operands::ControlChange {
+             channel,
+             controller,
+             value,
+         }: operands::ControlChange| {
+            Ok(PlayCommand::ControlChange {
+                channel,
+                controller,
+                value,
+            })
+        },
+    )
+}
+
+/// Pitch Bend: `!b channel lsb msb`.
+///
+/// The halves are carried as the Source wrote them, in the order the wire
+/// takes them. Combining them into a fourteen-bit bend here would be a
+/// scaling decision ADR 0016 refuses and would leave the adapter splitting
+/// apart what this had just joined.
+///
+/// Widening changes none of that. ADR 0030 gives each element its own bend,
+/// and because the halves stay two operands rather than one assembled number,
+/// a Sequence in the LSB position sweeps the fine half against a held MSB
+/// exactly as the wire would take it.
+#[inline(always)]
+pub fn pitch_bend(ctx: &mut Context) -> Result<Performance, Error> {
+    ctx.stack.perform(
+        |operands::PitchBend { channel, lsb, msb }: operands::PitchBend| {
+            Ok(PlayCommand::PitchBend { channel, lsb, msb })
+        },
+    )
+}
+
 #[cfg(test)]
 mod test {
-    use super::{monophonic_play, raw_play, timed_play};
+    use super::{control_change, monophonic_play, pitch_bend, raw_play, timed_play};
     use crate::{
-        Anchor, ArgumentError, Atom, Error, Interpretation, InterpretationError, Interpreter,
-        Length, MidiChannel, Note, Parser, Performance, PlayCommand, Sequence, Tick, TickInputs,
-        Velocity, interpreter::Context,
+        Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error,
+        Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, Parser,
+        Performance, PlayCommand, Sequence, Tick, TickInputs, Velocity, interpreter::Context,
     };
 
     ///
@@ -545,6 +596,233 @@ mod test {
     }
 
     #[test]
+    fn control_change_carries_each_operand_into_the_role_its_signature_names() {
+        // Three differing operand values, for the reason Raw Play's role test
+        // gives and for one more that belongs to `!c` alone. Controller and
+        // value share a domain, so a declaration that transposed them carries
+        // each role name with its own type, compiles, and validates: the role
+        // types make the swap unrepresentable in every body that reads the
+        // command, and cannot see a transposition of the declaration itself.
+        // `01`, `02`, and `03` are legal in all three positions, so nothing
+        // but the values separates the declaration meant from its transposition.
+        let mut ctx = context();
+        ctx.stack.push(Atom::Number(0x03)).unwrap();
+        ctx.stack.push(Atom::Number(0x02)).unwrap();
+        ctx.stack.push(Atom::Number(0x01)).unwrap();
+
+        let expected = PlayCommand::ControlChange {
+            channel: MidiChannel::try_from(0x01).unwrap(),
+            controller: Controller::try_from(0x02).unwrap(),
+            value: ControlValue::try_from(0x03).unwrap(),
+        };
+
+        assert_eq!(
+            control_change(&mut ctx).unwrap(),
+            Performance::One(expected)
+        );
+
+        // The same claim from Source text, which adds the parse and the
+        // right-to-left walk to what the extraction alone proves: `!c` reads
+        // channel, then controller, then value, left to right in the Cells.
+        assert_eq!(
+            interpret("!c010203").unwrap(),
+            Interpretation::Play(Performance::One(expected))
+        );
+    }
+
+    #[test]
+    fn pitch_bend_carries_each_operand_into_the_role_its_signature_names() {
+        // LSB and MSB are the exposed pair here, for the reason controller and
+        // value are in the test above: one shared data-byte domain, two roles,
+        // and a wire order that a transposition would silently reverse into a
+        // bend of an entirely different pitch.
+        let mut ctx = context();
+        ctx.stack.push(Atom::Number(0x03)).unwrap();
+        ctx.stack.push(Atom::Number(0x02)).unwrap();
+        ctx.stack.push(Atom::Number(0x01)).unwrap();
+
+        let expected = PlayCommand::PitchBend {
+            channel: MidiChannel::try_from(0x01).unwrap(),
+            lsb: BendLsb::try_from(0x02).unwrap(),
+            msb: BendMsb::try_from(0x03).unwrap(),
+        };
+
+        assert_eq!(pitch_bend(&mut ctx).unwrap(), Performance::One(expected));
+
+        // And from Source text: `!b` reads channel, then LSB, then MSB, left
+        // to right in the Cells, which is also the order they go out on.
+        assert_eq!(
+            interpret("!b010203").unwrap(),
+            Interpretation::Play(Performance::One(expected))
+        );
+    }
+
+    /// A terminal extraction, so the two spellings that share a claim can be
+    /// stated once and asserted over rather than written out for each.
+    type Terminal = fn(&mut Context) -> Result<Performance, Error>;
+
+    /// The Source text that puts one byte in one data-byte position.
+    type SourceText = fn(u8) -> String;
+
+    /// The command that position must answer with, for that byte.
+    type ExpectedCommand = fn(MidiChannel, u8) -> PlayCommand;
+
+    #[test]
+    fn control_change_and_pitch_bend_require_exactly_three_arguments() {
+        // Each prefix of a well-typed operand list, so what is missing is the
+        // count rather than a type: an arity diagnostic must precede every
+        // other one, and only a correctly typed prefix can prove it does.
+        for extract in [control_change as Terminal, pitch_bend as Terminal] {
+            for found in 0..3 {
+                let mut ctx = context();
+                for argument in [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)]
+                    .iter()
+                    .take(found)
+                    .rev()
+                {
+                    ctx.stack.push(*argument).unwrap();
+                }
+
+                let error = extract(&mut ctx).unwrap_err();
+
+                assert!(
+                    matches!(
+                        error,
+                        Error::Argument(ArgumentError::Arity { expected: 3, found: f }) if f == found
+                    ),
+                    "{found} argument(s) gave {error:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn control_change_and_pitch_bend_reject_a_note_in_every_operand_position() {
+        // Every operand of both Functions is declared over a Number, so a Note
+        // is what separates the token the parser reads from the domain declared
+        // over it. `!>` and `!~` each carry this claim for their own
+        // signatures; without it these two are covered for arity and for range
+        // but never for the type refusal that has to precede both.
+        for extract in [control_change as Terminal, pitch_bend as Terminal] {
+            for mistyped in 0..3 {
+                let mut arguments = [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)];
+                arguments[mistyped] = Atom::Note(crate::Note::try_from(0x03).unwrap());
+
+                let mut ctx = context();
+                for argument in arguments.into_iter().rev() {
+                    ctx.stack.push(argument).unwrap();
+                }
+
+                assert!(
+                    matches!(extract(&mut ctx), Err(Error::Type(_))),
+                    "a Note in operand {mistyped} was accepted",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn control_change_and_pitch_bend_take_a_midi_channel_and_two_data_bytes() {
+        // ADR 0016's domains for both spellings, each proven by an operand
+        // that leaves them. The data-byte diagnostics are what the role types
+        // buy at the Source: two operands of one domain, and a diagnostic that
+        // still names which of them the Source wrote out of range.
+        for channel in 0x10..=u8::MAX {
+            for expression in [
+                format!("!c{channel:02X}0203"),
+                format!("!b{channel:02X}0203"),
+            ] {
+                assert!(
+                    matches!(
+                        interpret(&expression),
+                        Err(Error::Interpretation(InterpretationError::MidiChannel(value)))
+                            if value == channel
+                    ),
+                    "{expression}"
+                );
+            }
+        }
+
+        for (expression, expected) in [
+            ("!c018003", "controller"),
+            ("!c010280", "value"),
+            ("!b018003", "lsb"),
+            ("!b010280", "msb"),
+        ] {
+            assert!(
+                matches!(
+                    interpret(expression),
+                    Err(Error::Interpretation(InterpretationError::MidiDataByte {
+                        role,
+                        value: 0x80,
+                    })) if role == expected
+                ),
+                "{expression}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_data_byte_reaches_a_control_change_or_pitch_bend_command_unaltered() {
+        // ADR 0016 sends direct MIDI values, so the whole accepted domain is
+        // enumerated rather than sampled: a scale, a wrap, or a clamp applied
+        // to a data byte answers a perfectly legal command and differs only in
+        // the value it carries.
+        let channel = MidiChannel::try_from(0x01).unwrap();
+
+        // One row per data-byte position: the Source text that puts `byte`
+        // there, and the command that position must answer with. A table
+        // because it is the same claim four times, and a table is what makes a
+        // position that went missing visible.
+        let positions: [(SourceText, ExpectedCommand); 4] = [
+            (
+                |byte| format!("!c01{byte:02X}03"),
+                |channel, byte| PlayCommand::ControlChange {
+                    channel,
+                    controller: Controller::try_from(byte).unwrap(),
+                    value: ControlValue::try_from(0x03).unwrap(),
+                },
+            ),
+            (
+                |byte| format!("!c0102{byte:02X}"),
+                |channel, byte| PlayCommand::ControlChange {
+                    channel,
+                    controller: Controller::try_from(0x02).unwrap(),
+                    value: ControlValue::try_from(byte).unwrap(),
+                },
+            ),
+            (
+                |byte| format!("!b01{byte:02X}03"),
+                |channel, byte| PlayCommand::PitchBend {
+                    channel,
+                    lsb: BendLsb::try_from(byte).unwrap(),
+                    msb: BendMsb::try_from(0x03).unwrap(),
+                },
+            ),
+            (
+                |byte| format!("!b0102{byte:02X}"),
+                |channel, byte| PlayCommand::PitchBend {
+                    channel,
+                    lsb: BendLsb::try_from(0x02).unwrap(),
+                    msb: BendMsb::try_from(byte).unwrap(),
+                },
+            ),
+        ];
+
+        for (source_text, expected) in positions {
+            for byte in 0..=0x7F {
+                let expression = source_text(byte);
+
+                assert_eq!(
+                    interpret(&expression).unwrap(),
+                    Interpretation::Play(Performance::One(expected(channel, byte))),
+                    "{expression}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_raw_play_requires_three_arguments() {
         for found in 0..3 {
             let mut ctx = context();
@@ -651,9 +929,24 @@ mod test {
     #[test]
     fn an_out_of_domain_operand_produces_no_play_command_at_all() {
         // The domain conversion happens during extraction, so a Play that
-        // diagnoses has never constructed a PlayCommand to be discarded.
+        // diagnoses has never constructed a PlayCommand to be discarded. The
+        // same holds for every terminal spelling, because the conversion is
+        // declared in the table rather than performed by the body.
         assert!(matches!(
             interpret("!>107FC4"),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0x10
+            )))
+        ));
+        assert!(matches!(
+            interpret("!c010280"),
+            Err(Error::Interpretation(InterpretationError::MidiDataByte {
+                role: "value",
+                value: 0x80,
+            }))
+        ));
+        assert!(matches!(
+            interpret("!b108001"),
             Err(Error::Interpretation(InterpretationError::MidiChannel(
                 0x10
             )))

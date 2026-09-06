@@ -130,8 +130,14 @@ impl Interpreter {
                     Function::Modulo => math::modulo(&mut ctx)?,
                     Function::Multiply => math::multiply(&mut ctx)?,
                     Function::Subtract => math::subtract(&mut ctx)?,
+                    Function::ControlChange => {
+                        return Ok(Interpretation::Play(functions::control_change(&mut ctx)?));
+                    }
                     Function::MonophonicPlay => {
                         return Ok(Interpretation::Play(functions::monophonic_play(&mut ctx)?));
+                    }
+                    Function::PitchBend => {
+                        return Ok(Interpretation::Play(functions::pitch_bend(&mut ctx)?));
                     }
                     Function::RawPlay => {
                         return Ok(Interpretation::Play(functions::raw_play(&mut ctx)?));

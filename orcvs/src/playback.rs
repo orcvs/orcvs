@@ -12,7 +12,8 @@ use tokio_util::sync::CancellationToken;
 use web_time::Instant as ClockInstant;
 
 use crate::source::{
-    Length, MidiChannel, Note, PlayCommand, SourceCommander, Tick, TickPlan, Velocity,
+    BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand,
+    SourceCommander, Tick, TickPlan, Velocity,
 };
 
 ///
@@ -29,9 +30,12 @@ use crate::source::{
 /// holding a lifetime it would have to schedule is unrepresentable rather than
 /// merely avoided.
 ///
-/// A tagged variant set for the same reason [`PlayCommand`] is one: Control
-/// Change and Pitch Bend join it as variants of their own, carried through
-/// unresolved because nothing about them is the engine's to resolve.
+/// A tagged variant set for the same reason [`PlayCommand`] is one. Control
+/// Change and Pitch Bend are here as variants of their own and reach the
+/// adapter exactly as the Source wrote them: neither carries a lifetime, so
+/// there is nothing about either for this module to resolve, and a variant
+/// apiece is what keeps that pass-through from being a Note On with the wrong
+/// fields in it.
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OutputCommand {
@@ -41,6 +45,21 @@ pub enum OutputCommand {
         channel: MidiChannel,
         velocity: Velocity,
         note: Note,
+    },
+    /// MIDI's Control Change: a controller and the value sent to it, each
+    /// carrying the role it plays rather than the data-byte domain they share.
+    ControlChange {
+        channel: MidiChannel,
+        controller: Controller,
+        value: ControlValue,
+    },
+    /// MIDI's Pitch Bend, as the two seven-bit halves the wire carries. The
+    /// adapter puts the LSB out first; nothing between the Source and the wire
+    /// combines them, so nothing has to take them apart again.
+    PitchBend {
+        channel: MidiChannel,
+        lsb: BendLsb,
+        msb: BendMsb,
     },
 }
 
@@ -360,6 +379,26 @@ impl OwnedNotes {
                         });
                         self.claim(voice, note, tick.after(length.ticks()));
                     }
+                }
+                // Neither of these owns a voice or is due at another Tick, so
+                // there is nothing here to resolve and nothing to schedule:
+                // each is carried through in its Tick Plan order, which is the
+                // whole of what this module owes them. Written out field by
+                // field rather than passed through as one value, because a
+                // Play Command and an Output Command are separate types on
+                // purpose — the day one of them differs, the difference is an
+                // edit here rather than a conversion nobody can see.
+                PlayCommand::ControlChange {
+                    channel,
+                    controller,
+                    value,
+                } => delivery.push(OutputCommand::ControlChange {
+                    channel,
+                    controller,
+                    value,
+                }),
+                PlayCommand::PitchBend { channel, lsb, msb } => {
+                    delivery.push(OutputCommand::PitchBend { channel, lsb, msb })
                 }
             }
         }
@@ -1254,6 +1293,29 @@ mod tests {
         assert_eq!(timed.deliver(Tick::new(4), &[]), Vec::new());
     }
 
+    /// The Control Change an adapter is handed, stated as the three Numbers a
+    /// Source writes.
+    ///
+    fn control_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
+        OutputCommand::ControlChange {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            controller: Controller::try_from(controller).expect("a MIDI data byte"),
+            value: ControlValue::try_from(value).expect("a MIDI data byte"),
+        }
+    }
+
+    ///
+    /// The Pitch Bend an adapter is handed, LSB before MSB as the wire takes
+    /// them.
+    ///
+    fn pitch_bend(channel: u8, lsb: u8, msb: u8) -> OutputCommand {
+        OutputCommand::PitchBend {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            lsb: BendLsb::try_from(lsb).expect("a MIDI data byte"),
+            msb: BendMsb::try_from(msb).expect("a MIDI data byte"),
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, atomic::AtomicBool, mpsc};
     #[cfg(target_arch = "wasm32")]
@@ -1722,6 +1784,42 @@ mod tests {
             adapter.command_lists(),
             vec![vec![note_on(0, 1, 60), note_on(1, 0x7F, 69)]]
         );
+    }
+
+    #[tokio::test]
+    async fn control_change_and_pitch_bend_reach_the_adapter_unresolved_and_in_tick_plan_order() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // One Bang between the two roots activates both, as it does for two
+        // Play roots: the row above it is its north anchor and the row below
+        // it its south anchor.
+        write(&source, 0, "!c010207");
+        write(&source, 10, "**");
+        write(&source, 20, "!b032A33");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=2 {
+            run_tick(&engine, tick);
+        }
+
+        // Neither spelling has a lifetime, so the engine has nothing to
+        // resolve and nothing to schedule: the two commands arrive in Tick
+        // Plan order within the one submission their Tick makes, and the Ticks
+        // after the Bang is retired owe nothing at all. Every operand differs
+        // from every other, here as in the Function's own role test, so a
+        // transposition anywhere along the way changes this list.
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![control_change(1, 2, 7), pitch_bend(3, 0x2A, 0x33)],
+                vec![],
+                vec![],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]

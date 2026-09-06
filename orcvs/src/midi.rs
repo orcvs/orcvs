@@ -157,6 +157,19 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
                     // the only check there is.
                     [0x90 | channel.value(), note.value(), velocity.value()]
                 }
+                OutputCommand::ControlChange {
+                    channel,
+                    controller,
+                    value,
+                } => [0xB0 | channel.value(), controller.value(), value.value()],
+                // The LSB precedes the MSB, which is the protocol's order and
+                // not a choice: a bend is one fourteen-bit value sent low half
+                // first, and the two halves are separate types precisely so
+                // that this line is the only place their order can be got
+                // wrong.
+                OutputCommand::PitchBend { channel, lsb, msb } => {
+                    [0xE0 | channel.value(), lsb.value(), msb.value()]
+                }
             };
             if let Err(error) = connection.send(&message) {
                 let delivery_error = OutputAdapterError::new(error.message);
@@ -181,7 +194,9 @@ mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
     use crate::playback::{OutputAdapter, OutputCommand, PlaybackEngine};
-    use crate::source::{MidiChannel, Note, SourceCommander, Velocity};
+    use crate::source::{
+        BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Velocity,
+    };
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -269,6 +284,74 @@ mod tests {
         assert_eq!(
             state.lock().unwrap().messages,
             vec![vec![0x9f, 0x15, 0], vec![0x92, 0x45, 0x7f]]
+        );
+    }
+
+    #[test]
+    fn submits_control_change_and_pitch_bend_as_their_wire_bytes() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
+
+        adapter
+            .submit(&[
+                OutputCommand::ControlChange {
+                    channel: MidiChannel::try_from(0x0F).unwrap(),
+                    controller: Controller::try_from(0x07).unwrap(),
+                    value: ControlValue::try_from(0x40).unwrap(),
+                },
+                OutputCommand::PitchBend {
+                    channel: MidiChannel::try_from(0x0A).unwrap(),
+                    lsb: BendLsb::try_from(0x2A).unwrap(),
+                    msb: BendMsb::try_from(0x33).unwrap(),
+                },
+            ])
+            .unwrap();
+
+        // `0xB0 | channel` and `0xE0 | channel` are the two statuses, and a
+        // Pitch Bend puts its LSB on the wire before its MSB. Every byte of
+        // each message differs from every other byte of it, so an assembly
+        // that transposed two of them answers different vectors rather than
+        // agreeing with an expectation transposed the same way.
+        //
+        // Both channels are upper-nibble, as the Note On wire test's `0x0f`
+        // already is: a status byte that dropped or masked the channel's high
+        // bit agrees with every low-nibble channel a test might otherwise
+        // reach for. The Source-path test below carries `01` and `03`, so the
+        // low nibble is covered for both spellings without weakening this one.
+        assert_eq!(
+            state.lock().unwrap().messages,
+            vec![vec![0xBF, 0x07, 0x40], vec![0xEA, 0x2A, 0x33]]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_source_control_change_and_pitch_bend_reach_the_wire_as_their_bytes() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let grid = Grid::new(10, 3);
+        let source = SourceCommander::new(grid);
+        // The whole path in one run: two terminal roots and the Bang between
+        // them that activates both, delivered through the Playback Engine to
+        // the bytes a device would receive.
+        for (index, content) in "!c010207  **        !b032A33".chars().enumerate() {
+            source.set(cell(grid, index), &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source, adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            state.lock().unwrap().messages,
+            vec![vec![0xB1, 0x02, 0x07], vec![0xE3, 0x2A, 0x33]]
         );
     }
 

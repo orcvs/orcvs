@@ -108,7 +108,10 @@ pub struct CellWrite {
 /// commands appear; the output adapter turns each one into MIDI. Per ADR 0030
 /// one Expression can perform many commands, ordered by element index, so a
 /// Performance crosses the seam and a Tick Plan holds the flattened list.
-pub use lang::{Length, MidiChannel, Note, Performance, PlayCommand, Velocity};
+pub use lang::{
+    BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, Performance,
+    PlayCommand, Velocity,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {
@@ -414,8 +417,8 @@ mod test {
         glyph::Glyph,
         grid::{CellIndex, Grid, Position},
         source::{
-            CellWrite, Length, MidiChannel, Note, PlayCommand, Source, SourceError, Tick, TickPlan,
-            Velocity,
+            BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
+            PlayCommand, Source, SourceError, Tick, TickPlan, Velocity,
             tick::{resolve, result_effect},
         },
         test::trace,
@@ -1304,6 +1307,84 @@ mod test {
         assert!(tick.writes.is_empty());
         assert!(tick.diagnostics.is_empty());
         assert_eq!(src.row(2), "          ");
+    }
+
+    #[test]
+    fn test_root_control_change_and_pitch_bend_emit_the_command_their_operands_name() {
+        // Every operand of each spelling differs from the others, and all
+        // three are legal in all three positions, so a transposition inside
+        // the `define_functions!` declaration changes this answer rather than
+        // diagnosing its way out.
+        for (expression, expected) in [
+            (
+                "!c010203",
+                PlayCommand::ControlChange {
+                    channel: MidiChannel::try_from(1).unwrap(),
+                    controller: Controller::try_from(2).unwrap(),
+                    value: ControlValue::try_from(3).unwrap(),
+                },
+            ),
+            (
+                "!b010203",
+                PlayCommand::PitchBend {
+                    channel: MidiChannel::try_from(1).unwrap(),
+                    lsb: BendLsb::try_from(2).unwrap(),
+                    msb: BendMsb::try_from(3).unwrap(),
+                },
+            ),
+        ] {
+            let mut src = source();
+            let at = src.cells();
+            src.write(at(0), "**");
+            src.write(at(10), expression);
+
+            let tick = src.execute();
+
+            assert_eq!(tick.play_commands, vec![expected], "{expression}");
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert!(tick.diagnostics.is_empty(), "{expression}");
+            assert_eq!(src.row(2), "          ", "{expression}");
+        }
+    }
+
+    #[test]
+    fn test_control_change_and_pitch_bend_operands_outside_their_domains_emit_nothing() {
+        // One out-of-range operand per role, including both halves of each
+        // pair that shares a domain: the message names which operand the
+        // Source wrote out of range, which is what the role types buy at the
+        // Source rather than in the code that reads the command.
+        for (expression, message) in [
+            (
+                "!c100203",
+                "MIDI channel 10 is outside the range 00\u{2013}0F",
+            ),
+            (
+                "!c018003",
+                "MIDI controller 80 is outside the range 00\u{2013}7F",
+            ),
+            (
+                "!c010280",
+                "MIDI value 80 is outside the range 00\u{2013}7F",
+            ),
+            (
+                "!b100203",
+                "MIDI channel 10 is outside the range 00\u{2013}0F",
+            ),
+            ("!b018003", "MIDI lsb 80 is outside the range 00\u{2013}7F"),
+            ("!b010280", "MIDI msb 80 is outside the range 00\u{2013}7F"),
+        ] {
+            let mut src = source();
+            let at = src.cells();
+            src.write(at(0), "**");
+            src.write(at(10), expression);
+
+            let tick = src.execute();
+
+            assert!(tick.play_commands.is_empty(), "{expression}");
+            assert!(tick.writes.is_empty(), "{expression}");
+            assert_eq!(tick.diagnostics.len(), 1, "{expression}");
+            assert_eq!(tick.diagnostics[0].message, message, "{expression}");
+        }
     }
 
     #[test]

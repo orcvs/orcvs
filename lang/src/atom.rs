@@ -100,10 +100,12 @@ macro_rules! define_data_byte_roles {
         impl $name {
             /// The zero data byte, which every role in this domain contains.
             ///
-            /// A constant rather than a conversion a caller has to unwrap: the
-            /// Playback Engine delivers a scheduled Note Off as MIDI's
-            /// zero-velocity stop, and a `try_from(0)` there would be an
-            /// unreachable failure path inside a Tick.
+            /// A constant rather than a conversion a caller has to unwrap.
+            /// `Velocity::ZERO` is the one with callers: the Playback Engine
+            /// delivers a scheduled Note Off as MIDI's zero-velocity stop, and
+            /// a `try_from(0)` there would be an unreachable failure path
+            /// inside a Tick. Every other role inherits the constant from this
+            /// macro rather than because a caller asked for it.
             pub const ZERO: Self = Self(0);
 
             #[inline(always)]
@@ -130,6 +132,29 @@ define_data_byte_roles! {
     /// A Play velocity. `00` is not an absent note but MIDI's explicit stop,
     /// so the domain starts at zero like every other data byte.
     Velocity => "velocity",
+    /// The controller a Control Change addresses.
+    Controller => "controller",
+    /// The value a Control Change sends to the controller beside it.
+    ///
+    /// Named for the control it belongs to because `Value` is the Sequence
+    /// value model's, and named for that rather than for MIDI because ADR 0016
+    /// defers OSC and UDP output and notes a type reads better named for its
+    /// domain than for its protocol: a control's value is what this is on any
+    /// wire, and `MidiValue` would have to be renamed the day a second one
+    /// arrives.
+    ControlValue => "value",
+    /// The low seven bits of a Pitch Bend, which precede the high seven on the
+    /// wire.
+    ///
+    /// A bend is one fourteen-bit value the protocol splits in two, and Orcvs
+    /// sends the halves as the Source wrote them rather than assembling them
+    /// into a number it would have to take apart again. `Lsb` alone would name
+    /// the half of nothing in particular; the bend is what makes this half
+    /// meaningful, and what keeps it out of the next fourteen-bit pair's
+    /// positions.
+    BendLsb => "lsb",
+    /// The high seven bits of a Pitch Bend.
+    BendMsb => "msb",
 }
 
 /// The Timed and Monophonic Play lifetime: a Number in `00`–`FF`.
@@ -281,6 +306,18 @@ macro_rules! operand_token {
     (Velocity) => {
         crate::Token::Number
     };
+    (Controller) => {
+        crate::Token::Number
+    };
+    (ControlValue) => {
+        crate::Token::Number
+    };
+    (BendLsb) => {
+        crate::Token::Number
+    };
+    (BendMsb) => {
+        crate::Token::Number
+    };
     (Length) => {
         crate::Token::Number
     };
@@ -314,6 +351,18 @@ macro_rules! operand_type {
     (Velocity) => {
         crate::Velocity
     };
+    (Controller) => {
+        crate::Controller
+    };
+    (ControlValue) => {
+        crate::ControlValue
+    };
+    (BendLsb) => {
+        crate::BendLsb
+    };
+    (BendMsb) => {
+        crate::BendMsb
+    };
     (Length) => {
         crate::Length
     };
@@ -344,10 +393,19 @@ macro_rules! operand_bind {
             )),
         }
     };
-    (MidiChannel, $operand:expr, $role:ident) => {
+    // Every domain declared over a Number binds the same way, so the arm is
+    // written once and the declared types forward to it. That buys brevity and
+    // nothing else, and in particular it is not what keeps one role from
+    // binding another role's domain. `define_functions!` initialises each field
+    // of the generated operand struct straight from this macro, so an arm that
+    // converted to the wrong domain of the same token fails to compile at that
+    // field — `expected BendMsb, found BendLsb` — whether the body is written
+    // here once or repeated six times. Six near-identical bodies would have
+    // been exactly as safe and merely longer.
+    (@number_domain $domain:ty, $operand:expr, $role:ident) => {
         match $operand {
             Some(crate::Atom::Number(value)) => {
-                crate::MidiChannel::try_from(value).map_err(crate::Error::from)
+                <$domain>::try_from(value).map_err(crate::Error::from)
             }
             _ => unreachable!(concat!(
                 "typed extraction guarantees a Number for the ",
@@ -355,22 +413,30 @@ macro_rules! operand_bind {
                 " operand"
             )),
         }
+    };
+    (MidiChannel, $operand:expr, $role:ident) => {
+        operand_bind!(@number_domain crate::MidiChannel, $operand, $role)
     };
     (Velocity, $operand:expr, $role:ident) => {
-        match $operand {
-            Some(crate::Atom::Number(value)) => {
-                crate::Velocity::try_from(value).map_err(crate::Error::from)
-            }
-            _ => unreachable!(concat!(
-                "typed extraction guarantees a Number for the ",
-                stringify!($role),
-                " operand"
-            )),
-        }
+        operand_bind!(@number_domain crate::Velocity, $operand, $role)
+    };
+    (Controller, $operand:expr, $role:ident) => {
+        operand_bind!(@number_domain crate::Controller, $operand, $role)
+    };
+    (ControlValue, $operand:expr, $role:ident) => {
+        operand_bind!(@number_domain crate::ControlValue, $operand, $role)
+    };
+    (BendLsb, $operand:expr, $role:ident) => {
+        operand_bind!(@number_domain crate::BendLsb, $operand, $role)
+    };
+    (BendMsb, $operand:expr, $role:ident) => {
+        operand_bind!(@number_domain crate::BendMsb, $operand, $role)
     };
     // The one declared domain that is the whole byte, so this converts where
-    // the others validate. It still binds through the same arm, because what
-    // makes a length a length is the type it arrives as, not a check it passed.
+    // the others validate. It has an arm of its own rather than forwarding to
+    // `@number_domain` above: every byte is a length, so `Length` converts
+    // infallibly and has no `TryFrom` to share. What makes a length a length is
+    // the type it arrives as, not a check it passed.
     (Length, $operand:expr, $role:ident) => {
         match $operand {
             Some(crate::Atom::Number(value)) => Ok::<_, crate::Error>(crate::Length::from(value)),
@@ -586,6 +652,7 @@ macro_rules! define_functions {
 define_functions! {
     AbsoluteDifference => (".|", Value, Pervasive, [left: Number, right: Number]),
     Add => (".+", Value, Pervasive, [left: Number, right: Number]),
+    ControlChange => ("!c", Terminal, Pervasive, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Pervasive, [value: Number]),
     ConvertToNumber => (".v", Value, Pervasive, [value: Note]),
     Divide => ("./", Value, Pervasive, [left: Number, right: Number]),
@@ -595,6 +662,7 @@ define_functions! {
     Modulo => (".%", Value, Pervasive, [left: Number, right: Number]),
     MonophonicPlay => ("!%", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Pervasive, [left: Number, right: Number]),
+    PitchBend => ("!b", Terminal, Pervasive, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     RawPlay => ("!>", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note]),
     Subtract => (".-", Value, Pervasive, [left: Number, right: Number]),
     TimedPlay => ("!~", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
@@ -664,8 +732,10 @@ impl fmt::Display for Atom {
 
 #[cfg(test)]
 mod test {
-    use super::{Activation, Atom, Function, Length, MidiChannel, Note, Velocity, to_atom_num};
-    use crate::InterpretationError;
+    use super::{
+        Activation, Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length,
+        MidiChannel, Note, Velocity, to_atom_num,
+    };
 
     #[test]
     fn each_midi_domain_type_accepts_exactly_its_protocol_range() {
@@ -680,6 +750,26 @@ mod test {
             );
             assert_eq!(
                 Velocity::try_from(value).is_ok(),
+                value <= 0x7F,
+                "{value:02X}"
+            );
+            assert_eq!(
+                Controller::try_from(value).is_ok(),
+                value <= 0x7F,
+                "{value:02X}"
+            );
+            assert_eq!(
+                ControlValue::try_from(value).is_ok(),
+                value <= 0x7F,
+                "{value:02X}"
+            );
+            assert_eq!(
+                BendLsb::try_from(value).is_ok(),
+                value <= 0x7F,
+                "{value:02X}"
+            );
+            assert_eq!(
+                BendMsb::try_from(value).is_ok(),
                 value <= 0x7F,
                 "{value:02X}"
             );
@@ -717,27 +807,42 @@ mod test {
         }
         for value in 0..=0x7F {
             assert_eq!(Velocity::try_from(value).unwrap().value(), value);
+            assert_eq!(Controller::try_from(value).unwrap().value(), value);
+            assert_eq!(ControlValue::try_from(value).unwrap().value(), value);
+            assert_eq!(BendLsb::try_from(value).unwrap().value(), value);
+            assert_eq!(BendMsb::try_from(value).unwrap().value(), value);
             assert_eq!(Note::try_from(value).unwrap().value(), value);
         }
     }
 
     #[test]
     fn a_rejected_data_byte_names_the_operand_role_that_supplied_it() {
-        // The role word moved from an argument at the call site to a property
-        // of the type. Control Change and Pitch Bend mint their roles from the
-        // same private predicate, so the diagnostic each one answers is fixed
-        // here rather than at whatever body happens to construct it.
+        // The role word is a property of the type rather than an argument at
+        // the call site, so which word a rejected byte answers with is fixed
+        // where the role is minted and not at whatever body constructed it.
+        // Every role is asserted by its own type: a role that inherited
+        // another's word would be a diagnostic naming an operand the Source
+        // never wrote.
         assert_eq!(
             Velocity::try_from(0x80).unwrap_err().to_string(),
             "MIDI velocity 80 is outside the range 00\u{2013}7F"
         );
-
-        for role in ["velocity", "controller", "value", "lsb", "msb"] {
-            assert_eq!(
-                InterpretationError::MidiDataByte { role, value: 0x80 }.to_string(),
-                format!("MIDI {role} 80 is outside the range 00\u{2013}7F")
-            );
-        }
+        assert_eq!(
+            Controller::try_from(0x80).unwrap_err().to_string(),
+            "MIDI controller 80 is outside the range 00\u{2013}7F"
+        );
+        assert_eq!(
+            ControlValue::try_from(0x80).unwrap_err().to_string(),
+            "MIDI value 80 is outside the range 00\u{2013}7F"
+        );
+        assert_eq!(
+            BendLsb::try_from(0x80).unwrap_err().to_string(),
+            "MIDI lsb 80 is outside the range 00\u{2013}7F"
+        );
+        assert_eq!(
+            BendMsb::try_from(0x80).unwrap_err().to_string(),
+            "MIDI msb 80 is outside the range 00\u{2013}7F"
+        );
 
         assert_eq!(
             MidiChannel::try_from(0x10).unwrap_err().to_string(),
@@ -842,6 +947,12 @@ mod test {
     }
 
     #[test]
+    fn control_change_and_pitch_bend_display_with_the_terminal_output_family_spellings() {
+        assert_eq!(Function::ControlChange.to_string(), "!c");
+        assert_eq!(Function::PitchBend.to_string(), "!b");
+    }
+
+    #[test]
     fn exactly_the_terminal_output_family_is_classified_terminal() {
         // The two families are visible in the spellings a user types: the dot
         // family answers with a value, and the `!` family performs. A
@@ -877,6 +988,7 @@ mod test {
             let expected = match function {
                 Function::AbsoluteDifference
                 | Function::Add
+                | Function::ControlChange
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
                 | Function::Divide
@@ -886,6 +998,7 @@ mod test {
                 | Function::Modulo
                 | Function::MonophonicPlay
                 | Function::Multiply
+                | Function::PitchBend
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => true,

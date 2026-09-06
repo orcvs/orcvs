@@ -676,8 +676,9 @@ impl TryFrom<Atom> for NumericValue {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, EXP_LEN, Error, Function, InterpretationError, Length, MidiChannel,
-        Note, Performance, PlayCommand, Sequence, SequenceError, Stack, TypeError, Value, Velocity,
+        ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, EXP_LEN, Error, Function,
+        InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
+        SequenceError, Stack, TypeError, Value, Velocity,
         atom::operands,
         stack::{MAX_OPERANDS, NumericValue},
     };
@@ -776,6 +777,50 @@ mod test {
                 })
             },
         )
+    }
+
+    /// Control Change, per element, as `functions::control_change` states it.
+    fn control_change(stack: &mut Stack<16>) -> Result<Performance, Error> {
+        stack.perform(
+            |operands::ControlChange {
+                 channel,
+                 controller,
+                 value,
+             }: operands::ControlChange| {
+                Ok(PlayCommand::ControlChange {
+                    channel,
+                    controller,
+                    value,
+                })
+            },
+        )
+    }
+
+    /// Pitch Bend, per element, as `functions::pitch_bend` states it.
+    fn pitch_bend(stack: &mut Stack<16>) -> Result<Performance, Error> {
+        stack.perform(
+            |operands::PitchBend { channel, lsb, msb }: operands::PitchBend| {
+                Ok(PlayCommand::PitchBend { channel, lsb, msb })
+            },
+        )
+    }
+
+    /// One Control Change Command, from the bytes a Source would have written.
+    fn cc(channel: u8, controller: u8, value: u8) -> PlayCommand {
+        PlayCommand::ControlChange {
+            channel: MidiChannel::try_from(channel).unwrap(),
+            controller: Controller::try_from(controller).unwrap(),
+            value: ControlValue::try_from(value).unwrap(),
+        }
+    }
+
+    /// One Pitch Bend Command, from the bytes a Source would have written.
+    fn bend(channel: u8, lsb: u8, msb: u8) -> PlayCommand {
+        PlayCommand::PitchBend {
+            channel: MidiChannel::try_from(channel).unwrap(),
+            lsb: BendLsb::try_from(lsb).unwrap(),
+            msb: BendMsb::try_from(msb).unwrap(),
+        }
     }
 
     /// One Raw Play Command, from the bytes a Source would have written.
@@ -936,6 +981,116 @@ mod test {
                 raw(0x01, 0x7F, 64),
                 raw(0x01, 0x7F, 67),
             ])
+        );
+    }
+
+    #[test]
+    fn a_control_change_and_a_bend_widen_at_every_data_byte_position() {
+        // The two spellings ADR 0030 reaches that carry no note. Each has two
+        // data bytes of one domain, so the widened position is what a
+        // transposition would move: every operand value differs from every
+        // other, and the elements ascend, so a swap of the two roles or a
+        // reversal of element order answers a different group.
+        //
+        // A controller sweep: one controller position widened, the value held.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                numbers([0x10, 0x20, 0x30]).into(),
+                Atom::Number(0x40).into(),
+            ],
+        );
+
+        assert_eq!(
+            control_change(&mut stack).unwrap(),
+            Performance::Many(vec![
+                cc(0x01, 0x10, 0x40),
+                cc(0x01, 0x20, 0x40),
+                cc(0x01, 0x30, 0x40),
+            ])
+        );
+
+        // And the value position, which is the ramp a Source writes to sweep
+        // one controller rather than a bank of them.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x07).into(),
+                numbers([0x00, 0x40, 0x7F]).into(),
+            ],
+        );
+
+        assert_eq!(
+            control_change(&mut stack).unwrap(),
+            Performance::Many(vec![
+                cc(0x01, 0x07, 0x00),
+                cc(0x01, 0x07, 0x40),
+                cc(0x01, 0x07, 0x7F),
+            ])
+        );
+
+        // The bend's fine half against a held coarse half. Keeping the two
+        // halves as two operands is what makes this spellable at all: an
+        // assembled fourteen-bit operand would have no position for a Source
+        // to widen without also moving the coarse half.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x03).into(),
+                numbers([0x00, 0x2A, 0x7F]).into(),
+                Atom::Number(0x40).into(),
+            ],
+        );
+
+        assert_eq!(
+            pitch_bend(&mut stack).unwrap(),
+            Performance::Many(vec![
+                bend(0x03, 0x00, 0x40),
+                bend(0x03, 0x2A, 0x40),
+                bend(0x03, 0x7F, 0x40),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_control_change_and_a_bend_of_scalar_operands_answer_no_group() {
+        // The other half of the shape claim, for the two spellings that
+        // reached ADR 0030 last: a scalar Expression answers `One` and not a
+        // group of one, so a Source that wrote no Sequence is not told it
+        // performed a group.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x01).into(),
+                Atom::Number(0x07).into(),
+                Atom::Number(0x40).into(),
+            ],
+        );
+
+        assert_eq!(
+            control_change(&mut stack).unwrap(),
+            Performance::One(cc(0x01, 0x07, 0x40))
+        );
+
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [
+                Atom::Number(0x03).into(),
+                Atom::Number(0x2A).into(),
+                Atom::Number(0x33).into(),
+            ],
+        );
+
+        assert_eq!(
+            pitch_bend(&mut stack).unwrap(),
+            Performance::One(bend(0x03, 0x2A, 0x33))
         );
     }
 
