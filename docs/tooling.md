@@ -151,7 +151,9 @@ contract script pins the exact text of those lines.
 Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
 directory beside each crate's `src`, one file per module, and no ignore rule excludes them. The
 contract script pins the path for each property — `lang/proptest-regressions/parser.txt`,
-`lang/proptest-regressions/interpreter.txt`, and `orcvs/proptest-regressions/grid.txt` — by asking
+`lang/proptest-regressions/interpreter.txt`, `orcvs/proptest-regressions/grid.txt`,
+`orcvs/proptest-regressions/source/language_map.txt`, and
+`orcvs/proptest-regressions/source/tick.txt` — by asking
 `git check-ignore` rather than reading
 `.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule. A
 counterexample that CI can see and a developer cannot reproduce is worse than no property at all, so

@@ -212,6 +212,15 @@ pub enum Activation {
 }
 
 impl Activation {
+    /// Every Activation, in the order the variants are declared.
+    ///
+    /// `Function::ALL` is generated from the Function table, and the sweeps
+    /// that read it stay honest when a Function is added. The Activations are
+    /// a hand-written enum, so this is the same guarantee written out once:
+    /// a test that reads it covers a fifth Activation the day one is declared,
+    /// rather than passing while never testing it.
+    pub const ALL: &'static [Self] = &[Self::North, Self::South, Self::West, Self::East];
+
     pub fn spelling(self) -> &'static str {
         match self {
             Self::North => "^^",
@@ -736,6 +745,34 @@ mod test {
         Activation, Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length,
         MidiChannel, Note, Velocity, to_atom_num,
     };
+
+    #[test]
+    fn every_activation_variant_is_named_in_all() {
+        // The match is the guard: a fifth Activation stops this compiling,
+        // which is what a hand-written `ALL` needs in place of the generation
+        // that keeps `Function::ALL` honest. The membership check is the other
+        // half — a variant declared but left out of `ALL` fails here rather
+        // than going untested wherever `ALL` is swept.
+        for activation in [
+            Activation::North,
+            Activation::South,
+            Activation::West,
+            Activation::East,
+        ] {
+            let spelling = match activation {
+                Activation::North => "^^",
+                Activation::South => "vv",
+                Activation::West => "<<",
+                Activation::East => ">>",
+            };
+            assert_eq!(activation.spelling(), spelling);
+            assert!(
+                Activation::ALL.contains(&activation),
+                "{activation:?} is not named in Activation::ALL",
+            );
+        }
+        assert_eq!(Activation::ALL.len(), 4);
+    }
 
     #[test]
     fn each_midi_domain_type_accepts_exactly_its_protocol_range() {

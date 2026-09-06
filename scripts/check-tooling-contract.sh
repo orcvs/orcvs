@@ -408,7 +408,12 @@ fi
 # check-ignore answers 0 for ignored and 1 for not ignored, but 128 for its own
 # failures. Collapsing 128 into "not ignored" would make this check pass silently
 # wherever git cannot answer, so only 1 is accepted as the clean result.
-for regressions_path in lang/proptest-regressions/parser.txt lang/proptest-regressions/interpreter.txt orcvs/proptest-regressions/grid.txt; do
+for regressions_path in \
+  lang/proptest-regressions/parser.txt \
+  lang/proptest-regressions/interpreter.txt \
+  orcvs/proptest-regressions/grid.txt \
+  orcvs/proptest-regressions/source/language_map.txt \
+  orcvs/proptest-regressions/source/tick.txt; do
   ignore_status=0
   git -C "$root_dir" check-ignore -q "$regressions_path" || ignore_status=$?
   case "$ignore_status" in
