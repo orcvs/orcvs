@@ -100,10 +100,12 @@ macro_rules! define_data_byte_roles {
         impl $name {
             /// The zero data byte, which every role in this domain contains.
             ///
-            /// A constant rather than a conversion a caller has to unwrap: the
-            /// Playback Engine delivers a scheduled Note Off as MIDI's
-            /// zero-velocity stop, and a `try_from(0)` there would be an
-            /// unreachable failure path inside a Tick.
+            /// A constant rather than a conversion a caller has to unwrap.
+            /// `Velocity::ZERO` is the one with callers: the Playback Engine
+            /// delivers a scheduled Note Off as MIDI's zero-velocity stop, and
+            /// a `try_from(0)` there would be an unreachable failure path
+            /// inside a Tick. Every other role inherits the constant from this
+            /// macro rather than because a caller asked for it.
             pub const ZERO: Self = Self(0);
 
             #[inline(always)]
@@ -392,11 +394,14 @@ macro_rules! operand_bind {
         }
     };
     // Every domain declared over a Number binds the same way, so the arm is
-    // written once and the declared types forward to it. Repeating it per role
-    // would put six near-identical bodies in a macro no test reads directly,
-    // where a copy that named another role's type would still compile: the two
-    // Control Change roles and the two Pitch Bend roles differ in nothing but
-    // the type each converts to.
+    // written once and the declared types forward to it. That buys brevity and
+    // nothing else, and in particular it is not what keeps one role from
+    // binding another role's domain. `define_functions!` initialises each field
+    // of the generated operand struct straight from this macro, so an arm that
+    // converted to the wrong domain of the same token fails to compile at that
+    // field — `expected BendMsb, found BendLsb` — whether the body is written
+    // here once or repeated six times. Six near-identical bodies would have
+    // been exactly as safe and merely longer.
     (@number_domain $domain:ty, $operand:expr, $role:ident) => {
         match $operand {
             Some(crate::Atom::Number(value)) => {
@@ -428,8 +433,10 @@ macro_rules! operand_bind {
         operand_bind!(@number_domain crate::BendMsb, $operand, $role)
     };
     // The one declared domain that is the whole byte, so this converts where
-    // the others validate. It still binds through the same arm, because what
-    // makes a length a length is the type it arrives as, not a check it passed.
+    // the others validate. It has an arm of its own rather than forwarding to
+    // `@number_domain` above: every byte is a length, so `Length` converts
+    // infallibly and has no `TryFrom` to share. What makes a length a length is
+    // the type it arrives as, not a check it passed.
     (Length, $operand:expr, $role:ident) => {
         match $operand {
             Some(crate::Atom::Number(value)) => Ok::<_, crate::Error>(crate::Length::from(value)),

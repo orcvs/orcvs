@@ -98,8 +98,26 @@ Source that wants to think in bend units needs a Function that converts, not a c
 operand position diagnoses rather than broadcasting — `stack.rs` pins that at every position for
 both new operand structs. Extending the family over Sequences is `05`.
 
+The byte-sequence checkbox is met at one seam of the two it names, and the other one no longer has
+bytes to assert. `OutputAdapter::submit` took `&[PlayCommand]` when this checklist was written;
+issue 02 changed it to `&[OutputCommand]`, and `InMemoryOutputAdapter` records the commands it is
+handed rather than a wire encoding, so `MidiOutputAdapter` against its test backend is now the only
+place in Orcvs where a MIDI byte exists to compare. The in-memory tests assert the Output Commands
+and their order; the native tests assert the bytes. The box is left ticked on that reading rather
+than reworded, because the requirement is satisfied wherever it is satisfiable and the reader of
+this ticket should see why the two halves differ.
+
+Review also added `control_change_and_pitch_bend_reject_a_note_in_every_operand_position`. `!>` and
+`!~` each carry a mistyped-operand test and these two had arity and range coverage only, so the
+type refusal that precedes both was the one claim in ADR 0016's "missing, mistyped, or out-of-range"
+sentence with no test of its own here.
+
 The `operand_bind!` arms for the six Number-declared domains now forward to one shared
-`@number_domain` arm rather than repeating an eight-line body apiece. Four of those six differ in
-nothing but the type they convert to, and a copied arm naming another role's type would still have
-compiled; the generated `declaration_agreement` test would have caught a token that disagreed with
-its bind, but not a bind that converted to the wrong domain of the same token.
+`@number_domain` arm rather than repeating an eight-line body apiece. That is brevity and nothing
+more. The justification first recorded here was wrong and review caught it: a copied arm naming
+another role's type does *not* compile. `define_functions!` initialises each field of the generated
+operand struct straight from `operand_bind!`, so binding a `BendLsb` into an `msb: BendMsb` field is
+a type error at that field — confirmed by making exactly that edit and compiling it. The
+`declaration_agreement` test catches a token that disagrees with its bind; the generated field type
+catches a bind that converts to the wrong domain of the same token. Neither protection needed this
+refactor, and the refactor adds none of its own.

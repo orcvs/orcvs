@@ -691,6 +691,33 @@ mod test {
     }
 
     #[test]
+    fn control_change_and_pitch_bend_reject_a_note_in_every_operand_position() {
+        // Every operand of both Functions is declared over a Number, so a Note
+        // is what separates the token the parser reads from the domain declared
+        // over it. `!>` and `!~` each carry this claim for their own
+        // signatures; without it these two are covered for arity and for range
+        // but never for the type refusal that has to precede both.
+        type Terminal = fn(&mut Context) -> Result<PlayCommand, Error>;
+
+        for extract in [control_change as Terminal, pitch_bend as Terminal] {
+            for mistyped in 0..3 {
+                let mut arguments = [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)];
+                arguments[mistyped] = Atom::Note(crate::Note::try_from(0x03).unwrap());
+
+                let mut ctx = context();
+                for argument in arguments.into_iter().rev() {
+                    ctx.stack.push(argument).unwrap();
+                }
+
+                assert!(
+                    matches!(extract(&mut ctx), Err(Error::Type(_))),
+                    "a Note in operand {mistyped} was accepted",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn control_change_and_pitch_bend_take_a_midi_channel_and_two_data_bytes() {
         // ADR 0016's domains for both spellings, each proven by an operand
         // that leaves them. The data-byte diagnostics are what the role types
