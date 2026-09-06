@@ -157,7 +157,7 @@ impl<'a> Parser<'a> {
                             }
                             Err(error) => {
                                 self.expression.add_invalid(t)?;
-                                return Ok(ParseStatus::Invalid(error));
+                                status = status.merge(ParseStatus::Invalid(error));
                             }
                         }
                     }
@@ -266,6 +266,65 @@ mod test {
             Parser::from(&mut ".+01XY".to_owned()).analyze().unwrap(),
             SourceAnalysis::Invalid { .. }
         ));
+    }
+
+    #[test]
+    fn layout_preserves_invalid_and_missing_slots_and_later_nested_operands() {
+        let analysis = Parser::from(&mut "!>**7F.^3C".to_owned())
+            .analyze()
+            .unwrap();
+        assert!(matches!(analysis, SourceAnalysis::Invalid { .. }));
+        assert_eq!(
+            analysis.expression().layout().collect::<Vec<_>>(),
+            vec![
+                (0, Token::Function, Some(Atom::Function(Function::RawPlay))),
+                (2, Token::Number, None),
+                (4, Token::Number, Some(Atom::Number(127))),
+                (
+                    6,
+                    Token::Function,
+                    Some(Atom::Function(Function::ConvertToNote))
+                ),
+                (8, Token::Number, Some(Atom::Number(60))),
+            ]
+        );
+        let incomplete = Parser::from(&mut "!>00".to_owned()).analyze().unwrap();
+        assert_eq!(
+            incomplete.expression().layout().collect::<Vec<_>>(),
+            vec![
+                (0, Token::Function, Some(Atom::Function(Function::RawPlay))),
+                (2, Token::Number, Some(Atom::Number(0))),
+                (4, Token::Number, None),
+                (6, Token::Note, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn binding_layout_repairs_operands_without_reparsing_functions_or_types() {
+        let analysis = Parser::from(&mut "!>**7F.v".to_owned()).analyze().unwrap();
+        let expression = analysis.expression();
+        assert_eq!(
+            expression.bind_source("!>007F.vC4").unwrap().as_slice(),
+            &[
+                Atom::Function(Function::RawPlay),
+                Atom::Number(0),
+                Atom::Number(127),
+                Atom::Function(Function::ConvertToNumber),
+                Atom::Note(crate::Note::try_from(60).unwrap()),
+            ]
+        );
+        assert!(expression.bind_source("!>007F.^3C").is_err());
+        assert!(expression.bind_source("!>.v7F.vC4").is_err());
+        assert!(expression.bind_source("!>007F.v").is_err());
+        assert!(expression.bind_source("!>007F.v**").is_err());
+        // The same two Cells remain a Number or a Note according to the
+        // original operand slot, including after an earlier slot was invalid.
+        let numeric = Parser::from(&mut ".+XY01".to_owned()).analyze().unwrap();
+        assert_eq!(
+            numeric.expression().bind_source(".+C401").unwrap()[1],
+            Atom::Number(196)
+        );
     }
 
     #[test]

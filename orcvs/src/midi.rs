@@ -364,11 +364,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 2);
+        let grid = Grid::new(10, 4);
         let source = SourceCommander::new(grid);
-        // The Bang one row below the root anchor keeps the Raw Play active on
-        // every Tick; without it a terminal root emits nothing at all.
-        for (index, content) in "!>007FC4  **".chars().enumerate() {
+        // The comparison produces a fresh Bang one row above the Raw Play
+        // each Tick; displayed or manually entered Bangs do not activate it.
+        for (index, content) in ".=0101              !>007FC4".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
@@ -395,17 +395,17 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn disconnected_output_reports_delivery_failure_once() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 2);
+        let grid = Grid::new(10, 4);
         let source = SourceCommander::new(grid);
-        // The Bang one row below the root anchor keeps the Raw Play active on
-        // every Tick; without it a terminal root emits nothing at all.
-        for (index, content) in "!>007FC4  **".chars().enumerate() {
+        // The comparison generates a fresh Bang for every attempted delivery, including
+        // repeated attempts after the adapter has disconnected.
+        for (index, content) in ".=0101              !>007FC4".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        let playback = PlaybackEngine::new(source, adapter);
+        let playback = PlaybackEngine::new(source.clone(), adapter);
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
@@ -429,11 +429,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn changing_destination_clears_the_scheduled_timed_stop() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 3);
+        let grid = Grid::new(10, 4);
         let source = SourceCommander::new(grid);
         // A Timed Play whose note is stopped two Ticks after it starts, and
-        // the Bang one row below the root anchor that activates it.
-        for (index, content) in "!~007FC402**".chars().enumerate() {
+        // the comparison whose output one row above the root activates it.
+        for (index, content) in ".=0101              !~007FC402".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
@@ -451,12 +451,11 @@ mod tests {
             Some(&vec![0x90, 60, 0x7f])
         );
 
-        // Retire the Bang so nothing new plays, then change destination. The
+        // Make the comparison false so nothing new plays, then change destination. The
         // note is sounding on the destination being left, which is sent
         // all-notes-off as it goes, so its scheduled stop belongs to a device
         // this engine no longer holds.
-        source.unset(cell(grid, 10));
-        source.unset(cell(grid, 11));
+        source.set(cell(grid, 5), "2").unwrap();
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
@@ -474,11 +473,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_destination_change_that_fails_to_connect_clears_the_scheduled_stop() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 3);
+        let grid = Grid::new(10, 4);
         let source = SourceCommander::new(grid);
         // The same Timed Play the successful change uses: a note stopped two
-        // Ticks after it starts, and the Bang one row below its root.
-        for (index, content) in "!~007FC402**".chars().enumerate() {
+        // Ticks after it starts, and the comparison that generates its activation.
+        for (index, content) in ".=0101              !~007FC402".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {
@@ -496,13 +495,12 @@ mod tests {
             Some(&vec![0x90, 60, 0x7f])
         );
 
-        // Retire the Bang, then attempt a change the device refuses. The
+        // Make the comparison false, then attempt a change the device refuses. The
         // all-notes-off that precedes the connection is sent regardless, so the
         // note is silenced whether or not the new destination is reached: a
         // change that silences the old device owes the same cleared schedule
         // whether it completes or fails.
-        source.unset(cell(grid, 10));
-        source.unset(cell(grid, 11));
+        source.set(cell(grid, 5), "2").unwrap();
         state.lock().unwrap().fail_next_connect = true;
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))

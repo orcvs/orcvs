@@ -45,7 +45,7 @@ Two Source Cells interpreted as an Atom according to the typed operand position 
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Source Snapshot**:
-The complete Source observed for one Tick. It is simultaneously an executable Orcvs program and the accumulated output of all preceding Ticks, so no persistent language state exists outside it.
+The complete Source at the beginning of a Tick, including the accumulated output of preceding Ticks. It determines initial language state; dependencies supply current-Tick values before their consumers evaluate. Prior Bang display is not a new activation.
 _Avoid_: Program state, runtime state
 
 **Expression**:
@@ -65,11 +65,11 @@ A named Orcvs language operation evaluated within an Expression. A Function may 
 _Avoid_: Operator, command
 
 **Source Function**:
-A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond the ordinary result position. Its reads observe the current Source Snapshot. A Source-writing Function resolves one or more Portals, validates its complete effect bundle, then contributes the bundle's ordered writes to the Tick Plan.
+A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond the ordinary result position. Its reads observe current-Tick values supplied by its scheduled dependencies, and its writes pass through Portals.
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
-A one-Tick pulse Atom encoded as `**`, distinct from every Number and Function. For a Bang anchored at `(x, y)`, its aligned cardinal root anchors are north `(x, y-1)`, south `(x, y+1)`, west `(x-2, y)`, and east `(x+2, y)`; only complete Expression roots at those anchors activate when their Source-order turns occur. A Bang present in the Source Snapshot is removed by that Tick's atomic commit. A Bang generated during planning is written at the current commit, remains visible in the next Source Snapshot, and is removed by that next Tick's commit. Direct same-Tick delivery to a root is an activation event separate from the stored glyph; it does not overwrite the Function and applies only if the root's turn has not passed.
+A transient pulse Atom returned by a Function, whose output activates aligned neighboring roots during the same Tick. Its `**` spelling is a visual representation of that output, not an executable Function or a new activation on the following Tick. Manually entering `**` is a no-op. A `**` spelling rejected in a typed operand remains invalid syntax and cannot activate another root.
 _Avoid_: Boolean, trigger flag
 
 **Directional Bang Function**:
@@ -77,15 +77,15 @@ One of the four Source Functions `*^`, `*v`, `*<`, and `*>`. Like every ordinary
 _Avoid_: Always Function, movement Function, automatic mode
 
 **Self-Banging Function**:
-One of the root-only Source Functions `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. At its Source-order turn it intrinsically receives Bang activation without creating a Source-resident `**`, then advances its complete two-Cell Span by one Cell in its retained direction. A successful move atomically clears the current Span and writes the Function's own spelling at the shifted destination. A blocked or out-of-Grid move instead changes its current Span to `**`. Complete aligned contact with an Expression root delivers Bang activation when that root's turn has not passed. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. A Self-Banging Function is not an operand, runtime value, or Sequence member.
+One of the root-only Source Functions `^^`, `vv`, `<<`, and `>>`, emitted by the matching Directional Bang Function. In its scheduled evaluation it intrinsically receives Bang activation without creating a Source-resident `**`, then advances its complete two-Cell Span by one Cell in its retained direction. A successful move atomically clears the current Span and writes the Function's own spelling at the shifted destination. A blocked or out-of-Grid move instead changes its current Span to `**`. Complete aligned contact with an Expression root establishes Bang activation for that root in the dependency schedule. Contact with only part of another Language Unit is an alignment diagnostic: it still blocks the move and produces `**`, but does not activate the partially contacted unit. A Self-Banging Function is not an operand, runtime value, or Sequence member.
 _Avoid_: Activation Character, Self-Activating Function, Arrow Function, moving Bang, projectile
 
 **Halt Function**:
-The Source Function `*!`. When active at its Source-order turn, it locks the Expression root directly south before that root's later turn. Orcvs does not revisit a Halt Function after its turn, and a Halt Function suppressed by another Halt Function does not lock its own target.
+The Source Function `*!`. When active, it establishes a dependency that locks the Expression root directly south before that root can execute. Orcvs evaluates each Halt Function at most once per Tick, and a Halt Function suppressed by another Halt Function does not lock its own target.
 _Avoid_: Stop Function, control phase, retroactive suppression
 
 **Jump Function**:
-One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies exactly one aligned two-Cell Language Unit from the side opposite its direction to the far side of a consecutive chain with the same spelling. The chain head is the member adjacent to the input; only the head relays, while later members produce no effect. Horizontal members have touching Spans with anchors two columns apart; vertical members share an anchor column on adjacent rows. A gap, misalignment, or different spelling ends the chain. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Span. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump reads only the Source Snapshot, but its Bang output can activate a later root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
+One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies exactly one aligned two-Cell Language Unit from the side opposite its direction to the far side of a consecutive chain with the same spelling. The chain head is the member adjacent to the input; only the head relays, while later members produce no effect. Horizontal members have touching Spans with anchors two columns apart; vertical members share an anchor column on adjacent rows. A gap, misalignment, or different spelling ends the chain. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Span. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump participates in the dependency schedule, and its Bang output can activate a root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
 _Avoid_: Jumper, Jymper, Sequence transport
 
 **Number**:
@@ -133,7 +133,7 @@ The Sequence Function `:=`. It uses a zero-based Number index modulo the length 
 _Avoid_: Push Function, Sequence replacement operand, mutation
 
 **Portal**:
-One Cell destination resolved while interpreting a Source Snapshot. An ordinary result sends an Atom or intact Sequence through one Portal; a Source Function may use multiple Portals in one validated effect bundle, including clear operations that write spaces. A Portal is neither a language value, Source content, nor persistent state.
+One Cell destination resolved during a Tick. It carries an ordinary Atom or intact Sequence result, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state.
 _Avoid_: Port, address value, output coordinate
 
 **Comment**:
@@ -149,15 +149,15 @@ The complete deterministic outcome of interpreting one Source Snapshot at a part
 _Avoid_: Play sequence, command batch
 
 **Producer**:
-One Language Unit or Expression root that takes a turn when a Tick Plan is built. A Producer has one anchor Position and emits an ordered sequence of Effects. The Producers are the Expression root, the Source-resident Bang, the Self-Banging Function, the Jump chain head, and Halt; only units present in the Source Snapshot are Producers, so a planned write is never one in the Tick that plans it.
+An original Function with an anchor Position and an opportunity to contribute ordered Effects during a Tick. Bang is a result a Producer can emit, not a Producer of its own.
 _Avoid_: Emitter, actor, source operator
 
 **Turn**:
-One Producer's opportunity to emit, taken at its anchor Position. Turns run in row-major anchor order across one Source Snapshot, and a Producer takes at most one; a Producer whose turn has passed is never revisited, which is what lets activation reach only a root still ahead of the current turn.
+One original Producer's opportunity to emit Effects after its current-Tick data and activation dependencies have settled. A Producer takes at most one turn; Position breaks ties between independent Producers.
 _Avoid_: Pass, visit, step
 
 **Effect**:
-One thing a Producer contributes to the Tick Plan: a Cell write, an activation delivery, a root lock, a diagnostic, or the ordered group of Play Commands one terminal root performs. Effects are ordered first by their Producer's Position and then by the order that Producer emits them. A broadcast Terminal Output Function contributes one Effect carrying many commands rather than many Effects, because per ADR 0030 every command of one Expression shares that Expression's Position and Position alone can no longer order them: element index orders the commands within the Effect, and ADR 0020's Position order between Producers is unchanged. A fault at any element emits no command at all, because the group is answered only once every element has produced its command: a partly sounded chord is never constructed rather than being refused after the fact, which is a property of the one construction point and not of the type. Cell writes validate their whole destination before any Cell of them is emitted, and resolve Cell-wise, so a later Effect wins each Cell it overlaps and leaves the rest of an earlier write standing.
+One thing a Producer contributes to the Tick Plan: a Cell write, an activation delivery, a root lock, a diagnostic, or the ordered group of Play Commands one terminal root performs. Effects follow execution order and the order their Producer emits them. A broadcast Terminal Output Function contributes one Effect carrying its commands in element order; a fault at any element emits no part of that group. A Cell write is admitted only when its complete destination is valid.
 _Avoid_: Action, mutation, command
 
 **Playback**:

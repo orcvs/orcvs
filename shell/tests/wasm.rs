@@ -1,10 +1,10 @@
 #![cfg(target_arch = "wasm32")]
 
 use gloo_timers::future::TimeoutFuture;
-use lang::{MidiChannel, Note, PlayCommand, Velocity};
+use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
-use orcvs::playback::{InMemoryOutputAdapter, PlaybackEngine, PlaybackState};
+use orcvs::playback::{InMemoryOutputAdapter, OutputCommand, PlaybackEngine, PlaybackState};
 use orcvs::source::SourceCommander;
 use shell::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use std::time::Duration;
@@ -46,10 +46,10 @@ fn missing_canvas_reports_an_in_page_startup_error_without_panicking() {
 
 #[wasm_bindgen_test(async)]
 async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling() {
-    let source = SourceCommander::new(Grid::new(10, 2));
-    // The Bang one row below the root anchor activates the Raw Play; without
-    // it the terminal root emits nothing.
-    write(&source, "!>007FC4  **");
+    let source = SourceCommander::new(Grid::new(10, 3));
+    // Equality produces a fresh Bang in the middle row, activating Raw Play
+    // immediately below it on every Tick.
+    write(&source, ".=0101              !>007FC4");
     let adapter = InMemoryOutputAdapter::default();
     let engine = PlaybackEngine::new(source, adapter.clone());
 
@@ -60,7 +60,7 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
 
     assert_eq!(engine.observe().state, PlaybackState::Playing);
     assert!(adapter.command_lists().iter().any(|commands| commands
-        == &[PlayCommand::Raw {
+        == &[OutputCommand::NoteOn {
             channel: MidiChannel::try_from(0).unwrap(),
             velocity: Velocity::try_from(0x7F).unwrap(),
             note: Note::try_from(60).unwrap()
@@ -83,8 +83,8 @@ async fn web_playback_evaluates_dot_family_arithmetic() {
 
 #[wasm_bindgen_test(async)]
 async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
-    let source = SourceCommander::new(Grid::new(10, 2));
-    write(&source, "!>007FC4  **");
+    let source = SourceCommander::new(Grid::new(10, 3));
+    write(&source, ".=0101              !>007FC4");
     let adapter = InMemoryOutputAdapter::default();
     let engine = PlaybackEngine::new(source, adapter.clone());
 

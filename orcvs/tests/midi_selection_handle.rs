@@ -48,7 +48,7 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
     let state = Arc::new(Mutex::new(FakeState::default()));
     let mut orcvs = Orcvs::with_output_adapter(
         10,
-        2,
+        3,
         MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         }),
@@ -60,15 +60,14 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
         vec![MidiDestination::new("studio", "Studio Synth")]
     );
     midi.select(&MidiDestinationId::new("studio")).unwrap();
-    for content in "!>007FC4".chars() {
+    for content in ".=0101".chars() {
         orcvs.write(&content.to_string());
     }
-    // Writing leaves the Cursor just past the Play, so it walks down a row and
-    // back to column 0 — the ArrowLeft presses saturate there — for the Bang
-    // that activates the Raw Play root above it.
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown)]);
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 8]);
-    for content in "**".chars() {
+    // Equality writes its Bang into the middle row. MIDI sits immediately
+    // below that result and therefore receives the current Tick's activation.
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown); 2]);
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 6]);
+    for content in "!>007FC4".chars() {
         orcvs.write(&content.to_string());
     }
 

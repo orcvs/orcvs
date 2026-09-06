@@ -133,9 +133,11 @@ impl Span {
 #[derive(Clone)]
 pub struct ExpressionEntry {
     map_id: LanguageMapId,
+    expression: Expression,
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
+    function_candidate: Option<(Position, Function)>,
     span: Span,
     /// Where this Expression's Language Units sit in its Map's partition,
     /// established when the Expression was built.
@@ -150,6 +152,22 @@ impl ExpressionEntry {
     /// The first Function anchor when this is a complete executable Expression.
     pub fn root(&self) -> Option<Position> {
         self.root
+    }
+
+    /// The parsed leading Function, even when its operands are not yet valid.
+    /// A Tick reserves its turn so earlier writes can complete those operands.
+    pub(super) fn function_candidate(&self) -> Option<(Position, Function)> {
+        self.function_candidate
+    }
+
+    /// Parser-owned slots, including invalid and missing operands. Offsets are
+    /// relative to this Expression's anchor and may extend past its Span.
+    pub(super) fn layout(&self) -> impl Iterator<Item = (usize, Token, Option<Atom>)> + '_ {
+        self.expression.layout()
+    }
+
+    pub(super) fn bind_source(&self, source: &str) -> Result<Atoms, LangError> {
+        self.expression.bind_source(source)
     }
 
     pub fn span(&self) -> Span {
@@ -214,29 +232,26 @@ impl LanguageMap {
         self.units.iter()
     }
 
-    /// Whether a Source-resident Bang activates the root anchored at `root`.
-    ///
-    /// An ordinary root Expression is inert until a Bang activates it, and the
-    /// geometry deciding that is a question about where things sit rather than
-    /// about what any Function means. Keeping it here is what lets Source
-    /// interpretation stay a question about Atoms: the Interpreter is never
-    /// told where anything sits, and the MIDI path never learns what a Bang is.
-    ///
-    /// Bangs are partitioned independently of Expressions, so this reads the
-    /// Language Unit partition rather than any Expression's contents.
-    ///
-    /// This answers the geometry alone: whether a Bang is cardinally aligned
-    /// with `root`, not whether a complete root sits there. ADR 0006 requires
-    /// both, and the caller supplies the second half by passing an Expression's
-    /// own root anchor. A Position holding no root answers `true` just as
-    /// readily, so a future caller delivering activation to arbitrary Positions
-    /// owes its own root check.
-    pub fn is_root_active(&self, root: Position) -> bool {
-        self.units()
-            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Bang))
-            .any(|unit| {
-                activated_root_anchors(self.grid, unit.anchor()).any(|anchor| anchor == root)
+    /// Bang values from complete standalone Expressions, paired with their
+    /// spelling Spans. The parsed Atoms decide meaning; units supply geometry.
+    pub(super) fn bangs(&self) -> impl Iterator<Item = (Position, Span)> + '_ {
+        self.expressions().flat_map(move |expression| {
+            let atoms = expression.atoms().filter(|atoms| {
+                atoms
+                    .as_slice()
+                    .iter()
+                    .all(|atom| matches!(atom, Atom::Bang | Atom::Activation(_)))
+            });
+            atoms.into_iter().flat_map(move |atoms| {
+                atoms
+                    .as_slice()
+                    .iter()
+                    .zip(self.expression_units(expression))
+                    .filter_map(|(atom, unit)| {
+                        matches!(atom, Atom::Bang).then_some((unit.anchor(), unit.span()))
+                    })
             })
+        })
     }
 
     /// Every parser and unmatched-character diagnostic in this revision.
@@ -324,9 +339,11 @@ impl LanguageMap {
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
                     map_id: self.id,
+                    expression: Expression::new(),
                     atoms: None,
                     diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
                     root: None,
+                    function_candidate: None,
                     span,
                     units,
                 });
@@ -340,13 +357,16 @@ impl LanguageMap {
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
         let expression_units = &self.units[units.clone()];
+        let function_candidate = match expression.entries().next() {
+            Some((Token::Function, Atom::Function(function))) => {
+                Some((grid.position_at(start), function))
+            }
+            _ => None,
+        };
         let root = executable
-            .then(|| {
-                expression_units.iter().find_map(|unit| {
-                    matches!(unit.kind, LanguageUnitKind::Function(_)).then_some(unit.anchor)
-                })
-            })
-            .flatten();
+            .then_some(function_candidate)
+            .flatten()
+            .map(|(anchor, _)| anchor);
         let standalone_literal = matches!(
             expression_units,
             [LanguageUnit {
@@ -354,7 +374,7 @@ impl LanguageMap {
                 ..
             }]
         );
-        let (atoms, mut glyphs) = expression_parts(expression, executable);
+        let (atoms, mut glyphs) = expression_parts(&expression, executable);
         if !executable && standalone_literal {
             // A standalone Operand Literal has no contextual Number or Note
             // type. Preserve the existing raw-character presentation while
@@ -364,9 +384,11 @@ impl LanguageMap {
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
             map_id: self.id,
+            expression,
             atoms,
             diagnostic,
             root,
+            function_candidate,
             span,
             units,
         });
@@ -539,36 +561,6 @@ fn walk_source(grid: Grid, bytes: &[u8]) -> RowWalk {
     walk
 }
 
-/// The root anchors a Bang anchored at `bang` activates.
-///
-/// ADR 0006 states the geometry from the Bang outward: north `(x, y-1)`, south
-/// `(x, y+1)`, west `(x-2, y)`, and east `(x+2, y)`. The horizontal step is two
-/// Cells because every Language Unit is two Cells wide, so a horizontal
-/// neighbour's anchor sits two columns away rather than one. An anchor outside
-/// the Grid is not a Position at all and simply does not appear.
-///
-/// The west and east anchors are stated here because ADR 0006 states them, but
-/// no Source can reach them today: `walk_row` splits Expression runs only on
-/// spaces and `##`, so a horizontally adjacent Bang either merges into the
-/// root's own run and forms no root at all, or is separated by a space that
-/// puts its anchor three or more columns away. `spatial-tick-planning/02` owns
-/// the Snapshot Bang activation that makes them reachable;
-/// `test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root` pins
-/// the present behaviour until then.
-fn activated_root_anchors(grid: Grid, bang: Position) -> impl Iterator<Item = Position> {
-    let (x, y) = (bang.x(), bang.y());
-
-    [
-        y.checked_sub(1).map(|north| (x, north)),
-        Some((x, y + 1)),
-        x.checked_sub(2).map(|west| (west, y)),
-        Some((x + 2, y)),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(move |(x, y)| grid.position(x, y))
-}
-
 fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
     Diagnostic::for_range(
         grid,
@@ -653,7 +645,7 @@ fn standalone_run(units: &[LanguageUnit], span: Span) -> Option<Expression> {
     Some(expression)
 }
 
-fn expression_parts(expression: Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
+fn expression_parts(expression: &Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
     let glyphs = Glyph::to_glyphs(expression.tokens().collect());
     let atoms = executable.then(|| expression.atoms()).flatten();
     (atoms, glyphs)
@@ -706,6 +698,84 @@ mod tests {
     use lang::{Activation, Atom};
 
     use super::{LanguageMap, LanguageUnitKind, Span, prospective_span, walk_source};
+
+    #[test]
+    fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
+        for source in ["!>00**C4", "**X0**  ", "***     ", "**!>00  "] {
+            let grid = Grid::new(8, 2);
+            let map = LanguageMap::build(grid, format!("{source}        ").as_bytes());
+            assert_eq!(map.bangs().count(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn parsed_function_candidates_survive_missing_or_invalid_operands() {
+        for source in ["!>", "!>007F", "!>00**C4"] {
+            let grid = Grid::new(source.len(), 1);
+            let map = LanguageMap::build(grid, source.as_bytes());
+            let expression = map.expressions().next().unwrap();
+            assert_eq!(
+                expression.function_candidate(),
+                Some((
+                    grid.position(0, 0).unwrap(),
+                    lang::Function::try_from("!>").unwrap()
+                )),
+                "{source}",
+            );
+            assert!(expression.root().is_none(), "{source}");
+        }
+    }
+
+    #[test]
+    fn expression_layout_retains_slots_beyond_invalid_and_missing_source() {
+        for source in ["!>**7F", "!>00  "] {
+            let grid = Grid::new(12, 1);
+            let map = LanguageMap::build(grid, format!("{source}      ").as_bytes());
+            let expression = map.expressions().next().unwrap();
+            assert_eq!(
+                expression
+                    .layout()
+                    .map(|(offset, token, _)| (offset, token))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (0, lang::Token::Function),
+                    (2, lang::Token::Number),
+                    (4, lang::Token::Number),
+                    (6, lang::Token::Note)
+                ]
+            );
+            assert!(expression.atoms().is_none());
+            assert_eq!(
+                expression.bind_source("!>007FC4    ").unwrap()[3],
+                Atom::Note(lang::Note::try_from(60).unwrap())
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_prefix_does_not_promote_a_later_function_to_candidate() {
+        for source in ["XX!>007FC4", "**!>007FC4", "0!>007FC4"] {
+            let grid = Grid::new(source.len(), 1);
+            let map = LanguageMap::build(grid, source.as_bytes());
+            assert!(
+                map.expressions()
+                    .all(|expression| expression.function_candidate().is_none()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn adjacent_standalone_bangs_have_distinct_parsed_spans() {
+        let grid = Grid::new(6, 1);
+        let map = LanguageMap::build(grid, b"**>>**");
+        assert_eq!(
+            map.bangs()
+                .map(|(anchor, span)| (anchor.x(), span.start().get(), span.end().get()))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 1), (4, 4, 5)],
+        );
+    }
 
     ///
     /// The Expression Spans of a whole Source revision, in row-major order.
@@ -871,35 +941,6 @@ mod tests {
                 (6, vec![6, 7]),
             ]
         );
-    }
-
-    #[test]
-    fn a_bang_aligns_with_the_root_anchor_at_each_of_its_four_cardinal_positions() {
-        // The geometry filter alone: this Grid holds no root, because the
-        // horizontal anchors are unreachable from any Source that parses one
-        // (see `activated_root_anchors`). What a real root does with an
-        // aligned Bang is pinned end-to-end in `source::model`'s Tick tests.
-        let grid = Grid::new(6, 3);
-        let map = LanguageMap::build(grid, b"        **        ");
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-
-        // The Bang is anchored at (2, 1).
-        for (x, y) in [(2, 0), (2, 2), (0, 1), (4, 1)] {
-            assert!(map.is_root_active(at(x, y)), "({x}, {y})");
-        }
-        // One column off an aligned anchor, diagonally placed, or the Bang's
-        // own anchor: only complete cardinal alignment activates.
-        for (x, y) in [(1, 1), (3, 1), (1, 0), (3, 2), (2, 1)] {
-            assert!(!map.is_root_active(at(x, y)), "({x}, {y})");
-        }
-    }
-
-    #[test]
-    fn a_source_without_a_bang_activates_no_root() {
-        let grid = Grid::new(6, 1);
-        let map = LanguageMap::build(grid, b".+0102");
-
-        assert!(!map.is_root_active(grid.position(0, 0).unwrap()));
     }
 
     #[test]

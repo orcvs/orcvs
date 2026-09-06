@@ -1,47 +1,23 @@
-//! ADR 0020's producer and effect model for one Tick.
+//! Dependency-scheduled Tick evaluation (ADR 0032).
 //!
-//! Tick planning is one row-major pass over the Language Map derived from one
-//! Source Snapshot. Every actionable Language Unit and Expression root has one
-//! producer Position — its anchor — and takes at most one turn. A producer
-//! emits an ordered sequence of effects, and resolution folds those effects,
-//! in producer-then-emission order, into the Tick Plan.
-//!
-//! Only the Expression root has a producer today. The rest of
-//! `spatial-tick-planning` attaches here rather than beside here: the
-//! Source-resident Bang (02), the Self-Banging Function (03), the Jump chain
-//! head (04), and Halt (05) each add a `Producer` variant, an `emit` arm, and
-//! where they need one an `Effect` variant with its `resolve` arm. None of them
-//! adds a second ordering pass.
+//! Starting Source fixes the candidate roots and their operand layout. Data and
+//! Bang-activation edges determine execution order; each root binds its operands
+//! from working Source when its dependencies have settled. Source and terminal
+//! effects are published atomically after the schedule completes.
 
 use lang::{
-    Anchor, Atom, Atoms, Error as LangError, Interpretation, Interpreter, Tick, TickInputs,
+    Anchor, Atom, Atoms, Error as LangError, Function, Interpretation, Interpreter, Tick,
+    TickInputs,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::grid::{CellIndex, Grid, Position};
 
-use super::language_map::{ExpressionEntry, LanguageMap, Span};
+#[cfg(test)]
+use super::language_map::Span;
+use super::language_map::{ExpressionEntry, LanguageMap};
 use super::portal::{Portal, PortalError, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
-
-///
-/// One producer's turn in a Tick, taken at its anchor Position.
-///
-pub(super) struct Turn<'map> {
-    anchor: Position,
-    producer: Producer<'map>,
-}
-
-///
-/// The kinds of producer that take a turn from one Source Snapshot.
-///
-/// An ordinary Expression uses its root anchor. The producers ADR 0020 also
-/// names — the Source-resident Bang, the Self-Banging Function, the Jump chain
-/// head, and Halt — arrive with issues 02 to 05 as further variants here.
-///
-enum Producer<'map> {
-    ExpressionRoot(&'map ExpressionEntry),
-}
 
 ///
 /// One thing a producer contributes to the Tick Plan.
@@ -72,82 +48,423 @@ pub(super) enum Effect {
     /// emission order between Expressions is untouched.
     Play(Performance),
 
-    /// One diagnostic about this producer's turn.
+    /// One diagnostic about this producer's scheduled evaluation.
     Diagnose(Diagnostic),
 }
 
-///
-/// Every turn this Source Snapshot grants, in ADR 0020's row-major producer
-/// order.
-///
-pub(super) fn turns(grid: Grid, language_map: &LanguageMap) -> Vec<Turn<'_>> {
-    // A root anchor is the turn's selector, not a lookup after one. An
-    // `ExpressionEntry` carries a root only when it is executable and holds a
-    // Function unit, so selecting on the root admits exactly the Expressions
-    // that compute — the same set the pre-ADR-0020 loop reached by testing for
-    // a Function first and then asserting a root had to exist.
-    let mut turns: Vec<Turn<'_>> = language_map
-        .expressions()
-        .filter_map(|expression| {
-            expression.root().map(|anchor| Turn {
-                anchor,
-                producer: Producer::ExpressionRoot(expression),
-            })
-        })
-        .collect();
-
-    order_by_anchor(grid, &mut turns);
-    turns
+#[derive(Clone, Copy)]
+struct ScheduledRoot<'a> {
+    anchor: Position,
+    function: Function,
+    expression: &'a ExpressionEntry,
+    output: Result<Option<Position>, PortalError>,
 }
 
-///
-/// Orders producers by row-major anchor Position: row first, then column.
-///
-/// The Language Map happens to yield Expression roots this way already —
-/// Expression extents are collected in index order and never overlap, so an
-/// earlier Expression's root anchor always precedes a later one's. That is a
-/// property of one producer kind reading one partition, not of the ordering
-/// model. Stating the order here is what keeps a producer kind reading a
-/// different partition, such as the Language Unit partition issue 02 reads,
-/// from silently taking its turn out of order.
-///
-/// The sort is stable, so producers sharing an anchor keep the order they were
-/// collected in.
-///
-/// This guard is deliberately not pinnable end to end yet: with one producer
-/// kind reading one already-ordered partition, deleting the `order_by_anchor`
-/// call from `turns` leaves the whole suite green. Nothing can feed `turns` an
-/// out-of-order producer until `spatial-tick-planning/02` adds a producer over
-/// the Language Unit partition, which is the ticket that owes the end-to-end
-/// test. `test_producers_arriving_out_of_source_order_still_take_row_major_turns`
-/// pins the ordering itself in the meantime.
-///
-fn order_by_anchor(grid: Grid, turns: &mut [Turn<'_>]) {
-    turns.sort_by_key(|turn| grid.index(turn.anchor()));
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DependencyKind {
+    Data,
+    Activation,
 }
 
-impl Turn<'_> {
-    pub(super) fn anchor(&self) -> Position {
-        self.anchor
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Dependency {
+    producer: usize,
+    consumer: usize,
+    kind: DependencyKind,
+}
+
+struct Schedule<'a> {
+    roots: Vec<ScheduledRoot<'a>>,
+    dependencies: Vec<Dependency>,
+    order: Vec<usize>,
+}
+
+/// Executes the graph derived from one starting Source revision.
+pub(super) fn plan(grid: Grid, bytes: &[u8], map: &LanguageMap, tick: Tick) -> TickPlan {
+    plan_with_destinations(grid, bytes, map, tick, &BTreeMap::new())
+}
+
+fn plan_with_destinations(
+    grid: Grid,
+    bytes: &[u8],
+    map: &LanguageMap,
+    tick: Tick,
+    destinations: &BTreeMap<CellIndex, Position>,
+) -> TickPlan {
+    let schedule = match schedule(grid, map, destinations) {
+        Ok(schedule) => schedule,
+        Err(diagnostics) => {
+            return TickPlan {
+                writes: Vec::new(),
+                play_commands: Vec::new(),
+                diagnostics,
+            };
+        }
+    };
+
+    let mut working = bytes.to_vec();
+    let mut effects = Vec::new();
+
+    // A Source-resident `**` is display left by an earlier result (or text a
+    // person entered). It is never an event for this Tick. Clear only Bangs
+    // whose validity the starting parse established; an invalid operand
+    // spelling remains untouched and diagnosed by the Language Map.
+    for (anchor, _) in map.bangs() {
+        let clear = Portal::at(grid, anchor)
+            .admit("  ")
+            .expect("a parsed Bang's complete encoding fits its Grid");
+        apply_write(&mut working, &clear);
+        effects.push(Effect::Write(clear));
     }
 
-    ///
-    /// Appends every effect this producer contributes, in the order it emits
-    /// them.
-    ///
-    pub(super) fn emit(
-        &self,
-        grid: Grid,
-        language_map: &LanguageMap,
-        tick: Tick,
-        effects: &mut Vec<Effect>,
-    ) {
-        match self.producer {
-            Producer::ExpressionRoot(expression) => {
-                emit_expression_root(grid, language_map, self.anchor, tick, expression, effects);
+    let mut succeeded = vec![false; schedule.roots.len()];
+    let mut bang_events = Vec::new();
+    for node_index in schedule.order {
+        let root = schedule.roots[node_index];
+        let failed_input = schedule
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.consumer == node_index && !succeeded[dependency.producer]);
+        if failed_input {
+            effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                root.anchor,
+                root.expression.span(),
+                "a current-Tick dependency failed".to_owned(),
+            )));
+            continue;
+        }
+
+        if root.function.is_terminal()
+            && !bang_events
+                .iter()
+                .copied()
+                .any(|bang| activates(grid, bang, root.anchor))
+        {
+            succeeded[node_index] = true;
+            continue;
+        }
+
+        let start = grid.index(root.anchor).get();
+        let row_end = grid
+            .position(0, root.anchor.y() + 1)
+            .map(|next_row| grid.index(next_row).get())
+            .unwrap_or_else(|| grid.count());
+        let atoms = match root.expression.bind_source(
+            std::str::from_utf8(&working[start..row_end])
+                .expect("Source Cells are printable ASCII"),
+        ) {
+            Ok(atoms) => atoms,
+            Err(error) => {
+                if root.expression.atoms().is_none() {
+                    // Live-edit fragments and invalid typed operands already
+                    // have Source diagnostics. They receive a scheduled
+                    // opportunity so a dependency can repair them, but an
+                    // unrepaired fragment has no Tick outcome of its own.
+                    succeeded[node_index] = true;
+                    continue;
+                }
+                effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                    root.anchor,
+                    root.expression.span(),
+                    error.to_string(),
+                )));
+                continue;
+            }
+        };
+
+        match interpret(&atoms, tick_inputs(tick, root.anchor)) {
+            Ok(Interpretation::Cell(Atom::Empty)) => succeeded[node_index] = true,
+            Ok(Interpretation::Cell(atom)) => {
+                let encoding = atom.to_string();
+                let output = match root.output {
+                    Ok(Some(output)) => output,
+                    Ok(None) => {
+                        succeeded[node_index] = true;
+                        continue;
+                    }
+                    Err(reason) => {
+                        effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                            root.anchor,
+                            root.expression.span(),
+                            portal_message(reason, &encoding),
+                        )));
+                        continue;
+                    }
+                };
+                if encoding.len() != 2 {
+                    effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                        root.anchor,
+                        root.expression.span(),
+                        format!("result {encoding:?} is not a scalar Cell pair"),
+                    )));
+                    continue;
+                }
+                let write = match Portal::at(grid, output).admit(&encoding) {
+                    Ok(write) => write,
+                    Err(reason) => {
+                        effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                            root.anchor,
+                            root.expression.span(),
+                            portal_message(reason, &encoding),
+                        )));
+                        continue;
+                    }
+                };
+                if matches!(atom, Atom::Bang) {
+                    bang_events.push(output);
+                }
+                apply_write(&mut working, &write);
+                effects.push(Effect::Write(write));
+                succeeded[node_index] = true;
+            }
+            Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => {
+                succeeded[node_index] = true;
+            }
+            Ok(Interpretation::Sequence(sequence)) => {
+                effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                    root.anchor,
+                    root.expression.span(),
+                    format!(
+                        "Sequence result {:?} has no fixed scalar scheduling footprint",
+                        sequence.to_string()
+                    ),
+                )));
+            }
+            Ok(Interpretation::Play(performance)) => {
+                effects.push(Effect::Play(performance));
+                succeeded[node_index] = true;
+            }
+            Err(error) => effects.push(Effect::Diagnose(Diagnostic::for_expression(
+                root.anchor,
+                root.expression.span(),
+                error.to_string(),
+            ))),
+        }
+    }
+    resolve(effects)
+}
+
+fn apply_write(bytes: &mut [u8], write: &SpanWrite) {
+    for (cell, content) in write.cells() {
+        bytes[cell.get()] = content.as_char() as u8;
+    }
+}
+
+fn portal_message(reason: PortalError, encoding: &str) -> String {
+    match reason {
+        PortalError::BelowSource => format!("result {encoding:?} falls below the Source"),
+        PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
+        PortalError::InvalidContent => {
+            format!("result {encoding:?} contains Cells outside printable ASCII")
+        }
+    }
+}
+
+fn activates(grid: Grid, bang: Position, root: Position) -> bool {
+    grid.assert_owns(bang);
+    grid.assert_owns(root);
+    (bang.x() == root.x() && bang.y().abs_diff(root.y()) == 1)
+        || (bang.y() == root.y() && bang.x().abs_diff(root.x()) == 2)
+}
+
+fn schedule<'a>(
+    grid: Grid,
+    map: &'a LanguageMap,
+    destinations: &BTreeMap<CellIndex, Position>,
+) -> Result<Schedule<'a>, Vec<Diagnostic>> {
+    let mut roots: Vec<_> = map
+        .expressions()
+        .filter_map(|expression| {
+            expression
+                .function_candidate()
+                .map(|(anchor, function)| ScheduledRoot {
+                    anchor,
+                    function,
+                    expression,
+                    output: if function.is_terminal() {
+                        Ok(None)
+                    } else if let Some(destination) = destinations.get(&grid.index(anchor)) {
+                        Ok(Some(*destination))
+                    } else {
+                        Portal::ordinary_result(grid, anchor)
+                            .map(|portal| Some(portal.destination()))
+                    },
+                })
+        })
+        .collect();
+    roots.sort_by_key(|root| grid.index(root.anchor));
+
+    let mut diagnostics = Vec::new();
+    let mut slots = Vec::new();
+    for (root_index, root) in roots.iter().enumerate() {
+        let layout_width = root
+            .expression
+            .layout()
+            .map(|(offset, token, _)| offset + token.len())
+            .max()
+            .unwrap_or(0);
+        let span_width =
+            root.expression.span().end().get() - root.expression.span().start().get() + 1;
+        if span_width > layout_width {
+            diagnostics.push(Diagnostic::for_expression(
+                root.anchor,
+                root.expression.span(),
+                "trailing Source makes this Expression structurally unstable".to_owned(),
+            ));
+            continue;
+        }
+        for (offset, token, _) in root.expression.layout() {
+            if !grid.fits(root.anchor, offset + token.len()) {
+                diagnostics.push(Diagnostic::for_expression(
+                    root.anchor,
+                    root.expression.span(),
+                    "Expression layout crosses the row edge".to_owned(),
+                ));
+                break;
+            }
+            let position = grid
+                .position(root.anchor.x() + offset, root.anchor.y())
+                .expect("a checked Expression slot is inside its row");
+            slots.push((root_index, position, token));
+        }
+    }
+
+    let mut dependencies = Vec::new();
+    let mut output_cells: BTreeMap<CellIndex, usize> = BTreeMap::new();
+    for (producer_index, producer) in roots.iter().enumerate() {
+        let output = match producer.output {
+            Ok(Some(output)) => output,
+            Ok(None) => continue,
+            // A result that is Empty needs no destination. Resolve this
+            // failure only after evaluation establishes that a value exists.
+            Err(_) => continue,
+        };
+        if !grid.fits(output, 2) {
+            diagnostics.push(Diagnostic::for_expression(
+                producer.anchor,
+                producer.expression.span(),
+                "a scalar output crosses the row edge".to_owned(),
+            ));
+            continue;
+        }
+        let output_start = grid.index(output);
+        let output_indices = [
+            output_start,
+            grid.cell_index(output_start.get() + 1)
+                .expect("a checked two-Cell output is inside the Grid"),
+        ];
+        for cell in output_indices {
+            if let Some(other) = output_cells.insert(cell, producer_index)
+                && other != producer_index
+            {
+                diagnostics.push(Diagnostic::for_expression(
+                    producer.anchor,
+                    producer.expression.span(),
+                    "multiple current-Tick producers write the same Cell".to_owned(),
+                ));
+            }
+        }
+
+        let mut output_is_slot = false;
+        for &(consumer_index, slot, token) in &slots {
+            let slot_start = grid.index(slot).get();
+            let slot_end = slot_start + token.len();
+            let output_end = output_start.get() + 2;
+            let overlaps = output_start.get() < slot_end && slot_start < output_end;
+            if !overlaps {
+                continue;
+            }
+            output_is_slot = true;
+            if matches!(token, lang::Token::Function) {
+                diagnostics.push(Diagnostic::for_expression(
+                    producer.anchor,
+                    producer.expression.span(),
+                    "current-Tick output cannot replace Function structure".to_owned(),
+                ));
+            } else if output_start.get() == slot_start && token.len() == 2 {
+                dependencies.push(Dependency {
+                    producer: producer_index,
+                    consumer: consumer_index,
+                    kind: DependencyKind::Data,
+                });
+            } else {
+                diagnostics.push(Diagnostic::for_expression(
+                    producer.anchor,
+                    producer.expression.span(),
+                    "current-Tick output only partly covers an operand".to_owned(),
+                ));
+            }
+        }
+
+        if producer.function.can_emit_bang() && !output_is_slot {
+            for (consumer_index, consumer) in roots.iter().enumerate() {
+                if consumer.function.is_terminal() && activates(grid, output, consumer.anchor) {
+                    dependencies.push(Dependency {
+                        producer: producer_index,
+                        consumer: consumer_index,
+                        kind: DependencyKind::Activation,
+                    });
+                }
             }
         }
     }
+
+    dependencies.sort_by_key(|dependency| {
+        (
+            dependency.producer,
+            dependency.consumer,
+            dependency.kind as u8,
+        )
+    });
+    dependencies.dedup();
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
+
+    let mut order = Vec::with_capacity(roots.len());
+    let mut ready = BTreeSet::new();
+    for node in 0..roots.len() {
+        if !dependencies
+            .iter()
+            .any(|dependency| dependency.consumer == node)
+        {
+            ready.insert(node);
+        }
+    }
+    while let Some(node) = ready.pop_first() {
+        order.push(node);
+        for candidate in 0..roots.len() {
+            if order.contains(&candidate) || ready.contains(&candidate) {
+                continue;
+            }
+            if dependencies
+                .iter()
+                .filter(|dependency| dependency.consumer == candidate)
+                .all(|dependency| order.contains(&dependency.producer))
+            {
+                ready.insert(candidate);
+            }
+        }
+    }
+    if order.len() != roots.len() {
+        let root = roots
+            .iter()
+            .enumerate()
+            .find(|(index, _)| !order.contains(index))
+            .map(|(_, root)| root)
+            .expect("an incomplete topological order leaves one root");
+        return Err(vec![Diagnostic::for_expression(
+            root.anchor,
+            root.expression.span(),
+            "same-Tick dependency cycle".to_owned(),
+        )]);
+    }
+
+    Ok(Schedule {
+        roots,
+        dependencies,
+        order,
+    })
 }
 
 ///
@@ -224,73 +541,12 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
 /// call that forwards its two arguments unchanged.
 ///
 fn interpret(atoms: &Atoms, inputs: TickInputs) -> Result<Interpretation, LangError> {
-    #[cfg(test)]
-    observed::record(inputs);
-
     Interpreter::execute(atoms, inputs)
-}
-
-///
-/// What the Interpreter was actually handed during this test.
-///
-/// A test-only seam, per thread and so per test: `cargo nextest` gives each
-/// test its own process and `cargo test` its own thread, so no two tests can
-/// see each other's Ticks. `take` both reads and clears, which is what lets a
-/// test state the inputs of exactly the Playback run it drove rather than of
-/// everything its thread has ever interpreted.
-///
-#[cfg(test)]
-mod observed {
-    use lang::TickInputs;
-    use std::cell::RefCell;
-
-    thread_local! {
-        static INTERPRETED: RefCell<Vec<TickInputs>> = const { RefCell::new(Vec::new()) };
-    }
-
-    /// Records one evaluation's explicit inputs, in the order it was evaluated.
-    pub(super) fn record(inputs: TickInputs) {
-        INTERPRETED.with_borrow_mut(|interpreted| interpreted.push(inputs));
-    }
-
-    /// Every recorded input since the last `take`, clearing the record.
-    pub(super) fn take() -> Vec<TickInputs> {
-        INTERPRETED.with_borrow_mut(std::mem::take)
-    }
 }
 
 ///
 /// The effects of one Expression root's turn.
 ///
-fn emit_expression_root(
-    grid: Grid,
-    language_map: &LanguageMap,
-    root: Position,
-    tick: Tick,
-    expression: &ExpressionEntry,
-    effects: &mut Vec<Effect>,
-) {
-    let Some(atoms) = expression.atoms().filter(|atoms| is_computation(atoms)) else {
-        return;
-    };
-
-    // A Terminal Output Function performs only when its root is active, so an
-    // inactive terminal root is never evaluated at all: it contributes neither
-    // a command nor a diagnostic, exactly as an absent Function would.
-    // Value-producing roots still evaluate on every Tick; gating those is not
-    // asked for by ADR 0020 and belongs to whichever issue states it.
-    if is_terminal_root(atoms) && !language_map.is_root_active(root) {
-        return;
-    }
-
-    effects.extend(result_effect(
-        grid,
-        root,
-        expression.span(),
-        interpret(atoms, tick_inputs(tick, root)),
-    ));
-}
-
 ///
 /// The optional Effect of one evaluation answer, delivered from `root`.
 ///
@@ -307,6 +563,7 @@ fn emit_expression_root(
 /// naming this step is the only way the Sequence half of the result path is
 /// reachable at all before issues 02 and 03 add the Functions that spell one.
 ///
+#[cfg(test)]
 pub(super) fn result_effect(
     grid: Grid,
     root: Position,
@@ -369,28 +626,125 @@ pub(super) fn result_effect(
 /// Cells follow the same rule as typed Source: Number-only results do not
 /// compute, while a result encoding a Function can compute on the next Tick.
 ///
-fn is_computation(atoms: &Atoms) -> bool {
-    atoms.iter().any(|a| matches!(a, Atom::Function(_)))
-}
-
-///
-/// Whether this Expression's root is a Terminal Output Function.
-///
-/// The Interpreter accepts a terminal Function only as the first Atom, so that
-/// is the one position where a terminal root can be. Asking the Function's own
-/// classification rather than naming `!>` keeps this in step with the canonical
-/// Function definitions as the family grows.
-///
-fn is_terminal_root(atoms: &Atoms) -> bool {
-    matches!(atoms.first(), Some(Atom::Function(function)) if function.is_terminal())
-}
-
 #[cfg(test)]
 mod test {
-    use super::{
-        Effect, Portal, Tick, Turn, observed, order_by_anchor, resolve, result_effect, tick_inputs,
-        turns,
-    };
+    use super::{Effect, Portal, Tick, resolve, result_effect};
+
+    #[test]
+    fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
+        let grid = Grid::new(16, 5);
+        let rows = ["", "", "!>007FD4", "      .^3C", ".=0101"];
+        let bytes = rows
+            .iter()
+            .map(|row| format!("{row:16}"))
+            .collect::<String>();
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [
+            (
+                grid.index(grid.position(6, 3).unwrap()),
+                grid.position(6, 2).unwrap(),
+            ),
+            (
+                grid.index(grid.position(0, 4).unwrap()),
+                grid.position(0, 3).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let plan =
+            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(plan.diagnostics.is_empty());
+        assert_eq!(
+            planned(&plan),
+            vec![(38, 'C'), (39, '4'), (48, '*'), (49, '*')]
+        );
+    }
+
+    #[test]
+    fn two_current_bang_results_still_execute_midi_once() {
+        let grid = Grid::new(16, 6);
+        let rows = ["", ".=0101", "", "!>007FC4", "", ".=0202"];
+        let bytes = rows
+            .iter()
+            .map(|row| format!("{row:16}"))
+            .collect::<String>();
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [
+            (
+                grid.index(grid.position(0, 1).unwrap()),
+                grid.position(0, 2).unwrap(),
+            ),
+            (
+                grid.index(grid.position(0, 5).unwrap()),
+                grid.position(0, 4).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let plan =
+            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(plan.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn competing_writers_and_dependency_cycles_abort_before_output() {
+        let conflict_grid = Grid::new(16, 2);
+        let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
+        let conflict_map = LanguageMap::build(conflict_grid, conflict_bytes.as_bytes());
+        let shared = conflict_grid.position(10, 1).unwrap();
+        let conflict_destinations = [
+            (conflict_grid.cell_index(0).unwrap(), shared),
+            (conflict_grid.cell_index(16).unwrap(), shared),
+        ]
+        .into_iter()
+        .collect();
+        let conflict = super::plan_with_destinations(
+            conflict_grid,
+            conflict_bytes.as_bytes(),
+            &conflict_map,
+            Tick::ZERO,
+            &conflict_destinations,
+        );
+        assert!(conflict.writes.is_empty());
+        assert!(conflict.play_commands.is_empty());
+        assert!(conflict.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("multiple current-Tick producers")
+        }));
+
+        let cycle_grid = Grid::new(16, 2);
+        let cycle_bytes = format!("{:<16}{:<16}", ".+0001", ".+0001");
+        let cycle_map = LanguageMap::build(cycle_grid, cycle_bytes.as_bytes());
+        let cycle_destinations = [
+            (
+                cycle_grid.cell_index(0).unwrap(),
+                cycle_grid.position(2, 1).unwrap(),
+            ),
+            (
+                cycle_grid.cell_index(16).unwrap(),
+                cycle_grid.position(2, 0).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let cycle = super::plan_with_destinations(
+            cycle_grid,
+            cycle_bytes.as_bytes(),
+            &cycle_map,
+            Tick::ZERO,
+            &cycle_destinations,
+        );
+        assert!(cycle.writes.is_empty());
+        assert_eq!(cycle.diagnostics.len(), 1);
+        assert_eq!(cycle.diagnostics[0].message, "same-Tick dependency cycle");
+    }
     use lang::{Atom, Interpretation, Sequence};
 
     use crate::{
@@ -407,40 +761,6 @@ mod test {
     ///
     fn cell(grid: Grid, idx: usize) -> CellIndex {
         grid.cell_index(idx).expect("inside the Grid")
-    }
-
-    ///
-    /// A Language Map derived from `rows`, each padded to the Grid's width.
-    /// Tests state the Source they mean as Cells, exactly as it is seen.
-    ///
-    fn language_map(grid: Grid, rows: &[&str]) -> LanguageMap {
-        let mut source = String::with_capacity(grid.count());
-        for row in 0..grid.rows().count() {
-            let cells = rows.get(row).copied().unwrap_or("");
-            assert!(
-                cells.len() <= grid.cols(),
-                "row {row} is wider than the Grid"
-            );
-            source.push_str(cells);
-            source.push_str(&" ".repeat(grid.cols() - cells.len()));
-        }
-
-        LanguageMap::derive(grid, &source).expect("Source Cells are printable ASCII")
-    }
-
-    fn anchors(turns: &[Turn<'_>]) -> Vec<(usize, usize)> {
-        turns
-            .iter()
-            .map(|turn| (turn.anchor().x(), turn.anchor().y()))
-            .collect()
-    }
-
-    fn emitted(grid: Grid, language_map: &LanguageMap) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        for turn in turns(grid, language_map) {
-            turn.emit(grid, language_map, Tick::ZERO, &mut effects);
-        }
-        effects
     }
 
     ///
@@ -503,156 +823,19 @@ mod test {
     }
 
     #[test]
-    fn test_turns_are_ordered_by_row_major_anchor_position() {
-        // Row-major is row first, then column: the row 1 root takes its turn
-        // after both row 0 roots even though it sits further left than one of
-        // them.
-        let grid = Grid::new(20, 3);
-        let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
-
-        assert_eq!(anchors(&turns(grid, &map)), vec![(0, 0), (7, 0), (2, 1)]);
-    }
-
-    #[test]
-    fn test_producers_arriving_out_of_source_order_still_take_row_major_turns() {
-        // The ordering must be a property of this model rather than something
-        // inherited from the order the Language Map happens to hand producers
-        // over in. A producer kind reading a different partition can arrive in
-        // any order; its turn still lands where its anchor says.
-        let grid = Grid::new(20, 3);
-        let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
-
-        let mut arrivals = turns(grid, &map);
-        arrivals.reverse();
-        order_by_anchor(grid, &mut arrivals);
-
-        assert_eq!(anchors(&arrivals), vec![(0, 0), (7, 0), (2, 1)]);
-    }
-
-    #[test]
-    fn test_each_root_is_told_the_shared_tick_and_its_own_anchor_position() {
-        // ADR 0012 gives one Tick to the whole Source Snapshot, and ADR 0013
-        // seeds Random from the Function's own column and row. So the two
-        // explicit inputs a root is evaluated with differ in exactly one way:
-        // every root of a Tick is told the same Tick, and each is told its own
-        // anchor.
-        //
-        // The expected anchors are written out rather than read back from the
-        // same turns, so the assertion cannot be satisfied by the code it is
-        // testing. They are asymmetric for the same reason: a transposed
-        // column and row would otherwise pass. `.-0504` sits at column 2 of
-        // row 1, and is the one root whose column and row differ.
-        //
-        // This is about the conversion alone — the Grid-minted Position of a
-        // turn becoming the plain column and row that cross the crate
-        // boundary. That the Interpreter is then handed these same inputs is a
-        // separate claim, pinned by
-        // `test_the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor`.
-        let grid = Grid::new(20, 3);
-        let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
-        let tick = Tick::new(11);
-
-        let inputs: Vec<_> = turns(grid, &map)
-            .iter()
-            .map(|turn| tick_inputs(tick, turn.anchor()))
-            .collect();
-
-        assert!(inputs.iter().all(|inputs| inputs.tick() == tick));
-        assert_eq!(
-            inputs
-                .iter()
-                .map(|inputs| (inputs.anchor().column(), inputs.anchor().row()))
-                .collect::<Vec<_>>(),
-            vec![(0, 0), (7, 0), (2, 1)],
-        );
-    }
-
-    #[test]
-    fn test_the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor() {
-        // The claim the conversion test above cannot make: that the inputs
-        // `emit_expression_root` builds are the inputs evaluation actually
-        // receives. This drives a real Tick of a Source Snapshot through
-        // `turns` and `Turn::emit` and reads back what reached the Interpreter,
-        // so severing the thread — passing a fixed Tick and anchor at the call
-        // site instead of this root's own — fails here rather than passing
-        // unnoticed until ADR 0013's Random seeds every Position identically.
-        //
-        // The expected anchors are literals rather than anything read back from
-        // the turns, so the assertion cannot be satisfied by the code under
-        // test. They are asymmetric so that a transposed column and row is
-        // visible: `.-0504` sits at column 2 of row 1. The Tick is not
-        // `Tick::ZERO`, so a hardcoded first Tick is visible too.
-        let grid = Grid::new(20, 3);
-        let map = language_map(grid, &[".+0102 .+0304", "  .-0504"]);
-        let tick = Tick::new(11);
-
-        // whatever an earlier Playback run on this thread interpreted is not
-        // part of this Tick
-        let _ = observed::take();
-
-        let mut effects = Vec::new();
-        for turn in turns(grid, &map) {
-            turn.emit(grid, &map, tick, &mut effects);
-        }
-        let interpreted = observed::take();
-
-        assert_eq!(interpreted.len(), 3, "each of the three roots is evaluated");
-        assert!(
-            interpreted.iter().all(|inputs| inputs.tick() == tick),
-            "one Tick is given to the whole Source Snapshot"
-        );
-        assert_eq!(
-            interpreted
-                .iter()
-                .map(|inputs| (inputs.anchor().column(), inputs.anchor().row()))
-                .collect::<Vec<_>>(),
-            vec![(0, 0), (7, 0), (2, 1)],
-            "each root is told its own anchor, in row-major turn order"
-        );
-    }
-
-    #[test]
-    fn test_each_expression_root_takes_exactly_one_turn() {
-        // ADR 0006: multiple Bangs never give one root a second turn, and a
-        // root whose turn has passed is never revisited. Both Bangs are
-        // aligned with the root, and the pass still grants exactly one turn.
-        // The Bangs themselves take no turn until issue 02 gives them one.
-        let grid = Grid::new(10, 3);
-        let map = language_map(grid, &["**", "!>007FC4", "**"]);
-
-        assert_eq!(anchors(&turns(grid, &map)), vec![(0, 1)]);
-    }
-
-    #[test]
-    fn test_a_producer_emits_its_effects_in_a_stable_local_order() {
-        // One producer, two Cells of one result: the encoding is emitted left
-        // to right, and emitting the same turn again produces the same
-        // sequence.
-        let grid = Grid::new(10, 3);
-        let map = language_map(grid, &[".+0102"]);
-        let turns = turns(grid, &map);
-        let turn = turns.first().expect("the root takes a turn");
-
-        let mut first = Vec::new();
-        turn.emit(grid, &map, Tick::ZERO, &mut first);
-        let mut second = Vec::new();
-        turn.emit(grid, &map, Tick::ZERO, &mut second);
-
-        assert_eq!(first, vec![write(grid, 10, "03")]);
-        assert_eq!(first, second);
-    }
-
-    #[test]
     fn test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write() {
         // ADR 0004: a complete write validates its whole destination before
         // any Cell of it enters the Tick Plan. This root's result has nowhere
         // below it to go, so the turn contributes a diagnostic and nothing
         // else — not the first Cell of a result that could not be placed.
         let grid = Grid::new(10, 2);
-        let map = language_map(grid, &["", ".+0102"]);
+        let root = grid.position(0, 1).unwrap();
+        let span = super::Span::new(grid, cell(grid, 10), cell(grid, 15));
 
         assert_eq!(
-            emitted(grid, &map),
+            result_effect(grid, root, span, Ok(Interpretation::Cell(Atom::Number(3))))
+                .into_iter()
+                .collect::<Vec<_>>(),
             vec![diagnostic(
                 grid,
                 10,
