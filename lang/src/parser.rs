@@ -211,12 +211,14 @@ impl<'a> Parser<'a> {
 
     #[inline(always)]
     fn peek_next(&self) -> Option<&'a str> {
-        match self.source.len() {
-            0 | 1 => None,
-            _ => {
-                let (next_token, _) = self.source.split_at(2);
-                Some(next_token)
-            }
+        // `split_at_checked` rather than `split_at`, matching `next_token`. Every
+        // Cell the Source layer admits is single-byte, so byte 2 is a character
+        // boundary for any Source that reaches here through a Grid; a `&mut str`
+        // handed straight to `Parser::from` carries no such guarantee, and the
+        // unchecked split panicked on it rather than declining to peek.
+        match self.source.split_at_checked(2) {
+            Some((next_token, _)) => Some(next_token),
+            None => None,
         }
     }
 
@@ -731,10 +733,18 @@ mod property {
     use std::cell::Cell;
 
     /// How many fragments a generated Source is assembled from at most. A
-    /// fragment is one or two Cells, so a long case runs well past the
-    /// `EXP_LEN` Cells an Expression can hold and the capacity bound is
-    /// reachable from raw text rather than only from the Expression the
-    /// capacity property builds.
+    /// fragment is one or two Cells, so a long case runs well past the Cells
+    /// one Language Unit occupies and the parser has a run to abandon rather
+    /// than a single unit to read.
+    ///
+    /// This ceiling is deliberately not set from `EXP_LEN`. Capacity bounds
+    /// records rather than Cells, and analysis stops recording at the first
+    /// Token it cannot read, so raw text answers one invalid record and ends
+    /// however long it runs. Only a chain of whole Functions accumulates
+    /// records at all, and drawing thirty-two of those in a row has no
+    /// meaningful probability. The capacity bound is therefore reached by the
+    /// Expression `an_expression_that_outruns_the_parser_capacity_...` spells
+    /// by hand, not from here.
     const FRAGMENTS: usize = 24;
 
     /// The Atoms that are a whole Language Unit on their own: the Bang and the
@@ -1056,7 +1066,48 @@ mod property {
                     ),
                     "{spelled:?} answered {parsed:?} rather than refusing {atoms_spelled} Atoms",
                 );
+
+                // The permissive reading is bounded by the same capacity, and
+                // this is the only place that says so. Analysis stops
+                // recording at the first Token it cannot read, so raw Source
+                // answers one invalid record however long it runs and the
+                // generated properties cannot reach this bound at all. A
+                // hand-spelled chain is what reaches it.
+                let mut source = spelled.clone();
+                let analysis = Parser::from(&mut source).analyze();
+                prop_assert!(
+                    matches!(
+                        analysis,
+                        Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity }))
+                            if capacity == EXP_LEN
+                    ),
+                    "{spelled:?} was analysed as {analysis:?} rather than refused",
+                );
             }
+        }
+    }
+
+    ///
+    /// Source that is not ASCII declines to parse rather than panicking.
+    ///
+    /// Every Cell a Grid admits is a single byte, so the Source layer never
+    /// hands this text to the parser. `Parser::from` takes any `&mut str`
+    /// though, and the totality this suite states is a claim about the
+    /// parser rather than about its callers, so the one input class the
+    /// generator cannot draw is pinned here by hand: a multi-byte character
+    /// straddling the two-Cell peek used to split a `char` down the middle.
+    ///
+    #[test]
+    fn source_that_is_not_ascii_is_refused_rather_than_panicking() {
+        for spelled in [".+aé", "é", "aé", "é.+", "..éé"] {
+            let mut source = String::from(spelled);
+            let parsed = Parser::from(&mut source).try_parse();
+            assert!(parsed.is_err(), "{spelled:?} parsed as {parsed:?}");
+
+            let mut source = String::from(spelled);
+            // Analysis is the permissive reading and answers rather than
+            // failing, so the claim here is only that it returns at all.
+            let _ = Parser::from(&mut source).analyze();
         }
     }
 
