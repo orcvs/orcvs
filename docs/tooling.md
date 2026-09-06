@@ -176,3 +176,44 @@ the repository and what write permission they hold, so it is not one a checkout 
 
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.
+
+## Worktrees each need their own target directory
+
+Everything above assumes a local gate answers a question about the checkout it ran in. A
+`CARGO_TARGET_DIR` or `[build] target-dir` shared across several worktrees of this repository
+breaks that assumption, and the failure is silent rather than loud.
+
+Cargo records a unit's location workspace-relatively. The fingerprint's `path` field is a hash of
+the target's source path relative to the workspace root, and the companion `dep-*` file lists
+sources the same way — `src/lib.rs`, `src/parser.rs`. Neither carries the checkout that produced
+them. Two worktrees of one repository therefore write fingerprints that each will happily validate
+against the other's sources, and when the mtimes agree cargo calls the unit fresh and hands the
+wrong artefact to the next crate as `--extern`.
+
+That is not hypothetical here. With nine worktrees sharing one target directory, a clean checkout
+of `main` failed to compile `orcvs` against a `lang` carrying enum variants that existed only in
+the `04-send-control-change-and-pitch-bend` worktree, while `cargo nextest run --package orcvs`
+in the same checkout passed and ran five tests that this tree does not contain. A gate that green
+on a binary built from another branch's source is worse than no gate. The same directory is also
+one build lock, so concurrent worktrees serialise on it rather than running in parallel.
+
+Let each worktree use its own `target/`. Share the layers that cannot alias instead: the registry
+under `~/.cargo/registry`, keyed by name, version and checksum, and `sccache`, keyed by the
+compiler, its arguments, and the preprocessed source.
+
+What that recovers is the dependency graph, not the whole build. sccache's key includes the
+command line, and the command line carries absolute paths, so a crate compiled under two
+different worktree roots hashes to two different keys. Registry crates are immune because they
+compile out of one shared `~/.cargo/registry` path whichever worktree asked for them; the
+workspace's own crates are not. Building `lang` from a second worktree holding identical sources,
+after the first worktree had already compiled it, hit 16 of 18 Rust compilations — every registry
+dependency — and missed on the workspace-local crates. Closing that last gap needs sccache's
+path-normalisation (`SCCACHE_BASEDIRS`), which is not configured here, so treat cross-worktree
+reuse of this repository's own crates as best effort and the dependency graph as the real saving.
+
+None of it works while incremental compilation is on: sccache declines an incremental unit, and
+the dev profile enables one by default. `incremental = false` is what lets sccache see the
+compilation at all, and it drops `target/debug/incremental/` besides, which pays back part of
+what per-worktree directories cost in disk. The price is paid on the other side — repeatedly
+rebuilding one crate you are editing is slower without incremental state — so it is a trade that
+suits many worktrees and parallel agents, not a default that suits every checkout.
