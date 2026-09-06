@@ -661,6 +661,12 @@ mod test {
     /// stated once and asserted over rather than written out for each.
     type Terminal = fn(&mut Context) -> Result<Performance, Error>;
 
+    /// The Source text that puts one byte in one data-byte position.
+    type SourceText = fn(u8) -> String;
+
+    /// The command that position must answer with, for that byte.
+    type ExpectedCommand = fn(MidiChannel, u8) -> PlayCommand;
+
     #[test]
     fn control_change_and_pitch_bend_require_exactly_three_arguments() {
         // Each prefix of a well-typed operand list, so what is missing is the
@@ -697,8 +703,6 @@ mod test {
         // over it. `!>` and `!~` each carry this claim for their own
         // signatures; without it these two are covered for arity and for range
         // but never for the type refusal that has to precede both.
-        type Terminal = fn(&mut Context) -> Result<PlayCommand, Error>;
-
         for extract in [control_change as Terminal, pitch_bend as Terminal] {
             for mistyped in 0..3 {
                 let mut arguments = [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)];
@@ -770,7 +774,7 @@ mod test {
         // there, and the command that position must answer with. A table
         // because it is the same claim four times, and a table is what makes a
         // position that went missing visible.
-        let positions: [(fn(u8) -> String, fn(MidiChannel, u8) -> PlayCommand); 4] = [
+        let positions: [(SourceText, ExpectedCommand); 4] = [
             (
                 |byte| format!("!c01{byte:02X}03"),
                 |channel, byte| PlayCommand::ControlChange {

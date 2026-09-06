@@ -1,7 +1,8 @@
 # 04 — Send Control Change and Pitch Bend
 
 **What to build:** Implement fixed-arity terminal Functions `!c channel controller value` and
-`!b channel lsb msb`, preserving direct MIDI wire bytes.
+`!b channel lsb msb`, preserving direct MIDI wire bytes, pervasive over Sequence operands per
+ADR 0030.
 
 **Blocked by:** 01 — Generalize Play Commands for MIDI output.
 
@@ -13,12 +14,14 @@
 - [x] Pitch Bend emits the correct status, LSB, and MSB bytes.
 - [x] Channel accepts `00`–`0F`; every data byte accepts `00`–`7F`.
 - [x] `controller` and `value`, and `lsb` and `msb`, each have their own type minted from `define_data_byte_roles!` in `lang/src/atom.rs`, so neither pair is assignable to the other. One shared data-byte type satisfies the domain checkbox above and does not satisfy this one.
-- [x] Each operand's domain is declared beside its role in `define_functions!` and converted during extraction, so neither Function body contains a validation call.
+- [x] Each operand's domain is declared beside its role in `define_functions!` and converted as each element binds, so neither Function body contains a validation call and neither says anything about Sequences.
 - [x] A test per Function carries operand values that differ from one another, so a complete role transposition inside the declaration changes the answer. Asserting exact byte sequences does not cover this: a transposed declaration and a transposed expectation agree.
 - [x] Invalid operands diagnose and emit no command.
 - [x] No scaling, normalization, wrapping, or clamping occurs.
 - [x] Multiple commands retain Tick Plan and output-adapter order.
-- [x] Native delivery and in-memory adapter tests assert exact byte sequences.
+- [x] Native delivery asserts exact byte sequences, and the in-memory adapter asserts the Output Commands and their order. Written as "native delivery and in-memory adapter tests assert exact byte sequences" before issue 02 changed `OutputAdapter::submit` to take `&[OutputCommand]`; `InMemoryOutputAdapter` records commands rather than a wire encoding, so `MidiOutputAdapter` against its test backend is the only seam in Orcvs where a MIDI byte exists to compare. Reworded rather than ticked on a reading, so the requirement states what is satisfiable.
+- [x] Both Functions are declared `Pervasive` and extend over a Sequence operand under ADR 0007's rules, per ADR 0030: a widened Expression answers an ordered group of Play Commands and a scalar one answers a single command and no group of one. A domain or type fault at any element emits no MIDI output at all.
+- [x] A test widens each data-byte position of both spellings — controller, value, and the bend's LSB — with ascending element values, so a transposition of the roles or a reversal of element order answers a different group.
 
 ## Comments
 
@@ -103,25 +106,62 @@ A bend is never assembled into its fourteen-bit value anywhere in Orcvs. That is
 "exposing MIDI's wire bytes directly" taken literally, and it is why `!b` needs no scaling rule; a
 Source that wants to think in bend units needs a Function that converts, not a change here.
 
-`!c` and `!b` are declared `Scalar`, like every terminal Function today, so a Sequence in any
-operand position diagnoses rather than broadcasting — `stack.rs` pins that at every position for
-both new operand structs. Extending the terminal family over Sequences is not tracked by any issue
-yet: `sequence-values/02` broadcast the Atomic Functions and stopped there, and nothing in
-`midi-output-family` picks the terminals up.
+### Pervasive, after the rebase onto ADR 0030
 
-The byte-sequence checkbox is met at one seam of the two it names, and the other one no longer has
-bytes to assert. `OutputAdapter::submit` took `&[PlayCommand]` when this checklist was written;
-issue 02 changed it to `&[OutputCommand]`, and `InMemoryOutputAdapter` records the commands it is
-handed rather than a wire encoding, so `MidiOutputAdapter` against its test backend is now the only
-place in Orcvs where a MIDI byte exists to compare. The in-memory tests assert the Output Commands
-and their order; the native tests assert the bytes. The box is left ticked on that reading rather
-than reworded, because the requirement is satisfied wherever it is satisfiable and the reader of
-this ticket should see why the two halves differ.
+This was first built with both spellings declared `Scalar`, which was true of every terminal
+Function at the time, and `stack.rs` pinned a Sequence being refused at every operand position of
+both. ADR 0030 landed on `main` while the branch was open and made the Terminal Output family
+pervasive, so that declaration became the odd one out rather than the convention: `CONTEXT.md`
+already named `!c` and `!b` as members of a family whose members extend over a Sequence operand.
+
+The requirement is now pervasion, and the change was small because the machinery is generic. Each
+row declares `Pervasive`, each body calls `Stack::perform` with a closure stating one command for
+one element, and `Performance` carries the shape across the seam. Neither body says anything about
+Sequences — a body that walked one itself would be a second broadcast mechanism, free to disagree
+with the first about lengths, ordering, and what a partial failure leaves sounding.
+
+The refusal tests are gone, because there is nothing left to refuse, and broadcast tests replace
+them: a controller sweep, a value ramp, and a bend whose fine half widens against a held coarse
+half. The last of those is what keeps the two halves worth being two operands — an assembled
+fourteen-bit operand would have no position a Source could widen without moving the coarse half
+too.
+
+`Pervasion::Scalar` is now a declaration the table can express and nothing uses, so
+`SequenceError::ExpectedAtom` names no Function today. Its doc says so rather than naming the two
+terminals it used to list; the variant stays reachable through the scalar pop `Stack::pop` offers
+outside Function evaluation.
+
+The byte-sequence checkbox is reworded rather than ticked on a reading. `OutputAdapter::submit`
+took `&[PlayCommand]` when this checklist was written; issue 02 changed it to `&[OutputCommand]`,
+and `InMemoryOutputAdapter` records the commands it is handed rather than a wire encoding, so
+`MidiOutputAdapter` against its test backend is now the only place in Orcvs where a MIDI byte
+exists to compare. Review was right that ticking the original wording claimed something the code
+does not do: the requirement now names the two seams separately and says what each asserts.
 
 Review also added `control_change_and_pitch_bend_reject_a_note_in_every_operand_position`. `!>` and
 `!~` each carry a mistyped-operand test and these two had arity and range coverage only, so the
 type refusal that precedes both was the one claim in ADR 0016's "missing, mistyped, or out-of-range"
 sentence with no test of its own here.
+
+### Review, and what came of it
+
+Beyond the pervasion rebase and the reworded checkbox, three things:
+
+The `!c`/`!b` wire tests all used channels below `08`, so a status byte that masked the channel to
+three bits agreed with every one of them — below the bar the neighbouring Note On test sets with
+`0x0f`. The unit wire test now carries `0F` and `0A`, confirmed by making that edit and watching
+four of the five matching tests still pass without it. The Source-path test keeps `01` and `03`,
+so the low nibble is still covered.
+
+`type Terminal = fn(..)` was declared identically in two tests and is now one alias beside them,
+and the full-domain sweep is a table of the four data-byte positions rather than four
+near-identical assert blocks. Both are tidying; neither changes what is claimed.
+
+Two findings were raised and dropped on inspection. `PitchBend`'s doc comment opens and closes
+with bare `///` lines where `ControlChange`'s does not, but `Timed` already does the same, so the
+enum's style is mixed by precedent rather than by this change. And the four new roles inherit a
+callerless `pub const ZERO` from `define_data_byte_roles!`, which the macro gives every role and
+the comment beside it already says.
 
 The `operand_bind!` arms for the six Number-declared domains now forward to one shared
 `@number_domain` arm rather than repeating an eight-line body apiece. That is brevity and nothing
