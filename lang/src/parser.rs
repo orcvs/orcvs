@@ -244,7 +244,7 @@ fn is_function(s: Option<&str>) -> bool {
 mod test {
 
     use crate::{
-        Atom, Atoms, Error, Function, SourceAnalysis, SyntaxError, Token, TypeError,
+        Atom, Atoms, EXP_LEN, Error, Function, SourceAnalysis, SyntaxError, Token, TypeError,
         parser::Parser, trace,
     };
     use arrayvec::ArrayVec;
@@ -658,6 +658,72 @@ mod test {
         }
     }
 
+    /// Every Atom of an Expression, rendered back to Source text.
+    pub(super) fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
+        atoms.into_iter().map(|atom| atom.to_string()).collect()
+    }
+
+    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
+    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
+    ///
+    /// Addition takes two operands, so a chain of them alone spells an odd
+    /// `2 * depth + 1` Atoms and can never equal an even `EXP_LEN`. `.^` takes
+    /// one, so each wrapper shifts the parity and the two together reach every
+    /// count.
+    pub(super) fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
+        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
+        (spelled, wrappers + 2 * depth + 1)
+    }
+
+    ///
+    /// The capacity bound falls between an Expression of `EXP_LEN` Atoms and
+    /// one of `EXP_LEN + 1`: the first is parsed whole, the second is refused.
+    ///
+    /// `mod property`'s
+    /// `an_expression_that_outruns_the_parser_capacity_is_refused_rather_than_truncated`
+    /// sweeps a range that contains both counts, but which counts a run draws
+    /// is up to the runner and the pull-request tier draws only 32 cases. The
+    /// bound is the one number the criterion is about, so it is spelled here
+    /// rather than sampled: a bound off by one in either direction fails on
+    /// one of these two Expressions every run, on every tier.
+    ///
+    /// It lives in `mod test` for the same reason the non-ASCII case below
+    /// does: it draws nothing, so the `cfg` that keeps proptest out of a WASM
+    /// build has no claim on it. `addition_chain` is shared with the property
+    /// from here rather than the other way round, so the two always spell the
+    /// same chain.
+    ///
+    #[test]
+    fn the_capacity_bound_falls_between_exp_len_atoms_and_one_more() {
+        // `.^` shifts the parity a chain of Additions cannot reach on its own,
+        // so these are the two consecutive Atom counts either side of the
+        // bound rather than the nearest odd ones.
+        let (fits, atoms_spelled) = addition_chain(1, (EXP_LEN - 2) / 2);
+        assert_eq!(atoms_spelled, EXP_LEN);
+        let (overruns, atoms_spelled) = addition_chain(0, EXP_LEN / 2);
+        assert_eq!(atoms_spelled, EXP_LEN + 1);
+
+        let mut source = fits.clone();
+        let parsed = Parser::from(&mut source)
+            .try_parse()
+            .unwrap_or_else(|error| {
+                panic!("{fits:?} spells {EXP_LEN} Atoms and was refused: {error:?}")
+            });
+        assert_eq!(parsed.len(), EXP_LEN);
+        assert_eq!(rendered(parsed), fits);
+
+        let mut source = overruns.clone();
+        let parsed = Parser::from(&mut source).try_parse();
+        assert!(
+            matches!(
+                parsed,
+                Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity })) if capacity == EXP_LEN
+            ),
+            "{overruns:?} spells {} Atoms and answered {parsed:?}",
+            EXP_LEN + 1,
+        );
+    }
+
     ///
     /// Source that is not ASCII declines to parse rather than panicking.
     ///
@@ -678,12 +744,15 @@ mod test {
     ///
     #[test]
     fn source_that_is_not_ascii_is_refused_rather_than_panicking() {
-        // `".+aé"` is the case that reaches the fix: it is the only spelling
-        // here that leaves a mid-character byte two in the remaining Source
-        // and then asks `peek_next` about it, which is what `split_at(2)`
-        // panicked on. The others decline earlier — before any peek — so they
-        // widen the input class without covering the fix. Do not drop them,
-        // and do not drop the two that carry `.+`.
+        // `".+aé"` and `".+00aé"` are the cases that reach the fix: each
+        // consumes whole Language Units and leaves `"aé"`, so byte two of the
+        // remaining Source falls inside the `é` that `peek_next` is then asked
+        // about, which is what `split_at(2)` panicked on. The other four
+        // decline before any peek, so they widen the input class without
+        // covering the fix — keep them, but do not mistake them for coverage
+        // of it. The offset is what matters rather than the `.+`: `".+0aé"`
+        // leaves an odd byte count and lands the split off the character
+        // boundary, so it declines like the rest.
         for spelled in [".+aé", ".+00aé", "é", "aé", "é.+", "..éé"] {
             let mut source = String::from(spelled);
             let parsed = Parser::from(&mut source).try_parse();
@@ -775,9 +844,12 @@ mod test {
 /// `every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it`
 /// rather than a property: the two operand domains hold 384 values between
 /// them, which is small enough to enumerate and too small to be worth
-/// sampling. `mod test` also holds
-/// `source_that_is_not_ascii_is_refused_rather_than_panicking`, which needs no
-/// generator and has to run on the WASM target this module is gated off.
+/// sampling. `mod test` also holds the two claims here that need no generator
+/// — `source_that_is_not_ascii_is_refused_rather_than_panicking` and
+/// `the_capacity_bound_falls_between_exp_len_atoms_and_one_more` — along with
+/// the `every_atom_of`, `addition_chain` and `rendered` helpers this module
+/// draws from, so that nothing a WASM build could run is gated off with the
+/// generators.
 ///
 /// `orcvs::source::language_map`'s `mod property` has a fragment generator of
 /// the same shape, and the two are deliberately separate: `orcvs` depends on
@@ -793,7 +865,7 @@ mod test {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
 
-    use super::test::every_atom_of;
+    use super::test::{addition_chain, every_atom_of, rendered};
     use crate::{
         Atom, EXP_LEN, Error, Function, SourceAnalysis, SyntaxError, Token, parser::Parser,
     };
@@ -911,23 +983,6 @@ mod property {
             1 => complete_expression(),
         ]
         .boxed()
-    }
-
-    /// Every Atom of an Expression, rendered back to Source text.
-    fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
-        atoms.into_iter().map(|atom| atom.to_string()).collect()
-    }
-
-    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
-    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
-    ///
-    /// Addition takes two operands, so a chain of them alone spells an odd
-    /// `2 * depth + 1` Atoms and can never equal an even `EXP_LEN`. `.^` takes
-    /// one, so each wrapper shifts the parity and the two together reach every
-    /// count.
-    fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
-        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
-        (spelled, wrappers + 2 * depth + 1)
     }
 
     /// Whether an entry's Atom is the kind its Token names.
@@ -1185,48 +1240,6 @@ mod property {
                 );
             }
         }
-    }
-
-    ///
-    /// The capacity bound falls between an Expression of `EXP_LEN` Atoms and
-    /// one of `EXP_LEN + 1`: the first is parsed whole, the second is refused.
-    ///
-    /// The property above sweeps a range that contains both counts, but which
-    /// counts a run draws is up to the runner and the pull-request tier draws
-    /// only 32 cases. The bound is the one number the criterion is about, so
-    /// it is spelled here rather than sampled: a bound off by one in either
-    /// direction fails on one of these two Expressions every run, on every
-    /// tier.
-    ///
-    #[test]
-    fn the_capacity_bound_falls_between_exp_len_atoms_and_one_more() {
-        // `.^` shifts the parity a chain of Additions cannot reach on its own,
-        // so these are the two consecutive Atom counts either side of the
-        // bound rather than the nearest odd ones.
-        let (fits, atoms_spelled) = addition_chain(1, (EXP_LEN - 2) / 2);
-        assert_eq!(atoms_spelled, EXP_LEN);
-        let (overruns, atoms_spelled) = addition_chain(0, EXP_LEN / 2);
-        assert_eq!(atoms_spelled, EXP_LEN + 1);
-
-        let mut source = fits.clone();
-        let parsed = Parser::from(&mut source)
-            .try_parse()
-            .unwrap_or_else(|error| {
-                panic!("{fits:?} spells {EXP_LEN} Atoms and was refused: {error:?}")
-            });
-        assert_eq!(parsed.len(), EXP_LEN);
-        assert_eq!(rendered(parsed), fits);
-
-        let mut source = overruns.clone();
-        let parsed = Parser::from(&mut source).try_parse();
-        assert!(
-            matches!(
-                parsed,
-                Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity })) if capacity == EXP_LEN
-            ),
-            "{overruns:?} spells {} Atoms and answered {parsed:?}",
-            EXP_LEN + 1,
-        );
     }
 
     ///
