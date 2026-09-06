@@ -1280,7 +1280,34 @@ mod test {
     }
 
     #[test]
-    fn test_timed_play_operands_outside_their_domains_diagnose_and_emit_nothing() {
+    fn test_root_monophonic_play_function_emits_one_command_of_its_own_kind() {
+        let mut src = source();
+        let at = src.cells();
+        src.write(at(0), "**");
+        src.write(at(10), "!%017FC403");
+
+        let tick = src.execute();
+
+        // `!%` shares Timed Play's operand shape, so what a Tick Plan carries
+        // is the variant rather than the values: the Playback Engine owns a
+        // Mono voice by its channel and a Timed voice by its channel and note,
+        // and only the spelling that arrived says which of the two this is.
+        assert_eq!(
+            tick.play_commands,
+            vec![PlayCommand::Mono {
+                channel: MidiChannel::try_from(1).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap(),
+                length: Length::from(3),
+            }]
+        );
+        assert!(tick.writes.is_empty());
+        assert!(tick.diagnostics.is_empty());
+        assert_eq!(src.row(2), "          ");
+    }
+
+    #[test]
+    fn test_lifetime_play_operands_outside_their_domains_diagnose_and_emit_nothing() {
         for (expression, message) in [
             (
                 "!~107FC403",
@@ -1288,6 +1315,14 @@ mod test {
             ),
             (
                 "!~0080C403",
+                "MIDI velocity 80 is outside the range 00\u{2013}7F",
+            ),
+            (
+                "!%107FC403",
+                "MIDI channel 10 is outside the range 00\u{2013}0F",
+            ),
+            (
+                "!%0080C403",
                 "MIDI velocity 80 is outside the range 00\u{2013}7F",
             ),
         ] {

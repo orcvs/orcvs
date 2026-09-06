@@ -61,6 +61,22 @@ pub enum PlayCommand {
         note: Note,
         length: Length,
     },
+    ///
+    /// ADR 0016's Monophonic Play, carrying the same operands Timed Play does.
+    ///
+    /// A variant of its own rather than a flag on `Timed`, because the two
+    /// differ in what they own rather than in what they carry: Timed Play is
+    /// polyphonic and owns the note it names, while Monophonic Play owns its
+    /// whole channel and replaces whatever that channel was sounding. A shared
+    /// variant would put that difference in a field every consumer had to
+    /// branch on, where a variant makes the match arms the branch.
+    ///
+    Mono {
+        channel: MidiChannel,
+        velocity: Velocity,
+        note: Note,
+        length: Length,
+    },
 }
 
 /// The ordered group of Play Commands one Terminal Output Function Expression

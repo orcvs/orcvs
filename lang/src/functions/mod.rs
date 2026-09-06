@@ -67,9 +67,42 @@ pub fn timed_play(ctx: &mut Context) -> Result<Performance, Error> {
     )
 }
 
+/// Monophonic Play: `!% channel velocity note length`.
+///
+/// The operand shape is Timed Play's, so the body is too. What differs is
+/// entirely downstream: this command owns a channel rather than a note, and
+/// the Playback Engine that counts Ticks is what knows the difference. A body
+/// that tried to say so here would be interpreting musical intent inside a
+/// Tick Plan, which is the seam ADR 0001 draws.
+///
+/// Widening under ADR 0030 is the same seam again. This states one command per
+/// element and nothing about Sequences, so a widened `!%` answers an ordered
+/// group whose elements all name the one channel-keyed voice; that the last of
+/// them is what the channel is left sounding is the Playback Engine's rule,
+/// arrived at by the ordinary replacement it already performs, and not a case
+/// this body knows about.
+#[inline(always)]
+pub fn monophonic_play(ctx: &mut Context) -> Result<Performance, Error> {
+    ctx.stack.perform(
+        |operands::MonophonicPlay {
+             channel,
+             velocity,
+             note,
+             length,
+         }: operands::MonophonicPlay| {
+            Ok(PlayCommand::Mono {
+                channel,
+                velocity,
+                note,
+                length,
+            })
+        },
+    )
+}
+
 #[cfg(test)]
 mod test {
-    use super::{raw_play, timed_play};
+    use super::{monophonic_play, raw_play, timed_play};
     use crate::{
         Anchor, ArgumentError, Atom, Error, Interpretation, InterpretationError, Interpreter,
         Length, MidiChannel, Note, Parser, Performance, PlayCommand, Sequence, Tick, TickInputs,
@@ -333,6 +366,110 @@ mod test {
             interpret("!~0102C404").unwrap(),
             Interpretation::Play(Performance::One(expected))
         );
+    }
+
+    #[test]
+    fn monophonic_play_carries_each_operand_into_the_role_its_signature_names() {
+        // Four differing values for the reason Timed Play's role test gives:
+        // `!%` shares its operand shape, so a transposition inside the
+        // declaration compiles and only values that differ separate it from
+        // the declaration meant.
+        let mut ctx = context();
+        ctx.stack.push(Atom::Number(0x04)).unwrap();
+        ctx.stack
+            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .unwrap();
+        ctx.stack.push(Atom::Number(0x02)).unwrap();
+        ctx.stack.push(Atom::Number(0x01)).unwrap();
+
+        let expected = PlayCommand::Mono {
+            channel: MidiChannel::try_from(0x01).unwrap(),
+            velocity: Velocity::try_from(0x02).unwrap(),
+            note: Note::try_from(60).unwrap(),
+            length: Length::from(0x04),
+        };
+
+        assert_eq!(
+            monophonic_play(&mut ctx).unwrap(),
+            Performance::One(expected)
+        );
+
+        // And the same claim from Source text: `!%` reads channel, velocity,
+        // note, then length, left to right in the Cells.
+        assert_eq!(
+            interpret("!%0102C404").unwrap(),
+            Interpretation::Play(Performance::One(expected))
+        );
+    }
+
+    #[test]
+    fn monophonic_play_requires_four_arguments() {
+        // A well-typed prefix at every length, as Timed Play's arity test
+        // does: what is missing is the count rather than a type.
+        let operands = [
+            Atom::Number(0x01),
+            Atom::Number(0x02),
+            Atom::Note(crate::Note::try_from(60).unwrap()),
+            Atom::Number(0x04),
+        ];
+
+        for found in 0..4 {
+            let mut ctx = context();
+            for argument in operands.iter().take(found).rev() {
+                ctx.stack.push(*argument).unwrap();
+            }
+
+            let error = monophonic_play(&mut ctx).unwrap_err();
+
+            assert!(
+                matches!(
+                    error,
+                    Error::Argument(ArgumentError::Arity { expected: 4, found: f }) if f == found
+                ),
+                "{found} argument(s) gave {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn monophonic_play_takes_the_same_operand_domains_as_timed_play() {
+        // ADR 0016 gives `!%` Timed Play's operand shape, so it inherits the
+        // domains with it. Each is proven by the operand that leaves it,
+        // except the length, which has nothing outside it.
+        for channel in 0x10..=u8::MAX {
+            assert!(
+                matches!(
+                    interpret(&format!("!%{channel:02X}7FC401")),
+                    Err(Error::Interpretation(InterpretationError::MidiChannel(value)))
+                        if value == channel
+                ),
+                "channel {channel:02X}"
+            );
+        }
+        assert!(matches!(
+            interpret("!%0080C401"),
+            Err(Error::Interpretation(InterpretationError::MidiDataByte {
+                role: "velocity",
+                value: 0x80,
+            }))
+        ));
+        assert!(matches!(
+            interpret("!%007F.vC401"),
+            Err(Error::Type(crate::TypeError::Note(found))) if found == "3C"
+        ));
+
+        for length in 0..=u8::MAX {
+            assert_eq!(
+                interpret(&format!("!%007FC4{length:02X}")).unwrap(),
+                Interpretation::Play(Performance::One(PlayCommand::Mono {
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(0x7F).unwrap(),
+                    note: Note::try_from(60).unwrap(),
+                    length: Length::from(length),
+                })),
+                "length {length:02X}"
+            );
+        }
     }
 
     #[test]

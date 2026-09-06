@@ -157,17 +157,56 @@ impl fmt::Display for PlaybackStartError {
 }
 
 ///
-/// The channel and note one Timed Play command sounds on.
+/// One voice this engine can own, and what counts as the same voice.
 ///
-/// Ownership is per channel *and* note: Timed Play is polyphonic, and ADR 0016
-/// gives one voice per channel to Monophonic Play alone. The key carries the
-/// two domain types the interpreter proved rather than their bytes, so the
-/// stop this module delivers re-derives neither.
+/// The key is the whole of the difference between the two Play spellings that
+/// own anything. ADR 0016 makes Timed Play polyphonic, so a channel sounds as
+/// many Timed notes at once as the Source starts on it and each is owned in
+/// its own right; Monophonic Play owns one voice per channel, so the note is
+/// not part of what identifies the voice but what the voice is currently
+/// sounding. Two variants of one key rather than a schedule each, because
+/// everything that follows a claim — the generation token, the Tick its stop
+/// is due at, the staleness check, and the lifecycle actions that clear the
+/// lot — is identical for both, and only what a replacement replaces differs.
+///
+/// Being distinct variants is also what keeps the two ownerships apart: a Mono
+/// command cannot find a Timed claim to stop, and a Timed expiry cannot stop a
+/// Mono note, because neither key can name the other's voice. Raw Play has no
+/// variant here at all, since ADR 0016 leaves its Note Off under Source
+/// control and nothing this engine owns may stop it.
+///
+/// Each variant carries the domain types the interpreter proved rather than
+/// their bytes, so the stop this module delivers re-derives neither.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct TimedVoice {
-    channel: MidiChannel,
+enum Voice {
+    Timed { channel: MidiChannel, note: Note },
+    Mono { channel: MidiChannel },
+}
+
+impl Voice {
+    /// The channel this voice sounds on, which every stop needs and which is
+    /// the only field both variants share.
+    fn channel(self) -> MidiChannel {
+        match self {
+            Self::Timed { channel, .. } | Self::Mono { channel } => channel,
+        }
+    }
+}
+
+///
+/// What a voice is sounding: the note, and the claim that started it.
+///
+/// The note is recorded rather than read back off the key because a Mono
+/// voice's key does not name one — its channel is the voice and its note is
+/// only what that voice happens to sound — and a stop needs the note either
+/// way. A Timed voice restates its note here, which is the price of one
+/// schedule instead of two.
+///
+#[derive(Clone, Copy, Debug)]
+struct Sounding {
     note: Note,
+    claim: Claim,
 }
 
 ///
@@ -186,45 +225,46 @@ struct Claim(u64);
 /// One scheduled stop, and the claim it belongs to.
 #[derive(Clone, Copy, Debug)]
 struct Expiry {
-    voice: TimedVoice,
+    voice: Voice,
     claim: Claim,
 }
 
 ///
-/// Every note a Timed Play command owns, and the Tick each is stopped at.
+/// Every note a Timed or Monophonic Play command owns, and the Tick each is
+/// stopped at.
 ///
 /// ADR 0001 keeps musical intent out of the output adapter and ADR 0016 puts a
-/// Timed Play's whole lifetime in the Tick Plan, which leaves exactly this
-/// between them: the engine reads the length, delivers the start in Tick Plan
-/// order, and delivers the stop when the run reaches the Tick it is due at.
+/// Play's whole lifetime in the Tick Plan, which leaves exactly this between
+/// them: the engine reads the length, delivers the start in Tick Plan order,
+/// and delivers the stop when the run reaches the Tick it is due at.
 ///
 /// It is the only state here that outlives one Tick, and it describes notes
 /// that are sounding, so everything that silences output clears it: beginning
 /// a run, stopping, disconnecting, and changing destination.
 ///
 #[derive(Clone, Default)]
-struct TimedNotes {
-    owned: BTreeMap<TimedVoice, Claim>,
+struct OwnedNotes {
+    voices: BTreeMap<Voice, Sounding>,
     expiries: BTreeMap<Tick, Vec<Expiry>>,
     next_claim: u64,
 }
 
 ///
-/// The explicit stop for `voice`.
+/// The explicit stop for `note` on `channel`.
 ///
 /// MIDI's zero-velocity Note On, which is the stop Raw Play already gives the
 /// Source through velocity `00`: a scheduled expiry is delivered as a message
 /// a Source could have written for itself rather than as a shape of its own.
 ///
-fn note_off(voice: TimedVoice) -> OutputCommand {
+fn note_off(channel: MidiChannel, note: Note) -> OutputCommand {
     OutputCommand::NoteOn {
-        channel: voice.channel,
+        channel,
         velocity: Velocity::ZERO,
-        note: voice.note,
+        note,
     }
 }
 
-impl TimedNotes {
+impl OwnedNotes {
     ///
     /// This Tick's delivery: every stop due at `tick`, then `commands`
     /// resolved against ownership, in Tick Plan order.
@@ -258,14 +298,14 @@ impl TimedNotes {
                     note,
                     length,
                 } => {
-                    let voice = TimedVoice { channel, note };
+                    let voice = Voice::Timed { channel, note };
                     if velocity == Velocity::ZERO {
                         // An explicit stop, whatever length accompanies it,
                         // scheduling no expiry. Releasing the claim is what
                         // keeps the expiry this note already had from stopping
                         // whatever sounds on the voice next.
                         self.release(voice);
-                        delivery.push(note_off(voice));
+                        delivery.push(note_off(channel, note));
                     } else if length == Length::ZERO {
                         // A lifetime of no Ticks never starts, and is not a
                         // stop: the note this voice owns and the expiry it is
@@ -273,15 +313,49 @@ impl TimedNotes {
                     } else {
                         // A replacement stops the instance it replaces before
                         // it starts, and retires that instance's expiry with it.
-                        if self.release(voice) {
-                            delivery.push(note_off(voice));
+                        if self.release(voice).is_some() {
+                            delivery.push(note_off(channel, note));
                         }
                         delivery.push(OutputCommand::NoteOn {
                             channel,
                             velocity,
                             note,
                         });
-                        self.claim(voice, tick.after(length.ticks()));
+                        self.claim(voice, note, tick.after(length.ticks()));
+                    }
+                }
+                PlayCommand::Mono {
+                    channel,
+                    velocity,
+                    note,
+                    length,
+                } => {
+                    let voice = Voice::Mono { channel };
+                    // Every Monophonic command stops the note its channel was
+                    // sounding before it does anything else, and whether or
+                    // not it goes on to start one. The note comes back out of
+                    // the claim rather than off the command, which is what
+                    // monophony means here: the voice is the channel, and the
+                    // Source need not remember what it last put on it.
+                    if let Some(stopped) = self.release(voice) {
+                        delivery.push(note_off(channel, stopped));
+                    }
+                    // Velocity `00` and length `00` both leave the channel
+                    // silent, and ADR 0016 makes that the end of the command.
+                    // Timed Play's length `00` is a no-op instead, and the
+                    // difference is not an inconsistency: a Timed command
+                    // claims the note it names, so a note that never starts
+                    // claims nothing and disturbs nothing, while a Monophonic
+                    // command claims the channel whether or not it sounds, so
+                    // one that starts nothing has replaced the voice with
+                    // silence.
+                    if velocity != Velocity::ZERO && length != Length::ZERO {
+                        delivery.push(OutputCommand::NoteOn {
+                            channel,
+                            velocity,
+                            note,
+                        });
+                        self.claim(voice, note, tick.after(length.ticks()));
                     }
                 }
             }
@@ -310,25 +384,31 @@ impl TimedNotes {
         for expiry in due.into_values().flatten() {
             // A stale expiry stops nothing: its claim was released when the
             // voice was replaced or stopped, so what sounds there now is not
-            // what it was scheduled for.
-            if self.owned.get(&expiry.voice) == Some(&expiry.claim) {
-                self.owned.remove(&expiry.voice);
-                stops.push(note_off(expiry.voice));
+            // what it was scheduled for. The note comes from the claim rather
+            // than from the expiry for the reason a Mono voice needs it to —
+            // the key names a channel, not a note — and reading it there means
+            // only a claim that is still standing can name a note to stop.
+            if let Some(sounding) = self.voices.get(&expiry.voice).copied()
+                && sounding.claim == expiry.claim
+            {
+                self.voices.remove(&expiry.voice);
+                stops.push(note_off(expiry.voice.channel(), sounding.note));
             }
         }
         stops
     }
 
     ///
-    /// Claims `voice` until `due`, so the Tick it is due at stops it.
+    /// Claims `voice` for `note` until `due`, so the Tick it is due at stops
+    /// it.
     ///
-    fn claim(&mut self, voice: TimedVoice, due: Tick) {
+    fn claim(&mut self, voice: Voice, note: Note, due: Tick) {
         // Unreachable for the reason `Tick::next`'s saturation is unreachable:
         // a run would have to claim a voice every nanosecond for five hundred
         // years to wrap this counter.
         let claim = Claim(self.next_claim);
         self.next_claim = self.next_claim.wrapping_add(1);
-        self.owned.insert(voice, claim);
+        self.voices.insert(voice, Sounding { note, claim });
         self.expiries
             .entry(due)
             .or_default()
@@ -337,17 +417,17 @@ impl TimedNotes {
 
     ///
     /// Gives up any claim on `voice`, invalidating the stop it scheduled, and
-    /// answers whether a note was standing.
+    /// answers the note that was standing on it.
     ///
-    fn release(&mut self, voice: TimedVoice) -> bool {
-        self.owned.remove(&voice).is_some()
+    fn release(&mut self, voice: Voice) -> Option<Note> {
+        self.voices.remove(&voice).map(|sounding| sounding.note)
     }
 
     ///
     /// Forgets every claim and every scheduled stop.
     ///
     fn clear(&mut self) {
-        self.owned.clear();
+        self.voices.clear();
         self.expiries.clear();
     }
 }
@@ -416,14 +496,15 @@ struct PlaybackInner<A> {
     ///
     tick: Tick,
     ///
-    /// The notes Timed Play owns, and the Tick each is stopped at.
+    /// The notes Timed and Monophonic Play own, and the Tick each is stopped
+    /// at.
     ///
     /// Here rather than beside the Source for the reason the absolute Tick is:
     /// a scheduled stop belongs to one Playback run, and ADR 0003 keeps every
     /// piece of language state in the Source Snapshot, which a schedule of
     /// future effects is not.
     ///
-    timed: TimedNotes,
+    owned: OwnedNotes,
 }
 
 pub struct PlaybackEngine<A: OutputAdapter> {
@@ -506,7 +587,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // rather than alongside the all-notes-off above is deliberate: a run
         // that is already stopped owns nothing, and an engine that reached
         // here holding a claim would otherwise carry it into the next run.
-        self.timed.clear();
+        self.owned.clear();
     }
 
     fn send_all_notes_off(&mut self) {
@@ -551,7 +632,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // Ticks begin again at zero, so an inherited expiry would stop a note
         // of the new run that has not started. Discarding the schedule is part
         // of beginning a run for the same reason resetting the counter is.
-        self.timed.clear();
+        self.owned.clear();
         if let Some(previous) = self.cancellation.take() {
             previous.cancel();
         }
@@ -600,11 +681,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // implementation giving up its connection the way
             // `MidiOutputAdapter` does. The copy is two maps of the notes
             // currently sounding, taken once per executed Tick.
-            let mut timed = self.timed.clone();
-            let delivery = timed.deliver(tick, &plan.play_commands);
+            let mut owned = self.owned.clone();
+            let delivery = owned.deliver(tick, &plan.play_commands);
             match self.adapter.submit(&delivery) {
                 Ok(()) => {
-                    self.timed = timed;
+                    self.owned = owned;
                     self.last_output_failure = None;
                 }
                 Err(error) => self.record_output_failure(error),
@@ -628,7 +709,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
                 cancellation: None,
                 last_tick_at: None,
                 tick: Tick::ZERO,
-                timed: TimedNotes::default(),
+                owned: OwnedNotes::default(),
             })),
             handle_count: Arc::new(AtomicUsize::new(1)),
         }
@@ -659,7 +740,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
         // Nothing this engine owns is sounding on a disconnected output, and
         // nothing it delivers while disconnected can start a note, so the
         // schedule goes with the connection.
-        inner.timed.clear();
+        inner.owned.clear();
     }
 
     #[cfg(test)]
@@ -698,16 +779,16 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     }
 
     ///
-    /// Whether any Timed Play note is claimed or any stop still scheduled.
+    /// Whether any note is claimed or any stop still scheduled.
     ///
     /// The lifecycle rule is that nothing survives a run, and a run that has
     /// ended delivers nothing more for a test to read: what is left to observe
     /// is the state itself.
     ///
     #[cfg(test)]
-    fn holds_timed_ownership(&self) -> bool {
+    fn holds_note_ownership(&self) -> bool {
         let inner = self.inner.lock().unwrap();
-        !inner.timed.owned.is_empty() || !inner.timed.expiries.is_empty()
+        !inner.owned.voices.is_empty() || !inner.owned.expiries.is_empty()
     }
 }
 
@@ -732,7 +813,7 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
         // the Source starts on that voice afterwards. Nothing is owned while
         // disconnected, so clearing before a failure that leaves this engine
         // connected to the destination it already had discards nothing else.
-        self.timed.clear();
+        self.owned.clear();
         let selection = self.adapter.select(destination_id)?;
         self.last_output_failure = None;
         if let Some(error) = selection.safety_failure() {
@@ -1133,7 +1214,7 @@ mod tests {
         // that read one length for the whole group, or that let a later
         // element's claim displace an earlier one, stops the wrong notes at the
         // wrong Ticks.
-        let mut timed = TimedNotes::default();
+        let mut timed = OwnedNotes::default();
 
         let started = timed.deliver(
             Tick::ZERO,
@@ -1331,20 +1412,26 @@ mod tests {
     }
 
     ///
-    /// A hand-driven run that has executed one Tick of a Timed Play, so it
+    /// A hand-driven run that has executed one Tick of `expression`, so it
     /// owns a note whose stop is due at a Tick it has not reached.
     ///
-    fn engine_owning_a_timed_note() -> (PlaybackEngine<InMemoryOutputAdapter>, InMemoryOutputAdapter)
-    {
+    /// Taking the Expression rather than naming one spelling is what lets the
+    /// lifecycle claims be made of a Timed note and a Mono note alike: the two
+    /// share one schedule, and the rule under test is that nothing in it
+    /// survives.
+    ///
+    fn engine_owning_a_note(
+        expression: &str,
+    ) -> (PlaybackEngine<InMemoryOutputAdapter>, InMemoryOutputAdapter) {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC40A");
+        write(&source, 0, expression);
         write(&source, 10, "**");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
         run_tick(&engine, 0);
 
-        assert!(engine.holds_timed_ownership());
+        assert!(engine.holds_note_ownership());
         (engine, adapter)
     }
 
@@ -1653,7 +1740,7 @@ mod tests {
                 vec![],
             ]
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
@@ -1717,7 +1804,7 @@ mod tests {
             "{:?}",
             adapter.command_lists()
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
@@ -1821,7 +1908,7 @@ mod tests {
             ]
         );
         // The Raw note that outlives the stop is the Source's to end.
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
@@ -1856,7 +1943,7 @@ mod tests {
                 vec![stop(0, 64)],
             ]
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
@@ -1888,7 +1975,7 @@ mod tests {
                 vec![stop(1, 60)],
             ]
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
@@ -1925,7 +2012,335 @@ mod tests {
                 vec![],
             ]
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_monophonic_play_starts_in_tick_plan_order_and_stops_at_the_tick_its_length_names() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!%007FC402");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=3 {
+            run_tick(&engine, tick);
+        }
+
+        // ADR 0016 gives `!%` Timed Play's lifetime as well as its operands:
+        // the start is delivered in the Tick that planned it and the stop at
+        // the beginning of Tick `0 + 02`.
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![],
+                vec![stop(0, 60)],
+                vec![],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_monophonic_play_stops_whatever_note_its_channel_was_sounding() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!%007FC405");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // A different note on the channel the first is sounding. Mono
+        // ownership is keyed by channel alone, so this replaces the voice
+        // rather than joining it, and what it stops is the note the claim
+        // recorded rather than the note this command names.
+        write(&source, 6, "E4");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=6 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                // Keyed as Timed Play is, by channel and note, this Tick would
+                // start E4 over a C4 that nothing would stop until Tick 5.
+                vec![stop(0, 60), note_on(0, 0x7F, 64)],
+                vec![],
+                vec![],
+                vec![],
+                // Tick 5 is where the replaced claim's stop was due. Its
+                // generation token was retired at Tick 1, so delivering it
+                // here would cut the replacement short by a Tick.
+                vec![],
+                vec![stop(0, 64)],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_monophonic_play_with_velocity_zero_replaces_the_voice_with_silence() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!%007FC405");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // Velocity `00`, and a note operand that is not the note sounding, so
+        // the stop can only have come from the claim.
+        write(&source, 4, "00");
+        write(&source, 6, "A4");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=6 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(adapter.command_lists()[0], vec![note_on(0, 0x7F, 60)]);
+        assert_eq!(adapter.command_lists()[1], vec![stop(0, 60)]);
+        assert!(
+            adapter.command_lists()[2..]
+                .iter()
+                .all(|commands| commands.is_empty()),
+            "{:?}",
+            adapter.command_lists()
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_monophonic_play_with_no_length_replaces_the_voice_with_silence() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!%007FC405");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // The operand Timed Play treats as a no-op. Monophonic Play claims its
+        // channel rather than its note, so a command that starts nothing has
+        // still replaced the voice — with silence — and the note it replaced
+        // is stopped rather than left standing until its own expiry.
+        write(&source, 8, "00");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=6 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(adapter.command_lists()[0], vec![note_on(0, 0x7F, 60)]);
+        assert_eq!(adapter.command_lists()[1], vec![stop(0, 60)]);
+        assert!(
+            adapter.command_lists()[2..]
+                .iter()
+                .all(|commands| commands.is_empty()),
+            "{:?}",
+            adapter.command_lists()
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_stale_mono_expiry_cannot_stop_the_voice_claimed_after_it() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!%007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        // Tick 0 claims the channel until Tick 3. Tick 1 silences it, which
+        // retires that claim while leaving its scheduled stop where it was,
+        // and Tick 2 claims the same channel again until Tick 7.
+        run_tick(&engine, 0);
+        write(&source, 4, "00");
+        run_tick(&engine, 1);
+        write(&source, 4, "7F");
+        write(&source, 8, "05");
+        run_tick(&engine, 2);
+        erase(&source, 10, 2);
+        for tick in 3..=7 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![stop(0, 60)],
+                vec![note_on(0, 0x7F, 60)],
+                // Tick 3 is where the first claim's stop was due. Delivering
+                // it here would cut the note claimed at Tick 2 short by four
+                // Ticks, which is exactly what its token exists to prevent.
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![stop(0, 60)],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_mono_voice_is_owned_per_channel_and_channels_do_not_steal_from_one_another() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        write(&source, 0, "!%007FC403");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        // The same note on a second channel, which is a second instrument
+        // sounding it. One voice per channel is one voice each.
+        write(&source, 2, "01");
+        run_tick(&engine, 1);
+        erase(&source, 10, 2);
+        for tick in 2..=4 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                // A single Mono voice across every channel would stop channel
+                // 0 here to sound channel 1, one Tick into a note the Source
+                // gave three.
+                vec![note_on(1, 0x7F, 60)],
+                vec![],
+                vec![stop(0, 60)],
+                vec![stop(1, 60)],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn two_monophonic_plays_for_one_channel_within_one_tick_leave_the_second_owning_it() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // One Bang between the two roots activates both, so one Tick Plan
+        // carries two commands for the same channel.
+        write(&source, 0, "!%007FC405");
+        write(&source, 10, "**");
+        write(&source, 20, "!%007FE402");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        for tick in 1..=5 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                // The second command replaces what the first started, inside
+                // the one submission the Tick makes: the channel is owned in
+                // Tick Plan order, not once per Tick.
+                vec![note_on(0, 0x7F, 60), stop(0, 60), note_on(0, 0x7F, 64)],
+                vec![],
+                vec![stop(0, 64)],
+                // Tick 5 is where the first command's stop was due. Its claim
+                // was retired before the Tick that scheduled it had ended.
+                vec![],
+                vec![],
+                vec![],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
+    }
+
+    #[tokio::test]
+    async fn a_mono_voice_due_to_expire_is_stopped_once_by_the_tick_that_replaces_it() {
+        let source = SourceCommander::new(Grid::new(10, 3));
+        // A lifetime of one Tick, replayed every Tick by a Bang that stands,
+        // so every Tick after the first carries both a due stop and a command
+        // for the voice that stop names.
+        write(&source, 0, "!%007FC401");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        for tick in 0..=2 {
+            run_tick(&engine, tick);
+        }
+
+        // One stop, not two: the expiry drains before the Tick Plan and takes
+        // the claim with it, so the command that follows finds nothing left to
+        // release and the note it starts is not immediately silenced.
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                vec![stop(0, 60), note_on(0, 0x7F, 60)],
+                vec![stop(0, 60), note_on(0, 0x7F, 60)],
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn timed_and_mono_own_separately_and_neither_owns_a_raw_note() {
+        let source = SourceCommander::new(Grid::new(10, 8));
+        write(&source, 0, "!>007FC4");
+        write(&source, 10, "**");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
+        engine.activate_for_test();
+
+        // The same note on the same channel, started a Tick apart by all three
+        // Play spellings, each root retired before the next is written so that
+        // one command is planned per Tick. One channel and one note is the
+        // whole point: a schedule that keyed the two owning spellings together
+        // would find a claim to replace here, where ADR 0016 gives Timed and
+        // Mono ownerships that cannot see one another.
+        run_tick(&engine, 0);
+        erase(&source, 10, 2);
+        write(&source, 20, "!~007FC403");
+        write(&source, 30, "**");
+        run_tick(&engine, 1);
+        erase(&source, 30, 2);
+        write(&source, 40, "!%007FC403");
+        write(&source, 50, "**");
+        run_tick(&engine, 2);
+        erase(&source, 50, 2);
+        for tick in 3..=6 {
+            run_tick(&engine, tick);
+        }
+
+        assert_eq!(
+            adapter.command_lists(),
+            vec![
+                vec![note_on(0, 0x7F, 60)],
+                // The Timed command owns nothing yet, and the Raw note is the
+                // Source's to end, so nothing is stopped to start this.
+                vec![note_on(0, 0x7F, 60)],
+                // Nor does the Mono command find the Timed claim beside it.
+                vec![note_on(0, 0x7F, 60)],
+                vec![],
+                // Two lifetimes were written and two stops are delivered, one
+                // per owning spelling. Sharing a key would deliver one.
+                vec![stop(0, 60)],
+                vec![stop(0, 60)],
+                vec![],
+            ]
+        );
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
@@ -1946,7 +2361,7 @@ mod tests {
         // engine still owes a Note Off.
         adapter.fail_next_submission("output unavailable");
         run_tick(&engine, 2);
-        assert!(engine.holds_timed_ownership());
+        assert!(engine.holds_note_ownership());
         run_tick(&engine, 3);
 
         // Three submissions were accepted: the start, the Tick between, and
@@ -1955,7 +2370,7 @@ mod tests {
             adapter.command_lists(),
             vec![vec![note_on(0, 0x7F, 60)], vec![], vec![stop(0, 60)]]
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
         assert_eq!(
             engine.diagnostics(),
             vec![PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
@@ -2024,35 +2439,45 @@ mod tests {
             "{:?}",
             adapter.command_lists()
         );
-        assert!(!engine.holds_timed_ownership());
+        assert!(!engine.holds_note_ownership());
     }
 
     #[tokio::test]
-    async fn every_lifecycle_action_that_silences_output_clears_the_timed_schedule() {
+    async fn every_lifecycle_action_that_silences_output_clears_the_note_schedule() {
         // Each of these silences the output the schedule describes, so a stop
         // left standing would be delivered to a device that has already been
         // told to stop everything, or into a run that never started the note.
-        let (engine, _) = engine_owning_a_timed_note();
-        engine.stop();
-        assert!(!engine.holds_timed_ownership());
+        // A Timed claim and a Mono claim are both asserted of every action,
+        // because the two are one schedule and a clear that reached only one
+        // of them would leave the other hanging.
+        for expression in ["!~007FC40A", "!%007FC40A"] {
+            let (engine, _) = engine_owning_a_note(expression);
+            engine.stop();
+            assert!(!engine.holds_note_ownership(), "{expression}");
 
-        let (engine, _) = engine_owning_a_timed_note();
-        engine.disconnect();
-        assert!(!engine.holds_timed_ownership());
+            let (engine, _) = engine_owning_a_note(expression);
+            engine.disconnect();
+            assert!(!engine.holds_note_ownership(), "{expression}");
 
-        // Beginning a run restarts the absolute Tick at zero, so an inherited
-        // stop would come due before the note it stops had been played.
-        let (engine, _) = engine_owning_a_timed_note();
-        engine.activate_for_test();
-        assert!(!engine.holds_timed_ownership());
+            // Beginning a run restarts the absolute Tick at zero, so an
+            // inherited stop would come due before the note it stops had been
+            // played.
+            let (engine, _) = engine_owning_a_note(expression);
+            engine.activate_for_test();
+            assert!(!engine.holds_note_ownership(), "{expression}");
 
-        // Dropping the final handle stops the run, and stopping is what clears
-        // the schedule. What is left to observe once the engine is gone is the
-        // safety the owned note is silenced by.
-        let (engine, adapter) = engine_owning_a_timed_note();
-        drop(engine);
-        assert_eq!(adapter.all_notes_off_count(), 1);
-        assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
+            // Dropping the final handle stops the run, and stopping is what
+            // clears the schedule. What is left to observe once the engine is
+            // gone is the safety the owned note is silenced by.
+            let (engine, adapter) = engine_owning_a_note(expression);
+            drop(engine);
+            assert_eq!(adapter.all_notes_off_count(), 1, "{expression}");
+            assert_eq!(
+                adapter.command_lists(),
+                vec![vec![note_on(0, 0x7F, 60)]],
+                "{expression}"
+            );
+        }
     }
 
     #[tokio::test]
