@@ -1132,13 +1132,15 @@ mod tests {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
-    use super::{LanguageMap, SPACE_BYTE};
+    use super::{LanguageMap, Parser, SPACE_BYTE};
     use crate::grid::Grid;
-    use lang::{Activation, Atom, Function, Note};
+    use lang::{Activation, Atom, Function, Note, Token};
     use proptest::prelude::*;
     use proptest::sample::select;
     use proptest::test_runner::{Config, TestRunner};
-    use std::cell::Cell;
+    // Aliased because `Cell` is a domain noun throughout this file and in
+    // CONTEXT.md. What `std::cell::Cell` holds here is a draw count.
+    use std::cell::Cell as Counter;
 
     /// The widest and tallest Grid a case is derived over. Wide enough to hold
     /// several runs and a Comment in one row, and short enough that a shrunk
@@ -1146,19 +1148,63 @@ mod property {
     const COLS: usize = 12;
     const ROWS: usize = 3;
 
-    /// The standalone Language Unit spellings: the Bang and the four
-    /// Activations, read from the Atoms themselves rather than restated.
+    /// The standalone Language Unit spellings: the Bang and every Activation,
+    /// read from the Atoms themselves rather than restated, and from
+    /// `Activation::ALL` so a fifth Activation is drawn the day it is
+    /// declared.
     fn standalone_spellings() -> Vec<String> {
-        [
-            Atom::Bang,
-            Atom::Activation(Activation::North),
-            Atom::Activation(Activation::South),
-            Atom::Activation(Activation::West),
-            Atom::Activation(Activation::East),
-        ]
-        .iter()
-        .map(|atom| atom.to_string())
-        .collect()
+        std::iter::once(Atom::Bang)
+            .chain(Activation::ALL.iter().copied().map(Atom::Activation))
+            .map(|atom| atom.to_string())
+            .collect()
+    }
+
+    /// One Function spelled with a literal in each operand position it
+    /// declares: the shape the walk reads as a whole Expression.
+    ///
+    /// This is the minority branch, and it is here because the coverage guard
+    /// below proved it was needed — without it, no revision in 256 cases held
+    /// a Function the walk read whole, so both properties' Expression arms
+    /// were reached only by standalone runs, which `standalone_run` answers
+    /// without ever calling the Parser.
+    ///
+    /// `lang` keeps a Function's signature crate-private, so the operand count
+    /// and types are not restated here: a Function is drawn with between one
+    /// and four literals after it and the draws that do not spell a whole
+    /// Expression are filtered out. Strict parsing is what selects them, and
+    /// the properties state what permissive analysis and the walk do with
+    /// them, so the generator is not deciding the question it feeds.
+    fn complete_expression() -> BoxedStrategy<String> {
+        (
+            select(Function::ALL),
+            prop::collection::vec(
+                prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+                1..=4,
+            ),
+        )
+            .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
+            .prop_filter("one whole Expression", |source| {
+                let mut source = source.clone();
+                Parser::from(&mut source).try_parse().is_ok()
+            })
+            .boxed()
+    }
+
+    /// Source text for one Operand Literal of the type its position declares.
+    ///
+    /// ADR 0021 makes an Operand Literal's type the consuming Function's
+    /// rather than the Source's, so a literal is spelled against the `Token`
+    /// the slot declares.
+    fn literal_source(token: Token) -> BoxedStrategy<String> {
+        match token {
+            Token::Number => any::<u8>()
+                .prop_map(|number| Atom::Number(number).to_string())
+                .boxed(),
+            Token::Note => (0x00u8..=0x7F)
+                .prop_map(|note| Atom::Note(Note::try_from(note).expect("a MIDI Note")).to_string())
+                .boxed(),
+            other => panic!("no operand is declared as {other:?}"),
+        }
     }
 
     /// One piece of generated Source text.
@@ -1168,9 +1214,18 @@ mod property {
     /// the walk gives meaning to, so that a row is more often a near miss than
     /// noise: the space and the `##` introducer that end a run, the `#` that is
     /// incomplete Source rather than a Comment, a Function spelling, a
-    /// standalone Atom, and an Operand Literal. They are concatenated in
-    /// whatever order they are drawn and then cut to the Grid, so what reaches
-    /// the walk is raw text rather than a grammar.
+    /// standalone Atom, an Operand Literal, and — as the minority branch — a
+    /// whole Function with its operands. They are concatenated in whatever
+    /// order they are drawn and then cut to the Grid, so what reaches the walk
+    /// is raw text rather than a grammar.
+    ///
+    /// `lang::parser`'s `mod property` has a fragment generator of the same
+    /// shape, and the two are deliberately separate: `orcvs` depends on `lang`,
+    /// so sharing one would mean a test-support module in `lang` compiled into
+    /// a dependency for the sake of a test. The duplication is recorded here
+    /// rather than left to be discovered — a new run boundary or a second
+    /// Comment form has to be taught to both, and neither coverage guard
+    /// notices if only one learns it.
     fn fragment() -> BoxedStrategy<String> {
         prop_oneof![
             8 => proptest::char::range(' ', '~').prop_map(String::from),
@@ -1178,13 +1233,9 @@ mod property {
             2 => Just("#".to_owned()),
             2 => Just("##".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
-            1 => select(standalone_spellings()).prop_map(|spelling| spelling.to_string()),
-            2 => prop_oneof![
-                any::<u8>().prop_map(|number| Atom::Number(number).to_string()),
-                (0x00u8..=0x7F)
-                    .prop_map(|note| Atom::Note(Note::try_from(note).expect("a MIDI Note"))
-                        .to_string()),
-            ],
+            1 => select(standalone_spellings()),
+            2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+            3 => complete_expression(),
         ]
         .boxed()
     }
@@ -1333,14 +1384,30 @@ mod property {
 
                 let span = expression.span();
                 let units = map.expression_units(expression);
-                let anchored = map
-                    .units()
-                    .filter(|unit| {
-                        let anchor = grid.index(unit.anchor());
-                        span.start() <= anchor && anchor <= span.end()
-                    })
-                    .count();
-                prop_assert_eq!(units.len(), anchored, "{:?}", source);
+
+                // Every named unit lies wholly inside the Expression's Span,
+                // and the named units run in Source order without a gap. This
+                // is containment of the whole unit rather than of its anchor,
+                // which is what `units_range` searches on, so it states what
+                // the range is for instead of re-deriving it the way the
+                // implementation does: a unit that began inside the Span and
+                // ran past its end would satisfy the anchor search and fail
+                // here.
+                let mut previous_end: Option<usize> = None;
+                for unit in units {
+                    let unit_span = unit.span();
+                    prop_assert!(
+                        span.start() <= unit_span.start() && unit_span.end() <= span.end(),
+                        "{:?} named a unit at {}..={} outside the Span {}..={}",
+                        source,
+                        unit_span.start().get(),
+                        unit_span.end().get(),
+                        span.start().get(),
+                        span.end().get(),
+                    );
+                    prop_assert!(previous_end < Some(unit_span.start().get()), "{:?}", source);
+                    previous_end = Some(unit_span.end().get());
+                }
 
                 // A value never stands in for Source that was not read: an
                 // Expression answers with Atoms exactly when it has nothing to
@@ -1351,6 +1418,20 @@ mod property {
                     "{:?}",
                     source,
                 );
+                // And the Atoms answer for the very Cells they were read
+                // from. `standalone_run` builds an Expression straight from
+                // the partition's unit kinds without going through the Parser,
+                // so this is the one check that its Atoms spell the Source
+                // they claim rather than merely being present.
+                if let Some(atoms) = expression.atoms() {
+                    let rendered: String = atoms.iter().map(|atom| atom.to_string()).collect();
+                    prop_assert_eq!(
+                        rendered.as_str(),
+                        &source[span.start().get()..=span.end().get()],
+                        "{:?}",
+                        source,
+                    );
+                }
                 if let Some(root) = expression.root() {
                     prop_assert!(expression.atoms().is_some(), "{:?}", source);
                     prop_assert!(span.positions().any(|position| position == root));
@@ -1363,8 +1444,17 @@ mod property {
             for diagnostic in map.diagnostics() {
                 prop_assert_eq!(diagnostic.span().grid, grid);
                 prop_assert!(diagnostic.start() <= diagnostic.end());
+                // On the raw Cell numbers rather than on `positions()`:
+                // `Span::indices` filters out any index the Grid cannot answer
+                // for, so a Position sweep holds vacuously for a Span that
+                // runs off the end of the Grid — exactly the Span it should
+                // reject.
                 prop_assert!(
-                    diagnostic.span().positions().all(|position| grid.owns(position)),
+                    diagnostic.end() < grid.count(),
+                    "{:?} diagnosed Cell {} of a {}-Cell Grid",
+                    source,
+                    diagnostic.end(),
+                    grid.count(),
                 );
                 prop_assert!(
                     diagnostic
@@ -1393,10 +1483,14 @@ mod property {
     /// cases and asserted afterwards, where `proptest!` would have had nowhere
     /// to put the count.
     ///
-    /// The case count is pinned rather than taken from `PROPTEST_CASES`: this
-    /// claim is about the generator rather than about the derivation, so it
-    /// costs the same at either verification tier and has no reason to weaken
-    /// at the cheaper one.
+    /// The case count is pinned rather than taken from `PROPTEST_CASES`,
+    /// because this claim is about the generator rather than about the
+    /// derivation. It does derive a Language Map from each draw — that is how
+    /// the last two of the five counts are taken — so the fixed 256 cases are
+    /// 256 derivations that neither verification tier can dial down. That is
+    /// the cost of the claim rather than an oversight: a coverage guard that
+    /// weakened with the tier would stop guarding exactly where the tier is
+    /// cheapest.
     ///
     #[test]
     fn generated_revisions_cover_empty_cells_comments_and_complete_expressions() {
@@ -1405,11 +1499,11 @@ mod property {
             source_file: Some(file!()),
             ..Config::default()
         };
-        let empty = Cell::new(0usize);
-        let incomplete = Cell::new(0usize);
-        let comment = Cell::new(0usize);
-        let unmatched = Cell::new(0usize);
-        let complete = Cell::new(0usize);
+        let empty = Counter::new(0usize);
+        let incomplete = Counter::new(0usize);
+        let comment = Counter::new(0usize);
+        let unmatched = Counter::new(0usize);
+        let complete = Counter::new(0usize);
 
         TestRunner::new(config)
             .run(&revision(), |(cols, rows, source)| {
@@ -1441,10 +1535,17 @@ mod property {
                 if !map.lexical_diagnostics.is_empty() {
                     unmatched.set(unmatched.get() + 1);
                 }
-                if map
-                    .expressions()
-                    .any(|expression| expression.atoms().is_some())
-                {
+                // A Function among the Atoms rather than merely an Expression
+                // that answers: a lone `**` or `<<` is answered by
+                // `standalone_run` without the Parser ever being called, so
+                // counting any answering Expression would let this guard pass
+                // while the Function-bearing arms of both properties above had
+                // never once run.
+                if map.expressions().any(|expression| {
+                    expression.atoms().is_some_and(|atoms| {
+                        atoms.iter().any(|atom| matches!(atom, Atom::Function(_)))
+                    })
+                }) {
                     complete.set(complete.get() + 1);
                 }
                 Ok(())
@@ -1466,7 +1567,7 @@ mod property {
         );
         assert!(
             complete.get() > 0,
-            "no generated revision held an Expression complete enough to answer",
+            "no generated revision held a Function the walk read as a whole Expression",
         );
     }
 }

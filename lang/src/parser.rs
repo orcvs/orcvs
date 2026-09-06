@@ -616,7 +616,12 @@ mod test {
     /// Both domains are small enough to enumerate — the 256 Numbers, and the
     /// 128 MIDI Notes `C/` through `G9` — so the round trip below sweeps them
     /// rather than sampling them.
-    fn every_atom_of(token: Token) -> Vec<Atom> {
+    ///
+    /// `mod property`'s `literal_source` draws its Source text from here, so
+    /// the two operand domains are declared once: a domain narrowed in this
+    /// match narrows the generator with it, rather than leaving one of the two
+    /// sweeping values the other no longer admits.
+    pub(super) fn every_atom_of(token: Token) -> Vec<Atom> {
         match token {
             Token::Number => (0..=u8::MAX).map(Atom::Number).collect(),
             Token::Note => (0x00..=0x7F)
@@ -633,16 +638,71 @@ mod test {
     }
 
     #[test]
+    fn an_operand_literal_outside_a_slot_is_not_an_expression() {
+        // ADR 0021 gives an Operand Literal the type of the slot that consumes
+        // it, so a literal standing alone has nothing to type it and is
+        // invalid Source rather than a one-Atom Expression. The sweep below
+        // only ever spells literals inside a slot, and the capacity property
+        // starts its chain at one Function to stay off this case, so this is
+        // the one place that says a fallback to `to_atom_num` or
+        // `to_atom_note` in `take_language_unit` would be wrong.
+        for spelled in ["01", "FF", "C4", "3C", "G9"] {
+            let mut source = String::from(spelled);
+            assert!(
+                matches!(
+                    try_parse(&mut source),
+                    Err(Error::Syntax(SyntaxError::UnknownFunction(_)))
+                ),
+                "{spelled:?} parsed as an Expression on its own",
+            );
+        }
+    }
+
+    ///
+    /// Source that is not ASCII declines to parse rather than panicking.
+    ///
+    /// Every Cell a Grid admits is a single byte, so the Source layer never
+    /// hands this text to the parser. `Parser::from` takes any `&mut str`
+    /// though, and the totality the property suite states is a claim about the
+    /// parser rather than about its callers, so the one input class an ASCII
+    /// generator cannot draw is pinned here by hand: a multi-byte character
+    /// straddling the two-Cell peek used to split a `char` down the middle.
+    ///
+    /// This is a plain test rather than a property, and it belongs here rather
+    /// than in `mod property`: it draws nothing, so the `cfg` that keeps
+    /// proptest out of a WASM build has no claim on it. `check_wasm`'s
+    /// `--all-targets` clippy now type-checks it, which is as far as any
+    /// `lang` test reaches on that target — `test_wasm` runs the `shell`
+    /// crate's browser suite and no unit test here — so what running it proves
+    /// is proven natively.
+    ///
+    #[test]
+    fn source_that_is_not_ascii_is_refused_rather_than_panicking() {
+        // `".+aé"` is the case that reaches the fix: it is the only spelling
+        // here that leaves a mid-character byte two in the remaining Source
+        // and then asks `peek_next` about it, which is what `split_at(2)`
+        // panicked on. The others decline earlier — before any peek — so they
+        // widen the input class without covering the fix. Do not drop them,
+        // and do not drop the two that carry `.+`.
+        for spelled in [".+aé", ".+00aé", "é", "aé", "é.+", "..éé"] {
+            let mut source = String::from(spelled);
+            let parsed = Parser::from(&mut source).try_parse();
+            assert!(parsed.is_err(), "{spelled:?} parsed as {parsed:?}");
+
+            let mut source = String::from(spelled);
+            // Analysis is the permissive reading and answers rather than
+            // failing, so the claim here is only that it returns at all.
+            let _ = Parser::from(&mut source).analyze();
+        }
+    }
+
+    #[test]
     fn every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it() {
         // A standalone Language Unit is a whole Expression, so it renders and
         // parses back with no Function to type it.
-        for atom in [
-            Atom::Bang,
-            Atom::Activation(crate::Activation::North),
-            Atom::Activation(crate::Activation::South),
-            Atom::Activation(crate::Activation::West),
-            Atom::Activation(crate::Activation::East),
-        ] {
+        for atom in std::iter::once(Atom::Bang)
+            .chain(crate::Activation::ALL.iter().copied().map(Atom::Activation))
+        {
             let mut source = atom.to_string();
             assert_eq!(try_parse(&mut source).unwrap().as_slice(), &[atom]);
         }
@@ -715,7 +775,17 @@ mod test {
 /// `every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it`
 /// rather than a property: the two operand domains hold 384 values between
 /// them, which is small enough to enumerate and too small to be worth
-/// sampling.
+/// sampling. `mod test` also holds
+/// `source_that_is_not_ascii_is_refused_rather_than_panicking`, which needs no
+/// generator and has to run on the WASM target this module is gated off.
+///
+/// `orcvs::source::language_map`'s `mod property` has a fragment generator of
+/// the same shape, and the two are deliberately separate: `orcvs` depends on
+/// `lang`, so sharing one would mean a test-support module here compiled into
+/// a dependency for the sake of a test. The duplication is recorded rather
+/// than left to be discovered — a new run boundary or a second Comment form
+/// has to be taught to both, and neither coverage guard notices if only one
+/// learns it.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
@@ -723,14 +793,16 @@ mod test {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
 
+    use super::test::every_atom_of;
     use crate::{
-        Activation, Atom, EXP_LEN, Error, Function, SourceAnalysis, SyntaxError, Token,
-        midi_number_to_note, parser::Parser,
+        Atom, EXP_LEN, Error, Function, SourceAnalysis, SyntaxError, Token, parser::Parser,
     };
     use proptest::prelude::*;
     use proptest::sample::select;
     use proptest::test_runner::{Config, TestRunner};
-    use std::cell::Cell;
+    // Aliased because `Cell` is a domain noun everywhere else in this file and
+    // in CONTEXT.md. What `std::cell::Cell` holds here is a draw count.
+    use std::cell::Cell as Counter;
 
     /// How many fragments a generated Source is assembled from at most. A
     /// fragment is one or two Cells, so a long case runs well past the Cells
@@ -747,15 +819,14 @@ mod property {
     /// by hand, not from here.
     const FRAGMENTS: usize = 24;
 
-    /// The Atoms that are a whole Language Unit on their own: the Bang and the
-    /// four Activations.
-    const STANDALONE: &[Atom] = &[
-        Atom::Bang,
-        Atom::Activation(Activation::North),
-        Atom::Activation(Activation::South),
-        Atom::Activation(Activation::West),
-        Atom::Activation(Activation::East),
-    ];
+    /// The Atoms that are a whole Language Unit on their own: the Bang and
+    /// every Activation, read from `Activation::ALL` so a fifth one is drawn
+    /// the day it is declared.
+    fn standalone() -> Vec<Atom> {
+        std::iter::once(Atom::Bang)
+            .chain(crate::Activation::ALL.iter().copied().map(Atom::Activation))
+            .collect()
+    }
 
     /// Source text for one Operand Literal of the type its position declares.
     ///
@@ -763,16 +834,18 @@ mod property {
     /// than the Source's, so a literal is spelled against the `Token` the slot
     /// declares. The same two Cells spell a Number in one slot and a Note in
     /// another.
+    ///
+    /// The domain comes from `mod test`'s `every_atom_of` rather than from a
+    /// second range written here, so the enumerated round trip and this
+    /// generator can never disagree about what a slot admits.
     fn literal_source(token: Token) -> BoxedStrategy<String> {
-        match token {
-            Token::Number => any::<u8>()
-                .prop_map(|number| format!("{number:02X}"))
-                .boxed(),
-            Token::Note => (0x00u8..=0x7F)
-                .prop_map(|note| midi_number_to_note(note).expect("a MIDI Note"))
-                .boxed(),
-            other => panic!("no operand is declared as {other:?}"),
-        }
+        select(
+            every_atom_of(token)
+                .iter()
+                .map(Atom::to_string)
+                .collect::<Vec<String>>(),
+        )
+        .boxed()
     }
 
     /// One Function spelled with a literal in each operand position its
@@ -808,7 +881,7 @@ mod property {
             2 => Just("#".to_owned()),
             2 => Just("##".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
-            1 => select(STANDALONE).prop_map(|atom| atom.to_string()),
+            1 => select(standalone()).prop_map(|atom| atom.to_string()),
             2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
         ]
         .boxed()
@@ -843,6 +916,18 @@ mod property {
     /// Every Atom of an Expression, rendered back to Source text.
     fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
         atoms.into_iter().map(|atom| atom.to_string()).collect()
+    }
+
+    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
+    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
+    ///
+    /// Addition takes two operands, so a chain of them alone spells an odd
+    /// `2 * depth + 1` Atoms and can never equal an even `EXP_LEN`. `.^` takes
+    /// one, so each wrapper shifts the parity and the two together reach every
+    /// count.
+    fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
+        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
+        (spelled, wrappers + 2 * depth + 1)
     }
 
     /// Whether an entry's Atom is the kind its Token names.
@@ -881,7 +966,11 @@ mod property {
 
             match Parser::from(&mut source).try_parse() {
                 Ok(atoms) => {
-                    prop_assert!(atoms.len() <= EXP_LEN);
+                    // No assertion that `atoms.len() <= EXP_LEN`: `Atoms` is
+                    // `ArrayVec<Atom, EXP_LEN>`, so the type already bounds it
+                    // and the check would hold just as well for a parse that
+                    // truncated at capacity instead of refusing. The rendering
+                    // equality below is what catches a truncation.
                     prop_assert!(
                         !atoms.iter().any(|atom| matches!(atom, Atom::Empty | Atom::Char(_))),
                         "{spelled:?} parsed to a value no signature declares: {atoms:?}",
@@ -1041,12 +1130,23 @@ mod property {
         /// so depth zero would be a case about ADR 0021 rather than about the
         /// capacity.
         ///
+        /// The Additions are wrapped in `wrappers` unary `.^`s so the Atom
+        /// count reaches both parities. A chain of Additions alone spells
+        /// `2 * depth + 1` Atoms, which is always odd and therefore steps
+        /// straight over an even `EXP_LEN`: it would assert 31 accepted and 33
+        /// refused and never spell exactly 32. Each `.^` takes one operand and
+        /// adds one Atom, so `wrappers` of zero or one reaches every count in
+        /// the range. Which counts a run actually draws is still up to the
+        /// runner, so the boundary itself is pinned by
+        /// `the_capacity_bound_falls_between_exp_len_atoms_and_one_more`
+        /// rather than left to a sample.
+        ///
         #[test]
         fn an_expression_that_outruns_the_parser_capacity_is_refused_rather_than_truncated(
             depth in 1usize..24,
+            wrappers in 0usize..=1,
         ) {
-            let spelled = ".+".repeat(depth) + &"00".repeat(depth + 1);
-            let atoms_spelled = 2 * depth + 1;
+            let (spelled, atoms_spelled) = addition_chain(wrappers, depth);
             let mut source = spelled.clone();
 
             let parsed = Parser::from(&mut source).try_parse();
@@ -1088,27 +1188,45 @@ mod property {
     }
 
     ///
-    /// Source that is not ASCII declines to parse rather than panicking.
+    /// The capacity bound falls between an Expression of `EXP_LEN` Atoms and
+    /// one of `EXP_LEN + 1`: the first is parsed whole, the second is refused.
     ///
-    /// Every Cell a Grid admits is a single byte, so the Source layer never
-    /// hands this text to the parser. `Parser::from` takes any `&mut str`
-    /// though, and the totality this suite states is a claim about the
-    /// parser rather than about its callers, so the one input class the
-    /// generator cannot draw is pinned here by hand: a multi-byte character
-    /// straddling the two-Cell peek used to split a `char` down the middle.
+    /// The property above sweeps a range that contains both counts, but which
+    /// counts a run draws is up to the runner and the pull-request tier draws
+    /// only 32 cases. The bound is the one number the criterion is about, so
+    /// it is spelled here rather than sampled: a bound off by one in either
+    /// direction fails on one of these two Expressions every run, on every
+    /// tier.
     ///
     #[test]
-    fn source_that_is_not_ascii_is_refused_rather_than_panicking() {
-        for spelled in [".+aé", "é", "aé", "é.+", "..éé"] {
-            let mut source = String::from(spelled);
-            let parsed = Parser::from(&mut source).try_parse();
-            assert!(parsed.is_err(), "{spelled:?} parsed as {parsed:?}");
+    fn the_capacity_bound_falls_between_exp_len_atoms_and_one_more() {
+        // `.^` shifts the parity a chain of Additions cannot reach on its own,
+        // so these are the two consecutive Atom counts either side of the
+        // bound rather than the nearest odd ones.
+        let (fits, atoms_spelled) = addition_chain(1, (EXP_LEN - 2) / 2);
+        assert_eq!(atoms_spelled, EXP_LEN);
+        let (overruns, atoms_spelled) = addition_chain(0, EXP_LEN / 2);
+        assert_eq!(atoms_spelled, EXP_LEN + 1);
 
-            let mut source = String::from(spelled);
-            // Analysis is the permissive reading and answers rather than
-            // failing, so the claim here is only that it returns at all.
-            let _ = Parser::from(&mut source).analyze();
-        }
+        let mut source = fits.clone();
+        let parsed = Parser::from(&mut source)
+            .try_parse()
+            .unwrap_or_else(|error| {
+                panic!("{fits:?} spells {EXP_LEN} Atoms and was refused: {error:?}")
+            });
+        assert_eq!(parsed.len(), EXP_LEN);
+        assert_eq!(rendered(parsed), fits);
+
+        let mut source = overruns.clone();
+        let parsed = Parser::from(&mut source).try_parse();
+        assert!(
+            matches!(
+                parsed,
+                Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity })) if capacity == EXP_LEN
+            ),
+            "{overruns:?} spells {} Atoms and answered {parsed:?}",
+            EXP_LEN + 1,
+        );
     }
 
     ///
@@ -1124,9 +1242,12 @@ mod property {
     /// have had nowhere to put it.
     ///
     /// The case count is pinned rather than taken from `PROPTEST_CASES`,
-    /// because this claim is about the generator rather than about the parser:
-    /// it draws Source and reads it as text, so it costs nothing at either
-    /// verification tier and has no reason to weaken at the cheaper one.
+    /// because this claim is about the generator rather than about the parser.
+    /// It does parse each draw — that is how the last of the four counts is
+    /// taken — so the fixed 256 cases are 256 parses that neither verification
+    /// tier can dial down. That is the cost of the claim rather than an
+    /// oversight: a coverage guard that weakened with the tier would stop
+    /// guarding exactly where the tier is cheapest.
     ///
     #[test]
     fn generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer() {
@@ -1135,10 +1256,10 @@ mod property {
             source_file: Some(file!()),
             ..Config::default()
         };
-        let space = Cell::new(0usize);
-        let incomplete = Cell::new(0usize);
-        let comment = Cell::new(0usize);
-        let complete = Cell::new(0usize);
+        let space = Counter::new(0usize);
+        let incomplete = Counter::new(0usize);
+        let comment = Counter::new(0usize);
+        let complete = Counter::new(0usize);
 
         TestRunner::new(config)
             .run(&generated_source(), |source| {
@@ -1159,7 +1280,14 @@ mod property {
                     incomplete.set(incomplete.get() + 1);
                 }
                 let mut spelled = source.clone();
-                if Parser::from(&mut spelled).try_parse().is_ok() {
+                // A Function among the Atoms, not merely a parse that
+                // succeeded. A lone standalone Atom parses whole and would
+                // satisfy a bare `is_ok`, which leaves the guard passing on
+                // Source that reaches none of the operand-typing the
+                // properties above are about.
+                if let Ok(atoms) = Parser::from(&mut spelled).try_parse()
+                    && atoms.iter().any(|atom| matches!(atom, Atom::Function(_)))
+                {
                     complete.set(complete.get() + 1);
                 }
                 Ok(())
@@ -1179,7 +1307,7 @@ mod property {
         // something, or those properties pass by never running.
         assert!(
             complete.get() > 0,
-            "no generated Source spelled an Expression strict parsing accepts",
+            "no generated Source spelled a Function-bearing Expression strict parsing accepts",
         );
     }
 }
