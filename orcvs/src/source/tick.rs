@@ -104,6 +104,14 @@ struct Schedule<'a> {
     /// never depend on the order two independent roots happen to take.
     ///
     output_is_slot: Vec<bool>,
+    ///
+    /// The anchor of a supplier that was kept out of the schedule, for each
+    /// consumer it was going to write to.
+    ///
+    /// Such a supplier has no node to leave unsettled, so the answer it owes
+    /// its consumer is recorded against the consumer instead.
+    ///
+    failed_suppliers: Vec<Option<Position>>,
     /// One diagnostic for each candidate kept out of the schedule entirely.
     excluded: Vec<Diagnostic>,
 }
@@ -166,15 +174,20 @@ fn plan_with_destinations(
     let mut activated = vec![false; schedule.roots.len()];
     for node_index in schedule.order.iter().copied() {
         let root = schedule.roots[node_index];
+        // A supplier that took a turn and failed leaves its node unsettled; one
+        // that never got a node was recorded against this consumer when the
+        // schedule was built. Both are the same answer to the same question,
+        // so they are asked as one.
         let failed_input = schedule.data_suppliers[node_index]
             .iter()
             .copied()
-            .find(|producer| !settled[*producer]);
-        if let Some(producer) = failed_input {
+            .find(|producer| !settled[*producer])
+            .map(|producer| schedule.roots[producer].anchor)
+            .or(schedule.failed_suppliers[node_index]);
+        if let Some(supplier) = failed_input {
             // Naming the supplier matters because the consumer is the one root
             // in this Tick that did nothing wrong: without its anchor, a Tick
             // Plan points only at the Expression that was waiting.
-            let supplier = schedule.roots[producer].anchor;
             effects.push(Effect::Diagnose(Diagnostic::for_expression(
                 root.anchor,
                 root.expression.span(),
@@ -382,10 +395,19 @@ fn schedule<'a>(
         .collect();
     roots.sort_by_key(|root| grid.index(root.anchor));
 
-    // A candidate whose own layout does not stand up takes no turn, and takes
-    // nothing else down with it: it contributes no slots, no edges, and no
-    // output, so the roots around it schedule as though it were not there.
+    // A candidate whose own layout does not stand up takes no turn: it
+    // contributes no slots and no output of its own, and the roots around it
+    // schedule as though it were not there.
+    //
+    // Its destination is the exception. A root that fails at evaluation leaves
+    // its consumer unsettled and named; erasing this one from the graph
+    // entirely would leave the same consumer reading whatever its operand
+    // Cells still hold, which is the previous Tick's value presented as this
+    // one's. The destination is a property of the anchor rather than of the
+    // layout that failed, so it is still known, and it is kept precisely so a
+    // consumer waiting on it can be told.
     let mut excluded = Vec::new();
+    let mut unstable: Vec<(Position, CellIndex)> = Vec::new();
     let mut layouts = Vec::with_capacity(roots.len());
     roots.retain(|root| match root_layout(grid, root) {
         Ok(layout) => {
@@ -393,6 +415,9 @@ fn schedule<'a>(
             true
         }
         Err(diagnostic) => {
+            if let Ok(Some(output)) = root.output {
+                unstable.push((root.anchor, grid.index(output)));
+            }
             excluded.push(diagnostic);
             false
         }
@@ -540,6 +565,17 @@ fn schedule<'a>(
         }
     }
 
+    // A supplier that never took a turn cannot settle, so every consumer whose
+    // operand it was going to write is owed the same answer a supplier that
+    // failed at evaluation gives. Asked through the same slots, so a
+    // destination that covers no operand concerns nobody.
+    let mut failed_suppliers: Vec<Option<Position>> = vec![None; roots.len()];
+    for (anchor, output) in unstable {
+        for slot in covering_slots(&slots, widest_slot, output.get()) {
+            failed_suppliers[slot.consumer].get_or_insert(anchor);
+        }
+    }
+
     // A destination that would join a neighbouring run is taken away rather
     // than executed, and the root keeps its turn without one. It reaches the
     // same settled state as a root that answered with absence, which is what
@@ -613,6 +649,7 @@ fn schedule<'a>(
         order,
         data_suppliers,
         output_is_slot,
+        failed_suppliers,
         excluded,
     })
 }

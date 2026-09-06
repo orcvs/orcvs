@@ -1393,6 +1393,34 @@ mod test {
     }
 
     #[test]
+    fn a_supplier_excluded_for_its_own_layout_does_not_leave_stale_operands_readable() {
+        // A root that fails at evaluation names its consumer's missing input.
+        // A root that fails at *schedule* time was being erased from the graph
+        // instead, edges and all, so the consumer read whatever its operand
+        // Cells happened to hold — last Tick's value, presented as this
+        // Tick's. The spec is explicit: do not silently choose a previous-Tick
+        // input.
+        let mut src = source();
+        let at = src.cells();
+        // Trailing Source makes this producer's own layout unstable, so it
+        // takes no turn. Its destination is still the consumer's left operand.
+        src.write(at(2), ".+0102Z");
+        src.write(at(10), ".+9902");
+
+        let tick = src.execute();
+
+        assert!(
+            tick.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("data dependency at column 2, row 0 failed")),
+            "the consumer was not told its supplier never ran: {:?}",
+            tick.diagnostics
+        );
+        // Nothing computed from the stale `99` reaches the Source.
+        assert_eq!(src.row(2), "          ");
+    }
+
+    #[test]
     fn a_result_landing_beside_a_root_is_diagnosed_rather_than_joining_its_run() {
         // A row is partitioned into runs at its spaces, so a result written
         // into the Cells immediately beside another Expression joins the two:
