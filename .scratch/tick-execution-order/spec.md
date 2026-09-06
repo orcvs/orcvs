@@ -22,6 +22,6 @@ No new authoring syntax for arbitrary Portals is selected. Exercise fixed upward
 
 ## Current state
 
-The design and nine-scenario HTML exploration are accepted. Production integration is paused while these tickets are recorded. The worktree contains the earlier row-major fallback plus partial parser and generated-pulse fixture edits; no ticket is resolved by those drafts. See each ticket's Comments for evidence and remaining work.
+ADR 0032's initial fixed-Portal scope is implemented. Parser-owned layouts drive data and activation edges; the scheduler evaluates roots once in dependency order, delivers fresh Bang results during their production Tick, clears old display without replay, and rejects unstable graphs atomically. Native, persistence, WASM build, and Firefox browser gates pass. The repository-wide gate still stops at its pre-existing workflow pin contract; issue 03 records the exact evidence. Horizontal authoring, arbitrary computed Portals, variable-width Sequence projection, Directional movement, Jump, and Halt remain follow-up work.
 
 Reference: [exploration and prototype](../language-map/operation-ordering-exploration.md).

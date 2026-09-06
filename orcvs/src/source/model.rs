@@ -1937,6 +1937,28 @@ mod test {
     }
 
     #[test]
+    fn a_failed_data_supplier_does_not_expose_stale_operand_cells() {
+        let mut src = SourceUnderTest::new(Grid::new(8, 3));
+        let at = src.cells();
+        // This incomplete producer would write at (2, 1), exactly over the
+        // consumer's first operand. The old `05` must not stand in for a value
+        // the producer failed to supply during this Tick.
+        src.write(at(2), ".+01");
+        src.write(at(8), ".+0502");
+
+        let tick = src.execute();
+
+        assert!(tick.writes.is_empty());
+        assert!(tick.play_commands.is_empty());
+        assert!(
+            tick.diagnostics.iter().any(|diagnostic| {
+                diagnostic.message == "a current-Tick data dependency failed"
+            })
+        );
+        assert_eq!(&src.snapshot()[16..18], "  ");
+    }
+
+    #[test]
     fn test_one_source_snapshot_at_one_tick_plans_one_tick_plan() {
         trace();
 

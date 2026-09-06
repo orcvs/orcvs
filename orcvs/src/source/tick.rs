@@ -121,15 +121,16 @@ fn plan_with_destinations(
     let mut bang_events = Vec::new();
     for node_index in schedule.order {
         let root = schedule.roots[node_index];
-        let failed_input = schedule
-            .dependencies
-            .iter()
-            .any(|dependency| dependency.consumer == node_index && !succeeded[dependency.producer]);
+        let failed_input = schedule.dependencies.iter().any(|dependency| {
+            dependency.consumer == node_index
+                && dependency.kind == DependencyKind::Data
+                && !succeeded[dependency.producer]
+        });
         if failed_input {
             effects.push(Effect::Diagnose(Diagnostic::for_expression(
                 root.anchor,
                 root.expression.span(),
-                "a current-Tick dependency failed".to_owned(),
+                "a current-Tick data dependency failed".to_owned(),
             )));
             continue;
         }
@@ -160,7 +161,6 @@ fn plan_with_destinations(
                     // have Source diagnostics. They receive a scheduled
                     // opportunity so a dependency can repair them, but an
                     // unrepaired fragment has no Tick outcome of its own.
-                    succeeded[node_index] = true;
                     continue;
                 }
                 effects.push(Effect::Diagnose(Diagnostic::for_expression(
@@ -314,7 +314,10 @@ fn schedule<'a>(
             continue;
         }
         for (offset, token, _) in root.expression.layout() {
-            if !grid.fits(root.anchor, offset + token.len()) {
+            if grid
+                .offset_in_row(root.anchor, offset + token.len() - 1)
+                .is_none()
+            {
                 diagnostics.push(Diagnostic::for_expression(
                     root.anchor,
                     root.expression.span(),
@@ -339,7 +342,7 @@ fn schedule<'a>(
             // failure only after evaluation establishes that a value exists.
             Err(_) => continue,
         };
-        if !grid.fits(output, 2) {
+        if grid.offset_in_row(output, 1).is_none() {
             diagnostics.push(Diagnostic::for_expression(
                 producer.anchor,
                 producer.expression.span(),
@@ -421,28 +424,26 @@ fn schedule<'a>(
         return Err(diagnostics);
     }
 
+    let mut indegree = vec![0usize; roots.len()];
+    let mut outgoing = vec![Vec::new(); roots.len()];
+    for dependency in &dependencies {
+        indegree[dependency.consumer] += 1;
+        outgoing[dependency.producer].push(dependency.consumer);
+    }
+
     let mut order = Vec::with_capacity(roots.len());
     let mut ready = BTreeSet::new();
-    for node in 0..roots.len() {
-        if !dependencies
-            .iter()
-            .any(|dependency| dependency.consumer == node)
-        {
+    for (node, &incoming) in indegree.iter().enumerate() {
+        if incoming == 0 {
             ready.insert(node);
         }
     }
     while let Some(node) = ready.pop_first() {
         order.push(node);
-        for candidate in 0..roots.len() {
-            if order.contains(&candidate) || ready.contains(&candidate) {
-                continue;
-            }
-            if dependencies
-                .iter()
-                .filter(|dependency| dependency.consumer == candidate)
-                .all(|dependency| order.contains(&dependency.producer))
-            {
-                ready.insert(candidate);
+        for &consumer in &outgoing[node] {
+            indegree[consumer] -= 1;
+            if indegree[consumer] == 0 {
+                ready.insert(consumer);
             }
         }
     }
@@ -450,7 +451,7 @@ fn schedule<'a>(
         let root = roots
             .iter()
             .enumerate()
-            .find(|(index, _)| !order.contains(index))
+            .find(|(index, _)| indegree[*index] != 0)
             .map(|(_, root)| root)
             .expect("an incomplete topological order leaves one root");
         return Err(vec![Diagnostic::for_expression(
@@ -690,6 +691,39 @@ mod test {
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn one_failed_bang_candidate_does_not_suppress_another_fresh_bang() {
+        let grid = Grid::new(16, 7);
+        let rows = [".=0101", ".=./010001", "", "", "", "!>007FC4", ""];
+        let bytes = rows
+            .iter()
+            .map(|row| format!("{row:16}"))
+            .collect::<String>();
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [
+            (
+                grid.index(grid.position(0, 0).unwrap()),
+                grid.position(0, 4).unwrap(),
+            ),
+            (
+                grid.index(grid.position(0, 1).unwrap()),
+                grid.position(0, 6).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let plan =
+            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message == "cannot divide by zero")
+        );
     }
 
     #[test]
