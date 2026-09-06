@@ -1108,3 +1108,365 @@ mod tests {
         assert_eq!(activations.diagnostics().count(), 0);
     }
 }
+
+///
+/// Permissive Source analysis is total over printable ASCII.
+///
+/// A Language Map is derived from whatever the Grid holds when it is read, so
+/// Live Editing puts every revision between two keystrokes through this path:
+/// half-typed Functions, operands with one Cell written, a `#` that is not yet
+/// a Comment. Deriving one has to answer for all of them rather than panic,
+/// and the answer has to keep the rules `CONTEXT.md` states — a row is
+/// partitioned left to right into non-overlapping complete Language Units, an
+/// unmatched character diagnoses without participating in an overlapping unit,
+/// and incomplete or invalid Source contributes no runtime Atoms.
+///
+/// The Source is generated as raw text rather than as Expressions. What makes
+/// this path worth a property is exactly the input a grammar-shaped generator
+/// would never produce, so the space that ends a run, the `#` that is
+/// incomplete Source, and the `##` Comment introducer are drawn as characters
+/// like everything else.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod property {
+    use super::{LanguageMap, SPACE_BYTE};
+    use crate::grid::Grid;
+    use lang::{Activation, Atom, Function, Note};
+    use proptest::prelude::*;
+    use proptest::sample::select;
+    use proptest::test_runner::{Config, TestRunner};
+    use std::cell::Cell;
+
+    /// The widest and tallest Grid a case is derived over. Wide enough to hold
+    /// several runs and a Comment in one row, and short enough that a shrunk
+    /// counterexample is still readable as Source.
+    const COLS: usize = 12;
+    const ROWS: usize = 3;
+
+    /// The standalone Language Unit spellings: the Bang and the four
+    /// Activations, read from the Atoms themselves rather than restated.
+    fn standalone_spellings() -> Vec<String> {
+        [
+            Atom::Bang,
+            Atom::Activation(Activation::North),
+            Atom::Activation(Activation::South),
+            Atom::Activation(Activation::West),
+            Atom::Activation(Activation::East),
+        ]
+        .iter()
+        .map(|atom| atom.to_string())
+        .collect()
+    }
+
+    /// One piece of generated Source text.
+    ///
+    /// Most of the weight is one arbitrary printable character, which is what
+    /// keeps the whole range a Cell can hold in reach. The rest are the pieces
+    /// the walk gives meaning to, so that a row is more often a near miss than
+    /// noise: the space and the `##` introducer that end a run, the `#` that is
+    /// incomplete Source rather than a Comment, a Function spelling, a
+    /// standalone Atom, and an Operand Literal. They are concatenated in
+    /// whatever order they are drawn and then cut to the Grid, so what reaches
+    /// the walk is raw text rather than a grammar.
+    fn fragment() -> BoxedStrategy<String> {
+        prop_oneof![
+            8 => proptest::char::range(' ', '~').prop_map(String::from),
+            2 => Just(" ".to_owned()),
+            2 => Just("#".to_owned()),
+            2 => Just("##".to_owned()),
+            2 => select(Function::ALL).prop_map(|function| function.to_string()),
+            1 => select(standalone_spellings()).prop_map(|spelling| spelling.to_string()),
+            2 => prop_oneof![
+                any::<u8>().prop_map(|number| Atom::Number(number).to_string()),
+                (0x00u8..=0x7F)
+                    .prop_map(|note| Atom::Note(Note::try_from(note).expect("a MIDI Note"))
+                        .to_string()),
+            ],
+        ]
+        .boxed()
+    }
+
+    /// Exactly `cells` printable ASCII characters: the fragments drawn, cut to
+    /// the Grid's Cell count and padded with the empty Cell. Cutting is what
+    /// makes a fragment's own shape unreliable, which is the point — a `##`
+    /// severed by the row edge is Source a Live Edit reaches.
+    fn source_text(cells: usize) -> BoxedStrategy<String> {
+        prop::collection::vec(fragment(), 1..=cells)
+            .prop_map(move |fragments| {
+                let mut text = fragments.concat();
+                text.truncate(cells);
+                while text.len() < cells {
+                    text.push(char::from(SPACE_BYTE));
+                }
+                text
+            })
+            .boxed()
+    }
+
+    /// One Source revision: a Grid's shape, and exactly one printable ASCII
+    /// Cell per Position in it.
+    fn revision() -> BoxedStrategy<(usize, usize, String)> {
+        (1usize..=COLS, 1usize..=ROWS)
+            .prop_flat_map(|(cols, rows)| (Just(cols), Just(rows), source_text(cols * rows)))
+            .boxed()
+    }
+
+    proptest! {
+        ///
+        /// Deriving a Language Map from any Source answers, and answers with
+        /// the partition `CONTEXT.md` describes: each row left to right into
+        /// non-overlapping two-Cell units, with an unmatched character
+        /// diagnosed on its own Cell and the walk resuming one Cell later.
+        ///
+        /// The Comment introducer is the one place the walk stops early, and
+        /// this reads it back with a plain search for `##` rather than by
+        /// re-walking the row. That is an independent statement of the rule
+        /// rather than a copy of the implementation: it holds only because no
+        /// Language Unit spelling contains a `#`, so no unit can step over the
+        /// introducer and the first `##` in a row is always the one the walk
+        /// meets.
+        ///
+        #[test]
+        fn deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from(
+            (cols, rows, source) in revision(),
+        ) {
+            let grid = Grid::new(cols, rows);
+            let map = LanguageMap::derive(grid, &source)
+                .expect("one printable ASCII Cell per Position");
+            let bytes = source.as_bytes();
+
+            // Which Language Unit claims each Cell, if any.
+            let mut claimed: Vec<Option<usize>> = vec![None; bytes.len()];
+            let mut previous_anchor: Option<usize> = None;
+            for (ordinal, unit) in map.units().enumerate() {
+                let span = unit.span();
+
+                prop_assert_eq!(span.end().get(), span.start().get() + 1);
+                prop_assert_eq!(unit.anchor(), grid.position_at(span.start()));
+                prop_assert_eq!(unit.anchor().y(), grid.position_at(span.end()).y());
+                prop_assert!(previous_anchor < Some(span.start().get()), "{:?}", source);
+                previous_anchor = Some(span.start().get());
+
+                for idx in span.indices() {
+                    prop_assert!(
+                        claimed[idx.get()].is_none(),
+                        "{:?} gave Cell {} to two Language Units",
+                        source,
+                        idx.get(),
+                    );
+                    claimed[idx.get()] = Some(ordinal);
+                }
+            }
+
+            // How many times each Cell was diagnosed as an unmatched character.
+            let mut diagnosed = vec![0usize; bytes.len()];
+            for diagnostic in &map.lexical_diagnostics {
+                prop_assert_eq!(diagnostic.start(), diagnostic.end());
+                diagnosed[diagnostic.start()] += 1;
+            }
+
+            for row in 0..rows {
+                let row_start = row * cols;
+                let row_bytes = &bytes[row_start..row_start + cols];
+                let comment = row_bytes
+                    .windows(2)
+                    .position(|pair| pair == b"##")
+                    .unwrap_or(cols);
+
+                for (column, byte) in row_bytes.iter().copied().enumerate() {
+                    let idx = row_start + column;
+                    let claims = usize::from(claimed[idx].is_some()) + diagnosed[idx];
+
+                    if column >= comment || byte == SPACE_BYTE {
+                        // A Comment is not Source and an empty Cell spells
+                        // nothing, so neither is named or diagnosed.
+                        prop_assert_eq!(
+                            claims,
+                            0,
+                            "{:?} named Cell {} of a Comment or an empty Cell",
+                            source,
+                            idx,
+                        );
+                    } else {
+                        // Every other Cell is named exactly once: by the one
+                        // unit that covers it, or by the one diagnostic
+                        // recovery left behind before advancing past it.
+                        prop_assert_eq!(
+                            claims,
+                            1,
+                            "{:?} named Cell {} {} times",
+                            source,
+                            idx,
+                            claims,
+                        );
+                    }
+                }
+            }
+        }
+
+        ///
+        /// Every Expression and every Diagnostic a revision holds answers to
+        /// that revision, and incomplete or invalid Source contributes no
+        /// runtime Atoms.
+        ///
+        /// A Span is Cell numbers and the Grid that minted them, and two
+        /// revisions of one Source share a Grid, so the two halves of "the same
+        /// revision" are asserted together: a Diagnostic's Positions come from
+        /// the Grid this Map was derived over, and the Expression carrying it
+        /// is one this Map can answer for. `expression_units` is what asks the
+        /// second question, and it refuses a foreign Expression rather than
+        /// answering with the wrong units.
+        ///
+        #[test]
+        fn every_expression_and_diagnostic_answers_to_the_revision_that_derived_it(
+            (cols, rows, source) in revision(),
+        ) {
+            let grid = Grid::new(cols, rows);
+            let map = LanguageMap::derive(grid, &source)
+                .expect("one printable ASCII Cell per Position");
+
+            for expression in map.expressions() {
+                prop_assert_eq!(expression.map_id, map.id);
+
+                let span = expression.span();
+                let units = map.expression_units(expression);
+                let anchored = map
+                    .units()
+                    .filter(|unit| {
+                        let anchor = grid.index(unit.anchor());
+                        span.start() <= anchor && anchor <= span.end()
+                    })
+                    .count();
+                prop_assert_eq!(units.len(), anchored, "{:?}", source);
+
+                // A value never stands in for Source that was not read: an
+                // Expression answers with Atoms exactly when it has nothing to
+                // report, and a root is only ever the anchor of one that does.
+                prop_assert_eq!(
+                    expression.atoms().is_some(),
+                    expression.diagnostic.is_none(),
+                    "{:?}",
+                    source,
+                );
+                if let Some(root) = expression.root() {
+                    prop_assert!(expression.atoms().is_some(), "{:?}", source);
+                    prop_assert!(span.positions().any(|position| position == root));
+                }
+                if let Some(diagnostic) = &expression.diagnostic {
+                    prop_assert_eq!(diagnostic.span(), span, "{:?}", source);
+                }
+            }
+
+            for diagnostic in map.diagnostics() {
+                prop_assert_eq!(diagnostic.span().grid, grid);
+                prop_assert!(diagnostic.start() <= diagnostic.end());
+                prop_assert!(
+                    diagnostic.span().positions().all(|position| grid.owns(position)),
+                );
+                prop_assert!(
+                    diagnostic
+                        .span()
+                        .positions()
+                        .any(|position| position == diagnostic.anchor()),
+                );
+                // An Expression never wraps, so neither does a Diagnostic about
+                // one, and a Position of another row would be a Position of
+                // another revision's reading of the same Cells.
+                prop_assert_eq!(diagnostic.start() / cols, diagnostic.end() / cols);
+            }
+        }
+    }
+
+    ///
+    /// The generated revisions reach the Source that makes the properties above
+    /// worth stating: an empty Cell, a `#` that is incomplete Source, a `##`
+    /// Comment introducer, a character no Language Unit spelling matches, and
+    /// an Expression complete enough to answer with Atoms.
+    ///
+    /// Neither property can tell Source it never saw from Source it saw and
+    /// handled, and the partition property's Comment rule in particular is a
+    /// claim about a branch a grammar-shaped generator would never take.
+    /// Driving the runner directly is what lets the draws be counted across
+    /// cases and asserted afterwards, where `proptest!` would have had nowhere
+    /// to put the count.
+    ///
+    /// The case count is pinned rather than taken from `PROPTEST_CASES`: this
+    /// claim is about the generator rather than about the derivation, so it
+    /// costs the same at either verification tier and has no reason to weaken
+    /// at the cheaper one.
+    ///
+    #[test]
+    fn generated_revisions_cover_empty_cells_comments_and_complete_expressions() {
+        let config = Config {
+            cases: 256,
+            source_file: Some(file!()),
+            ..Config::default()
+        };
+        let empty = Cell::new(0usize);
+        let incomplete = Cell::new(0usize);
+        let comment = Cell::new(0usize);
+        let unmatched = Cell::new(0usize);
+        let complete = Cell::new(0usize);
+
+        TestRunner::new(config)
+            .run(&revision(), |(cols, rows, source)| {
+                let map = LanguageMap::derive(Grid::new(cols, rows), &source)
+                    .expect("one printable ASCII Cell per Position");
+                let bytes = source.as_bytes();
+
+                if bytes.contains(&SPACE_BYTE) {
+                    empty.set(empty.get() + 1);
+                }
+                if bytes
+                    .chunks_exact(cols)
+                    .any(|row| row.windows(2).any(|pair| pair == b"##"))
+                {
+                    comment.set(comment.get() + 1);
+                }
+                // A `#` with no `#` beside it in its own row: incomplete Source
+                // rather than the introducer, which is the distinction
+                // CONTEXT.md draws.
+                if bytes.chunks_exact(cols).any(|row| {
+                    row.iter().enumerate().any(|(column, byte)| {
+                        *byte == b'#'
+                            && row.get(column + 1) != Some(&b'#')
+                            && (column == 0 || row[column - 1] != b'#')
+                    })
+                }) {
+                    incomplete.set(incomplete.get() + 1);
+                }
+                if !map.lexical_diagnostics.is_empty() {
+                    unmatched.set(unmatched.get() + 1);
+                }
+                if map
+                    .expressions()
+                    .any(|expression| expression.atoms().is_some())
+                {
+                    complete.set(complete.get() + 1);
+                }
+                Ok(())
+            })
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(empty.get() > 0, "no generated revision held an empty Cell");
+        assert!(
+            incomplete.get() > 0,
+            "no generated revision held an incomplete `#`",
+        );
+        assert!(
+            comment.get() > 0,
+            "no generated revision held the `##` Comment introducer",
+        );
+        assert!(
+            unmatched.get() > 0,
+            "no generated revision held an unmatched character",
+        );
+        assert!(
+            complete.get() > 0,
+            "no generated revision held an Expression complete enough to answer",
+        );
+    }
+}

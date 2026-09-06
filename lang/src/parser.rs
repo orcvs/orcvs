@@ -608,14 +608,112 @@ mod test {
 
         assert_eq!(parsed, expected);
     }
+
+    /// Every Atom of the domain a `Token` names, in Source order.
+    ///
+    /// Both domains are small enough to enumerate — the 256 Numbers, and the
+    /// 128 MIDI Notes `C/` through `G9` — so the round trip below sweeps them
+    /// rather than sampling them.
+    fn every_atom_of(token: Token) -> Vec<Atom> {
+        match token {
+            Token::Number => (0..=u8::MAX).map(Atom::Number).collect(),
+            Token::Note => (0x00..=0x7F)
+                .map(|value| Atom::Note(crate::Note::try_from(value).expect("a MIDI Note")))
+                .collect(),
+            other => panic!("no operand is declared as {other:?}"),
+        }
+    }
+
+    /// Source text for the lowest value of the domain a `Token` names: what the
+    /// operand positions that are not being swept are held at.
+    fn baseline(token: Token) -> String {
+        every_atom_of(token)[0].to_string()
+    }
+
+    #[test]
+    fn every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it() {
+        // A standalone Language Unit is a whole Expression, so it renders and
+        // parses back with no Function to type it.
+        for atom in [
+            Atom::Bang,
+            Atom::Activation(crate::Activation::North),
+            Atom::Activation(crate::Activation::South),
+            Atom::Activation(crate::Activation::West),
+            Atom::Activation(crate::Activation::East),
+        ] {
+            let mut source = atom.to_string();
+            assert_eq!(try_parse(&mut source).unwrap().as_slice(), &[atom]);
+        }
+
+        // Every other Atom the parser yields is an Operand Literal, and ADR
+        // 0021 gives it the type of the slot that consumes it rather than a
+        // type of its own. The round trip is therefore contextual: `C4` is the
+        // Note 60 in `.v`'s Note slot and the Number `C4` in `.^`'s Number
+        // slot, and the sweep covers both readings because it covers every
+        // value of every declared operand domain in every slot that declares
+        // it. `Atom::Char` and `Atom::Empty` are absent because no signature
+        // declares them, so no Source spells one.
+        for function in Function::ALL.iter().copied() {
+            let signature = function.signature();
+            for (slot, token) in signature.iter().copied().enumerate() {
+                for atom in every_atom_of(token) {
+                    let operands: String = signature
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .map(|(position, declared)| {
+                            if position == slot {
+                                atom.to_string()
+                            } else {
+                                baseline(declared)
+                            }
+                        })
+                        .collect();
+                    let source = format!("{function}{operands}");
+                    let mut spelled = source.clone();
+                    let parsed = try_parse(&mut spelled)
+                        .unwrap_or_else(|error| panic!("{source:?} did not parse: {error}"));
+
+                    assert_eq!(parsed[0], Atom::Function(function));
+                    assert_eq!(parsed[slot + 1], atom, "{source:?}");
+                    // Rendering the whole Expression back reproduces the very
+                    // Cells it was parsed from, which is the round trip and the
+                    // absence of trailing content in one statement.
+                    assert_eq!(
+                        parsed.iter().map(Atom::to_string).collect::<String>(),
+                        source
+                    );
+                }
+            }
+        }
+    }
 }
 
 ///
-/// The wiring seed for the property-testing effort: one narrow property that
-/// proves the native-only proptest dependency and its `cfg` gate are real.
-/// The full parser-totality suite — permissive analysis, `ExpressionTooLong`,
-/// recovery, and the `Atom` round trip — belongs to
-/// `.scratch/property-testing/issues/03-parser-totality-on-ascii-input.md`.
+/// Parser totality over printable ASCII.
+///
+/// `AGENTS.md` obliges a change at the parser boundary to bring "boundary or
+/// property tests", and the parser is the widest input surface in the
+/// workspace because every keystroke reaches it. Strict parsing and permissive
+/// analysis both have to answer rather than panic for anything a Cell can
+/// hold, and they have to keep their contracts apart while doing it: strict
+/// parsing yields only a whole Expression of complete evaluable entries, and
+/// analysis yields the complete entries it recognized plus an explicit report
+/// of what it could not.
+///
+/// The generators produce raw Source text rather than valid Expressions. One
+/// that only spelled Expressions the parser accepts would test itself and
+/// slowly become a second implementation of the grammar, so the space that
+/// ends a run, the incomplete `#`, and the `##` Comment introducer are drawn as
+/// text like everything else — and
+/// `generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer`
+/// pins that they are actually reached rather than merely reachable.
+///
+/// The `Atom` round trip is `mod test`'s
+/// `every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it`
+/// rather than a property: the two operand domains hold 384 values between
+/// them, which is small enough to enumerate and too small to be worth
+/// sampling.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
@@ -623,26 +721,414 @@ mod test {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
 
-    use crate::{Atoms, Error, parser::Parser};
+    use crate::{
+        Activation, Atom, EXP_LEN, Error, Function, SourceAnalysis, SyntaxError, Token,
+        midi_number_to_note, parser::Parser,
+    };
     use proptest::prelude::*;
+    use proptest::sample::select;
+    use proptest::test_runner::{Config, TestRunner};
+    use std::cell::Cell;
+
+    /// How many fragments a generated Source is assembled from at most. A
+    /// fragment is one or two Cells, so a long case runs well past the
+    /// `EXP_LEN` Cells an Expression can hold and the capacity bound is
+    /// reachable from raw text rather than only from the Expression the
+    /// capacity property builds.
+    const FRAGMENTS: usize = 24;
+
+    /// The Atoms that are a whole Language Unit on their own: the Bang and the
+    /// four Activations.
+    const STANDALONE: &[Atom] = &[
+        Atom::Bang,
+        Atom::Activation(Activation::North),
+        Atom::Activation(Activation::South),
+        Atom::Activation(Activation::West),
+        Atom::Activation(Activation::East),
+    ];
+
+    /// Source text for one Operand Literal of the type its position declares.
+    ///
+    /// ADR 0021 makes an Operand Literal's type the consuming Function's rather
+    /// than the Source's, so a literal is spelled against the `Token` the slot
+    /// declares. The same two Cells spell a Number in one slot and a Note in
+    /// another.
+    fn literal_source(token: Token) -> BoxedStrategy<String> {
+        match token {
+            Token::Number => any::<u8>()
+                .prop_map(|number| format!("{number:02X}"))
+                .boxed(),
+            Token::Note => (0x00u8..=0x7F)
+                .prop_map(|note| midi_number_to_note(note).expect("a MIDI Note"))
+                .boxed(),
+            other => panic!("no operand is declared as {other:?}"),
+        }
+    }
+
+    /// One Function spelled with a literal in each operand position its
+    /// signature declares: the shape strict parsing accepts whole.
+    fn complete_expression() -> BoxedStrategy<String> {
+        select(Function::ALL)
+            .prop_flat_map(|function| {
+                let operands: Vec<BoxedStrategy<String>> = function
+                    .signature()
+                    .iter()
+                    .map(|token| literal_source(*token))
+                    .collect();
+                (Just(function), operands)
+            })
+            .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
+            .boxed()
+    }
+
+    /// One piece of generated Source text.
+    ///
+    /// Most of the weight is one arbitrary printable character, which is what
+    /// keeps the whole range in reach. The rest are the pieces the language
+    /// gives meaning to, so that a case is more often a near miss than noise:
+    /// the space and the `##` Comment introducer that end a run, the `#` that
+    /// is incomplete Source rather than a Comment, a Function spelling with no
+    /// operands after it, a standalone Atom, and an Operand Literal outside any
+    /// slot. They are concatenated in whatever order they are drawn, so the
+    /// result is raw text rather than a grammar.
+    fn fragment() -> BoxedStrategy<String> {
+        prop_oneof![
+            8 => proptest::char::range(' ', '~').prop_map(String::from),
+            2 => Just(" ".to_owned()),
+            2 => Just("#".to_owned()),
+            2 => Just("##".to_owned()),
+            2 => select(Function::ALL).prop_map(|function| function.to_string()),
+            1 => select(STANDALONE).prop_map(|atom| atom.to_string()),
+            2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+        ]
+        .boxed()
+    }
+
+    /// Source text for one Expression's worth of Cells.
+    ///
+    /// The unbiased branch is the printable range itself, drawn straight from
+    /// the character class. The fragment branch is the same range with the
+    /// language's own pieces mixed in, biased short so that the whole of a
+    /// short case is one Language Unit's worth of Cells rather than a run the
+    /// parser abandons in its first two.
+    ///
+    /// The third branch is the minority one, and it is here because half of
+    /// every property below is conditional on a parse succeeding. Raw text
+    /// almost never spells a whole Expression, so without a branch that does,
+    /// the accepting arms would pass by never running and the suite would
+    /// state only that nothing panics. It stays a minority: a generator made
+    /// of valid Expressions tests itself rather than the parser, which is why
+    /// five parts in six here are raw.
+    fn generated_source() -> BoxedStrategy<String> {
+        prop_oneof![
+            2 => "[ -~]{0,48}",
+            3 => prop_oneof![3 => 1usize..6, 1 => 6..FRAGMENTS]
+                .prop_flat_map(|count| prop::collection::vec(fragment(), count))
+                .prop_map(|fragments| fragments.concat()),
+            1 => complete_expression(),
+        ]
+        .boxed()
+    }
+
+    /// Every Atom of an Expression, rendered back to Source text.
+    fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
+        atoms.into_iter().map(|atom| atom.to_string()).collect()
+    }
+
+    /// Whether an entry's Atom is the kind its Token names.
+    fn entry_agrees(token: Token, atom: Atom) -> bool {
+        matches!(
+            (token, atom),
+            (Token::Function, Atom::Function(_))
+                | (Token::Number, Atom::Number(_))
+                | (Token::Note, Atom::Note(_))
+                | (Token::Bang, Atom::Bang)
+                | (Token::Activation, Atom::Activation(_))
+                | (Token::Char, Atom::Char(_))
+        )
+    }
 
     proptest! {
         ///
-        /// Strict parsing is total over printable ASCII. The generator spans the
-        /// whole printable range rather than valid Orcvs spellings, and runs past
-        /// `EXP_LEN` so the capacity bound is reachable.
+        /// Strict parsing is total over printable ASCII: it answers with a
+        /// whole Expression of complete evaluable entries, or with one of the
+        /// crate's typed errors. A panic inside `try_parse` fails the case,
+        /// which is the first half of the property; the arms state the second.
+        ///
+        /// Success is checked by rendering the Atoms back. Every Atom strict
+        /// parsing yields occupies exactly the Cells it was read from, so a
+        /// rendering equal to the Source is the whole of "no trailing content
+        /// and nothing truncated" — a parse that stopped early or dropped an
+        /// Atom produces a shorter string, and one that invented an Atom
+        /// produces a longer one.
         ///
         #[test]
-        fn strict_parsing_of_printable_ascii_returns_rather_than_panicking(
-            source in "[ -~]{0,40}",
+        fn strict_parsing_of_printable_ascii_yields_a_whole_expression_or_a_typed_error(
+            source in generated_source(),
         ) {
+            let spelled = source.clone();
             let mut source = source;
 
-            // The whole property is that this call returns. Either arm is an
-            // accepted outcome; the annotation states the second half of it,
-            // that failure arrives as the crate's typed `Error` rather than as
-            // a panic. A panic inside `try_parse` fails the case.
-            let _outcome: Result<Atoms, Error> = Parser::from(&mut source).try_parse();
+            match Parser::from(&mut source).try_parse() {
+                Ok(atoms) => {
+                    prop_assert!(atoms.len() <= EXP_LEN);
+                    prop_assert!(
+                        !atoms.iter().any(|atom| matches!(atom, Atom::Empty | Atom::Char(_))),
+                        "{spelled:?} parsed to a value no signature declares: {atoms:?}",
+                    );
+                    prop_assert_eq!(rendered(atoms), spelled.as_str());
+                }
+                // Reading two Cells is the only thing the parser does, so the
+                // families it can diagnose are the shape of those Cells and the
+                // type the slot consuming them declares. An error from any
+                // other family would be one raised on a value's behalf, and
+                // strict parsing never holds a value.
+                Err(error) => prop_assert!(
+                    matches!(error, Error::Syntax(_) | Error::Type(_)),
+                    "{spelled:?} raised {error:?}",
+                ),
+            }
         }
+
+        ///
+        /// Permissive analysis is total over the same input and keeps the other
+        /// contract: it preserves every complete entry it recognized, reports
+        /// incomplete or invalid Source as an explicit error, and hands no
+        /// runtime Atoms to a caller when it has not read a whole Expression.
+        /// A placeholder standing in for a Cell that was never written is what
+        /// the last of those rules out.
+        ///
+        #[test]
+        fn permissive_analysis_of_printable_ascii_reports_what_it_could_not_read(
+            source in generated_source(),
+        ) {
+            let spelled = source.clone();
+            let mut source = source;
+
+            let analysis = match Parser::from(&mut source).analyze() {
+                Ok(analysis) => analysis,
+                // Analysis diagnoses the Source it was handed and returns the
+                // Expression it built from it, so the one thing it can fail at
+                // is having nowhere left to record what it read.
+                Err(error) => {
+                    prop_assert!(
+                        matches!(
+                            error,
+                            Error::Syntax(SyntaxError::ExpressionTooLong { capacity }) if capacity == EXP_LEN
+                        ),
+                        "{spelled:?} failed analysis with {error:?}",
+                    );
+                    return Ok(());
+                }
+            };
+
+            let expression = analysis.expression();
+            let entries: Vec<(Token, Atom)> = expression.entries().collect();
+            for (token, atom) in entries.iter().copied() {
+                prop_assert!(
+                    entry_agrees(token, atom),
+                    "{spelled:?} paired {token:?} with {atom:?}",
+                );
+                prop_assert_eq!(atom.to_string().len(), token.len());
+            }
+
+            // No value ever stands in for a Token the parser could not read.
+            // An Expression answers with runtime Atoms only when every record
+            // it holds is a complete entry, so an incomplete or invalid Token
+            // withholds the whole Expression rather than contributing a
+            // placeholder to it.
+            prop_assert_eq!(
+                expression.atoms().is_some(),
+                entries.len() == expression.len(),
+                "{:?}",
+                spelled,
+            );
+
+            match &analysis {
+                SourceAnalysis::Complete(_) => {
+                    prop_assert!(analysis.error().is_none());
+                    let atoms = expression
+                        .atoms()
+                        .expect("a complete analysis holds only complete entries");
+                    prop_assert_eq!(rendered(atoms), spelled.as_str());
+                }
+                SourceAnalysis::Incomplete { .. } | SourceAnalysis::Invalid { .. } => {
+                    prop_assert!(analysis.error().is_some());
+                    // Trailing content is the one shape that is not complete
+                    // and still holds nothing but complete entries: the Cells
+                    // before the trailing run were read as a whole Expression,
+                    // and the run after them is reported rather than parsed.
+                    // Every other way of failing records the Token it could
+                    // not read, which is what withholds the Atoms above.
+                    prop_assert!(
+                        expression.atoms().is_none()
+                            || matches!(
+                                analysis.error(),
+                                Some(Error::Syntax(SyntaxError::UnexpectedTrailingContent(_)))
+                            ),
+                        "{spelled:?} produced runtime Atoms for {:?}",
+                        analysis.error(),
+                    );
+                }
+            }
+
+            // Trailing content is the one invalid shape whose complete entries
+            // account for the whole Source: everything before the trailing run
+            // was read as a whole Expression, so preserving it means the
+            // rendering and the trailing text spell the Cells that were handed
+            // in.
+            if let Some(Error::Syntax(SyntaxError::UnexpectedTrailingContent(trailing))) =
+                analysis.error()
+            {
+                let preserved = rendered(entries.iter().map(|(_, atom)| *atom));
+                prop_assert_eq!(format!("{preserved}{trailing}"), spelled.as_str());
+            }
+        }
+
+        ///
+        /// The two contracts agree about exactly one thing: strict parsing
+        /// accepts the Source analysis calls complete, and no other. Analysis
+        /// is the permissive path, so what separates them is that it also
+        /// answers for the rest — not that it reads a different language.
+        ///
+        #[test]
+        fn strict_parsing_accepts_exactly_the_source_analysis_calls_complete(
+            source in generated_source(),
+        ) {
+            let mut strict = source.clone();
+            let mut permissive = source.clone();
+
+            let parsed = Parser::from(&mut strict).try_parse();
+            let analysis = Parser::from(&mut permissive).analyze();
+
+            let complete = matches!(analysis, Ok(SourceAnalysis::Complete(_)));
+            prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
+
+            if let (Ok(atoms), Ok(analysis)) = (parsed, analysis) {
+                prop_assert_eq!(
+                    Some(atoms),
+                    analysis.into_expression().take_atoms(),
+                    "{:?}",
+                    source,
+                );
+            }
+        }
+
+        ///
+        /// An Expression that spells more Atoms than one can hold is refused
+        /// with `ExpressionTooLong`, and one that fits is parsed whole.
+        ///
+        /// What the capacity bounds is Atoms rather than Cells: a chain of
+        /// `depth` Additions over `depth + 1` Numbers spells `2 * depth + 1`
+        /// Atoms across `4 * depth + 2` Cells, so from depth 8 the Source is
+        /// already longer than `EXP_LEN` Cells and still parses. Both halves
+        /// are asserted here because the failure the bound exists to prevent is
+        /// a truncation, which would look exactly like the accepted half with
+        /// fewer Atoms in it.
+        ///
+        /// The chain starts at one Function rather than none: a standalone
+        /// Operand Literal has no Function to type it and is invalid Source,
+        /// so depth zero would be a case about ADR 0021 rather than about the
+        /// capacity.
+        ///
+        #[test]
+        fn an_expression_that_outruns_the_parser_capacity_is_refused_rather_than_truncated(
+            depth in 1usize..24,
+        ) {
+            let spelled = ".+".repeat(depth) + &"00".repeat(depth + 1);
+            let atoms_spelled = 2 * depth + 1;
+            let mut source = spelled.clone();
+
+            let parsed = Parser::from(&mut source).try_parse();
+
+            if atoms_spelled <= EXP_LEN {
+                let atoms = parsed.map_err(|error| {
+                    TestCaseError::fail(format!("{spelled:?} was refused with {error:?}"))
+                })?;
+                prop_assert_eq!(atoms.len(), atoms_spelled);
+                prop_assert_eq!(rendered(atoms), spelled.as_str());
+            } else {
+                prop_assert!(
+                    matches!(
+                        parsed,
+                        Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity }))
+                            if capacity == EXP_LEN
+                    ),
+                    "{spelled:?} answered {parsed:?} rather than refusing {atoms_spelled} Atoms",
+                );
+            }
+        }
+    }
+
+    ///
+    /// The generator reaches the three pieces of Source the language treats
+    /// specially — the space that ends a run, the `#` that is incomplete
+    /// Source rather than a Comment, and the `##` Comment introducer — and it
+    /// reaches Source strict parsing accepts.
+    ///
+    /// A property is only as good as what its generator produces, and none of
+    /// the properties above can tell an input it never saw from one it saw and
+    /// handled. Driving the runner directly is what lets the draws be counted
+    /// across cases; the count is asserted afterwards, where `proptest!` would
+    /// have had nowhere to put it.
+    ///
+    /// The case count is pinned rather than taken from `PROPTEST_CASES`,
+    /// because this claim is about the generator rather than about the parser:
+    /// it draws Source and reads it as text, so it costs nothing at either
+    /// verification tier and has no reason to weaken at the cheaper one.
+    ///
+    #[test]
+    fn generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer() {
+        let config = Config {
+            cases: 256,
+            source_file: Some(file!()),
+            ..Config::default()
+        };
+        let space = Cell::new(0usize);
+        let incomplete = Cell::new(0usize);
+        let comment = Cell::new(0usize);
+        let complete = Cell::new(0usize);
+
+        TestRunner::new(config)
+            .run(&generated_source(), |source| {
+                if source.contains(' ') {
+                    space.set(space.get() + 1);
+                }
+                if source.contains("##") {
+                    comment.set(comment.get() + 1);
+                }
+                // A `#` with no `#` beside it: incomplete Source rather than
+                // the introducer, which is the distinction CONTEXT.md draws.
+                let bytes = source.as_bytes();
+                if bytes.iter().enumerate().any(|(index, byte)| {
+                    *byte == b'#'
+                        && bytes.get(index + 1) != Some(&b'#')
+                        && (index == 0 || bytes[index - 1] != b'#')
+                }) {
+                    incomplete.set(incomplete.get() + 1);
+                }
+                let mut spelled = source.clone();
+                if Parser::from(&mut spelled).try_parse().is_ok() {
+                    complete.set(complete.get() + 1);
+                }
+                Ok(())
+            })
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(space.get() > 0, "no generated Source held a space");
+        assert!(
+            incomplete.get() > 0,
+            "no generated Source held an incomplete `#`",
+        );
+        assert!(
+            comment.get() > 0,
+            "no generated Source held the `##` Comment introducer",
+        );
+        // And the accepting half of every property above has to be reached by
+        // something, or those properties pass by never running.
+        assert!(
+            complete.get() > 0,
+            "no generated Source spelled an Expression strict parsing accepts",
+        );
     }
 }
