@@ -6,21 +6,21 @@ behaviour changes and no Rust changes.
 
 **Blocked by:** 07 — Complete the numeric Function family.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] `CONTEXT.md` carries an entry naming all nine: Add `.+`, Subtract `.-`, Absolute Difference
+- [x] `CONTEXT.md` carries an entry naming all nine: Add `.+`, Subtract `.-`, Absolute Difference
       `.|`, Multiply `.x`, Divide `./`, Modulo `.%`, Minimum `.<`, Maximum `.>`, and Equality `.=`.
-- [ ] The entry states the family rule the code holds: every member takes two Number operands and
+- [x] The entry states the family rule the code holds: every member takes two Number operands and
       returns a value, general arithmetic wraps within the byte range, and a Note or any other Atom
       type diagnoses rather than coercing.
-- [ ] The entry states the two behaviours that are not plain arithmetic: Divide and Modulo diagnose a
+- [x] The entry states the two behaviours that are not plain arithmetic: Divide and Modulo diagnose a
       zero divisor and produce no value, and Equality returns Bang for equal operands and no value
       for unequal ones.
-- [ ] The entry sits between `Numeric Conversion Function` and `Sequence`, keeping the numeric
+- [x] The entry sits between `Numeric Conversion Function` and `Sequence`, keeping the numeric
       Functions together, and carries an `_Avoid_` line in the style of its neighbours.
-- [ ] Every spelling in the entry is checked against `lang/src/atom.rs`'s `define_functions!` block
+- [x] Every spelling in the entry is checked against `lang/src/atom.rs`'s `define_functions!` block
       rather than against an ADR, so the glossary records what shipped.
 
 ## Comments
