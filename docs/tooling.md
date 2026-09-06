@@ -176,3 +176,31 @@ the repository and what write permission they hold, so it is not one a checkout 
 
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.
+
+## Worktrees each need their own target directory
+
+Everything above assumes a local gate answers a question about the checkout it ran in. A
+`CARGO_TARGET_DIR` or `[build] target-dir` shared across several worktrees of this repository
+breaks that assumption, and the failure is silent rather than loud.
+
+Cargo records a unit's location workspace-relatively. The fingerprint's `path` field is a hash of
+the target's source path relative to the workspace root, and the companion `dep-*` file lists
+sources the same way — `src/lib.rs`, `src/parser.rs`. Neither carries the checkout that produced
+them. Two worktrees of one repository therefore write fingerprints that each will happily validate
+against the other's sources, and when the mtimes agree cargo calls the unit fresh and hands the
+wrong artefact to the next crate as `--extern`.
+
+That is not hypothetical here. With nine worktrees sharing one target directory, a clean checkout
+of `main` failed to compile `orcvs` against a `lang` carrying enum variants that existed only in
+the `04-send-control-change-and-pitch-bend` worktree, while `cargo nextest run --package orcvs`
+in the same checkout passed and ran five tests that this tree does not contain. A gate that green
+on a binary built from another branch's source is worse than no gate. The same directory is also
+one build lock, so concurrent worktrees serialise on it rather than running in parallel.
+
+Let each worktree use its own `target/`. Share the layers that cannot alias instead: the registry
+under `~/.cargo/registry` is keyed by name, version and checksum, and `sccache` is keyed by
+compiler, arguments and source content. sccache cannot cache an incremental compilation, so it
+returns almost nothing while the dev profile's default `incremental` stands — measured at a 0.43%
+hit rate before `incremental = false` and 16% on the first build after. Turning incremental off is
+what makes the shared layer work, and it drops `target/debug/incremental/` besides, which pays
+back part of what per-worktree directories cost in disk.

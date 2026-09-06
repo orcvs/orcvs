@@ -31,20 +31,40 @@ and semantics changes as active language design, not public-API breakage.
 
 ## Verification
 
-Run the scoped gate for the affected crate:
+Local gates are scoped to what the change can reach. CI is the authority, and it already runs
+every feature combination, both platforms, the WASM target, the browser suite, and the
+benchmarks; `docs/tooling.md` records what each tier covers. Re-deriving that locally spends
+minutes and gigabytes on an answer CI gives anyway.
+
+Run this for every change, on the crate you edited and the crates that depend on it — `lang`
+means `lang` and `orcvs`, `orcvs` means `orcvs` and `shell`:
 
 ```sh
 cargo fmt --all -- --check
-cargo check --package <crate> --all-targets --locked
 cargo clippy --package <crate> --all-targets --locked -- -D warnings
 cargo nextest run --package <crate> --locked
-cargo test --package <crate> --doc --locked
 ```
 
-Run `mise run check` before completing repository-wide or high-risk work. Also run the applicable
-risk gate:
+`cargo check` is deliberately absent: clippy performs the same compilation and adds the lints,
+which is why `.scratch/ci-tiers/issues/02-remove-the-redundant-check-pass.md` removed it from
+`mise.toml`. Asking for both here would have restored the pass that issue deleted.
 
-- persistence: `mise run test_persistence`
+Once, before opening a pull request, so the crate-scoped runs above are not repeated per crate:
+
+```sh
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo nextest run --workspace --locked
+cargo test --workspace --doc --locked
+```
+
+Then run only the gates whose inputs the change actually touched:
+
+- `mise.toml`, `.github/workflows/`, or `scripts/`: `bash scripts/check-tooling-contract.sh`,
+  `actionlint`, and `zizmor --offline .github/workflows`
+- `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
+  `node scripts/roadmap.ts > /dev/null`
+- persistence: `cargo nextest run --workspace --tests --features persistence --locked`.
+  `mise run test_persistence` is the merge tier's whole pass and belongs to CI.
 - WASM or platform code: `mise run check_wasm`
 - dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
@@ -54,7 +74,20 @@ risk gate:
 - public API: doctests, examples, rustdoc warnings, and human API review
 - concurrency: cancellation, shutdown, ownership, backpressure, ordering, and race-sensitive tests
 - parser/protocol boundary: boundary or property tests; fuzz when exposure warrants it
-- performance: `mise run bench`, and a benchmark for any path whose cost the change claims to move
+- performance: a benchmark for any path whose cost the change claims to move. Adding the
+  benchmark is local work; running the comparison is not — see below.
+
+### Deferred to CI
+
+Do not run these to pass a gate. Run one only to answer a specific question, and say that is why.
+
+- `mise run check`, `mise run check_merge`, and `mise run test_wasm` — every feature and target
+  at once, plus the headless browser suite.
+- `mise run bench` — the measurement is reproducible from a checkout but the comparison lives in
+  the action, which `.scratch/benchmarks/spec.md` states outright, so a local run produces a
+  number that decides nothing.
+- proptest's 256-case default — `check_pull_request` runs 32 cases and the merge tier runs the
+  rest. Export `PROPTEST_CASES=32` locally to face what a pull request faces.
 
 ## Completion evidence
 
@@ -68,12 +101,21 @@ Not run: <required check> — <reason>
 Risks: public API / unsafe / dependencies / features / performance
 ```
 
+"Deferred to CI" is a complete reason for anything the section above defers. Name it on the
+`Not run` line rather than leaving it off the report.
+
 ## Agent conventions
 
 ### Remotes
 
 `origin` (`orcvs/orcvs`) is the primary remote. Push branches and open pull requests there, not
 against the `fork` remote.
+
+### Worktrees
+
+Every worktree builds into its own `target/`. A shared target directory lets one worktree's
+artefacts satisfy another's freshness check, which makes a local gate report on source the
+checkout does not contain. See `docs/tooling.md`.
 
 ### Issue tracker
 
