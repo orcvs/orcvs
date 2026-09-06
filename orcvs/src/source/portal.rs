@@ -1,7 +1,7 @@
 //! ADR 0009's Portal: where one interpreted result becomes Cells.
 //!
-//! A Portal is one Cell destination resolved while interpreting a Source
-//! Snapshot. It lives here rather than beside the producers in `tick` because
+//! A Portal is one Cell destination resolved while scheduling a Tick. It lives
+//! here rather than beside the producers in `tick` because
 //! destination resolution is the question ADR 0009 expects to change: a
 //! future Cell-addressing model, an infinite canvas among them, moves a
 //! result somewhere else without touching Function evaluation, effect
@@ -92,6 +92,11 @@ impl Portal {
     pub(super) fn at(grid: Grid, destination: Position) -> Self {
         grid.assert_owns(destination);
         Self { grid, destination }
+    }
+
+    /// The first Cell reached by this Portal.
+    pub(super) fn destination(self) -> Position {
+        self.destination
     }
 
     ///

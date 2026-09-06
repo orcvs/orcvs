@@ -60,6 +60,51 @@ impl Expression {
         self.records.iter().filter_map(|record| record.entry())
     }
 
+    /// Every parser-owned slot as its source-relative Cell offset, expected
+    /// syntax, and optional value. Missing and invalid operands retain their
+    /// width, so later entries never slide into an earlier operand's position.
+    /// Missing tail slots can extend beyond the supplied Source fragment.
+    pub fn layout(&self) -> impl Iterator<Item = (usize, Token, Option<Atom>)> + '_ {
+        self.records.iter().scan(0, |offset, record| {
+            let token = record.token();
+            let entry = (*offset, token, record.atom());
+            *offset += token.len();
+            Some(entry)
+        })
+    }
+
+    /// Reads current operand Cells through this Expression's original layout.
+    /// Function and standalone control spellings must retain their identities;
+    /// newly written Function spellings cannot change an operand's syntax.
+    /// The caller supplies Source from the original anchor, within one row.
+    /// Trailing Cells are outside this layout and are not interpreted.
+    pub fn bind_source(&self, source: &str) -> Result<Atoms, crate::Error> {
+        self.layout()
+            .map(|(offset, token, original)| {
+                let spelling = source
+                    .get(offset..offset + token.len())
+                    .ok_or(SyntaxError::ExpectedToken)?;
+                match token {
+                    Token::Number => crate::to_atom_num(spelling),
+                    Token::Note => crate::to_atom_note(spelling),
+                    Token::Char => crate::atom::to_atom_char(spelling),
+                    // A structural slot keeps the identity the starting parse
+                    // gave it, and says so in its own terms: a `**` overwritten
+                    // by a value is a Bang that is no longer there, not a
+                    // Function that was never expected.
+                    Token::Function => match original {
+                        Some(atom) if atom.to_string() == spelling => Ok(atom),
+                        _ => Err(crate::TypeError::Function(spelling.to_owned()).into()),
+                    },
+                    Token::Bang | Token::Activation => match original {
+                        Some(atom) if atom.to_string() == spelling => Ok(atom),
+                        _ => Err(crate::TypeError::Bang(spelling.to_owned()).into()),
+                    },
+                }
+            })
+            .collect()
+    }
+
     pub fn atoms(&self) -> Option<Atoms> {
         self.records.iter().copied().map(Record::atom).collect()
     }

@@ -471,7 +471,7 @@ macro_rules! unary_operands {
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $pervasion:ident, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $pervasion:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -512,6 +512,15 @@ macro_rules! define_functions {
             #[inline(always)]
             pub const fn is_terminal(self) -> bool {
                 matches!(self.kind(), FunctionKind::Terminal)
+            }
+
+            /// Whether this Function can return Bang, even when the current
+            /// operands produce no result. Scheduling uses this declaration to
+            /// wait for activation producers before deciding whether to perform.
+            pub const fn can_emit_bang(self) -> bool {
+                match self {
+                    $(Self::$variant => $bang,)+
+                }
             }
 
             /// Whether this Function extends pervasively across a Sequence
@@ -659,22 +668,22 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, Pervasive, [left: Number, right: Number]),
-    Add => (".+", Value, Pervasive, [left: Number, right: Number]),
-    ControlChange => ("!c", Terminal, Pervasive, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Pervasive, [value: Number]),
-    ConvertToNumber => (".v", Value, Pervasive, [value: Note]),
-    Divide => ("./", Value, Pervasive, [left: Number, right: Number]),
-    Equality => (".=", Value, Pervasive, [left: Number, right: Number]),
-    Maximum => (".>", Value, Pervasive, [left: Number, right: Number]),
-    Minimum => (".<", Value, Pervasive, [left: Number, right: Number]),
-    Modulo => (".%", Value, Pervasive, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Multiply => (".x", Value, Pervasive, [left: Number, right: Number]),
-    PitchBend => ("!b", Terminal, Pervasive, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    RawPlay => ("!>", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    Subtract => (".-", Value, Pervasive, [left: Number, right: Number]),
-    TimedPlay => ("!~", Terminal, Pervasive, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    AbsoluteDifference => (".|", Value, Pervasive, false, [left: Number, right: Number]),
+    Add => (".+", Value, Pervasive, false, [left: Number, right: Number]),
+    ControlChange => ("!c", Terminal, Pervasive, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", Value, Pervasive, false, [value: Number]),
+    ConvertToNumber => (".v", Value, Pervasive, false, [value: Note]),
+    Divide => ("./", Value, Pervasive, false, [left: Number, right: Number]),
+    Equality => (".=", Value, Pervasive, true, [left: Number, right: Number]),
+    Maximum => (".>", Value, Pervasive, false, [left: Number, right: Number]),
+    Minimum => (".<", Value, Pervasive, false, [left: Number, right: Number]),
+    Modulo => (".%", Value, Pervasive, false, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", Terminal, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Multiply => (".x", Value, Pervasive, false, [left: Number, right: Number]),
+    PitchBend => ("!b", Terminal, Pervasive, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    RawPlay => ("!>", Terminal, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    Subtract => (".-", Value, Pervasive, false, [left: Number, right: Number]),
+    TimedPlay => ("!~", Terminal, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -772,6 +781,18 @@ mod test {
             );
         }
         assert_eq!(Activation::ALL.len(), 4);
+    }
+
+    #[test]
+    fn equality_is_the_only_function_that_can_emit_bang() {
+        assert_eq!(
+            Function::ALL
+                .iter()
+                .copied()
+                .filter(|function| function.can_emit_bang())
+                .collect::<Vec<_>>(),
+            vec![Function::Equality]
+        );
     }
 
     #[test]

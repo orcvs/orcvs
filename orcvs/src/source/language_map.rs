@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{
@@ -133,9 +135,11 @@ impl Span {
 #[derive(Clone)]
 pub struct ExpressionEntry {
     map_id: LanguageMapId,
+    expression: Expression,
     atoms: Option<Atoms>,
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
+    function_candidate: Option<(Position, Function)>,
     span: Span,
     /// Where this Expression's Language Units sit in its Map's partition,
     /// established when the Expression was built.
@@ -150,6 +154,22 @@ impl ExpressionEntry {
     /// The first Function anchor when this is a complete executable Expression.
     pub fn root(&self) -> Option<Position> {
         self.root
+    }
+
+    /// The parsed leading Function, even when its operands are not yet valid.
+    /// A Tick reserves its turn so earlier writes can complete those operands.
+    pub(super) fn function_candidate(&self) -> Option<(Position, Function)> {
+        self.function_candidate
+    }
+
+    /// Parser-owned slots, including invalid and missing operands. Offsets are
+    /// relative to this Expression's anchor and may extend past its Span.
+    pub(super) fn layout(&self) -> impl Iterator<Item = (usize, Token, Option<Atom>)> + '_ {
+        self.expression.layout()
+    }
+
+    pub(super) fn bind_source(&self, source: &str) -> Result<Atoms, LangError> {
+        self.expression.bind_source(source)
     }
 
     pub fn span(&self) -> Span {
@@ -170,6 +190,131 @@ impl LanguageMap {
         (source.len() == grid.count()
             && source.bytes().all(|byte| CellContent::new(byte).is_some()))
         .then(|| Self::build(grid, source.as_bytes()))
+    }
+
+    ///
+    /// Rebuilds the Map, parsing only the rows whose Cells changed.
+    ///
+    /// The row is the unit of work because the row is already the unit of
+    /// meaning: `walk_row` reads exactly one row's Cells and carries nothing
+    /// across the boundary, and an Expression Span is a run inside one row. A
+    /// row's Language Units, Expressions, Glyphs and lexical diagnostics are
+    /// therefore functions of that row's bytes alone, and a row nobody wrote
+    /// to answers this revision exactly as it answered the last one.
+    ///
+    /// Everything such a row contributed is carried over rather than parsed
+    /// again, which is the whole point: parsing is most of what building a Map
+    /// costs, and walking is the small remainder. One field stands in the way.
+    /// An `ExpressionEntry` locates its units as a range into the Map's
+    /// partition rather than into the Grid, so a dirty row that now holds a
+    /// different number of units moves every later Expression's range. Each
+    /// carried entry is re-pointed by its offset inside its own row, which
+    /// needs no arithmetic across rows and cannot go negative.
+    ///
+    /// The Map's identity is new either way. An `ExpressionEntry` from the
+    /// previous revision addresses the previous partition, and carrying one
+    /// forward does not make it answerable there.
+    ///
+    pub(super) fn rebuild(
+        previous: &Self,
+        grid: Grid,
+        bytes: &[u8],
+        dirty: &BTreeSet<usize>,
+    ) -> Self {
+        assert_eq!(
+            bytes.len(),
+            grid.count(),
+            "LanguageMap Source length must match its Grid"
+        );
+        assert_eq!(
+            previous.grid, grid,
+            "a LanguageMap is rebuilt on the Grid that built it"
+        );
+
+        let cols = grid.cols();
+        let row_count = bytes.len() / cols;
+
+        // Everything the previous Map holds is in row-major order, so one pass
+        // over each collection names the run belonging to each row.
+        let previous_units = row_runs(row_count, previous.units.len(), |index| {
+            grid.index(previous.units[index].anchor).get() / cols
+        });
+        let previous_expressions = row_runs(row_count, previous.expressions.len(), |index| {
+            previous.expressions[index].span.start().get() / cols
+        });
+        let previous_diagnostics =
+            row_runs(row_count, previous.lexical_diagnostics.len(), |index| {
+                previous.lexical_diagnostics[index].start() / cols
+            });
+
+        // The partition is assembled first and in full, because `parse_span`
+        // searches it for the units of the Span it is given.
+        let mut units = Vec::with_capacity(previous.units.len());
+        let mut walks = Vec::with_capacity(row_count);
+        let mut row_units = Vec::with_capacity(row_count);
+        for row in 0..row_count {
+            let start = units.len();
+            if dirty.contains(&row) {
+                let mut walk = RowWalk::default();
+                walk_row(
+                    grid,
+                    row * cols,
+                    &bytes[row * cols..(row + 1) * cols],
+                    &mut walk,
+                );
+                units.extend_from_slice(&walk.units);
+                walks.push(Some(walk));
+            } else {
+                units.extend_from_slice(&previous.units[previous_units[row].clone()]);
+                walks.push(None);
+            }
+            row_units.push(start..units.len());
+        }
+
+        let mut map = Self {
+            id: LanguageMapId::new(),
+            grid,
+            units,
+            expressions: Vec::with_capacity(previous.expressions.len()),
+            glyphs: vec![None; bytes.len()],
+            lexical_diagnostics: Vec::with_capacity(previous.lexical_diagnostics.len()),
+        };
+
+        for (row, walk) in walks.into_iter().enumerate() {
+            let cells = row * cols..(row + 1) * cols;
+            match walk {
+                Some(walk) => {
+                    map.lexical_diagnostics.extend(walk.diagnostics);
+                    for span in walk.spans {
+                        map.parse_span(grid, bytes, span);
+                    }
+                    for index in cells {
+                        if bytes[index] != SPACE_BYTE && map.glyphs[index].is_none() {
+                            map.glyphs[index] = Some(Glyph::Char);
+                        }
+                    }
+                }
+                None => {
+                    map.lexical_diagnostics.extend_from_slice(
+                        &previous.lexical_diagnostics[previous_diagnostics[row].clone()],
+                    );
+                    map.glyphs[cells.clone()].copy_from_slice(&previous.glyphs[cells]);
+                    let carried = row_units[row].start;
+                    let held = previous_units[row].start;
+                    for entry in &previous.expressions[previous_expressions[row].clone()] {
+                        let offset = entry.units.start - held;
+                        let length = entry.units.len();
+                        map.expressions.push(ExpressionEntry {
+                            map_id: map.id,
+                            units: carried + offset..carried + offset + length,
+                            ..entry.clone()
+                        });
+                    }
+                }
+            }
+        }
+
+        map
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
@@ -214,29 +359,26 @@ impl LanguageMap {
         self.units.iter()
     }
 
-    /// Whether a Source-resident Bang activates the root anchored at `root`.
-    ///
-    /// An ordinary root Expression is inert until a Bang activates it, and the
-    /// geometry deciding that is a question about where things sit rather than
-    /// about what any Function means. Keeping it here is what lets Source
-    /// interpretation stay a question about Atoms: the Interpreter is never
-    /// told where anything sits, and the MIDI path never learns what a Bang is.
-    ///
-    /// Bangs are partitioned independently of Expressions, so this reads the
-    /// Language Unit partition rather than any Expression's contents.
-    ///
-    /// This answers the geometry alone: whether a Bang is cardinally aligned
-    /// with `root`, not whether a complete root sits there. ADR 0006 requires
-    /// both, and the caller supplies the second half by passing an Expression's
-    /// own root anchor. A Position holding no root answers `true` just as
-    /// readily, so a future caller delivering activation to arbitrary Positions
-    /// owes its own root check.
-    pub fn is_root_active(&self, root: Position) -> bool {
-        self.units()
-            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Bang))
-            .any(|unit| {
-                activated_root_anchors(self.grid, unit.anchor()).any(|anchor| anchor == root)
+    /// Bang values from complete standalone Expressions, paired with their
+    /// spelling Spans. The parsed Atoms decide meaning; units supply geometry.
+    pub(super) fn bangs(&self) -> impl Iterator<Item = (Position, Span)> + '_ {
+        self.expressions().flat_map(move |expression| {
+            let atoms = expression.atoms().filter(|atoms| {
+                atoms
+                    .as_slice()
+                    .iter()
+                    .all(|atom| matches!(atom, Atom::Bang | Atom::Activation(_)))
+            });
+            atoms.into_iter().flat_map(move |atoms| {
+                atoms
+                    .as_slice()
+                    .iter()
+                    .zip(self.expression_units(expression))
+                    .filter_map(|(atom, unit)| {
+                        matches!(atom, Atom::Bang).then_some((unit.anchor(), unit.span()))
+                    })
             })
+        })
     }
 
     /// Every parser and unmatched-character diagnostic in this revision.
@@ -324,9 +466,11 @@ impl LanguageMap {
             Err(error) => {
                 self.expressions.push(ExpressionEntry {
                     map_id: self.id,
+                    expression: Expression::new(),
                     atoms: None,
                     diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
                     root: None,
+                    function_candidate: None,
                     span,
                     units,
                 });
@@ -340,13 +484,16 @@ impl LanguageMap {
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
         let expression_units = &self.units[units.clone()];
+        let function_candidate = match expression.entries().next() {
+            Some((Token::Function, Atom::Function(function))) => {
+                Some((grid.position_at(start), function))
+            }
+            _ => None,
+        };
         let root = executable
-            .then(|| {
-                expression_units.iter().find_map(|unit| {
-                    matches!(unit.kind, LanguageUnitKind::Function(_)).then_some(unit.anchor)
-                })
-            })
-            .flatten();
+            .then_some(function_candidate)
+            .flatten()
+            .map(|(anchor, _)| anchor);
         let standalone_literal = matches!(
             expression_units,
             [LanguageUnit {
@@ -354,7 +501,7 @@ impl LanguageMap {
                 ..
             }]
         );
-        let (atoms, mut glyphs) = expression_parts(expression, executable);
+        let (atoms, mut glyphs) = expression_parts(&expression, executable);
         if !executable && standalone_literal {
             // A standalone Operand Literal has no contextual Number or Note
             // type. Preserve the existing raw-character presentation while
@@ -364,9 +511,11 @@ impl LanguageMap {
         self.set_glyphs(grid, start, glyphs);
         self.expressions.push(ExpressionEntry {
             map_id: self.id,
+            expression,
             atoms,
             diagnostic,
             root,
+            function_candidate,
             span,
             units,
         });
@@ -513,6 +662,26 @@ fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
 }
 
 ///
+/// The run of `len` row-major items belonging to each of `rows` rows.
+///
+/// `row_of` answers which row an item sits in. Items ascend by row, so one
+/// pass names every run; a row holding nothing gets an empty one.
+///
+fn row_runs(rows: usize, len: usize, row_of: impl Fn(usize) -> usize) -> Vec<Range<usize>> {
+    let mut runs = Vec::with_capacity(rows);
+    let mut start = 0;
+    for row in 0..rows {
+        let mut end = start;
+        while end < len && row_of(end) == row {
+            end += 1;
+        }
+        runs.push(start..end);
+        start = end;
+    }
+    runs
+}
+
+///
 /// Walks a whole Source revision, row by row, in row-major order.
 ///
 fn walk_source(grid: Grid, bytes: &[u8]) -> RowWalk {
@@ -537,36 +706,6 @@ fn walk_source(grid: Grid, bytes: &[u8]) -> RowWalk {
     );
 
     walk
-}
-
-/// The root anchors a Bang anchored at `bang` activates.
-///
-/// ADR 0006 states the geometry from the Bang outward: north `(x, y-1)`, south
-/// `(x, y+1)`, west `(x-2, y)`, and east `(x+2, y)`. The horizontal step is two
-/// Cells because every Language Unit is two Cells wide, so a horizontal
-/// neighbour's anchor sits two columns away rather than one. An anchor outside
-/// the Grid is not a Position at all and simply does not appear.
-///
-/// The west and east anchors are stated here because ADR 0006 states them, but
-/// no Source can reach them today: `walk_row` splits Expression runs only on
-/// spaces and `##`, so a horizontally adjacent Bang either merges into the
-/// root's own run and forms no root at all, or is separated by a space that
-/// puts its anchor three or more columns away. `spatial-tick-planning/02` owns
-/// the Snapshot Bang activation that makes them reachable;
-/// `test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root` pins
-/// the present behaviour until then.
-fn activated_root_anchors(grid: Grid, bang: Position) -> impl Iterator<Item = Position> {
-    let (x, y) = (bang.x(), bang.y());
-
-    [
-        y.checked_sub(1).map(|north| (x, north)),
-        Some((x, y + 1)),
-        x.checked_sub(2).map(|west| (west, y)),
-        Some((x + 2, y)),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(move |(x, y)| grid.position(x, y))
 }
 
 fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
@@ -653,7 +792,7 @@ fn standalone_run(units: &[LanguageUnit], span: Span) -> Option<Expression> {
     Some(expression)
 }
 
-fn expression_parts(expression: Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
+fn expression_parts(expression: &Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
     let glyphs = Glyph::to_glyphs(expression.tokens().collect());
     let atoms = executable.then(|| expression.atoms()).flatten();
     (atoms, glyphs)
@@ -706,6 +845,84 @@ mod tests {
     use lang::{Activation, Atom};
 
     use super::{LanguageMap, LanguageUnitKind, Span, prospective_span, walk_source};
+
+    #[test]
+    fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
+        for source in ["!>00**C4", "**X0**  ", "***     ", "**!>00  "] {
+            let grid = Grid::new(8, 2);
+            let map = LanguageMap::build(grid, format!("{source}        ").as_bytes());
+            assert_eq!(map.bangs().count(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn parsed_function_candidates_survive_missing_or_invalid_operands() {
+        for source in ["!>", "!>007F", "!>00**C4"] {
+            let grid = Grid::new(source.len(), 1);
+            let map = LanguageMap::build(grid, source.as_bytes());
+            let expression = map.expressions().next().unwrap();
+            assert_eq!(
+                expression.function_candidate(),
+                Some((
+                    grid.position(0, 0).unwrap(),
+                    lang::Function::try_from("!>").unwrap()
+                )),
+                "{source}",
+            );
+            assert!(expression.root().is_none(), "{source}");
+        }
+    }
+
+    #[test]
+    fn expression_layout_retains_slots_beyond_invalid_and_missing_source() {
+        for source in ["!>**7F", "!>00  "] {
+            let grid = Grid::new(12, 1);
+            let map = LanguageMap::build(grid, format!("{source}      ").as_bytes());
+            let expression = map.expressions().next().unwrap();
+            assert_eq!(
+                expression
+                    .layout()
+                    .map(|(offset, token, _)| (offset, token))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (0, lang::Token::Function),
+                    (2, lang::Token::Number),
+                    (4, lang::Token::Number),
+                    (6, lang::Token::Note)
+                ]
+            );
+            assert!(expression.atoms().is_none());
+            assert_eq!(
+                expression.bind_source("!>007FC4    ").unwrap()[3],
+                Atom::Note(lang::Note::try_from(60).unwrap())
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_prefix_does_not_promote_a_later_function_to_candidate() {
+        for source in ["XX!>007FC4", "**!>007FC4", "0!>007FC4"] {
+            let grid = Grid::new(source.len(), 1);
+            let map = LanguageMap::build(grid, source.as_bytes());
+            assert!(
+                map.expressions()
+                    .all(|expression| expression.function_candidate().is_none()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn adjacent_standalone_bangs_have_distinct_parsed_spans() {
+        let grid = Grid::new(6, 1);
+        let map = LanguageMap::build(grid, b"**>>**");
+        assert_eq!(
+            map.bangs()
+                .map(|(anchor, span)| (anchor.x(), span.start().get(), span.end().get()))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 1), (4, 4, 5)],
+        );
+    }
 
     ///
     /// The Expression Spans of a whole Source revision, in row-major order.
@@ -871,35 +1088,6 @@ mod tests {
                 (6, vec![6, 7]),
             ]
         );
-    }
-
-    #[test]
-    fn a_bang_aligns_with_the_root_anchor_at_each_of_its_four_cardinal_positions() {
-        // The geometry filter alone: this Grid holds no root, because the
-        // horizontal anchors are unreachable from any Source that parses one
-        // (see `activated_root_anchors`). What a real root does with an
-        // aligned Bang is pinned end-to-end in `source::model`'s Tick tests.
-        let grid = Grid::new(6, 3);
-        let map = LanguageMap::build(grid, b"        **        ");
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-
-        // The Bang is anchored at (2, 1).
-        for (x, y) in [(2, 0), (2, 2), (0, 1), (4, 1)] {
-            assert!(map.is_root_active(at(x, y)), "({x}, {y})");
-        }
-        // One column off an aligned anchor, diagonally placed, or the Bang's
-        // own anchor: only complete cardinal alignment activates.
-        for (x, y) in [(1, 1), (3, 1), (1, 0), (3, 2), (2, 1)] {
-            assert!(!map.is_root_active(at(x, y)), "({x}, {y})");
-        }
-    }
-
-    #[test]
-    fn a_source_without_a_bang_activates_no_root() {
-        let grid = Grid::new(6, 1);
-        let map = LanguageMap::build(grid, b".+0102");
-
-        assert!(!map.is_root_active(grid.position(0, 0).unwrap()));
     }
 
     #[test]
@@ -1569,5 +1757,124 @@ mod property {
             complete.get() > 0,
             "no generated revision held a Function the walk read as a whole Expression",
         );
+    }
+}
+
+
+///
+/// A rebuilt Map must be the Map a full build would have produced.
+///
+/// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+/// table that declares proptest, so a WASM build never sees the dependency.
+///
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod rebuild_property {
+    use super::{Glyph, Grid, LanguageMap, LanguageUnit};
+    use proptest::prelude::*;
+    use std::collections::BTreeSet;
+
+    /// The Cells a Source is built from: Function spellings, operands, Bang,
+    /// the comment that ends a row, and the space that separates runs.
+    const ALPHABET: &[u8] = b".+=x><0123456789ABCDEF*# ";
+
+    ///
+    /// Everything a Map holds except its identity, in a form two Maps can be
+    /// compared by.
+    ///
+    /// The identity is left out on purpose: a rebuilt Map is a new revision
+    /// and says so, exactly as a built one does. Everything else has to agree
+    /// Cell for Cell, unit for unit, and diagnostic for diagnostic.
+    ///
+    /// One lexical diagnostic, as its Cells and its message.
+    type ReportedDiagnostic = (usize, usize, String);
+
+    /// One Expression, as its Span, its diagnostic, and the units its range
+    /// resolves to.
+    type ReportedExpression = (usize, usize, Option<String>, Vec<LanguageUnit>);
+
+    /// Everything two Maps are compared by.
+    type Contents = (
+        Vec<LanguageUnit>,
+        Vec<Option<Glyph>>,
+        Vec<ReportedDiagnostic>,
+        Vec<ReportedExpression>,
+    );
+
+    fn contents(map: &LanguageMap) -> Contents {
+        (
+            map.units.clone(),
+            map.glyphs.clone(),
+            map.lexical_diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.start(),
+                        diagnostic.end(),
+                        diagnostic.message.clone(),
+                    )
+                })
+                .collect(),
+            map.expressions
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.span.start().get(),
+                        entry.span.end().get(),
+                        entry
+                            .diagnostic
+                            .as_ref()
+                            .map(|diagnostic| diagnostic.message.clone()),
+                        // Resolved through the Map that owns them, so a range
+                        // carried across a rebuild is checked by what it
+                        // actually points at rather than by its numbers.
+                        map.expression_units(entry).to_vec(),
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    proptest! {
+        ///
+        /// Write to some rows, then rebuild only those rows.
+        ///
+        /// The written rows are the only ones whose Cells change, which is the
+        /// contract `rebuild` is given. Rows are written with fresh content
+        /// rather than mutated, so a row can gain or lose Language Units and
+        /// move every later Expression's range in the partition — the case the
+        /// carried ranges exist to survive.
+        ///
+        #[test]
+        fn a_rebuilt_map_equals_the_map_a_full_build_would_have_made(
+            cols in 4usize..14,
+            rows in 1usize..7,
+            // Sized to the largest Grid the dimensions above can name, then
+            // cut to the one they did, so no case is generated only to be
+            // rejected for being too short.
+            before in prop::collection::vec(0usize..ALPHABET.len(), 13 * 6),
+            after in prop::collection::vec(0usize..ALPHABET.len(), 13 * 6),
+            written in prop::collection::vec(any::<bool>(), 6),
+        ) {
+            let count = cols * rows;
+
+            let grid = Grid::new(cols, rows);
+            let mut bytes: Vec<u8> = before[..count].iter().map(|i| ALPHABET[*i]).collect();
+            let previous = LanguageMap::build(grid, &bytes);
+
+            let dirty: BTreeSet<usize> = (0..rows)
+                .filter(|row| *written.get(*row).unwrap_or(&false))
+                .collect();
+            for row in &dirty {
+                for column in 0..cols {
+                    let cell = row * cols + column;
+                    bytes[cell] = ALPHABET[after[cell]];
+                }
+            }
+
+            let rebuilt = LanguageMap::rebuild(&previous, grid, &bytes, &dirty);
+            let built = LanguageMap::build(grid, &bytes);
+
+            prop_assert_eq!(contents(&rebuilt), contents(&built));
+        }
     }
 }

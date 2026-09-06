@@ -697,6 +697,44 @@ mod test {
     }
 
     #[test]
+    fn only_a_function_that_declares_it_ever_answers_with_bang() {
+        // `can_emit_bang` is a declaration Tick scheduling trusts to decide
+        // which roots can supply activation, and a declaration checked only
+        // against itself catches nothing: a Function that began answering Bang
+        // without flipping its flag would build no activation edge, and the
+        // neighbouring terminal root would fall silent with no diagnostic
+        // anywhere.
+        //
+        // So the flag is checked against what the Interpreter actually
+        // answers, over operands built from each Function's own signature.
+        // Every operand of one attempt carries the same value, which is what
+        // reaches Equality's Bang at all: an unequal pair answers Empty.
+        for &function in Function::ALL {
+            if function.is_terminal() {
+                continue;
+            }
+
+            let answers_bang = (0..=u8::MAX).any(|value| {
+                let mut atoms = vec![Atom::Function(function)];
+                atoms.extend(function.signature().iter().map(|token| match token {
+                    Token::Number => Atom::Number(value),
+                    Token::Note => Atom::Note(Note::try_from(value & 0x7F).expect("a MIDI note")),
+                    other => panic!("no operand is declared as {other:?}"),
+                }));
+                matches!(interpret_stack(atoms), Ok(Atom::Bang))
+            });
+
+            assert_eq!(
+                answers_bang,
+                function.can_emit_bang(),
+                "{function:?} answers Bang == {answers_bang} but declares \
+                 can_emit_bang() == {}",
+                function.can_emit_bang(),
+            );
+        }
+    }
+
+    #[test]
     fn equality_answers_a_bang_only_for_equal_numbers() {
         // Equality is a pulse, not a truth value: an unequal comparison answers
         // `Atom::Empty`, the Interpreter's existing "no result write" signal, so
