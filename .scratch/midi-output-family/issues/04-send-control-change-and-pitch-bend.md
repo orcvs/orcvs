@@ -90,6 +90,15 @@ then stops leaves that bend standing on the device, and the next note sounds ben
 nothing either way, and neither does this ticket's checklist, so it is recorded here rather than
 decided: whoever revisits the safety action decides whether "silence the device" means notes alone.
 
+Review returned to this and settled the instrument, though not the scope. CC 121 Reset All
+Controllers is what the protocol provides for exactly this case — the MIDI Association describes it
+as what a sequencer sends so a stop mid-bend does not leave the bend stuck — and it releases the
+sustain pedal that CC 123 does not. Orca carries the same fault: its stop sends the same CC 123 loop
+and explicit Note Offs for its tracked notes, sends no CC 121, and never calls its `cc` module at
+all. The work is now `05 — Clear controllers and bend in the safety action`, untagged, because
+widening the safety action changes behaviour for every Source and putting it in the release is a v1
+scope decision rather than this ticket's to make.
+
 A bend is never assembled into its fourteen-bit value anywhere in Orcvs. That is ADR 0016's
 "exposing MIDI's wire bytes directly" taken literally, and it is why `!b` needs no scaling rule; a
 Source that wants to think in bend units needs a Function that converts, not a change here.
