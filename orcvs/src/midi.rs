@@ -330,12 +330,16 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_source_control_change_and_pitch_bend_reach_the_wire_as_their_bytes() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 3);
+        let grid = Grid::new(10, 6);
         let source = SourceCommander::new(grid);
-        // The whole path in one run: two terminal roots and the Bang between
-        // them that activates both, delivered through the Playback Engine to
-        // the bytes a device would receive.
-        for (index, content) in "!c010207  **        !b032A33".chars().enumerate() {
+        // The whole path in one run: two terminal roots, each activated by the
+        // producer one row above it, delivered through the Playback Engine to
+        // the bytes a device would receive. Per ADR 0032 a produced Bang's
+        // north anchor is its own producer, so each terminal needs its own.
+        for (index, content) in ".=0101              !c010207  .=0101              !b032A33  "
+            .chars()
+            .enumerate()
+        {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
         let adapter = MidiOutputAdapter::new(FakeBackend {

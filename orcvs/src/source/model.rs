@@ -418,7 +418,7 @@ mod test {
             BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
             PlayCommand, Source, SourceError, Tick, TickPlan, Velocity,
             portal::Portal,
-            tick::{Effect, resolve, result_effect},
+            tick::{Effect, resolve},
         },
         test::trace,
     };
@@ -1445,15 +1445,15 @@ mod test {
         ] {
             let mut src = source();
             let at = src.cells();
-            src.write(at(0), "**");
-            src.write(at(10), expression);
+            src.write(at(0), ".=0101");
+            src.write(at(20), expression);
 
             let tick = src.execute();
 
             assert_eq!(tick.play_commands, vec![expected], "{expression}");
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_only_bang_display(&tick, src.grid, &[10]);
             assert!(tick.diagnostics.is_empty(), "{expression}");
-            assert_eq!(src.row(2), "          ", "{expression}");
+            assert_eq!(src.row(1), "**        ", "{expression}");
         }
     }
 
@@ -1485,13 +1485,13 @@ mod test {
         ] {
             let mut src = source();
             let at = src.cells();
-            src.write(at(0), "**");
-            src.write(at(10), expression);
+            src.write(at(0), ".=0101");
+            src.write(at(20), expression);
 
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_only_bang_display(&tick, src.grid, &[10]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }

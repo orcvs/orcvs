@@ -1771,19 +1771,23 @@ mod tests {
 
     #[tokio::test]
     async fn control_change_and_pitch_bend_reach_the_adapter_unresolved_and_in_tick_plan_order() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        // One Bang between the two roots activates both, as it does for two
-        // Play roots: the row above it is its north anchor and the row below
-        // it its south anchor.
-        write(&source, 0, "!c010207");
-        write(&source, 10, "**");
-        write(&source, 20, "!b032A33");
+        let source = SourceCommander::new(Grid::new(10, 6));
+        // Each terminal is activated by its own producer, one row above it.
+        // Per ADR 0032 a produced Bang's north anchor is the producer that
+        // wrote it, so a single Bang cannot serve a root above and a root
+        // below; the ordering under test is between the two terminals, which
+        // ADR 0020 takes from their Source Positions.
+        write(&source, 0, ".=0101");
+        write(&source, 20, "!c010207");
+        write(&source, 30, ".=0101");
+        write(&source, 50, "!b032A33");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
+        write(&source, 30, ".=0102");
         for tick in 1..=2 {
             run_tick(&engine, tick);
         }
@@ -1791,7 +1795,7 @@ mod tests {
         // Neither spelling has a lifetime, so the engine has nothing to
         // resolve and nothing to schedule: the two commands arrive in Tick
         // Plan order within the one submission their Tick makes, and the Ticks
-        // after the Bang is retired owe nothing at all. Every operand differs
+        // after the producers stop answering with Bang owe nothing at all. Every operand differs
         // from every other, here as in the Function's own role test, so a
         // transposition anywhere along the way changes this list.
         assert_eq!(
