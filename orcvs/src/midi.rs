@@ -427,102 +427,117 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn changing_destination_clears_the_scheduled_timed_stop() {
-        let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 3);
-        let source = SourceCommander::new(grid);
-        // A Timed Play whose note is stopped two Ticks after it starts, and
-        // the Bang one row below the root anchor that activates it.
-        for (index, content) in "!~007FC402**".chars().enumerate() {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
-        }
-        let adapter = MidiOutputAdapter::new(FakeBackend {
-            state: state.clone(),
-        });
-        let playback = PlaybackEngine::new(source.clone(), adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+    async fn changing_destination_clears_every_scheduled_stop() {
+        // Both owning spellings, because a destination change clears the one
+        // schedule they share and a test of `!~` alone would pass on a clear
+        // that reached the Timed claims and left the Mono ones standing.
+        for expression in ["!~007FC402**", "!%007FC402**"] {
+            let state = Arc::new(Mutex::new(FakeState::default()));
+            let grid = Grid::new(10, 3);
+            let source = SourceCommander::new(grid);
+            // A note stopped two Ticks after it starts, and the Bang one row
+            // below the root anchor that activates it.
+            for (index, content) in expression.chars().enumerate() {
+                source.set(cell(grid, index), &content.to_string()).unwrap();
+            }
+            let adapter = MidiOutputAdapter::new(FakeBackend {
+                state: state.clone(),
+            });
+            let playback = PlaybackEngine::new(source.clone(), adapter);
+            playback
+                .select_midi_destination(&MidiDestinationId::new("one"))
+                .unwrap();
 
-        playback.start(Duration::from_secs(1)).unwrap();
-        tokio::task::yield_now().await;
-        assert_eq!(
-            state.lock().unwrap().messages.last(),
-            Some(&vec![0x90, 60, 0x7f])
-        );
-
-        // Retire the Bang so nothing new plays, then change destination. The
-        // note is sounding on the destination being left, which is sent
-        // all-notes-off as it goes, so its scheduled stop belongs to a device
-        // this engine no longer holds.
-        source.unset(cell(grid, 10));
-        source.unset(cell(grid, 11));
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
-        let delivered = state.lock().unwrap().messages.len();
-
-        for _ in 0..3 {
-            tokio::time::advance(Duration::from_secs(1)).await;
+            playback.start(Duration::from_secs(1)).unwrap();
             tokio::task::yield_now().await;
-        }
+            assert_eq!(
+                state.lock().unwrap().messages.last(),
+                Some(&vec![0x90, 60, 0x7f]),
+                "{expression} did not start its note"
+            );
 
-        assert_eq!(state.lock().unwrap().messages.len(), delivered);
-        assert_eq!(state.lock().unwrap().connection_count, 2);
+            // Retire the Bang so nothing new plays, then change destination.
+            // The note is sounding on the destination being left, which is
+            // sent all-notes-off as it goes, so its scheduled stop belongs to
+            // a device this engine no longer holds.
+            source.unset(cell(grid, 10));
+            source.unset(cell(grid, 11));
+            playback
+                .select_midi_destination(&MidiDestinationId::new("one"))
+                .unwrap();
+            let delivered = state.lock().unwrap().messages.len();
+
+            for _ in 0..3 {
+                tokio::time::advance(Duration::from_secs(1)).await;
+                tokio::task::yield_now().await;
+            }
+
+            let (sent, connections) = {
+                let state = state.lock().unwrap();
+                (state.messages.len(), state.connection_count)
+            };
+            assert_eq!(sent, delivered, "{expression} delivered a cleared stop");
+            assert_eq!(connections, 2, "{expression} did not reconnect");
+        }
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_destination_change_that_fails_to_connect_clears_the_scheduled_stop() {
-        let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 3);
-        let source = SourceCommander::new(grid);
-        // The same Timed Play the successful change uses: a note stopped two
-        // Ticks after it starts, and the Bang one row below its root.
-        for (index, content) in "!~007FC402**".chars().enumerate() {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
-        }
-        let adapter = MidiOutputAdapter::new(FakeBackend {
-            state: state.clone(),
-        });
-        let playback = PlaybackEngine::new(source.clone(), adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        // Both owning spellings, for the reason the successful change tests
+        // both: the clear is the one the two schedules share.
+        for expression in ["!~007FC402**", "!%007FC402**"] {
+            let state = Arc::new(Mutex::new(FakeState::default()));
+            let grid = Grid::new(10, 3);
+            let source = SourceCommander::new(grid);
+            // The same Play the successful change uses: a note stopped two
+            // Ticks after it starts, and the Bang one row below its root.
+            for (index, content) in expression.chars().enumerate() {
+                source.set(cell(grid, index), &content.to_string()).unwrap();
+            }
+            let adapter = MidiOutputAdapter::new(FakeBackend {
+                state: state.clone(),
+            });
+            let playback = PlaybackEngine::new(source.clone(), adapter);
+            playback
+                .select_midi_destination(&MidiDestinationId::new("one"))
+                .unwrap();
 
-        playback.start(Duration::from_secs(1)).unwrap();
-        tokio::task::yield_now().await;
-        assert_eq!(
-            state.lock().unwrap().messages.last(),
-            Some(&vec![0x90, 60, 0x7f])
-        );
-
-        // Retire the Bang, then attempt a change the device refuses. The
-        // all-notes-off that precedes the connection is sent regardless, so the
-        // note is silenced whether or not the new destination is reached: a
-        // change that silences the old device owes the same cleared schedule
-        // whether it completes or fails.
-        source.unset(cell(grid, 10));
-        source.unset(cell(grid, 11));
-        state.lock().unwrap().fail_next_connect = true;
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap_err();
-        let delivered = state.lock().unwrap().messages.len();
-
-        for _ in 0..3 {
-            tokio::time::advance(Duration::from_secs(1)).await;
+            playback.start(Duration::from_secs(1)).unwrap();
             tokio::task::yield_now().await;
-        }
+            assert_eq!(
+                state.lock().unwrap().messages.last(),
+                Some(&vec![0x90, 60, 0x7f]),
+                "{expression} did not start its note"
+            );
 
-        // Read both counters out before asserting: a guard held across a
-        // failing assertion poisons the fake, and the engine's own drop then
-        // panics inside a destructor and hides which assertion failed.
-        let (sent, connections) = {
-            let state = state.lock().unwrap();
-            (state.messages.len(), state.connection_count)
-        };
-        assert_eq!(sent, delivered);
-        assert_eq!(connections, 1);
+            // Retire the Bang, then attempt a change the device refuses. The
+            // all-notes-off that precedes the connection is sent regardless,
+            // so the note is silenced whether or not the new destination is
+            // reached: a change that silences the old device owes the same
+            // cleared schedule whether it completes or fails.
+            source.unset(cell(grid, 10));
+            source.unset(cell(grid, 11));
+            state.lock().unwrap().fail_next_connect = true;
+            playback
+                .select_midi_destination(&MidiDestinationId::new("one"))
+                .unwrap_err();
+            let delivered = state.lock().unwrap().messages.len();
+
+            for _ in 0..3 {
+                tokio::time::advance(Duration::from_secs(1)).await;
+                tokio::task::yield_now().await;
+            }
+
+            // Read both counters out before asserting: a guard held across a
+            // failing assertion poisons the fake, and the engine's own drop
+            // then panics inside a destructor and hides which one failed.
+            let (sent, connections) = {
+                let state = state.lock().unwrap();
+                (state.messages.len(), state.connection_count)
+            };
+            assert_eq!(sent, delivered, "{expression} delivered a cleared stop");
+            assert_eq!(connections, 1, "{expression} reconnected after a refusal");
+        }
     }
 
     #[test]

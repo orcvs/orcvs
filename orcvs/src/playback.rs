@@ -20,11 +20,14 @@ use crate::source::{
 ///
 /// A Play Command says what the Source asked for; an Output Command says what
 /// is delivered. The two differ wherever this module owns the difference: ADR
-/// 0016 gives Timed Play a Tick lifetime, and resolving that lifetime into a
-/// start now and a stop at Tick `T + length` belongs to the engine that counts
-/// Ticks. Every variant here is one message an adapter assembles immediately,
-/// so an adapter holding a lifetime it would have to schedule is
-/// unrepresentable rather than merely avoided.
+/// 0016 gives Timed and Monophonic Play a Tick lifetime, and resolving that
+/// lifetime into a start now and a stop at Tick `T + length` belongs to the
+/// engine that counts Ticks. Monophonic Play differs twice over, because
+/// replacing the voice a channel was sounding also becomes a stop here — of
+/// the note the engine found there, which the Source never named. Every
+/// variant here is one message an adapter assembles immediately, so an adapter
+/// holding a lifetime it would have to schedule is unrepresentable rather than
+/// merely avoided.
 ///
 /// A tagged variant set for the same reason [`PlayCommand`] is one: Control
 /// Change and Pitch Bend join it as variants of their own, carried through

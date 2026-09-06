@@ -8,8 +8,10 @@ pub type Atoms = ArrayVec<Atom, EXP_LEN>;
 /// The MIDI note domain: `00`–`7F`.
 ///
 /// Ordered as well as compared, because the Playback Engine keys a Timed
-/// Play's ownership by the channel and note it sounds on. Ordering a note by
-/// its number is the protocol's own order, and carrying the key as the domain
+/// Play's ownership by the two domain types it sounds on, channel and note.
+/// Monophonic Play keys by channel alone and carries the note in the claim
+/// instead, so a Note reaches the schedule either way. Ordering a note by its
+/// number is the protocol's own order, and carrying the key as the domain
 /// types keeps the engine from re-deriving either domain from a byte.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Note(u8);

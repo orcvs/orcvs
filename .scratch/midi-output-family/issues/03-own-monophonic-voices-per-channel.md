@@ -1,7 +1,8 @@
 # 03 — Own Monophonic voices per channel
 
-**What to build:** Implement `!% channel velocity note length` with one Mono-owned voice per output
-adapter and MIDI channel.
+**What to build:** Implement `!% channel velocity note length` with one Mono-owned voice per MIDI
+channel. Written as "per output adapter and MIDI channel", after ADR 0016 as it then stood; the
+owner is the Playback Engine, which this ticket settled and corrected the ADR to say.
 
 **Blocked by:** 02 — Schedule Timed Play Note Off.
 
