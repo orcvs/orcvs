@@ -762,6 +762,13 @@ fn root_layout(
 
     root.expression
         .layout()
+        // A row's runs end at its spaces, so a write completes an incomplete
+        // Function only by abutting the run it is completing. The first
+        // missing slot does; the ones past it are separated from the run by
+        // Cells this write is not touching, and a result landing there joins
+        // nothing and completes nothing. Declaring them anyway made such a
+        // result read as a slot write rather than as the activation it is.
+        .filter(|(offset, _, _)| *offset <= span_width)
         .map(|(offset, token, _)| {
             grid.offset_in_row(root.anchor, offset + token.len() - 1)
                 .ok_or_else(|| {

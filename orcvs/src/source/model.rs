@@ -1393,6 +1393,40 @@ mod test {
     }
 
     #[test]
+    fn a_half_typed_function_does_not_claim_slots_its_run_cannot_reach() {
+        // An incomplete Function declares the slots it is missing, and those
+        // run past its own extent. Only the first of them abuts the run and
+        // can be completed by a write; the ones beyond it are separated from
+        // it by Cells nobody is writing, so a result landing there completes
+        // nothing.
+        //
+        // Counting them anyway made the result a slot write rather than an
+        // activation, and the Play root the Bang was for fell silent — with no
+        // diagnostic, because the half-typed root is terminal and unactivated
+        // and takes no turn to report anything.
+        let mut src = SourceUnderTest::new(Grid::new(16, 4));
+        let at = src.cells();
+        src.write(at(6), ".=0101");
+        // Missing velocity at columns 4-5, missing Note at columns 6-7. The
+        // Bang lands on the second, which two untouched Cells separate from
+        // this Expression's run.
+        src.write(at(16), "!>00");
+        src.write(at(38), "!>007FC4");
+
+        let tick = src.execute();
+
+        assert_eq!(
+            tick.play_commands,
+            vec![PlayCommand::Raw {
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap(),
+            }],
+            "the half-typed Expression four columns away silenced the Play root"
+        );
+    }
+
+    #[test]
     fn a_supplier_excluded_for_its_own_layout_does_not_leave_stale_operands_readable() {
         // A root that fails at evaluation names its consumer's missing input.
         // A root that fails at *schedule* time was being erased from the graph
