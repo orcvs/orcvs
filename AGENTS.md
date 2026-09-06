@@ -31,10 +31,12 @@ and semantics changes as active language design, not public-API breakage.
 
 ## Verification
 
-Local gates are scoped to what the change can reach. CI is the authority, and it already runs
-every feature combination, both platforms, the WASM target, the browser suite, and the
-benchmarks; `docs/tooling.md` records what each tier covers. Re-deriving that locally spends
-minutes and gigabytes on an answer CI gives anyway.
+Local gates are scoped to what the change can reach. CI is the authority across its two tiers:
+the pull-request tier runs both feature sets on Linux and macOS and compiles the WASM target,
+and the merge tier adds the headless browser suite, the rustdoc gates, and proptest at full case
+count. The benchmarks are their own path-filtered workflow on both triggers. `docs/tooling.md`
+records what each covers. Re-deriving any of it locally spends minutes and gigabytes on an answer
+CI gives anyway.
 
 Run this for every change, on the crate you edited and the crates that depend on it — `lang`
 means `lang` and `orcvs`, `orcvs` means `orcvs` and `shell`:
