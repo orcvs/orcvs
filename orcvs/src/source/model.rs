@@ -1393,6 +1393,31 @@ mod test {
     }
 
     #[test]
+    fn an_unactivated_terminal_root_does_not_report_a_dependency_it_never_read() {
+        // A terminal root with no Bang takes no turn at all. Asking about its
+        // suppliers before asking whether it was ever going to run made it
+        // complain, every Tick, about an operand it was never going to read.
+        let mut src = source();
+        let at = src.cells();
+        src.write(at(2), ".+0102Z");
+        // Its channel operand is the destination above, and nothing activates
+        // it, so this root is inert whatever that operand ends up holding.
+        src.write(at(10), "!>007FC4");
+
+        let tick = src.execute();
+
+        assert!(
+            !tick
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("data dependency")),
+            "an inert root reported a dependency: {:?}",
+            tick.diagnostics
+        );
+        assert!(tick.play_commands.is_empty());
+    }
+
+    #[test]
     fn a_half_typed_function_does_not_claim_slots_its_run_cannot_reach() {
         // An incomplete Function declares the slots it is missing, and those
         // run past its own extent. Only the first of them abuts the run and

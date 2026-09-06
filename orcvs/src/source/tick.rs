@@ -174,6 +174,14 @@ fn plan_with_destinations(
     let mut activated = vec![false; schedule.roots.len()];
     for node_index in schedule.order.iter().copied() {
         let root = schedule.roots[node_index];
+        // Asked before anything about this root's inputs, because a terminal
+        // root with no Bang never reads them: it takes no turn, so it has
+        // nothing to say about an operand it was never going to look at.
+        if root.function.is_terminal() && !activated[node_index] {
+            settled[node_index] = true;
+            continue;
+        }
+
         // A supplier that took a turn and failed leaves its node unsettled; one
         // that never got a node was recorded against this consumer when the
         // schedule was built. Both are the same answer to the same question,
@@ -197,11 +205,6 @@ fn plan_with_destinations(
                     supplier.y()
                 ),
             )));
-            continue;
-        }
-
-        if root.function.is_terminal() && !activated[node_index] {
-            settled[node_index] = true;
             continue;
         }
 
@@ -478,16 +481,22 @@ fn schedule<'a>(
             grid.cell_index(output_start.get() + 1)
                 .expect("a checked two-Cell output is inside the Grid"),
         ];
-        for cell in output_indices {
-            if let Some(other) = output_cells.insert(cell, producer_index)
-                && other != producer_index
-            {
-                diagnostics.push(Diagnostic::for_expression(
-                    producer.anchor,
-                    producer.expression.span(),
-                    "multiple current-Tick producers write the same Cell".to_owned(),
-                ));
-            }
+        // Both Cells are registered, and `count` is what registers them: the
+        // collision they may reveal is one collision, this producer meeting
+        // whichever producer reached the destination first, and a two-Cell
+        // output is not two conflicts. No producer can meet itself here —
+        // the two Cells are distinct keys and no two roots share an anchor.
+        let contended = output_indices
+            .into_iter()
+            .filter_map(|cell| output_cells.insert(cell, producer_index))
+            .count()
+            > 0;
+        if contended {
+            diagnostics.push(Diagnostic::for_expression(
+                producer.anchor,
+                producer.expression.span(),
+                "multiple current-Tick producers write the same Cell".to_owned(),
+            ));
         }
 
         for slot in covering_slots(&slots, widest_slot, output_start.get()) {
@@ -596,8 +605,14 @@ fn schedule<'a>(
         )
     });
     dependencies.dedup();
+    // A rejected Tick still answers for the candidates kept out of the
+    // schedule before the graph existed. They are reported first, as they are
+    // on the path that publishes: their Expressions were unstable whatever the
+    // graph then turned out to be, and dropping them here meant fixing the
+    // graph error uncovered a second problem that had been there all along.
     if !diagnostics.is_empty() {
-        return Err(diagnostics);
+        excluded.extend(diagnostics);
+        return Err(excluded);
     }
 
     let mut data_suppliers = vec![Vec::new(); roots.len()];
@@ -637,11 +652,12 @@ fn schedule<'a>(
             .find(|(index, _)| indegree[*index] != 0)
             .map(|(_, root)| root)
             .expect("an incomplete topological order leaves one root");
-        return Err(vec![Diagnostic::for_expression(
+        excluded.push(Diagnostic::for_expression(
             root.anchor,
             root.expression.span(),
             "same-Tick dependency cycle".to_owned(),
-        )]);
+        ));
+        return Err(excluded);
     }
 
     Ok(Schedule {
@@ -1178,6 +1194,43 @@ mod test {
     }
 
     #[test]
+    fn a_rejected_tick_still_reports_the_candidates_it_excluded() {
+        // A graph error rejects the Tick, but it does not answer for the
+        // Expressions that were kept out of the schedule before the graph was
+        // even built. Dropping their diagnostics meant fixing the reported
+        // problem uncovered a second one that had been there all along.
+        let grid = Grid::new(16, 3);
+        let bytes = snapshot(grid, &[".+0102", ".+0304", ".+0102Z"]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let shared = grid.position(10, 1).unwrap();
+        let destinations = [
+            (grid.cell_index(0).unwrap(), shared),
+            (grid.cell_index(16).unwrap(), shared),
+        ]
+        .into_iter()
+        .collect();
+
+        let plan =
+            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert!(plan.writes.is_empty());
+        assert!(
+            plan.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("multiple current-Tick producers")),
+            "{:?}",
+            plan.diagnostics
+        );
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("structurally unstable")),
+            "the excluded candidate went unreported: {:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
     fn competing_writers_and_dependency_cycles_abort_before_output() {
         let conflict_grid = Grid::new(16, 2);
         let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
@@ -1198,11 +1251,22 @@ mod test {
         );
         assert!(conflict.writes.is_empty());
         assert!(conflict.play_commands.is_empty());
-        assert!(conflict.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .message
-                .contains("multiple current-Tick producers")
-        }));
+        // One diagnostic per producer that collided, not one per Cell of the
+        // destination they collided over: a two-Cell output means the same
+        // pair of producers meets twice, and saying so twice describes two
+        // conflicts where the Source has one.
+        assert_eq!(
+            conflict
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic
+                        .message
+                        .contains("multiple current-Tick producers")
+                })
+                .count(),
+            1
+        );
 
         let cycle_grid = Grid::new(16, 2);
         let cycle_bytes = format!("{:<16}{:<16}", ".+0001", ".+0001");
