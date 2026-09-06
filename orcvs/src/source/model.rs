@@ -1393,6 +1393,40 @@ mod test {
     }
 
     #[test]
+    fn a_result_landing_beside_a_root_is_diagnosed_rather_than_joining_its_run() {
+        // A row is partitioned into runs at its spaces, so a result written
+        // into the Cells immediately beside another Expression joins the two:
+        // the run the next parse walks is longer than either, its first unit
+        // is no longer the Function that was there, and the root stops
+        // existing. Nothing puts it back, and the display that replaced it is
+        // no longer a Bang the cleanup can find, so the loss is permanent.
+        //
+        // ADR 0032 diagnoses a structural projection the stable graph cannot
+        // take rather than executing it, and this is one: the write would
+        // change which roots the graph has while that graph is executing.
+        let mut src = source();
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        // Row 1, column 2 — the Cells the Bang would occupy end exactly where
+        // this Expression's run begins.
+        src.write(at(12), "!>007FC4");
+
+        for tick in 0..3 {
+            let plan = src.execute();
+
+            assert!(plan.writes.is_empty(), "tick {tick} wrote beside the root");
+            assert_eq!(
+                plan.diagnostics.len(),
+                1,
+                "tick {tick} said nothing about the write it refused"
+            );
+            // The root is still there to be found on the Tick after, which is
+            // the whole point: the Source a person is editing is unchanged.
+            assert_eq!(src.row(1), "  !>007FC4", "tick {tick}");
+        }
+    }
+
+    #[test]
     fn test_root_monophonic_play_function_emits_one_command_of_its_own_kind() {
         let mut src = source();
         let at = src.cells();

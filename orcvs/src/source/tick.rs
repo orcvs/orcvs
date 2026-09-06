@@ -426,6 +426,11 @@ fn schedule<'a>(
     let mut output_is_slot = vec![false; roots.len()];
     let mut dependencies = Vec::new();
     let mut output_cells: BTreeMap<CellIndex, usize> = BTreeMap::new();
+    // Producers whose destination would join a neighbouring run, and the
+    // diagnostic each one owes. Applied after the walk, because taking a
+    // root's destination away while the walk still reads destinations would
+    // change the answer the walk is in the middle of giving.
+    let mut joins: Vec<(usize, Diagnostic)> = Vec::new();
     for (producer_index, producer) in roots.iter().enumerate() {
         let output = match producer.output {
             Ok(Some(output)) => output,
@@ -488,6 +493,38 @@ fn schedule<'a>(
             }
         }
 
+        // A row is partitioned into runs at its spaces, so a two-Cell result
+        // written flush against another Expression's run joins the two. The
+        // next parse then walks one longer run whose first Language Unit is no
+        // longer the Function that was there, and the root this graph is
+        // executing stops existing — permanently, because the display that
+        // replaced it is no longer a Bang any cleanup can find.
+        //
+        // Only an output that landed on no parsed slot is asked. Abutting a
+        // run is exactly how a write completes an incomplete Function, whose
+        // missing slots run past its own extent; that write is the supported
+        // case and the slots above already accounted for it. What is left is a
+        // structural projection the stable graph cannot take, and ADR 0032
+        // diagnoses it rather than executing it.
+        if !output_is_slot[producer_index]
+            && let Some(joined) = adjacent_root(grid, &roots, producer_index, output_start)
+        {
+            let neighbour = roots[joined].anchor;
+            joins.push((
+                producer_index,
+                Diagnostic::for_expression(
+                    producer.anchor,
+                    producer.expression.span(),
+                    format!(
+                        "current-Tick output would join the Expression at column {}, row {}",
+                        neighbour.x(),
+                        neighbour.y()
+                    ),
+                ),
+            ));
+            continue;
+        }
+
         if producer.function.can_emit_bang() && !output_is_slot[producer_index] {
             for anchor in activated_anchors(grid, output).into_iter().flatten() {
                 if let Some(consumer_index) = root_at(grid, &roots, anchor)
@@ -501,6 +538,18 @@ fn schedule<'a>(
                 }
             }
         }
+    }
+
+    // A destination that would join a neighbouring run is taken away rather
+    // than executed, and the root keeps its turn without one. It reaches the
+    // same settled state as a root that answered with absence, which is what
+    // it now is: a value nobody can receive. Only a destination that landed on
+    // no parsed slot arrives here, so no consumer was waiting on it and no
+    // Data edge is being cut — the rest of the program plays, as it does for
+    // any other failure local to one Expression.
+    for (producer_index, diagnostic) in joins {
+        roots[producer_index].output = Ok(None);
+        excluded.push(diagnostic);
     }
 
     dependencies.sort_by_key(|dependency| {
@@ -579,6 +628,46 @@ fn schedule<'a>(
 /// preconditions rather than checks — a `widest` that understates one slot
 /// would drop it silently — so both are asserted in a test build.
 ///
+///
+/// The root whose run a two-Cell output written at `output` would join.
+///
+/// A row is partitioned at its spaces, so an output is joined to a run only by
+/// being flush against it. Exactly two roots can be flush against a given
+/// output — the one whose run begins one Cell after the output ends, and the
+/// one whose run ends one Cell before it begins — so this asks about the
+/// handful of roots around that point rather than scanning all of them, on a
+/// path a Tick runs under the playback deadline.
+///
+/// `roots` is in anchor order, which is span order: an Expression's anchor
+/// sits inside its own span, and spans partition each row left to right.
+///
+/// An output that overlaps a run rather than abutting it is not this
+/// question. That is either a write to a parsed operand slot or a structural
+/// write over one, and both are already answered by the slots.
+///
+fn adjacent_root(
+    grid: Grid,
+    roots: &[ScheduledRoot<'_>],
+    producer: usize,
+    output: CellIndex,
+) -> Option<usize> {
+    let output_start = output.get();
+    let output_end = output_start + 1;
+    let row = grid.position_at(output).y();
+
+    let boundary =
+        roots.partition_point(|root| root.expression.span().start().get() < output_start);
+
+    (boundary.saturating_sub(1)..=boundary + 1)
+        .take_while(|index| *index < roots.len())
+        .filter(|index| *index != producer)
+        .find(|index| {
+            let span = roots[*index].expression.span();
+            grid.position_at(span.start()).y() == row
+                && (span.start().get() == output_end + 1 || span.end().get() + 1 == output_start)
+        })
+}
+
 fn covering_slots(slots: &[Slot], widest: usize, output: usize) -> Vec<Slot> {
     debug_assert!(
         slots.is_sorted_by_key(|slot| slot.start),
