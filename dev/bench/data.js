@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788698379563,
+  "lastUpdate": 1788699935025,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -1943,6 +1943,126 @@ window.BENCHMARK_DATA = {
             "name": "source_edit_rebuild_invalid/64x64",
             "value": 210152,
             "range": "± 2977",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d000741baa5159f249ee9dec8bd676ff2bd9365",
+          "message": "Merge pull request #29 from orcvs/03-parser-totality-on-ascii-input\n\nParser totality on ASCII input",
+          "timestamp": "2026-09-06T22:59:16+10:00",
+          "tree_id": "96ff5410b9b67d440ea67310d20371f2a3b05928",
+          "url": "https://github.com/orcvs/orcvs/commit/2d000741baa5159f249ee9dec8bd676ff2bd9365"
+        },
+        "date": 1788699934224,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 75,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 43,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 60,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 320,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 30,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 34,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 69,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 1860,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 7927,
+            "range": "± 487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 29388,
+            "range": "± 1110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 9263,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 32418,
+            "range": "± 1460",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 133243,
+            "range": "± 6454",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 9587,
+            "range": "± 433",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 32817,
+            "range": "± 699",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 134435,
+            "range": "± 3368",
             "unit": "ns/iter"
           }
         ]
