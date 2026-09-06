@@ -9,8 +9,8 @@ mod stack;
 mod tick;
 
 pub use atom::{
-    Activation, Atom, Atoms, Function, Length, MidiChannel, Note, Velocity, to_atom_note,
-    to_atom_num,
+    Activation, Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, Function, Length,
+    MidiChannel, Note, Velocity, to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
 pub use expression::{Expression, Token, Tokens};
@@ -76,6 +76,29 @@ pub enum PlayCommand {
         velocity: Velocity,
         note: Note,
         length: Length,
+    },
+    /// ADR 0016's Control Change: a controller and the value sent to it, each
+    /// carrying the role it plays rather than the data-byte domain the two
+    /// share, so nothing downstream can put one where the other belongs.
+    ControlChange {
+        channel: MidiChannel,
+        controller: Controller,
+        value: ControlValue,
+    },
+    ///
+    /// ADR 0016's Pitch Bend, as the two seven-bit halves the wire carries.
+    ///
+    /// A bend is one fourteen-bit value, and Orcvs neither assembles the
+    /// halves into it nor scales them: the Source writes the bytes MIDI sends,
+    /// so there is nothing here to normalize and nothing for a consumer to
+    /// take apart. The two halves are separate types for the reason Control
+    /// Change's two data bytes are, with the wire order — LSB before MSB —
+    /// riding on the distinction.
+    ///
+    PitchBend {
+        channel: MidiChannel,
+        lsb: BendLsb,
+        msb: BendMsb,
     },
 }
 
