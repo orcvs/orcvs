@@ -298,12 +298,12 @@ mod tests {
         adapter
             .submit(&[
                 OutputCommand::ControlChange {
-                    channel: MidiChannel::try_from(0x02).unwrap(),
+                    channel: MidiChannel::try_from(0x0F).unwrap(),
                     controller: Controller::try_from(0x07).unwrap(),
                     value: ControlValue::try_from(0x40).unwrap(),
                 },
                 OutputCommand::PitchBend {
-                    channel: MidiChannel::try_from(0x01).unwrap(),
+                    channel: MidiChannel::try_from(0x0A).unwrap(),
                     lsb: BendLsb::try_from(0x2A).unwrap(),
                     msb: BendMsb::try_from(0x33).unwrap(),
                 },
@@ -315,9 +315,15 @@ mod tests {
         // each message differs from every other byte of it, so an assembly
         // that transposed two of them answers different vectors rather than
         // agreeing with an expectation transposed the same way.
+        //
+        // Both channels are upper-nibble, as the Note On wire test's `0x0f`
+        // already is: a status byte that dropped or masked the channel's high
+        // bit agrees with every low-nibble channel a test might otherwise
+        // reach for. The Source-path test below carries `01` and `03`, so the
+        // low nibble is covered for both spellings without weakening this one.
         assert_eq!(
             state.lock().unwrap().messages,
-            vec![vec![0xB2, 0x07, 0x40], vec![0xE1, 0x2A, 0x33]]
+            vec![vec![0xBF, 0x07, 0x40], vec![0xEA, 0x2A, 0x33]]
         );
     }
 

@@ -96,7 +96,9 @@ Source that wants to think in bend units needs a Function that converts, not a c
 
 `!c` and `!b` are declared `Scalar`, like every terminal Function today, so a Sequence in any
 operand position diagnoses rather than broadcasting — `stack.rs` pins that at every position for
-both new operand structs. Extending the family over Sequences is `05`.
+both new operand structs. Extending the terminal family over Sequences is not tracked by any issue
+yet: `sequence-values/02` broadcast the Atomic Functions and stopped there, and nothing in
+`midi-output-family` picks the terminals up.
 
 The byte-sequence checkbox is met at one seam of the two it names, and the other one no longer has
 bytes to assert. `OutputAdapter::submit` took `&[PlayCommand]` when this checklist was written;

@@ -30,13 +30,13 @@ pub enum Error {
 #[derive(Error, Debug)]
 pub enum SequenceError {
     /// A Sequence at an operand position of a Function that declares it does
-    /// not pervade. The Terminal Output Functions `!>` and `!~` are those
-    /// Functions today; ADR 0012's Increment and Interpolation join them when
-    /// they arrive, and each one is refused by its declared pervasion rather
-    /// than by a check written beside it. The scalar pop `Stack::pop` offers
-    /// outside Function evaluation raises the same diagnostic under the same
-    /// rule: a Sequence has no scalar reading, and answering with its first
-    /// Atom would silently discard the rest.
+    /// not pervade. The Terminal Output Functions `!>`, `!~`, `!c`, and `!b`
+    /// are those Functions today; ADR 0012's Increment and Interpolation join
+    /// them when they arrive, and each one is refused by its declared pervasion
+    /// rather than by a check written beside it. The scalar pop `Stack::pop`
+    /// offers outside Function evaluation raises the same diagnostic under the
+    /// same rule: a Sequence has no scalar reading, and answering with its
+    /// first Atom would silently discard the rest.
     #[error("expected an Atom, found the Sequence {0:?}")]
     ExpectedAtom(String),
 
