@@ -22,7 +22,7 @@ use crate::grid::{CellIndex, Grid, Position};
 
 use super::language_map::{ExpressionEntry, LanguageMap, Span};
 use super::portal::{Portal, PortalError, SpanWrite};
-use super::{CellContent, CellWrite, Diagnostic, PlayCommand, TickPlan};
+use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 
 ///
 /// One producer's turn in a Tick, taken at its anchor Position.
@@ -61,8 +61,16 @@ pub(super) enum Effect {
     ///
     Write(SpanWrite),
 
-    /// One Play Command from an active Terminal Output Function.
-    Play(PlayCommand),
+    /// The ordered group of Play Commands from one active Terminal Output
+    /// Function root.
+    ///
+    /// One Effect per Expression rather than one per command, because ADR 0020
+    /// orders effects by their producer's Position and every command a widened
+    /// Expression performs shares one. ADR 0030 settles what that leaves
+    /// undecided: within one Expression, commands order by element index, so
+    /// element order is an order inside a single Effect and producer-then-
+    /// emission order between Expressions is untouched.
+    Play(Performance),
 
     /// One diagnostic about this producer's turn.
     Diagnose(Diagnostic),
@@ -167,7 +175,11 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
                     writes.insert(cell, content);
                 }
             }
-            Effect::Play(command) => play_commands.push(command),
+            // Element order within one producer's group, producer order between
+            // groups: extending preserves both, where pushing the group as one
+            // item would have made the Tick Plan carry a shape the Playback
+            // Engine does not deliver.
+            Effect::Play(performance) => play_commands.extend(&performance),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
         }
     }
@@ -314,7 +326,7 @@ pub(super) fn result_effect(
         // Portal already applies to any encoding.
         Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => return None,
         Ok(Interpretation::Sequence(sequence)) => sequence.to_string(),
-        Ok(Interpretation::Play(command)) => return Some(Effect::Play(command)),
+        Ok(Interpretation::Play(performance)) => return Some(Effect::Play(performance)),
         Err(error) => {
             return Some(Effect::Diagnose(Diagnostic::for_expression(
                 root,
@@ -384,7 +396,7 @@ mod test {
     use crate::{
         grid::{CellIndex, Grid},
         source::{
-            CellWrite, Diagnostic, MidiChannel, Note, PlayCommand, TickPlan, Velocity,
+            CellWrite, Diagnostic, MidiChannel, Note, Performance, PlayCommand, TickPlan, Velocity,
             language_map::{LanguageMap, Span},
         },
     };
@@ -467,6 +479,17 @@ mod test {
             .iter()
             .map(|write| (write.cell.get(), write.content.as_char()))
             .collect()
+    }
+
+    ///
+    /// One Raw Play Command, stated as the three Numbers a Source writes.
+    ///
+    fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand {
+        PlayCommand::Raw {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
+            note: Note::try_from(note).expect("a MIDI note"),
+        }
     }
 
     fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
@@ -682,29 +705,31 @@ mod test {
         // Play Commands and diagnostics are ordered, never merged: unlike a
         // Cell, which one producer can take from another, each command and
         // each diagnostic keeps the place its producer's turn gave it.
+        //
+        // The earlier producer performs a group of two, which is ADR 0030's
+        // widened Expression. Element index orders the commands inside one
+        // producer's Effect and ADR 0020's producer order holds around it, so
+        // the Tick Plan reads as though the chord had been written left to
+        // right as separate Expressions. The three commands differ in every
+        // field that can be read back, so a group flattened in reverse, or a
+        // producer order that let the later Expression in first, is a different
+        // Tick Plan rather than the same one.
         let grid = Grid::new(10, 3);
-        let first = PlayCommand::Raw {
-            channel: MidiChannel::try_from(0).unwrap(),
-            velocity: Velocity::try_from(1).unwrap(),
-            note: Note::try_from(60).unwrap(),
-        };
-        let second = PlayCommand::Raw {
-            channel: MidiChannel::try_from(1).unwrap(),
-            velocity: Velocity::try_from(2).unwrap(),
-            note: Note::try_from(61).unwrap(),
-        };
+        let first = raw(0, 1, 60);
+        let second = raw(0, 1, 64);
+        let third = raw(1, 2, 61);
         let earlier = diagnostic(grid, 0, 5, "earlier producer");
         let later = diagnostic(grid, 20, 25, "later producer");
 
         let plan = resolve(vec![
-            Effect::Play(first),
+            Effect::Play(Performance::Many(vec![first, second])),
             earlier.clone(),
             write(grid, 10, "0"),
-            Effect::Play(second),
+            Effect::Play(Performance::One(third)),
             later.clone(),
         ]);
 
-        assert_eq!(plan.play_commands, vec![first, second]);
+        assert_eq!(plan.play_commands, vec![first, second, third]);
         assert_eq!(
             plan.diagnostics
                 .iter()
@@ -719,6 +744,68 @@ mod test {
                 content: crate::source::CellContent::new(b'0').unwrap()
             }]
         );
+    }
+
+    #[test]
+    fn a_widened_terminal_root_answers_one_effect_carrying_its_whole_group() {
+        // ADR 0020 orders effects by their producer's Position, and every
+        // command of one widened Expression shares that Position, so the group
+        // crosses the seam as a single Effect with element index ordering it
+        // inside. Splitting it into one Effect per command at this seam would
+        // put an order between them that no anchor decides.
+        //
+        // No Source text reaches this yet: the Range Functions that would spell
+        // a Sequence operand are `sequence-values/05`, so the answer is stated
+        // at the seam it arrives through, as the Sequence result test does.
+        let grid = Grid::new(10, 3);
+        let root = grid.position(0, 0).expect("inside the Grid");
+        let span = Span::new(grid, cell(grid, 0), cell(grid, 5));
+        let chord = vec![raw(0, 0x7F, 60), raw(0, 0x7F, 64), raw(0, 0x7F, 67)];
+
+        let effect = result_effect(
+            grid,
+            root,
+            span,
+            Ok(Interpretation::Play(Performance::Many(chord.clone()))),
+        );
+
+        assert_eq!(
+            effect,
+            Some(Effect::Play(Performance::Many(chord.clone()))),
+            "a widened Play crossed the seam as something other than one group"
+        );
+        assert_eq!(
+            resolve(effect.into_iter().collect()).play_commands,
+            chord,
+            "the group reached the Tick Plan out of element index order"
+        );
+    }
+
+    #[test]
+    fn a_terminal_root_that_performs_no_output_plans_no_play_commands() {
+        // The empty Sequence operand: a real width of no elements, so the
+        // Expression is well formed and answers an effect that happens to carry
+        // nothing. It must still be an effect — a Play answers no value at any
+        // width — so this plans no write and no diagnostic either, which is the
+        // difference between performing nothing and failing to perform.
+        let grid = Grid::new(10, 3);
+        let root = grid.position(0, 0).expect("inside the Grid");
+        let span = Span::new(grid, cell(grid, 0), cell(grid, 5));
+
+        let effect = result_effect(
+            grid,
+            root,
+            span,
+            Ok(Interpretation::Play(Performance::Many(Vec::new()))),
+        );
+
+        assert_eq!(effect, Some(Effect::Play(Performance::Many(Vec::new()))));
+
+        let plan = resolve(effect.into_iter().collect());
+
+        assert!(plan.play_commands.is_empty());
+        assert!(plan.writes.is_empty());
+        assert!(plan.diagnostics.is_empty());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Atoms, EXP_LEN, Error, Function, InterpretationError, PlayCommand, Sequence, Stack,
+    Atom, Atoms, EXP_LEN, Error, Function, InterpretationError, Performance, Sequence, Stack,
     TickInputs, Value,
     functions::{self, math, numeric_conversion},
 };
@@ -38,7 +38,20 @@ pub enum Interpretation {
     /// becoming Source writes; adding it later would mean the consumer had
     /// already been written as though it could not.
     Sequence(Sequence),
-    Play(PlayCommand),
+    /// The ordered group of Play Commands one active Terminal Output Function
+    /// root performs.
+    ///
+    /// ADR 0030 extends `!>` and `!~` over a Sequence operand, so one
+    /// Expression answers many commands, ordered by element index, while still
+    /// answering no value. It carries a group rather than one command because
+    /// this is the seam `lang` publishes to `orcvs`: a consumer written against
+    /// a single command would have to be rewritten when Control Change, Pitch
+    /// Bend, and Monophonic Play arrive, which is the cost ADR 0030 names as
+    /// its reason to decide this before the family grows. The scalar shape
+    /// [`Performance::One`] is what every Source-spelled Play answers today,
+    /// because the Range Functions that would spell a Sequence operand are
+    /// unbuilt.
+    Play(Performance),
 }
 
 ///
@@ -145,8 +158,8 @@ mod test {
 
     use crate::{
         Anchor, ArgumentError, Atom, EXP_LEN, Error, Function, Interpretation, InterpretationError,
-        MidiChannel, Note, Parser, PlayCommand, Tick, TickInputs, Token, TypeError, Velocity,
-        interpreter::Interpreter, trace,
+        MidiChannel, Note, Parser, Performance, PlayCommand, Tick, TickInputs, Token, TypeError,
+        Velocity, interpreter::Interpreter, trace,
     };
     use tracing::info;
 
@@ -749,11 +762,11 @@ mod test {
         // channel, leaving the sixteenth as the velocity.
         assert_eq!(
             Interpreter::execute(&atoms, inputs()).unwrap(),
-            Interpretation::Play(PlayCommand::Raw {
+            Interpretation::Play(Performance::One(PlayCommand::Raw {
                 channel: MidiChannel::try_from(0x0F).unwrap(),
                 velocity: Velocity::try_from(0x01).unwrap(),
                 note: Note::try_from(60).unwrap(),
-            })
+            }))
         );
     }
 
