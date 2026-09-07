@@ -435,10 +435,7 @@ fn schedule<'a>(
     // product of the two, and a Tick pays that under the playback deadline, so
     // they are put in Cell order once and searched instead.
     //
-    // Ordering them is not free of meaning: an incomplete Function declares
-    // the slots it is missing, and those run past its own Language Map extent
-    // into the Cells of the Expression after it. Slots therefore overlap each
-    // other, and a producer landing on one can land on more than one.
+    // Every scheduled slot lies inside its parser-owned Expression span.
     let mut slots: Vec<Slot> = layouts
         .into_iter()
         .enumerate()
@@ -554,9 +551,8 @@ fn schedule<'a>(
         // Bang any cleanup can find.
         //
         // Only an output that landed on no parsed slot is asked. Abutting a
-        // run is exactly how a write completes an incomplete Function, whose
-        // missing slots run past its own extent; landing inside one is how a
-        // write repairs a typed operand. Both are the supported case and the
+        // run can disturb its partition; landing inside a slot is how a
+        // write repairs a typed operand. That is the supported case and the
         // slots above already accounted for them. What is left is a structural
         // projection the stable graph cannot take, and ADR 0032 diagnoses it
         // rather than executing it.
@@ -852,42 +848,22 @@ fn covering_slots(slots: &[Slot], widest: usize, output: usize) -> Vec<Slot> {
 /// This candidate's parsed operand slots as Grid Positions, or the one
 /// diagnostic that keeps it out of the schedule.
 ///
-/// Trailing Source and a layout running past the row edge are properties of
+/// An operand cut off by a row edge or Comment is a property of
 /// one Expression rather than of the graph. ADR 0032 rejects a whole Tick for
 /// competing writers, cycles, partial operand writes, and structural
-/// projections the stable graph cannot express; neither of these is one of
-/// those, and both are ordinary states to pass through while typing. So the
-/// Expression that has one is diagnosed and left inert, and every other root
+/// projections the stable graph cannot express. A cut-off operand is an
+/// ordinary state to pass through while typing. Its Expression is diagnosed
+/// and left inert, and every other root
 /// still plays.
 ///
 fn root_layout(
     grid: Grid,
     root: &ScheduledRoot<'_>,
 ) -> Result<Vec<(Position, lang::Token)>, Diagnostic> {
-    let layout_width = root
-        .expression
-        .layout()
-        .map(|(offset, token, _)| offset + token.len())
-        .max()
-        .unwrap_or(0);
-    let span_width = root.expression.span().end().get() - root.expression.span().start().get() + 1;
-    if span_width > layout_width {
-        return Err(Diagnostic::for_expression(
-            root.anchor,
-            root.expression.span(),
-            "trailing Source makes this Expression structurally unstable".to_owned(),
-        ));
-    }
-
+    // Keep invalid typed operands repairable, but a slot cut off by a row
+    // edge or Comment cannot become complete in this Snapshot's partition.
     root.expression
         .layout()
-        // A row's runs end at its spaces, so a write completes an incomplete
-        // Function only by abutting the run it is completing. The first
-        // missing slot does; the ones past it are separated from the run by
-        // Cells this write is not touching, and a result landing there joins
-        // nothing and completes nothing. Declaring them anyway made such a
-        // result read as a slot write rather than as the activation it is.
-        .filter(|(offset, _, _)| *offset <= span_width)
         .map(|(offset, token, _)| {
             grid.offset_in_row(root.anchor, offset + token.len() - 1)
                 .ok_or_else(|| {
@@ -897,6 +873,15 @@ fn root_layout(
                         "Expression layout crosses the row edge".to_owned(),
                     )
                 })?;
+            if grid.index(root.anchor).get() + offset + token.len() - 1
+                > root.expression.span().end().get()
+            {
+                return Err(Diagnostic::for_expression(
+                    root.anchor,
+                    root.expression.span(),
+                    "Expression operand crosses the Source boundary".to_owned(),
+                ));
+            }
             let position = grid
                 .position(root.anchor.x() + offset, root.anchor.y())
                 .expect("a checked Expression slot is inside its row");
@@ -1159,8 +1144,11 @@ mod test {
         assert_eq!(planned(&overlapping), vec![]);
         assert!(
             overlapping.diagnostics.iter().any(|diagnostic| {
+                // Column 3 rather than 2: a run of literals is no longer one
+                // Expression, so the Expression the write would join is the
+                // refused spelling immediately left of the destination.
                 diagnostic.message
-                    == "current-Tick output would join the Expression at column 2, row 1"
+                    == "current-Tick output would join the Expression at column 3, row 1"
             }),
             "the overlapping write went unreported: {:?}",
             overlapping.diagnostics
@@ -1245,8 +1233,11 @@ mod test {
         );
         assert!(
             plan.diagnostics.iter().any(|diagnostic| {
+                // Column 3 rather than 0: `0102` is four refused spellings
+                // rather than one four-Cell run, so the Expression abutting
+                // the withdrawn destination is the last of them.
                 diagnostic.message
-                    == "current-Tick output would join the Expression at column 0, row 1"
+                    == "current-Tick output would join the Expression at column 3, row 1"
             }),
             "the withdrawn producer keeps its own diagnostic: {:?}",
             plan.diagnostics
@@ -1261,25 +1252,32 @@ mod test {
     }
 
     #[test]
-    fn trailing_source_diagnoses_its_own_expression_and_leaves_the_tick_playing() {
-        // The spec rejects a whole Tick for competing writers, cycles, partial
-        // operand writes, and unsupported structural projections. Trailing
-        // Source is none of those: it makes one Expression unstable, so that
-        // Expression takes no scheduled turn while the rest of the program
-        // plays.
-        let grid = Grid::new(16, 4);
-        let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z"]);
+    fn source_after_an_expression_is_the_next_expressions_and_costs_the_tick_nothing() {
+        // What used to be trailing Source. ADR 0033 ends an Expression where
+        // its arity does, so the `Z` after `.+0102` is the Source the next
+        // parse reads rather than evidence against the Addition: the Addition
+        // takes its turn, and the Tick has nothing to report about either.
+        //
+        // The Tick's own rejections — competing writers, cycles, partial
+        // operand writes, unsupported structural projections — are unchanged
+        // and none of them is this.
+        // A fifth row so the Addition has somewhere to put its result: what
+        // this test is about is that the Addition takes a turn at all.
+        let grid = Grid::new(16, 5);
+        let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
         let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
-        assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
+        // The Bang the Equality writes, and the Addition's own `03` below it.
+        assert_eq!(
+            planned(&plan),
+            vec![(16, '*'), (17, '*'), (64, '0'), (65, '3')]
+        );
         assert!(
-            plan.diagnostics.iter().any(|diagnostic| {
-                diagnostic.message == "trailing Source makes this Expression structurally unstable"
-            }),
-            "the unstable Expression keeps its own diagnostic: {:?}",
+            plan.diagnostics.is_empty(),
+            "the Tick reported something about Source it does not own: {:?}",
             plan.diagnostics
         );
     }
@@ -1475,13 +1473,23 @@ mod test {
         // Expressions that were kept out of the schedule before the graph was
         // even built. Dropping their diagnostics meant fixing the reported
         // problem uncovered a second one that had been there all along.
+        //
+        // The excluded candidate is a root whose destination has one Cell left
+        // in its row, which `root_layout` routes to the excluded list rather
+        // than to the graph. Trailing Source used to serve here and no longer
+        // can: ADR 0033 leaves it to the next parse instead of making the
+        // Expression before it unstable.
         let grid = Grid::new(16, 3);
-        let bytes = snapshot(grid, &[".+0102", ".+0304", ".+0102Z"]);
+        let bytes = snapshot(grid, &[".+0102", ".+0304", ".+0506"]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let shared = grid.position(10, 1).unwrap();
         let destinations = [
             (grid.cell_index(0).unwrap(), shared),
             (grid.cell_index(16).unwrap(), shared),
+            (
+                grid.cell_index(32).unwrap(),
+                grid.position(15, 1).expect("inside the Grid"),
+            ),
         ]
         .into_iter()
         .collect();
@@ -1500,7 +1508,7 @@ mod test {
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("structurally unstable")),
+                .any(|diagnostic| diagnostic.message == "a scalar output crosses the row edge"),
             "the excluded candidate went unreported: {:?}",
             plan.diagnostics
         );

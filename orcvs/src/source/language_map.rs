@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{
     Activation, Atom, Atoms, Error as LangError, Expression, Function, Parser, SourceAnalysis,
-    SyntaxError, Token, to_atom_note, to_atom_num,
+    Token, to_atom_note, to_atom_num,
 };
 
 use crate::{
@@ -169,7 +169,8 @@ impl ExpressionEntry {
     }
 
     pub(super) fn bind_source(&self, source: &str) -> Result<Atoms, LangError> {
-        self.expression.bind_source(source)
+        let width = self.span.end().get() - self.span.start().get() + 1;
+        self.expression.bind_source(&source[..width])
     }
 
     pub fn span(&self) -> Span {
@@ -247,8 +248,9 @@ impl LanguageMap {
                 previous.lexical_diagnostics[index].start() / cols
             });
 
-        // The partition is assembled first and in full, because `parse_span`
-        // searches it for the units of the Span it is given.
+        // The partition is assembled first and in full, because
+        // `record_expression` searches it for the units of the Span it is
+        // given.
         let mut units = Vec::with_capacity(previous.units.len());
         let mut walks = Vec::with_capacity(row_count);
         let mut row_units = Vec::with_capacity(row_count);
@@ -285,8 +287,8 @@ impl LanguageMap {
             match walk {
                 Some(walk) => {
                     map.lexical_diagnostics.extend(walk.diagnostics);
-                    for span in walk.spans {
-                        map.parse_span(grid, bytes, span);
+                    for parse in walk.parses {
+                        map.record_expression(grid, parse);
                     }
                     for index in cells {
                         if bytes[index] != SPACE_BYTE && map.glyphs[index].is_none() {
@@ -328,8 +330,8 @@ impl LanguageMap {
             lexical_diagnostics: walk.diagnostics,
         };
 
-        for span in walk.spans {
-            map.parse_span(grid, bytes, span);
+        for parse in walk.parses {
+            map.record_expression(grid, parse);
         }
         for (idx, byte) in bytes.iter().copied().enumerate() {
             if byte != SPACE_BYTE && map.glyphs[idx].is_none() {
@@ -338,17 +340,6 @@ impl LanguageMap {
         }
 
         map
-    }
-
-    /// Answers the Expression Span that would contain `cell` after replacing
-    /// that Cell with `byte`, without scanning any other row.
-    pub(super) fn prospective_expression_span(
-        grid: Grid,
-        bytes: &[u8],
-        cell: CellIndex,
-        byte: u8,
-    ) -> Option<Span> {
-        prospective_span(grid, bytes, cell, byte)
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
@@ -424,46 +415,16 @@ impl LanguageMap {
     }
 
     ///
-    /// What one Expression Span analyzes to.
+    /// Records the Expression one parse established.
     ///
-    /// A Span the partition has already named end to end as standalone Atoms is
-    /// assembled from those units; every other Span is read by the Parser, which
-    /// is the only path that touches the characters again.
+    /// The Span came from the analysis, so nothing here re-reads the Source to
+    /// find out where the Expression ends or what it holds. There is no
+    /// trailing content to restore either: an Expression claims exactly the
+    /// Cells the Parser read, and whatever follows them is the next
+    /// Expression's, which is the partition ADR 0033 records.
     ///
-    fn analyze_span(
-        &self,
-        bytes: &[u8],
-        span: Span,
-        units: std::ops::Range<usize>,
-    ) -> Result<SourceAnalysis, LangError> {
-        // Recomputed only to check the caller, and only in a debug build: the
-        // search itself still happens once, in `parse_span`.
-        debug_assert_eq!(
-            units,
-            units_range(&self.units, self.grid, span),
-            "a Span is analyzed from the units covering it"
-        );
-        if let Some(expression) = standalone_run(&self.units[units], span) {
-            // `standalone_run` answers only when its units tile the Span end to
-            // end, so the assembled Expression spans all of it.
-            //
-            // This is the second producer of a consumed length, and it does not
-            // agree with the Parser: `**^^` is one four-Cell Expression here and
-            // a two-Cell Bang with `^^` still to read there. The disagreement is
-            // older than `consumed` — it is why this path exists at all, since
-            // a run of standalone Atoms is the one shape the Parser cannot take
-            // whole — and reporting the Parser's answer instead would diagnose
-            // `^^` as trailing content and change what a Tick plays. Issue 08
-            // settles it by deleting this path, not by reconciling the two.
-            return Ok(SourceAnalysis::complete(expression, span_len(span)));
-        }
-
-        let mut source = String::from_utf8(bytes[span.start().get()..=span.end().get()].to_vec())
-            .expect("Source Cells contain ASCII");
-        Parser::from(&mut source).analyze()
-    }
-
-    fn parse_span(&mut self, grid: Grid, bytes: &[u8], span: Span) {
+    fn record_expression(&mut self, grid: Grid, parse: Parse) {
+        let Parse { span, analysis } = parse;
         let start = span.start();
         let end = span.end();
         // Where this Span's units sit in the partition, searched for once here
@@ -472,40 +433,10 @@ impl LanguageMap {
         // A later Expression owns its occupied Cells over any operand-slot
         // hints emitted by an earlier Expression.
         self.glyphs[start.get()..=end.get()].fill(None);
-        let analysis = match self.analyze_span(bytes, span, units.clone()) {
-            Ok(analysis) => analysis,
-            Err(error) => {
-                self.expressions.push(ExpressionEntry {
-                    map_id: self.id,
-                    expression: Expression::new(),
-                    atoms: None,
-                    diagnostic: Some(Diagnostic::for_range(grid, start, end, error.to_string())),
-                    root: None,
-                    function_candidate: None,
-                    span,
-                    units,
-                });
-                return;
-            }
-        };
 
-        // The Parser now reports where an Expression ends rather than refusing
-        // the Source that follows it, and this Map still partitions rows by
-        // whitespace. Restoring the verdict here keeps the two in step until
-        // the partition is rebuilt on the boundary the Parser reports.
-        let trailing = analysis
-            .is_complete()
-            .then(|| start.get() + analysis.consumed())
-            .filter(|rest| *rest <= end.get())
-            .map(|rest| {
-                let trailing = String::from_utf8(bytes[rest..=end.get()].to_vec())
-                    .expect("Source Cells contain ASCII");
-                LangError::from(SyntaxError::UnexpectedTrailingContent(trailing))
-            });
-        let executable = analysis.is_complete() && trailing.is_none();
+        let executable = analysis.is_complete();
         let diagnostic = analysis
             .error()
-            .or(trailing.as_ref())
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
         let expression_units = &self.units[units.clone()];
@@ -533,7 +464,7 @@ impl LanguageMap {
             // retaining its invalid-expression diagnostic.
             glyphs.clear();
         }
-        self.set_glyphs(grid, start, glyphs);
+        self.set_glyphs(start, end, glyphs);
         self.expressions.push(ExpressionEntry {
             map_id: self.id,
             expression,
@@ -546,29 +477,36 @@ impl LanguageMap {
         });
     }
 
-    fn set_glyphs(&mut self, grid: Grid, start: CellIndex, glyphs: Vec<Glyph>) {
-        let anchor = grid.position_at(start);
-        for (offset, glyph) in glyphs.into_iter().enumerate() {
-            // Operand-slot hints can extend beyond their Expression, but an
-            // Expression is horizontal: hints stop at the same row edge, which
-            // is what `offset_in_row` answers.
-            let Some(idx) = grid.offset_in_row(anchor, offset) else {
-                break;
-            };
-            self.glyphs[idx.get()] = Some(glyph);
+    fn set_glyphs(&mut self, start: CellIndex, end: CellIndex, glyphs: Vec<Glyph>) {
+        for (cell, glyph) in self.glyphs[start.get()..=end.get()].iter_mut().zip(glyphs) {
+            *cell = Some(glyph);
         }
     }
 }
 
 ///
+/// One Expression the walk established: the Cells it occupies, and what the
+/// Parser made of them.
+///
+/// The analysis travels with the Span because the Span came from it. Under the
+/// partition ADR 0033 describes there is no second way to decide where an
+/// Expression ends, so re-reading the Source to find out what a Span holds
+/// would be asking the same question twice and inviting two answers.
+///
+struct Parse {
+    span: Span,
+    analysis: SourceAnalysis,
+}
+
+///
 /// Everything one walk of a row establishes.
 ///
-/// A row decides three things at once — which Language Units it holds, which
-/// Expression Spans those fall into, and which characters diagnose — and they
-/// are decided by the same rules. Collecting them together is what keeps the
-/// rules from being written twice: ADR 0018 has Expression construction operate
-/// on the partition rather than reinterpret overlapping character pairs, and one
-/// walk is how that is true rather than merely intended.
+/// A row decides three things at once — which Expressions it holds, which
+/// Language Units they are spelled from, and which characters diagnose — and
+/// they are decided by the same rules. Collecting them together is what keeps
+/// the rules from being written twice: ADR 0018 has Expression construction
+/// operate on the partition rather than reinterpret overlapping character
+/// pairs, and one walk is how that is true rather than merely intended.
 ///
 /// Spans cannot be derived afterwards from the units: a Span covers Cells that
 /// produce no unit, so a lone unrecognized character is its own Span and no
@@ -577,35 +515,26 @@ impl LanguageMap {
 #[derive(Default)]
 struct RowWalk {
     units: Vec<LanguageUnit>,
-    spans: Vec<Span>,
+    parses: Vec<Parse>,
     diagnostics: Vec<Diagnostic>,
 }
 
 ///
-/// Why a run of Source ends at `column`, when it does.
+/// Where the Source of `row` ends: the first `##`, or the row's own edge.
 ///
-/// A row is the whole horizontal extent there is, so a space, a `##` Comment
-/// and the row's own edge are every way a run can end. Only the first two are
-/// variants: the edge is not a character to recognize but the end of the row
-/// the walk was handed, so it needs no rule and cannot be spelled across.
+/// This is the one place the Comment rule is stated. Nothing at or after the
+/// introducer is Source, so the Parser is never shown it and no Language Unit
+/// and no Expression can be spelled across it. The row edge needs no rule of
+/// its own — it is where the slice the walk was handed stops.
 ///
-/// This is the one place the space rule and the Comment rule are stated, and
-/// `walk_row` is the one caller: the day either rule changes, it changes here.
+/// The first `##` in the row is always the one the walk means. No Language
+/// Unit spelling holds a `#`, so nothing the walk reads can begin before the
+/// introducer and end after it.
 ///
-enum RunBoundary {
-    /// A space separates one run from the next.
-    Space,
-    /// A `##` Comment. Nothing after it on this row is Source.
-    Comment,
-}
-
-fn run_boundary(row: &[u8], column: usize) -> Option<RunBoundary> {
-    if row[column] == SPACE_BYTE {
-        return Some(RunBoundary::Space);
-    }
-    row[column..]
-        .starts_with(b"##")
-        .then_some(RunBoundary::Comment)
+fn source_end(row: &[u8]) -> usize {
+    row.windows(2)
+        .position(|pair| pair == b"##")
+        .unwrap_or(row.len())
 }
 
 ///
@@ -638,51 +567,98 @@ fn unit_kind(spelling: &[u8]) -> Option<LanguageUnitKind> {
 /// Walks one row left to right, appending everything it establishes to `walk`.
 ///
 /// `row` holds exactly the Cells of one row and `row_start` is the Cell index
-/// of its first column, so no byte of another row is reachable from here: a run
-/// cannot straddle the row edge, a `##` cannot be spelled across one, and a
-/// Language Unit ends where the slice does. The row edge needs no rule of its
-/// own for the same reason — a two-Cell spelling that would cross it simply is
-/// not there to read.
+/// of its first column, so no byte of another row is reachable from here: an
+/// Expression cannot straddle the row edge, a `##` cannot be spelled across
+/// one, and a Language Unit ends where the slice does. The row edge needs no
+/// rule of its own for the same reason — a two-Cell spelling that would cross
+/// it simply is not there to read.
+///
+/// **A row is partitioned by parse.** The walk hands the Parser the row's
+/// remaining Cells and the Cell they begin at, takes the Expression it
+/// establishes, and resumes at the Cell after it. ADR 0033 records what that
+/// makes of an empty Cell: one between Expressions is skipped rather than
+/// named, and one inside an Expression's arity-determined claim is an operand
+/// Cell that fails to bind, because a space no longer terminates anything.
 ///
 fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
-    let cell = |offset: usize| {
-        grid.cell_index(row_start + offset)
+    let cell = |idx: usize| {
+        grid.cell_index(idx)
+            .expect("a row's Cells lie inside the Grid that owns the row")
+    };
+    let source = &row[..source_end(row)];
+    let text = std::str::from_utf8(source).expect("Source Cells contain ASCII");
+
+    let mut idx = row_start;
+    let end_of_source = row_start + source.len();
+    while idx < end_of_source {
+        if source[idx - row_start] == SPACE_BYTE {
+            // An empty Cell between Expressions is not Source, so it is not
+            // diagnosed and starts nothing. This is the whole of what a space
+            // does now.
+            idx += 1;
+            continue;
+        }
+
+        let analysis = Parser::at(&text[idx - row_start..], idx).analyze();
+        let cells = analysis.cells();
+        name_units(grid, row_start, source, cells.clone(), walk);
+        walk.parses.push(Parse {
+            span: Span::new(grid, cell(cells.start), cell(cells.end - 1)),
+            analysis,
+        });
+        idx = cells.end;
+    }
+}
+
+///
+/// Names the Language Units the Cells `cells` are spelled from, diagnosing
+/// every Cell that spells none.
+///
+/// Scoped to one Expression's claim rather than to a whitespace run: a unit
+/// belongs to the Expression the parse established, so a two-Cell spelling
+/// cannot be read across the boundary between two Expressions any more than
+/// across a row edge.
+///
+/// An empty Cell is passed over rather than diagnosed. Inside an Expression's
+/// claim it is an operand Cell the Source never filled, which the Expression's
+/// own diagnostic already reports; naming it a second time here would report
+/// one mistake twice.
+///
+fn name_units(
+    grid: Grid,
+    row_start: usize,
+    source: &[u8],
+    cells: Range<usize>,
+    walk: &mut RowWalk,
+) {
+    let cell = |idx: usize| {
+        grid.cell_index(idx)
             .expect("a row's Cells lie inside the Grid that owns the row")
     };
 
-    let mut column = 0;
-    while column < row.len() {
-        match run_boundary(row, column) {
-            Some(RunBoundary::Space) => {
-                column += 1;
-                continue;
-            }
-            Some(RunBoundary::Comment) => break,
-            None => {}
+    let mut idx = cells.start;
+    while idx < cells.end {
+        let column = idx - row_start;
+        if source[column] == SPACE_BYTE {
+            idx += 1;
+            continue;
         }
-
-        let start = column;
-        while column < row.len() && run_boundary(row, column).is_none() {
-            match row.get(column..column + 2).and_then(unit_kind) {
-                Some(kind) => {
-                    walk.units.push(LanguageUnit {
-                        kind,
-                        anchor: grid.position_at(cell(column)),
-                        span: Span::new(grid, cell(column), cell(column + 1)),
-                    });
-                    column += 2;
-                }
-                None => {
-                    walk.diagnostics
-                        .push(invalid_unit_diagnostic(grid, cell(column), row[column]));
-                    column += 1;
-                }
+        let spelling = (idx + 2 <= cells.end).then(|| &source[column..column + 2]);
+        match spelling.and_then(unit_kind) {
+            Some(kind) => {
+                walk.units.push(LanguageUnit {
+                    kind,
+                    anchor: grid.position_at(cell(idx)),
+                    span: Span::new(grid, cell(idx), cell(idx + 1)),
+                });
+                idx += 2;
+            }
+            None => {
+                walk.diagnostics
+                    .push(invalid_unit_diagnostic(grid, cell(idx), source[column]));
+                idx += 1;
             }
         }
-        // The inner loop runs at least once and always advances, so the run
-        // holds at least the Cell that opened it.
-        walk.spans
-            .push(Span::new(grid, cell(start), cell(column - 1)));
     }
 }
 
@@ -755,119 +731,10 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
     first..past_last
 }
 
-///
-/// How many Cells a Span covers.
-///
-fn span_len(span: Span) -> usize {
-    span.end().get() - span.start().get() + 1
-}
-
-///
-/// Whether `units` tile `span`: the first begins where the Span begins, each
-/// next begins immediately after the one before it ends, and the last ends
-/// where the Span ends.
-///
-/// A tiled Span has every Cell claimed by a Language Unit, so the length and
-/// parity a run of two-Cell spellings must have are consequences of the tiling
-/// rather than separate tests: an odd Cell count cannot be tiled by two-Cell
-/// units at all, and a Cell the partition diagnosed instead of naming leaves a
-/// hole that no arrangement of units closes.
-///
-/// Adjacency is arithmetic on bare Cell numbers rather than a question for the
-/// Grid, because a Span and the units within it are confined to one row and
-/// share one Grid: the running number is only ever compared, never used to
-/// address a Cell, so no index this Grid cannot answer for comes into being.
-///
-fn units_tile_span(units: &[LanguageUnit], span: Span) -> bool {
-    let mut next = span.start().get();
-    for unit in units {
-        if unit.span().start().get() != next {
-            return false;
-        }
-        next = unit.span().end().get() + 1;
-    }
-    next == span.end().get() + 1
-}
-
-///
-/// The Expression a Span spells when the partition named every one of its
-/// Cells as a standalone Atom — a Bang or an Activation.
-///
-/// The Parser accepts one Language Unit and calls whatever follows it trailing
-/// content, so a run of standalone Atoms is the one shape it cannot take whole.
-/// ADR 0024 makes the partition the single owner of what a two-Cell spelling
-/// is, so the Expression is assembled from the kinds it established rather than
-/// by reading the same characters a second time.
-///
-/// `None` leaves the Span to the Parser: when the units do not tile it, when
-/// any of them is a Function or an Operand Literal, or when the run exceeds the
-/// Expression's capacity. The Parser then answers, and answers as it did before
-/// this path existed — for an over-capacity run of standalone Atoms that is
-/// trailing content after the one unit it accepts, not a capacity error.
-///
-fn standalone_run(units: &[LanguageUnit], span: Span) -> Option<Expression> {
-    if !units_tile_span(units, span) {
-        return None;
-    }
-
-    let mut expression = Expression::new();
-    for unit in units {
-        let (token, atom) = match unit.kind() {
-            LanguageUnitKind::Bang => (Token::Bang, Atom::Bang),
-            LanguageUnitKind::Activation(activation) => {
-                (Token::Activation, Atom::Activation(activation))
-            }
-            LanguageUnitKind::Function(_) | LanguageUnitKind::OperandLiteral => return None,
-        };
-        expression.add(token, atom).ok()?;
-    }
-    Some(expression)
-}
-
 fn expression_parts(expression: &Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
     let glyphs = Glyph::to_glyphs(expression.tokens().collect());
     let atoms = executable.then(|| expression.atoms()).flatten();
     (atoms, glyphs)
-}
-
-///
-/// The Span covering `cell`, when one does. Spans within a row do not overlap,
-/// so at most one can answer.
-///
-fn span_containing(spans: &[Span], cell: CellIndex) -> Option<Span> {
-    spans
-        .iter()
-        .copied()
-        .find(|span| span.start() <= cell && cell <= span.end())
-}
-
-///
-/// The Span that would cover `idx` after replacing that Cell with `byte`.
-///
-/// Only the edited row is rebuilt: an Expression is horizontal, so no other
-/// row's Spans can change.
-///
-fn prospective_span(grid: Grid, bytes: &[u8], cell: CellIndex, byte: u8) -> Option<Span> {
-    assert_eq!(
-        bytes.len(),
-        grid.count(),
-        "LanguageMap Source length must match its Grid"
-    );
-    grid.assert_owns_index(cell);
-
-    let cols = grid.cols();
-    let idx = cell.get();
-    let row_start = (idx / cols) * cols;
-    let mut row = bytes[row_start..row_start + cols].to_vec();
-    row[idx - row_start] = byte;
-
-    // The same walk the whole revision is built from, given one row. It
-    // establishes that row's units and diagnostics too, which this question
-    // does not need and drops; what matters is that the Spans it answers with
-    // were decided by the rules that decide every other Span.
-    let mut walk = RowWalk::default();
-    walk_row(grid, row_start, &row, &mut walk);
-    span_containing(&walk.spans, cell)
 }
 
 #[cfg(test)]
@@ -876,15 +743,36 @@ mod tests {
 
     use lang::{Activation, Atom};
 
-    use super::{LanguageMap, LanguageUnitKind, Span, prospective_span, walk_source};
+    use super::{LanguageMap, LanguageUnitKind, Span, walk_source};
 
     #[test]
     fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
-        for source in ["!>00**C4", "**X0**  ", "***     ", "**!>00  "] {
+        // A `**` inside a Function's arity-determined claim is that slot's
+        // Source and not a Bang, whether the slot is reached with characters
+        // to spare or with the Source running out under it. Both Expressions
+        // report rather than answer, so neither contributes a Bang.
+        for source in ["!>00**C4", "!>**7F  "] {
             let grid = Grid::new(8, 2);
             let map = LanguageMap::build(grid, format!("{source}        ").as_bytes());
             assert_eq!(map.bangs().count(), 0, "{source}");
         }
+    }
+
+    #[test]
+    fn a_bang_outside_every_claim_is_a_bang_however_the_source_around_it_reads() {
+        // The other side of the rule above, and the one ADR 0033 changed: a
+        // `**` no Function claims is a Bang, and the invalid Source beside it
+        // costs only its own Cells. `**X0**` was one refused six-Cell run
+        // before the partition was decided by the parse.
+        let grid = Grid::new(6, 1);
+        let map = LanguageMap::build(grid, b"**X0**");
+
+        assert_eq!(
+            map.bangs()
+                .map(|(anchor, span)| (anchor.x(), span.start().get(), span.end().get()))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 1), (4, 4, 5)],
+        );
     }
 
     #[test]
@@ -932,14 +820,22 @@ mod tests {
     }
 
     #[test]
-    fn malformed_prefix_does_not_promote_a_later_function_to_candidate() {
-        for source in ["XX!>007FC4", "**!>007FC4", "0!>007FC4"] {
+    fn a_malformed_prefix_costs_its_own_cells_and_leaves_the_function_after_it_recognised() {
+        // The Source before a Function no longer decides whether that Function
+        // is read. Each prefix here is refused a Cell at a time and the Play
+        // that follows it is a candidate anchored where it is spelled, which
+        // is what ADR 0033's partition buys a person mid-keystroke: a mistyped
+        // Cell costs that Cell rather than the rest of the row.
+        for (source, column) in [("XX!>007FC4", 2), ("**!>007FC4", 2), ("0!>007FC4", 1)] {
             let grid = Grid::new(source.len(), 1);
             let map = LanguageMap::build(grid, source.as_bytes());
-            assert!(
+            assert_eq!(
                 map.expressions()
-                    .all(|expression| expression.function_candidate().is_none()),
-                "{source}"
+                    .filter_map(|expression| expression.function_candidate())
+                    .map(|(anchor, function)| (anchor.x(), function))
+                    .collect::<Vec<_>>(),
+                vec![(column, lang::Function::try_from("!>").unwrap())],
+                "{source}",
             );
         }
     }
@@ -960,7 +856,11 @@ mod tests {
     /// The Expression Spans of a whole Source revision, in row-major order.
     ///
     fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
-        walk_source(grid, bytes).spans
+        walk_source(grid, bytes)
+            .parses
+            .into_iter()
+            .map(|parse| parse.span)
+            .collect()
     }
 
     #[test]
@@ -1010,8 +910,8 @@ mod tests {
         // drops its last operand. Two Spans in one row put a neighbour on
         // each side of both edges, so either slip shows up as a missing or
         // borrowed anchor rather than as a crash.
-        let grid = Grid::new(9, 1);
-        let map = LanguageMap::derive(grid, ".+01 .-02").unwrap();
+        let grid = Grid::new(14, 1);
+        let map = LanguageMap::derive(grid, ".+0102 .-0304 ").unwrap();
         let expressions = map.expressions().collect::<Vec<_>>();
 
         let anchors = |expression| {
@@ -1022,8 +922,8 @@ mod tests {
         };
 
         assert_eq!(expressions.len(), 2);
-        assert_eq!(anchors(expressions[0]), vec![(0, 0), (2, 0)]);
-        assert_eq!(anchors(expressions[1]), vec![(5, 0), (7, 0)]);
+        assert_eq!(anchors(expressions[0]), vec![(0, 0), (2, 0), (4, 0)]);
+        assert_eq!(anchors(expressions[1]), vec![(7, 0), (9, 0), (11, 0)]);
     }
 
     #[test]
@@ -1091,7 +991,11 @@ mod tests {
 
     #[test]
     fn language_map_recognizes_every_current_unit_kind_on_a_rectangular_grid() {
-        let map = LanguageMap::build(Grid::new(12, 2), b".+C4**>>    ^^vv<<00    ");
+        // Every unit kind, and each one inside the Expression that claims it:
+        // an Operand Literal is spelled in a Function's slot, because a pair
+        // of hexadecimal characters standing on its own is no longer part of
+        // any Expression for a unit to belong to.
+        let map = LanguageMap::build(Grid::new(12, 2), b".+C4**>>    ^^vv<<.+00  ");
 
         assert_eq!(
             map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
@@ -1103,6 +1007,7 @@ mod tests {
                 LanguageUnitKind::Activation(Activation::North),
                 LanguageUnitKind::Activation(Activation::South),
                 LanguageUnitKind::Activation(Activation::West),
+                LanguageUnitKind::Function(lang::Function::Add),
                 LanguageUnitKind::OperandLiteral,
             ]
         );
@@ -1118,6 +1023,7 @@ mod tests {
                 (2, vec![2, 3]),
                 (4, vec![4, 5]),
                 (6, vec![6, 7]),
+                (8, vec![8, 9]),
             ]
         );
     }
@@ -1178,15 +1084,19 @@ mod tests {
     }
 
     #[test]
-    fn build_names_one_span_per_run_covering_it_inclusively() {
+    fn build_names_one_span_per_expression_covering_it_inclusively() {
+        // An Addition takes two operands, so it claims six Cells from its
+        // anchor and the Span says so. The `1` and the space after it are the
+        // first operand, which is why they are inside the Span rather than
+        // beside it: a space no longer ends anything, so what bounds this
+        // Expression is arity.
         let grid = Grid::new(5, 1);
         let spans = expression_spans(grid, b" .+1 ");
 
-        // one Span for the run, and it covers exactly the run's Cells
-        assert_eq!(spans, vec![span(grid, 1, 3)]);
+        assert_eq!(spans, vec![span(grid, 1, 4)]);
         assert_eq!(
             spans[0].indices().map(|idx| idx.get()).collect::<Vec<_>>(),
-            vec![1, 2, 3]
+            vec![1, 2, 3, 4]
         );
     }
 
@@ -1207,39 +1117,39 @@ mod tests {
     }
 
     #[test]
-    fn build_separates_multiple_runs_in_one_row() {
-        let grid = Grid::new(8, 1);
+    fn build_separates_the_expressions_in_one_row() {
+        let grid = Grid::new(16, 1);
 
         // asserting the whole list, not Cell by Cell: a spurious extra Span
-        // shows up here and would not show up in per-Cell probing
+        // shows up here and would not show up in per-Cell probing. Both
+        // Additions are spelled whole, so each ends where its arity says and
+        // the spaces between them belong to neither.
         assert_eq!(
-            expression_spans(grid, b".+  .-  "),
-            vec![span(grid, 0, 1), span(grid, 4, 5)]
+            expression_spans(grid, b".+0102  .-0304  "),
+            vec![span(grid, 0, 5), span(grid, 8, 13)]
         );
     }
 
     #[test]
-    fn build_keeps_edge_touching_runs_inside_their_rows() {
+    fn a_space_inside_an_expressions_claim_is_an_operand_cell_and_not_a_boundary() {
+        // ADR 0033's space rule, and the one behaviour change a reader is most
+        // likely to be surprised by. `.+` claims six Cells whatever they hold,
+        // so the two spaces and the `.-` after them are its operands rather
+        // than the next Expression: one Span, not two.
+        let grid = Grid::new(8, 1);
+
+        assert_eq!(expression_spans(grid, b".+  .-  "), vec![span(grid, 0, 7)]);
+    }
+
+    #[test]
+    fn build_keeps_edge_touching_expressions_inside_their_rows() {
         let grid = Grid::new(4, 2);
 
-        // the runs touch across the row edge but are two Spans, not one
+        // the Expressions touch across the row edge but are two Spans, not
+        // one: each claims what is left of its own row and stops there
         assert_eq!(
             expression_spans(grid, b"  .+.-  "),
-            vec![span(grid, 2, 3), span(grid, 4, 5)]
-        );
-    }
-
-    #[test]
-    fn prospective_span_scans_only_the_edited_row() {
-        let grid = Grid::new(5, 2);
-        let bytes = b".+   .-   ";
-        assert_eq!(
-            prospective_span(grid, bytes, cell(grid, 2), b'1'),
-            Some(span(grid, 0, 2))
-        );
-        assert_eq!(
-            prospective_span(grid, bytes, cell(grid, 7), b'0'),
-            Some(span(grid, 5, 7))
+            vec![span(grid, 2, 3), span(grid, 4, 7)]
         );
     }
 
@@ -1259,33 +1169,54 @@ mod tests {
         assert!(expressions[0].atoms().is_some());
         let at = |idx: usize| map.glyph_at(grid.position_at(grid.cell_index(idx).unwrap()));
         assert_eq!(at(0), Some(Glyph::Function));
-        assert_eq!(at(7), Some(Glyph::Char));
+        // The `x` is where the next Expression begins, and a Function is what
+        // begins one.
+        assert_eq!(at(7), Some(Glyph::Function));
         assert_eq!(map.expression_diagnostics().count(), 1);
     }
 
     #[test]
-    fn a_span_its_units_do_not_tile_is_not_a_standalone_run() {
-        // The standalone-run path is selected by the units tiling their Span,
-        // and that one property is what the retired recognizer's separate
-        // length and parity tests came to. Both of its failures are here.
-        //
-        // An odd Cell count cannot be tiled by two-Cell units: the third `*`
-        // is diagnosed rather than named, and the Span reaches the Parser,
-        // which takes the Bang and calls the rest trailing content.
-        let odd = LanguageMap::build(Grid::new(3, 1), b"***");
-        // An even Cell count is not enough either. This Span is six Cells
-        // holding two Bangs, and the two diagnosed Cells between them leave a
-        // hole no arrangement of units closes.
-        let holed = LanguageMap::build(Grid::new(6, 1), b"**X0**");
+    fn a_run_of_standalone_atoms_is_as_many_expressions_as_the_parser_finds() {
+        // ADR 0018 already said `**^^` is a Bang and then a Self-Banging
+        // Function; ADR 0033 makes the partition say it too. Each is a whole
+        // Expression with a Span of its own and Atoms of its own, where the
+        // assembly path this replaces reported one four-Cell Expression that
+        // no single parse ever produced.
+        let grid = Grid::new(4, 1);
+        let map = LanguageMap::build(grid, b"**^^");
 
-        for map in [&odd, &holed] {
-            assert!(map.expressions().next().unwrap().atoms().is_none());
-            assert!(map.diagnostics().any(|diagnostic| {
-                diagnostic
-                    .message
-                    .starts_with("unexpected trailing content")
-            }));
-        }
+        assert_eq!(
+            map.expressions()
+                .map(|expression| (
+                    expression.span().start().get(),
+                    expression.span().end().get(),
+                    expression.atoms().map(|atoms| atoms.as_slice().to_vec()),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 1, Some(vec![Atom::Bang])),
+                (2, 3, Some(vec![Atom::Activation(Activation::North)])),
+            ],
+        );
+        assert_eq!(map.diagnostics().count(), 0);
+    }
+
+    #[test]
+    fn an_odd_standalone_run_costs_one_cell_and_leaves_the_rest_readable() {
+        // ADR 0018's `***`: a Bang and one invalid `*`. The Bang is a whole
+        // Expression that answers with Atoms, so a Tick can execute it — the
+        // stray character costs the Cell it occupies and nothing more. The
+        // trailing-content verdict this replaces refused the Bang along with
+        // it.
+        let map = LanguageMap::build(Grid::new(3, 1), b"***");
+
+        assert_eq!(
+            map.expressions()
+                .map(|expression| expression.atoms().map(|atoms| atoms.as_slice().to_vec()))
+                .collect::<Vec<_>>(),
+            vec![Some(vec![Atom::Bang]), None],
+        );
+        assert_eq!(map.bangs().count(), 1);
     }
 
     #[test]
@@ -1294,15 +1225,15 @@ mod tests {
         let bangs = LanguageMap::build(bang_grid, b"****");
         let activations = LanguageMap::build(Grid::new(4, 1), b">>>>");
 
+        // Two Bangs, and two Expressions: a standalone Atom is one whole
+        // Expression, so a run of them is a run of Expressions rather than one
+        // Expression holding several Atoms.
         assert_eq!(
             bangs
                 .expressions()
-                .next()
-                .unwrap()
-                .atoms()
-                .unwrap()
-                .as_slice(),
-            &[Atom::Bang, Atom::Bang]
+                .map(|expression| expression.atoms().unwrap().as_slice().to_vec())
+                .collect::<Vec<_>>(),
+            vec![vec![Atom::Bang], vec![Atom::Bang]]
         );
         assert!(
             bang_grid
@@ -1315,14 +1246,11 @@ mod tests {
         assert_eq!(
             activations
                 .expressions()
-                .next()
-                .unwrap()
-                .atoms()
-                .unwrap()
-                .as_slice(),
-            &[
-                Atom::Activation(Activation::East),
-                Atom::Activation(Activation::East)
+                .map(|expression| expression.atoms().unwrap().as_slice().to_vec())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![Atom::Activation(Activation::East)],
+                vec![Atom::Activation(Activation::East)],
             ]
         );
         assert_eq!(activations.diagnostics().count(), 0);

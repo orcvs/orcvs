@@ -172,7 +172,7 @@ mod test {
     /// A Context for a test about operands rather than about time or Position.
     ///
     fn context() -> Context {
-        Context::new(inputs())
+        Context::new(inputs(), 4)
     }
 
     /// Evaluates `source` as one Expression, exactly as a Tick would.

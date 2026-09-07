@@ -1,26 +1,7 @@
 use crate::{
-    Atom, Atoms, EXP_LEN, Error, Function, InterpretationError, Performance, Sequence, Stack,
-    TickInputs, Value,
+    Atom, Error, Function, InterpretationError, Performance, Sequence, Stack, TickInputs, Value,
     functions::{self, math, numeric_conversion},
 };
-
-/// The Operand Stack one Expression evaluates against.
-///
-/// `EXP_LEN` is chosen; this size is derived from it. No Atom raises the depth
-/// by more than one — a literal Atom pushes one value, and a Function pushes
-/// one value only after popping the operands its signature declares — so the
-/// peak depth of a walk can never exceed the Atom count. A Function of one
-/// operand or more therefore has a net change that is never positive, and a
-/// nullary Function would raise the depth by one exactly as a literal does;
-/// neither can raise it by more, which is why a Function of any arity, added
-/// later, needs no new proof here.
-///
-/// The Atom count is bounded by the type rather than by the caller. `Atoms` is
-/// an `ArrayVec<Atom, EXP_LEN>`, so `Expression` cannot record more than that
-/// and `Parser` diagnoses the attempt as `SyntaxError::ExpressionTooLong`; and
-/// because [`Interpreter::execute`] takes `&Atoms`, a caller who assembles
-/// Atoms without going through the parser at all is held to the same bound.
-pub type Args = Stack<EXP_LEN>;
 
 pub struct Interpreter {}
 
@@ -63,7 +44,7 @@ pub enum Interpretation {
 /// arm in `execute` rather than a new evaluation path.
 ///
 pub struct Context {
-    pub stack: Args,
+    pub stack: Stack,
     /// The explicit inputs ADR 0012 supplies alongside the Source Snapshot.
     ///
     /// `dead_code` reads an unread field as one to delete, and here that
@@ -82,9 +63,9 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(inputs: TickInputs) -> Self {
+    pub fn new(inputs: TickInputs, stack_limit: usize) -> Self {
         Self {
-            stack: Args::new(),
+            stack: Stack::new(stack_limit),
             inputs,
         }
     }
@@ -99,8 +80,11 @@ impl Interpreter {
     /// the same Atoms and the same inputs answer the same way every time.
     ///
     #[inline(always)]
-    pub fn execute(atoms: &Atoms, inputs: TickInputs) -> Result<Interpretation, Error> {
-        let mut ctx = Context::new(inputs);
+    pub fn execute(atoms: &[Atom], inputs: TickInputs) -> Result<Interpretation, Error> {
+        // No Atom raises the stack depth by more than one: literals push one
+        // value, and Functions pop their operands before producing one value.
+        // The actual Atom count therefore bounds this Expression's peak depth.
+        let mut ctx = Context::new(inputs, atoms.len());
 
         for (index, atom) in atoms.iter().enumerate().rev() {
             // info!("atoms: {:?}", atoms);
@@ -166,7 +150,7 @@ impl Interpreter {
 mod test {
 
     use crate::{
-        Anchor, ArgumentError, Atom, EXP_LEN, Error, Function, Interpretation, InterpretationError,
+        Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError,
         MidiChannel, Note, Parser, Performance, PlayCommand, Tick, TickInputs, Token, TypeError,
         Velocity, interpreter::Interpreter, trace,
     };
@@ -194,8 +178,7 @@ mod test {
     }
 
     fn interpret_stack(exp: Vec<Atom>) -> Result<Atom, Error> {
-        let atoms = exp.into_iter().collect();
-        Interpreter::execute(&atoms, inputs()).map(|result| match result {
+        Interpreter::execute(&exp, inputs()).map(|result| match result {
             super::Interpretation::Cell(atom) => atom,
             other => panic!("expected a Cell result, found {other:?}"),
         })
@@ -487,7 +470,6 @@ mod test {
                 Atom::Char('C'),
             ],
         ] {
-            let atoms = atoms.into_iter().collect();
             assert!(matches!(
                 Interpreter::execute(&atoms, inputs()),
                 Err(Error::Type(_))
@@ -500,13 +482,11 @@ mod test {
         // The guard reads the Function's own classification, so a terminal
         // spelling added by a later issue is nested-invalid the day it exists.
         for function in Function::ALL.iter().copied().filter(|f| f.is_terminal()) {
-            let atoms = vec![
+            let atoms = [
                 Atom::Function(Function::Add),
                 Atom::Function(function),
                 Atom::Number(1),
-            ]
-            .into_iter()
-            .collect();
+            ];
 
             assert!(
                 matches!(
@@ -794,16 +774,23 @@ mod test {
     }
 
     #[test]
-    fn an_expression_at_the_parser_bound_evaluates_without_exhausting_the_operand_stack() {
-        // The witness for the bound `Args` declares. These 64 Cells parse to
-        // exactly `EXP_LEN` Atoms, and the sixteen Operand Literals stand above
-        // the Note before the first `.+` consumes any of them, so the walk
-        // reaches a depth of seventeen. A stack sized by an arity rather than
-        // by `EXP_LEN` cannot hold that.
+    fn a_long_addition_chain_evaluates_all_of_its_operands() {
+        let mut source = format!("{}{}", ".+".repeat(64), "01".repeat(65));
+        let atoms = Parser::from(&mut source).try_parse().unwrap();
+
+        assert_eq!(
+            Interpreter::execute(&atoms, inputs()).unwrap(),
+            Interpretation::Cell(Atom::Number(65)),
+        );
+    }
+
+    #[test]
+    fn a_play_expression_with_seventeen_pending_values_evaluates() {
+        // The sixteen Number literals stand above the Note before the first
+        // addition consumes any, reproducing the former sixteen-slot panic.
         let mut source =
             "!>.+.+.+.+.+.+.+.+.+.+.+.+.+.+01010101010101010101010101010101C4".to_owned();
         let atoms = Parser::from(&mut source).try_parse().unwrap();
-        assert_eq!(atoms.len(), EXP_LEN);
 
         // The chain sums fifteen of the sixteen Operand Literals into the
         // channel, leaving the sixteenth as the velocity.
@@ -838,7 +825,7 @@ mod test {
     /// The shapes whose depth is asserted below reach their peak while the
     /// literals are still being pushed, before any Function has run, so for
     /// those the model and the machine agree exactly.
-    pub(super) fn peak_depth(atoms: &crate::Atoms) -> usize {
+    pub(super) fn peak_depth(atoms: &[Atom]) -> usize {
         let mut depth: usize = 0;
         let mut peak: usize = 0;
 
@@ -860,40 +847,26 @@ mod test {
     }
 
     #[test]
-    fn every_chain_the_parser_accepts_evaluates_without_exhausting_the_operand_stack() {
-        // The reproduction above is one point on this boundary; this is the
-        // whole of it. A left-leaning chain is the shape that grows the Operand
-        // Stack, because prefix order puts every Function ahead of every
-        // operand and the walk therefore pushes all of a chain's literals
-        // before its innermost Function consumes one. Every chain length is
-        // enumerated, under every root and over every binary Value Function the
-        // chain can be built from, so nothing here names a spelling and a
-        // Function respelled or added later is covered by its own definition.
+    fn nested_chains_under_every_root_do_not_exhaust_the_operand_stack() {
+        // A test budget, not a language limit. Chains put every Function ahead
+        // of its literals, making the reverse walk hold them all at once.
+        const CHAIN_LENGTH: usize = 64;
         let binary: Vec<Function> = Function::ALL
             .iter()
             .copied()
             .filter(|function| !function.is_terminal() && function.signature().len() == 2)
             .collect();
 
-        // The deepest walk `EXP_LEN` Atoms admit, derived rather than counted.
-        // A root of arity `a` over a chain of `k` binary Functions is
-        // `2k + a + 1` Atoms and peaks at `a + k`, so the longest chain the
-        // bound admits is `k = (EXP_LEN - a - 1) / 2` and the peak that follows
-        // from it is `(EXP_LEN + a - 1) / 2`. The widest root wins, which is
-        // why the arity is read from the definitions rather than written here.
         let widest = Function::ALL
             .iter()
             .map(|function| function.signature().len())
             .max()
             .expect("the definitions declare at least one Function");
-        let deepest_walk_admitted = (EXP_LEN + widest - 1) / 2;
-
-        let mut reached_the_parser_bound = false;
         let mut deepest_walk_reached = 0;
 
         for root in Function::ALL.iter().copied() {
             for link in binary.iter().copied() {
-                for chain in 0..EXP_LEN {
+                for chain in 1..=CHAIN_LENGTH {
                     // The chain stands in the first operand, which the
                     // right-to-left walk reaches last and so with the most
                     // already on the stack.
@@ -904,13 +877,7 @@ mod test {
                         source.push_str(literal(*token));
                     }
 
-                    let Ok(atoms) = Parser::from(&mut source).try_parse() else {
-                        // Refusing an over-long Expression is the parser's half
-                        // of the bound, and an acceptable outcome here.
-                        continue;
-                    };
-
-                    reached_the_parser_bound |= atoms.len() == EXP_LEN;
+                    let atoms = Parser::from(&mut source).try_parse().unwrap();
                     deepest_walk_reached = deepest_walk_reached.max(peak_depth(&atoms));
 
                     // Any diagnostic but one is an acceptable answer: an
@@ -930,21 +897,7 @@ mod test {
             }
         }
 
-        assert!(
-            reached_the_parser_bound,
-            "no enumerated chain reached the parser's own bound, so nothing here tested it",
-        );
-
-        // Atom count alone is too weak a guard. Several roots reach `EXP_LEN`
-        // Atoms at a depth any smaller stack would still have held, so without
-        // this the enumeration could lose the one case that discriminates and
-        // keep passing. Pinning the depth to the deepest the definitions and
-        // `EXP_LEN` jointly admit is what makes losing it a failure.
-        assert_eq!(
-            deepest_walk_reached, deepest_walk_admitted,
-            "the enumeration reached a depth of {deepest_walk_reached}, not the \
-             {deepest_walk_admitted} the definitions and EXP_LEN admit",
-        );
+        assert_eq!(deepest_walk_reached, CHAIN_LENGTH + widest);
     }
 
     #[test]
@@ -978,30 +931,10 @@ mod test {
     }
 }
 
-///
-/// The parser/Evaluator boundary as a property: every Expression the parser
-/// accepts is one the Evaluator answers, rather than one it panics on. The
-/// bound `Args` declares is what makes that true of the Operand Stack, and a
-/// property is what keeps it true of Expressions nobody wrote down.
-///
-/// The enumeration in `mod test` and this module divide the boundary between
-/// them. That one walks a single shape — a left-leaning chain under a root —
-/// through every length there is, and pins the deepest walk `EXP_LEN` admits.
-/// This one generates whole Expressions of any shape from the Function
-/// definitions, which is the coverage an enumeration of one shape cannot give.
-/// Both assertions below are what keep that division honest: a generator that
-/// stopped producing Expressions the parser accepts, or stopped nesting them,
-/// would fail rather than quietly test nothing.
-///
-/// What this property cannot do is catch the regression that prompted the
-/// bound. Reaching a depth of seventeen needs one narrow shape — an
-/// arity-three root whose first operand is a chain of exactly fourteen and
-/// whose other two operands are literals — which is on the order of one draw
-/// in forty thousand here, so reverting `Args` to `Stack<16>` fails the two
-/// deterministic tests above and not this one. Read a pass here as evidence
-/// about the breadth of shape, never about the tight boundary; that half of
-/// the division belongs to the enumeration, and weakening it is not something
-/// this property would report.
+/// Generated Expression shapes complement the deterministic deep chains:
+/// every generated source parses, and its Atom count suffices for evaluation.
+/// Type and domain errors are legitimate evaluation outcomes; stack exhaustion
+/// is not.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
@@ -1010,8 +943,8 @@ mod test {
 mod property {
     use super::test::peak_depth;
     use crate::{
-        Anchor, EXP_LEN, Error, Function, InterpretationError, Interpreter, Parser, Tick,
-        TickInputs, Token, midi_number_to_note,
+        Anchor, Error, Function, InterpretationError, Interpreter, Parser, Tick, TickInputs, Token,
+        midi_number_to_note,
     };
     use proptest::collection::vec;
     use proptest::prelude::*;
@@ -1019,11 +952,9 @@ mod property {
     use proptest::test_runner::{Config, TestRunner};
     use std::cell::Cell;
 
-    /// How far a generated Expression nests before its operands must be
-    /// literals. Three levels of the widest signature already outruns
-    /// `EXP_LEN`, so this is where shapes stop growing rather than a claim
-    /// about the language.
+    /// Generation budgets only; neither constrains accepted Source.
     const NESTING: u32 = 3;
+    const CHAIN_LENGTH: usize = 64;
 
     /// One Function applied to Source text for each of its operands.
     fn apply(function: Function, operands: &[String]) -> String {
@@ -1076,14 +1007,11 @@ mod property {
     /// puts every Function ahead of every operand, so the walk pushes all of a
     /// chain's literals before its innermost Function consumes one.
     ///
-    /// Most chains are short, and a minority run the whole length `EXP_LEN`
-    /// could admit. The mass has to straddle the bound rather than sit past it:
-    /// a chain drawn uniformly from the whole range averages more Atoms than an
-    /// Expression may hold before anything is built around it, so nearly every
-    /// case would be refused as Source text and the property would test the
-    /// parser's refusal instead of the Evaluator's answer.
+    /// Mix short chains and longer ones within the test's generation budget.
     fn chain_source() -> BoxedStrategy<String> {
-        prop_oneof![4 => 0usize..4, 1 => 0usize..EXP_LEN]
+        // A zero-link chain is a Number literal, which would be invalid in a
+        // Note slot. The separate literal strategy already respects slot types.
+        prop_oneof![4 => 1usize..4, 1 => 1usize..=CHAIN_LENGTH]
             .prop_flat_map(|length| {
                 (
                     vec(select(binary_value_functions()), length),
@@ -1128,9 +1056,7 @@ mod property {
             .boxed()
     }
 
-    /// Source text for one whole Expression. The root is any Function at all,
-    /// including the terminal one, whose three operands make it the widest root
-    /// a Source can write and so the deepest walk one can ask for.
+    /// Source text for one whole Expression, including terminal roots.
     fn expression_source() -> BoxedStrategy<String> {
         select(Function::ALL)
             .prop_flat_map(|function| {
@@ -1160,11 +1086,8 @@ mod property {
     /// out-of-domain operand is an acceptable answer, and exhaustion is the one
     /// diagnostic the bound rules out.
     ///
-    /// The runner is driven directly rather than through `proptest!` so that
-    /// what the cases reached can be counted across them and asserted at the
-    /// end. A property that generates only Expressions the parser refuses
-    /// passes while testing nothing, and that is the failure the two counts
-    /// below exist to catch.
+    /// The direct runner also checks that the generated cases reach a depth
+    /// requiring nested Expressions.
     ///
     #[test]
     fn evaluating_every_expression_the_parser_accepts_returns_rather_than_panicking() {
@@ -1176,20 +1099,14 @@ mod property {
             source_file: Some(file!()),
             ..Config::default()
         };
-        let cases = config.cases as usize;
-        let evaluated = Cell::new(0usize);
         let deepest_walk = Cell::new(0usize);
 
         TestRunner::new(config)
             .run(&expression_source(), |source| {
                 let mut source = source;
-                let Ok(atoms) = Parser::from(&mut source).try_parse() else {
-                    // An over-long Expression is the parser's to refuse, and
-                    // its refusal is what the Operand Stack's bound rests on.
-                    return Ok(());
-                };
-
-                evaluated.set(evaluated.get() + 1);
+                let parsed = Parser::from(&mut source).try_parse();
+                prop_assert!(parsed.is_ok(), "{source:?} failed to parse: {parsed:?}");
+                let atoms = parsed.unwrap();
                 deepest_walk.set(deepest_walk.get().max(peak_depth(&atoms)));
 
                 let exhausted = matches!(
@@ -1203,16 +1120,6 @@ mod property {
                 Ok(())
             })
             .unwrap_or_else(|error| panic!("{error}"));
-
-        // Most of what is generated must reach the Evaluator. The generator
-        // deliberately produces Expressions past the parser's bound, so some
-        // refusals are the point; a majority of them would mean the property
-        // was testing the parser rather than the machine.
-        assert!(
-            evaluated.get() * 2 > cases,
-            "only {} of {cases} generated Expressions reached the Evaluator",
-            evaluated.get(),
-        );
 
         // And what reaches it must be nested rather than flat. One Function
         // over its own operands peaks at its arity, so a depth past the widest

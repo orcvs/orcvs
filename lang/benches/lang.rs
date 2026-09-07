@@ -76,9 +76,10 @@ fn parse_source(c: &mut Criterion) {
         b.iter(|| {
             let mut units = 0;
             for row in rows.iter_mut() {
-                if let Ok(analysis) = Parser::from(black_box(row.as_mut_str())).analyze() {
-                    units += analysis.expression().len();
-                }
+                units += Parser::from(black_box(row.as_mut_str()))
+                    .analyze()
+                    .expression()
+                    .len();
             }
             units
         })

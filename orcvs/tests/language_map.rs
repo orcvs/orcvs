@@ -6,6 +6,133 @@ use orcvs::{
 };
 
 #[test]
+fn truncated_operand_owns_the_available_row_tail() {
+    let grid = Grid::new(5, 1);
+    let map = LanguageMap::derive(grid, ".+01Z").unwrap();
+    let expressions = map.expressions().collect::<Vec<_>>();
+    assert_eq!(expressions.len(), 1);
+    assert_eq!(expressions[0].span().positions().count(), 5);
+    assert!(expressions[0].root().is_none());
+}
+
+#[test]
+fn operand_claims_stop_before_comments() {
+    let grid = Grid::new(8, 1);
+    let map = LanguageMap::derive(grid, ".+01##xx").unwrap();
+    assert_eq!(map.expressions().count(), 1);
+    assert_eq!(
+        map.expressions().next().unwrap().span().positions().count(),
+        4
+    );
+    for column in 4..8 {
+        assert_eq!(
+            map.glyph_at(grid.position(column, 0).unwrap()),
+            Some(Glyph::Char)
+        );
+    }
+}
+
+#[test]
+fn a_comment_truncated_root_stays_inert_while_an_unrelated_root_executes() {
+    let grid = Grid::new(12, 3);
+    let mut source = Source::new(grid);
+    for (row, text) in [(0, "      .+0102"), (1, ".+01##xx")] {
+        for (column, byte) in text.bytes().enumerate() {
+            source
+                .set(
+                    grid.index(grid.position(column, row).unwrap()),
+                    &char::from(byte).to_string(),
+                )
+                .unwrap();
+        }
+    }
+    let plan = source.execute(lang::Tick::ZERO);
+    assert!(
+        plan.diagnostics.iter().any(
+            |diagnostic| diagnostic.message == "Expression operand crosses the Source boundary"
+        )
+    );
+    assert_eq!(
+        source.get(grid.cell_index(18).unwrap()).as_deref(),
+        Some("0")
+    );
+    assert_eq!(
+        source.get(grid.cell_index(19).unwrap()).as_deref(),
+        Some("3")
+    );
+    assert!(plan.writes.iter().all(|write| write.cell.get() < 24));
+}
+
+#[test]
+fn long_expressions_keep_their_complete_ownership() {
+    for source in [
+        ".+".repeat(33) + ".=0101",
+        ".+".repeat(33) + &"01".repeat(34) + ".=0101",
+    ] {
+        let grid = Grid::new(source.len(), 1);
+        let map = LanguageMap::derive(grid, &source).unwrap();
+        let expressions = map.expressions().collect::<Vec<_>>();
+        let first = expressions[0];
+        let expected_end = if source.len() == 72 { 71 } else { 133 };
+        assert_eq!(first.span().positions().last().unwrap().x(), expected_end);
+        assert_eq!(
+            first.root(),
+            if source.len() == 72 {
+                None
+            } else {
+                grid.position(0, 0)
+            }
+        );
+        assert_eq!(
+            map.expressions()
+                .filter_map(|entry| entry.root())
+                .collect::<Vec<_>>(),
+            if source.len() == 72 {
+                vec![]
+            } else {
+                vec![grid.position(0, 0).unwrap(), grid.position(134, 0).unwrap()]
+            }
+        );
+        if source.len() != 72 {
+            assert_eq!(map.diagnostics().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn long_expressions_execute_and_keep_independent_roots() {
+    let row = ".+".repeat(33) + &"01".repeat(34) + ".=0101";
+    let grid = Grid::new(row.len(), 2);
+    let mut source = Source::new(grid);
+    for (index, byte) in row.bytes().enumerate() {
+        source
+            .set(
+                grid.cell_index(index).unwrap(),
+                &char::from(byte).to_string(),
+            )
+            .unwrap();
+    }
+    let plan = source.execute(lang::Tick::ZERO);
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    assert_eq!(
+        source.get(grid.cell_index(140).unwrap()).as_deref(),
+        Some("2")
+    );
+    assert_eq!(
+        source.get(grid.cell_index(141).unwrap()).as_deref(),
+        Some("2")
+    );
+    assert_eq!(
+        source.get(grid.cell_index(274).unwrap()).as_deref(),
+        Some("*")
+    );
+    assert_eq!(
+        source.get(grid.cell_index(275).unwrap()).as_deref(),
+        Some("*")
+    );
+}
+
+#[test]
 fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions() {
     let grid = Grid::new(10, 2);
     let map = LanguageMap::derive(grid, ".+.x010203**        ").unwrap();
@@ -48,11 +175,14 @@ fn language_map_derives_row_confined_expressions_with_roots_and_nested_functions
 }
 
 #[test]
-fn language_map_reports_literal_incomplete_invalid_and_over_capacity_outcomes() {
+fn language_map_reports_literal_incomplete_and_invalid_outcomes() {
+    // `00` is not a Function spelling, so it is two refused Cells rather than
+    // one Expression: each is diagnosed where a Function was expected, and
+    // each is diagnosed again as a Cell that spells no Language Unit.
     let literal_grid = Grid::new(2, 1);
     let literal = LanguageMap::derive(literal_grid, "00").unwrap();
     assert_eq!(literal.expressions().next().unwrap().root(), None);
-    assert_eq!(literal.diagnostics().count(), 1);
+    assert_eq!(literal.diagnostics().count(), 4);
 
     let incomplete_grid = Grid::new(4, 1);
     let incomplete = LanguageMap::derive(incomplete_grid, ".+01").unwrap();
@@ -69,11 +199,11 @@ fn language_map_reports_literal_incomplete_invalid_and_over_capacity_outcomes() 
     );
 
     let source = ".+".repeat(16) + "00";
-    let over_capacity_grid = Grid::new(source.len(), 1);
-    let over_capacity = LanguageMap::derive(over_capacity_grid, &source).unwrap();
+    let long_incomplete_grid = Grid::new(source.len(), 1);
+    let long_incomplete = LanguageMap::derive(long_incomplete_grid, &source).unwrap();
     assert_eq!(
-        over_capacity.diagnostics().next().unwrap().message,
-        "expression exceeds the parser capacity of 32 atoms"
+        long_incomplete.diagnostics().next().unwrap().message,
+        "expected a token"
     );
 }
 
@@ -121,7 +251,7 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     source.unset(cell(5));
     assert_eq!(
         source.language_map().glyph_at(grid.position(4, 0).unwrap()),
-        Some(Glyph::Char)
+        Some(Glyph::Function)
     );
     assert_eq!(source.language_map().expressions().count(), 1);
     let diagnostic = source.language_map().diagnostics().next().unwrap();

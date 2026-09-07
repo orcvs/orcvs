@@ -49,7 +49,7 @@ The complete Source at the beginning of a Tick, including the accumulated output
 _Avoid_: Program state, runtime state
 
 **Expression**:
-A contiguous horizontal run of occupied Cells in one Source row that is parsed as one Orcvs language expression. Its first Function is the root Function; activating that root evaluates every nested Function needed by the Expression. An Expression never wraps across rows.
+A contiguous horizontal group of Cells established by parsing one Function and its operands, or one standalone Bang or Self-Banging Function. Operand Cells may be empty or invalid; nested Functions extend the containing Expression, which never crosses a row edge or Comment.
 _Avoid_: Formula, statement
 
 **Evaluator**:

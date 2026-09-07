@@ -531,9 +531,14 @@ mod test {
 
         app.set_at(5, 0, "x");
 
+        // Cell 5 is the second Cell of the Addition's second operand — ADR
+        // 0033 has `.+` claim six Cells whatever they hold — so it is
+        // presented as the operand it is. What this test is about is that the
+        // character survives the classification: an operand-slot Glyph never
+        // renders an occupied Cell as empty.
         assert_eq!(
             rendered(&app, position),
-            GlyphString::new(Some("x".to_string()), Glyph::Char)
+            GlyphString::new(Some("x".to_string()), Glyph::Number)
         );
     }
 
@@ -574,6 +579,7 @@ mod test {
         app.delete_at(1, 0);
 
         assert_eq!(app.cursor.position(), grid.position(0, 0).unwrap());
+        // The refused `+` owns only Cell 0; its neighbour is empty again.
         assert_eq!(
             rendered(&app, grid.position(1, 0).expect("inside the grid")),
             GlyphString::space()

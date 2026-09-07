@@ -249,7 +249,9 @@ mod tests {
         assert_eq!(frame.rows()[0][0].position(), grid.position(0, 0).unwrap());
         assert_eq!(frame.rows()[0][0].glyph(), Glyph::Space);
         assert_eq!(frame.rows()[0][1].content(), Some('x'));
-        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Char);
+        // A character standing where a Function goes is classified there,
+        // whether or not the table holds its spelling.
+        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Function);
         assert!(frame.rows()[0][1].selected());
         assert!(frame.rows()[0][1].cursor_visible());
         assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
@@ -280,8 +282,12 @@ mod tests {
 
         assert_eq!(frame.rows()[0][0].glyph(), Glyph::Bang);
         assert_eq!(frame.rows()[0][1].glyph(), Glyph::Bang);
-        assert_eq!(frame.rows()[0][2].glyph(), Glyph::Char);
-        assert_eq!(frame.rows()[0][3].glyph(), Glyph::Char);
+        // The third `*` is not half a Bang. It opens an Expression of its own
+        // whose spelling `*x` the Function table does not hold, and the `x`
+        // opens the one after that — each classified where a Function goes,
+        // because that is where each of them stands.
+        assert_eq!(frame.rows()[0][2].glyph(), Glyph::Function);
+        assert_eq!(frame.rows()[0][3].glyph(), Glyph::Function);
     }
 
     #[test]
@@ -322,7 +328,10 @@ mod tests {
         );
 
         assert_eq!(cell_at(&frame, grid.origin()).content(), Some('x'));
-        assert_eq!(cell_at(&frame, grid.origin()).glyph(), Glyph::Char);
+        // A lone character is the first Cell of a spelling the Function table
+        // does not hold, which is a classification like any other. What this
+        // test is about is that it survives sector presentation at all.
+        assert_eq!(cell_at(&frame, grid.origin()).glyph(), Glyph::Function);
     }
 
     #[test]

@@ -93,13 +93,8 @@ enum Shape {
 ///
 /// Read off the Function table rather than written down beside it, so a
 /// Function that declared a fifth operand would widen these buffers by being
-/// declared rather than by someone remembering to. It is a bound of its own and
-/// not `EXP_LEN` because the two count different things: `EXP_LEN` bounds the
-/// Atoms one Expression may hold, while what bounds an operand list is the
-/// signature the Function declares. Sizing an operand buffer at `EXP_LEN`
-/// spends 32 `Value` slots — the better part of a kilobyte moved out of
-/// [`Stack::broadcast`] on every operation — where the widest signature in the
-/// table reads four.
+/// declared rather than by someone remembering to. An operand list is bounded
+/// by its Function's signature, independently of the Expression's Atom count.
 const MAX_OPERANDS: usize = {
     let mut widest = 0;
     let mut index = 0;
@@ -233,31 +228,33 @@ impl Broadcast {
 /// operation or is refused is not decided here: every Function declares its
 /// pervasion in `define_functions!`, and the broadcast seam below asks.
 #[derive(Debug)]
-pub struct Stack<const N: usize> {
-    inner: ArrayVec<Value, N>,
+pub struct Stack {
+    inner: Vec<Value>,
+    limit: usize,
 }
 
-impl<const N: usize> Stack<N> {
-    pub fn new() -> Self {
+impl Stack {
+    pub fn new(limit: usize) -> Self {
         Self {
-            inner: ArrayVec::new(),
+            inner: Vec::with_capacity(limit),
+            limit,
         }
     }
 
     /// Pushes one value, diagnosing a stack with no slot left.
     ///
-    /// The caller that sizes the stack is responsible for the bound — `Args`
-    /// states why `EXP_LEN` slots suffice for every Expression the parser
-    /// accepts — so this answer is unreachable from Source today. It is an
-    /// answer rather than a panic because the Evaluator runs inside a Tick,
-    /// under the Source write guard, and a panic there stops Playback on the
-    /// native target and takes the editor with it on `wasm32`. A diagnostic
-    /// costs one `?` and leaves the failure describable.
+    /// The Interpreter supplies the Expression's Atom count as the limit.
+    /// Check that logical limit, not the allocator's possibly larger capacity.
     #[inline(always)]
     pub fn push(&mut self, value: impl Into<Value>) -> Result<(), Error> {
-        self.inner
-            .try_push(value.into())
-            .map_err(|_| InterpretationError::OperandStackExhausted { capacity: N }.into())
+        if self.inner.len() == self.limit {
+            return Err(InterpretationError::OperandStackExhausted {
+                capacity: self.limit,
+            }
+            .into());
+        }
+        self.inner.push(value.into());
+        Ok(())
     }
 
     /// Pops one slot as the scalar Atom a caller outside Function evaluation
@@ -619,12 +616,6 @@ impl<const N: usize> Stack<N> {
     }
 }
 
-impl<const N: usize> Default for Stack<N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Checks one operand Atom against the `Token` its declaration names.
 ///
 /// The one place the signature is read, so the scalar path and every element
@@ -676,15 +667,15 @@ impl TryFrom<Atom> for NumericValue {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, EXP_LEN, Error, Function,
+        ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
         InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
         SequenceError, Stack, TypeError, Value, Velocity,
         atom::operands,
         stack::{MAX_OPERANDS, NumericValue},
     };
 
-    fn empty_stack() -> Stack<16> {
-        Stack::new()
+    fn empty_stack() -> Stack {
+        Stack::new(16)
     }
 
     fn sequence() -> Sequence {
@@ -704,7 +695,7 @@ mod test {
     /// The broadcast tests below use an operation whose operands are not
     /// interchangeable, so a repeat or a pairing that lands on the wrong side
     /// changes the answer rather than only the shape.
-    fn difference(stack: &mut Stack<16>) -> Result<Value, Error> {
+    fn difference(stack: &mut Stack) -> Result<Value, Error> {
         stack.apply(|operands::Subtract { left, right }: operands::Subtract| {
             Ok(Atom::Number(left.wrapping_sub(right)))
         })
@@ -713,7 +704,7 @@ mod test {
     /// Division, per element, as `math::divide` states it: the one arithmetic
     /// Function with an operand pair that has no answer, which is what makes
     /// an evaluation fault at a chosen element observable.
-    fn quotient(stack: &mut Stack<16>) -> Result<Value, Error> {
+    fn quotient(stack: &mut Stack) -> Result<Value, Error> {
         stack.apply(
             |operands::Divide { left, right }: operands::Divide| match right {
                 0 => Err(InterpretationError::DivisionByZero.into()),
@@ -724,12 +715,12 @@ mod test {
 
     /// Equality, per pair, as `math::equality` states it: the one Function that
     /// answers once about every pair rather than once per pair.
-    fn all_equal(stack: &mut Stack<16>) -> Result<Value, Error> {
+    fn all_equal(stack: &mut Stack) -> Result<Value, Error> {
         stack.predicate(|operands::Equality { left, right }: operands::Equality| left == right)
     }
 
     /// `.^`, per element, as `numeric_conversion::to_note` states it.
-    fn to_note(stack: &mut Stack<16>) -> Result<Value, Error> {
+    fn to_note(stack: &mut Stack) -> Result<Value, Error> {
         stack.convert::<operands::ConvertToNote, _>(|value| match value {
             NumericValue::Note(value) => Ok(Atom::Note(value)),
             NumericValue::Number(value) => Ok(Atom::Note(Note::try_from(value)?)),
@@ -741,7 +732,7 @@ mod test {
     /// The Terminal Output half of the broadcast: ADR 0030 has `!>` extend
     /// under ADR 0007's rules like any Atomic Function, and differ only in
     /// answering a Play Command where an Atomic Function answers an Atom.
-    fn play(stack: &mut Stack<16>) -> Result<Performance, Error> {
+    fn play(stack: &mut Stack) -> Result<Performance, Error> {
         stack.perform(
             |operands::RawPlay {
                  channel,
@@ -761,7 +752,7 @@ mod test {
     /// Terminal Output Function with a fourth operand, so a Sequence has a
     /// position beyond Raw Play's to stand in and each element carries its own
     /// length.
-    fn timed_play(stack: &mut Stack<16>) -> Result<Performance, Error> {
+    fn timed_play(stack: &mut Stack) -> Result<Performance, Error> {
         stack.perform(
             |operands::TimedPlay {
                  channel,
@@ -780,7 +771,7 @@ mod test {
     }
 
     /// Control Change, per element, as `functions::control_change` states it.
-    fn control_change(stack: &mut Stack<16>) -> Result<Performance, Error> {
+    fn control_change(stack: &mut Stack) -> Result<Performance, Error> {
         stack.perform(
             |operands::ControlChange {
                  channel,
@@ -797,7 +788,7 @@ mod test {
     }
 
     /// Pitch Bend, per element, as `functions::pitch_bend` states it.
-    fn pitch_bend(stack: &mut Stack<16>) -> Result<Performance, Error> {
+    fn pitch_bend(stack: &mut Stack) -> Result<Performance, Error> {
         stack.perform(
             |operands::PitchBend { channel, lsb, msb }: operands::PitchBend| {
                 Ok(PlayCommand::PitchBend { channel, lsb, msb })
@@ -848,7 +839,7 @@ mod test {
     }
 
     /// Pushes `operands` so extraction pops them in signature order.
-    fn push_all(stack: &mut Stack<16>, operands: impl IntoIterator<Item = Value>) {
+    fn push_all(stack: &mut Stack, operands: impl IntoIterator<Item = Value>) {
         let operands: Vec<Value> = operands.into_iter().collect();
         for operand in operands.into_iter().rev() {
             stack.push(operand).unwrap();
@@ -858,7 +849,7 @@ mod test {
     #[test]
     fn no_function_declares_more_operands_than_one_broadcast_buffer_holds() {
         // A broadcast sizes its buffers to the widest signature rather than to
-        // `EXP_LEN`, and `ArrayVec::push` panics on overflow — inside a Tick,
+        // Expression length, and `ArrayVec::push` panics on overflow — inside a Tick,
         // under the Source write guard ADR 0028 rules that out. The capacity is
         // derived from the same table the signatures come from, so this reads
         // that table a second way rather than restating a number: a Function
@@ -873,10 +864,6 @@ mod test {
         assert_eq!(
             MAX_OPERANDS, widest,
             "a declared operand list outgrows the buffer a broadcast pops it into"
-        );
-        assert!(
-            widest < EXP_LEN,
-            "the operand buffer is the parser's Expression bound under another name"
         );
     }
 
@@ -2087,12 +2074,12 @@ mod test {
 
     #[test]
     fn an_exhausted_operand_stack_diagnoses_rather_than_panicking() {
-        // `Args` sizes the Operand Stack so no Expression the parser accepts
+        // The Interpreter sizes the stack so no Expression the parser accepts
         // can reach this, and the answer exists anyway: the Evaluator runs
         // inside a Tick under the Source write guard, where a panic costs
         // Playback rather than the Expression. A two-slot stack states the
-        // behaviour without depending on the size `Args` chooses.
-        let mut stack: Stack<2> = Stack::new();
+        // behaviour independently of any Expression's size.
+        let mut stack = Stack::new(2);
         stack.push(Atom::Number(0)).unwrap();
         stack.push(Atom::Number(1)).unwrap();
 

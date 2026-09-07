@@ -22,8 +22,6 @@ pub use tick::{Anchor, Tick, TickInputs};
 
 use std::sync::Once;
 
-pub const EXP_LEN: usize = 32;
-
 /// One interpreted MIDI instruction a Terminal Output Function emits for
 /// delivery during a Tick.
 ///

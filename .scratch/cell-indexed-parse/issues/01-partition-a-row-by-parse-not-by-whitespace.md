@@ -22,21 +22,46 @@ is Source — and stays stated in one place.
 
 **Tags:** release/v1
 
-- [ ] The walk advances by what the Parser read, and spaces are no longer a partition rule.
-- [ ] The Parser receives the row's Cells and the Cell index they start at, and no Source bytes are
+- [x] The walk advances by what the Parser read, and spaces are no longer a partition rule.
+- [x] The Parser receives the row's Cells and the Cell index they start at, and no Source bytes are
       copied into a fresh string per Expression.
-- [ ] Two Language Units written with no space between them are established as two units.
-- [ ] `**^^` establishes the Expressions the Parser finds, not one assembled from units.
-- [ ] The standalone-run assembly path, its tiling check, and the caller-asserted consumed width it
+- [x] Two Language Units written with no space between them are established as two units.
+- [x] `**^^` establishes the Expressions the Parser finds, not one assembled from units.
+- [x] The standalone-run assembly path, its tiling check, and the caller-asserted consumed width it
       used are deleted.
-- [ ] The trailing-content reconstruction is deleted, and the verdict it restored is unchanged for
+- [x] The trailing-content reconstruction is deleted, and the verdict it restored is unchanged for
       every Source that had one.
-- [ ] A two-Cell spelling is never read across a row edge.
-- [ ] The rebuild-equivalence property still holds: a rebuilt Map equals the Map a full build would
+- [x] A two-Cell spelling is never read across a row edge.
+- [x] The rebuild-equivalence property still holds: a rebuilt Map equals the Map a full build would
       have made.
-- [ ] The parse boundary rule is recorded in an ADR beside the Comment rule.
+- [x] The parse boundary rule is recorded in an ADR beside the Comment rule.
 
 ## Comments
 
 This absorbs `language-map/08`, which describes the same change. That ticket should be closed as
 absorbed rather than worked separately.
+
+Recorded as ADR 0033. Three deletions went further than the checkboxes asked, because keeping them
+meant keeping a rule to explain them:
+
+- `AnalysisStatus::Incomplete` and `Record::Incomplete` are gone. They only ever meant "the fragment
+  ended", and a row does not end mid-Expression: a spelling or a slot the row edge cuts short is
+  refused like any other. Two states, not three.
+- `SourceAnalysis::consumed()` is gone and `cells()` replaces it. A width has to be re-based against
+  an anchor; an address does not.
+- `analyze` is total. The capacity bound is a fact about the Expression rather than about where it
+  ends, so it is reported as an invalid Expression of the Cells that were read, and the row walk
+  needs no second rule for how far to advance. `try_parse` still refuses.
+
+`root_layout`'s two whitespace-era guards went with them: the `span_width > layout_width` check that
+produced "trailing Source makes this Expression structurally unstable", and the
+`offset <= span_width` filter `8e7bdce` added. Both compared an arity claim against a whitespace
+run, and there is no whitespace run.
+
+**What that costs, and who owes it.** With the slot filter gone, a half-typed `!>00` claims all eight
+Cells its arity declares, so a `**` written into Cells 6-7 is its Note operand rather than an
+activation and the Play root beneath takes no turn.
+`a_half_typed_function_claims_every_cell_its_arity_declares` states this. The claim is right — one
+derivation, and both readings now agree the Cell is a slot — but the Tick is silent about it, and
+ADR 0032 requires that verdict before publishing. `cell-indexed-parse/03` draws it; until then this
+Source is refused without saying so.
