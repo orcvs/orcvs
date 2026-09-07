@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{
     Activation, Atom, Atoms, Error as LangError, Expression, Function, Parser, SourceAnalysis,
-    Token, to_atom_note, to_atom_num,
+    SyntaxError, Token, to_atom_note, to_atom_num,
 };
 
 use crate::{
@@ -444,7 +444,18 @@ impl LanguageMap {
             "a Span is analyzed from the units covering it"
         );
         if let Some(expression) = standalone_run(&self.units[units], span) {
-            return Ok(SourceAnalysis::Complete(expression));
+            // `standalone_run` answers only when its units tile the Span end to
+            // end, so the assembled Expression spans all of it.
+            //
+            // This is the second producer of a consumed length, and it does not
+            // agree with the Parser: `**^^` is one four-Cell Expression here and
+            // a two-Cell Bang with `^^` still to read there. The disagreement is
+            // older than `consumed` — it is why this path exists at all, since
+            // a run of standalone Atoms is the one shape the Parser cannot take
+            // whole — and reporting the Parser's answer instead would diagnose
+            // `^^` as trailing content and change what a Tick plays. Issue 08
+            // settles it by deleting this path, not by reconciling the two.
+            return Ok(SourceAnalysis::complete(expression, span_len(span)));
         }
 
         let mut source = String::from_utf8(bytes[span.start().get()..=span.end().get()].to_vec())
@@ -478,9 +489,23 @@ impl LanguageMap {
             }
         };
 
-        let executable = matches!(analysis, SourceAnalysis::Complete(_));
+        // The Parser now reports where an Expression ends rather than refusing
+        // the Source that follows it, and this Map still partitions rows by
+        // whitespace. Restoring the verdict here keeps the two in step until
+        // the partition is rebuilt on the boundary the Parser reports.
+        let trailing = analysis
+            .is_complete()
+            .then(|| start.get() + analysis.consumed())
+            .filter(|rest| *rest <= end.get())
+            .map(|rest| {
+                let trailing = String::from_utf8(bytes[rest..=end.get()].to_vec())
+                    .expect("Source Cells contain ASCII");
+                LangError::from(SyntaxError::UnexpectedTrailingContent(trailing))
+            });
+        let executable = analysis.is_complete() && trailing.is_none();
         let diagnostic = analysis
             .error()
+            .or(trailing.as_ref())
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
         let expression_units = &self.units[units.clone()];
@@ -728,6 +753,13 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
     let first = units.partition_point(|unit| grid.index(unit.anchor) < span.start());
     let past_last = units.partition_point(|unit| grid.index(unit.anchor) <= span.end());
     first..past_last
+}
+
+///
+/// How many Cells a Span covers.
+///
+fn span_len(span: Span) -> usize {
+    span.end().get() - span.start().get() + 1
 }
 
 ///
