@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::grid::{CellIndex, Grid, Position};
 
-use super::language_map::{ExpressionEntry, LanguageMap};
+use super::language_map::{ExpressionEntry, LanguageMap, Span};
 use super::portal::{Portal, PortalError, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 
@@ -455,15 +455,37 @@ fn schedule<'a>(
     // turns "every slot before this one" into a short run of candidates.
     let widest_slot = slots.iter().map(|slot| slot.token.len()).max().unwrap_or(0);
 
+    // Every run this Tick's writes have to live beside, in the row-major order
+    // the Map builds its Expressions in.
+    //
+    // Runs, not roots: a run holding no Function candidate is still Source the
+    // next parse reads, and a result written into one changes what that parse
+    // sees exactly as much as a result written into a root's does.
+    //
+    // And the runs as this Tick leaves them, not as the starting Snapshot
+    // spells them: stale Bang display is cleared before the first root takes
+    // its turn, so a result written where a `**` stood is written into empty
+    // Source and joins nothing.
+    let cleared: Vec<Span> = map.bangs().map(|(_, span)| span).collect();
+    let mut spans: Vec<Span> = Vec::new();
+    for expression in map.expressions() {
+        extend_surviving_runs(grid, expression.span(), &cleared, &mut spans);
+    }
+    debug_assert!(
+        spans.is_sorted_by_key(|span| span.start()),
+        "disturbed_expression searches Expression Spans in Cell order",
+    );
+
     let mut diagnostics = Vec::new();
     let mut output_is_slot = vec![false; roots.len()];
     let mut dependencies = Vec::new();
     let mut output_cells: BTreeMap<CellIndex, usize> = BTreeMap::new();
-    // Producers whose destination would join a neighbouring run, and the
-    // diagnostic each one owes. Applied after the walk, because taking a
+    // Producers whose destination this Tick cannot deliver to — one that
+    // crosses the row edge, one that would disturb a neighbouring run — and
+    // the diagnostic each one owes. Applied after the walk, because taking a
     // root's destination away while the walk still reads destinations would
     // change the answer the walk is in the middle of giving.
-    let mut joins: Vec<(usize, Diagnostic)> = Vec::new();
+    let mut withdrawn: Vec<(usize, Diagnostic)> = Vec::new();
     for (producer_index, producer) in roots.iter().enumerate() {
         let output = match producer.output {
             Ok(Some(output)) => output,
@@ -472,11 +494,19 @@ fn schedule<'a>(
             // failure only after evaluation establishes that a value exists.
             Err(_) => continue,
         };
+        // A destination with only one Cell left in its row can receive no
+        // scalar result. That is a property of one Expression's anchor, like
+        // the layout that crosses the same edge in `root_layout`, so it costs
+        // that Expression its turn's destination and leaves every other root
+        // playing rather than rejecting the whole Tick.
         if grid.offset_in_row(output, 1).is_none() {
-            diagnostics.push(Diagnostic::for_expression(
-                producer.anchor,
-                producer.expression.span(),
-                "a scalar output crosses the row edge".to_owned(),
+            withdrawn.push((
+                producer_index,
+                Diagnostic::for_expression(
+                    producer.anchor,
+                    producer.expression.span(),
+                    "a scalar output crosses the row edge".to_owned(),
+                ),
             ));
             continue;
         }
@@ -486,23 +516,6 @@ fn schedule<'a>(
             grid.cell_index(output_start.get() + 1)
                 .expect("a checked two-Cell output is inside the Grid"),
         ];
-        // Both Cells are registered, and `count` is what registers them: the
-        // collision they may reveal is one collision, this producer meeting
-        // whichever producer reached the destination first, and a two-Cell
-        // output is not two conflicts. No producer can meet itself here —
-        // the two Cells are distinct keys and no two roots share an anchor.
-        let contended = output_indices
-            .into_iter()
-            .filter_map(|cell| output_cells.insert(cell, producer_index))
-            .count()
-            > 0;
-        if contended {
-            diagnostics.push(Diagnostic::for_expression(
-                producer.anchor,
-                producer.expression.span(),
-                "multiple current-Tick producers write the same Cell".to_owned(),
-            ));
-        }
 
         for slot in covering_slots(&slots, widest_slot, output_start.get()) {
             let Slot {
@@ -533,23 +546,26 @@ fn schedule<'a>(
         }
 
         // A row is partitioned into runs at its spaces, so a two-Cell result
-        // written flush against another Expression's run joins the two. The
-        // next parse then walks one longer run whose first Language Unit is no
-        // longer the Function that was there, and the root this graph is
-        // executing stops existing — permanently, because the display that
-        // replaced it is no longer a Bang any cleanup can find.
+        // written into or flush against another Expression's run makes the
+        // next parse walk a different run: one whose first Language Unit is no
+        // longer what was there, and whose Cells the graph this Tick executed
+        // no longer describes. Whatever was displayed there stops existing —
+        // permanently, because the display that replaced it is no longer a
+        // Bang any cleanup can find.
         //
         // Only an output that landed on no parsed slot is asked. Abutting a
         // run is exactly how a write completes an incomplete Function, whose
-        // missing slots run past its own extent; that write is the supported
-        // case and the slots above already accounted for it. What is left is a
-        // structural projection the stable graph cannot take, and ADR 0032
-        // diagnoses it rather than executing it.
+        // missing slots run past its own extent; landing inside one is how a
+        // write repairs a typed operand. Both are the supported case and the
+        // slots above already accounted for them. What is left is a structural
+        // projection the stable graph cannot take, and ADR 0032 diagnoses it
+        // rather than executing it.
         if !output_is_slot[producer_index]
-            && let Some(joined) = adjacent_root(grid, &roots, producer_index, output_start)
+            && let Some(disturbed) =
+                disturbed_expression(grid, &spans, producer.expression.span(), output_start)
         {
-            let neighbour = roots[joined].anchor;
-            joins.push((
+            let neighbour = grid.position_at(disturbed.start());
+            withdrawn.push((
                 producer_index,
                 Diagnostic::for_expression(
                     producer.anchor,
@@ -562,6 +578,29 @@ fn schedule<'a>(
                 ),
             ));
             continue;
+        }
+
+        // Both Cells are registered, and `count` is what registers them: the
+        // collision they may reveal is one collision, this producer meeting
+        // whichever producer reached the destination first, and a two-Cell
+        // output is not two conflicts. No producer can meet itself here —
+        // the two Cells are distinct keys and no two roots share an anchor.
+        //
+        // Registered only once every reason to withdraw this destination has
+        // been asked, because a producer that is about to lose its destination
+        // writes nothing: holding its Cells here would reject the Tick over a
+        // conflict with a writer that no longer exists.
+        let contended = output_indices
+            .into_iter()
+            .filter_map(|cell| output_cells.insert(cell, producer_index))
+            .count()
+            > 0;
+        if contended {
+            diagnostics.push(Diagnostic::for_expression(
+                producer.anchor,
+                producer.expression.span(),
+                "multiple current-Tick producers write the same Cell".to_owned(),
+            ));
         }
 
         if producer.function.can_emit_bang() && !output_is_slot[producer_index] {
@@ -590,14 +629,14 @@ fn schedule<'a>(
         }
     }
 
-    // A destination that would join a neighbouring run is taken away rather
-    // than executed, and the root keeps its turn without one. It reaches the
-    // same settled state as a root that answered with absence, which is what
-    // it now is: a value nobody can receive. Only a destination that landed on
-    // no parsed slot arrives here, so no consumer was waiting on it and no
-    // Data edge is being cut — the rest of the program plays, as it does for
-    // any other failure local to one Expression.
-    for (producer_index, diagnostic) in joins {
+    // A destination this Tick cannot deliver to is taken away rather than
+    // executed, and the root keeps its turn without one. It reaches the same
+    // settled state as a root that answered with absence, which is what it now
+    // is: a value nobody can receive. Only a destination that landed on no
+    // parsed slot arrives here, so no consumer was waiting on it and no Data
+    // edge is being cut — the rest of the program plays, as it does for any
+    // other failure local to one Expression.
+    for (producer_index, diagnostic) in withdrawn {
         roots[producer_index].output = Ok(None);
         excluded.push(diagnostic);
     }
@@ -676,6 +715,105 @@ fn schedule<'a>(
 }
 
 ///
+/// What is left of `span` once this Tick has cleared the stale Bang display
+/// inside it, as the runs a space-partitioned row would then hold.
+///
+/// A Source-resident `**` is display from an earlier Tick and is blanked
+/// before any root takes its turn, so the Cells it occupied are empty by the
+/// time a result is written. An Expression that was nothing but Bangs leaves
+/// no run at all; one that mixes them with Activations leaves the stretches
+/// between them.
+///
+/// `cleared` is every Bang the starting parse established, in Cell order, and
+/// each lies wholly inside exactly one Expression Span. Those Spans ascend
+/// too, so the Bangs inside one are a contiguous stretch of `cleared` and are
+/// found by search rather than by testing every Bang against every Span.
+///
+/// Appended to `runs` rather than returned, so one Source revision's runs cost
+/// one allocation rather than one per Expression on a path a Tick runs under
+/// the playback deadline. Spans ascend, so appending keeps `runs` in Cell
+/// order.
+///
+fn extend_surviving_runs(grid: Grid, span: Span, cleared: &[Span], runs: &mut Vec<Span>) {
+    let mut run = |start: usize, end: usize| {
+        runs.push(Span::new(
+            grid,
+            grid.cell_index(start)
+                .expect("a Cell of an Expression Span"),
+            grid.cell_index(end).expect("a Cell of an Expression Span"),
+        ));
+    };
+
+    let end = span.end().get();
+    let mut start = span.start().get();
+    let first = cleared.partition_point(|bang| bang.end().get() < start);
+    for bang in cleared[first..]
+        .iter()
+        .take_while(|bang| bang.start().get() <= end)
+    {
+        if start < bang.start().get() {
+            run(start, bang.start().get() - 1);
+        }
+        start = bang.end().get() + 1;
+    }
+    if start <= end {
+        run(start, end);
+    }
+}
+
+///
+/// The Expression run a two-Cell output written at `output` would disturb:
+/// one it lands inside, or one it is written flush against.
+///
+/// A row is partitioned at its spaces, so an output changes what the next
+/// parse reads by overlapping a run or by abutting one, and it is the run
+/// rather than the root that decides this: an Expression holding no Function
+/// candidate — a bare Operand Literal, or a candidate the schedule already
+/// excluded — declares no operand slot, so nothing else in this walk answers
+/// for a result written into it.
+///
+/// Only an output that landed on no parsed operand slot asks, so an overlap
+/// reaching here is an overlap with a run that declared no slot for the Cells
+/// being written. A root that declared them answered through `covering_slots`
+/// instead, as a Data edge, a structural rejection, or a partial cover.
+///
+/// The producer's own run is not an answer: a root writing inside its own
+/// Expression is the fixed-destination question `covering_slots` owns, and a
+/// root cannot join itself. It is recognised by its Span, which is exact: a
+/// root's Expression leads with a Function candidate, so no Bang inside it is
+/// ever cleared and its surviving run is the whole of it.
+///
+/// `spans` is every Expression Span of the revision in Cell order and Spans
+/// within a row do not overlap, so the runs that can reach a given output are
+/// one short stretch of it, found by search rather than by scanning them all
+/// on a path a Tick runs under the playback deadline.
+///
+fn disturbed_expression(
+    grid: Grid,
+    spans: &[Span],
+    producer: Span,
+    output: CellIndex,
+) -> Option<Span> {
+    let output_start = output.get();
+    let output_end = output_start + 1;
+    let row = grid.position_at(output).y();
+
+    // The first run that ends late enough to touch the output or to sit
+    // immediately before it; from there, runs that begin past one Cell after
+    // the output cannot reach back to it.
+    let first = spans.partition_point(|span| span.end().get() + 1 < output_start);
+    spans[first..]
+        .iter()
+        .copied()
+        .take_while(|span| span.start().get() <= output_end + 1)
+        .filter(|span| *span != producer)
+        // A Span is confined to one row, but the Cell either side of an output
+        // at a row edge belongs to the next row or the previous one, so the
+        // row is asked rather than assumed.
+        .find(|span| grid.position_at(span.start()).y() == row)
+}
+
+///
 /// Every slot a two-Cell output starting at `output` lands on any part of,
 /// in the root order a producer's diagnostics follow.
 ///
@@ -686,46 +824,6 @@ fn schedule<'a>(
 /// preconditions rather than checks — a `widest` that understates one slot
 /// would drop it silently — so both are asserted in a test build.
 ///
-///
-/// The root whose run a two-Cell output written at `output` would join.
-///
-/// A row is partitioned at its spaces, so an output is joined to a run only by
-/// being flush against it. Exactly two roots can be flush against a given
-/// output — the one whose run begins one Cell after the output ends, and the
-/// one whose run ends one Cell before it begins — so this asks about the
-/// handful of roots around that point rather than scanning all of them, on a
-/// path a Tick runs under the playback deadline.
-///
-/// `roots` is in anchor order, which is span order: an Expression's anchor
-/// sits inside its own span, and spans partition each row left to right.
-///
-/// An output that overlaps a run rather than abutting it is not this
-/// question. That is either a write to a parsed operand slot or a structural
-/// write over one, and both are already answered by the slots.
-///
-fn adjacent_root(
-    grid: Grid,
-    roots: &[ScheduledRoot<'_>],
-    producer: usize,
-    output: CellIndex,
-) -> Option<usize> {
-    let output_start = output.get();
-    let output_end = output_start + 1;
-    let row = grid.position_at(output).y();
-
-    let boundary =
-        roots.partition_point(|root| root.expression.span().start().get() < output_start);
-
-    (boundary.saturating_sub(1)..=boundary + 1)
-        .take_while(|index| *index < roots.len())
-        .filter(|index| *index != producer)
-        .find(|index| {
-            let span = roots[*index].expression.span();
-            grid.position_at(span.start()).y() == row
-                && (span.start().get() == output_end + 1 || span.end().get() + 1 == output_start)
-        })
-}
-
 fn covering_slots(slots: &[Slot], widest: usize, output: usize) -> Vec<Slot> {
     debug_assert!(
         slots.is_sorted_by_key(|slot| slot.start),
@@ -985,6 +1083,179 @@ mod test {
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("found \"**\"")),
             "the rejected operand keeps its syntax diagnostic: {:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn a_result_written_where_stale_bang_display_stood_joins_nothing() {
+        // The Bang a comparison leaves on the Grid is an Expression of the
+        // next revision, and the same comparison writes over it every Tick.
+        // The join guard reads the runs this Tick leaves rather than the ones
+        // the starting Snapshot spells, so the run that was there is already
+        // cleared and the repeated write is the ordinary case it looks like —
+        // not a producer joining its own display.
+        let grid = Grid::new(16, 3);
+        let bytes = snapshot(grid, &[".=0101", "**", ""]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+
+        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+
+        assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
+        assert_eq!(
+            plan.diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[test]
+    fn a_result_landing_on_a_run_with_no_root_is_refused_like_any_other_join() {
+        // The guard exists because a two-Cell result written into a
+        // neighbouring run makes the next parse walk a different run, and the
+        // display that replaced it is no longer a Bang any cleanup can find.
+        // Nothing in that turns on the neighbouring run holding a Function:
+        // `0102` is an Expression too, it declares no operand slot for the
+        // Cells beside it, and `**0102` is a run whose Bang `bangs()` never
+        // yields — so the Bang stays in the Source for every later Tick and
+        // the literal beside it is destroyed.
+        //
+        // Both geometries are the same failure: the abutting write joins the
+        // run, and the overlapping write lands inside it.
+        let abutting_grid = Grid::new(8, 3);
+        let abutting_bytes = snapshot(abutting_grid, &[".=0101", "  0102", ""]);
+        let abutting_map = LanguageMap::build(abutting_grid, abutting_bytes.as_bytes());
+
+        let abutting = super::plan(
+            abutting_grid,
+            abutting_bytes.as_bytes(),
+            &abutting_map,
+            Tick::ZERO,
+        );
+
+        assert_eq!(planned(&abutting), vec![]);
+        assert!(
+            abutting.diagnostics.iter().any(|diagnostic| {
+                diagnostic.message
+                    == "current-Tick output would join the Expression at column 2, row 1"
+            }),
+            "the abutting write went unreported: {:?}",
+            abutting.diagnostics
+        );
+
+        let overlapping_grid = Grid::new(10, 3);
+        let overlapping_bytes = snapshot(overlapping_grid, &["    .=0101", "  0102", ""]);
+        let overlapping_map = LanguageMap::build(overlapping_grid, overlapping_bytes.as_bytes());
+
+        let overlapping = super::plan(
+            overlapping_grid,
+            overlapping_bytes.as_bytes(),
+            &overlapping_map,
+            Tick::ZERO,
+        );
+
+        assert_eq!(planned(&overlapping), vec![]);
+        assert!(
+            overlapping.diagnostics.iter().any(|diagnostic| {
+                diagnostic.message
+                    == "current-Tick output would join the Expression at column 2, row 1"
+            }),
+            "the overlapping write went unreported: {:?}",
+            overlapping.diagnostics
+        );
+    }
+
+    #[test]
+    fn a_destination_at_the_row_edge_costs_one_expression_its_turn_not_the_tick() {
+        // `root_layout` routes "Expression layout crosses the row edge" into
+        // the excluded candidates so every other root still plays. A
+        // destination with one Cell left in its row is the same shape of
+        // failure — one Expression's anchor, not the graph — and used to
+        // reject the whole Tick instead.
+        //
+        // `Portal::ordinary_result` cannot reach the last column today: a
+        // Function spelling is two Cells, so a root anchor is at most `cols-2`
+        // and so is the destination below it. The destination override is the
+        // entry point that can, and ADR 0009 expects destination resolution to
+        // change.
+        let grid = Grid::new(16, 4);
+        let bytes = snapshot(grid, &[".+0102", "", ".+0304", ""]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [(
+            grid.cell_index(0).unwrap(),
+            grid.position(15, 1).expect("inside the Grid"),
+        )]
+        .into_iter()
+        .collect();
+
+        let plan =
+            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(
+            planned(&plan),
+            vec![(48, '0'), (49, '7')],
+            "the other root still plays: {:?}",
+            plan.diagnostics
+        );
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message == "a scalar output crosses the row edge"),
+            "the Expression at the row edge keeps its own diagnostic: {:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn a_withdrawn_destination_holds_no_cell_against_the_producer_that_keeps_one() {
+        // A producer the join guard removes writes nothing, so the Cells it
+        // asked for are free. Registering them before that verdict made a
+        // later producer collide with a writer that no longer exists, and one
+        // Expression's local failure rejected the whole Tick.
+        //
+        // The two destinations share exactly one Cell. The first abuts the
+        // literal run beside it and loses its destination; the second is one
+        // Cell further on, abuts nothing, and is the only writer left.
+        let grid = Grid::new(16, 3);
+        let bytes = snapshot(grid, &[".+0102 .+0304", "0102", ""]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [
+            (
+                grid.cell_index(0).unwrap(),
+                grid.position(4, 1).expect("inside the Grid"),
+            ),
+            (
+                grid.cell_index(7).unwrap(),
+                grid.position(5, 1).expect("inside the Grid"),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let plan =
+            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(
+            planned(&plan),
+            vec![(21, '0'), (22, '7')],
+            "the surviving producer still writes: {:?}",
+            plan.diagnostics
+        );
+        assert!(
+            plan.diagnostics.iter().any(|diagnostic| {
+                diagnostic.message
+                    == "current-Tick output would join the Expression at column 0, row 1"
+            }),
+            "the withdrawn producer keeps its own diagnostic: {:?}",
+            plan.diagnostics
+        );
+        assert!(
+            !plan.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("multiple current-Tick producers")),
+            "nothing collided with a writer that no longer exists: {:?}",
             plan.diagnostics
         );
     }
