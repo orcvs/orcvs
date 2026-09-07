@@ -11,13 +11,18 @@ use crate::to_atom_note;
 use crate::to_atom_num;
 
 ///
-/// What the Parser read from one Source, and how much of it that took.
+/// What was read from one Source, and how much of it that took.
 ///
-/// An Expression has a fixed width, set by its root Function's arity, so the
-/// Source beyond `consumed` is the next Expression's to read and not evidence
-/// that this one is wrong. Reporting the boundary rather than a verdict about
-/// the whole Source is what lets a caller resume after it, which is the
-/// partition ADR 0018 describes.
+/// An Expression the Parser reads has a fixed width, set by its root
+/// Function's arity, so the Source beyond `consumed` is the next Expression's
+/// to read and not evidence that this one is wrong. Reporting the boundary
+/// rather than a verdict about the whole Source is what lets a caller resume
+/// after it, which is the partition ADR 0018 describes.
+///
+/// `complete` takes its width from a caller that assembled the Expression
+/// without the Parser, so that width answers to the caller's partition rather
+/// than to arity and can reach past where a root Function would have ended.
+/// The arity claim scopes to the Parser, not to every `SourceAnalysis`.
 ///
 #[derive(Debug)]
 pub struct SourceAnalysis {
