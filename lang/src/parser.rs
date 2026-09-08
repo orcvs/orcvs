@@ -870,19 +870,6 @@ mod test {
         }
     }
 
-    /// Every Atom of an Expression, rendered back to Source text.
-    pub(super) fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
-        atoms.into_iter().map(|atom| atom.to_string()).collect()
-    }
-
-    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
-    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
-    ///
-    pub(super) fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
-        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
-        (spelled, wrappers + 2 * depth + 1)
-    }
-
     ///
     /// Source that is not ASCII declines to parse rather than panicking.
     ///
@@ -1028,7 +1015,9 @@ mod test {
 /// rather than a property: the two operand domains hold 384 values between
 /// them, which is small enough to enumerate and too small to be worth
 /// sampling. `mod test` also holds the non-ASCII regression and the
-/// `every_atom_of`, `addition_chain` and `rendered` helpers this module uses.
+/// `every_atom_of` helper this module uses; `addition_chain` and `rendered`
+/// are drawn on from here alone, so they sit here and leave the WASM build
+/// with this module rather than needing a `cfg` of their own.
 ///
 /// `orcvs::source::language_map`'s `mod property` has a fragment generator of
 /// the same shape, and the two are deliberately separate: `orcvs` depends on
@@ -1044,7 +1033,7 @@ mod test {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
 
-    use super::test::{addition_chain, every_atom_of, rendered};
+    use super::test::every_atom_of;
     use crate::{Atom, Error, Function, SyntaxError, Token, parser::Parser};
     use proptest::prelude::*;
     use proptest::sample::select;
@@ -1059,6 +1048,19 @@ mod property {
     /// than a single unit to read.
     ///
     const FRAGMENTS: usize = 24;
+
+    /// Every Atom of an Expression, rendered back to Source text.
+    fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
+        atoms.into_iter().map(|atom| atom.to_string()).collect()
+    }
+
+    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
+    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
+    ///
+    fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
+        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
+        (spelled, wrappers + 2 * depth + 1)
+    }
 
     /// The Atoms that are a whole Language Unit on their own: the Bang and
     /// every Activation, read from `Activation::ALL` so a fifth one is drawn
