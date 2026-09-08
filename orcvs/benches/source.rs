@@ -141,11 +141,9 @@ fn occupied_cells(orcvs: &Orcvs<InMemoryOutputAdapter>) -> usize {
 ///
 /// Source shapes for the Tick series, which reaches past the editing sizes.
 ///
-/// A Tick's cost follows the number of Expression roots rather than the number
-/// of Cells, and the ordering work between them grows faster than either. The
-/// editing series brackets what a console holds; this one carries on until
-/// that growth is legible, because a shape where it is not says nothing about
-/// whether the next change made it worse.
+/// Larger shapes expose repeated scans of unrelated computations. Doubling
+/// both dimensions quadruples the populated area; a much larger increase in
+/// time can reveal quadratic work even when no spatial dependencies exist.
 ///
 const TICK_SIZES: &[(usize, usize)] = &[(16, 16), (32, 32), (64, 64), (128, 128)];
 
@@ -365,8 +363,9 @@ fn execute_tick(c: &mut Criterion) {
 /// Separate from the series above rather than folded into it, because the two
 /// answer different questions and one cannot stand in for the other: the
 /// ordinary series measures what a Tick costs per Cell, and this one measures
-/// what it costs per edge between roots. Ordering work is what grows with the
-/// square of the root count, and only a Source that has edges shows it.
+/// what it costs to discover and order dependencies between roots, including
+/// Bang activation. Keep both series: an all-pairs lookup regression also
+/// makes independent roots expensive even though their outputs touch no input.
 ///
 fn execute_tick_with_edges(c: &mut Criterion) {
     tick_series(c, "source_execute_tick_edges", edged_source_text);

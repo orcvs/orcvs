@@ -45,8 +45,106 @@ pub(super) struct Configuration {
 
 struct Schedule {
     nodes: Vec<Computation>,
+    lookup: Lookup,
     order: Vec<usize>,
     diagnostics: Vec<Diagnostic>,
+}
+
+struct Claim {
+    cells: Range<usize>,
+    node: usize,
+}
+
+/// Physical claims are disjoint; enclosing expression spans are not indexed.
+/// Empty operands at a Source boundary claim no Cells and must not participate
+/// in the binary search. Global Cell indices also distinguish adjacent rows.
+struct Claims(Vec<Claim>);
+
+impl Claims {
+    fn new(mut claims: Vec<Claim>) -> Self {
+        claims.retain(|claim| !claim.cells.is_empty());
+        claims.sort_unstable_by_key(|claim| claim.cells.start);
+        debug_assert!(
+            claims
+                .windows(2)
+                .all(|pair| pair[0].cells.end <= pair[1].cells.start)
+        );
+        Self(claims)
+    }
+
+    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = usize> + '_ {
+        let first = self
+            .0
+            .partition_point(|claim| claim.cells.end <= cells.start);
+        self.0[first..]
+            .iter()
+            .take_while(move |claim| claim.cells.start < cells.end)
+            .map(|claim| claim.node)
+    }
+}
+
+struct Lookup {
+    functions: Claims,
+    literals: Claims,
+    operands: Claims,
+    subtree_ends: Vec<usize>,
+}
+
+impl Lookup {
+    fn new(grid: Grid, nodes: &[Computation]) -> Self {
+        let mut functions = Vec::new();
+        let mut literals = Vec::new();
+        let mut operands = Vec::new();
+        let mut subtree_ends: Vec<_> = (1..=nodes.len()).collect();
+        for (index, node) in nodes.iter().enumerate() {
+            let start = grid.index(node.anchor).get();
+            functions.push(Claim {
+                cells: start..start + 2,
+                node: index,
+            });
+            for operand in &node.operands {
+                operands.push(Claim {
+                    cells: operand.cells.clone(),
+                    node: index,
+                });
+                if operand.child.is_none() {
+                    literals.push(Claim {
+                        cells: operand.cells.clone(),
+                        node: index,
+                    });
+                }
+            }
+        }
+        // Nodes retain the Parser's depth-first preorder. Every subtree is a
+        // contiguous range, including its root, even with missing operands.
+        for index in (0..nodes.len()).rev() {
+            if let Some(parent) = nodes[index].parent {
+                subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[index]);
+            }
+        }
+        Self {
+            functions: Claims::new(functions),
+            literals: Claims::new(literals),
+            operands: Claims::new(operands),
+            subtree_ends,
+        }
+    }
+
+    fn descendants(&self, ancestor: usize) -> Range<usize> {
+        ancestor..self.subtree_ends[ancestor]
+    }
+
+    fn root_at(&self, grid: Grid, nodes: &[Computation], anchor: Position) -> Option<usize> {
+        let cell = grid.index(anchor).get();
+        self.functions
+            .touching(cell..cell + 1)
+            .find(|&index| nodes[index].parent.is_none() && nodes[index].anchor == anchor)
+    }
+
+    fn is_operand_destination(&self, grid: Grid, output: Position) -> bool {
+        let start = grid.index(output).get();
+        self.operands.touching(start..start + 2).next().is_some()
+    }
 }
 
 pub(super) fn plan(grid: Grid, bytes: &[u8], map: &LanguageMap, tick: Tick) -> TickPlan {
@@ -111,6 +209,7 @@ pub(super) fn plan_configured(
         effects.push(Effect::Write(clear));
     }
     let nodes = &schedule.nodes;
+    let lookup = &schedule.lookup;
     let mut results: Vec<Option<Value>> = vec![None; nodes.len()];
     let mut syntax_blocked = vec![false; nodes.len()];
     let mut activated = vec![false; nodes.len()];
@@ -250,20 +349,18 @@ pub(super) fn plan_configured(
                         };
                     let output = output.expect("an admitted write has a destination");
                     if value == Value::Atom(Atom::Bang)
-                        && !is_operand_destination(grid, nodes, output)
+                        && !lookup.is_operand_destination(grid, output)
                     {
                         for anchor in activated_anchors(grid, output).into_iter().flatten() {
-                            if let Some(owner) = nodes
-                                .iter()
-                                .position(|node| node.parent.is_none() && node.anchor == anchor)
-                            {
+                            if let Some(owner) = lookup.root_at(grid, nodes, anchor) {
                                 activated[owner] = true;
                             }
                         }
                     }
                     let start = grid.index(output).get();
                     if let Value::Atom(Atom::Function(replacement)) = value
-                        && nodes.iter().any(|target| {
+                        && lookup.functions.touching(start..start + 1).any(|target| {
+                            let target = &nodes[target];
                             grid.index(target.anchor).get() == start
                                 && (replacement.is_terminal() != target.function.is_terminal()
                                     || replacement.can_emit_bang()
@@ -278,11 +375,15 @@ pub(super) fn plan_configured(
                     }
                     // A schedule defect must not panic under the Source lock
                     // or publish any of this Tick's already accumulated effects.
-                    if nodes.iter().enumerate().any(|(target, computation)| {
-                        let anchor = grid.index(computation.anchor).get();
-                        overlaps(&(start..start + encoding.len()), &(anchor..anchor + 2))
-                            && descendants(nodes, target).any(|descendant| executed[descendant])
-                    }) {
+                    if lookup
+                        .functions
+                        .touching(start..start + encoding.len())
+                        .any(|target| {
+                            lookup
+                                .descendants(target)
+                                .any(|descendant| executed[descendant])
+                        })
+                    {
                         let mut diagnostics: Vec<_> = effects
                             .into_iter()
                             .filter_map(|effect| {
@@ -303,19 +404,17 @@ pub(super) fn plan_configured(
                             diagnostics,
                         };
                     }
-                    for (target, computation) in nodes.iter().enumerate() {
-                        let anchor = grid.index(computation.anchor).get();
-                        if overlaps(&(start..start + encoding.len()), &(anchor..anchor + 2)) {
-                            if start == anchor
-                                && !suppressed[target]
-                                && let Value::Atom(Atom::Function(replacement)) = value
-                            {
-                                functions[target] = replacement;
-                                continue;
-                            }
-                            for descendant in descendants(nodes, target) {
-                                suppressed[descendant] = true;
-                            }
+                    for target in lookup.functions.touching(start..start + encoding.len()) {
+                        let anchor = grid.index(nodes[target].anchor).get();
+                        if start == anchor
+                            && !suppressed[target]
+                            && let Value::Atom(Atom::Function(replacement)) = value
+                        {
+                            functions[target] = replacement;
+                            continue;
+                        }
+                        for descendant in lookup.descendants(target) {
+                            suppressed[descendant] = true;
                         }
                     }
                     apply_write(&mut working, &write);
@@ -327,44 +426,23 @@ pub(super) fn plan_configured(
     resolve(effects)
 }
 
-fn descendants(nodes: &[Computation], ancestor: usize) -> impl Iterator<Item = usize> + '_ {
-    (0..nodes.len()).filter(move |index| {
-        let mut current = Some(*index);
-        while let Some(index) = current {
-            if index == ancestor {
-                return true;
-            }
-            current = nodes[index].parent;
-        }
-        false
-    })
-}
-
-fn overlaps(left: &Range<usize>, right: &Range<usize>) -> bool {
-    !left.is_empty() && !right.is_empty() && left.start < right.end && right.start < left.end
-}
-
-fn is_operand_destination(grid: Grid, nodes: &[Computation], output: Position) -> bool {
-    let start = grid.index(output).get();
-    nodes.iter().any(|node| {
-        node.operands
-            .iter()
-            .any(|operand| overlaps(&operand.cells, &(start..start + 2)))
-    })
-}
-
 /// An inactive root can contribute no child Portal. Start from value roots,
 /// then close over potential Bang deliveries; actual activation is still
 /// checked during execution, after those producers have settled.
-fn potentially_active(grid: Grid, nodes: &[Computation]) -> Vec<bool> {
+fn potentially_active(grid: Grid, nodes: &[Computation], lookup: &Lookup) -> Vec<bool> {
     let mut active: Vec<_> = nodes
         .iter()
         .map(|node| node.parent.is_none() && !node.function.is_terminal())
         .collect();
-    loop {
-        let mut changed = false;
-        for node in nodes {
-            if !active[node.owner] || !node.function.can_emit_bang() {
+    let mut pending: Vec<_> = active
+        .iter()
+        .enumerate()
+        .filter_map(|(index, active)| active.then_some(index))
+        .collect();
+    while let Some(owner) = pending.pop() {
+        for index in lookup.descendants(owner) {
+            let node = &nodes[index];
+            if !node.function.can_emit_bang() {
                 continue;
             }
             for output in node
@@ -373,27 +451,23 @@ fn potentially_active(grid: Grid, nodes: &[Computation]) -> Vec<bool> {
                 .filter_map(|output| output.as_ref().ok())
             {
                 if grid.offset_in_row(*output, 1).is_none()
-                    || is_operand_destination(grid, nodes, *output)
+                    || lookup.is_operand_destination(grid, *output)
                 {
                     continue;
                 }
-                let anchors = activated_anchors(grid, *output);
-                for (index, target) in nodes.iter().enumerate() {
-                    if target.parent.is_none()
-                        && target.function.is_terminal()
-                        && anchors.contains(&Some(target.anchor))
+                for anchor in activated_anchors(grid, *output).into_iter().flatten() {
+                    if let Some(index) = lookup.root_at(grid, nodes, anchor)
+                        && nodes[index].function.is_terminal()
                         && !active[index]
                     {
                         active[index] = true;
-                        changed = true;
+                        pending.push(index);
                     }
                 }
             }
         }
-        if !changed {
-            return active;
-        }
     }
+    active
 }
 
 fn schedule(
@@ -481,7 +555,8 @@ fn schedule(
             diagnostics.push(diagnose(node, boundary));
         }
     }
-    let active = potentially_active(grid, &nodes);
+    let lookup = Lookup::new(grid, &nodes);
+    let active = potentially_active(grid, &nodes, &lookup);
     let mut edges = BTreeSet::new();
     for (index, node) in nodes.iter().enumerate() {
         if let Some(parent) = node.parent {
@@ -500,27 +575,22 @@ fn schedule(
             }
             let start = grid.index(*output).get();
             let cells = start..start + 2;
-            for (consumer, target) in nodes.iter().enumerate() {
-                let anchor = grid.index(target.anchor).get();
-                if overlaps(&cells, &(anchor..anchor + 2)) {
-                    for descendant in descendants(&nodes, consumer) {
-                        edges.insert((index, descendant));
-                    }
-                }
-                if target
-                    .operands
-                    .iter()
-                    .any(|operand| operand.child.is_none() && overlaps(&cells, &operand.cells))
-                {
-                    edges.insert((index, consumer));
+            for consumer in lookup.functions.touching(cells.clone()) {
+                for descendant in lookup.descendants(consumer) {
+                    edges.insert((index, descendant));
                 }
             }
-            if node.function.can_emit_bang() && !is_operand_destination(grid, &nodes, *output) {
-                let anchors = activated_anchors(grid, *output);
-                for (consumer, target) in nodes.iter().enumerate() {
-                    let owner = &nodes[target.owner];
-                    if owner.function.is_terminal() && anchors.contains(&Some(owner.anchor)) {
-                        edges.insert((index, consumer));
+            for consumer in lookup.literals.touching(cells) {
+                edges.insert((index, consumer));
+            }
+            if node.function.can_emit_bang() && !lookup.is_operand_destination(grid, *output) {
+                for anchor in activated_anchors(grid, *output).into_iter().flatten() {
+                    if let Some(owner) = lookup.root_at(grid, &nodes, anchor)
+                        && nodes[owner].function.is_terminal()
+                    {
+                        for consumer in lookup.descendants(owner) {
+                            edges.insert((index, consumer));
+                        }
                     }
                 }
             }
@@ -558,6 +628,7 @@ fn schedule(
     }
     Ok(Schedule {
         nodes,
+        lookup,
         order,
         diagnostics,
     })
