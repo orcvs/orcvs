@@ -4,9 +4,7 @@
 
 ## Goal
 
-Implement ADRs 0004, 0006, 0009, 0014, and 0020 as one row-major Tick planning pass over the Language Map. Bang
-activation, Self-Banging Function effects, Jump relay, Halt locks, ordinary writes, diagnostics,
-and terminal commands share one total producer order.
+Integrate performative spatial behavior with the dependency-ordered Tick contract of ADR 0032. The replacement execution foundation is tracked in [tick-execution-order](../tick-execution-order/spec.md). Directional movement, Jump, and Halt must adapt their read/write and activation semantics to that contract before implementation; their old row-major assumptions are not authorization to restore the superseded runtime.
 
 ## Delivery order
 
@@ -16,7 +14,7 @@ and terminal commands share one total producer order.
 4. `issues/04-add-directional-jump-chains.md`
 5. `issues/05-add-halt-root-locking.md`
 
-## Required behavior
+## Historical required behavior — superseded by ADR 0032
 
 - Every actionable Language Unit/root present in the Source Snapshot receives at most one turn.
 - Producer anchor Position and emission order provide total deterministic effect ordering.

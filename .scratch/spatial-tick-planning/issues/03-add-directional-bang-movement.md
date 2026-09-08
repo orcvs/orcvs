@@ -3,7 +3,7 @@
 **What to build:** Implement `*^`, `*v`, `*<`, and `*>` plus the root-only Self-Banging Functions
 `^^`, `vv`, `<<`, and `>>` using the representation selected by the focused prototype.
 
-**Blocked by:** 02 — Add Source Bang activation and expiry; activation-representation/01 — Prototype the Activation representation.
+**Blocked by:** 02 — Add Source Bang activation and expiry; activation-representation/01 — Prototype the Activation representation; language-map/06 — Stop reading a Language Unit spelling as spatial semantics.
 
 **Status:** ready-for-agent
 

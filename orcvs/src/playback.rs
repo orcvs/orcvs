@@ -1453,23 +1453,6 @@ mod tests {
     }
 
     ///
-    /// Clears `len` Cells from `start`, so a test can retire the Bang that
-    /// activates a terminal root.
-    ///
-    /// A Source-resident Bang persists across Ticks, so an activated terminal
-    /// root repeats on every Tick until `spatial-tick-planning/02` gives the
-    /// Bang its one-Tick expiry. A test about what the Playback Engine
-    /// schedules retires the Bang instead, which leaves every Tick after it
-    /// carrying the schedule alone.
-    ///
-    fn erase(source: &SourceCommander, start: usize, len: usize) {
-        let grid = source.grid();
-        for offset in 0..len {
-            source.unset(cell(grid, start + offset));
-        }
-    }
-
-    ///
     /// Runs the Tick numbered `tick` of a hand-driven run, on time.
     ///
     /// The engine counts executed Ticks, so a test that runs them in order
@@ -1498,8 +1481,8 @@ mod tests {
         expression: &str,
     ) -> (PlaybackEngine<InMemoryOutputAdapter>, InMemoryOutputAdapter) {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, expression);
-        write(&source, 10, "**");
+        write(&source, 0, ".=0101");
+        write(&source, 20, expression);
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -1536,10 +1519,10 @@ mod tests {
 
     #[tokio::test]
     async fn clock_tick_commits_source_before_submitting_play_commands() {
-        let source = SourceCommander::new(Grid::new(10, 4));
-        write(&source, 0, ".+0102");
-        write(&source, 20, "!>007FC4");
-        write(&source, 30, "**");
+        let source = SourceCommander::new(Grid::new(10, 12));
+        write(&source, 20, ".+0102");
+        write(&source, 80, "!>007FC4");
+        write(&source, 60, ".=0101");
         let engine =
             PlaybackEngine::new(source.clone(), RecordingAdapter::observing(source.clone()));
         engine.activate_for_test();
@@ -1549,8 +1532,8 @@ mod tests {
             .expect("scheduled Tick runs");
 
         let inner = engine.inner.lock().unwrap();
-        assert_eq!(&inner.adapter.source_at_submission[0][10..12], "03");
-        assert_eq!(&source.snapshot()[10..12], "03");
+        assert_eq!(&inner.adapter.source_at_submission[0][30..32], "03");
+        assert_eq!(&source.snapshot()[30..32], "03");
         assert_eq!(tick.play_commands.len(), 1);
         assert_eq!(
             inner.adapter.command_lists,
@@ -1565,7 +1548,7 @@ mod tests {
         // counter is the whole of what is observable today — no Function reads
         // the Tick yet — so the count is what is pinned.
         let engine = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 3)),
+            SourceCommander::new(Grid::new(10, 9)),
             InMemoryOutputAdapter::default(),
         );
         engine.activate_for_test();
@@ -1592,7 +1575,7 @@ mod tests {
         // engine declines one is pinned, because each is a separate early
         // return that a later change could move the increment above.
         let engine = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 3)),
+            SourceCommander::new(Grid::new(10, 9)),
             InMemoryOutputAdapter::default(),
         );
 
@@ -1638,7 +1621,7 @@ mod tests {
         // lifetime of the engine: a run that is stopped and started again is a
         // new run and counts from `0` again.
         let engine = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 3)),
+            SourceCommander::new(Grid::new(10, 9)),
             InMemoryOutputAdapter::default(),
         );
 
@@ -1668,7 +1651,7 @@ mod tests {
         // begun after it must still open at absolute Tick `0` with no last Tick
         // behind it for the clock to schedule against.
         let engine = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 3)),
+            SourceCommander::new(Grid::new(10, 9)),
             InMemoryOutputAdapter::default(),
         );
         engine.activate_for_test();
@@ -1695,7 +1678,7 @@ mod tests {
         // does not end that run. Resetting the counter here would silently
         // restart every Tick-reading Function's cycle each time the tempo moved.
         let engine = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 3)),
+            SourceCommander::new(Grid::new(10, 9)),
             InMemoryOutputAdapter::default(),
         );
 
@@ -1710,15 +1693,15 @@ mod tests {
 
     #[tokio::test]
     async fn live_editing_changes_the_next_unsampled_tick() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
-        source.set(cell(source.grid(), 6), "D").unwrap();
+        source.set(cell(source.grid(), 26), "D").unwrap();
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
 
         // ADR 0012's other half of Live Editing: the edit lands in the next
@@ -1733,11 +1716,11 @@ mod tests {
 
     #[tokio::test]
     async fn repeated_commands_are_dispatched_as_exact_tick_lists() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
-        let engine = PlaybackEngine::new(source, adapter.clone());
+        let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         engine.clock_tick(scheduled(Duration::ZERO, Duration::ZERO));
@@ -1750,10 +1733,10 @@ mod tests {
 
     #[tokio::test]
     async fn an_inactive_terminal_root_reaches_the_output_adapter_as_an_empty_command_list() {
-        let source = SourceCommander::new(Grid::new(10, 3));
+        let source = SourceCommander::new(Grid::new(10, 9));
         // The Raw Play has no Bang anywhere in the Source, so nothing
         // activates its root.
-        write(&source, 0, "!>007FC4");
+        write(&source, 20, "!>007FC4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -1768,12 +1751,12 @@ mod tests {
 
     #[tokio::test]
     async fn two_active_terminal_roots_dispatch_in_tick_plan_order_within_one_submission() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        // One Bang between the two roots activates both: the row above it is
-        // its north anchor and the row below it is its south anchor.
-        write(&source, 0, "!>0001C4");
-        write(&source, 10, "**");
-        write(&source, 20, "!>017FA4");
+        let source = SourceCommander::new(Grid::new(10, 12));
+        // Each comparison emits a fresh Bang one row above its terminal root.
+        write(&source, 20, "!>0001C4");
+        write(&source, 0, ".=0101");
+        write(&source, 60, ".=0101");
+        write(&source, 80, "!>017FA4");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -1788,19 +1771,23 @@ mod tests {
 
     #[tokio::test]
     async fn control_change_and_pitch_bend_reach_the_adapter_unresolved_and_in_tick_plan_order() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        // One Bang between the two roots activates both, as it does for two
-        // Play roots: the row above it is its north anchor and the row below
-        // it its south anchor.
-        write(&source, 0, "!c010207");
-        write(&source, 10, "**");
-        write(&source, 20, "!b032A33");
+        let source = SourceCommander::new(Grid::new(10, 6));
+        // Each terminal is activated by its own producer, one row above it.
+        // Per ADR 0032 a produced Bang's north anchor is the producer that
+        // wrote it, so a single Bang cannot serve a root above and a root
+        // below; the ordering under test is between the two terminals, which
+        // ADR 0020 takes from their Source Positions.
+        write(&source, 0, ".=0101");
+        write(&source, 20, "!c010207");
+        write(&source, 30, ".=0101");
+        write(&source, 50, "!b032A33");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
+        write(&source, 30, ".=0102");
         for tick in 1..=2 {
             run_tick(&engine, tick);
         }
@@ -1808,7 +1795,7 @@ mod tests {
         // Neither spelling has a lifetime, so the engine has nothing to
         // resolve and nothing to schedule: the two commands arrive in Tick
         // Plan order within the one submission their Tick makes, and the Ticks
-        // after the Bang is retired owe nothing at all. Every operand differs
+        // after the producers stop answering with Bang owe nothing at all. Every operand differs
         // from every other, here as in the Function's own role test, so a
         // transposition anywhere along the way changes this list.
         assert_eq!(
@@ -1824,15 +1811,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_timed_play_starts_in_tick_plan_order_and_stops_at_the_tick_its_length_names() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC402");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC402");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 1..=3 {
             run_tick(&engine, tick);
         }
@@ -1855,19 +1842,19 @@ mod tests {
 
     #[tokio::test]
     async fn a_repeated_timed_play_stops_the_instance_it_replaces_and_retires_its_expiry() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
-        // The Bang stands, so the root plays again on each of these three
-        // Ticks, each command replacing the instance the last one owned.
+        // The comparison emits a fresh Bang every Tick, replacing the note
+        // instance owned by the previous Tick.
         for tick in 0..=2 {
             run_tick(&engine, tick);
         }
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 3..=5 {
             run_tick(&engine, tick);
         }
@@ -1891,17 +1878,17 @@ mod tests {
 
     #[tokio::test]
     async fn a_timed_play_with_velocity_zero_stops_the_note_and_schedules_nothing() {
-        let source = SourceCommander::new(Grid::new(10, 3));
+        let source = SourceCommander::new(Grid::new(10, 9));
         // A stop still carries and validates its length, and the length still
         // schedules nothing: ADR 0016 keeps the arity fixed either way.
-        write(&source, 0, "!~0000C405");
-        write(&source, 10, "**");
+        write(&source, 20, "!~0000C405");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 1..=6 {
             run_tick(&engine, tick);
         }
@@ -1919,9 +1906,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_timed_play_with_no_length_emits_nothing_and_leaves_the_note_it_finds_standing() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -1930,9 +1917,9 @@ mod tests {
         // A lifetime of no Ticks, live-edited into the length operand. It is
         // not a stop, so the note started at Tick 0 keeps both its sound and
         // the stop it is due.
-        write(&source, 8, "00");
+        write(&source, 28, "00");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=3 {
             run_tick(&engine, tick);
         }
@@ -1950,9 +1937,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_stale_expiry_cannot_stop_the_note_claimed_after_it() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -1961,12 +1948,12 @@ mod tests {
         // which retires that claim while leaving its scheduled stop where it
         // was, and Tick 2 claims the same voice again until Tick 7.
         run_tick(&engine, 0);
-        write(&source, 4, "00");
+        write(&source, 24, "00");
         run_tick(&engine, 1);
-        write(&source, 4, "7F");
-        write(&source, 8, "05");
+        write(&source, 24, "7F");
+        write(&source, 28, "05");
         run_tick(&engine, 2);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 3..=7 {
             run_tick(&engine, tick);
         }
@@ -1991,20 +1978,20 @@ mod tests {
 
     #[tokio::test]
     async fn a_stop_due_this_tick_is_delivered_before_the_play_commands_that_tick_plans() {
-        let source = SourceCommander::new(Grid::new(10, 5));
-        write(&source, 0, "!~007FC401");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 15));
+        write(&source, 20, "!~007FC401");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        // Retire the Timed root and activate a Raw Play of the note it owns,
+        // Make the Timed root comparison false and activate a Raw Play of its note,
         // so Tick 1 carries both a stop due from Tick 0 and a command of its
         // own for the voice that stop names.
-        erase(&source, 10, 2);
-        write(&source, 30, "!>007FC4");
-        write(&source, 40, "**");
+        write(&source, 0, ".=0102");
+        write(&source, 110, "!>007FC4");
+        write(&source, 90, ".=0101");
         run_tick(&engine, 1);
 
         // The order is the whole of what ADR 0016 asks of the Tick a stop
@@ -2023,9 +2010,9 @@ mod tests {
 
     #[tokio::test]
     async fn two_notes_on_one_channel_are_owned_and_stopped_independently() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2034,9 +2021,9 @@ mod tests {
         // A second note on the channel the first is sounding on. Timed Play is
         // polyphonic, and ADR 0016 gives one voice per channel to Monophonic
         // Play alone, so this starts a note rather than replacing one.
-        write(&source, 6, "E4");
+        write(&source, 26, "E4");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=4 {
             run_tick(&engine, tick);
         }
@@ -2058,9 +2045,9 @@ mod tests {
 
     #[tokio::test]
     async fn one_note_on_two_channels_is_owned_and_stopped_independently() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2068,9 +2055,9 @@ mod tests {
         run_tick(&engine, 0);
         // The same note on a second channel, which is a second instrument
         // sounding it: the channel discriminates as the note does.
-        write(&source, 2, "01");
+        write(&source, 22, "01");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=4 {
             run_tick(&engine, tick);
         }
@@ -2090,18 +2077,20 @@ mod tests {
 
     #[tokio::test]
     async fn two_timed_plays_for_one_voice_within_one_tick_leave_the_second_owning_it() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        // One Bang between the two roots activates both, so one Tick Plan
-        // carries two commands for the same voice.
-        write(&source, 0, "!~007FC405");
-        write(&source, 10, "**");
-        write(&source, 20, "!~007FC402");
+        let source = SourceCommander::new(Grid::new(10, 12));
+        // A comparison above each root emits a fresh Bang one row above it,
+        // so one Tick Plan carries two commands for the same voice.
+        write(&source, 20, "!~007FC405");
+        write(&source, 0, ".=0101");
+        write(&source, 60, ".=0101");
+        write(&source, 80, "!~007FC402");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
+        write(&source, 60, ".=0102");
         for tick in 1..=5 {
             run_tick(&engine, tick);
         }
@@ -2128,14 +2117,14 @@ mod tests {
     #[tokio::test]
     async fn a_monophonic_play_starts_in_tick_plan_order_and_stops_at_the_tick_its_length_names() {
         let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!%007FC402");
-        write(&source, 10, "**");
+        write(&source, 0, ".=0101");
+        write(&source, 20, "!%007FC402");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 1..=3 {
             run_tick(&engine, tick);
         }
@@ -2157,9 +2146,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_monophonic_play_stops_whatever_note_its_channel_was_sounding() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!%007FC405");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!%007FC405");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2169,9 +2158,9 @@ mod tests {
         // ownership is keyed by channel alone, so this replaces the voice
         // rather than joining it, and what it stops is the note the claim
         // recorded rather than the note this command names.
-        write(&source, 6, "E4");
+        write(&source, 26, "E4");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=6 {
             run_tick(&engine, tick);
         }
@@ -2198,9 +2187,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_monophonic_play_with_velocity_zero_replaces_the_voice_with_silence() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!%007FC405");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!%007FC405");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2208,10 +2197,10 @@ mod tests {
         run_tick(&engine, 0);
         // Velocity `00`, and a note operand that is not the note sounding, so
         // the stop can only have come from the claim.
-        write(&source, 4, "00");
-        write(&source, 6, "A4");
+        write(&source, 24, "00");
+        write(&source, 26, "A4");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=6 {
             run_tick(&engine, tick);
         }
@@ -2230,7 +2219,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_monophonic_stop_on_a_channel_it_never_owned_delivers_nothing() {
-        let source = SourceCommander::new(Grid::new(10, 3));
+        let source = SourceCommander::new(Grid::new(10, 9));
         // Velocity `00` on a channel this engine holds no claim on. Timed
         // Play's velocity `00` is an explicit stop and is delivered whether or
         // not a claim stands, because the Source named the note it stops.
@@ -2238,14 +2227,14 @@ mod tests {
         // there is no note to name and nothing to send: the voice was already
         // silent, and a Note Off here would stop whatever else is sounding
         // that pitch on the channel.
-        write(&source, 0, "!%0000C405");
-        write(&source, 10, "**");
+        write(&source, 20, "!%0000C405");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 1..=5 {
             run_tick(&engine, tick);
         }
@@ -2263,9 +2252,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_monophonic_play_with_no_length_replaces_the_voice_with_silence() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!%007FC405");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!%007FC405");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2275,9 +2264,9 @@ mod tests {
         // channel rather than its note, so a command that starts nothing has
         // still replaced the voice — with silence — and the note it replaced
         // is stopped rather than left standing until its own expiry.
-        write(&source, 8, "00");
+        write(&source, 28, "00");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=6 {
             run_tick(&engine, tick);
         }
@@ -2296,9 +2285,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_stale_mono_expiry_cannot_stop_the_voice_claimed_after_it() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!%007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!%007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2307,12 +2296,12 @@ mod tests {
         // retires that claim while leaving its scheduled stop where it was,
         // and Tick 2 claims the same channel again until Tick 7.
         run_tick(&engine, 0);
-        write(&source, 4, "00");
+        write(&source, 24, "00");
         run_tick(&engine, 1);
-        write(&source, 4, "7F");
-        write(&source, 8, "05");
+        write(&source, 24, "7F");
+        write(&source, 28, "05");
         run_tick(&engine, 2);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 3..=7 {
             run_tick(&engine, tick);
         }
@@ -2338,9 +2327,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_mono_voice_is_owned_per_channel_and_channels_do_not_steal_from_one_another() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!%007FC403");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!%007FC403");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2348,9 +2337,9 @@ mod tests {
         run_tick(&engine, 0);
         // The same note on a second channel, which is a second instrument
         // sounding it. One voice per channel is one voice each.
-        write(&source, 2, "01");
+        write(&source, 22, "01");
         run_tick(&engine, 1);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 2..=4 {
             run_tick(&engine, tick);
         }
@@ -2373,18 +2362,20 @@ mod tests {
 
     #[tokio::test]
     async fn two_monophonic_plays_for_one_channel_within_one_tick_leave_the_second_owning_it() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        // One Bang between the two roots activates both, so one Tick Plan
-        // carries two commands for the same channel.
-        write(&source, 0, "!%007FC405");
-        write(&source, 10, "**");
-        write(&source, 20, "!%007FE402");
+        let source = SourceCommander::new(Grid::new(10, 12));
+        // A comparison above each root emits a fresh Bang one row above it,
+        // so one Tick Plan carries two commands for the same channel.
+        write(&source, 20, "!%007FC405");
+        write(&source, 0, ".=0101");
+        write(&source, 60, ".=0101");
+        write(&source, 80, "!%007FE402");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
+        write(&source, 60, ".=0102");
         for tick in 1..=5 {
             run_tick(&engine, tick);
         }
@@ -2410,12 +2401,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_mono_voice_due_to_expire_is_stopped_once_by_the_tick_that_replaces_it() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        // A lifetime of one Tick, replayed every Tick by a Bang that stands,
-        // so every Tick after the first carries both a due stop and a command
-        // for the voice that stop names.
-        write(&source, 0, "!%007FC401");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        // A lifetime of one Tick, replayed every Tick by a comparison that
+        // stays true, so every Tick after the first carries both a due stop
+        // and a command for the voice that stop names.
+        write(&source, 20, "!%007FC401");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2439,9 +2430,9 @@ mod tests {
 
     #[tokio::test]
     async fn timed_and_mono_own_separately_and_neither_owns_a_raw_note() {
-        let source = SourceCommander::new(Grid::new(10, 8));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
@@ -2453,15 +2444,15 @@ mod tests {
         // would find a claim to replace here, where ADR 0016 gives Timed and
         // Mono ownerships that cannot see one another.
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
-        write(&source, 20, "!~007FC403");
-        write(&source, 30, "**");
+        write(&source, 0, ".=0102");
+        write(&source, 50, "!~007FC403");
+        write(&source, 30, ".=0101");
         run_tick(&engine, 1);
-        erase(&source, 30, 2);
-        write(&source, 40, "!%007FC403");
-        write(&source, 50, "**");
+        write(&source, 30, ".=0102");
+        write(&source, 80, "!%007FC403");
+        write(&source, 60, ".=0101");
         run_tick(&engine, 2);
-        erase(&source, 50, 2);
+        write(&source, 60, ".=0102");
         for tick in 3..=6 {
             run_tick(&engine, tick);
         }
@@ -2494,15 +2485,15 @@ mod tests {
         // once. Asserting it of `!~` alone would leave the claim CONTEXT.md
         // makes the same promise to untested.
         for expression in ["!~007FC402", "!%007FC402"] {
-            let source = SourceCommander::new(Grid::new(10, 3));
-            write(&source, 0, expression);
-            write(&source, 10, "**");
+            let source = SourceCommander::new(Grid::new(10, 9));
+            write(&source, 20, expression);
+            write(&source, 0, ".=0101");
             let adapter = InMemoryOutputAdapter::default();
             let engine = PlaybackEngine::new(source.clone(), adapter.clone());
             engine.activate_for_test();
 
             run_tick(&engine, 0);
-            erase(&source, 10, 2);
+            write(&source, 0, ".=0102");
             run_tick(&engine, 1);
             // The adapter refuses the Tick the stop is due at. The schedule
             // describes what is sounding, so a stop no device received leaves
@@ -2533,15 +2524,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_scheduled_stop_is_due_at_an_absolute_tick_rather_than_at_a_clock_tick() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!~007FC402");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!~007FC402");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         // A Tick the engine declines consumes no absolute Tick, so it moves
         // nothing towards the stop either: the note lasts the two Ticks it
         // was given however many clock ticks pass.
@@ -2568,15 +2559,15 @@ mod tests {
 
     #[tokio::test]
     async fn raw_play_notes_never_enter_timed_ownership() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
         engine.activate_for_test();
 
         run_tick(&engine, 0);
-        erase(&source, 10, 2);
+        write(&source, 0, ".=0102");
         for tick in 1..=4 {
             run_tick(&engine, tick);
         }
@@ -2634,9 +2625,9 @@ mod tests {
 
     #[tokio::test]
     async fn missed_deadline_is_dropped_and_the_next_scheduled_tick_runs() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.activate_for_test();
@@ -2658,9 +2649,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn playback_clock_reports_each_overrun_and_resumes_without_wall_clock_sleep() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
         engine.start(Duration::from_secs(1)).unwrap();
@@ -2683,9 +2674,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn cancelled_clock_cannot_stop_or_tick_restarted_playback() {
-        let source = SourceCommander::new(Grid::new(10, 3));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 9));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         let engine = PlaybackEngine::new(source, adapter.clone());
 
@@ -2725,10 +2716,10 @@ mod tests {
 
     #[tokio::test]
     async fn adapter_failure_does_not_roll_back_source_or_stop_playback() {
-        let source = SourceCommander::new(Grid::new(10, 4));
-        write(&source, 0, ".+0102");
-        write(&source, 20, "!>007FC4");
-        write(&source, 30, "**");
+        let source = SourceCommander::new(Grid::new(10, 12));
+        write(&source, 20, ".+0102");
+        write(&source, 80, "!>007FC4");
+        write(&source, 60, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("output unavailable");
         let engine = PlaybackEngine::new(source.clone(), adapter.clone());
@@ -2738,7 +2729,7 @@ mod tests {
             .clock_tick(scheduled(Duration::ZERO, Duration::ZERO))
             .expect("Source Tick still succeeds");
 
-        assert_eq!(&source.snapshot()[10..12], "03");
+        assert_eq!(&source.snapshot()[30..32], "03");
         assert_eq!(failed_dispatch.play_commands.len(), 1);
         assert!(engine.is_playing());
         assert_eq!(
@@ -2749,14 +2740,14 @@ mod tests {
         );
 
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
-        assert_eq!(adapter.command_lists().len(), 1);
+        assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
     }
 
     #[tokio::test]
     async fn stopping_and_disconnecting_each_send_all_notes_off() {
         let stopped_adapter = InMemoryOutputAdapter::default();
         let stopped = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 2)),
+            SourceCommander::new(Grid::new(10, 6)),
             stopped_adapter.clone(),
         );
         stopped.start(Duration::from_secs(1)).unwrap();
@@ -2764,7 +2755,7 @@ mod tests {
 
         let disconnected_adapter = InMemoryOutputAdapter::default();
         let disconnected = PlaybackEngine::new(
-            SourceCommander::new(Grid::new(10, 2)),
+            SourceCommander::new(Grid::new(10, 6)),
             disconnected_adapter.clone(),
         );
         disconnected.start(Duration::from_secs(1)).unwrap();
@@ -2844,9 +2835,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn start_is_idempotent_and_observation_drains_diagnostics() {
-        let source = SourceCommander::new(Grid::new(10, 2));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("device lost");
         let engine = PlaybackEngine::new(source, adapter.clone());
@@ -2890,9 +2881,9 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_the_final_handle_during_a_tick_completes_playback_safety() {
-        let source = SourceCommander::new(Grid::new(10, 2));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let control = BlockingOutputControl::default();
         let engine = PlaybackEngine::new(
             source,
@@ -2920,9 +2911,9 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn clock_failure_remains_observable_after_output_panics() {
-        let source = SourceCommander::new(Grid::new(10, 2));
-        write(&source, 0, "!>007FC4");
-        write(&source, 10, "**");
+        let source = SourceCommander::new(Grid::new(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
         let delivery_started = Arc::new(AtomicBool::new(false));
         let engine = PlaybackEngine::new(
             source,

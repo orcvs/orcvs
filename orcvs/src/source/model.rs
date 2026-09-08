@@ -4,6 +4,8 @@ use tracing::debug;
 
 use crate::grid::{CellIndex, Grid};
 
+use std::collections::BTreeSet;
+
 use super::language_map::{LanguageMap, Span};
 use super::tick;
 use super::{CellContent, SourceError};
@@ -179,7 +181,9 @@ impl<'de> serde::Deserialize<'de> for Source {
 
         let mut source = Source::new(persisted.grid);
         source.inner = persisted.inner;
-        source.rebuild_derived_state();
+        // A Source read back from persistence has no previous revision to
+        // carry rows over from, so every row is parsed.
+        source.language_map = Arc::new(LanguageMap::build(source.grid, source.inner.as_bytes()));
         Ok(source)
     }
 }
@@ -251,7 +255,9 @@ impl Source {
     ///
     fn edit(&mut self, cell: CellIndex, byte: CellContent) {
         self.set_source(cell, byte);
-        self.rebuild_derived_state();
+        // One Cell changes one row, and a row is the largest thing a Cell can
+        // change: a run never crosses the row edge.
+        self.rebuild_rows(&BTreeSet::from([self.grid.position_at(cell).y()]));
     }
 
     ///
@@ -328,54 +334,46 @@ impl Source {
         }
     }
 
-    ///
-    /// Runs one Tick: evaluates every Expression against the current Source
-    /// snapshot, then commits the resulting Cell changes.
-    ///
-    /// Every Expression is interpreted before any Cell is written, so a result
-    /// committed by one Expression can never become another Expression's input
-    /// within the same Tick.
-    ///
-    /// `tick` is the absolute Tick this Snapshot is interpreted at. Musical
-    /// time belongs to the Playback Engine and ADR 0003 keeps every piece of
-    /// language state in the Source Snapshot, so it arrives as an input rather
-    /// than being counted here.
-    ///
+    /// Schedules and runs one Tick, then atomically commits the final writes.
+    /// Function outputs are visible to their current-Tick dependents; MIDI
+    /// commands carry the operands those scheduled evaluations observed.
+    /// `tick` is the absolute musical Tick supplied by the Playback Engine.
     pub fn execute(&mut self, tick: Tick) -> TickPlan {
         let plan = self.plan_tick(tick);
         self.commit_tick(&plan);
-
         plan
     }
 
-    ///
-    /// Interprets one Source Snapshot as ADR 0020's single row-major pass:
-    /// every producer takes its turn in anchor order and emits its effects,
-    /// then resolution folds those effects into the Tick Plan.
-    ///
-    /// Nothing here reads the Source between two turns, so a planned write
-    /// gains no turn of its own and a Function a write generates first becomes
-    /// actionable in the next Source Snapshot.
-    ///
     fn plan_tick(&self, tick: Tick) -> TickPlan {
-        let mut effects = Vec::new();
-        for turn in tick::turns(self.grid, &self.language_map) {
-            turn.emit(self.grid, &self.language_map, tick, &mut effects);
-        }
-
-        tick::resolve(effects)
+        tick::plan(self.grid, self.inner.as_bytes(), &self.language_map, tick)
     }
 
     fn commit_tick(&mut self, plan: &TickPlan) {
         // Commit every planned Cell before rebuilding any derived state.
+        let mut written = BTreeSet::new();
         for write in &plan.writes {
             self.set_source(write.cell, write.content);
+            written.insert(self.grid.position_at(write.cell).y());
         }
-        self.rebuild_derived_state();
+        self.rebuild_rows(&written);
     }
 
-    fn rebuild_derived_state(&mut self) {
-        self.language_map = Arc::new(LanguageMap::build(self.grid, self.inner.as_bytes()));
+    ///
+    /// Rebuilds the Language Map, parsing only the rows that were written to.
+    ///
+    /// The rows are the ones this revision wrote, not the ones whose bytes
+    /// differ from the last revision. A Tick that writes a Cell the same value
+    /// it already held has still written it, and a Map that skipped the row on
+    /// that ground would be reporting on how little a fixture changes rather
+    /// than on how much work a revision costs.
+    ///
+    fn rebuild_rows(&mut self, written: &BTreeSet<usize>) {
+        self.language_map = Arc::new(LanguageMap::rebuild(
+            &self.language_map,
+            self.grid,
+            self.inner.as_bytes(),
+            written,
+        ));
     }
 
     ///
@@ -419,7 +417,8 @@ mod test {
         source::{
             BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
             PlayCommand, Source, SourceError, Tick, TickPlan, Velocity,
-            tick::{resolve, result_effect},
+            portal::Portal,
+            tick::{Effect, resolve},
         },
         test::trace,
     };
@@ -696,17 +695,28 @@ mod test {
         SourceUnderTest::new(grid())
     }
 
-    /// Supply an evaluation answer through production delivery, then resolve
-    /// its Effect. The synthetic root occupies one Cell because no parseable
-    /// Function supplies these Sequence answers yet. Commit remains Source's.
+    ///
+    /// Supply an evaluation answer at the seam production delivers one
+    /// through: encode it, admit the whole encoding through the ordinary
+    /// result Portal, and resolve the Effect. No parseable Function answers
+    /// with a Sequence yet, so a Sequence is stated here rather than spelled
+    /// in Source; what it exercises is the Portal and the commit, both of
+    /// which are the same ones a Tick uses. Commit remains Source's.
+    ///
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
-        let anchor = grid.index(root);
-        let span = super::Span::new(grid, anchor, anchor);
-        resolve(
-            result_effect(grid, root, span, Ok(result))
-                .into_iter()
-                .collect(),
-        )
+        let encoding = match result {
+            Interpretation::Cell(Atom::Empty) => return resolve(Vec::new()),
+            Interpretation::Cell(atom) => atom.to_string(),
+            Interpretation::Sequence(sequence) if sequence.is_empty() => {
+                return resolve(Vec::new());
+            }
+            Interpretation::Sequence(sequence) => sequence.to_string(),
+            Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
+        };
+        let write = Portal::ordinary_result(grid, root)
+            .and_then(|portal| portal.admit(&encoding))
+            .expect("these answers are stated to fit their destination");
+        resolve(vec![Effect::Write(write)])
     }
 
     fn numbers(values: &[u8]) -> Interpretation {
@@ -1232,14 +1242,114 @@ mod test {
         assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Char)));
     }
 
+    fn assert_only_bang_display(plan: &TickPlan, grid: Grid, anchors: &[usize]) {
+        let expected: Vec<_> = anchors
+            .iter()
+            .flat_map(|anchor| [*anchor, anchor + 1])
+            .map(|index| CellWrite {
+                cell: grid.cell_index(index).unwrap(),
+                content: crate::source::CellContent::new(b'*').unwrap(),
+            })
+            .collect();
+        assert_eq!(plan.writes, expected);
+    }
+
+    #[test]
+    fn a_note_and_bang_produced_this_tick_play_the_new_note_this_tick() {
+        for initial_call in ["!>007FD4", "!>007F", "!>007FXX"] {
+            let mut src = SourceUnderTest::new(Grid::new(16, 4));
+            let at = src.cells();
+            src.write(at(0), ".=0101");
+            src.write(at(22), ".^3C");
+            src.write(at(32), initial_call);
+
+            let tick = src.execute();
+
+            assert_eq!(
+                tick.play_commands,
+                vec![PlayCommand::Raw {
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(0x7F).unwrap(),
+                    note: Note::try_from(60).unwrap(),
+                }],
+                "{initial_call}: C4 and its Bang belong to this Tick"
+            );
+            assert!(tick.diagnostics.is_empty());
+            assert_eq!(src.row(2), "!>007FC4        ");
+        }
+    }
+
+    #[test]
+    fn a_generated_pulse_does_not_replay_on_the_next_tick() {
+        let mut src = SourceUnderTest::new(Grid::new(16, 4));
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        src.write(at(22), ".^3C");
+        src.write(at(32), "!>007F");
+
+        let first = src.execute();
+        assert_eq!(first.play_commands.len(), 1);
+        assert_eq!(src.row(1), "**    .^3C      ");
+        // Stop the producer, leaving the generated Bang visible in Source.
+        src.write(at(4), "02");
+
+        let second = src.execute();
+        assert!(second.play_commands.is_empty());
+        assert_eq!(src.row(1), "      .^3C      ");
+        assert!(second.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn manually_entered_bang_is_display_only_and_never_activates_midi() {
+        let mut src = SourceUnderTest::new(Grid::new(10, 3));
+        let at = src.cells();
+        src.write(at(10), "!>007FC4");
+        src.write(at(20), "**");
+
+        let tick = src.execute();
+
+        assert!(tick.play_commands.is_empty());
+        assert_eq!(src.row(2), "          ");
+        assert!(tick.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_later_calculation_reads_an_operand_written_this_tick() {
+        let mut src = SourceUnderTest::new(Grid::new(12, 3));
+        let at = src.cells();
+        src.write(at(2), ".+0203");
+        src.write(at(12), ".+0102");
+
+        let tick = src.execute();
+
+        assert_eq!(src.row(1), ".+0502      ");
+        assert_eq!(src.row(2), "07          ");
+        assert!(tick.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_rejected_bang_operand_neither_activates_nor_erases() {
+        let mut src = SourceUnderTest::new(Grid::new(16, 3));
+        let at = src.cells();
+        src.write(at(0), "!>00**C4");
+        src.write(at(20), "!>007FC4");
+        let before = src.snapshot();
+        assert_eq!(src.language_map().diagnostics().count(), 1);
+
+        let tick = src.execute();
+
+        assert!(tick.play_commands.is_empty());
+        assert!(tick.writes.is_empty());
+        assert_eq!(src.snapshot(), before);
+        assert_eq!(src.language_map().diagnostics().count(), 1);
+    }
+
     #[test]
     fn test_root_play_function_emits_one_play_command_without_a_cell_write() {
         let mut src = source();
         let at = src.cells();
-        // The Bang sits north of the root anchor, leaving the row below the
-        // Play free to show that a terminal Function writes no result Cell.
-        src.write(at(0), "**");
-        src.write(at(10), "!>007FC4");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>007FC4");
 
         let tick = src.execute();
 
@@ -1251,16 +1361,16 @@ mod test {
                 note: Note::try_from(60).unwrap()
             }]
         );
-        assert!(tick.writes.is_empty());
-        assert_eq!(src.row(2), "          ");
+        assert_only_bang_display(&tick, src.grid, &[10]);
+        assert_eq!(src.row(1), "**        ");
     }
 
     #[test]
     fn test_root_timed_play_function_emits_one_command_carrying_its_whole_lifetime() {
         let mut src = source();
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(10), "!~017FC403");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!~017FC403");
 
         let tick = src.execute();
 
@@ -1277,17 +1387,138 @@ mod test {
                 length: Length::from(3),
             }]
         );
-        assert!(tick.writes.is_empty());
+        assert_only_bang_display(&tick, src.grid, &[10]);
         assert!(tick.diagnostics.is_empty());
+        assert_eq!(src.row(1), "**        ");
+    }
+
+    #[test]
+    fn an_unactivated_terminal_root_does_not_report_a_dependency_it_never_read() {
+        // A terminal root with no Bang takes no turn at all. Asking about its
+        // suppliers before asking whether it was ever going to run made it
+        // complain, every Tick, about an operand it was never going to read.
+        let mut src = source();
+        let at = src.cells();
+        src.write(at(2), ".+0102Z");
+        // Its channel operand is the destination above, and nothing activates
+        // it, so this root is inert whatever that operand ends up holding.
+        src.write(at(10), "!>007FC4");
+
+        let tick = src.execute();
+
+        assert!(
+            !tick
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("data dependency")),
+            "an inert root reported a dependency: {:?}",
+            tick.diagnostics
+        );
+        assert!(tick.play_commands.is_empty());
+    }
+
+    #[test]
+    fn a_half_typed_function_does_not_claim_slots_its_run_cannot_reach() {
+        // An incomplete Function declares the slots it is missing, and those
+        // run past its own extent. Only the first of them abuts the run and
+        // can be completed by a write; the ones beyond it are separated from
+        // it by Cells nobody is writing, so a result landing there completes
+        // nothing.
+        //
+        // Counting them anyway made the result a slot write rather than an
+        // activation, and the Play root the Bang was for fell silent — with no
+        // diagnostic, because the half-typed root is terminal and unactivated
+        // and takes no turn to report anything.
+        let mut src = SourceUnderTest::new(Grid::new(16, 4));
+        let at = src.cells();
+        src.write(at(6), ".=0101");
+        // Missing velocity at columns 4-5, missing Note at columns 6-7. The
+        // Bang lands on the second, which two untouched Cells separate from
+        // this Expression's run.
+        src.write(at(16), "!>00");
+        src.write(at(38), "!>007FC4");
+
+        let tick = src.execute();
+
+        assert_eq!(
+            tick.play_commands,
+            vec![PlayCommand::Raw {
+                channel: MidiChannel::try_from(0).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note: Note::try_from(60).unwrap(),
+            }],
+            "the half-typed Expression four columns away silenced the Play root"
+        );
+    }
+
+    #[test]
+    fn a_supplier_excluded_for_its_own_layout_does_not_leave_stale_operands_readable() {
+        // A root that fails at evaluation names its consumer's missing input.
+        // A root that fails at *schedule* time was being erased from the graph
+        // instead, edges and all, so the consumer read whatever its operand
+        // Cells happened to hold — last Tick's value, presented as this
+        // Tick's. The spec is explicit: do not silently choose a previous-Tick
+        // input.
+        let mut src = source();
+        let at = src.cells();
+        // Trailing Source makes this producer's own layout unstable, so it
+        // takes no turn. Its destination is still the consumer's left operand.
+        src.write(at(2), ".+0102Z");
+        src.write(at(10), ".+9902");
+
+        let tick = src.execute();
+
+        assert!(
+            tick.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("data dependency at column 2, row 0 failed")),
+            "the consumer was not told its supplier never ran: {:?}",
+            tick.diagnostics
+        );
+        // Nothing computed from the stale `99` reaches the Source.
         assert_eq!(src.row(2), "          ");
+    }
+
+    #[test]
+    fn a_result_landing_beside_a_root_is_diagnosed_rather_than_joining_its_run() {
+        // A row is partitioned into runs at its spaces, so a result written
+        // into the Cells immediately beside another Expression joins the two:
+        // the run the next parse walks is longer than either, its first unit
+        // is no longer the Function that was there, and the root stops
+        // existing. Nothing puts it back, and the display that replaced it is
+        // no longer a Bang the cleanup can find, so the loss is permanent.
+        //
+        // ADR 0032 diagnoses a structural projection the stable graph cannot
+        // take rather than executing it, and this is one: the write would
+        // change which roots the graph has while that graph is executing.
+        let mut src = source();
+        let at = src.cells();
+        src.write(at(0), ".=0101");
+        // Row 1, column 2 — the Cells the Bang would occupy end exactly where
+        // this Expression's run begins.
+        src.write(at(12), "!>007FC4");
+
+        for tick in 0..3 {
+            let plan = src.execute();
+
+            assert!(plan.writes.is_empty(), "tick {tick} wrote beside the root");
+            assert_eq!(
+                plan.diagnostics.len(),
+                1,
+                "tick {tick} said nothing about the write it refused"
+            );
+            // The root is still there to be found on the Tick after, which is
+            // the whole point: the Source a person is editing is unchanged.
+            assert_eq!(src.row(1), "  !>007FC4", "tick {tick}");
+        }
     }
 
     #[test]
     fn test_root_monophonic_play_function_emits_one_command_of_its_own_kind() {
         let mut src = source();
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(10), "!%017FC403");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!%017FC403");
 
         let tick = src.execute();
 
@@ -1304,9 +1535,9 @@ mod test {
                 length: Length::from(3),
             }]
         );
-        assert!(tick.writes.is_empty());
+        assert_only_bang_display(&tick, src.grid, &[10]);
         assert!(tick.diagnostics.is_empty());
-        assert_eq!(src.row(2), "          ");
+        assert_eq!(src.row(1), "**        ");
     }
 
     #[test]
@@ -1335,15 +1566,15 @@ mod test {
         ] {
             let mut src = source();
             let at = src.cells();
-            src.write(at(0), "**");
-            src.write(at(10), expression);
+            src.write(at(0), ".=0101");
+            src.write(at(20), expression);
 
             let tick = src.execute();
 
             assert_eq!(tick.play_commands, vec![expected], "{expression}");
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_only_bang_display(&tick, src.grid, &[10]);
             assert!(tick.diagnostics.is_empty(), "{expression}");
-            assert_eq!(src.row(2), "          ", "{expression}");
+            assert_eq!(src.row(1), "**        ", "{expression}");
         }
     }
 
@@ -1375,13 +1606,13 @@ mod test {
         ] {
             let mut src = source();
             let at = src.cells();
-            src.write(at(0), "**");
-            src.write(at(10), expression);
+            src.write(at(0), ".=0101");
+            src.write(at(20), expression);
 
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_only_bang_display(&tick, src.grid, &[10]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }
@@ -1409,13 +1640,13 @@ mod test {
         ] {
             let mut src = source();
             let at = src.cells();
-            src.write(at(0), "**");
-            src.write(at(10), expression);
+            src.write(at(0), ".=0101");
+            src.write(at(20), expression);
 
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_only_bang_display(&tick, src.grid, &[10]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }
@@ -1425,8 +1656,8 @@ mod test {
     fn test_play_preserves_zero_velocity_as_an_explicit_command() {
         let mut src = source();
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(10), "!>0F00A0");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>0F00A0");
 
         let tick = src.execute();
 
@@ -1445,16 +1676,16 @@ mod test {
     fn test_play_velocity_above_midi_range_is_diagnosed() {
         let mut src = source();
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(10), "!>0080C4");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>0080C4");
 
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
-        assert!(tick.writes.is_empty());
+        assert_only_bang_display(&tick, src.grid, &[10]);
         assert_eq!(tick.diagnostics.len(), 1);
-        assert_eq!(tick.diagnostics[0].start(), 10);
-        assert_eq!(tick.diagnostics[0].end(), 17);
+        assert_eq!(tick.diagnostics[0].start(), 20);
+        assert_eq!(tick.diagnostics[0].end(), 27);
         assert_eq!(
             tick.diagnostics[0].message,
             "MIDI velocity 80 is outside the range 00–7F"
@@ -1465,13 +1696,13 @@ mod test {
     fn test_play_channel_above_midi_range_is_diagnosed() {
         let mut src = source();
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(10), "!>107FC4");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>107FC4");
 
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
-        assert!(tick.writes.is_empty());
+        assert_only_bang_display(&tick, src.grid, &[10]);
         assert_eq!(tick.diagnostics.len(), 1);
         assert_eq!(
             tick.diagnostics[0].message,
@@ -1505,15 +1736,13 @@ mod test {
         ] {
             let mut src = SourceUnderTest::new(Grid::new(expression.len(), 3));
             let at = src.cells();
-            src.write(at(0), expression);
-            // A terminal root diagnoses only when it is evaluated, and it is
-            // evaluated only when a Bang activates it.
-            src.write(at(expression.len()), "**");
+            src.write(at(0), ".=0101");
+            src.write(at(expression.len() * 2), expression);
 
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert!(tick.writes.is_empty(), "{expression}");
+            assert_only_bang_display(&tick, src.grid, &[expression.len()]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, expected, "{expression}");
         }
@@ -1523,11 +1752,10 @@ mod test {
     fn test_play_commands_retain_expression_order_and_repeat_on_every_tick() {
         let mut src = source();
         let at = src.cells();
-        // One Bang between the two roots activates both: the row above it is
-        // its north anchor and the row below it is its south anchor.
-        src.write(at(0), "!>0001C4");
-        src.write(at(10), "**");
-        src.write(at(20), "!>017FA4");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>0001C4");
+        src.write(at(30), ".=0101");
+        src.write(at(50), "!>017FA4");
 
         // Two successive Ticks of one Playback run, which is what "every Tick"
         // means: the same commands at Tick `0` and again at Tick `1`.
@@ -1548,8 +1776,8 @@ mod test {
 
         assert_eq!(first.play_commands, expected);
         assert_eq!(second.play_commands, expected);
-        assert!(first.writes.is_empty());
-        assert!(second.writes.is_empty());
+        assert_only_bang_display(&first, src.grid, &[10, 40]);
+        assert_only_bang_display(&second, src.grid, &[10, 40]);
     }
 
     #[test]
@@ -1569,9 +1797,7 @@ mod test {
     }
 
     #[test]
-    fn test_a_bang_north_or_south_of_a_terminal_root_activates_it() {
-        // The Bang carries the geometry: at `(0, 0)` it activates the root
-        // one row south, and at `(0, 1)` the root one row north.
+    fn test_manual_bang_is_inert_at_either_vertical_position() {
         for (bang, root) in [(0, 10), (10, 0)] {
             let mut src = source();
             let at = src.cells();
@@ -1580,29 +1806,21 @@ mod test {
 
             let tick = src.execute();
 
-            assert_eq!(
-                tick.play_commands,
-                vec![PlayCommand::Raw {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(0x7F).unwrap(),
-                    note: Note::try_from(60).unwrap()
-                }],
+            assert!(
+                tick.play_commands.is_empty(),
                 "Bang at {bang}, root at {root}"
             );
             assert!(tick.diagnostics.is_empty(), "Bang at {bang}");
+            assert_eq!(&src.snapshot()[bang..bang + 2], "  ");
         }
     }
 
     #[test]
-    fn test_two_bangs_around_one_terminal_root_emit_one_command() {
-        // ADR 0006: multiple Bangs do not make one root evaluate twice. The
-        // root is aligned north of one Bang and south of the other, so both
-        // reach it and it still has exactly one turn.
+    fn test_one_bang_producer_activates_one_terminal_root_once() {
         let mut src = source();
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(10), "!>007FC4");
-        src.write(at(20), "**");
+        src.write(at(0), ".=0101");
+        src.write(at(20), "!>007FC4");
 
         let tick = src.execute();
 
@@ -1614,6 +1832,7 @@ mod test {
                 note: Note::try_from(60).unwrap()
             }]
         );
+        assert_eq!(src.row(1), "**        ");
     }
 
     #[test]
@@ -1910,116 +2129,102 @@ mod test {
 
     #[test]
     fn test_writes_play_commands_and_diagnostics_follow_one_producer_order() {
-        trace();
-
-        // ADR 0020 orders every effect kind by the same row-major producer
-        // Position. This Tick emits all three kinds from five producers whose
-        // anchors interleave across rows and columns: two Play Commands, two
-        // diagnostics, and one result write. Each kind must come out in the
-        // order its producers took their turns — row first, then column —
-        // rather than in an order of its own.
-        let mut src = SourceUnderTest::new(Grid::new(20, 6));
+        let mut src = SourceUnderTest::new(Grid::new(20, 9));
         let at = src.cells();
-        src.write(at(0), "**");
-        src.write(at(20), "!>0001C4");
-        src.write(at(30), "**");
-        src.write(at(40), "./0100");
-        src.write(at(50), "!>027FA4");
-        src.write(at(60), ".^80");
-        src.write(at(70), ".+0102");
+        src.write(at(0), ".=0101");
+        src.write(at(40), "!>0001C4");
+        src.write(at(50), "./0100");
+        src.write(at(60), ".=0202");
+        src.write(at(100), "!>027FA4");
+        src.write(at(130), ".^80");
+        src.write(at(140), ".+0102");
 
         let tick = src.execute();
 
-        // (0, 1) then (10, 2): the second Play's anchor is further right and
-        // one row lower.
         assert_eq!(
             tick.play_commands,
             vec![
                 PlayCommand::Raw {
                     channel: MidiChannel::try_from(0).unwrap(),
                     velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(60).unwrap()
+                    note: Note::try_from(60).unwrap(),
                 },
                 PlayCommand::Raw {
                     channel: MidiChannel::try_from(2).unwrap(),
                     velocity: Velocity::try_from(0x7F).unwrap(),
-                    note: Note::try_from(69).unwrap()
+                    note: Note::try_from(69).unwrap(),
                 },
             ]
         );
-        // (0, 2) then (0, 3), interleaved between the two Play producers.
         assert_eq!(
             tick.diagnostics
                 .iter()
                 .map(|diagnostic| (diagnostic.start(), diagnostic.message.as_str()))
                 .collect::<Vec<_>>(),
             vec![
-                (40, "cannot divide by zero"),
-                (60, "Number 80 cannot be converted to a Note"),
+                (50, "cannot divide by zero"),
+                (130, "Number 80 cannot be converted to a Note"),
             ]
         );
-        // The last producer's write, from the anchor (10, 3).
         assert_eq!(
-            tick.writes,
+            tick.writes
+                .iter()
+                .map(|write| (write.cell.get(), write.content.as_char()))
+                .collect::<Vec<_>>(),
             vec![
-                CellWrite {
-                    cell: at(90),
-                    content: crate::source::CellContent::new(b'0').unwrap(),
-                },
-                CellWrite {
-                    cell: at(91),
-                    content: crate::source::CellContent::new(b'3').unwrap(),
-                },
+                (20, '*'),
+                (21, '*'),
+                (80, '*'),
+                (81, '*'),
+                (160, '0'),
+                (161, '3'),
             ]
         );
-        assert_eq!(src.row(4), "          03        ");
+        assert_eq!(src.row(8), "03                  ");
     }
 
     #[test]
-    fn test_a_computation_completed_by_a_write_waits_for_the_next_snapshot() {
-        trace();
-
-        // A planned write gains no turn in the Tick that plans it. The row 0
-        // Expression writes the `02` that completes the row 1 `.+01` into the
-        // computation `.+0102`. That completed Expression is not part of this
-        // Tick's Source Snapshot, so row 2 stays empty until the next Tick
-        // reads the Source the write left behind.
-        //
-        // No Function spelling can be written today: every result is a Number
-        // or a Note. Completing an Expression is as close as this Source gets
-        // to generating one, and it pins the same rule.
+    fn test_a_computation_completed_by_a_write_evaluates_this_tick() {
         let mut src = source();
         let at = src.cells();
+        // The original Function retains its turn while an earlier producer
+        // supplies its missing operand.
         src.write(at(4), ".+0002");
         src.write(at(10), ".+01");
 
         let first = src.execute();
 
-        assert_eq!(
-            first.writes,
-            vec![
-                CellWrite {
-                    cell: at(14),
-                    content: crate::source::CellContent::new(b'0').unwrap(),
-                },
-                CellWrite {
-                    cell: at(15),
-                    content: crate::source::CellContent::new(b'2').unwrap(),
-                },
-            ]
-        );
         assert_eq!(src.row(1), ".+0102    ");
-        assert_eq!(src.row(2), "          ");
-
-        let second = src.execute();
-
         assert_eq!(src.row(2), "03        ");
-        assert!(
-            second
+        assert_eq!(
+            first
                 .writes
                 .iter()
-                .any(|write| write.cell == at(20) && write.content.as_char() == '0')
+                .map(|write| (write.cell.get(), write.content.as_char()))
+                .collect::<Vec<_>>(),
+            vec![(14, '0'), (15, '2'), (20, '0'), (21, '3')]
         );
+        assert!(first.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_failed_data_supplier_does_not_expose_stale_operand_cells() {
+        let mut src = SourceUnderTest::new(Grid::new(8, 3));
+        let at = src.cells();
+        // This incomplete producer would write at (2, 1), exactly over the
+        // consumer's first operand. The old `05` must not stand in for a value
+        // the producer failed to supply during this Tick.
+        src.write(at(2), ".+01");
+        src.write(at(8), ".+0502");
+
+        let tick = src.execute();
+
+        assert!(tick.writes.is_empty());
+        assert!(tick.play_commands.is_empty());
+        assert!(tick.diagnostics.iter().any(|diagnostic| {
+            diagnostic.message == "a current-Tick data dependency at column 2, row 0 failed"
+        }));
+        assert_eq!(&src.snapshot()[16..18], "  ");
     }
 
     #[test]
@@ -2043,7 +2248,7 @@ mod test {
         // One Grid for both, because a Tick Plan names Cells by index and an
         // index belongs to the Grid that minted it: two Grids of one shape
         // would differ here without either Snapshot differing.
-        let grid = grid();
+        let grid = Grid::new(10, 9);
         let plan_at = |tick| {
             let mut src = SourceUnderTest::new(grid);
             let at = src.cells();
@@ -2051,9 +2256,9 @@ mod test {
             // a result with no row beneath it to land in, which diagnoses: one
             // of each part of a Tick Plan.
             src.write(at(0), ".+0102");
-            src.write(at(20), "!>007FC4");
-            src.write(at(30), "**");
-            src.write(at(50), ".+0304");
+            src.write(at(30), ".=0101");
+            src.write(at(50), "!>007FC4");
+            src.write(at(80), ".+0304");
             src.execute_at(tick)
         };
 
@@ -2067,23 +2272,27 @@ mod test {
     }
 
     #[test]
-    fn test_every_expression_evaluates_from_the_same_pre_tick_snapshot() {
+    fn test_an_overwritten_root_loses_its_reserved_turn() {
         trace();
 
         let mut src = source();
 
         let at = src.cells();
 
-        // The row 0 Expression commits `02` over the first two Cells of the
-        // row 1 Expression. Row 1 must still evaluate the `.+0304` that was
-        // there when the Tick began, not the `020304` the write leaves behind.
+        // Row 0 replaces the row 1 Function spelling before its reserved turn.
+        // The old root can no longer evaluate.
         src.write(at(0), ".+0101");
         src.write(at(10), ".+0304");
 
-        src.execute();
+        let tick = src.execute();
 
-        assert_eq!(src.row(1), "020304    ");
-        assert_eq!(src.row(2), "07        ");
+        assert_eq!(src.row(1), ".+0304    ");
+        assert_eq!(src.row(2), "          ");
+        assert_eq!(tick.diagnostics.len(), 1);
+        assert_eq!(
+            tick.diagnostics[0].message,
+            "current-Tick output cannot replace Function structure"
+        );
     }
 
     #[test]

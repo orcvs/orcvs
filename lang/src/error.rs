@@ -106,6 +106,9 @@ pub enum TypeError {
     #[error("expected a function, found {0:?}")]
     Function(String),
 
+    #[error("expected a bang, found {0:?}")]
+    Bang(String),
+
     #[error("expected a number or note, found {0:?}")]
     Numeric(String),
 
