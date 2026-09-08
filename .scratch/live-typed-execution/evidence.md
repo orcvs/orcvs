@@ -2,6 +2,8 @@
 
 The subsequent [indexed Tick lookup repair](performance.md) records the benchmark
 regression, restored lookup design and independent prototype/issue audit.
+The later [Parser allocation repair](parser-performance.md) addresses the
+remaining failing `parse_source` benchmark.
 
 The production Source/Tick path implements the bounded ADR 0034 contract. The Parser records
 actual Source ranges and direct ownership, including truncated and invalid inputs. Rendering

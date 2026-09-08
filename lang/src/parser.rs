@@ -158,9 +158,14 @@ impl<'a> Parser<'a> {
     /// A Language Unit may be a Function or a standalone Atom.
     #[inline(always)]
     fn take_language_unit(&mut self) -> Option<Error> {
-        let mut pending = vec![(Token::Function, None)];
+        // Most Expressions need only a few pending operands. Avoid allocating
+        // a stack for each parse, but spill deeper expressions to the heap:
+        // this inline capacity is an optimization, not a language limit.
+        let mut pending = arrayvec::ArrayVec::<_, 16>::new();
+        let mut overflow = Vec::new();
+        pending.push((Token::Function, None));
         let mut error = None;
-        while let Some((token, parent)) = pending.pop() {
+        while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
                 match self.take_token(&token) {
@@ -204,13 +209,16 @@ impl<'a> Parser<'a> {
                     if let Atom::Function(function) = atom {
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
-                        pending.extend(
-                            function
-                                .signature()
-                                .iter()
-                                .rev()
-                                .map(|token| (*token, Some(index))),
-                        );
+                        for token in function.signature().iter().rev() {
+                            let item = (*token, Some(index));
+                            // Overflow is always popped first, so any occupied
+                            // overflow has a full inline stack beneath it.
+                            if pending.is_full() {
+                                overflow.push(item);
+                            } else {
+                                pending.push(item);
+                            }
+                        }
                     }
                 }
                 Err(failure) => {

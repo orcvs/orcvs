@@ -823,6 +823,21 @@ mod test {
     }
 
     #[test]
+    fn live_deep_sibling_computations_preserve_operand_order() {
+        // Each sibling requires more pending operands than the Parser keeps
+        // inline. The second refills that stack after the first has drained it.
+        let numerator = ".+".repeat(32) + &"02".repeat(33);
+        let denominator = ".+".repeat(32) + &"01".repeat(33);
+        let text = format!("./{numerator}{denominator}");
+        let width = text.len();
+        let (plan, source) = configured_source(Grid::new(width, 2), &[&text, ""], &[], &[]);
+        // 66 / 33 = 2. Reversing the siblings instead produces zero.
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(source.snapshot(), snapshot(source.grid(), &[&text, "02"]));
+    }
+
+    #[test]
     fn live_unchanged_nested_syntax_errors_do_not_repeat_as_tick_failures() {
         let grid = Grid::new(20, 2);
         let rows = [".+01.x02.+03??", ""];
