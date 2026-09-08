@@ -1,5 +1,8 @@
 use crate::{Atom, Atoms, Function};
 
+// A provisional balance for short and nested Expressions; revisit with usage data.
+const INLINE_RECORD_CAPACITY: usize = 8;
+
 const DEFAULT_TOKEN_LEN: usize = 2;
 const DEFAULT_CHAR_TOKEN_LEN: usize = 1;
 
@@ -7,7 +10,7 @@ pub type Tokens = Vec<Token>;
 
 #[derive(Debug, Clone)]
 pub struct Expression {
-    records: Vec<Record>,
+    records: RecordStore,
 }
 
 /// One parser-owned entry. Cells use the address space supplied to the Parser;
@@ -36,7 +39,7 @@ pub enum Token {
 impl Expression {
     pub fn new() -> Self {
         Self {
-            records: Vec::new(),
+            records: RecordStore::new(),
         }
     }
 
@@ -138,5 +141,54 @@ impl From<&Function> for Tokens {
     #[inline(always)]
     fn from(f: &Function) -> Self {
         f.signature().to_vec()
+    }
+}
+
+/// Append-only storage: overflow follows the full inline prefix in entry order.
+/// Eight is an allocation optimization, never a limit on accepted Expressions.
+#[derive(Debug, Clone)]
+struct RecordStore {
+    inline: arrayvec::ArrayVec<Record, INLINE_RECORD_CAPACITY>,
+    overflow: Vec<Record>,
+}
+
+impl RecordStore {
+    fn new() -> Self {
+        Self {
+            inline: arrayvec::ArrayVec::new(),
+            overflow: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, record: Record) {
+        if self.inline.is_full() {
+            self.overflow.push(record);
+        } else {
+            self.inline.push(record);
+        }
+    }
+
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Record> {
+        self.inline.iter().chain(self.overflow.iter())
+    }
+
+    fn len(&self) -> usize {
+        self.inline.len() + self.overflow.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.inline.is_empty() && self.overflow.is_empty()
+    }
+}
+
+impl IntoIterator for RecordStore {
+    type Item = Record;
+    type IntoIter = std::iter::Chain<
+        arrayvec::IntoIter<Record, INLINE_RECORD_CAPACITY>,
+        std::vec::IntoIter<Record>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inline.into_iter().chain(self.overflow)
     }
 }

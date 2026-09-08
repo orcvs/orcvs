@@ -32,9 +32,9 @@ Pushes and pops therefore preserve the previous LIFO order through repeated
 spills, drains and refills. Capacity 16 is an optimization, not a grammar limit.
 No recursion or fixed maximum expression depth is introduced.
 
-Positioned record storage, parent identifiers, source consumption, error recovery
-and decoding are unchanged. The experiment confirmed that removing the pending
-stack allocation was sufficient for a large improvement; no additional record
+In this pending-stack repair, positioned record storage, parent identifiers, source
+consumption, error recovery and decoding were unchanged. The experiment confirmed
+that removing the pending stack allocation was sufficient for a large improvement; no additional record
 layout or decoder changes were needed.
 
 ## Reproduction and coverage
@@ -91,3 +91,74 @@ warnings remain separate from the parser benchmark's failing threshold.
 Not run locally: full feature/platform/WASM/browser matrices and 256-case
 proptest — deferred to CI. The CI benchmark comparison is required to confirm
 the repair against the stored baseline; local timings do not assert its verdict.
+
+## Follow-up: eight inline Expression records
+
+Expression now retains its first eight positioned records inline using the existing
+`arrayvec` dependency, followed by an unbounded overflow `Vec`. Both borrowed and
+consuming iteration preserve entry order; reverse token iteration crosses the
+same boundary in reverse. Positions, parent identifiers and decoding are unchanged.
+Eight is a provisional compromise to revisit when actual usage patterns emerge.
+It is independent of the pending stack's capacity of sixteen.
+
+Five rotated/reversed fixed-work CPU repetitions on the same host compared the
+record capacities against commit `05e4490`. Median nanoseconds per parse were:
+
+| Workload | Vec | Inline 4 | Inline 8 | Inline 16 |
+| --- | ---: | ---: | ---: | ---: |
+| Existing 16-row Source fixture | 894 | 633 | 648 | 790 |
+| Balanced 3 records | 51 | 33 | 39 | 43 |
+| Balanced 7 records | 129 | 81 | 69 | 75 |
+| Balanced 15 records | 261 | 274 | 203 | 138 |
+| Balanced 31 records | 441 | 464 | 463 | 399 |
+| Balanced 63 records | 815 | 893 | 863 | 842 |
+
+Eight improves the seven-record case while staying close to four on the existing
+Source fixture. Sixteen helps fifteen-record Expressions but costs more on short
+ones. Full Source edit/Tick timings were too variable to establish a winner;
+separate-process setup subtraction even yielded invalid negative CPU estimates,
+which were rejected. These measurements do not establish an application-wide
+speedup. Larger inline objects may affect copying and cache behavior even when
+available RAM is ample; this experiment did not isolate those effects.
+
+The `parse_records/{3,7,15,31,63}` benchmarks retain the balanced workloads
+for future comparisons, alongside the existing `parse_source` fixture. Run them
+at each revision with the same toolchain and per-worktree build directory:
+
+```sh
+RUSTC_WRAPPER= cargo bench --package lang --bench lang --locked -- parse
+```
+
+Normal benchmark comparison remains CI's responsibility. The local diagnostic
+scripts and raw samples are retained under `/tmp/orcvs-parser-capacities` and
+`/tmp/orcvs-capacity-results` for this session, not as permanent repository assets.
+Existing long-expression, positioned-boundary and deep-sibling tests cover the
+unchanged behavior across overflow. No artificial failing correctness test was
+introduced for this storage optimization.
+
+### Follow-up completion evidence
+
+Changed: Expression stores eight records inline with ordered, growable overflow.
+The capacity choice and its measurement limitations are recorded above.
+
+Tests added or updated: no correctness tests changed; existing boundary and deep
+expression coverage passed before and after. Added balanced parser benchmarks
+for 3, 7, 15, 31 and 63 records.
+
+Commands run:
+
+- `RUSTC_WRAPPER= PROPTEST_CASES=32 cargo nextest run --package lang --package orcvs --locked -E 'test(long_expressions_roundtrip) or test(live_deep_sibling) or test(layout_preserves)' --status-level fail` — passed, 3 tests before the change.
+- `cargo fmt --all -- --check` — passed.
+- `RUSTC_WRAPPER= cargo clippy --package lang --package orcvs --all-targets --locked -- -D warnings` — passed, including the new benchmark targets.
+- `RUSTC_WRAPPER= PROPTEST_CASES=32 cargo nextest run --package lang --package orcvs --locked --status-level fail` — passed, 472 tests after the change.
+- `node --test scripts/tests/roadmap.test.ts` — passed, 10 tests.
+- `node scripts/roadmap.ts > /dev/null` — passed.
+- `git diff --check` — passed; complete change diff reviewed.
+
+Not run: CI benchmark comparison, full feature/platform/WASM/browser matrices and
+256-case proptest — deferred to CI. Local capacity measurements above answer the
+specific design question; no new full benchmark comparison was run as a gate.
+
+Risks: performance remains workload dependent and each Expression has a larger
+inline footprint. No public interface, unsafe, concurrency, dependency or feature
+changes. Capacity can be revised without changing language semantics.

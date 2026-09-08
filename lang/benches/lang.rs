@@ -4,7 +4,7 @@
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use lang::{Anchor, Interpreter, Parser, Tick, TickInputs};
 use std::hint::black_box;
 
@@ -86,5 +86,30 @@ fn parse_source(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, parse, parse_invalid, execute, parse_source);
+// Keep both sides of the inline-record boundary visible as usage evolves.
+fn parse_record_counts(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parse_records");
+    let mut source = String::from("01");
+    for records in [3, 7, 15, 31, 63] {
+        source = format!(".+{source}{source}");
+        group.bench_with_input(
+            BenchmarkId::from_parameter(records),
+            &source,
+            |b, source| {
+                let mut source = source.clone();
+                b.iter(|| Parser::from(black_box(source.as_mut_str())).analyze());
+            },
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    parse,
+    parse_invalid,
+    execute,
+    parse_source,
+    parse_record_counts
+);
 criterion_main!(benches);
