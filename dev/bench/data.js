@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788699935025,
+  "lastUpdate": 1788899687615,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -2063,6 +2063,174 @@ window.BENCHMARK_DATA = {
             "name": "source_edit_rebuild_invalid/64x64",
             "value": 134435,
             "range": "± 3368",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "747ed1d4a101b75f58b34f42bf972378751a0e4f",
+          "message": "Merge pull request #27 from orcvs/06-optimize-tick-scheduling\n\nExecute a musical Tick in dependency order",
+          "timestamp": "2026-09-09T06:25:15+10:00",
+          "tree_id": "501a7436733a741bcb789d60ef32fb27edb30557",
+          "url": "https://github.com/orcvs/orcvs/commit/747ed1d4a101b75f58b34f42bf972378751a0e4f"
+        },
+        "date": 1788899686766,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 134,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 70,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 91,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 411,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 40,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 100,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2809,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 11475,
+            "range": "± 61",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 44981,
+            "range": "± 433",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 5490,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 18679,
+            "range": "± 302",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 73869,
+            "range": "± 901",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 5987,
+            "range": "± 89",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 19658,
+            "range": "± 273",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 73640,
+            "range": "± 959",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 10683,
+            "range": "± 63",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 38216,
+            "range": "± 210",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 160064,
+            "range": "± 1333",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 676408,
+            "range": "± 4407",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 9712,
+            "range": "± 66",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 56913,
+            "range": "± 529",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 256289,
+            "range": "± 2366",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1111239,
+            "range": "± 40108",
             "unit": "ns/iter"
           }
         ]
