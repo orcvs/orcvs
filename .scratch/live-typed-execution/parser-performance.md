@@ -46,14 +46,12 @@ RUSTC_WRAPPER= cargo bench --package lang --bench lang --locked -- \
   parse --warm-up-time 1 --measurement-time 2 --sample-size 30
 ```
 
-For fixed-work CPU comparison, apply the
-[diagnostic benchmark patch](parser-cpu.profile.patch) in separate throwaway
-checkouts before and after this repair. Each checkout must use its own `target/`.
-Build with `RUSTC_WRAPPER= cargo bench --package lang --bench lang --locked --no-run`,
-then use `/usr/bin/time -p` on the executable path Cargo reports. Alternate the
-two executables three times. The patch changes only the benchmark entrypoint to
-repeat the unchanged Source fixture one million times; it is not part of normal
-CI and adds no production instrumentation.
+The fixed-work CPU measurements above used a temporary benchmark entrypoint
+that repeated the Source fixture one million times. Separate checkouts used their
+own build directories, and the executables alternated three times. That diagnostic
+harness is not shipped; the permanent Criterion command above is the supported
+comparison path. The historical CPU samples are not directly comparable to its
+wall-clock measurements.
 
 `live_deep_sibling_computations_preserve_operand_order` checks two 33-leaf sibling
 computations through Source parsing, scheduling and publication. The numerator
@@ -85,8 +83,7 @@ warnings remain separate from the parser benchmark's failing threshold.
 - `node --test scripts/tests/roadmap.test.ts` — 10 passed.
 - `node scripts/roadmap.ts > /dev/null` — passed.
 - `git diff --check` — passed.
-- `git apply --check .scratch/live-typed-execution/parser-cpu.profile.patch` — passed.
-- Standard benchmark and paired CPU commands above — completed, measurements recorded above.
+- Standard benchmark and temporary paired CPU experiment — completed, historical measurements recorded above.
 
 Not run locally: full feature/platform/WASM/browser matrices and 256-case
 proptest — deferred to CI. The CI benchmark comparison is required to confirm
@@ -129,9 +126,9 @@ at each revision with the same toolchain and per-worktree build directory:
 RUSTC_WRAPPER= cargo bench --package lang --bench lang --locked -- parse
 ```
 
-Normal benchmark comparison remains CI's responsibility. The local diagnostic
-scripts and raw samples are retained under `/tmp/orcvs-parser-capacities` and
-`/tmp/orcvs-capacity-results` for this session, not as permanent repository assets.
+Normal benchmark comparison remains CI's responsibility. Temporary diagnostic
+scripts and raw samples are excluded from the repository; the historical capacity
+measurements above record the evidence available when choosing eight.
 Existing long-expression, positioned-boundary and deep-sibling tests cover the
 unchanged behavior across overflow. No artificial failing correctness test was
 introduced for this storage optimization.

@@ -74,15 +74,10 @@ operation counts on the existing fixtures:
 | Edge-fixture descendant visits | 324 | 1,272 | 3.93× |
 
 This confirms removal of the unrelated all-pairs scan on these fixtures.
-The diagnostic [profile patch](indexed-lookups.profile.patch) preserves the
-counter instrumentation and reduced benchmark entrypoint used for these counts.
-Apply it only in a throwaway checkout of this repair, then run
-`RUSTC_WRAPPER= cargo bench --package orcvs --bench source --locked` twice.
-The four whole-plan `counts` lines are ordinary 64/128, then edges 64/128;
-array entries are lookup calls, binary-search comparisons, candidate boundary
-checks, returned candidates and descendant visits. The two runs must agree;
-comparison growth below 6× is the diagnostic scaling criterion. Instrumentation
-is absent from production source and is not part of the normal benchmark suite.
+These historical operation counts came from temporary instrumentation, which is
+not shipped in the repository. Use the permanent benchmark command above for
+comparisons of the delivered implementation; the table records the diagnostic
+attribution, not output produced by the normal benchmark suite.
 
 Instrumented dependency discovery at 128×128 fell from approximately 2.50 ms to
 34–37 µs for the ordinary fixture, and from 3.75 ms to 86–171 µs for the edge
@@ -112,8 +107,8 @@ Changed: indexed physical overlap queries, preorder subtree ranges, direct root
 lookup and worklist activation; benchmark comments and this profiling record.
 
 Tests added or updated: no correctness tests added; existing Source/Tick tests
-and benchmark fixtures retained. The diagnostic profile patch is archived for
-reproducing lookup counts, without adding instrumentation to production.
+and benchmark fixtures retained. Temporary diagnostic instrumentation is excluded
+from the delivered implementation.
 
 Commands run:
 
@@ -126,9 +121,8 @@ Commands run:
 - `node --test scripts/tests/roadmap.test.ts` — 10 passed.
 - `node scripts/roadmap.ts > /dev/null` — passed.
 - `git diff --check` — passed.
-- `git apply --check .scratch/live-typed-execution/indexed-lookups.profile.patch` — passed; no profile instrumentation applied to the delivery checkout.
 - Focused benchmark command above — completed; noisy latency samples limited to diagnostic use.
-- Instrumented benchmark command above, repeated — identical operation counts; both comparison-growth checks below 6× passed.
+- Temporary instrumented benchmark, repeated during diagnosis — identical operation counts; both comparison-growth checks below 6× passed.
 
 Not run: broad platform/feature/WASM/browser matrix, full 256-case proptest and
 authoritative benchmark comparison — deferred to CI. No public API, unsafe,
