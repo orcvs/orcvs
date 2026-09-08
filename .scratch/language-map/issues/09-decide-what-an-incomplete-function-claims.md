@@ -7,9 +7,21 @@ issue 08 writes, before `10` rebuilds the scheduler on it.
 
 **Blocked by:** cell-indexed-parse/06 — Pin the open question under every candidate rule.
 
-**Status:** ready-for-human
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Reconciliation — 2026-09-08
+
+Superseded as a candidate-policy interview by ADR 0033's arity claim, confined to the row
+and Comment, and ADR 0034's explicit retention of that partition. Ticket
+`cell-indexed-parse/06` is also superseded: no three-policy harness was implemented.
+The production regression `a_half_typed_function_claims_every_cell_its_arity_declares`
+confirms the claim, but the requested execution-diagnostic regression is not complete.
+It transfers to [live-typed-execution](../../live-typed-execution/spec.md). The status is
+`wontfix`, not `resolved`, because the old candidate experiment and full checklist did not
+ship. Do not reopen claim policy or restore the whitespace-era slot filter as prerequisites.
+The remaining historical checklist and recommendation below describe the superseded interview.
 
 - [ ] The answer states whether `!>00`, typed at columns 0 to 3, claims columns 0 to 7 or 0 to 3.
 - [ ] The answer states what a `**` written at columns 4 and 5 then does: a rejected typed operand,

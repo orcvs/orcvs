@@ -1,126 +1,59 @@
-//! Dependency-scheduled Tick evaluation (ADR 0032).
+//! Tick-local execution of Parser-owned expressions (ADR 0034).
 //!
-//! Starting Source fixes the candidate roots and their operand layout. Data and
-//! Bang-activation edges determine execution order; each root binds its operands
-//! from working Source when its dependencies have settled. Source and terminal
-//! effects are published atomically after the schedule completes.
+//! Fixed Portal destinations and nested ownership determine the complete order
+//! before execution. Spatial writes remain character encodings until consumed;
+//! nested results are typed values. Only the final effects are published.
 
-use lang::{
-    Anchor, Atom, Atoms, Error as LangError, Function, Interpretation, Interpreter, Tick,
-    TickInputs,
-};
+use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 
-use crate::grid::{CellIndex, Grid, Position};
-
-use super::language_map::{ExpressionEntry, LanguageMap, Span};
+use super::language_map::{LanguageMap, Span};
 use super::portal::{Portal, PortalError, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
+use crate::grid::{CellIndex, Grid, Position};
 
-///
-/// One thing a producer contributes to the Tick Plan.
-///
-/// Every effect kind passes through the same ordering model, so a new kind is
-/// a variant here and an arm in `resolve` rather than an ordering path of its
-/// own. Issue 02's activation delivery and issue 05's root lock are the next
-/// two variants; neither exists yet, because no producer emits them yet.
-///
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Effect {
-    ///
-    /// One complete write. ADR 0004 and ADR 0009 validate a write's whole
-    /// destination before any of its Cells is emitted; a [`SpanWrite`] exists
-    /// only because a [`Portal`] accepted its whole destination, so a partial
-    /// write is unrepresentable rather than merely avoided.
-    ///
     Write(SpanWrite),
-
-    /// The ordered group of Play Commands from one active Terminal Output
-    /// Function root.
-    ///
-    /// One Effect per Expression rather than one per command, because ADR 0020
-    /// orders effects by their producer's Position and every command a widened
-    /// Expression performs shares one. ADR 0030 settles what that leaves
-    /// undecided: within one Expression, commands order by element index, so
-    /// element order is an order inside a single Effect and producer-then-
-    /// emission order between Expressions is untouched.
     Play(Performance),
-
-    /// One diagnostic about this producer's scheduled evaluation.
     Diagnose(Diagnostic),
 }
 
-#[derive(Clone, Copy)]
-struct ScheduledRoot<'a> {
+struct Operand {
+    cells: Range<usize>,
+    child: Option<usize>,
+}
+
+struct Computation {
     anchor: Position,
+    span: Span,
     function: Function,
-    expression: &'a ExpressionEntry,
-    output: Result<Option<Position>, PortalError>,
+    parent: Option<usize>,
+    owner: usize,
+    operands: Vec<Operand>,
+    syntax_valid: bool,
+    outputs: Vec<Result<Position, PortalError>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DependencyKind {
-    Data,
-    Activation,
+#[derive(Default)]
+pub(super) struct Configuration {
+    destinations: BTreeMap<CellIndex, Vec<Position>>,
+    #[cfg(test)]
+    supplied: BTreeMap<CellIndex, Atom>,
 }
 
-///
-/// One parsed operand slot, as the Cells covering it answer for it.
-///
-/// `start` is the slot's first Cell index rather than its Position, because
-/// every question asked of it compares against an output's Cell index.
-///
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Slot {
-    consumer: usize,
-    start: usize,
-    token: lang::Token,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Dependency {
-    producer: usize,
-    consumer: usize,
-    kind: DependencyKind,
-}
-
-struct Schedule<'a> {
-    roots: Vec<ScheduledRoot<'a>>,
+struct Schedule {
+    nodes: Vec<Computation>,
     order: Vec<usize>,
-    ///
-    /// The Data suppliers of each root, in dependency order.
-    ///
-    /// Execution asks this once per root, so it is indexed by consumer rather
-    /// than rescanned out of `dependencies`: a Tick runs under the playback
-    /// deadline, and scanning every edge for every root spends the product of
-    /// the two to answer a question each root asks about itself.
-    ///
-    data_suppliers: Vec<Vec<usize>>,
-    ///
-    /// Whether each root's output lands on a parsed operand slot.
-    ///
-    /// The scheduler reads this to decide whether a Bang result is an
-    /// activation event; execution reads the same answer, so activation can
-    /// never depend on the order two independent roots happen to take.
-    ///
-    output_is_slot: Vec<bool>,
-    ///
-    /// The anchor of a supplier that was kept out of the schedule, for each
-    /// consumer it was going to write to.
-    ///
-    /// Such a supplier has no node to leave unsettled, so the answer it owes
-    /// its consumer is recorded against the consumer instead.
-    ///
-    failed_suppliers: Vec<Option<Position>>,
-    /// One diagnostic for each candidate kept out of the schedule entirely.
-    excluded: Vec<Diagnostic>,
+    diagnostics: Vec<Diagnostic>,
 }
 
-/// Executes the graph derived from one starting Source revision.
 pub(super) fn plan(grid: Grid, bytes: &[u8], map: &LanguageMap, tick: Tick) -> TickPlan {
-    plan_with_destinations(grid, bytes, map, tick, &BTreeMap::new())
+    plan_configured(grid, bytes, map, tick, &Configuration::default())
 }
 
+#[cfg(test)]
 fn plan_with_destinations(
     grid: Grid,
     bytes: &[u8],
@@ -128,193 +61,506 @@ fn plan_with_destinations(
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Position>,
 ) -> TickPlan {
-    let schedule = match schedule(grid, map, destinations) {
+    plan_configured(
+        grid,
+        bytes,
+        map,
+        tick,
+        &Configuration {
+            destinations: destinations
+                .iter()
+                .map(|(anchor, output)| (*anchor, vec![*output]))
+                .collect(),
+            ..Configuration::default()
+        },
+    )
+}
+
+fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
+    Diagnostic::for_expression(node.anchor, node.span, message.into())
+}
+
+pub(super) fn plan_configured(
+    grid: Grid,
+    bytes: &[u8],
+    map: &LanguageMap,
+    tick: Tick,
+    configuration: &Configuration,
+) -> TickPlan {
+    let schedule = match schedule(grid, map, configuration) {
         Ok(schedule) => schedule,
         Err(diagnostics) => {
             return TickPlan {
-                writes: Vec::new(),
-                play_commands: Vec::new(),
+                writes: vec![],
+                play_commands: vec![],
                 diagnostics,
             };
         }
     };
-
     let mut working = bytes.to_vec();
-    // A candidate the schedule could not take is diagnosed once, before any
-    // root's turn, and changes nothing else about this Tick.
     let mut effects: Vec<_> = schedule
-        .excluded
-        .iter()
-        .cloned()
+        .diagnostics
+        .into_iter()
         .map(Effect::Diagnose)
         .collect();
-
-    // A Source-resident `**` is display left by an earlier result (or text a
-    // person entered). It is never an event for this Tick. Clear only Bangs
-    // whose validity the starting parse established; an invalid operand
-    // spelling remains untouched and diagnosed by the Language Map.
     for (anchor, _) in map.bangs() {
         let clear = Portal::at(grid, anchor)
             .admit("  ")
-            .expect("a parsed Bang's complete encoding fits its Grid");
+            .expect("parsed Bang fits its Grid");
         apply_write(&mut working, &clear);
         effects.push(Effect::Write(clear));
     }
-
-    // A root is settled once its turn can contribute nothing further, whether
-    // it wrote a result, answered with absence, or had no destination to write
-    // to. Only a root that failed outright leaves this false, because only
-    // that leaves a consumer reading an operand nobody can account for.
-    let mut settled = vec![false; schedule.roots.len()];
-    // Which roots a Bang has reached so far this Tick. Recording it as the
-    // Bangs are produced, rather than re-deriving it from a list of them at
-    // each terminal root's turn, keeps the answer the same — only a Bang
-    // produced earlier in the order can have reached this root — and asks it
-    // once per Bang instead of once per pair.
-    let mut activated = vec![false; schedule.roots.len()];
-    for node_index in schedule.order.iter().copied() {
-        let root = schedule.roots[node_index];
-        // Asked before anything about this root's inputs, because a terminal
-        // root with no Bang never reads them: it takes no turn, so it has
-        // nothing to say about an operand it was never going to look at.
-        if root.function.is_terminal() && !activated[node_index] {
-            settled[node_index] = true;
+    let nodes = &schedule.nodes;
+    let mut results: Vec<Option<Value>> = vec![None; nodes.len()];
+    let mut syntax_blocked = vec![false; nodes.len()];
+    let mut activated = vec![false; nodes.len()];
+    let mut suppressed = vec![false; nodes.len()];
+    let mut executed = vec![false; nodes.len()];
+    let mut functions: Vec<_> = nodes.iter().map(|node| node.function).collect();
+    for index in schedule.order {
+        let node = &nodes[index];
+        if suppressed[index] || (nodes[node.owner].function.is_terminal() && !activated[node.owner])
+        {
             continue;
         }
-
-        // A supplier that took a turn and failed leaves its node unsettled; one
-        // that never got a node was recorded against this consumer when the
-        // schedule was built. Both are the same answer to the same question,
-        // so they are asked as one.
-        let failed_input = schedule.data_suppliers[node_index]
-            .iter()
-            .copied()
-            .find(|producer| !settled[*producer])
-            .map(|producer| schedule.roots[producer].anchor)
-            .or(schedule.failed_suppliers[node_index]);
-        if let Some(supplier) = failed_input {
-            // Naming the supplier matters because the consumer is the one root
-            // in this Tick that did nothing wrong: without its anchor, a Tick
-            // Plan points only at the Expression that was waiting.
-            effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                root.anchor,
-                root.expression.span(),
-                format!(
-                    "a current-Tick data dependency at column {}, row {} failed",
-                    supplier.x(),
-                    supplier.y()
-                ),
+        executed[index] = true;
+        if node.parent.is_some() && node.function.is_terminal() {
+            effects.push(Effect::Diagnose(diagnose(
+                node,
+                lang::InterpretationError::NestedTerminalFunction.to_string(),
             )));
             continue;
         }
-
-        let start = grid.index(root.anchor).get();
-        let row_end = grid
-            .position(0, root.anchor.y() + 1)
-            .map(|next_row| grid.index(next_row).get())
-            .unwrap_or_else(|| grid.count());
-        let atoms = match root.expression.bind_source(
-            std::str::from_utf8(&working[start..row_end])
-                .expect("Source Cells are printable ASCII"),
-        ) {
-            Ok(atoms) => atoms,
-            Err(error) => {
-                if root.expression.atoms().is_none() {
-                    // Live-edit fragments and invalid typed operands already
-                    // have Source diagnostics. They receive a scheduled
-                    // opportunity so a dependency can repair them, but an
-                    // unrepaired fragment has no Tick outcome of its own.
-                    //
-                    continue;
+        let function = functions[index];
+        if !node.syntax_valid
+            && function == node.function
+            && node
+                .operands
+                .iter()
+                .all(|operand| working[operand.cells.clone()] == bytes[operand.cells.clone()])
+        {
+            // Unchanged initial syntax errors belong to the Source revision.
+            // Earlier writes can repair these inputs before their reserved turn.
+            syntax_blocked[index] = true;
+            continue;
+        }
+        if node.operands.iter().any(|operand| {
+            operand
+                .child
+                .is_some_and(|child| !suppressed[child] && syntax_blocked[child])
+        }) {
+            // A syntax-blocked child did not fail evaluation. Preserve its
+            // Source diagnostic without turning it into a repeated Tick error.
+            syntax_blocked[index] = true;
+            continue;
+        }
+        let signature = lang::Tokens::from(&function);
+        if signature.len() != node.operands.len() {
+            effects.push(Effect::Diagnose(diagnose(
+                node,
+                lang::ArgumentError::Arity {
+                    expected: signature.len(),
+                    found: node.operands.len(),
                 }
-                effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                    root.anchor,
-                    root.expression.span(),
-                    error.to_string(),
-                )));
-                continue;
-            }
+                .to_string(),
+            )));
+            continue;
+        }
+        let operands: Result<Vec<Value>, String> = node
+            .operands
+            .iter()
+            .zip(signature)
+            .map(|(operand, token)| {
+                if let Some(child) = operand.child.filter(|child| !suppressed[*child]) {
+                    return results[child].clone().ok_or_else(|| {
+                        format!(
+                            "nested computation at column {}, row {} supplied no typed result",
+                            nodes[child].anchor.x(),
+                            nodes[child].anchor.y()
+                        )
+                    });
+                }
+                let spelling =
+                    std::str::from_utf8(&working[operand.cells.clone()]).expect("ASCII Source");
+                token
+                    .decode(spelling)
+                    .map(Value::from)
+                    .map_err(|error| error.to_string())
+            })
+            .collect();
+        let result = match operands {
+            Ok(operands) => interpret(function, &operands, tick_inputs(tick, node.anchor))
+                .map_err(|error| error.to_string()),
+            Err(error) => Err(error),
         };
-
-        match interpret(&atoms, tick_inputs(tick, root.anchor)) {
-            Ok(Interpretation::Cell(Atom::Empty)) => settled[node_index] = true,
-            Ok(Interpretation::Cell(atom)) => {
-                let encoding = atom.to_string();
-                let output = match root.output {
-                    Ok(Some(output)) => output,
-                    Ok(None) => {
-                        settled[node_index] = true;
-                        continue;
-                    }
-                    Err(reason) => {
-                        effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                            root.anchor,
-                            root.expression.span(),
-                            portal_message(reason, &encoding),
-                        )));
+        #[cfg(test)]
+        let result = configuration
+            .supplied
+            .get(&grid.index(node.anchor))
+            .map_or(result, |atom| Ok(Interpretation::Cell(*atom)));
+        match result {
+            Err(message) => effects.push(Effect::Diagnose(diagnose(node, message))),
+            Ok(Interpretation::Play(performance)) => effects.push(Effect::Play(performance)),
+            Ok(answer) => {
+                let value = match answer {
+                    Interpretation::Cell(atom) => Value::Atom(atom),
+                    Interpretation::Sequence(sequence) => Value::Sequence(sequence),
+                    Interpretation::Play(_) => unreachable!(),
+                };
+                results[index] = Some(value.clone());
+                let encoding = match &value {
+                    Value::Atom(Atom::Empty) => continue,
+                    Value::Atom(atom) => atom.to_string(),
+                    Value::Sequence(sequence) if sequence.is_empty() => continue,
+                    Value::Sequence(sequence) => {
+                        if !node.outputs.is_empty() {
+                            effects.push(Effect::Diagnose(diagnose(
+                                node,
+                                format!(
+                                    "Sequence result {:?} has no fixed scalar scheduling footprint",
+                                    sequence.to_string()
+                                ),
+                            )));
+                        }
                         continue;
                     }
                 };
+                // Scheduling reserves one scalar Cell pair per destination.
+                // A different width cannot safely use those dependency edges.
                 if encoding.len() != 2 {
-                    effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                        root.anchor,
-                        root.expression.span(),
-                        format!("result {encoding:?} is not a scalar Cell pair"),
-                    )));
+                    if !node.outputs.is_empty() {
+                        effects.push(Effect::Diagnose(diagnose(
+                            node,
+                            "result is not a scalar Cell pair",
+                        )));
+                    }
                     continue;
                 }
-                let write = match Portal::at(grid, output).admit(&encoding) {
-                    Ok(write) => write,
-                    Err(reason) => {
-                        effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                            root.anchor,
-                            root.expression.span(),
-                            portal_message(reason, &encoding),
-                        )));
-                        continue;
-                    }
-                };
-                // ADR 0032: a `**` rejected in a typed operand is still
-                // invalid syntax, and neither activates nor receives display
-                // cleanup. The schedule drew its activation edges under
-                // exactly this predicate, so delivery reads the same answer
-                // and activation never turns on which root went first.
-                if matches!(atom, Atom::Bang) && !schedule.output_is_slot[node_index] {
-                    for anchor in activated_anchors(grid, output).into_iter().flatten() {
-                        if let Some(consumer) = root_at(grid, &schedule.roots, anchor) {
-                            activated[consumer] = true;
+                for output in &node.outputs {
+                    let write =
+                        match output.and_then(|output| Portal::at(grid, output).admit(&encoding)) {
+                            Ok(write) => write,
+                            Err(reason) => {
+                                effects.push(Effect::Diagnose(diagnose(
+                                    node,
+                                    portal_message(reason, &encoding),
+                                )));
+                                continue;
+                            }
+                        };
+                    let output = output.expect("an admitted write has a destination");
+                    if value == Value::Atom(Atom::Bang)
+                        && !is_operand_destination(grid, nodes, output)
+                    {
+                        for anchor in activated_anchors(grid, output).into_iter().flatten() {
+                            if let Some(owner) = nodes
+                                .iter()
+                                .position(|node| node.parent.is_none() && node.anchor == anchor)
+                            {
+                                activated[owner] = true;
+                            }
                         }
                     }
+                    let start = grid.index(output).get();
+                    if let Value::Atom(Atom::Function(replacement)) = value
+                        && nodes.iter().any(|target| {
+                            grid.index(target.anchor).get() == start
+                                && (replacement.is_terminal() != target.function.is_terminal()
+                                    || replacement.can_emit_bang()
+                                        != target.function.can_emit_bang())
+                        })
+                    {
+                        effects.push(Effect::Diagnose(diagnose(
+                            node,
+                            "Function replacement changes activation requirements or output kind",
+                        )));
+                        continue;
+                    }
+                    // A schedule defect must not panic under the Source lock
+                    // or publish any of this Tick's already accumulated effects.
+                    if nodes.iter().enumerate().any(|(target, computation)| {
+                        let anchor = grid.index(computation.anchor).get();
+                        overlaps(&(start..start + encoding.len()), &(anchor..anchor + 2))
+                            && descendants(nodes, target).any(|descendant| executed[descendant])
+                    }) {
+                        let mut diagnostics: Vec<_> = effects
+                            .into_iter()
+                            .filter_map(|effect| {
+                                if let Effect::Diagnose(diagnostic) = effect {
+                                    Some(diagnostic)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        diagnostics.push(diagnose(
+                            node,
+                            "spatial output reached an executed computation; Tick effects rejected",
+                        ));
+                        return TickPlan {
+                            writes: vec![],
+                            play_commands: vec![],
+                            diagnostics,
+                        };
+                    }
+                    for (target, computation) in nodes.iter().enumerate() {
+                        let anchor = grid.index(computation.anchor).get();
+                        if overlaps(&(start..start + encoding.len()), &(anchor..anchor + 2)) {
+                            if start == anchor
+                                && !suppressed[target]
+                                && let Value::Atom(Atom::Function(replacement)) = value
+                            {
+                                functions[target] = replacement;
+                                continue;
+                            }
+                            for descendant in descendants(nodes, target) {
+                                suppressed[descendant] = true;
+                            }
+                        }
+                    }
+                    apply_write(&mut working, &write);
+                    effects.push(Effect::Write(write));
                 }
-                apply_write(&mut working, &write);
-                effects.push(Effect::Write(write));
-                settled[node_index] = true;
             }
-            Ok(Interpretation::Sequence(sequence)) if sequence.is_empty() => {
-                settled[node_index] = true;
-            }
-            Ok(Interpretation::Sequence(sequence)) => {
-                effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                    root.anchor,
-                    root.expression.span(),
-                    format!(
-                        "Sequence result {:?} has no fixed scalar scheduling footprint",
-                        sequence.to_string()
-                    ),
-                )));
-            }
-            Ok(Interpretation::Play(performance)) => {
-                effects.push(Effect::Play(performance));
-                settled[node_index] = true;
-            }
-            Err(error) => effects.push(Effect::Diagnose(Diagnostic::for_expression(
-                root.anchor,
-                root.expression.span(),
-                error.to_string(),
-            ))),
         }
     }
     resolve(effects)
+}
+
+fn descendants(nodes: &[Computation], ancestor: usize) -> impl Iterator<Item = usize> + '_ {
+    (0..nodes.len()).filter(move |index| {
+        let mut current = Some(*index);
+        while let Some(index) = current {
+            if index == ancestor {
+                return true;
+            }
+            current = nodes[index].parent;
+        }
+        false
+    })
+}
+
+fn overlaps(left: &Range<usize>, right: &Range<usize>) -> bool {
+    !left.is_empty() && !right.is_empty() && left.start < right.end && right.start < left.end
+}
+
+fn is_operand_destination(grid: Grid, nodes: &[Computation], output: Position) -> bool {
+    let start = grid.index(output).get();
+    nodes.iter().any(|node| {
+        node.operands
+            .iter()
+            .any(|operand| overlaps(&operand.cells, &(start..start + 2)))
+    })
+}
+
+/// An inactive root can contribute no child Portal. Start from value roots,
+/// then close over potential Bang deliveries; actual activation is still
+/// checked during execution, after those producers have settled.
+fn potentially_active(grid: Grid, nodes: &[Computation]) -> Vec<bool> {
+    let mut active: Vec<_> = nodes
+        .iter()
+        .map(|node| node.parent.is_none() && !node.function.is_terminal())
+        .collect();
+    loop {
+        let mut changed = false;
+        for node in nodes {
+            if !active[node.owner] || !node.function.can_emit_bang() {
+                continue;
+            }
+            for output in node
+                .outputs
+                .iter()
+                .filter_map(|output| output.as_ref().ok())
+            {
+                if grid.offset_in_row(*output, 1).is_none()
+                    || is_operand_destination(grid, nodes, *output)
+                {
+                    continue;
+                }
+                let anchors = activated_anchors(grid, *output);
+                for (index, target) in nodes.iter().enumerate() {
+                    if target.parent.is_none()
+                        && target.function.is_terminal()
+                        && anchors.contains(&Some(target.anchor))
+                        && !active[index]
+                    {
+                        active[index] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if !changed {
+            return active;
+        }
+    }
+}
+
+fn schedule(
+    grid: Grid,
+    map: &LanguageMap,
+    configuration: &Configuration,
+) -> Result<Schedule, Vec<Diagnostic>> {
+    let mut nodes: Vec<Computation> = Vec::new();
+    let mut diagnostics = Vec::new();
+    for expression in map.expressions() {
+        if expression.function_candidate().is_none() {
+            continue;
+        }
+        let mut functions = BTreeMap::new();
+        for (entry_index, entry) in expression.positioned().enumerate() {
+            let parent = entry
+                .parent
+                .and_then(|parent| functions.get(&parent).copied());
+            let child = if let Some(Atom::Function(function)) = entry.atom {
+                let index = nodes.len();
+                let anchor = grid.position_at(
+                    grid.cell_index(entry.cells.start)
+                        .expect("parsed Function inside Grid"),
+                );
+                let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
+                let configured = configuration.destinations.get(&grid.index(anchor));
+                let outputs = if function.is_terminal() {
+                    if configured.is_some() {
+                        diagnostics.push(Diagnostic::for_expression(
+                            anchor,
+                            expression.span(),
+                            "a Terminal Output Function cannot have a Portal".to_owned(),
+                        ));
+                    }
+                    vec![]
+                } else if let Some(outputs) = configured {
+                    outputs
+                        .iter()
+                        .map(|output| {
+                            grid.assert_owns(*output);
+                            Ok(*output)
+                        })
+                        .collect()
+                } else if parent.is_none() {
+                    vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())]
+                } else {
+                    vec![]
+                };
+                nodes.push(Computation {
+                    anchor,
+                    span: expression.span(),
+                    function,
+                    parent,
+                    owner,
+                    operands: vec![],
+                    syntax_valid: true,
+                    outputs,
+                });
+                functions.insert(entry_index, index);
+                Some(index)
+            } else {
+                None
+            };
+            if let Some(parent) = parent {
+                nodes[parent].syntax_valid &= entry.atom.is_some();
+                nodes[parent].operands.push(Operand {
+                    cells: entry.cells.clone(),
+                    child,
+                });
+            }
+        }
+    }
+    for node in &nodes {
+        if node
+            .operands
+            .iter()
+            .zip(lang::Tokens::from(&node.function))
+            .any(|(operand, token)| operand.child.is_none() && operand.cells.len() < token.len())
+        {
+            let boundary = if node.span.end().get() % grid.cols() == grid.cols() - 1 {
+                "Expression layout crosses the row edge"
+            } else {
+                "Expression operand crosses the Source boundary"
+            };
+            diagnostics.push(diagnose(node, boundary));
+        }
+    }
+    let active = potentially_active(grid, &nodes);
+    let mut edges = BTreeSet::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some(parent) = node.parent {
+            edges.insert((index, parent));
+        }
+        if !active[node.owner] {
+            continue;
+        }
+        for output in node
+            .outputs
+            .iter()
+            .filter_map(|output| output.as_ref().ok())
+        {
+            if grid.offset_in_row(*output, 1).is_none() {
+                continue;
+            }
+            let start = grid.index(*output).get();
+            let cells = start..start + 2;
+            for (consumer, target) in nodes.iter().enumerate() {
+                let anchor = grid.index(target.anchor).get();
+                if overlaps(&cells, &(anchor..anchor + 2)) {
+                    for descendant in descendants(&nodes, consumer) {
+                        edges.insert((index, descendant));
+                    }
+                }
+                if target
+                    .operands
+                    .iter()
+                    .any(|operand| operand.child.is_none() && overlaps(&cells, &operand.cells))
+                {
+                    edges.insert((index, consumer));
+                }
+            }
+            if node.function.can_emit_bang() && !is_operand_destination(grid, &nodes, *output) {
+                let anchors = activated_anchors(grid, *output);
+                for (consumer, target) in nodes.iter().enumerate() {
+                    let owner = &nodes[target.owner];
+                    if owner.function.is_terminal() && anchors.contains(&Some(owner.anchor)) {
+                        edges.insert((index, consumer));
+                    }
+                }
+            }
+        }
+    }
+    let mut indegree = vec![0; nodes.len()];
+    let mut outgoing = vec![vec![]; nodes.len()];
+    for (producer, consumer) in edges {
+        indegree[consumer] += 1;
+        outgoing[producer].push(consumer);
+    }
+    let mut ready: BTreeSet<_> = indegree
+        .iter()
+        .enumerate()
+        .filter(|(_, incoming)| **incoming == 0)
+        .map(|(index, _)| (grid.index(nodes[index].anchor), index))
+        .collect();
+    let mut order = Vec::new();
+    while let Some((_, index)) = ready.pop_first() {
+        order.push(index);
+        for &consumer in &outgoing[index] {
+            indegree[consumer] -= 1;
+            if indegree[consumer] == 0 {
+                ready.insert((grid.index(nodes[consumer].anchor), consumer));
+            }
+        }
+    }
+    if order.len() != nodes.len() {
+        let index = indegree
+            .iter()
+            .position(|incoming| *incoming != 0)
+            .expect("cycle has a node");
+        diagnostics.push(diagnose(&nodes[index], "same-Tick dependency cycle"));
+        return Err(diagnostics);
+    }
+    Ok(Schedule {
+        nodes,
+        order,
+        diagnostics,
+    })
 }
 
 fn apply_write(bytes: &mut [u8], write: &SpanWrite) {
@@ -333,17 +579,6 @@ fn portal_message(reason: PortalError, encoding: &str) -> String {
     }
 }
 
-///
-/// The anchors a Bang at `bang` activates: north, south, west, east.
-///
-/// ADR 0006 names four aligned cardinal anchors and no others, so activation
-/// is a question about four Positions rather than about every root on the
-/// Grid. Asking it the other way round — testing each root against each Bang —
-/// costs the product of the two on a path a Tick runs under the playback
-/// deadline, and answers the same four times over. A Position off the Grid is
-/// absent rather than an error: an edge has fewer neighbours, not invalid
-/// ones.
-///
 fn activated_anchors(grid: Grid, bang: Position) -> [Option<Position>; 4] {
     grid.assert_owns(bang);
     let (column, row) = (bang.x(), bang.y());
@@ -356,538 +591,6 @@ fn activated_anchors(grid: Grid, bang: Position) -> [Option<Position>; 4] {
             .and_then(|west| grid.position(west, row)),
         grid.position(column + 2, row),
     ]
-}
-
-///
-/// The root anchored at `anchor`, from roots in anchor order.
-///
-/// Two roots cannot share an anchor, so this answers exactly one or none.
-///
-fn root_at(grid: Grid, roots: &[ScheduledRoot<'_>], anchor: Position) -> Option<usize> {
-    roots
-        .binary_search_by_key(&grid.index(anchor).get(), |root| {
-            grid.index(root.anchor).get()
-        })
-        .ok()
-}
-
-fn schedule<'a>(
-    grid: Grid,
-    map: &'a LanguageMap,
-    destinations: &BTreeMap<CellIndex, Position>,
-) -> Result<Schedule<'a>, Vec<Diagnostic>> {
-    let mut roots: Vec<_> = map
-        .expressions()
-        .filter_map(|expression| {
-            expression
-                .function_candidate()
-                .map(|(anchor, function)| ScheduledRoot {
-                    anchor,
-                    function,
-                    expression,
-                    output: if function.is_terminal() {
-                        Ok(None)
-                    } else if let Some(destination) = destinations.get(&grid.index(anchor)) {
-                        Ok(Some(*destination))
-                    } else {
-                        Portal::ordinary_result(grid, anchor)
-                            .map(|portal| Some(portal.destination()))
-                    },
-                })
-        })
-        .collect();
-    roots.sort_by_key(|root| grid.index(root.anchor));
-
-    // A candidate whose own layout does not stand up takes no turn: it
-    // contributes no slots and no output of its own, and the roots around it
-    // schedule as though it were not there.
-    //
-    // Its destination is the exception. A root that fails at evaluation leaves
-    // its consumer unsettled and named; erasing this one from the graph
-    // entirely would leave the same consumer reading whatever its operand
-    // Cells still hold, which is the previous Tick's value presented as this
-    // one's. The destination is a property of the anchor rather than of the
-    // layout that failed, so it is still known, and it is kept precisely so a
-    // consumer waiting on it can be told.
-    let mut excluded = Vec::new();
-    let mut unstable: Vec<(Position, CellIndex)> = Vec::new();
-    // Paired and then unzipped, so a layout belongs to its root by
-    // construction. A slot names its consumer by index into `roots`, and
-    // building the two lists side by side would leave that correspondence
-    // resting on the order a predicate happened to be called in — true today,
-    // and silent about it if it ever stopped being.
-    let (kept, layouts): (Vec<_>, Vec<_>) = std::mem::take(&mut roots)
-        .into_iter()
-        .filter_map(|root| match root_layout(grid, &root) {
-            Ok(layout) => Some((root, layout)),
-            Err(diagnostic) => {
-                if let Ok(Some(output)) = root.output {
-                    unstable.push((root.anchor, grid.index(output)));
-                }
-                excluded.push(diagnostic);
-                None
-            }
-        })
-        .unzip();
-    roots = kept;
-    // The only question asked of the slots is which of them a two-Cell output
-    // lands on. Scanning all of them for every producer answers it in the
-    // product of the two, and a Tick pays that under the playback deadline, so
-    // they are put in Cell order once and searched instead.
-    //
-    // Every scheduled slot lies inside its parser-owned Expression span.
-    let mut slots: Vec<Slot> = layouts
-        .into_iter()
-        .enumerate()
-        .flat_map(|(consumer, layout)| {
-            layout.into_iter().map(move |(position, token)| Slot {
-                consumer,
-                start: grid.index(position).get(),
-                token,
-            })
-        })
-        .collect();
-    slots.sort_by_key(|slot| slot.start);
-    // How far back a slot can start and still reach an output: the bound that
-    // turns "every slot before this one" into a short run of candidates.
-    let widest_slot = slots.iter().map(|slot| slot.token.len()).max().unwrap_or(0);
-
-    // Every run this Tick's writes have to live beside, in the row-major order
-    // the Map builds its Expressions in.
-    //
-    // Runs, not roots: a run holding no Function candidate is still Source the
-    // next parse reads, and a result written into one changes what that parse
-    // sees exactly as much as a result written into a root's does.
-    //
-    // And the runs as this Tick leaves them, not as the starting Snapshot
-    // spells them: stale Bang display is cleared before the first root takes
-    // its turn, so a result written where a `**` stood is written into empty
-    // Source and joins nothing.
-    let cleared: Vec<Span> = map.bangs().map(|(_, span)| span).collect();
-    let mut spans: Vec<Span> = Vec::new();
-    for expression in map.expressions() {
-        extend_surviving_runs(grid, expression.span(), &cleared, &mut spans);
-    }
-    debug_assert!(
-        spans.is_sorted_by_key(|span| span.start()),
-        "disturbed_expression searches Expression Spans in Cell order",
-    );
-
-    let mut diagnostics = Vec::new();
-    let mut output_is_slot = vec![false; roots.len()];
-    let mut dependencies = Vec::new();
-    let mut output_cells: BTreeMap<CellIndex, usize> = BTreeMap::new();
-    // Producers whose destination this Tick cannot deliver to — one that
-    // crosses the row edge, one that would disturb a neighbouring run — and
-    // the diagnostic each one owes. Applied after the walk, because taking a
-    // root's destination away while the walk still reads destinations would
-    // change the answer the walk is in the middle of giving.
-    let mut withdrawn: Vec<(usize, Diagnostic)> = Vec::new();
-    for (producer_index, producer) in roots.iter().enumerate() {
-        let output = match producer.output {
-            Ok(Some(output)) => output,
-            Ok(None) => continue,
-            // A result that is Empty needs no destination. Resolve this
-            // failure only after evaluation establishes that a value exists.
-            Err(_) => continue,
-        };
-        // A destination with only one Cell left in its row can receive no
-        // scalar result. That is a property of one Expression's anchor, like
-        // the layout that crosses the same edge in `root_layout`, so it costs
-        // that Expression its turn's destination and leaves every other root
-        // playing rather than rejecting the whole Tick.
-        if grid.offset_in_row(output, 1).is_none() {
-            withdrawn.push((
-                producer_index,
-                Diagnostic::for_expression(
-                    producer.anchor,
-                    producer.expression.span(),
-                    "a scalar output crosses the row edge".to_owned(),
-                ),
-            ));
-            continue;
-        }
-        let output_start = grid.index(output);
-        let output_indices = [
-            output_start,
-            grid.cell_index(output_start.get() + 1)
-                .expect("a checked two-Cell output is inside the Grid"),
-        ];
-
-        for slot in covering_slots(&slots, widest_slot, output_start.get()) {
-            let Slot {
-                consumer: consumer_index,
-                start: slot_start,
-                token,
-            } = slot;
-            output_is_slot[producer_index] = true;
-            if matches!(token, lang::Token::Function) {
-                diagnostics.push(Diagnostic::for_expression(
-                    producer.anchor,
-                    producer.expression.span(),
-                    "current-Tick output cannot replace Function structure".to_owned(),
-                ));
-            } else if output_start.get() == slot_start && token.len() == 2 {
-                dependencies.push(Dependency {
-                    producer: producer_index,
-                    consumer: consumer_index,
-                    kind: DependencyKind::Data,
-                });
-            } else {
-                diagnostics.push(Diagnostic::for_expression(
-                    producer.anchor,
-                    producer.expression.span(),
-                    "current-Tick output only partly covers an operand".to_owned(),
-                ));
-            }
-        }
-
-        // A row is partitioned into runs at its spaces, so a two-Cell result
-        // written into or flush against another Expression's run makes the
-        // next parse walk a different run: one whose first Language Unit is no
-        // longer what was there, and whose Cells the graph this Tick executed
-        // no longer describes. Whatever was displayed there stops existing —
-        // permanently, because the display that replaced it is no longer a
-        // Bang any cleanup can find.
-        //
-        // Only an output that landed on no parsed slot is asked. Abutting a
-        // run can disturb its partition; landing inside a slot is how a
-        // write repairs a typed operand. That is the supported case and the
-        // slots above already accounted for them. What is left is a structural
-        // projection the stable graph cannot take, and ADR 0032 diagnoses it
-        // rather than executing it.
-        if !output_is_slot[producer_index]
-            && let Some(disturbed) =
-                disturbed_expression(grid, &spans, producer.expression.span(), output_start)
-        {
-            let neighbour = grid.position_at(disturbed.start());
-            withdrawn.push((
-                producer_index,
-                Diagnostic::for_expression(
-                    producer.anchor,
-                    producer.expression.span(),
-                    format!(
-                        "current-Tick output would join the Expression at column {}, row {}",
-                        neighbour.x(),
-                        neighbour.y()
-                    ),
-                ),
-            ));
-            continue;
-        }
-
-        // Both Cells are registered, and `count` is what registers them: the
-        // collision they may reveal is one collision, this producer meeting
-        // whichever producer reached the destination first, and a two-Cell
-        // output is not two conflicts. No producer can meet itself here —
-        // the two Cells are distinct keys and no two roots share an anchor.
-        //
-        // Registered only once every reason to withdraw this destination has
-        // been asked, because a producer that is about to lose its destination
-        // writes nothing: holding its Cells here would reject the Tick over a
-        // conflict with a writer that no longer exists.
-        let contended = output_indices
-            .into_iter()
-            .filter_map(|cell| output_cells.insert(cell, producer_index))
-            .count()
-            > 0;
-        if contended {
-            diagnostics.push(Diagnostic::for_expression(
-                producer.anchor,
-                producer.expression.span(),
-                "multiple current-Tick producers write the same Cell".to_owned(),
-            ));
-        }
-
-        if producer.function.can_emit_bang() && !output_is_slot[producer_index] {
-            for anchor in activated_anchors(grid, output).into_iter().flatten() {
-                if let Some(consumer_index) = root_at(grid, &roots, anchor)
-                    && roots[consumer_index].function.is_terminal()
-                {
-                    dependencies.push(Dependency {
-                        producer: producer_index,
-                        consumer: consumer_index,
-                        kind: DependencyKind::Activation,
-                    });
-                }
-            }
-        }
-    }
-
-    // A supplier that never took a turn cannot settle, so every consumer whose
-    // operand it was going to write is owed the same answer a supplier that
-    // failed at evaluation gives. Asked through the same slots, so a
-    // destination that covers no operand concerns nobody.
-    let mut failed_suppliers: Vec<Option<Position>> = vec![None; roots.len()];
-    for (anchor, output) in unstable {
-        for slot in covering_slots(&slots, widest_slot, output.get()) {
-            failed_suppliers[slot.consumer].get_or_insert(anchor);
-        }
-    }
-
-    // A destination this Tick cannot deliver to is taken away rather than
-    // executed, and the root keeps its turn without one. It reaches the same
-    // settled state as a root that answered with absence, which is what it now
-    // is: a value nobody can receive. Only a destination that landed on no
-    // parsed slot arrives here, so no consumer was waiting on it and no Data
-    // edge is being cut — the rest of the program plays, as it does for any
-    // other failure local to one Expression.
-    for (producer_index, diagnostic) in withdrawn {
-        roots[producer_index].output = Ok(None);
-        excluded.push(diagnostic);
-    }
-
-    dependencies.sort_by_key(|dependency| {
-        (
-            dependency.producer,
-            dependency.consumer,
-            dependency.kind as u8,
-        )
-    });
-    dependencies.dedup();
-    // A rejected Tick still answers for the candidates kept out of the
-    // schedule before the graph existed. They are reported first, as they are
-    // on the path that publishes: their Expressions were unstable whatever the
-    // graph then turned out to be, and dropping them here meant fixing the
-    // graph error uncovered a second problem that had been there all along.
-    if !diagnostics.is_empty() {
-        excluded.extend(diagnostics);
-        return Err(excluded);
-    }
-
-    let mut data_suppliers = vec![Vec::new(); roots.len()];
-    for dependency in &dependencies {
-        if dependency.kind == DependencyKind::Data {
-            data_suppliers[dependency.consumer].push(dependency.producer);
-        }
-    }
-
-    let mut indegree = vec![0usize; roots.len()];
-    let mut outgoing = vec![Vec::new(); roots.len()];
-    for dependency in &dependencies {
-        indegree[dependency.consumer] += 1;
-        outgoing[dependency.producer].push(dependency.consumer);
-    }
-
-    let mut order = Vec::with_capacity(roots.len());
-    let mut ready = BTreeSet::new();
-    for (node, &incoming) in indegree.iter().enumerate() {
-        if incoming == 0 {
-            ready.insert(node);
-        }
-    }
-    while let Some(node) = ready.pop_first() {
-        order.push(node);
-        for &consumer in &outgoing[node] {
-            indegree[consumer] -= 1;
-            if indegree[consumer] == 0 {
-                ready.insert(consumer);
-            }
-        }
-    }
-    if order.len() != roots.len() {
-        let root = roots
-            .iter()
-            .enumerate()
-            .find(|(index, _)| indegree[*index] != 0)
-            .map(|(_, root)| root)
-            .expect("an incomplete topological order leaves one root");
-        excluded.push(Diagnostic::for_expression(
-            root.anchor,
-            root.expression.span(),
-            "same-Tick dependency cycle".to_owned(),
-        ));
-        return Err(excluded);
-    }
-
-    Ok(Schedule {
-        roots,
-        order,
-        data_suppliers,
-        output_is_slot,
-        failed_suppliers,
-        excluded,
-    })
-}
-
-///
-/// What is left of `span` once this Tick has cleared the stale Bang display
-/// inside it, as the runs a space-partitioned row would then hold.
-///
-/// A Source-resident `**` is display from an earlier Tick and is blanked
-/// before any root takes its turn, so the Cells it occupied are empty by the
-/// time a result is written. An Expression that was nothing but Bangs leaves
-/// no run at all; one that mixes them with Activations leaves the stretches
-/// between them.
-///
-/// `cleared` is every Bang the starting parse established, in Cell order, and
-/// each lies wholly inside exactly one Expression Span. Those Spans ascend
-/// too, so the Bangs inside one are a contiguous stretch of `cleared` and are
-/// found by search rather than by testing every Bang against every Span.
-///
-/// Appended to `runs` rather than returned, so one Source revision's runs cost
-/// one allocation rather than one per Expression on a path a Tick runs under
-/// the playback deadline. Spans ascend, so appending keeps `runs` in Cell
-/// order.
-///
-fn extend_surviving_runs(grid: Grid, span: Span, cleared: &[Span], runs: &mut Vec<Span>) {
-    let mut run = |start: usize, end: usize| {
-        runs.push(Span::new(
-            grid,
-            grid.cell_index(start)
-                .expect("a Cell of an Expression Span"),
-            grid.cell_index(end).expect("a Cell of an Expression Span"),
-        ));
-    };
-
-    let end = span.end().get();
-    let mut start = span.start().get();
-    let first = cleared.partition_point(|bang| bang.end().get() < start);
-    for bang in cleared[first..]
-        .iter()
-        .take_while(|bang| bang.start().get() <= end)
-    {
-        if start < bang.start().get() {
-            run(start, bang.start().get() - 1);
-        }
-        start = bang.end().get() + 1;
-    }
-    if start <= end {
-        run(start, end);
-    }
-}
-
-///
-/// The Expression run a two-Cell output written at `output` would disturb:
-/// one it lands inside, or one it is written flush against.
-///
-/// A row is partitioned at its spaces, so an output changes what the next
-/// parse reads by overlapping a run or by abutting one, and it is the run
-/// rather than the root that decides this: an Expression holding no Function
-/// candidate — a bare Operand Literal, or a candidate the schedule already
-/// excluded — declares no operand slot, so nothing else in this walk answers
-/// for a result written into it.
-///
-/// Only an output that landed on no parsed operand slot asks, so an overlap
-/// reaching here is an overlap with a run that declared no slot for the Cells
-/// being written. A root that declared them answered through `covering_slots`
-/// instead, as a Data edge, a structural rejection, or a partial cover.
-///
-/// The producer's own run is not an answer: a root writing inside its own
-/// Expression is the fixed-destination question `covering_slots` owns, and a
-/// root cannot join itself. It is recognised by its Span, which is exact: a
-/// root's Expression leads with a Function candidate, so no Bang inside it is
-/// ever cleared and its surviving run is the whole of it.
-///
-/// `spans` is every Expression Span of the revision in Cell order and Spans
-/// within a row do not overlap, so the runs that can reach a given output are
-/// one short stretch of it, found by search rather than by scanning them all
-/// on a path a Tick runs under the playback deadline.
-///
-fn disturbed_expression(
-    grid: Grid,
-    spans: &[Span],
-    producer: Span,
-    output: CellIndex,
-) -> Option<Span> {
-    let output_start = output.get();
-    let output_end = output_start + 1;
-    let row = grid.position_at(output).y();
-
-    // The first run that ends late enough to touch the output or to sit
-    // immediately before it; from there, runs that begin past one Cell after
-    // the output cannot reach back to it.
-    let first = spans.partition_point(|span| span.end().get() + 1 < output_start);
-    spans[first..]
-        .iter()
-        .copied()
-        .take_while(|span| span.start().get() <= output_end + 1)
-        .filter(|span| *span != producer)
-        // A Span is confined to one row, but the Cell either side of an output
-        // at a row edge belongs to the next row or the previous one, so the
-        // row is asked rather than assumed.
-        .find(|span| grid.position_at(span.start()).y() == row)
-}
-
-///
-/// Every slot a two-Cell output starting at `output` lands on any part of,
-/// in the root order a producer's diagnostics follow.
-///
-/// `slots` is in ascending `start` order and `widest` is the widest slot in
-/// it, which together bound the candidates to one short run: a slot starting
-/// more than `widest` Cells before the output cannot reach it, and one
-/// starting at or after the output's second Cell has not begun. Both are
-/// preconditions rather than checks — a `widest` that understates one slot
-/// would drop it silently — so both are asserted in a test build.
-///
-fn covering_slots(slots: &[Slot], widest: usize, output: usize) -> Vec<Slot> {
-    debug_assert!(
-        slots.is_sorted_by_key(|slot| slot.start),
-        "covering_slots searches slots in Cell order",
-    );
-    debug_assert!(
-        slots.iter().all(|slot| slot.token.len() <= widest),
-        "a slot wider than `widest` would be searched past and silently dropped",
-    );
-
-    let output_end = output + 2;
-    let first = slots.partition_point(|slot| slot.start + widest <= output);
-    let past = slots.partition_point(|slot| slot.start < output_end);
-    let mut covering: Vec<_> = slots[first..past]
-        .iter()
-        .copied()
-        .filter(|slot| output < slot.start + slot.token.len())
-        .collect();
-    // Cell order found them; root order is the order their producer's
-    // diagnostics are emitted in, which is the order ADR 0020 describes.
-    covering.sort_by_key(|slot| (slot.consumer, slot.start));
-    covering
-}
-
-///
-/// This candidate's parsed operand slots as Grid Positions, or the one
-/// diagnostic that keeps it out of the schedule.
-///
-/// An operand cut off by a row edge or Comment is a property of
-/// one Expression rather than of the graph. ADR 0032 rejects a whole Tick for
-/// competing writers, cycles, partial operand writes, and structural
-/// projections the stable graph cannot express. A cut-off operand is an
-/// ordinary state to pass through while typing. Its Expression is diagnosed
-/// and left inert, and every other root
-/// still plays.
-///
-fn root_layout(
-    grid: Grid,
-    root: &ScheduledRoot<'_>,
-) -> Result<Vec<(Position, lang::Token)>, Diagnostic> {
-    // Keep invalid typed operands repairable, but a slot cut off by a row
-    // edge or Comment cannot become complete in this Snapshot's partition.
-    root.expression
-        .layout()
-        .map(|(offset, token, _)| {
-            grid.offset_in_row(root.anchor, offset + token.len() - 1)
-                .ok_or_else(|| {
-                    Diagnostic::for_expression(
-                        root.anchor,
-                        root.expression.span(),
-                        "Expression layout crosses the row edge".to_owned(),
-                    )
-                })?;
-            if grid.index(root.anchor).get() + offset + token.len() - 1
-                > root.expression.span().end().get()
-            {
-                return Err(Diagnostic::for_expression(
-                    root.anchor,
-                    root.expression.span(),
-                    "Expression operand crosses the Source boundary".to_owned(),
-                ));
-            }
-            let position = grid
-                .position(root.anchor.x() + offset, root.anchor.y())
-                .expect("a checked Expression slot is inside its row");
-            Ok((position, token))
-        })
-        .collect()
 }
 
 ///
@@ -949,25 +652,16 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
     TickInputs::new(tick, Anchor::new(root.x(), root.y()))
 }
 
-///
-/// Evaluates one root's Atoms against the explicit inputs it was given.
-///
-/// The one place this crate calls the Interpreter, so it is the one place the
-/// ADR 0012 inputs cross into evaluation. Nothing observable comes back out of
-/// a Tick to say which Tick and which anchor a root was told — a result is the
-/// same two Cells however it was seeded, and stays that way until
-/// `tick-functions/02` gives Clock a Tick to read and `tick-functions/04`
-/// gives Random an anchor. Until then the thread from the Playback Engine to
-/// `Interpreter::execute` is only as good as something watching it, so under
-/// `cfg(test)` this records what it was handed before delegating. A production
-/// build compiles the recording out entirely: what remains is one inlineable
-/// call that forwards its two arguments unchanged.
-///
-fn interpret(atoms: &Atoms, inputs: TickInputs) -> Result<Interpretation, LangError> {
+/// Calls the existing Evaluator once with resolved typed operands. The
+/// test-only observation records exactly-once execution and Tick/anchor inputs.
+fn interpret(
+    function: Function,
+    operands: &[Value],
+    inputs: TickInputs,
+) -> Result<Interpretation, lang::Error> {
     #[cfg(test)]
     observed::record(inputs);
-
-    Interpreter::execute(atoms, inputs)
+    Interpreter::execute_function(function, operands, inputs)
 }
 
 ///
@@ -1009,6 +703,720 @@ mod test {
     fn snapshot(grid: Grid, rows: &[&str]) -> String {
         let width = grid.count() / rows.len();
         rows.iter().map(|row| format!("{row:width$}")).collect()
+    }
+
+    fn configured_source(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        supplied: &[(usize, lang::Function)],
+    ) -> (TickPlan, crate::source::Source) {
+        configured_source_atoms(
+            grid,
+            rows,
+            outputs,
+            &supplied
+                .iter()
+                .map(|(anchor, function)| (*anchor, lang::Atom::Function(*function)))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    fn configured_source_atoms(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        supplied: &[(usize, lang::Atom)],
+    ) -> (TickPlan, crate::source::Source) {
+        let mut source = crate::source::Source::new(grid);
+        for (index, byte) in snapshot(grid, rows).bytes().enumerate() {
+            source
+                .set(cell(grid, index), &char::from(byte).to_string())
+                .unwrap();
+        }
+        let mut configuration = super::Configuration::default();
+        for (anchor, output) in outputs {
+            configuration
+                .destinations
+                .entry(cell(grid, *anchor))
+                .or_default()
+                .push(grid.position_at(cell(grid, *output)));
+        }
+        configuration.supplied.extend(
+            supplied
+                .iter()
+                .map(|(anchor, function)| (cell(grid, *anchor), *function)),
+        );
+        let plan = source.execute_configured(Tick::ZERO, &configuration);
+        (plan, source)
+    }
+
+    #[test]
+    fn live_unchanged_nested_syntax_errors_do_not_repeat_as_tick_failures() {
+        let grid = Grid::new(20, 2);
+        let rows = [".+01.x02.+03??", ""];
+        let (plan, mut source) = configured_source(grid, &rows, &[], &[]);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(
+            !source
+                .language_map()
+                .expression_diagnostics()
+                .collect::<Vec<_>>()
+                .is_empty()
+        );
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        let repeated = source.execute(Tick::new(1));
+        assert!(
+            repeated.diagnostics.is_empty(),
+            "{:?}",
+            repeated.diagnostics
+        );
+        assert!(repeated.play_commands.is_empty());
+        source.set(cell(grid, 12), "0").unwrap();
+        source.set(cell(grid, 13), "4").unwrap();
+        let repaired = source.execute(Tick::new(2));
+        assert!(
+            repaired.diagnostics.is_empty(),
+            "{:?}",
+            repaired.diagnostics
+        );
+        assert_eq!(&source.snapshot()[20..22], "0F");
+
+        // A writer can also repair the bad leaf before its reserved turn.
+        let (repaired, source) = configured_source(
+            Grid::new(20, 3),
+            &[".+01.x02.+03??", ".+0004", ""],
+            &[(0, 40), (20, 12)],
+            &[],
+        );
+        assert!(
+            repaired.diagnostics.is_empty(),
+            "{:?}",
+            repaired.diagnostics
+        );
+        assert_eq!(&source.snapshot()[40..42], "0F");
+    }
+
+    #[test]
+    fn live_non_pair_scalar_projection_is_rejected_at_the_row_edge() {
+        let grid = Grid::new(16, 2);
+        let rows = [".+0203", ""];
+        let (plan, source) =
+            configured_source_atoms(grid, &rows, &[(0, 31)], &[(0, lang::Atom::Char('7'))]);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(plan.writes.is_empty());
+        assert!(plan.play_commands.is_empty());
+        assert!(
+            plan.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("result is not a scalar Cell pair")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn live_inactive_nested_portal_cannot_create_a_cycle() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &["!>007F.^3C", ".+0203", ""],
+            &[(6, 8), (16, 32)],
+            &[],
+        );
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(&source.snapshot()[32..34], "05");
+        assert!(plan.play_commands.is_empty());
+    }
+
+    #[test]
+    fn live_claims_and_glyphs_survive_source_edits_and_publication() {
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+01 02", ""], &[], &[]);
+        assert!(plan.writes.is_empty());
+        assert_eq!(
+            source
+                .language_map()
+                .expressions()
+                .next()
+                .unwrap()
+                .span()
+                .end()
+                .get(),
+            5
+        );
+        assert!(source.language_map().diagnostics().any(|d| d.start() == 6));
+        assert_eq!(
+            source
+                .language_map()
+                .glyph_at(source.grid().position(4, 0).unwrap()),
+            Some(crate::glyph::Glyph::Number)
+        );
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[], &[]);
+        assert_eq!(&source.snapshot()[16..24], "03    07");
+        assert!(plan.diagnostics.is_empty());
+        assert_eq!(
+            source
+                .language_map()
+                .expressions()
+                .filter_map(|entry| entry.root())
+                .filter(|root| root.y() == 0)
+                .count(),
+            2
+        );
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102Z", ""], &[], &[]);
+        assert_eq!(&source.snapshot()[16..18], "03");
+        assert!(plan.diagnostics.is_empty());
+        assert!(source.language_map().diagnostics().any(|d| d.start() == 6));
+        let (plan, source) = configured_source(Grid::new(16, 2), &["***", ""], &[], &[]);
+        assert_eq!(&source.snapshot()[..3], "  *");
+        assert_eq!(plan.writes.len(), 2);
+        assert!(source.language_map().diagnostics().any(|d| d.start() == 2));
+        let (plan, source) =
+            configured_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[], &[]);
+        assert_eq!(&source.snapshot()[16..18], "**");
+        assert!(plan.play_commands.is_empty());
+        assert!(plan.diagnostics.is_empty());
+        assert_eq!(
+            source
+                .language_map()
+                .expressions()
+                .filter_map(|entry| entry.root())
+                .filter(|root| root.y() == 0)
+                .count(),
+            2
+        );
+        // Pin the current display of plausible standalone data. These rejected
+        // Function candidates have Function glyphs, no units and no execution.
+        let (plan, source) = configured_source(Grid::new(16, 2), &["C4 EA 01", ""], &[], &[]);
+        assert!(plan.writes.is_empty());
+        assert_eq!(source.language_map().units().count(), 0);
+        for column in [0, 1, 3, 4, 6, 7] {
+            assert_eq!(
+                source
+                    .language_map()
+                    .glyph_at(source.grid().position(column, 0).unwrap()),
+                Some(crate::glyph::Glyph::Function)
+            );
+        }
+    }
+
+    #[test]
+    fn live_bang_in_half_typed_terminal_claim_diagnoses_without_activation() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &["    .=0101", "!>00", "    !>007FC4"],
+            &[],
+            &[],
+        );
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(&source.snapshot()[16..24], "!>00**  ");
+        assert!(
+            source
+                .language_map()
+                .diagnostics()
+                .any(|d| d.start() == 16 && d.message.contains("expected a number"))
+        );
+        assert_eq!(
+            source
+                .language_map()
+                .glyph_at(source.grid().position(4, 1).unwrap()),
+            Some(crate::glyph::Glyph::Number)
+        );
+        assert_eq!(source.language_map().bangs().count(), 0);
+    }
+
+    #[test]
+    fn live_function_replacement_cannot_change_activation_or_output_kind() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0204", ".+0000", ""],
+            &[(0, 32), (16, 0)],
+            &[(16, lang::Function::RawPlay)],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+0204");
+        assert_eq!(&source.snapshot()[32..34], "06");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("activation requirements or output kind"))
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    proptest::proptest! {
+        #[test]
+        fn live_writes_agree_with_an_independent_cell_overlay(
+            first in proptest::prelude::any::<u8>(), second in proptest::prelude::any::<u8>(),
+            first_column in 2usize..6, second_column in 2usize..6,
+        ) {
+            let grid = Grid::new(16, 4);
+            let first_source = format!(".+00{first:02X}");
+            let second_source = format!(".+00{second:02X}");
+            let rows = [".+0101", first_source.as_str(), second_source.as_str(), ""];
+            let outputs = [(0, 48), (16, first_column), (32, second_column)];
+            let mut expected = snapshot(grid, &rows).into_bytes();
+            // Independent oracle: two literal Cell overlays in known Position
+            // order, followed by ordinary hexadecimal arithmetic.
+            expected[first_column..first_column + 2].copy_from_slice(format!("{first:02X}").as_bytes());
+            expected[second_column..second_column + 2].copy_from_slice(format!("{second:02X}").as_bytes());
+            let left = u16::from_str_radix(std::str::from_utf8(&expected[2..4]).unwrap(), 16).unwrap();
+            let right = u16::from_str_radix(std::str::from_utf8(&expected[4..6]).unwrap(), 16).unwrap();
+            expected[48..50].copy_from_slice(format!("{:02X}", (left + right) % 256).as_bytes());
+            let (plan, source) = configured_source(grid, &rows, &outputs, &[]);
+            proptest::prop_assert_eq!(source.snapshot().into_bytes(), expected);
+            proptest::prop_assert!(plan.diagnostics.is_empty());
+            let (repeated, _) = configured_source(grid, &rows, &outputs, &[]);
+            proptest::prop_assert_eq!(plan, repeated);
+            let full = LanguageMap::derive(grid, &source.snapshot()).unwrap();
+            proptest::prop_assert_eq!(source.language_map().units().collect::<Vec<_>>(), full.units().collect::<Vec<_>>());
+            for position in grid.rows().flatten() {
+                proptest::prop_assert_eq!(source.language_map().glyph_at(position), full.glyph_at(position));
+            }
+        }
+
+        #[test]
+        fn live_rejected_complete_write_changes_no_cell(value in proptest::prelude::any::<u8>()) {
+            let grid = Grid::new(16, 2);
+            let producer = format!(".+00{value:02X}");
+            let rows = [producer.as_str(), ""];
+            let (plan, source) = configured_source(grid, &rows, &[(0, 31)], &[]);
+            proptest::prop_assert!(plan.writes.is_empty());
+            proptest::prop_assert_eq!(source.snapshot(), snapshot(grid, &rows));
+            proptest::prop_assert!(plan.diagnostics.iter().any(|d| d.message.contains("crosses the row edge")));
+        }
+    }
+    #[test]
+    fn live_cross_boundary_chain_uses_lower_producers() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 5),
+            &[".+0101", ".+0001", ".+0001", "", ""],
+            &[(0, 64), (16, 34), (32, 3)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+0021");
+        assert_eq!(&source.snapshot()[64..66], "21");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn live_competing_writers_follow_position_and_emissions_follow_configuration() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &[".+0101", ".+0101", ".+0102", ""],
+            &[(0, 48), (16, 3), (32, 3)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+0031");
+        assert_eq!(&source.snapshot()[48..50], "31");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        observed::take();
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0101", ".+0203", ""],
+            &[(0, 32), (16, 2), (16, 3)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+0051");
+        assert_eq!(&source.snapshot()[32..34], "51");
+        assert_eq!(observed::take().len(), 2);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn live_pending_note_decodes_only_after_all_writers_settle() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &[".vE4", ".+E901", ".+E401", ""],
+            &[(0, 48), (16, 2), (32, 2)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..4], ".vE5");
+        assert_eq!(&source.snapshot()[48..50], "4C");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".vE4", ".+E901", ""],
+            &[(0, 32), (16, 2)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..4], ".vEA");
+        assert_eq!(&source.snapshot()[32..34], "  ");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("expected a note")),
+            "{:?}",
+            plan.diagnostics
+        );
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0000", ".+E901", ""],
+            &[(0, 32), (16, 2)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[32..34], "EA");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn live_spatial_note_is_an_encoding_and_nested_note_stays_typed() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0001", ".^48", ""],
+            &[(0, 32), (16, 2)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+C501");
+        assert_eq!(&source.snapshot()[32..34], "C6");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        let (plan, source) =
+            configured_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)], &[]);
+        assert_eq!(&source.snapshot()[16..18], "  ");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("expected a number")),
+            "{:?}",
+            plan.diagnostics
+        );
+        assert_eq!(&source.snapshot()[..8], ".+.^4801");
+    }
+
+    #[test]
+    fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_typed_answer() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &["./.x030400", ".+0001", "", ""],
+            &[(0, 48), (2, 18), (16, 52)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[18..20], "0C");
+        assert_eq!(&source.snapshot()[48..50], "  ");
+        assert_eq!(&source.snapshot()[52..54], "0D");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message == "cannot divide by zero")
+        );
+        let (plan, source) = configured_source(
+            Grid::new(16, 2),
+            &[".+02.x0304", ""],
+            &[(0, 16), (4, 31)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[16..18], "0E");
+        assert_eq!(&source.snapshot()[31..], " ");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge"))
+        );
+    }
+
+    #[test]
+    fn live_failed_suppliers_preserve_spatial_data_but_not_nested_answers() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &[".+0001", ".+0203", "./0100", ""],
+            &[(0, 48), (16, 2), (32, 2)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+0501");
+        assert_eq!(&source.snapshot()[48..50], "06");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message == "cannot divide by zero")
+        );
+        let (plan, source) =
+            configured_source(Grid::new(16, 2), &[".+02./0100", ""], &[(0, 16)], &[]);
+        assert_eq!(&source.snapshot()[16..18], "  ");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("supplied no typed result"))
+        );
+        // A failed structural writer leaves the original computation connected.
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+02.x0304", "./0100", ""],
+            &[(0, 32), (16, 4)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..10], ".+02.x0304");
+        assert_eq!(&source.snapshot()[32..34], "0E");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message == "cannot divide by zero")
+        );
+    }
+
+    #[test]
+    fn live_inactive_ownership_and_terminal_portal_configuration_are_independent() {
+        observed::take();
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &["!>007F.^80", "", ""],
+            &[(0, 16), (6, 20)],
+            &[],
+        );
+        assert!(plan.writes.is_empty());
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(observed::take().len(), 0);
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert!(plan.diagnostics[0].message.contains("cannot have a Portal"));
+        assert_eq!(&source.snapshot()[16..32], "                ");
+        let (plan, _) = configured_source(
+            Grid::new(16, 4),
+            &["!>007FC4", "", ".=0101", ""],
+            &[(0, 34), (32, 16)],
+            &[],
+        );
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert!(plan.diagnostics[0].message.contains("cannot have a Portal"));
+    }
+
+    #[test]
+    fn live_deep_and_top_level_replacement_suppress_descendant_portals() {
+        observed::take();
+        let (plan, source) = configured_source(
+            Grid::new(20, 3),
+            &[".+02.x03.+0101", ".+0203", ""],
+            &[(0, 40), (4, 44), (8, 48), (20, 4)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..14], ".+020503.+0101");
+        assert_eq!(&source.snapshot()[40..42], "07");
+        assert_eq!(&source.snapshot()[44..50], "      ");
+        assert_eq!(observed::take().len(), 2);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(source.language_map().expressions().any(|entry| {
+            entry
+                .root()
+                .is_some_and(|root| root.x() == 8 && root.y() == 0)
+        }));
+        observed::take();
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+02.x0304", ".+0203", ""],
+            &[(0, 32), (4, 36), (16, 0)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..10], "0502.x0304");
+        assert_eq!(&source.snapshot()[32..38], "      ");
+        assert_eq!(observed::take().len(), 1);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            source
+                .language_map()
+                .expressions()
+                .find_map(|entry| entry.root())
+                .unwrap()
+                .x(),
+            4
+        );
+    }
+
+    #[test]
+    fn live_function_replacement_keeps_nesting_and_reinterprets_only_literals() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &[".+02.x0304", ".+0000", ".+0001", ""],
+            &[(0, 48), (4, 34), (16, 0), (32, 52)],
+            &[(16, lang::Function::Multiply)],
+        );
+        assert_eq!(&source.snapshot()[..10], ".x02.x0304");
+        assert_eq!(&source.snapshot()[48..50], "18");
+        assert_eq!(&source.snapshot()[52..54], "0D");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".vC4", ".+0000", ""],
+            &[(0, 32), (16, 0)],
+            &[(16, lang::Function::ConvertToNote)],
+        );
+        assert_eq!(&source.snapshot()[..4], ".^C4");
+        assert_eq!(&source.snapshot()[32..34], "  ");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message == "Number C4 cannot be converted to a Note")
+        );
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".v.^3C", ".+0000", ""],
+            &[(0, 32), (16, 0)],
+            &[(16, lang::Function::ConvertToNote)],
+        );
+        // The retained nested Note C4 remains typed; Numeric Conversion is idempotent.
+        assert_eq!(&source.snapshot()[32..34], "C4");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn live_replacement_checks_retained_arity_and_never_runs_new_anchors() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0204", ".+0000", ""],
+            &[(0, 32), (16, 0)],
+            &[(16, lang::Function::ConvertToNote)],
+        );
+        assert_eq!(&source.snapshot()[..6], ".^0204");
+        assert_eq!(&source.snapshot()[32..34], "  ");
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("expected 1, found 2"))
+        );
+        assert_eq!(
+            source
+                .language_map()
+                .expressions()
+                .next()
+                .unwrap()
+                .span()
+                .end()
+                .get(),
+            3
+        );
+        assert!(source.language_map().diagnostics().any(|d| d.start() == 4));
+        observed::take();
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0101", ".+0000", ""],
+            &[(0, 32), (16, 1)],
+            &[(16, lang::Function::Multiply)],
+        );
+        assert_eq!(&source.snapshot()[..6], "..x101");
+        assert_eq!(&source.snapshot()[32..34], "  ");
+        assert_eq!(observed::take().len(), 1);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(
+            source
+                .language_map()
+                .diagnostics()
+                .any(|d| d.start() == 1 && d.message.contains("1 "))
+        );
+    }
+
+    #[test]
+    fn live_cycles_reject_independent_effects_and_self_dependency() {
+        for outputs in [
+            vec![(0, 18), (16, 2), (32, 48)],
+            vec![(0, 2), (16, 64), (32, 48)],
+        ] {
+            observed::take();
+            let (plan, source) = configured_source(
+                Grid::new(16, 5),
+                &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
+                &outputs,
+                &[],
+            );
+            assert!(plan.writes.is_empty());
+            assert!(plan.play_commands.is_empty());
+            assert_eq!(observed::take().len(), 0);
+            assert_eq!(&source.snapshot()[48..50], "  ");
+            assert!(
+                plan.diagnostics
+                    .iter()
+                    .any(|d| d.message == "same-Tick dependency cycle")
+            );
+        }
+        let (plan, _) = configured_source(
+            Grid::new(16, 3),
+            &[".+02.x0304", ".+0001", ""],
+            &[(0, 18), (4, 18), (16, 6)],
+            &[],
+        );
+        assert!(plan.writes.is_empty());
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message == "same-Tick dependency cycle")
+        );
+    }
+    #[test]
+    fn original_anchor_function_replacement_retains_inputs() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0204", ".+0000", ""],
+            &[(0, 32), (16, 0)],
+            &[(16, lang::Function::Multiply)],
+        );
+        assert_eq!(&source.snapshot()[..6], ".x0204");
+        assert_eq!(&source.snapshot()[32..34], "08");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn a_value_replaces_nested_computation_and_preserves_next_tick_source() {
+        observed::take();
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &[".+02.x0304", ".+0203", "", ""],
+            &[(0, 48), (4, 52), (16, 4)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..10], ".+02050304");
+        assert_eq!(&source.snapshot()[48..50], "07");
+        assert_eq!(&source.snapshot()[52..54], "  ");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(observed::take().len(), 2);
+        let next = source.language_map();
+        assert_eq!(next.expressions().next().unwrap().span().end().get(), 5);
+        assert!(next.diagnostics().any(|diagnostic| diagnostic.start() == 6));
+        assert!(next.diagnostics().any(|diagnostic| diagnostic.start() == 8));
+    }
+
+    #[test]
+    fn nested_computation_returns_and_projects_once() {
+        let grid = Grid::new(16, 4);
+        observed::take();
+        let (plan, source) = configured_source(
+            grid,
+            &[".+02.x0304", ".+0101", "", ""],
+            &[(0, 48), (4, 18), (16, 52)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[18..20], "0C");
+        assert_eq!(&source.snapshot()[48..50], "0E");
+        assert_eq!(&source.snapshot()[52..54], "0D");
+        assert_eq!(&source.snapshot()[..10], ".+02.x0304");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        let calls = observed::take();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|inputs| **inputs
+                    == super::tick_inputs(Tick::ZERO, grid.position(4, 0).unwrap()))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn partial_writers_settle_before_consumption() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &[".+0101", ".+0203", ".+0101", ""],
+            &[(0, 56), (16, 2), (32, 3)],
+            &[],
+        );
+        assert_eq!(&source.snapshot()[..6], ".+0021");
+        assert_eq!(&source.snapshot()[56..58], "21");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            source
+                .language_map()
+                .expressions()
+                .next()
+                .unwrap()
+                .span()
+                .end()
+                .get(),
+            5
+        );
     }
 
     #[test]
@@ -1074,12 +1482,7 @@ mod test {
 
     #[test]
     fn a_result_written_where_stale_bang_display_stood_joins_nothing() {
-        // The Bang a comparison leaves on the Grid is an Expression of the
-        // next revision, and the same comparison writes over it every Tick.
-        // The join guard reads the runs this Tick leaves rather than the ones
-        // the starting Snapshot spells, so the run that was there is already
-        // cleared and the repeated write is the ordinary case it looks like —
-        // not a producer joining its own display.
+        // Cleared display may be rewritten successfully in the same Tick.
         let grid = Grid::new(16, 3);
         let bytes = snapshot(grid, &[".=0101", "**", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
@@ -1097,77 +1500,25 @@ mod test {
     }
 
     #[test]
-    fn a_result_landing_on_a_run_with_no_root_is_refused_like_any_other_join() {
-        // The guard exists because a two-Cell result written into a
-        // neighbouring run makes the next parse walk a different run, and the
-        // display that replaced it is no longer a Bang any cleanup can find.
-        // Nothing in that turns on the neighbouring run holding a Function:
-        // `0102` is an Expression too, it declares no operand slot for the
-        // Cells beside it, and `**0102` is a run whose Bang `bangs()` never
-        // yields — so the Bang stays in the Source for every later Tick and
-        // the literal beside it is destroyed.
-        //
-        // Both geometries are the same failure: the abutting write joins the
-        // run, and the overlapping write lands inside it.
-        let abutting_grid = Grid::new(8, 3);
-        let abutting_bytes = snapshot(abutting_grid, &[".=0101", "  0102", ""]);
-        let abutting_map = LanguageMap::build(abutting_grid, abutting_bytes.as_bytes());
-
-        let abutting = super::plan(
-            abutting_grid,
-            abutting_bytes.as_bytes(),
-            &abutting_map,
-            Tick::ZERO,
-        );
-
-        assert_eq!(planned(&abutting), vec![]);
-        assert!(
-            abutting.diagnostics.iter().any(|diagnostic| {
-                diagnostic.message
-                    == "current-Tick output would join the Expression at column 2, row 1"
-            }),
-            "the abutting write went unreported: {:?}",
-            abutting.diagnostics
-        );
-
-        let overlapping_grid = Grid::new(10, 3);
-        let overlapping_bytes = snapshot(overlapping_grid, &["    .=0101", "  0102", ""]);
-        let overlapping_map = LanguageMap::build(overlapping_grid, overlapping_bytes.as_bytes());
-
-        let overlapping = super::plan(
-            overlapping_grid,
-            overlapping_bytes.as_bytes(),
-            &overlapping_map,
-            Tick::ZERO,
-        );
-
-        assert_eq!(planned(&overlapping), vec![]);
-        assert!(
-            overlapping.diagnostics.iter().any(|diagnostic| {
-                // Column 3 rather than 2: a run of literals is no longer one
-                // Expression, so the Expression the write would join is the
-                // refused spelling immediately left of the destination.
-                diagnostic.message
-                    == "current-Tick output would join the Expression at column 3, row 1"
-            }),
-            "the overlapping write went unreported: {:?}",
-            overlapping.diagnostics
-        );
+    fn outputs_beside_and_over_standalone_source_are_admitted() {
+        // These exact Sources used to trip the obsolete join guard.
+        let (plan, source) =
+            configured_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[], &[]);
+        assert_eq!(&source.snapshot()[8..14], "**0102");
+        assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
+        assert!(plan.diagnostics.is_empty());
+        assert_eq!(source.language_map().bangs().count(), 1);
+        let (plan, source) =
+            configured_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[], &[]);
+        assert_eq!(&source.snapshot()[10..16], "  01**");
+        assert_eq!(planned(&plan), vec![(14, '*'), (15, '*')]);
+        assert!(plan.diagnostics.is_empty());
     }
 
     #[test]
     fn a_destination_at_the_row_edge_costs_one_expression_its_turn_not_the_tick() {
-        // `root_layout` routes "Expression layout crosses the row edge" into
-        // the excluded candidates so every other root still plays. A
-        // destination with one Cell left in its row is the same shape of
-        // failure — one Expression's anchor, not the graph — and used to
-        // reject the whole Tick instead.
-        //
-        // `Portal::ordinary_result` cannot reach the last column today: a
-        // Function spelling is two Cells, so a root anchor is at most `cols-2`
-        // and so is the destination below it. The destination override is the
-        // entry point that can, and ADR 0009 expects destination resolution to
-        // change.
+        // A complete destination must fit even when the configured Portal
+        // is at the final Cell, independently of other computations.
         let grid = Grid::new(16, 4);
         let bytes = snapshot(grid, &[".+0102", "", ".+0304", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
@@ -1190,65 +1541,23 @@ mod test {
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message == "a scalar output crosses the row edge"),
+                .any(|diagnostic| diagnostic.message.contains("crosses the row edge")),
             "the Expression at the row edge keeps its own diagnostic: {:?}",
             plan.diagnostics
         );
     }
 
     #[test]
-    fn a_withdrawn_destination_holds_no_cell_against_the_producer_that_keeps_one() {
-        // A producer the join guard removes writes nothing, so the Cells it
-        // asked for are free. Registering them before that verdict made a
-        // later producer collide with a writer that no longer exists, and one
-        // Expression's local failure rejected the whole Tick.
-        //
-        // The two destinations share exactly one Cell. The first abuts the
-        // literal run beside it and loses its destination; the second is one
-        // Cell further on, abuts nothing, and is the only writer left.
-        let grid = Grid::new(16, 3);
-        let bytes = snapshot(grid, &[".+0102 .+0304", "0102", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-        let destinations = [
-            (
-                grid.cell_index(0).unwrap(),
-                grid.position(4, 1).expect("inside the Grid"),
-            ),
-            (
-                grid.cell_index(7).unwrap(),
-                grid.position(5, 1).expect("inside the Grid"),
-            ),
-        ]
-        .into_iter()
-        .collect();
-
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
-
-        assert_eq!(
-            planned(&plan),
-            vec![(21, '0'), (22, '7')],
-            "the surviving producer still writes: {:?}",
-            plan.diagnostics
+    fn overlapping_outputs_beside_standalone_source_both_contribute_cells() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0102 .+0304", "0102", ""],
+            &[(0, 20), (7, 21)],
+            &[],
         );
-        assert!(
-            plan.diagnostics.iter().any(|diagnostic| {
-                // Column 3 rather than 0: `0102` is four refused spellings
-                // rather than one four-Cell run, so the Expression abutting
-                // the withdrawn destination is the last of them.
-                diagnostic.message
-                    == "current-Tick output would join the Expression at column 3, row 1"
-            }),
-            "the withdrawn producer keeps its own diagnostic: {:?}",
-            plan.diagnostics
-        );
-        assert!(
-            !plan.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("multiple current-Tick producers")),
-            "nothing collided with a writer that no longer exists: {:?}",
-            plan.diagnostics
-        );
+        assert_eq!(planned(&plan), vec![(20, '0'), (21, '0'), (22, '7')]);
+        assert_eq!(&source.snapshot()[16..23], "0102007");
+        assert!(plan.diagnostics.is_empty());
     }
 
     #[test]
@@ -1258,9 +1567,6 @@ mod test {
         // parse reads rather than evidence against the Addition: the Addition
         // takes its turn, and the Tick has nothing to report about either.
         //
-        // The Tick's own rejections — competing writers, cycles, partial
-        // operand writes, unsupported structural projections — are unchanged
-        // and none of them is this.
         // A fifth row so the Addition has somewhere to put its result: what
         // this test is about is that the Addition takes a turn at all.
         let grid = Grid::new(16, 5);
@@ -1284,10 +1590,7 @@ mod test {
 
     #[test]
     fn a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing() {
-        // A Function typed into the last Cells of a row is ordinary live-edit
-        // state, not a graph error. `Expression::layout` says missing tail
-        // slots may run past the supplied fragment, so this root simply has no
-        // Tick outcome of its own.
+        // A row-edge fragment is local syntax failure, not a graph error.
         let grid = Grid::new(16, 4);
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", "            .+01"]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
@@ -1305,33 +1608,16 @@ mod test {
     }
 
     #[test]
-    fn a_suppressed_consumer_names_the_supplier_that_did_not_settle() {
-        // A consumer whose supplier failed is the one root in the Tick that
-        // did nothing wrong. A half-typed `.+` at (2, 0) writes over the MIDI
-        // channel operand and never settles, so the Note is suppressed — but
-        // the Tick Plan has to say which Expression it is waiting on, or the
-        // only thing it points at is the Expression that was waiting.
-        let grid = Grid::new(16, 4);
-        let bytes = snapshot(grid, &["  .+", "!>007FC4", "", ".=0101"]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-        let destinations = [(
-            grid.index(grid.position(0, 3).unwrap()),
-            grid.position(0, 2).unwrap(),
-        )]
-        .into_iter()
-        .collect();
-
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
-
-        assert_eq!(plan.play_commands, vec![]);
-        assert!(
-            plan.diagnostics.iter().any(|diagnostic| {
-                diagnostic.message == "a current-Tick data dependency at column 2, row 0 failed"
-            }),
-            "the suppressed consumer names its supplier: {:?}",
-            plan.diagnostics
+    fn an_activated_consumer_uses_surviving_cells_after_supplier_failure() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &["  .+", "!>007FC4", "", ".=0101"],
+            &[(48, 32)],
+            &[],
         );
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert_eq!(&source.snapshot()[16..24], "!>007FC4");
+        assert!(source.language_map().diagnostics().any(|d| d.start() == 2));
     }
 
     #[test]
@@ -1468,54 +1754,22 @@ mod test {
     }
 
     #[test]
-    fn a_rejected_tick_still_reports_the_candidates_it_excluded() {
-        // A graph error rejects the Tick, but it does not answer for the
-        // Expressions that were kept out of the schedule before the graph was
-        // even built. Dropping their diagnostics meant fixing the reported
-        // problem uncovered a second one that had been there all along.
-        //
-        // The excluded candidate is a root whose destination has one Cell left
-        // in its row, which `root_layout` routes to the excluded list rather
-        // than to the graph. Trailing Source used to serve here and no longer
-        // can: ADR 0033 leaves it to the next parse instead of making the
-        // Expression before it unstable.
-        let grid = Grid::new(16, 3);
-        let bytes = snapshot(grid, &[".+0102", ".+0304", ".+0506"]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-        let shared = grid.position(10, 1).unwrap();
-        let destinations = [
-            (grid.cell_index(0).unwrap(), shared),
-            (grid.cell_index(16).unwrap(), shared),
-            (
-                grid.cell_index(32).unwrap(),
-                grid.position(15, 1).expect("inside the Grid"),
-            ),
-        ]
-        .into_iter()
-        .collect();
-
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
-
-        assert!(plan.writes.is_empty());
-        assert!(
-            plan.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("multiple current-Tick producers")),
-            "{:?}",
-            plan.diagnostics
+    fn competing_writers_preserve_an_independent_rejected_destination_diagnostic() {
+        let (plan, source) = configured_source(
+            Grid::new(16, 3),
+            &[".+0102", ".+0304", ".+0506"],
+            &[(0, 26), (16, 26), (32, 31)],
+            &[],
         );
-        assert!(
-            plan.diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message == "a scalar output crosses the row edge"),
-            "the excluded candidate went unreported: {:?}",
-            plan.diagnostics
-        );
+        assert_eq!(planned(&plan), vec![(26, '0'), (27, '7')]);
+        assert_eq!(&source.snapshot()[26..28], "07");
+        assert_eq!(&source.snapshot()[31..32], " ");
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert!(plan.diagnostics[0].message.contains("crosses the row edge"));
     }
 
     #[test]
-    fn competing_writers_and_dependency_cycles_abort_before_output() {
+    fn competing_writers_publish_but_dependency_cycles_abort_before_output() {
         let conflict_grid = Grid::new(16, 2);
         let conflict_bytes = format!("{:<16}{:<16}", ".+0102", ".+0304");
         let conflict_map = LanguageMap::build(conflict_grid, conflict_bytes.as_bytes());
@@ -1533,24 +1787,9 @@ mod test {
             Tick::ZERO,
             &conflict_destinations,
         );
-        assert!(conflict.writes.is_empty());
+        assert_eq!(planned(&conflict), vec![(26, '0'), (27, '7')]);
         assert!(conflict.play_commands.is_empty());
-        // One diagnostic per producer that collided, not one per Cell of the
-        // destination they collided over: a two-Cell output means the same
-        // pair of producers meets twice, and saying so twice describes two
-        // conflicts where the Source has one.
-        assert_eq!(
-            conflict
-                .diagnostics
-                .iter()
-                .filter(|diagnostic| {
-                    diagnostic
-                        .message
-                        .contains("multiple current-Tick producers")
-                })
-                .count(),
-            1
-        );
+        assert!(conflict.diagnostics.is_empty());
 
         let cycle_grid = Grid::new(16, 2);
         let cycle_bytes = format!("{:<16}{:<16}", ".+0001", ".+0001");

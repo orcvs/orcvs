@@ -315,6 +315,23 @@ impl Source {
         plan
     }
 
+    #[cfg(test)]
+    pub(super) fn execute_configured(
+        &mut self,
+        tick: Tick,
+        configuration: &super::tick::Configuration,
+    ) -> TickPlan {
+        let plan = super::tick::plan_configured(
+            self.grid,
+            self.inner.as_bytes(),
+            &self.language_map,
+            tick,
+            configuration,
+        );
+        self.commit_tick(&plan);
+        plan
+    }
+
     fn plan_tick(&self, tick: Tick) -> TickPlan {
         tick::plan(self.grid, self.inner.as_bytes(), &self.language_map, tick)
     }
@@ -1301,14 +1318,22 @@ mod test {
         src.write(at(0), "!>00**C4");
         src.write(at(20), "!>007FC4");
         let before = src.snapshot();
-        assert_eq!(src.language_map().diagnostics().count(), 1);
+        assert!(
+            src.language_map()
+                .diagnostics()
+                .any(|d| d.message.contains("expected a number"))
+        );
 
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
         assert_eq!(src.snapshot(), before);
-        assert_eq!(src.language_map().diagnostics().count(), 1);
+        assert!(
+            src.language_map()
+                .diagnostics()
+                .any(|d| d.message.contains("expected a number"))
+        );
     }
 
     #[test]
@@ -1428,66 +1453,31 @@ mod test {
     }
 
     #[test]
-    fn a_supplier_excluded_for_its_own_layout_does_not_leave_stale_operands_readable() {
-        // A root that fails at evaluation names its consumer's missing input.
-        // A root that fails at *schedule* time was being erased from the graph
-        // instead, edges and all, so the consumer read whatever its operand
-        // Cells happened to hold — last Tick's value, presented as this
-        // Tick's. The spec is explicit: do not silently choose a previous-Tick
-        // input.
+    fn a_truncated_spatial_supplier_preserves_surviving_operands() {
         let mut src = source();
         let at = src.cells();
-        // This producer's claim runs off the end of its row, so its layout
-        // does not stand up and it takes no turn. Its destination is still the
-        // consumer's left operand. Trailing Source used to serve here and no
-        // longer can — it belongs to the next Expression now.
         src.write(at(6), ".+01");
         src.write(at(14), ".+9902");
-
         let tick = src.execute();
-
         assert!(
-            tick.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("data dependency at column 6, row 0 failed")),
-            "the consumer was not told its supplier never ran: {:?}",
             tick.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge"))
         );
-        // Nothing computed from the stale `99` reaches the Source.
-        assert_eq!(src.row(2), "          ");
+        assert_eq!(src.row(2), "    9B    ");
     }
 
     #[test]
-    fn a_result_landing_beside_a_root_is_diagnosed_rather_than_joining_its_run() {
-        // A row is partitioned into runs at its spaces, so a result written
-        // into the Cells immediately beside another Expression joins the two:
-        // the run the next parse walks is longer than either, its first unit
-        // is no longer the Function that was there, and the root stops
-        // existing. Nothing puts it back, and the display that replaced it is
-        // no longer a Bang the cleanup can find, so the loss is permanent.
-        //
-        // ADR 0032 diagnoses a structural projection the stable graph cannot
-        // take rather than executing it, and this is one: the write would
-        // change which roots the graph has while that graph is executing.
+    fn a_result_beside_a_root_preserves_the_root_and_activates_it_each_tick() {
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0101");
-        // Row 1, column 2 — the Cells the Bang would occupy end exactly where
-        // this Expression's run begins.
         src.write(at(12), "!>007FC4");
-
         for tick in 0..3 {
             let plan = src.execute();
-
-            assert!(plan.writes.is_empty(), "tick {tick} wrote beside the root");
-            assert_eq!(
-                plan.diagnostics.len(),
-                1,
-                "tick {tick} said nothing about the write it refused"
-            );
-            // The root is still there to be found on the Tick after, which is
-            // the whole point: the Source a person is editing is unchanged.
-            assert_eq!(src.row(1), "  !>007FC4", "tick {tick}");
+            assert_eq!(plan.play_commands.len(), 1, "tick {tick}");
+            assert!(plan.diagnostics.is_empty());
+            assert_eq!(src.row(1), "**!>007FC4", "tick {tick}");
         }
     }
 
@@ -1698,10 +1688,16 @@ mod test {
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
-        assert_eq!(tick.diagnostics.len(), 1);
-        assert_eq!(
-            tick.diagnostics[0].message,
-            "a terminal Function is valid only at the root of an Expression"
+        assert!(
+            tick.diagnostics
+                .iter()
+                .any(|d| d.message
+                    == "a terminal Function is valid only at the root of an Expression")
+        );
+        assert!(
+            tick.diagnostics
+                .iter()
+                .any(|d| d.message.contains("supplied no typed result"))
         );
     }
 
@@ -2189,23 +2185,14 @@ mod test {
     }
 
     #[test]
-    fn a_failed_data_supplier_does_not_expose_stale_operand_cells() {
+    fn a_failed_spatial_supplier_preserves_original_operand_cells() {
         let mut src = SourceUnderTest::new(Grid::new(8, 3));
         let at = src.cells();
-        // This incomplete producer would write at (2, 1), exactly over the
-        // consumer's first operand. The old `05` must not stand in for a value
-        // the producer failed to supply during this Tick.
         src.write(at(2), ".+01");
         src.write(at(8), ".+0502");
-
         let tick = src.execute();
-
-        assert!(tick.writes.is_empty());
+        assert_eq!(&src.snapshot()[16..18], "07");
         assert!(tick.play_commands.is_empty());
-        assert!(tick.diagnostics.iter().any(|diagnostic| {
-            diagnostic.message == "a current-Tick data dependency at column 2, row 0 failed"
-        }));
-        assert_eq!(&src.snapshot()[16..18], "  ");
     }
 
     #[test]
@@ -2267,13 +2254,9 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(src.row(1), ".+0304    ");
+        assert_eq!(src.row(1), "020304    ");
         assert_eq!(src.row(2), "          ");
-        assert_eq!(tick.diagnostics.len(), 1);
-        assert_eq!(
-            tick.diagnostics[0].message,
-            "current-Tick output cannot replace Function structure"
-        );
+        assert!(tick.diagnostics.is_empty());
     }
 
     #[test]

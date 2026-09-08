@@ -22,9 +22,36 @@ changes. Decide whether that presentation survives and say so, rather than losin
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+Partially delivered in `593613c`: ADR 0033 records both space rules, adjacency,
+one-Cell recovery, and row/Comment confinement; CONTEXT's Expression entry uses the parse.
+`a_space_inside_an_expressions_claim_is_an_operand_cell_and_not_a_boundary` covers the internal-space rule using `.+  .-  `;
+`build_separates_the_expressions_in_one_row` covers separated Functions. The consumed-width
+restoration is gone. This is not full delivery: `name_units` still calls `unit_kind`, which
+reinterprets spellings using Function/Activation conversion and Number/Note decoding.
+Removing that second interpretation and deriving rendering from the Parser's semantic
+product transfer to [live-typed-execution](../../live-typed-execution/spec.md), as do the
+remaining exact-source regressions (`.+01 02`, `.+0102.+0304`, `.+0102Z`, `***`,
+separated control/terminal input),
+rebuild behavior, and an explicit decision/test for plausible data outside an Expression.
+`record_expression` still has a standalone-literal Glyph exception; the current renderer's
+raw-character/invalid-cell behavior must be assessed, not assumed to implement the old
+presentation promise. The spelling-only unit requirement and mandatory CellRole glossary
+entry are superseded by ADR 0034. The old parser-capacity edit guard is deliberately obsolete:
+ADR 0033 has no 32-record cap, and `edits_accept_long_expressions` covers the replacement.
+Preserve row confinement and complete long-expression ownership instead of reinstating it.
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [ ] The Map's two-Cell spelling classifier no longer calls the Parser's conversion functions, and
       unit kinds come from the parse that established the Expression.

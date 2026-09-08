@@ -18,9 +18,28 @@ the ADR puts it in, not the class the neighbouring code happens to use.
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+Not implemented: `source/tick.rs` still builds and searches the flat slot collection
+in `schedule`, calls `root_layout`, and rejects competing/partial writes. ADR 0034
+replaces those blanket rejection rules with ordered Cell-wise composition and supports
+bounded replacement; requiring the old graph-error tests unchanged would restore the wrong
+contract. The mandatory array algorithm is abandoned. Dependency ordering, cycle rejection,
+write admission, cleared Bang handling, observable diagnostics and revision of superseded
+regressions transfer to [live-typed-execution](../../live-typed-execution/spec.md), including
+the half-typed-root diagnostic left by ticket 01. Existing unrelated activation behavior
+must remain covered. This ticket is superseded, not delivered.
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [ ] A whole-slot projection draws a Data edge, and the consumer runs after its producer.
 - [ ] A result straddling two operand slots is diagnosed as a partial input projection and rejects

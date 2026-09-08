@@ -18,9 +18,30 @@ is Source — and stays stated in one place.
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+Implemented in `593613c`, not in the planning-only commit `64291cc`. The current
+`walk_row` calls `Parser::at` on the remaining row and advances to `analysis.cells().end`;
+`source_end` bounds it at the Comment. Parser tests
+`an_analysis_reports_the_cells_it_read_from_the_cell_it_was_told_it_began_at` and
+`an_unrecognized_function_consumes_one_cell_and_records_one_invalid_slot`, Map tests
+`adjacent_standalone_bangs_have_distinct_parsed_spans` and
+`a_rebuilt_map_equals_the_map_a_full_build_would_have_made`, and the public
+`truncated_operand_owns_the_available_row_tail` / `operand_claims_stop_before_comments`
+regressions cover the delivered boundary. ADR 0033 records it. The remaining silent
+half-typed-write diagnostic recorded in the original comments below belongs to live-typed-execution delivery;
+it does not reopen partitioning.
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [x] The walk advances by what the Parser read, and spaces are no longer a partition rule.
 - [x] The Parser receives the row's Cells and the Cell index they start at, and no Source bytes are

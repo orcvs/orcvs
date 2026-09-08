@@ -1,53 +1,46 @@
-# 10 — Reconcile the tick-execution-order tickets with the corrected partition
+# 10 — Reconcile historical scheduler tickets with the accepted live-execution contract
 
-**What to build:** Bring the settled `tick-execution-order` tickets into line with the code the
-`cell-indexed-parse` effort leaves behind. Those tickets are `resolved`, and they describe a
-scheduler that reads a whitespace partition and rebuilds an Expression's Cell positions for itself.
-Neither is true afterwards.
+**What to build:** Record which settled scheduler requirements remain implemented and which
+ADR 0034 supersedes, before decomposing live-typed-execution. This is tracker reconciliation,
+not a scheduler rebuild or a demand to implement the abandoned Cell-indexed array first.
 
-**Blocked by:** 09 — Decide what an incomplete Function claims; cell-indexed-parse/05 — Delete the
-reconstruction.
+**Blocked by:** cell-indexed-parse/01 — Implemented initial row partition under ADR 0033.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] `tick-execution-order/01`, `02` and `03` are re-stated or superseded. They are `resolved` but
-      describe code the `cell-indexed-parse` effort rewrites.
-- [ ] ADR 0031 and ADR 0032 are unchanged. They decide ordering, not partition, and this issue
-      confirms rather than edits them.
-- [ ] The Tick behaviour the corrected partition changes is stated where it is tested, not twice:
-      `.+0102.+0304` as two roots and `.+0102Z` as an executing Expression belong to
-      `cell-indexed-parse/07`, and this issue does not restate them.
-
-## The rebase plan is withdrawn
-
-This issue was written as a plan to rebuild branch `06-optimize-tick-scheduling` so that the
-scheduler was never written against the broken partition. It named two commits to drop, `4d6c17c`
-and `8e7bdce`, because both state the whitespace run in their own messages.
-
-**That plan is no longer the plan, and its own goal is already spent.** The compensations exist. They
-were written, reviewed, and corrected: the join guard now searches every Expression run rather than
-only scheduled roots, and it reads the runs as the Tick leaves them. A rebuild cannot un-write them,
-and it would discard the review that checked them.
-
-What replaces it:
-
-- `cell-indexed-parse/01` corrects the partition in place. Nothing is rebased onto it.
-- `cell-indexed-parse/04` deletes the join guard at the point the parse boundary makes it dead. It
-  cannot go earlier, because until `01` lands the guard is the only thing preventing a real
-  corruption.
-- `cell-indexed-parse/05` deletes the layout reconstruction, so the structural rules this issue
-  worried about have nothing left to compensate for.
-- `cell-indexed-parse/07` carries the language changes and the worked examples this issue listed.
-
-The one thing no other ticket carries is the first checkbox above, so that is what this issue is now.
+- [x] Review `tick-execution-order/01`, `02` and `03` against ADR 0034; preserve their resolved
+      delivery history and identify each targeted supersession in the successor specification.
+- [x] Record that ADR 0033's initial partition shipped while the join guard, reconstructed
+      layout binding, second spelling classifier and old supplier/graph refusal behavior remain.
+- [x] Reconcile ADR 0031/0032 references with ADR 0034's targeted revisions; retain unrelated
+      activation, ordering, cycle atomicity and terminal behavior. Do not claim those ADRs are
+      wholly unchanged or wholly repealed.
+- [x] Ensure the successor owns the retained obligations from `cell-indexed-parse/02`–`07`,
+      including half-typed diagnostics and same-Source regressions, without restoring mandatory
+      storage or rejected candidate policies.
+- [x] Keep release membership and the dependency closure valid; both
+      `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
 
 ## Comments
 
-Reduced to its residue after the `cell-indexed-parse` effort took over the partition work.
+2026-09-08: The seven Cell-indexed Parse statuses have been audited against `593613c` and
+current code. Only ticket 01 is resolved; 02–07 are superseded with explicit residual routing.
+`language-map/09` is superseded by ADR 0033/0034 and is no longer a human decision blocker.
+This task precedes `live-typed-execution/01`; the successor implements the changed behavior.
 
-The original rebase plan is not in this file's history, because the file had never been committed
-when it was rewritten. Its substance is summarised above: land the partition work first, rebase the
-scheduler commits onto it, and drop `4d6c17c` and `8e7bdce` because both state the whitespace run in
-their own messages. Its commit-by-commit rebase analysis of `31d1b1a` is gone.
+The original branch-rebuild plan had already been withdrawn: it proposed rebasing scheduling
+onto the corrected partition and dropping `4d6c17c` and `8e7bdce`. Those compensations were
+implemented and reviewed. Their eventual migration must preserve their regression evidence;
+rewriting branch history is neither necessary nor part of this task.
+
+2026-09-08: Historical reconciliation completed for live-typed-execution delivery. Tickets
+`tick-execution-order/01–03` retain their resolved implementation history. ADR 0033's initial
+partition shipped at `593613c`; the remaining reconstructed binding, second spelling classifier,
+join guard and supplier/graph refusals were the migration work, not unimplemented partitioning.
+The successor specification and issues 02–10 own all transferred claim/rendering obligations;
+mandatory arrays, identifier widths and the rejected candidate-policy experiment remain abandoned.
+ADR 0034 revises only the named binding, partial/competing-write, nested and replacement rules;
+activation lifetime, cycle atomicity, terminal ordering and Source/Playback separation survive.
+See [delivery evidence](../../live-typed-execution/evidence.md) for implementation and checks.

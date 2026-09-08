@@ -22,3 +22,9 @@ Blocked by: 02
 Earlier fallback verification passed 232 `orcvs` tests and scoped checks, but that evidence predates these drafts and does not validate ADR 0032. `mise run check` previously stopped at the existing tooling-contract check expecting an `actions/checkout` v4 annotation. Re-run the gates; do not treat the previous failure as an automatic exemption.
 
 2026-09-06: Resolved. Native nextest passes 387 tests; the persistence gate passes 444 tests plus checks, doctests, and rustdoc; WASM default/persistence builds pass; and five headless Firefox regressions pass. `mise run check` was rerun and still stops at the pre-existing tooling-contract requirement for a 40-character `actions/checkout` v4 pin. The accepted prototype is isolated on `prototype-operation-ordering` at `841f696`. `language-map/06` is resolved. `spatial-tick-planning/02` remains open because horizontally adjacent authoring and the broader Directional/Self-Banging activation surface are outside ADR 0032's initial fixed-Portal scope.
+
+2026-09-08: Resolved delivery history retained. [ADR 0034](../../../docs/adr/0034-execute-against-live-typed-expressions.md)
+now revises the old binding and nested scheduling seam, partial/competing-write restrictions,
+failed-spatial-supplier suppression, and original-anchor replacement limits. Initial partitioning,
+Bang lifetime, activation gating, deterministic ordering, cycle atomicity and terminal behavior
+remain in force. Production successor and regression mapping: [live typed execution](../../live-typed-execution/evidence.md).

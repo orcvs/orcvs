@@ -1,4 +1,4 @@
-use std::{fmt, iter};
+use std::fmt;
 
 use lang::Token;
 
@@ -80,13 +80,6 @@ impl fmt::Display for GlyphString {
 }
 
 impl Glyph {
-    pub fn to_glyphs(tokens: Vec<Token>) -> Vec<Glyph> {
-        tokens
-            .into_iter()
-            .flat_map(|t| iter::repeat_n(Glyph::from(t), t.len()))
-            .collect()
-    }
-
     #[inline]
     pub fn is_terminator_bytes(b: u8) -> bool {
         match b {

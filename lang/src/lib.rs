@@ -13,7 +13,7 @@ pub use atom::{
     MidiChannel, Note, Velocity, to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
-pub use expression::{Expression, Token, Tokens};
+pub use expression::{Expression, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use sequence::{Sequence, Value};

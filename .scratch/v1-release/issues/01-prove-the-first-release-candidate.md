@@ -3,7 +3,7 @@
 **What to build:** Close the release definition with the complete candidate-bound evidence bundle
 and an explicit, unwaived human GO/NO-GO decision.
 
-**Blocked by:** 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; cell-indexed-parse/05 — Delete the reconstruction; cell-indexed-parse/06 — Pin the open question under every candidate rule; cell-indexed-parse/07 — Restore the scope the absorbed partition ticket dropped; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
+**Blocked by:** live-typed-execution/10 — Verify live execution through next-Tick Source; 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; language-map/10 — Reconcile historical scheduler tickets; live-typed-execution/01 — Execute against live typed expressions; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
 
 **Status:** ready-for-agent
 

@@ -1,6 +1,8 @@
 # The Language Map records spellings, not Atom types
 
-The Language Map derives a row-local partition of Language Units from the character Source and then parses each Expression extent. Only one of those stages describes what the Source contains. The partition reads a two-Cell spelling and names it: a Bang, an Activation, a Function, or an operand literal. The parse resolves what a Function does with the operands it is given. A unit's kind records the spelling and nothing else, and parsing never writes back into it.
+Status: partially superseded by [ADR 0034](0034-execute-against-live-typed-expressions.md). The independent spelling classifier is retired; literal Source still carries no persistent type provenance.
+
+The Language Map derives its units and Glyphs from the Parser's positioned expressions. The Parser determines the arity-based claims under ADR 0033, including nested ownership and invalid operand positions. A presentation view may group parsed Number and Note entries as `OperandLiteral`, but it does not reinterpret spellings independently. An invalid `**` in a Number operand is therefore an invalid input, not a Bang unit. This revises the original spelling-only separation under ADR 0034.
 
 A literal keeps a single kind whichever Function consumes it. ADR 0021 holds that the same two characters spell a Number in a Number slot and a Note in a Note slot, and that Source stores literal characters rather than persistent type provenance. An `OperandLiteral` that became `Atom(Number(1))` because the Expression it sat in that Tick required a Number would be exactly that provenance, recorded in the one place the language says does not carry it. The consuming Function's signature answers the question at the point it is asked; `ExpressionEntry::atoms()` already carries the parsed values for the Expression that asked it.
 

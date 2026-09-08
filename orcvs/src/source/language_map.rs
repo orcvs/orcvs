@@ -2,10 +2,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lang::{
-    Activation, Atom, Atoms, Error as LangError, Expression, Function, Parser, SourceAnalysis,
-    Token, to_atom_note, to_atom_num,
-};
+use lang::{Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::{
     glyph::Glyph,
@@ -57,12 +54,8 @@ pub struct LanguageMap {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-/// What the two-Cell spelling at a unit's anchor is, read from the characters
-/// alone.
-///
-/// A literal stays an `OperandLiteral`: the same two characters spell a Number
-/// in a Number slot and a Note in a Note slot, so the Atom type belongs to the
-/// consuming Function's signature and not to the Source. See ADR 0021.
+/// A complete unit established by the Parser. Literal types remain on the
+/// positioned Expression; this presentation view groups literal units.
 pub enum LanguageUnitKind {
     OperandLiteral,
     Function(Function),
@@ -162,15 +155,8 @@ impl ExpressionEntry {
         self.function_candidate
     }
 
-    /// Parser-owned slots, including invalid and missing operands. Offsets are
-    /// relative to this Expression's anchor and may extend past its Span.
-    pub(super) fn layout(&self) -> impl Iterator<Item = (usize, Token, Option<Atom>)> + '_ {
-        self.expression.layout()
-    }
-
-    pub(super) fn bind_source(&self, source: &str) -> Result<Atoms, LangError> {
-        let width = self.span.end().get() - self.span.start().get() + 1;
-        self.expression.bind_source(&source[..width])
+    pub(super) fn positioned(&self) -> impl Iterator<Item = &lang::PositionedEntry> {
+        self.expression.positioned()
     }
 
     pub fn span(&self) -> Span {
@@ -439,7 +425,6 @@ impl LanguageMap {
             .error()
             .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
         let expression = analysis.into_expression();
-        let expression_units = &self.units[units.clone()];
         let function_candidate = match expression.entries().next() {
             Some((Token::Function, Atom::Function(function))) => {
                 Some((grid.position_at(start), function))
@@ -450,21 +435,12 @@ impl LanguageMap {
             .then_some(function_candidate)
             .flatten()
             .map(|(anchor, _)| anchor);
-        let standalone_literal = matches!(
-            expression_units,
-            [LanguageUnit {
-                kind: LanguageUnitKind::OperandLiteral,
-                ..
-            }]
-        );
-        let (atoms, mut glyphs) = expression_parts(&expression, executable);
-        if !executable && standalone_literal {
-            // A standalone Operand Literal has no contextual Number or Note
-            // type. Preserve the existing raw-character presentation while
-            // retaining its invalid-expression diagnostic.
-            glyphs.clear();
+        let atoms = executable.then(|| expression.atoms()).flatten();
+        for entry in expression.positioned() {
+            for cell in entry.cells.clone() {
+                self.glyphs[cell] = Some(Glyph::from(entry.token));
+            }
         }
-        self.set_glyphs(start, end, glyphs);
         self.expressions.push(ExpressionEntry {
             map_id: self.id,
             expression,
@@ -475,12 +451,6 @@ impl LanguageMap {
             span,
             units,
         });
-    }
-
-    fn set_glyphs(&mut self, start: CellIndex, end: CellIndex, glyphs: Vec<Glyph>) {
-        for (cell, glyph) in self.glyphs[start.get()..=end.get()].iter_mut().zip(glyphs) {
-            *cell = Some(glyph);
-        }
     }
 }
 
@@ -538,32 +508,6 @@ fn source_end(row: &[u8]) -> usize {
 }
 
 ///
-/// What the two-Cell `spelling` is, read from the characters alone.
-///
-/// ADR 0024 makes this the single owner of that decision, and `walk_row` is its
-/// only caller.
-///
-fn unit_kind(spelling: &[u8]) -> Option<LanguageUnitKind> {
-    if spelling == b"**" {
-        return Some(LanguageUnitKind::Bang);
-    }
-
-    let spelling = std::str::from_utf8(spelling).ok()?;
-    Activation::try_from(spelling)
-        .map(LanguageUnitKind::Activation)
-        .ok()
-        .or_else(|| {
-            Function::try_from(spelling)
-                .map(LanguageUnitKind::Function)
-                .ok()
-        })
-        .or_else(|| {
-            (to_atom_num(spelling).is_ok() || to_atom_note(spelling).is_ok())
-                .then_some(LanguageUnitKind::OperandLiteral)
-        })
-}
-
-///
 /// Walks one row left to right, appending everything it establishes to `walk`.
 ///
 /// `row` holds exactly the Cells of one row and `row_start` is the Cell index
@@ -601,7 +545,7 @@ fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
 
         let analysis = Parser::at(&text[idx - row_start..], idx).analyze();
         let cells = analysis.cells();
-        name_units(grid, row_start, source, cells.clone(), walk);
+        name_units(grid, row_start, source, &analysis, walk);
         walk.parses.push(Parse {
             span: Span::new(grid, cell(cells.start), cell(cells.end - 1)),
             analysis,
@@ -611,52 +555,50 @@ fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
 }
 
 ///
-/// Names the Language Units the Cells `cells` are spelled from, diagnosing
-/// every Cell that spells none.
-///
-/// Scoped to one Expression's claim rather than to a whitespace run: a unit
-/// belongs to the Expression the parse established, so a two-Cell spelling
-/// cannot be read across the boundary between two Expressions any more than
-/// across a row edge.
-///
-/// An empty Cell is passed over rather than diagnosed. Inside an Expression's
-/// claim it is an operand Cell the Source never filled, which the Expression's
-/// own diagnostic already reports; naming it a second time here would report
-/// one mistake twice.
-///
+/// Names complete Parser entries and reports the occupied Cells of invalid
+/// entries. Missing ranges are empty; no unit is guessed from their spelling.
 fn name_units(
     grid: Grid,
     row_start: usize,
     source: &[u8],
-    cells: Range<usize>,
+    analysis: &SourceAnalysis,
     walk: &mut RowWalk,
 ) {
-    let cell = |idx: usize| {
-        grid.cell_index(idx)
-            .expect("a row's Cells lie inside the Grid that owns the row")
-    };
-
-    let mut idx = cells.start;
-    while idx < cells.end {
-        let column = idx - row_start;
-        if source[column] == SPACE_BYTE {
-            idx += 1;
+    for entry in analysis.expression().positioned() {
+        if entry.cells.is_empty() {
             continue;
         }
-        let spelling = (idx + 2 <= cells.end).then(|| &source[column..column + 2]);
-        match spelling.and_then(unit_kind) {
-            Some(kind) => {
-                walk.units.push(LanguageUnit {
-                    kind,
-                    anchor: grid.position_at(cell(idx)),
-                    span: Span::new(grid, cell(idx), cell(idx + 1)),
-                });
-                idx += 2;
+        let start = grid
+            .cell_index(entry.cells.start)
+            .expect("parsed Cell inside Grid");
+        let end = grid
+            .cell_index(entry.cells.end - 1)
+            .expect("parsed Cell inside Grid");
+        let kind = match entry.atom {
+            Some(Atom::Function(function)) => Some(LanguageUnitKind::Function(function)),
+            Some(Atom::Bang) => Some(LanguageUnitKind::Bang),
+            Some(Atom::Activation(activation)) => Some(LanguageUnitKind::Activation(activation)),
+            Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_)) => {
+                Some(LanguageUnitKind::OperandLiteral)
             }
-            None => {
-                walk.diagnostics
-                    .push(invalid_unit_diagnostic(grid, cell(idx), source[column]));
-                idx += 1;
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            walk.units.push(LanguageUnit {
+                kind,
+                anchor: grid.position_at(start),
+                span: Span::new(grid, start, end),
+            });
+        } else {
+            for index in entry.cells.clone() {
+                let byte = source[index - row_start];
+                if byte != SPACE_BYTE {
+                    walk.diagnostics.push(invalid_unit_diagnostic(
+                        grid,
+                        grid.cell_index(index).expect("parsed Cell inside Grid"),
+                        byte,
+                    ));
+                }
             }
         }
     }
@@ -731,12 +673,6 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
     first..past_last
 }
 
-fn expression_parts(expression: &Expression, executable: bool) -> (Option<Atoms>, Vec<Glyph>) {
-    let glyphs = Glyph::to_glyphs(expression.tokens().collect());
-    let atoms = executable.then(|| expression.atoms()).flatten();
-    (atoms, glyphs)
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{glyph::Glyph, grid::Grid};
@@ -755,6 +691,11 @@ mod tests {
             let grid = Grid::new(8, 2);
             let map = LanguageMap::build(grid, format!("{source}        ").as_bytes());
             assert_eq!(map.bangs().count(), 0, "{source}");
+            assert!(
+                !map.units()
+                    .any(|unit| unit.kind() == LanguageUnitKind::Bang),
+                "{source}"
+            );
         }
     }
 
@@ -801,8 +742,8 @@ mod tests {
             let expression = map.expressions().next().unwrap();
             assert_eq!(
                 expression
-                    .layout()
-                    .map(|(offset, token, _)| (offset, token))
+                    .positioned()
+                    .map(|entry| (entry.cells.start, entry.token))
                     .collect::<Vec<_>>(),
                 vec![
                     (0, lang::Token::Function),
@@ -812,10 +753,6 @@ mod tests {
                 ]
             );
             assert!(expression.atoms().is_none());
-            assert_eq!(
-                expression.bind_source("!>007FC4    ").unwrap()[3],
-                Atom::Note(lang::Note::try_from(60).unwrap())
-            );
         }
     }
 
@@ -1002,7 +939,6 @@ mod tests {
             vec![
                 LanguageUnitKind::Function(lang::Function::Add),
                 LanguageUnitKind::OperandLiteral,
-                LanguageUnitKind::Bang,
                 LanguageUnitKind::Activation(Activation::East),
                 LanguageUnitKind::Activation(Activation::North),
                 LanguageUnitKind::Activation(Activation::South),
@@ -1017,7 +953,6 @@ mod tests {
             vec![
                 (0, vec![0, 1]),
                 (2, vec![2, 3]),
-                (4, vec![4, 5]),
                 (6, vec![6, 7]),
                 (0, vec![0, 1]),
                 (2, vec![2, 3]),
@@ -1059,14 +994,11 @@ mod tests {
             2
         );
         assert_eq!(comment.diagnostics().count(), 0);
-        assert_eq!(
-            unit_spellings(&fragment),
-            vec![(0, vec![0, 1]), (4, vec![4, 5])]
-        );
+        assert_eq!(unit_spellings(&fragment), vec![(0, vec![0, 1])]);
         assert!(
             fragment
                 .diagnostics()
-                .any(|diagnostic| diagnostic.start() == 2)
+                .any(|diagnostic| diagnostic.message.contains("#"))
         );
     }
 

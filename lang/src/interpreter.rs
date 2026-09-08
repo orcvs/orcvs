@@ -84,8 +84,44 @@ impl Interpreter {
         // No Atom raises the stack depth by more than one: literals push one
         // value, and Functions pop their operands before producing one value.
         // The actual Atom count therefore bounds this Expression's peak depth.
-        let mut ctx = Context::new(inputs, atoms.len());
+        Self::execute_context(atoms, Context::new(inputs, atoms.len()))
+    }
 
+    /// Evaluates one Function with already resolved, typed inputs. Literal
+    /// decoding and nested ownership belong to the caller; evaluation retains
+    /// the same type, domain, absence and Sequence rules as `execute`.
+    ///
+    /// ```
+    /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Sequence, Tick, TickInputs, Value};
+    /// let sequence = Sequence::new([Atom::Number(5), Atom::Number(9)]).unwrap();
+    /// let answer = Interpreter::execute_function(
+    ///     Function::Subtract, &[Value::Sequence(sequence), Value::Atom(Atom::Number(2))],
+    ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+    /// ).unwrap();
+    /// assert_eq!(answer, Interpretation::Sequence(
+    ///     Sequence::new([Atom::Number(3), Atom::Number(7)]).unwrap()));
+    /// ```
+    pub fn execute_function(
+        function: Function,
+        operands: &[Value],
+        inputs: TickInputs,
+    ) -> Result<Interpretation, Error> {
+        let expected = function.signature().len();
+        if operands.len() != expected {
+            return Err(crate::ArgumentError::Arity {
+                expected,
+                found: operands.len(),
+            }
+            .into());
+        }
+        let mut ctx = Context::new(inputs, operands.len() + 1);
+        for operand in operands.iter().rev() {
+            ctx.stack.push(operand.clone())?;
+        }
+        Self::execute_context(&[Atom::Function(function)], ctx)
+    }
+
+    fn execute_context(atoms: &[Atom], mut ctx: Context) -> Result<Interpretation, Error> {
         for (index, atom) in atoms.iter().enumerate().rev() {
             // info!("atoms: {:?}", atoms);
             // info!("stack: {:?}", stack);

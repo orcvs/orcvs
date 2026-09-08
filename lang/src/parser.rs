@@ -5,9 +5,6 @@ use crate::Expression;
 use crate::Function;
 use crate::SyntaxError;
 use crate::Token;
-use crate::atom::to_atom_char;
-use crate::to_atom_note;
-use crate::to_atom_num;
 
 use std::ops::Range;
 
@@ -161,15 +158,26 @@ impl<'a> Parser<'a> {
     /// A Language Unit may be a Function or a standalone Atom.
     #[inline(always)]
     fn take_language_unit(&mut self) -> Option<Error> {
-        let mut pending = vec![Token::Function];
+        let mut pending = vec![(Token::Function, None)];
         let mut error = None;
-        while let Some(token) = pending.pop() {
+        while let Some((token, parent)) = pending.pop() {
+            let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
                 match self.take_token(&token) {
-                    Ok(atom) => self.expression.add(token, atom),
+                    Ok(atom) => self.expression.add_positioned(
+                        token,
+                        Some(atom),
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    ),
                     Err(failure) => {
                         error.get_or_insert(failure);
-                        self.expression.add_invalid(token);
+                        self.expression.add_positioned(
+                            token,
+                            None,
+                            cell_start..self.start + self.consumed(),
+                            parent,
+                        );
                     }
                 }
                 continue;
@@ -186,11 +194,23 @@ impl<'a> Parser<'a> {
             };
             match atom {
                 Ok((token, atom)) => {
-                    self.expression.add(token, atom);
+                    let index = self.expression.len();
+                    self.expression.add_positioned(
+                        token,
+                        Some(atom),
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
                     if let Atom::Function(function) = atom {
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
-                        pending.extend(function.signature().iter().rev().copied());
+                        pending.extend(
+                            function
+                                .signature()
+                                .iter()
+                                .rev()
+                                .map(|token| (*token, Some(index))),
+                        );
                     }
                 }
                 Err(failure) => {
@@ -198,7 +218,12 @@ impl<'a> Parser<'a> {
                     // Use a character boundary for callers outside ASCII Source.
                     self.source = &start[start.chars().next().map_or(0, char::len_utf8)..];
                     error.get_or_insert(failure);
-                    self.expression.add_invalid(Token::Function);
+                    self.expression.add_positioned(
+                        Token::Function,
+                        None,
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
                 }
             }
         }
@@ -223,12 +248,7 @@ impl<'a> Parser<'a> {
             }
             return Err(SyntaxError::ExpectedToken.into());
         };
-        Ok(match token {
-            Token::Note => to_atom_note(t)?,
-            Token::Number => to_atom_num(t)?,
-            Token::Char => to_atom_char(t)?,
-            Token::Activation | Token::Bang | Token::Function => unreachable!(),
-        })
+        token.decode(t)
     }
 
     #[inline(always)]
@@ -377,7 +397,11 @@ mod test {
         assert_eq!(analysis.cells().end, 1);
         assert!(analysis.error.is_some());
         assert_eq!(
-            analysis.expression().layout().collect::<Vec<_>>(),
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
             vec![(0, Token::Function, None)]
         );
 
@@ -453,7 +477,11 @@ mod test {
         let analysis = Parser::from(&mut "!>**7F.^3C".to_owned()).analyze();
         assert!(analysis.error.is_some());
         assert_eq!(
-            analysis.expression().layout().collect::<Vec<_>>(),
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
             vec![
                 (0, Token::Function, Some(Atom::Function(Function::RawPlay))),
                 (2, Token::Number, None),
@@ -468,40 +496,17 @@ mod test {
         );
         let incomplete = Parser::from(&mut "!>00".to_owned()).analyze();
         assert_eq!(
-            incomplete.expression().layout().collect::<Vec<_>>(),
+            incomplete
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
             vec![
                 (0, Token::Function, Some(Atom::Function(Function::RawPlay))),
                 (2, Token::Number, Some(Atom::Number(0))),
                 (4, Token::Number, None),
-                (6, Token::Note, None),
+                (4, Token::Note, None),
             ]
-        );
-    }
-
-    #[test]
-    fn binding_layout_repairs_operands_without_reparsing_functions_or_types() {
-        let analysis = Parser::from(&mut "!>**7F.v".to_owned()).analyze();
-        let expression = analysis.expression();
-        assert_eq!(
-            expression.bind_source("!>007F.vC4").unwrap().as_slice(),
-            &[
-                Atom::Function(Function::RawPlay),
-                Atom::Number(0),
-                Atom::Number(127),
-                Atom::Function(Function::ConvertToNumber),
-                Atom::Note(crate::Note::try_from(60).unwrap()),
-            ]
-        );
-        assert!(expression.bind_source("!>007F.^3C").is_err());
-        assert!(expression.bind_source("!>.v7F.vC4").is_err());
-        assert!(expression.bind_source("!>007F.v").is_err());
-        assert!(expression.bind_source("!>007F.v**").is_err());
-        // The same two Cells remain a Number or a Note according to the
-        // original operand slot, including after an earlier slot was invalid.
-        let numeric = Parser::from(&mut ".+XY01".to_owned()).analyze();
-        assert_eq!(
-            numeric.expression().bind_source(".+C401").unwrap()[1],
-            Atom::Number(196)
         );
     }
 
@@ -1411,6 +1416,31 @@ mod property {
         assert!(
             complete.get() > 0,
             "no generated Source spelled a Function-bearing Expression strict parsing accepts",
+        );
+    }
+}
+
+#[cfg(test)]
+mod positioned_tests {
+    use super::Parser;
+
+    #[test]
+    fn parser_positions_keep_nested_ownership_and_truncated_inputs() {
+        let parse = Parser::at(".+02.x03", 40).analyze();
+        let slots: Vec<_> = parse
+            .expression()
+            .positioned()
+            .map(|slot| (slot.cells.clone(), slot.parent))
+            .collect();
+        assert_eq!(
+            slots,
+            vec![
+                (40..42, None),
+                (42..44, Some(0)),
+                (44..46, Some(0)),
+                (46..48, Some(2)),
+                (48..48, Some(2))
+            ]
         );
     }
 }
