@@ -1,9 +1,8 @@
-use arrayvec::ArrayVec;
 use std::fmt;
 
-use crate::{EXP_LEN, Error, TypeError, midi_note_to_number, midi_number_to_note, str_to_num};
+use crate::{Error, TypeError, midi_note_to_number, midi_number_to_note, str_to_num};
 
-pub type Atoms = ArrayVec<Atom, EXP_LEN>;
+pub type Atoms = Vec<Atom>;
 
 /// The MIDI note domain: `00`–`7F`.
 ///
@@ -634,7 +633,7 @@ macro_rules! define_functions {
             fn every_declared_operand_binds_the_atom_its_token_accepts() {
                 $({
                     let function = crate::Function::$variant;
-                    let mut stack: Stack<16> = Stack::new();
+                    let mut stack = Stack::new(16);
 
                     // Pushed in reverse so extraction pops them in signature order.
                     for token in function.signature().iter().copied().rev() {

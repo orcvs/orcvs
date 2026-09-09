@@ -5,54 +5,30 @@ use crate::Expression;
 use crate::Function;
 use crate::SyntaxError;
 use crate::Token;
-use crate::Tokens;
-use crate::atom::to_atom_char;
-use crate::to_atom_note;
-use crate::to_atom_num;
+
+use std::ops::Range;
 
 ///
-/// What was read from one Source, and how much of it that took.
+/// What was read from one Source, and where in that Source it was read.
 ///
-/// An Expression the Parser reads has a fixed width, set by its root
-/// Function's arity, so the Source beyond `consumed` is the next Expression's
-/// to read and not evidence that this one is wrong. Reporting the boundary
-/// rather than a verdict about the whole Source is what lets a caller resume
-/// after it, which is the partition ADR 0018 describes.
+/// Function signatures and nested Functions determine each Expression's extent.
+/// Reporting that boundary lets a caller resume at the next Expression.
 ///
-/// `complete` takes its width from a caller that assembled the Expression
-/// without the Parser, so that width answers to the caller's partition rather
-/// than to arity and can reach past where a root Function would have ended.
-/// The arity claim scopes to the Parser, not to every `SourceAnalysis`.
+/// The boundary is an address rather than a width. A caller hands the Parser
+/// the Cell its Source begins at and gets back the Cells the Expression
+/// occupies, so there is no offset relative to a fragment for a consumer to
+/// re-base against wherever that fragment came from. A caller with no Grid to
+/// answer to reads from Cell zero and gets offsets, which is the same thing.
 ///
 #[derive(Debug)]
 pub struct SourceAnalysis {
     expression: Expression,
-    status: AnalysisStatus,
+    error: Option<Error>,
+    start: usize,
     consumed: usize,
 }
 
 impl SourceAnalysis {
-    ///
-    /// A complete Expression assembled without the Parser, spanning `consumed`
-    /// bytes of Source.
-    ///
-    pub fn complete(expression: Expression, consumed: usize) -> Self {
-        // The caller owes the width, because it assembled the Expression
-        // without reading the Source. Only the lower bound is checkable here,
-        // and it is the one a caller resuming from `consumed` depends on — so
-        // it is checked in release too, exactly as `analyze` checks it. A zero
-        // admitted here hangs the same loop.
-        assert!(
-            consumed > 0,
-            "a complete Expression spans at least one Cell"
-        );
-        Self {
-            expression,
-            status: AnalysisStatus::Complete,
-            consumed,
-        }
-    }
-
     pub fn expression(&self) -> &Expression {
         &self.expression
     }
@@ -62,44 +38,25 @@ impl SourceAnalysis {
     }
 
     pub fn error(&self) -> Option<&Error> {
-        match &self.status {
-            AnalysisStatus::Complete => None,
-            AnalysisStatus::Incomplete(error) | AnalysisStatus::Invalid(error) => Some(error),
-        }
+        self.error.as_ref()
     }
 
     ///
-    /// How many bytes of the Source this analysis read.
+    /// The Cells this Expression occupies, in the address space of the Source
+    /// the Parser was given.
     ///
-    /// At least one for any non-empty Source, so a caller advancing by it
-    /// always makes progress. It is what was read rather than what the layout
-    /// claims: an Expression cut short reports the Cells it reached.
+    /// Half-open, and never empty for a non-empty Source: `analyze` reads at
+    /// least one Cell, so a caller resuming at `end` always advances. When the
+    /// Source handed in was a Grid row and `start` the Cell it begins at,
+    /// these are the Grid's own Cell indices — which is the whole point, and
+    /// why there is no width to re-base against an anchor.
     ///
-    pub fn consumed(&self) -> usize {
-        self.consumed
+    pub fn cells(&self) -> Range<usize> {
+        self.start..self.start + self.consumed
     }
 
     pub fn is_complete(&self) -> bool {
-        matches!(self.status, AnalysisStatus::Complete)
-    }
-}
-
-#[derive(Debug)]
-enum AnalysisStatus {
-    Complete,
-    Incomplete(Error),
-    Invalid(Error),
-}
-
-impl AnalysisStatus {
-    fn merge(self, next: Self) -> Self {
-        match (self, next) {
-            (invalid @ Self::Invalid(_), _) | (_, invalid @ Self::Invalid(_)) => invalid,
-            (incomplete @ Self::Incomplete(_), _) | (_, incomplete @ Self::Incomplete(_)) => {
-                incomplete
-            }
-            (Self::Complete, Self::Complete) => Self::Complete,
-        }
+        self.error.is_none()
     }
 }
 
@@ -109,14 +66,31 @@ pub struct Parser<'a> {
     /// The Source as it was handed in, so how much was read is a fact about
     /// that rather than about whatever is left of it.
     len: usize,
+    /// The Cell the Source begins at, so what was read can be reported as an
+    /// address rather than as an offset into a fragment.
+    start: usize,
 }
 
 impl<'a> Parser<'a> {
     pub fn from(source: &'a mut str) -> Self {
+        Self::at(source, 0)
+    }
+
+    ///
+    /// Reads `source`, whose first Cell is `start`.
+    ///
+    /// This is the constructor the Language Map's row walk uses: it hands over
+    /// the row's remaining Cells and the Cell index they begin at, so the
+    /// positions the analysis reports are the Grid's own and no consumer has
+    /// to add an anchor back to them. `start` is a number the Parser reports
+    /// and never reads with — `lang` owns no Grid and places nothing.
+    ///
+    pub fn at(source: &'a str, start: usize) -> Self {
         Self {
             expression: Expression::new(),
             len: source.len(),
             source,
+            start,
         }
     }
 
@@ -137,16 +111,16 @@ impl<'a> Parser<'a> {
     /// Strictly parses one complete Expression.
     #[inline]
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
-        match self.take_language_unit()? {
-            AnalysisStatus::Complete if self.source.is_empty() => Ok(self
-                .expression
-                .take_atoms()
-                .expect("strict parsing contains only values")),
-            AnalysisStatus::Complete => {
-                Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into())
-            }
-            AnalysisStatus::Incomplete(error) | AnalysisStatus::Invalid(error) => Err(error),
+        if let Some(error) = self.take_language_unit() {
+            return Err(error);
         }
+        if !self.source.is_empty() {
+            return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
+        }
+        Ok(self
+            .expression
+            .take_atoms()
+            .expect("strict parsing contains only values"))
     }
 
     ///
@@ -158,8 +132,8 @@ impl<'a> Parser<'a> {
     /// `Z` still to read.
     ///
     #[inline]
-    pub fn analyze(mut self) -> Result<SourceAnalysis, Error> {
-        let status = self.take_language_unit()?;
+    pub fn analyze(mut self) -> SourceAnalysis {
+        let error = self.take_language_unit();
         let consumed = self.consumed();
         // Forward progress belongs to the Parser, because the Parser is what
         // decides how far one Expression reaches. A caller looping over a row
@@ -172,131 +146,117 @@ impl<'a> Parser<'a> {
             "a non-empty Source consumes at least one byte"
         );
 
-        Ok(SourceAnalysis {
+        SourceAnalysis {
             expression: self.expression,
-            status,
+            error,
+            start: self.start,
             consumed,
-        })
+        }
     }
 
     ///
     /// A Language Unit may be a Function or a standalone Atom.
     #[inline(always)]
-    fn take_language_unit(&mut self) -> Result<AnalysisStatus, Error> {
-        // Where this Language Unit starts, so the refused-Function arm can put
-        // back the Cell it read past rather than leave the Source and the
-        // consumed length describing different positions.
-        let start = self.source;
-        match self.next_token(2) {
-            Some(t) => {
-                match t {
-                    "**" => {
-                        self.add(Token::Bang, Atom::Bang)?;
-                        return Ok(AnalysisStatus::Complete);
+    fn take_language_unit(&mut self) -> Option<Error> {
+        // Most Expressions need only a few pending operands. Avoid allocating
+        // a stack for each parse, but spill deeper expressions to the heap:
+        // this inline capacity is an optimization, not a language limit.
+        let mut pending = arrayvec::ArrayVec::<_, 16>::new();
+        let mut overflow = Vec::new();
+        pending.push((Token::Function, None));
+        let mut error = None;
+        while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
+            let cell_start = self.start + self.consumed();
+            if token != Token::Function && !self.is_function_next() {
+                match self.take_token(&token) {
+                    Ok(atom) => self.expression.add_positioned(
+                        token,
+                        Some(atom),
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    ),
+                    Err(failure) => {
+                        error.get_or_insert(failure);
+                        self.expression.add_positioned(
+                            token,
+                            None,
+                            cell_start..self.start + self.consumed(),
+                            parent,
+                        );
                     }
-                    _ if let Ok(activation) = crate::Activation::try_from(t) => {
-                        self.add(Token::Activation, Atom::Activation(activation))?;
-                        return Ok(AnalysisStatus::Complete);
-                    }
-                    _ => {}
                 }
-                let result = Function::try_from(t);
-
-                let tokens = match result {
-                    Ok(f) => {
-                        self.add(Token::Function, Atom::from(f))?;
-                        Tokens::from(&f)
-                    }
-                    Err(error) => {
-                        // ADR 0018 resumes after one invalid character, not
-                        // after the pair `next_token` had to read to try the
-                        // spelling. `Z.+0304` is one stray `Z` and then an
-                        // Addition; skipping two would eat the `.` and lose
-                        // the Function that is really there. The invalid
-                        // record says what was attempted and `consumed` says
-                        // what to skip, and they disagree deliberately.
-                        //
-                        // One character, not one byte: `Parser::from` takes
-                        // any `&mut str`, as `peek_next` says, and giving back
-                        // half of an `é` would land a resuming caller inside a
-                        // character and panic the slice.
-                        //
-                        // The Source is rewound rather than a length beside
-                        // it, so the one Cell this arm declines is still there
-                        // to be read. `try_parse` decides completeness from
-                        // the Source, and this arm returning early is not what
-                        // ought to make that safe.
-                        //
-                        // The rule is stated here alone, so the
-                        // `is_function_next` recursion below inherits it.
-                        let invalid = t
-                            .chars()
-                            .next()
-                            .expect("a token of two bytes holds a character")
-                            .len_utf8();
-                        self.source = &start[invalid..];
-                        self.expression.add_invalid(Token::Function)?;
-                        return Ok(AnalysisStatus::Invalid(error));
-                    }
-                };
-
-                let mut status = AnalysisStatus::Complete;
-                for t in tokens {
-                    if self.is_function_next() {
-                        status = status.merge(self.take_language_unit()?);
-                    } else {
-                        match self.take_token(&t) {
-                            Ok(Some(atom)) => self.add(t, atom)?,
-                            Ok(None) => {
-                                status = status.merge(AnalysisStatus::Incomplete(
-                                    SyntaxError::ExpectedToken.into(),
-                                ));
-                            }
-                            Err(error) => {
-                                self.expression.add_invalid(t)?;
-                                status = status.merge(AnalysisStatus::Invalid(error));
+                continue;
+            }
+            let start = self.source;
+            let atom = match self.next_token(2) {
+                Some("**") => Ok((Token::Bang, Atom::Bang)),
+                Some(t) => match crate::Activation::try_from(t) {
+                    Ok(activation) => Ok((Token::Activation, Atom::Activation(activation))),
+                    Err(_) => Function::try_from(t)
+                        .map(|function| (Token::Function, Atom::Function(function))),
+                },
+                None => Err(SyntaxError::ExpectedFunction.into()),
+            };
+            match atom {
+                Ok((token, atom)) => {
+                    let index = self.expression.len();
+                    self.expression.add_positioned(
+                        token,
+                        Some(atom),
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
+                    if let Atom::Function(function) = atom {
+                        // Reverse signature order keeps the next operand on top,
+                        // without growing the native call stack for nested Functions.
+                        for token in function.signature().iter().rev() {
+                            let item = (*token, Some(index));
+                            // Overflow is always popped first, so any occupied
+                            // overflow has a full inline stack beneath it.
+                            if pending.is_full() {
+                                overflow.push(item);
+                            } else {
+                                pending.push(item);
                             }
                         }
                     }
                 }
-                Ok(status)
-            }
-            None => {
-                // No two-Cell spelling starts here — either fewer than two
-                // Cells are left, or the second is only part of a character.
-                // One character is read and reported either way, which is the
-                // same skip a refused Function spelling takes. Reading nothing
-                // would report the last `*` of `***` as costing nothing and a
-                // caller resuming there would never move; reading the whole
-                // tail would step over the `.+0304` after a `€`.
-                if let Some(next) = self.source.chars().next() {
-                    self.source = &self.source[next.len_utf8()..];
+                Err(failure) => {
+                    // A refused Function advances one character (ADR 0018).
+                    // Use a character boundary for callers outside ASCII Source.
+                    self.source = &start[start.chars().next().map_or(0, char::len_utf8)..];
+                    error.get_or_insert(failure);
+                    self.expression.add_positioned(
+                        Token::Function,
+                        None,
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
                 }
-                self.expression.add_incomplete(Token::Char)?;
-                Ok(AnalysisStatus::Incomplete(
-                    SyntaxError::ExpectedFunction.into(),
-                ))
             }
         }
+        error
     }
 
+    ///
+    /// Reads the operand a signature declares here and converts it.
+    ///
+    /// A slot whose Cells run past the end of the Source is refused like any
+    /// other slot that does not hold what it declares. The Source ending is
+    /// not a state of its own: a row is as long as it is, and a Function whose
+    /// arity reaches past the edge is one the Grid cannot hold.
+    ///
     #[inline(always)]
-    fn take_token(&mut self, token: &Token) -> Result<Option<Atom>, Error> {
-        let t = self.next_token(token.len());
-        let atom = match t {
-            Some(s) => match token {
-                Token::Note => to_atom_note(s)?,
-                Token::Number => to_atom_num(s)?,
-                Token::Char => to_atom_char(s)?,
-                Token::Activation | Token::Bang | Token::Function => unreachable!(),
-            },
-            None => {
-                self.expression.add_incomplete(*token)?;
-                return Ok(None);
+    fn take_token(&mut self, token: &Token) -> Result<Atom, Error> {
+        let Some(t) = self.next_token(token.len()) else {
+            // The available tail belongs to this operand, even when it is
+            // too short to spell one. It cannot open another Expression.
+            if self.source.len() < token.len() {
+                self.source = "";
             }
+            return Err(SyntaxError::ExpectedToken.into());
         };
-
-        Ok(Some(atom))
+        token.decode(t)
     }
 
     #[inline(always)]
@@ -328,12 +288,6 @@ impl<'a> Parser<'a> {
             None => None,
         }
     }
-
-    #[inline(always)]
-    fn add(&mut self, t: Token, a: Atom) -> Result<(), Error> {
-        self.expression.add(t, a)?;
-        Ok(())
-    }
 }
 
 #[inline(always)]
@@ -351,11 +305,8 @@ fn is_function(s: Option<&str>) -> bool {
 mod test {
 
     use crate::{
-        Atom, Atoms, EXP_LEN, Error, Function, SyntaxError, Token, TypeError,
-        parser::{AnalysisStatus, Parser},
-        trace,
+        Atom, Atoms, Error, Function, SyntaxError, Token, TypeError, parser::Parser, trace,
     };
-    use arrayvec::ArrayVec;
 
     fn try_parse(exp: &mut str) -> Result<Atoms, Error> {
         let parser = Parser::from(exp);
@@ -364,27 +315,26 @@ mod test {
 
     #[test]
     fn source_analysis_represents_complete_incomplete_and_invalid_source() {
-        assert!(matches!(
+        assert!(
             Parser::from(&mut ".+0102".to_owned())
                 .analyze()
-                .unwrap()
-                .status,
-            AnalysisStatus::Complete
-        ));
-        assert!(matches!(
+                .error
+                .is_none()
+        );
+        // Cut short by the end of the Source rather than by a character that
+        // does not convert, and refused all the same: there is no third state.
+        assert!(
             Parser::from(&mut ".+01".to_owned())
                 .analyze()
-                .unwrap()
-                .status,
-            AnalysisStatus::Incomplete(_)
-        ));
-        assert!(matches!(
+                .error
+                .is_some()
+        );
+        assert!(
             Parser::from(&mut ".+01XY".to_owned())
                 .analyze()
-                .unwrap()
-                .status,
-            AnalysisStatus::Invalid(_)
-        ));
+                .error
+                .is_some()
+        );
     }
 
     ///
@@ -394,11 +344,11 @@ mod test {
     ///
     #[test]
     fn source_analysis_reports_a_complete_expression_and_leaves_the_source_after_it() {
-        let analysis = Parser::from(&mut ".+0102Z".to_owned()).analyze().unwrap();
+        let analysis = Parser::from(&mut ".+0102Z".to_owned()).analyze();
 
         assert!(analysis.is_complete());
         assert!(analysis.error().is_none());
-        assert_eq!(analysis.consumed(), 6);
+        assert_eq!(analysis.cells().end, 6);
         assert_eq!(
             analysis.expression().atoms().unwrap().as_slice(),
             &[
@@ -407,6 +357,36 @@ mod test {
                 Atom::Number(2),
             ]
         );
+    }
+
+    ///
+    /// An analysis reports the Cells it read, not an offset into the fragment
+    /// it was handed.
+    ///
+    /// This is the whole of what `Parser::at` buys: the caller says which Cell
+    /// its Source begins at and the boundary comes back in that same address
+    /// space, so a row walk resuming at `cells().end` needs no arithmetic of
+    /// its own. The three Sources are the three shapes a walk meets — one
+    /// whole Expression, one refused character, and the Expression after it —
+    /// read from successive Cells of one row.
+    ///
+    #[test]
+    fn an_analysis_reports_the_cells_it_read_from_the_cell_it_was_told_it_began_at() {
+        let row = "Z.+0304";
+
+        let refused = Parser::at(&row[0..], 12).analyze();
+        assert_eq!(refused.cells(), 12..13);
+
+        let addition = Parser::at(&row[1..], 13).analyze();
+        assert!(addition.is_complete());
+        assert_eq!(addition.cells(), 13..19);
+
+        // The same Source read as though it began the Grid: `Parser::from` is
+        // `Parser::at` at Cell zero, so a caller with no Grid to answer to
+        // reads offsets and a caller with one reads addresses.
+        let anywhere = Parser::from(&mut String::from(&row[1..])).analyze();
+        assert_eq!(anywhere.cells(), 0..6);
+        assert_eq!(anywhere.cells().len(), addition.cells().len());
     }
 
     ///
@@ -420,19 +400,23 @@ mod test {
     ///
     #[test]
     fn an_unrecognized_function_consumes_one_cell_and_records_one_invalid_slot() {
-        let analysis = Parser::from(&mut "Z.+0304".to_owned()).analyze().unwrap();
+        let analysis = Parser::from(&mut "Z.+0304".to_owned()).analyze();
 
-        assert_eq!(analysis.consumed(), 1);
-        assert!(matches!(analysis.status, AnalysisStatus::Invalid(_)));
+        assert_eq!(analysis.cells().end, 1);
+        assert!(analysis.error.is_some());
         assert_eq!(
-            analysis.expression().layout().collect::<Vec<_>>(),
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
             vec![(0, Token::Function, None)]
         );
 
         // Resuming where it says to reaches the Addition that is really there.
-        let resumed = Parser::from(&mut ".+0304".to_owned()).analyze().unwrap();
+        let resumed = Parser::from(&mut ".+0304".to_owned()).analyze();
         assert!(resumed.is_complete());
-        assert_eq!(resumed.consumed(), 6);
+        assert_eq!(resumed.cells().end, 6);
     }
 
     ///
@@ -440,11 +424,11 @@ mod test {
     /// layout claims: `.+01` lays out six and reached four.
     ///
     #[test]
-    fn an_incomplete_expression_reports_what_it_read_rather_than_what_it_claims() {
-        let analysis = Parser::from(&mut ".+01".to_owned()).analyze().unwrap();
+    fn an_expression_cut_short_reports_what_it_read_rather_than_what_it_claims() {
+        let analysis = Parser::from(&mut ".+01".to_owned()).analyze();
 
-        assert!(matches!(analysis.status, AnalysisStatus::Incomplete(_)));
-        assert_eq!(analysis.consumed(), 4);
+        assert!(analysis.error.is_some());
+        assert_eq!(analysis.cells().end, 4);
         assert_eq!(
             analysis
                 .expression()
@@ -463,18 +447,21 @@ mod test {
     ///
     #[test]
     fn a_source_too_short_for_a_language_unit_still_consumes_its_tail() {
-        let bang = Parser::from(&mut "***".to_owned()).analyze().unwrap();
+        let bang = Parser::from(&mut "***".to_owned()).analyze();
         assert!(bang.is_complete());
-        assert_eq!(bang.consumed(), 2);
+        assert_eq!(bang.cells().end, 2);
 
-        let tail = Parser::from(&mut "*".to_owned()).analyze().unwrap();
-        assert!(matches!(tail.status, AnalysisStatus::Incomplete(_)));
-        assert_eq!(tail.consumed(), 1);
+        // One Cell is not a spelling, so it is refused as one — the same
+        // answer a two-Cell spelling the table does not hold gets. Running out
+        // of Source is not a state of its own.
+        let tail = Parser::from(&mut "*".to_owned()).analyze();
+        assert!(tail.error.is_some());
+        assert_eq!(tail.cells().end, 1);
 
         // Nothing to read consumes nothing, which is the one case the
         // invariant exempts.
-        let empty = Parser::from(&mut String::new()).analyze().unwrap();
-        assert_eq!(empty.consumed(), 0);
+        let empty = Parser::from(&mut String::new()).analyze();
+        assert_eq!(empty.cells().end, 0);
     }
 
     ///
@@ -495,12 +482,14 @@ mod test {
 
     #[test]
     fn layout_preserves_invalid_and_missing_slots_and_later_nested_operands() {
-        let analysis = Parser::from(&mut "!>**7F.^3C".to_owned())
-            .analyze()
-            .unwrap();
-        assert!(matches!(analysis.status, AnalysisStatus::Invalid(_)));
+        let analysis = Parser::from(&mut "!>**7F.^3C".to_owned()).analyze();
+        assert!(analysis.error.is_some());
         assert_eq!(
-            analysis.expression().layout().collect::<Vec<_>>(),
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
             vec![
                 (0, Token::Function, Some(Atom::Function(Function::RawPlay))),
                 (2, Token::Number, None),
@@ -513,42 +502,19 @@ mod test {
                 (8, Token::Number, Some(Atom::Number(60))),
             ]
         );
-        let incomplete = Parser::from(&mut "!>00".to_owned()).analyze().unwrap();
+        let incomplete = Parser::from(&mut "!>00".to_owned()).analyze();
         assert_eq!(
-            incomplete.expression().layout().collect::<Vec<_>>(),
+            incomplete
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
             vec![
                 (0, Token::Function, Some(Atom::Function(Function::RawPlay))),
                 (2, Token::Number, Some(Atom::Number(0))),
                 (4, Token::Number, None),
-                (6, Token::Note, None),
+                (4, Token::Note, None),
             ]
-        );
-    }
-
-    #[test]
-    fn binding_layout_repairs_operands_without_reparsing_functions_or_types() {
-        let analysis = Parser::from(&mut "!>**7F.v".to_owned()).analyze().unwrap();
-        let expression = analysis.expression();
-        assert_eq!(
-            expression.bind_source("!>007F.vC4").unwrap().as_slice(),
-            &[
-                Atom::Function(Function::RawPlay),
-                Atom::Number(0),
-                Atom::Number(127),
-                Atom::Function(Function::ConvertToNumber),
-                Atom::Note(crate::Note::try_from(60).unwrap()),
-            ]
-        );
-        assert!(expression.bind_source("!>007F.^3C").is_err());
-        assert!(expression.bind_source("!>.v7F.vC4").is_err());
-        assert!(expression.bind_source("!>007F.v").is_err());
-        assert!(expression.bind_source("!>007F.v**").is_err());
-        // The same two Cells remain a Number or a Note according to the
-        // original operand slot, including after an earlier slot was invalid.
-        let numeric = Parser::from(&mut ".+XY01".to_owned()).analyze().unwrap();
-        assert_eq!(
-            numeric.expression().bind_source(".+C401").unwrap()[1],
-            Atom::Number(196)
         );
     }
 
@@ -562,15 +528,14 @@ mod test {
         }
     }
 
-    fn parse(exp: &mut str) -> Result<Vec<Atom>, Error> {
-        let parser = Parser::from(exp);
-        Ok(parser
-            .analyze()?
+    fn parse(exp: &mut str) -> Vec<Atom> {
+        Parser::from(exp)
+            .analyze()
             .into_expression()
             .take_atoms()
             .unwrap_or_default()
             .into_iter()
-            .collect())
+            .collect()
     }
 
     #[test]
@@ -578,26 +543,26 @@ mod test {
         trace();
 
         let mut s = String::from(".+");
-        let parsed = parse(&mut s).unwrap();
+        let parsed = parse(&mut s);
 
         assert!(parsed.is_empty());
 
         let mut s = String::from("+");
-        let parsed = parse(&mut s).unwrap();
+        let parsed = parse(&mut s);
 
         let stack = vec![];
         assert_eq!(parsed, stack);
 
         let mut s = String::from("..");
-        let parsed = parse(&mut s).unwrap();
+        let parsed = parse(&mut s);
         assert!(parsed.is_empty());
 
         let mut s = String::from("ABC");
-        let parsed = parse(&mut s).unwrap();
+        let parsed = parse(&mut s);
         assert!(parsed.is_empty());
 
         let mut s = String::from("A           ");
-        let parsed = parse(&mut s).unwrap();
+        let parsed = parse(&mut s);
         assert!(parsed.is_empty());
     }
 
@@ -605,7 +570,6 @@ mod test {
     fn permissive_parse_keeps_non_values_out_of_runtime_atoms() {
         let incomplete = Parser::from(".+01".to_owned().as_mut_str())
             .analyze()
-            .unwrap()
             .into_expression();
         assert_eq!(
             incomplete.tokens().collect::<Vec<_>>(),
@@ -622,7 +586,6 @@ mod test {
 
         let invalid = Parser::from(".+01XY".to_owned().as_mut_str())
             .analyze()
-            .unwrap()
             .into_expression();
         assert_eq!(
             invalid.tokens().collect::<Vec<_>>(),
@@ -643,7 +606,6 @@ mod test {
         let source = ".+.-01XY02";
         let expression = Parser::from(&mut source.to_owned())
             .analyze()
-            .unwrap()
             .into_expression();
 
         assert_eq!(
@@ -696,7 +658,7 @@ mod test {
             Atom::Number(5),
         ];
 
-        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        let mut expected = Vec::new();
         v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
@@ -719,7 +681,7 @@ mod test {
             Atom::Number(2),
         ];
 
-        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        let mut expected = Vec::new();
         v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
@@ -863,7 +825,7 @@ mod test {
             Atom::Note(crate::Note::try_from(60).unwrap()),
         ];
 
-        let mut expected: ArrayVec<Atom, 32> = ArrayVec::new();
+        let mut expected = Vec::new();
         v.into_iter().for_each(|a| expected.push(a));
 
         assert_eq!(parsed, expected);
@@ -900,7 +862,7 @@ mod test {
         // ADR 0021 gives an Operand Literal the type of the slot that consumes
         // it, so a literal standing alone has nothing to type it and is
         // invalid Source rather than a one-Atom Expression. The sweep below
-        // only ever spells literals inside a slot, and the capacity property
+        // only ever spells literals inside a slot, and the long-expression property
         // starts its chain at one Function to stay off this case, so this is
         // the one place that says a fallback to `to_atom_num` or
         // `to_atom_note` in `take_language_unit` would be wrong.
@@ -914,72 +876,6 @@ mod test {
                 "{spelled:?} parsed as an Expression on its own",
             );
         }
-    }
-
-    /// Every Atom of an Expression, rendered back to Source text.
-    pub(super) fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
-        atoms.into_iter().map(|atom| atom.to_string()).collect()
-    }
-
-    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
-    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
-    ///
-    /// Addition takes two operands, so a chain of them alone spells an odd
-    /// `2 * depth + 1` Atoms and can never equal an even `EXP_LEN`. `.^` takes
-    /// one, so each wrapper shifts the parity and the two together reach every
-    /// count.
-    pub(super) fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
-        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
-        (spelled, wrappers + 2 * depth + 1)
-    }
-
-    ///
-    /// The capacity bound falls between an Expression of `EXP_LEN` Atoms and
-    /// one of `EXP_LEN + 1`: the first is parsed whole, the second is refused.
-    ///
-    /// `mod property`'s
-    /// `an_expression_that_outruns_the_parser_capacity_is_refused_rather_than_truncated`
-    /// sweeps a range that contains both counts, but which counts a run draws
-    /// is up to the runner and the pull-request tier draws only 32 cases. The
-    /// bound is the one number the criterion is about, so it is spelled here
-    /// rather than sampled: a bound off by one in either direction fails on
-    /// one of these two Expressions every run, on every tier.
-    ///
-    /// It lives in `mod test` for the same reason the non-ASCII case below
-    /// does: it draws nothing, so the `cfg` that keeps proptest out of a WASM
-    /// build has no claim on it. `addition_chain` is shared with the property
-    /// from here rather than the other way round, so the two always spell the
-    /// same chain.
-    ///
-    #[test]
-    fn the_capacity_bound_falls_between_exp_len_atoms_and_one_more() {
-        // `.^` shifts the parity a chain of Additions cannot reach on its own,
-        // so these are the two consecutive Atom counts either side of the
-        // bound rather than the nearest odd ones.
-        let (fits, atoms_spelled) = addition_chain(1, (EXP_LEN - 2) / 2);
-        assert_eq!(atoms_spelled, EXP_LEN);
-        let (overruns, atoms_spelled) = addition_chain(0, EXP_LEN / 2);
-        assert_eq!(atoms_spelled, EXP_LEN + 1);
-
-        let mut source = fits.clone();
-        let parsed = Parser::from(&mut source)
-            .try_parse()
-            .unwrap_or_else(|error| {
-                panic!("{fits:?} spells {EXP_LEN} Atoms and was refused: {error:?}")
-            });
-        assert_eq!(parsed.len(), EXP_LEN);
-        assert_eq!(rendered(parsed), fits);
-
-        let mut source = overruns.clone();
-        let parsed = Parser::from(&mut source).try_parse();
-        assert!(
-            matches!(
-                parsed,
-                Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity })) if capacity == EXP_LEN
-            ),
-            "{overruns:?} spells {} Atoms and answered {parsed:?}",
-            EXP_LEN + 1,
-        );
     }
 
     ///
@@ -1023,30 +919,28 @@ mod test {
             // not be: `é` is refused as a Function spelling, and reporting one
             // byte rather than one character would hand back an offset inside
             // it.
-            let analysis = Parser::from(&mut source).analyze().unwrap();
+            let analysis = Parser::from(&mut source).analyze();
             assert!(
-                spelled.is_char_boundary(analysis.consumed()),
+                spelled.is_char_boundary(analysis.cells().end),
                 "{spelled:?} consumed {} bytes, which is not a character boundary",
-                analysis.consumed(),
+                analysis.cells().end,
             );
         }
 
         // A Function spelling the Parser read whole and refused costs its
         // first character.
-        let analysis = Parser::from(&mut String::from("é!")).analyze().unwrap();
-        assert_eq!(analysis.consumed(), "é".len());
+        let analysis = Parser::from(&mut String::from("é!")).analyze();
+        assert_eq!(analysis.cells().end, "é".len());
 
         // A character too wide to read a spelling across costs the same one
         // character. Draining the rest instead would step over the Addition
         // that follows and lose the row to a single mistyped Cell, which is
         // the whole point of skipping one.
-        let analysis = Parser::from(&mut String::from("€.+0304"))
-            .analyze()
-            .unwrap();
-        assert_eq!(analysis.consumed(), "€".len());
-        let resumed = Parser::from(&mut String::from(".+0304")).analyze().unwrap();
+        let analysis = Parser::from(&mut String::from("€.+0304")).analyze();
+        assert_eq!(analysis.cells().end, "€".len());
+        let resumed = Parser::from(&mut String::from(".+0304")).analyze();
         assert!(resumed.is_complete());
-        assert_eq!(resumed.consumed(), 6);
+        assert_eq!(resumed.cells().end, 6);
     }
 
     #[test]
@@ -1128,12 +1022,10 @@ mod test {
 /// `every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it`
 /// rather than a property: the two operand domains hold 384 values between
 /// them, which is small enough to enumerate and too small to be worth
-/// sampling. `mod test` also holds the two claims here that need no generator
-/// — `source_that_is_not_ascii_is_refused_rather_than_panicking` and
-/// `the_capacity_bound_falls_between_exp_len_atoms_and_one_more` — along with
-/// the `every_atom_of`, `addition_chain` and `rendered` helpers this module
-/// draws from, so that nothing a WASM build could run is gated off with the
-/// generators.
+/// sampling. `mod test` also holds the non-ASCII regression and the
+/// `every_atom_of` helper this module uses; `addition_chain` and `rendered`
+/// are drawn on from here alone, so they sit here and leave the WASM build
+/// with this module rather than needing a `cfg` of their own.
 ///
 /// `orcvs::source::language_map`'s `mod property` has a fragment generator of
 /// the same shape, and the two are deliberately separate: `orcvs` depends on
@@ -1149,8 +1041,8 @@ mod test {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
 
-    use super::test::{addition_chain, every_atom_of, rendered};
-    use crate::{Atom, EXP_LEN, Error, Function, SyntaxError, Token, parser::Parser};
+    use super::test::every_atom_of;
+    use crate::{Atom, Error, Function, SyntaxError, Token, parser::Parser};
     use proptest::prelude::*;
     use proptest::sample::select;
     use proptest::test_runner::{Config, TestRunner};
@@ -1163,15 +1055,20 @@ mod property {
     /// one Language Unit occupies and the parser has a run to abandon rather
     /// than a single unit to read.
     ///
-    /// This ceiling is deliberately not set from `EXP_LEN`. Capacity bounds
-    /// records rather than Cells, and analysis stops recording at the first
-    /// Token it cannot read, so raw text answers one invalid record and ends
-    /// however long it runs. Only a chain of whole Functions accumulates
-    /// records at all, and drawing thirty-two of those in a row has no
-    /// meaningful probability. The capacity bound is therefore reached by the
-    /// Expression `an_expression_that_outruns_the_parser_capacity_...` spells
-    /// by hand, not from here.
     const FRAGMENTS: usize = 24;
+
+    /// Every Atom of an Expression, rendered back to Source text.
+    fn rendered(atoms: impl IntoIterator<Item = Atom>) -> String {
+        atoms.into_iter().map(|atom| atom.to_string()).collect()
+    }
+
+    /// A chain of `depth` Additions over `depth + 1` Numbers, wrapped in
+    /// `wrappers` unary `.^`s, with the number of Atoms it spells.
+    ///
+    fn addition_chain(wrappers: usize, depth: usize) -> (String, usize) {
+        let spelled = ".^".repeat(wrappers) + &".+".repeat(depth) + &"00".repeat(depth + 1);
+        (spelled, wrappers + 2 * depth + 1)
+    }
 
     /// The Atoms that are a whole Language Unit on their own: the Bang and
     /// every Activation, read from `Activation::ALL` so a fifth one is drawn
@@ -1303,11 +1200,6 @@ mod property {
 
             match Parser::from(&mut source).try_parse() {
                 Ok(atoms) => {
-                    // No assertion that `atoms.len() <= EXP_LEN`: `Atoms` is
-                    // `ArrayVec<Atom, EXP_LEN>`, so the type already bounds it
-                    // and the check would hold just as well for a parse that
-                    // truncated at capacity instead of refusing. The rendering
-                    // equality below is what catches a truncation.
                     prop_assert!(
                         !atoms.iter().any(|atom| matches!(atom, Atom::Empty | Atom::Char(_))),
                         "{spelled:?} parsed to a value no signature declares: {atoms:?}",
@@ -1341,22 +1233,9 @@ mod property {
             let spelled = source.clone();
             let mut source = source;
 
-            let analysis = match Parser::from(&mut source).analyze() {
-                Ok(analysis) => analysis,
-                // Analysis diagnoses the Source it was handed and returns the
-                // Expression it built from it, so the one thing it can fail at
-                // is having nowhere left to record what it read.
-                Err(error) => {
-                    prop_assert!(
-                        matches!(
-                            error,
-                            Error::Syntax(SyntaxError::ExpressionTooLong { capacity }) if capacity == EXP_LEN
-                        ),
-                        "{spelled:?} failed analysis with {error:?}",
-                    );
-                    return Ok(());
-                }
-            };
+            // Total: analysis answers for every printable-ASCII Source,
+            // including invalid Expressions.
+            let analysis = Parser::from(&mut source).analyze();
 
             let expression = analysis.expression();
             let entries: Vec<(Token, Atom)> = expression.entries().collect();
@@ -1383,8 +1262,8 @@ mod property {
             // What was read is a prefix of what was handed in, and a
             // non-empty Source always moves: a caller that advances by
             // `consumed` walks the row rather than parking on a Cell.
-            prop_assert!(analysis.consumed() <= spelled.len(), "{spelled:?}");
-            prop_assert_eq!(analysis.consumed() > 0, !spelled.is_empty(), "{:?}", spelled);
+            prop_assert!(analysis.cells().end <= spelled.len(), "{spelled:?}");
+            prop_assert_eq!(analysis.cells().end > 0, !spelled.is_empty(), "{:?}", spelled);
 
             if analysis.is_complete() {
                 prop_assert!(analysis.error().is_none());
@@ -1394,7 +1273,7 @@ mod property {
                 // A complete Expression spells exactly the Cells it consumed.
                 // Anything after them is the next Expression's Source and is
                 // neither read nor held against this one.
-                prop_assert_eq!(rendered(atoms), &spelled[..analysis.consumed()]);
+                prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end]);
             } else {
                 prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
@@ -1437,12 +1316,10 @@ mod property {
             let parsed = Parser::from(&mut strict).try_parse();
             let analysis = Parser::from(&mut permissive).analyze();
 
-            let complete = analysis.as_ref().is_ok_and(|analysis| {
-                analysis.is_complete() && analysis.consumed() == source.len()
-            });
+            let complete = analysis.is_complete() && analysis.cells().end == source.len();
             prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
 
-            if let (Ok(atoms), Ok(analysis)) = (parsed, analysis) {
+            if let Ok(atoms) = parsed {
                 prop_assert_eq!(
                     Some(atoms),
                     analysis.into_expression().take_atoms(),
@@ -1452,77 +1329,21 @@ mod property {
             }
         }
 
-        ///
-        /// An Expression that spells more Atoms than one can hold is refused
-        /// with `ExpressionTooLong`, and one that fits is parsed whole.
-        ///
-        /// What the capacity bounds is Atoms rather than Cells: a chain of
-        /// `depth` Additions over `depth + 1` Numbers spells `2 * depth + 1`
-        /// Atoms across `4 * depth + 2` Cells, so from depth 8 the Source is
-        /// already longer than `EXP_LEN` Cells and still parses. Both halves
-        /// are asserted here because the failure the bound exists to prevent is
-        /// a truncation, which would look exactly like the accepted half with
-        /// fewer Atoms in it.
-        ///
-        /// The chain starts at one Function rather than none: a standalone
-        /// Operand Literal has no Function to type it and is invalid Source,
-        /// so depth zero would be a case about ADR 0021 rather than about the
-        /// capacity.
-        ///
-        /// The Additions are wrapped in `wrappers` unary `.^`s so the Atom
-        /// count reaches both parities. A chain of Additions alone spells
-        /// `2 * depth + 1` Atoms, which is always odd and therefore steps
-        /// straight over an even `EXP_LEN`: it would assert 31 accepted and 33
-        /// refused and never spell exactly 32. Each `.^` takes one operand and
-        /// adds one Atom, so `wrappers` of zero or one reaches every count in
-        /// the range. Which counts a run actually draws is still up to the
-        /// runner, so the boundary itself is pinned by
-        /// `the_capacity_bound_falls_between_exp_len_atoms_and_one_more`
-        /// rather than left to a sample.
-        ///
+        /// Parsing retains every Atom, including expressions beyond the old storage limit.
         #[test]
-        fn an_expression_that_outruns_the_parser_capacity_is_refused_rather_than_truncated(
-            depth in 1usize..24,
+        fn long_expressions_roundtrip_without_truncation(
+            depth in 1usize..128,
             wrappers in 0usize..=1,
         ) {
             let (spelled, atoms_spelled) = addition_chain(wrappers, depth);
-            let mut source = spelled.clone();
-
-            let parsed = Parser::from(&mut source).try_parse();
-
-            if atoms_spelled <= EXP_LEN {
-                let atoms = parsed.map_err(|error| {
-                    TestCaseError::fail(format!("{spelled:?} was refused with {error:?}"))
-                })?;
-                prop_assert_eq!(atoms.len(), atoms_spelled);
-                prop_assert_eq!(rendered(atoms), spelled.as_str());
-            } else {
-                prop_assert!(
-                    matches!(
-                        parsed,
-                        Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity }))
-                            if capacity == EXP_LEN
-                    ),
-                    "{spelled:?} answered {parsed:?} rather than refusing {atoms_spelled} Atoms",
-                );
-
-                // The permissive reading is bounded by the same capacity, and
-                // this is the only place that says so. Analysis stops
-                // recording at the first Token it cannot read, so raw Source
-                // answers one invalid record however long it runs and the
-                // generated properties cannot reach this bound at all. A
-                // hand-spelled chain is what reaches it.
-                let mut source = spelled.clone();
-                let analysis = Parser::from(&mut source).analyze();
-                prop_assert!(
-                    matches!(
-                        analysis,
-                        Err(Error::Syntax(SyntaxError::ExpressionTooLong { capacity }))
-                            if capacity == EXP_LEN
-                    ),
-                    "{spelled:?} was analysed as {analysis:?} rather than refused",
-                );
-            }
+            let parsed = Parser::at(&spelled, 0).try_parse().map_err(|error|
+                TestCaseError::fail(format!("{spelled:?} was refused with {error:?}"))
+            )?;
+            prop_assert_eq!(parsed.len(), atoms_spelled);
+            prop_assert_eq!(rendered(parsed), spelled.as_str());
+            let analysis = Parser::at(&spelled, 0).analyze();
+            prop_assert!(analysis.is_complete());
+            prop_assert_eq!(analysis.cells(), 0..spelled.len());
         }
     }
 
@@ -1605,6 +1426,31 @@ mod property {
         assert!(
             complete.get() > 0,
             "no generated Source spelled a Function-bearing Expression strict parsing accepts",
+        );
+    }
+}
+
+#[cfg(test)]
+mod positioned_tests {
+    use super::Parser;
+
+    #[test]
+    fn parser_positions_keep_nested_ownership_and_truncated_inputs() {
+        let parse = Parser::at(".+02.x03", 40).analyze();
+        let slots: Vec<_> = parse
+            .expression()
+            .positioned()
+            .map(|slot| (slot.cells.clone(), slot.parent))
+            .collect();
+        assert_eq!(
+            slots,
+            vec![
+                (40..42, None),
+                (42..44, Some(0)),
+                (44..46, Some(0)),
+                (46..48, Some(2)),
+                (48..48, Some(2))
+            ]
         );
     }
 }

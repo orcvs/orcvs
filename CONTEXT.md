@@ -33,7 +33,7 @@ The character Cells occupied by one Language Unit, Expression, or Diagnostic in 
 _Avoid_: Footprint, extent, range, Cell structure, semantic Grid, bounding box
 
 **Language Map**:
-The semantic view derived from one Source revision. It identifies Expressions, roots, Language Units, their anchor Positions, and their Spans without adding stored program state or a second coordinate system. It partitions each row from left to right into non-overlapping complete Language Units: after recognizing a unit it resumes after that complete Span, and an unmatched character diagnoses without participating in an overlapping unit.
+The semantic view derived from the Parser's interpretation of one Source revision. It identifies Expressions, roots, typed operands, nested ownership, Language Units, anchor Positions and Spans without adding persistent program state or independently interpreting spellings.
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
 **Atom**:
@@ -44,16 +44,24 @@ _Avoid_: Token, glyph, symbol, cell value
 Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context, so a standalone operand literal is invalid.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
+**Spatial Output**:
+A Function output delivered through a Portal as literal Source encoding, interpreted in the receiving operand's context. It is distinct from a nested Function result, which retains its value's type.
+_Avoid_: Implicit numeric conversion, typed spatial argument
+
+**Pending Operand Encoding**:
+The current characters of a spatially updated operand, awaiting interpretation when its receiving Function executes. They may be invalid for that operand's literal type and are not yet a decoded value.
+_Avoid_: Incorrect typed value, inferred Number, failed decode
+
 **Source Snapshot**:
 The complete Source at the beginning of a Tick, including the accumulated output of preceding Ticks. It determines initial language state; dependencies supply current-Tick values before their consumers evaluate. Prior Bang display is not a new activation.
 _Avoid_: Program state, runtime state
 
 **Expression**:
-A contiguous horizontal run of occupied Cells in one Source row that is parsed as one Orcvs language expression. Its first Function is the root Function; activating that root evaluates every nested Function needed by the Expression. An Expression never wraps across rows.
+A contiguous horizontal group of Cells established by parsing one Function and its operands, or one standalone Bang or Self-Banging Function. Operand Cells may be empty or invalid; nested Functions extend the containing Expression, which never crosses a row edge or Comment.
 _Avoid_: Formula, statement
 
 **Evaluator**:
-The stack-based expression evaluator that turns one Expression's Atoms into its answer, walking them from last Atom to first against an Operand Stack so that a Function's operands reach it in signature order. ADR 0028 specifies the machine and states why it is not a virtual machine: it has no bytecode, because the Atoms are re-derived from character Source on every Tick rather than compiled; no control flow, because activation and Portals are Source-resident behaviour rather than machine instructions; and no registers, heap, or persistent variables, because ADR 0003 already makes the Source Snapshot the complete language state.
+The evaluator that turns a Function and its typed operands, or a complete Expression's Atoms, into one value or terminal effect. Its Operand Stack exists only for that evaluation; activation, spatial delivery and Source remain outside the Evaluator.
 _Avoid_: Virtual machine, VM, interpreter loop, runtime
 
 **Operand Stack**:

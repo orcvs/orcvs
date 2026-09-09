@@ -24,9 +24,26 @@ corruption at its source, so the same Source must stay safe with the guard gone.
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+Not implemented: `schedule` still calls `extend_surviving_runs` and emits
+“current-Tick output would join the Expression”; `a_result_landing_on_a_run_with_no_root_is_refused_like_any_other_join`
+still expects rejection. Removing this obsolete guard and replacing its regressions with
+safe outcomes for the same Source transfer to
+[live-typed-execution](../../live-typed-execution/spec.md). The blanket overlap refusal in
+this ticket is abandoned where ADR 0034 admits partial composition and bounded replacement.
+Do not require ticket 03's array or old refusal policy before deleting the guard.
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [ ] A comparison writing its result flush against a literal leaves that literal readable, and the
       next parse establishes the same Expression it did before the write.

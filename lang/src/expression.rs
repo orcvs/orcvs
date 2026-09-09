@@ -1,22 +1,30 @@
-use crate::{Atom, Atoms, EXP_LEN, Function, SyntaxError};
-use arrayvec::ArrayVec;
+use crate::{Atom, Atoms, Function};
+
+// A provisional balance for short and nested Expressions; revisit with usage data.
+const INLINE_RECORD_CAPACITY: usize = 8;
 
 const DEFAULT_TOKEN_LEN: usize = 2;
 const DEFAULT_CHAR_TOKEN_LEN: usize = 1;
 
-pub type Tokens = ArrayVec<Token, EXP_LEN>;
+pub type Tokens = Vec<Token>;
 
 #[derive(Debug, Clone)]
 pub struct Expression {
-    records: ArrayVec<Record, EXP_LEN>,
+    records: RecordStore,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Record {
-    Evaluable { token: Token, atom: Atom },
-    Incomplete { expected: Token },
-    Invalid { expected: Token },
+/// One parser-owned entry. Cells use the address space supplied to the Parser;
+/// an empty range records an input missing at the Source boundary. `parent`
+/// identifies the directly owning Function in this Expression's entry order.
+#[derive(Debug, Clone)]
+pub struct PositionedEntry {
+    pub cells: std::ops::Range<usize>,
+    pub parent: Option<usize>,
+    pub token: Token,
+    pub atom: Option<Atom>,
 }
+
+type Record = PositionedEntry;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
@@ -31,28 +39,27 @@ pub enum Token {
 impl Expression {
     pub fn new() -> Self {
         Self {
-            records: ArrayVec::new(),
+            records: RecordStore::new(),
         }
     }
 
-    /// Adds one complete syntax-and-value entry to the Expression.
-    pub fn add(&mut self, token: Token, atom: Atom) -> Result<(), SyntaxError> {
-        self.records
-            .try_push(Record::Evaluable { token, atom })
-            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })?;
-        Ok(())
+    pub(crate) fn add_positioned(
+        &mut self,
+        token: Token,
+        atom: Option<Atom>,
+        cells: std::ops::Range<usize>,
+        parent: Option<usize>,
+    ) {
+        self.records.push(PositionedEntry {
+            cells,
+            parent,
+            token,
+            atom,
+        });
     }
 
-    pub(crate) fn add_incomplete(&mut self, expected: Token) -> Result<(), SyntaxError> {
-        self.records
-            .try_push(Record::Incomplete { expected })
-            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
-    }
-
-    pub(crate) fn add_invalid(&mut self, expected: Token) -> Result<(), SyntaxError> {
-        self.records
-            .try_push(Record::Invalid { expected })
-            .map_err(|_| SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
+    pub fn positioned(&self) -> impl Iterator<Item = &PositionedEntry> {
+        self.records.iter()
     }
 
     /// Complete evaluable entries, with their syntax and runtime value paired.
@@ -60,57 +67,12 @@ impl Expression {
         self.records.iter().filter_map(|record| record.entry())
     }
 
-    /// Every parser-owned slot as its source-relative Cell offset, expected
-    /// syntax, and optional value. Missing and invalid operands retain their
-    /// width, so later entries never slide into an earlier operand's position.
-    /// Missing tail slots can extend beyond the supplied Source fragment.
-    pub fn layout(&self) -> impl Iterator<Item = (usize, Token, Option<Atom>)> + '_ {
-        self.records.iter().scan(0, |offset, record| {
-            let token = record.token();
-            let entry = (*offset, token, record.atom());
-            *offset += token.len();
-            Some(entry)
-        })
-    }
-
-    /// Reads current operand Cells through this Expression's original layout.
-    /// Function and standalone control spellings must retain their identities;
-    /// newly written Function spellings cannot change an operand's syntax.
-    /// The caller supplies Source from the original anchor, within one row.
-    /// Trailing Cells are outside this layout and are not interpreted.
-    pub fn bind_source(&self, source: &str) -> Result<Atoms, crate::Error> {
-        self.layout()
-            .map(|(offset, token, original)| {
-                let spelling = source
-                    .get(offset..offset + token.len())
-                    .ok_or(SyntaxError::ExpectedToken)?;
-                match token {
-                    Token::Number => crate::to_atom_num(spelling),
-                    Token::Note => crate::to_atom_note(spelling),
-                    Token::Char => crate::atom::to_atom_char(spelling),
-                    // A structural slot keeps the identity the starting parse
-                    // gave it, and says so in its own terms: a `**` overwritten
-                    // by a value is a Bang that is no longer there, not a
-                    // Function that was never expected.
-                    Token::Function => match original {
-                        Some(atom) if atom.to_string() == spelling => Ok(atom),
-                        _ => Err(crate::TypeError::Function(spelling.to_owned()).into()),
-                    },
-                    Token::Bang | Token::Activation => match original {
-                        Some(atom) if atom.to_string() == spelling => Ok(atom),
-                        _ => Err(crate::TypeError::Bang(spelling.to_owned()).into()),
-                    },
-                }
-            })
-            .collect()
-    }
-
     pub fn atoms(&self) -> Option<Atoms> {
-        self.records.iter().copied().map(Record::atom).collect()
+        self.records.iter().map(Record::atom).collect()
     }
 
     pub fn take_atoms(self) -> Option<Atoms> {
-        self.records.into_iter().map(Record::atom).collect()
+        self.records.into_iter().map(|record| record.atom).collect()
     }
 
     pub fn tokens(&self) -> impl DoubleEndedIterator<Item = Token> + '_ {
@@ -133,24 +95,16 @@ impl Expression {
     }
 }
 
-impl Record {
+impl PositionedEntry {
     fn entry(&self) -> Option<(Token, Atom)> {
-        match self {
-            Self::Evaluable { token, atom } => Some((*token, *atom)),
-            Self::Incomplete { .. } | Self::Invalid { .. } => None,
-        }
+        self.atom.map(|atom| (self.token, atom))
     }
 
-    fn atom(self) -> Option<Atom> {
-        self.entry().map(|(_, atom)| atom)
+    fn atom(&self) -> Option<Atom> {
+        self.atom
     }
-
     fn token(&self) -> Token {
-        match self {
-            Self::Evaluable { token, .. } => *token,
-            Self::Incomplete { expected } => *expected,
-            Self::Invalid { expected } => *expected,
-        }
+        self.token
     }
 }
 
@@ -161,6 +115,16 @@ impl Default for Expression {
 }
 
 impl Token {
+    /// Decodes one literal encoding using the receiving operand's signature.
+    pub fn decode(self, spelling: &str) -> Result<Atom, crate::Error> {
+        match self {
+            Self::Number => crate::to_atom_num(spelling),
+            Self::Note => crate::to_atom_note(spelling),
+            Self::Char => crate::atom::to_atom_char(spelling),
+            _ => Err(crate::SyntaxError::ExpectedToken.into()),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Token::Char => DEFAULT_CHAR_TOKEN_LEN,
@@ -176,32 +140,55 @@ impl Token {
 impl From<&Function> for Tokens {
     #[inline(always)]
     fn from(f: &Function) -> Self {
-        f.signature().iter().copied().collect()
+        f.signature().to_vec()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{Expression, Token};
-    use crate::{Atom, EXP_LEN, SyntaxError};
+/// Append-only storage: overflow follows the full inline prefix in entry order.
+/// Eight is an allocation optimization, never a limit on accepted Expressions.
+#[derive(Debug, Clone)]
+struct RecordStore {
+    inline: arrayvec::ArrayVec<Record, INLINE_RECORD_CAPACITY>,
+    overflow: Vec<Record>,
+}
 
-    #[test]
-    fn bounded_entries_add_syntax_and_value_atomically() {
-        let mut expression = Expression::new();
-        for _ in 0..EXP_LEN {
-            expression.add(Token::Number, Atom::Number(1)).unwrap();
+impl RecordStore {
+    fn new() -> Self {
+        Self {
+            inline: arrayvec::ArrayVec::new(),
+            overflow: Vec::new(),
         }
+    }
 
-        assert!(matches!(
-            expression.add(Token::Note, Atom::Note(crate::Note::try_from(60).unwrap())),
-            Err(SyntaxError::ExpressionTooLong { capacity: EXP_LEN })
-        ));
-        assert_eq!(expression.len(), EXP_LEN);
-        assert_eq!(expression.tokens().last(), Some(Token::Number));
-        assert_eq!(expression.atoms().unwrap().last(), Some(&Atom::Number(1)));
-        assert_eq!(
-            expression.entries().last(),
-            Some((Token::Number, Atom::Number(1)))
-        );
+    fn push(&mut self, record: Record) {
+        if self.inline.is_full() {
+            self.overflow.push(record);
+        } else {
+            self.inline.push(record);
+        }
+    }
+
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Record> {
+        self.inline.iter().chain(self.overflow.iter())
+    }
+
+    fn len(&self) -> usize {
+        self.inline.len() + self.overflow.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.inline.is_empty() && self.overflow.is_empty()
+    }
+}
+
+impl IntoIterator for RecordStore {
+    type Item = Record;
+    type IntoIter = std::iter::Chain<
+        arrayvec::IntoIter<Record, INLINE_RECORD_CAPACITY>,
+        std::vec::IntoIter<Record>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inline.into_iter().chain(self.overflow)
     }
 }

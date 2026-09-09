@@ -1,6 +1,6 @@
 # Evaluate turns against working Source
 
-Status: superseded by [ADR 0032](0032-schedule-tick-execution-by-dependency.md). This records the historical row-major fallback, not the accepted execution contract. See [dependency-ordering research](../../.scratch/language-map/dependency-ordering-research.md) and [music/dataflow research](../../.scratch/language-map/music-dataflow-ordering-research.md).
+Status: superseded by [ADR 0032](0032-schedule-tick-execution-by-dependency.md). The working-character binding seam is further superseded by [ADR 0034](0034-execute-against-live-typed-expressions.md): Parser-owned positions and nested connections serve live execution, spatial encodings decode at consumption, and Source parsing never runs between computations. This records the historical row-major fallback, not the accepted execution contract. See [dependency-ordering research](../../.scratch/language-map/dependency-ordering-research.md) and [music/dataflow research](../../.scratch/language-map/music-dataflow-ordering-research.md).
 
 The subsequent user-confirmed Bang rule supersedes this candidate's cleanup-turn and cross-Tick activation behavior: `**` is output display, manual `**` is a no-op, and only the current Tick's produced Bang activates. No implementation of this candidate survives; ADR 0032's scheduler replaced it. See [the executable ordering exploration](../../.scratch/language-map/operation-ordering-exploration.md).
 

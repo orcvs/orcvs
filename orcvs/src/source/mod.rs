@@ -150,53 +150,17 @@ mod tests {
     }
 
     #[test]
-    fn rejected_overlong_expression_does_not_poison_source_access() {
-        let grid = Grid::new(80, 3);
-        let source = SourceCommander::new(grid);
-        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
-        let at_capacity = ".+".repeat(15) + &"00".repeat(16);
-        for (offset, content) in at_capacity.chars().enumerate() {
-            source.set(cell(offset + 2), &content.to_string()).unwrap();
-        }
-        source.set(cell(1), "+").unwrap();
-        let before = source.snapshot();
-
-        assert_eq!(
-            source.set(cell(0), "."),
-            Err(SourceError::ExpressionTooLong {
-                start: 0,
-                end: 63,
-                capacity: 32,
-            })
-        );
-        assert_eq!(source.snapshot(), before);
-
-        source.unset(cell(1));
-        source.set(cell(150), ".").unwrap();
-        source.set(cell(151), "+").unwrap();
-        source.set(cell(152), "0").unwrap();
-        source.set(cell(153), "1").unwrap();
-        source.set(cell(154), "0").unwrap();
-        source.set(cell(155), "2").unwrap();
-        let tick = source.execute(Tick::ZERO);
-
-        assert!(tick.diagnostics.is_empty());
-        assert_eq!(source.get(cell(150)), Some(".".to_string()));
-    }
-
-    #[test]
-    fn tick_suppresses_an_overlong_expression_created_by_its_writes() {
+    fn tick_writes_into_a_long_expression() {
         let grid = Grid::new(100, 3);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        // Row 1 holds the chain, which claims Cells 100 to 161.
         for (offset, content) in ".+".repeat(15).chars().enumerate() {
             source
                 .set(cell(100 + offset), &content.to_string())
                 .unwrap();
-            source
-                .set(cell(132 + offset), &content.to_string())
-                .unwrap();
         }
+        // One producer writes inside that claim and one outside it.
         for (offset, content) in ".+0102".chars().enumerate() {
             source.set(cell(30 + offset), &content.to_string()).unwrap();
             source.set(cell(70 + offset), &content.to_string()).unwrap();
@@ -208,18 +172,6 @@ mod tests {
         assert_eq!(source.get(cell(131)), Some("3".to_string()));
         assert_eq!(source.get(cell(170)), Some("0".to_string()));
         assert_eq!(source.get(cell(171)), Some("3".to_string()));
-        assert!(
-            source
-                .read_revision()
-                .language_map()
-                .diagnostics()
-                .any(|diagnostic| {
-                    diagnostic.start() == 100
-                        && diagnostic.end() == 161
-                        && diagnostic.message
-                            == "expression exceeds the parser capacity of 32 atoms"
-                })
-        );
 
         source.execute(Tick::ZERO);
         source.set(cell(199), "x").unwrap();

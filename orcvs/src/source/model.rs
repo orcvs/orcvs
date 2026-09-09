@@ -1,4 +1,4 @@
-use lang::{EXP_LEN, Error as LangError, Parser, SyntaxError, Tick};
+use lang::Tick;
 use std::{fmt, sync::Arc};
 use tracing::debug;
 
@@ -232,7 +232,6 @@ impl Source {
         self.grid.assert_owns_index(cell);
         debug!("set {}: {s}", cell.get());
         let byte = Self::check_content(s)?;
-        self.check_expression_capacity(cell, byte.byte())?;
 
         self.edit(cell, byte);
         Ok(())
@@ -291,34 +290,6 @@ impl Source {
         })
     }
 
-    fn check_expression_capacity(&self, cell: CellIndex, byte: u8) -> Result<(), SourceError> {
-        if byte == SPACE_BYTE {
-            return Ok(());
-        }
-
-        let range =
-            LanguageMap::prospective_expression_span(self.grid, self.inner.as_bytes(), cell, byte)
-                .expect("an occupied prospective Cell belongs to one Expression");
-        let start = range.start();
-        let end = range.end();
-
-        let mut expression =
-            String::from_utf8(self.inner.as_bytes()[start.get()..=end.get()].to_vec())
-                .expect("Source Cells contain ASCII");
-        let offset = cell.get() - start.get();
-        expression.replace_range(offset..=offset, &(byte as char).to_string());
-        match Parser::from(&mut expression).analyze() {
-            Err(LangError::Syntax(SyntaxError::ExpressionTooLong { .. })) => {
-                Err(SourceError::ExpressionTooLong {
-                    start: start.get(),
-                    end: end.get(),
-                    capacity: EXP_LEN,
-                })
-            }
-            _ => Ok(()),
-        }
-    }
-
     ///
     /// What `cell` holds, or `None` when it is empty.
     ///
@@ -340,6 +311,23 @@ impl Source {
     /// `tick` is the absolute musical Tick supplied by the Playback Engine.
     pub fn execute(&mut self, tick: Tick) -> TickPlan {
         let plan = self.plan_tick(tick);
+        self.commit_tick(&plan);
+        plan
+    }
+
+    #[cfg(test)]
+    pub(super) fn execute_configured(
+        &mut self,
+        tick: Tick,
+        configuration: &super::tick::Configuration,
+    ) -> TickPlan {
+        let plan = super::tick::plan_configured(
+            self.grid,
+            self.inner.as_bytes(),
+            &self.language_map,
+            tick,
+            configuration,
+        );
         self.commit_tick(&plan);
         plan
     }
@@ -859,38 +847,11 @@ mod test {
     }
 
     #[test]
-    fn test_set_rejects_an_expression_beyond_parser_capacity_without_mutation() {
-        let mut src = SourceUnderTest::new(Grid::new(80, 1));
+    fn edits_accept_long_expressions() {
+        let mut src = SourceUnderTest::new(Grid::new(140, 1));
         let at = src.cells();
-        // Fifteen nested additions plus sixteen operands occupy 31 parser
-        // atoms. Prefixing one more binary Function would also require an
-        // empty second operand, exceeding the 32-atom parser capacity.
-        src.write(at(2), &(".+".repeat(15) + &"00".repeat(16)));
-        src.set(at(1), "+").unwrap();
-        let before = src.snapshot();
-        let before_diagnostics = diagnostics(&src);
-        let before_glyphs = (0..src.count())
-            .map(|idx| glyph_at(&src, idx))
-            .collect::<Vec<_>>();
-
-        let result = src.set(at(0), ".");
-
-        assert_eq!(
-            result,
-            Err(SourceError::ExpressionTooLong {
-                start: 0,
-                end: 63,
-                capacity: 32,
-            })
-        );
-        assert_eq!(src.snapshot(), before);
-        assert_eq!(diagnostics(&src), before_diagnostics);
-        assert_eq!(
-            (0..src.count())
-                .map(|idx| glyph_at(&src, idx))
-                .collect::<Vec<_>>(),
-            before_glyphs
-        );
+        src.write(at(0), &(".+".repeat(33) + &"01".repeat(34)));
+        assert!(diagnostics(&src).is_empty());
     }
 
     #[test]
@@ -901,8 +862,11 @@ mod test {
 
         let at = src.cells();
 
+        // A `.` alone is already read where a Function goes: `". "` is not a
+        // spelling the table holds, so it is refused there and classified
+        // there, two Cells wide.
         src.set(at(0), ".").unwrap();
-        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Char)));
+        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Function)));
 
         // completing the `.+` Function reclassifies Cell 0 and marks the four
         // empty operand-slot Cells (two 2-wide Numbers) as Number
@@ -928,12 +892,13 @@ mod test {
         src.set(at(0), ".").unwrap();
         src.set(at(1), "+").unwrap();
 
-        // deleting half the Function restores its raw character classification and
-        // clears the operand-slot hints
+        // deleting half the Function leaves a spelling the table does not
+        // hold, so Cell 0 is still read where a Function goes and the operand
+        // hints it placed are gone
         src.unset(at(1));
 
-        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Char)));
-        for idx in 1..=5 {
+        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Function)));
+        for idx in 2..=5 {
             assert_eq!(cell(&src, idx), (None, None), "Cell {idx} was not cleared");
         }
     }
@@ -966,8 +931,10 @@ mod test {
         src.set(at(1), "+").unwrap();
         assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
 
+        // The Cell is inside the Addition's claim, so writing to it fills part
+        // of an operand rather than standing outside the Expression.
         src.set(at(5), "x").unwrap();
-        assert_eq!(cell(&src, 5), (Some('x'), Some(Glyph::Char)));
+        assert_eq!(cell(&src, 5), (Some('x'), Some(Glyph::Number)));
 
         src.unset(at(5));
         assert_eq!(cell(&src, 5), (None, Some(Glyph::Number)));
@@ -1014,8 +981,10 @@ mod test {
         assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
 
+        // The refused `.` owns one Cell. The empty Cell beside it belongs
+        // to no Expression, and neither hint reaches the next row.
         src.unset(at(9));
-        assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Char)));
+        assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Function)));
         assert_eq!(cell(&src, 9), (None, None));
         assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
@@ -1059,10 +1028,16 @@ mod test {
         src.set(at(9), ".").unwrap();
         src.set(at(10), "+").unwrap();
 
-        // the two Cells are adjacent by index but sit in different rows, so
-        // neither is classified as part of a Function
-        assert_eq!(cell(&src, 9), (Some('.'), Some(Glyph::Char)));
-        assert_eq!(cell(&src, 10), (Some('+'), Some(Glyph::Char)));
+        // The two Cells are adjacent by index but sit in different rows, so
+        // neither reads the other: each is the start of a Function spelling
+        // its own row cannot complete, and `.+` is nowhere.
+        assert_eq!(cell(&src, 9), (Some('.'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 10), (Some('+'), Some(Glyph::Function)));
+        assert!(
+            src.language_map()
+                .expressions()
+                .all(|expression| expression.root().is_none())
+        );
     }
 
     #[test]
@@ -1073,26 +1048,27 @@ mod test {
 
         let at = src.cells();
 
-        // The incomplete Function remains visible and is diagnosed immediately.
+        // The half-typed Function remains visible and is diagnosed
+        // immediately. Its Span is six Cells rather than four: an Addition
+        // claims two operands whether or not anyone has written into them, so
+        // the diagnostic covers the Cells the Function is asking for.
         src.write(at(0), ".+01");
         assert_eq!(src.row(0), ".+01      ");
         assert_eq!(diagnostics(&src).len(), 1);
         assert_eq!(diagnostics(&src)[0].start(), 0);
-        assert_eq!(diagnostics(&src)[0].end(), 3);
-        assert_eq!(diagnostics(&src)[0].message, "expected a token");
+        assert_eq!(diagnostics(&src)[0].end(), 5);
 
         // Completing it removes the cause and therefore the diagnostic in the
         // same accepted edit.
         src.write(at(4), "02");
         assert!(diagnostics(&src).is_empty());
 
-        // A valid prefix does not make trailing content disappear from the
-        // Expression's diagnostic state.
+        // Source after a complete Expression belongs to the next Expression
+        // rather than to this one. The Addition stays whole and the `Z` is
+        // refused where it stands, one Cell of its own.
         src.set(at(6), "Z").unwrap();
-        assert_eq!(
-            diagnostics(&src)[0].message,
-            "unexpected trailing content \"Z\""
-        );
+        assert_eq!(diagnostics(&src)[0].message, "unknown function \"Z \"");
+        assert_eq!(diagnostics(&src)[0].start(), 6);
         src.unset(at(6));
         assert!(diagnostics(&src).is_empty());
 
@@ -1128,15 +1104,18 @@ mod test {
         src.write(at(0), "id");
 
         assert_eq!(src.row(0), "id        ");
-        assert_eq!(diagnostics(&src).len(), 1);
+        // Two, because ADR 0018 resumes one Cell after a refused spelling:
+        // `id` is refused at Cell 0, and `d ` is refused at Cell 1. Each is an
+        // Expression of one Cell.
+        assert_eq!(diagnostics(&src).len(), 2);
         assert_eq!(diagnostics(&src)[0].start(), 0);
-        assert_eq!(diagnostics(&src)[0].end(), 1);
+        assert_eq!(diagnostics(&src)[0].end(), 0);
         assert_eq!(diagnostics(&src)[0].message, "unknown function \"id\"");
-        // Classification is unaffected: an unrecognized run standing where a
-        // Function is expected keeps the Function Glyph, because a Record that
-        // failed to parse reports the Token its position expected. That is the
-        // same operand-slot hint the editing tests cover, not a claim that `id`
-        // is still a Function.
+        // Classification is unaffected: an unrecognized spelling standing where
+        // a Function is expected keeps the Function Glyph, because a Record
+        // that failed to parse reports the Token its position expected. That is
+        // the same operand-slot hint the editing tests cover, not a claim that
+        // `id` is still a Function.
         assert_eq!(glyph_at(&src, 0), Some(Glyph::Function));
         assert_eq!(glyph_at(&src, 1), Some(Glyph::Function));
     }
@@ -1180,6 +1159,7 @@ mod test {
         // deleting Cell 1 splits off a complete `.+0101` Expression at Cell 2
         src.unset(at(1));
 
+        // The refused `x` owns only Cell 0; the empty Cell has no hint.
         assert_eq!(glyph_at(&src, 1), None);
         let glyphs: Vec<_> = (2..8).map(|i| glyph_at(&src, i)).collect();
         assert_eq!(
@@ -1238,8 +1218,12 @@ mod test {
         assert_eq!(tick.writes[0].content.as_char(), '0');
         assert_eq!(tick.writes[1].cell, at(11));
         assert_eq!(tick.writes[1].content.as_char(), '3');
-        assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Char)));
-        assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Char)));
+        // The result is ordinary Source on the next Tick, and ordinary Source
+        // beginning with `03` is a Function spelling the table does not hold.
+        // ADR 0020 expects a written result to be readable as Source rather
+        // than privileged, and this is what that reads as.
+        assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Function)));
     }
 
     fn assert_only_bang_display(plan: &TickPlan, grid: Grid, anchors: &[usize]) {
@@ -1334,14 +1318,22 @@ mod test {
         src.write(at(0), "!>00**C4");
         src.write(at(20), "!>007FC4");
         let before = src.snapshot();
-        assert_eq!(src.language_map().diagnostics().count(), 1);
+        assert!(
+            src.language_map()
+                .diagnostics()
+                .any(|d| d.message.contains("expected a number"))
+        );
 
         let tick = src.execute();
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
         assert_eq!(src.snapshot(), before);
-        assert_eq!(src.language_map().diagnostics().count(), 1);
+        assert!(
+            src.language_map()
+                .diagnostics()
+                .any(|d| d.message.contains("expected a number"))
+        );
     }
 
     #[test]
@@ -1418,98 +1410,74 @@ mod test {
     }
 
     #[test]
-    fn a_half_typed_function_does_not_claim_slots_its_run_cannot_reach() {
-        // An incomplete Function declares the slots it is missing, and those
-        // run past its own extent. Only the first of them abuts the run and
-        // can be completed by a write; the ones beyond it are separated from
-        // it by Cells nobody is writing, so a result landing there completes
-        // nothing.
+    fn a_half_typed_function_claims_every_cell_its_arity_declares() {
+        // A Raw Play takes three operands, so `!>00` claims eight Cells from
+        // its anchor whether or not anyone has written into them. The Bang the
+        // Equality produces lands on the last two of them, which makes it that
+        // Function's Note operand and not an activation — and the Play root
+        // beneath it takes no turn.
         //
-        // Counting them anyway made the result a slot write rather than an
-        // activation, and the Play root the Bang was for fell silent — with no
-        // diagnostic, because the half-typed root is terminal and unactivated
-        // and takes no turn to report anything.
+        // This is the geometry `8e7bdce` worked around by filtering the slots
+        // a whitespace run could not reach. There is no run to reach past now:
+        // the claim is arity, one derivation, and the two readings that used to
+        // disagree about this Cell agree that it is a slot.
+        //
+        // What is owed here is the diagnostic, not a different claim. ADR 0032
+        // requires a result covering an operand slot to be told apart from an
+        // activation *before* the Tick publishes, and reported either way;
+        // `cell-indexed-parse/03` is where that verdict is drawn, and until it
+        // lands this Source is refused silently rather than loudly.
         let mut src = SourceUnderTest::new(Grid::new(16, 4));
         let at = src.cells();
         src.write(at(6), ".=0101");
-        // Missing velocity at columns 4-5, missing Note at columns 6-7. The
-        // Bang lands on the second, which two untouched Cells separate from
-        // this Expression's run.
+        // Velocity at columns 4-5, Note at columns 6-7. The Bang lands on the
+        // Note, inside the claim.
         src.write(at(16), "!>00");
         src.write(at(38), "!>007FC4");
 
         let tick = src.execute();
 
         assert_eq!(
+            src.language_map()
+                .expressions()
+                .find(|expression| expression.span().start().get() == 16)
+                .map(|expression| expression.span().end().get()),
+            Some(23),
+            "the half-typed Play claimed something other than its arity",
+        );
+        assert!(
+            tick.play_commands.is_empty(),
+            "the Bang was delivered as an activation from inside an operand slot: {:?}",
             tick.play_commands,
-            vec![PlayCommand::Raw {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7F).unwrap(),
-                note: Note::try_from(60).unwrap(),
-            }],
-            "the half-typed Expression four columns away silenced the Play root"
         );
     }
 
     #[test]
-    fn a_supplier_excluded_for_its_own_layout_does_not_leave_stale_operands_readable() {
-        // A root that fails at evaluation names its consumer's missing input.
-        // A root that fails at *schedule* time was being erased from the graph
-        // instead, edges and all, so the consumer read whatever its operand
-        // Cells happened to hold — last Tick's value, presented as this
-        // Tick's. The spec is explicit: do not silently choose a previous-Tick
-        // input.
+    fn a_truncated_spatial_supplier_preserves_surviving_operands() {
         let mut src = source();
         let at = src.cells();
-        // Trailing Source makes this producer's own layout unstable, so it
-        // takes no turn. Its destination is still the consumer's left operand.
-        src.write(at(2), ".+0102Z");
-        src.write(at(10), ".+9902");
-
+        src.write(at(6), ".+01");
+        src.write(at(14), ".+9902");
         let tick = src.execute();
-
         assert!(
-            tick.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("data dependency at column 2, row 0 failed")),
-            "the consumer was not told its supplier never ran: {:?}",
             tick.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge"))
         );
-        // Nothing computed from the stale `99` reaches the Source.
-        assert_eq!(src.row(2), "          ");
+        assert_eq!(src.row(2), "    9B    ");
     }
 
     #[test]
-    fn a_result_landing_beside_a_root_is_diagnosed_rather_than_joining_its_run() {
-        // A row is partitioned into runs at its spaces, so a result written
-        // into the Cells immediately beside another Expression joins the two:
-        // the run the next parse walks is longer than either, its first unit
-        // is no longer the Function that was there, and the root stops
-        // existing. Nothing puts it back, and the display that replaced it is
-        // no longer a Bang the cleanup can find, so the loss is permanent.
-        //
-        // ADR 0032 diagnoses a structural projection the stable graph cannot
-        // take rather than executing it, and this is one: the write would
-        // change which roots the graph has while that graph is executing.
+    fn a_result_beside_a_root_preserves_the_root_and_activates_it_each_tick() {
         let mut src = source();
         let at = src.cells();
         src.write(at(0), ".=0101");
-        // Row 1, column 2 — the Cells the Bang would occupy end exactly where
-        // this Expression's run begins.
         src.write(at(12), "!>007FC4");
-
         for tick in 0..3 {
             let plan = src.execute();
-
-            assert!(plan.writes.is_empty(), "tick {tick} wrote beside the root");
-            assert_eq!(
-                plan.diagnostics.len(),
-                1,
-                "tick {tick} said nothing about the write it refused"
-            );
-            // The root is still there to be found on the Tick after, which is
-            // the whole point: the Source a person is editing is unchanged.
-            assert_eq!(src.row(1), "  !>007FC4", "tick {tick}");
+            assert_eq!(plan.play_commands.len(), 1, "tick {tick}");
+            assert!(plan.diagnostics.is_empty());
+            assert_eq!(src.row(1), "**!>007FC4", "tick {tick}");
         }
     }
 
@@ -1720,10 +1688,16 @@ mod test {
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
-        assert_eq!(tick.diagnostics.len(), 1);
-        assert_eq!(
-            tick.diagnostics[0].message,
-            "a terminal Function is valid only at the root of an Expression"
+        assert!(
+            tick.diagnostics
+                .iter()
+                .any(|d| d.message
+                    == "a terminal Function is valid only at the root of an Expression")
+        );
+        assert!(
+            tick.diagnostics
+                .iter()
+                .any(|d| d.message.contains("supplied no typed result"))
         );
     }
 
@@ -2111,18 +2085,21 @@ mod test {
     fn test_incomplete_expression_is_not_evaluated_and_suppresses_only_its_own_result() {
         trace();
 
-        let mut src = source();
+        // Wide enough to hold both, because `.+` with no operands still claims
+        // the six Cells its arity declares. The second Addition begins after
+        // them, so the two are unrelated — which is the whole of what this
+        // test is about, and now a fact about arity rather than about the
+        // space between them.
+        let mut src = SourceUnderTest::new(Grid::new(16, 2));
 
         let at = src.cells();
 
-        // `.+` with no operands is an analysis-only record; the `.+0102` beside
-        // it is unrelated and must still commit its `03` in the same Tick.
         src.write(at(0), ".+");
-        src.write(at(3), ".+0102");
+        src.write(at(6), ".+0102");
 
         let tick = src.execute();
 
-        assert_eq!(src.row(1), "   03     ");
+        assert_eq!(src.row(1), "      03        ");
         assert_eq!(tick.writes.len(), 2);
         assert!(tick.diagnostics.is_empty());
     }
@@ -2208,23 +2185,14 @@ mod test {
     }
 
     #[test]
-    fn a_failed_data_supplier_does_not_expose_stale_operand_cells() {
+    fn a_failed_spatial_supplier_preserves_original_operand_cells() {
         let mut src = SourceUnderTest::new(Grid::new(8, 3));
         let at = src.cells();
-        // This incomplete producer would write at (2, 1), exactly over the
-        // consumer's first operand. The old `05` must not stand in for a value
-        // the producer failed to supply during this Tick.
         src.write(at(2), ".+01");
         src.write(at(8), ".+0502");
-
         let tick = src.execute();
-
-        assert!(tick.writes.is_empty());
+        assert_eq!(&src.snapshot()[16..18], "07");
         assert!(tick.play_commands.is_empty());
-        assert!(tick.diagnostics.iter().any(|diagnostic| {
-            diagnostic.message == "a current-Tick data dependency at column 2, row 0 failed"
-        }));
-        assert_eq!(&src.snapshot()[16..18], "  ");
     }
 
     #[test]
@@ -2286,13 +2254,9 @@ mod test {
 
         let tick = src.execute();
 
-        assert_eq!(src.row(1), ".+0304    ");
+        assert_eq!(src.row(1), "020304    ");
         assert_eq!(src.row(2), "          ");
-        assert_eq!(tick.diagnostics.len(), 1);
-        assert_eq!(
-            tick.diagnostics[0].message,
-            "current-Tick output cannot replace Function structure"
-        );
+        assert!(tick.diagnostics.is_empty());
     }
 
     #[test]
@@ -2354,9 +2318,20 @@ mod test {
         assert_eq!(generated.snapshot(), typed.snapshot());
         assert_eq!(glyphs(&generated), glyphs(&typed));
         assert_eq!(reported(&generated), reported(&typed));
+        // Six diagnostics rather than one: ADR 0033 resumes one Cell after a
+        // refused spelling, so each Cell of the run is refused on its own and
+        // says so. The last is the row's final Cell, where no spelling can be
+        // read at all.
         assert_eq!(
             reported(&generated),
-            vec![(10, 15, "unknown function \"0A\"".to_string())]
+            vec![
+                (10, 10, "unknown function \"0A\"".to_string()),
+                (11, 11, "unknown function \"A0\"".to_string()),
+                (12, 12, "unknown function \"0B\"".to_string()),
+                (13, 13, "unknown function \"B0\"".to_string()),
+                (14, 14, "unknown function \"0C\"".to_string()),
+                (15, 15, "unknown function \"C \"".to_string()),
+            ]
         );
     }
 

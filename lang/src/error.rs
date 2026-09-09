@@ -87,8 +87,8 @@ pub enum InterpretationError {
 
     /// The Operand Stack had no slot left for a value.
     ///
-    /// No Expression the parser accepts can raise this: the `Args` declaration
-    /// carries the proof. It exists because ADR 0028 requires every bound the
+    /// Evaluation reserves one slot per Atom, enough for every accepted
+    /// Expression. It exists because ADR 0028 requires every bound the
     /// machine relies on to be proven or diagnosed, and a proof alone still
     /// leaves the push one edit away from panicking inside a Tick.
     #[error("the Operand Stack cannot hold more than {capacity} values")]
@@ -138,9 +138,6 @@ pub enum SyntaxError {
 
     #[error("unexpected trailing content {0:?}")]
     UnexpectedTrailingContent(String),
-
-    #[error("expression exceeds the parser capacity of {capacity} atoms")]
-    ExpressionTooLong { capacity: usize },
 }
 
 #[derive(Error, Debug)]

@@ -22,3 +22,9 @@ Run the `lang` scoped gate, relevant Language Map checks, and parser boundary/pr
 2026-09-06: Draft changes exist in `lang/src/expression.rs`, `parser.rs`, `atom.rs`, and `orcvs/src/source/language_map.rs`. They add layout/binding, continue analysis after invalid operands, retain the Expression, and expose possible-Bang metadata. `cargo fmt --all` ran; `cargo test --package lang --locked --target-dir /tmp/orcvs-tick-target` passed 159 tests. Language Map tests, scoped gates, and integration remain pending. Draft binding currently ignores trailing Cells; this must be addressed before the scheduler can rely on it. Implementation is paused, not complete.
 
 2026-09-06: Resolved. `Expression::layout` retains typed slots through invalid and missing operands, `bind_source` decodes current Cells through that layout, and the Language Map retains incomplete Function candidates. The scheduler rejects a starting Expression whose parsed Span extends past its layout, so a valid prefix cannot promote trailing malformed Source. Parser property coverage and the complete native/persistence suites pass.
+
+2026-09-08: Resolved delivery history retained. [ADR 0034](../../../docs/adr/0034-execute-against-live-typed-expressions.md)
+now revises the old binding and nested scheduling seam, partial/competing-write restrictions,
+failed-spatial-supplier suppression, and original-anchor replacement limits. Initial partitioning,
+Bang lifetime, activation gating, deterministic ordering, cycle atomicity and terminal behavior
+remain in force. Production successor and regression mapping: [live typed execution](../../live-typed-execution/evidence.md).

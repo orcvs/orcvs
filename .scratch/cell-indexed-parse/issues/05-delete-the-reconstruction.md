@@ -13,9 +13,27 @@ contradicted what the Parser measured cannot recur, because there is no reconstr
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+Partially delivered only: the caller-asserted consumed-width constructor disappeared
+with ticket 01. `Expression::layout` still reconstructs offsets by summing `Token::len`;
+`Expression::bind_source`, the Map's binding wrapper and Tick execution still consume that
+layout. Removing independent position reconstruction and binding through parser-owned live
+expressions transfer to [live-typed-execution](../../live-typed-execution/spec.md), preserving
+operand order and diagnostic locations. Binding through a mandatory array/per-root record
+and a promised allocation reduction are abandoned. Storage remains open and no performance
+improvement is claimed; any later performance claim needs its own benchmark evidence.
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [ ] The layout reconstruction and the source binding that walked it are deleted.
 - [ ] Binding an Expression's operands against current Source goes through the array and the

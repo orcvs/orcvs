@@ -24,3 +24,20 @@ Use existing below-root routing in normal Source execution and the internal Port
 2026-09-06: The HTML prototype proves the bounded scheduling model; it is not production code. `orcvs/src/source/tick.rs` still contains the earlier row-major fallback. No production scheduler implementation has begun. This ticket owns the timing/lifetime replacement required by `language-map/06` and `spatial-tick-planning/02`.
 
 2026-09-06: Resolved for ADR 0032's initial scope. Tick planning now fixes candidates and scalar destinations, validates graph conflicts, topologically orders data and activation edges, binds current operands, evaluates every root at most once, and publishes atomically. Fixed upward routing at `Y-1`, below-root routing, same-Tick Note plus Bang delivery, false-result absence, no replay, duplicate activations, competing writers, and cycles have regression coverage. Variable-width projections and authorable arbitrary Portals remain follow-up scope.
+
+2026-09-08: ADR 0034 integration evidence is captured on local throwaway branch
+`prototype/integrated-live-execution-adr34` at
+`lang/prototypes/integrated-live-execution/integrated-live-execution.prototype.html`.
+The bounded model and presentation handlers support 24 exercised cases with derived ordering,
+pending spatial encodings, typed nesting, suppression, replacement, failure and next-Tick parse.
+No contract contradiction was observed in those cases. Browser visual verification is incomplete
+because browser security blocked opening the local artifact. See the adjacent README and HANDOFF
+for evidence and scope. This does not reopen this resolved ADR 0032 ticket or change production:
+its failed-supplier regression still implements the earlier policy. Continue through specification
+and follow-up tickets after assessment. The HTML remains throwaway primary-source evidence.
+
+2026-09-08: Resolved delivery history retained. [ADR 0034](../../../docs/adr/0034-execute-against-live-typed-expressions.md)
+now revises the old binding and nested scheduling seam, partial/competing-write restrictions,
+failed-spatial-supplier suppression, and original-anchor replacement limits. Initial partitioning,
+Bang lifetime, activation gating, deterministic ordering, cycle atomicity and terminal behavior
+remain in force. Production successor and regression mapping: [live typed execution](../../live-typed-execution/evidence.md).

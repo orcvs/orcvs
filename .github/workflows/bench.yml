@@ -41,7 +41,7 @@ env:
 jobs:
   # Measures the merged result and appends it to the series on gh-pages.
   publish:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     # A release build of both benchmarked crates, then criterion twice: the warm-up
     # run and the measured one. Generous against that, and still far short of the
     # six hours an unbounded job can hold.
@@ -108,10 +108,10 @@ jobs:
           fail-threshold: '300%'
           fail-on-alert: true
 
-  # Measures the pull request and compares it against the last point stored by main.
+  # Measures pull requests and manual branch runs against the last point stored by main.
   # It reads the series and never writes it: no token, no push, no stored result.
   pull-request:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
     timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:

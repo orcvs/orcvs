@@ -15,9 +15,27 @@ guarded whichever answer wins.
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+The three-policy experiment was not implemented. ADR 0033 now settles the initial
+parse: arity determines the claim, confined to available Source before the row edge or
+Comment. `a_half_typed_function_claims_every_cell_its_arity_declares` pins the claim in
+production, but does not establish the new execution diagnostics. ADR 0034 retains this
+partition and does not reopen candidate policy selection. The mandatory switch and tests
+under all three rejected alternatives are abandoned. Regressing the half-typed terminal
+case with a visible diagnostic, without treating an operand Bang as activation, transfers
+to [live-typed-execution](../../live-typed-execution/spec.md).
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [ ] All three rules are named, and there is no default: every construction names one.
 - [ ] Switching rules is one change at one place, and no consumer changes with it.

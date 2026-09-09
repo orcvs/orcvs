@@ -54,9 +54,27 @@ it; whether they later merge is a separate question.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../../live-typed-execution/evidence.md).
+
+Not implemented: `LanguageMap` contains units, expressions, Glyphs and lexical
+diagnostics, but no semantic CellRole array. `64291cc` created the seven planning tickets;
+it did not implement this array. ADR 0034 deliberately leaves storage representation open.
+The mandatory four-byte entry, identifier widths, CellRole states and same-walk array
+stamping are abandoned. Parser-owned positions, distinction between claimed and unclaimed
+Cells, row-local rebuild equivalence, and correct cleared Bang display remain requirements
+of [live-typed-execution](../../live-typed-execution/spec.md), implemented through the chosen
+representation rather than this mandatory array. No unchecked item below is a prerequisite.
+
+The original checklist below is retained as historical scope; this audit records
+its disposition at `593613c`. The linked delivery evidence records subsequent delivery.
 
 - [ ] Every Cell an Expression occupies is stamped, and no Cell outside one is `Structure` or `Slot`.
 - [ ] The array and each Expression's Span agree about which Cells that Expression occupies.

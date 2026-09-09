@@ -54,7 +54,7 @@ mod test {
     fn evaluate(conversion: Conversion, value: impl Into<Value>) -> Result<Value, Error> {
         // A conversion reads no Tick and no Position, so the first Tick at the
         // Grid origin is as good as any other.
-        let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)));
+        let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)), 1);
         ctx.stack.push(value.into()).unwrap();
         conversion(&mut ctx)
     }

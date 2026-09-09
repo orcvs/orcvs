@@ -6,13 +6,8 @@ use crate::{Atom, Error, SequenceError};
 /// A flat ordered Sequence of Atoms, produced and consumed as one language
 /// value.
 ///
-/// Backed by a `Vec` rather than the `ArrayVec` an Expression's [`Atoms`]
-/// uses. `Atoms` is bounded by `EXP_LEN` because one Expression is a bounded
-/// run of Source Cells, so the parser knows its capacity up front. A Sequence
-/// value's length is genuinely dynamic — a Number Range spans up to 256 Atoms
-/// — and ADR 0007 constrains it where it becomes Source, at write time, with
-/// the complete-fit Portal rule. Inventing a capacity constant here would cap
-/// the value for a reason neither the language nor the Grid states.
+/// Its length is dynamic: a Number Range spans up to 256 Atoms. ADR 0007
+/// constrains it where it becomes Source, with the complete-fit Portal rule.
 ///
 /// Nesting is impossible by type: [`Atom`] has no Sequence-carrying variant,
 /// so the flatness ADR 0007 requires needs no runtime flattening check. The

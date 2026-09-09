@@ -1,6 +1,6 @@
 # Cell-Indexed Parse — the Grid is the data structure
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Tags:** release/v1
 
@@ -10,6 +10,38 @@ handing the Parser the row makes the measurement an address instead of a report.
 mechanism is recorded under Implementation Decisions.
 
 **Absorbs:** `language-map/08`, whose remaining scope is ticket 07. **Restates:** `language-map/09`. **Reshapes:** `language-map/10`.
+
+## Pre-delivery audit at `593613c` — 2026-09-08
+
+The implementation statements in this audit describe commit `593613c`, before
+live-typed-execution delivery. For the completed transferred work and current
+implementation, see [delivery evidence](../live-typed-execution/evidence.md).
+
+This implementation plan is superseded by [live-typed-execution](../live-typed-execution/spec.md)
+and ADR 0034. Its shipped initial partition remains authoritative under ADR 0033.
+All seven issues already had parseable `**Status:** ready-for-agent` lines; the defect was
+stale triage, not absent metadata. `64291cc` was tracker documentation only; `593613c`
+implemented the partition, not the proposed semantic array.
+
+| Issue | Status | Audit disposition |
+| --- | --- | --- |
+| 01 | resolved | Row parsing, absolute measured extents, row/Comment boundaries and rebuild regressions shipped in `593613c`. |
+| 02 | wontfix | No semantic array exists; mandatory array/width choices abandoned; positional and rebuild invariants transfer. |
+| 03 | wontfix | Old interval scheduler remains; ordered composition, diagnostics and scheduler migration transfer; blanket refusals abandoned. |
+| 04 | wontfix | Join guard remains; deletion and same-Source replacement regressions transfer; blanket overlap refusal abandoned. |
+| 05 | wontfix | Caller-asserted consumed width removed; layout reconstruction and binding remain and transfer; storage/performance prescription abandoned. |
+| 06 | wontfix | Three-policy harness absent; ADR 0033 settles initial claims; half-typed diagnostic regression transfers. |
+| 07 | wontfix | Space/partition documentation partly shipped; second lexer and presentation reconciliation transfer; spelling-only and capacity requirements superseded. |
+
+Each issue records concrete code/test evidence and its transferred obligations. `wontfix`
+means the historical ticket will not be implemented as written, not that its residual
+behavior has shipped. The live-typed-execution spec owns those residuals. `language-map/10`
+remains the preceding tracker reconciliation task; it does not rebuild the scheduler.
+
+Tracker verification is `node --test scripts/tests/roadmap.test.ts` and
+`node scripts/roadmap.ts > /dev/null`. The latter initially failed because the release
+Gate omitted `language-map/09` and `language-map/10`; release dependency metadata is repaired
+alongside this audit, rather than treating that failure as an acceptable implementation gate.
 
 ## Problem Statement
 
