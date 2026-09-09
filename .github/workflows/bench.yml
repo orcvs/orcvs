@@ -79,7 +79,7 @@ jobs:
       # jobs fail while building `alsa-sys` and publish nothing.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
-      # `mise run bench` needs only cargo, which the toolchain step provides. Without
+      # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -90,8 +90,20 @@ jobs:
       # parse_source reported 1,204 ns on the first run and a settled 417 ns on the
       # three that followed. CI only ever runs a freshly compiled binary, so the
       # first result is discarded.
+      #
+      # `bench_warmup` rather than `bench`, because this run's output goes to
+      # /dev/null and so needs no measurement fidelity. It keeps the warm-up half of
+      # the budget and cuts the measurement to the floor: what settles the binary is
+      # executing every benchmark, not measuring any of them well.
+      #
+      # This step stays in both jobs, and stays the same in both. The contamination
+      # moves the mean rather than widening the spread, so a pull request measured
+      # cold and compared against a series measured warm would read a regression off
+      # the difference between the two jobs. A differing measurement budget between
+      # them would be safe — that only widens variance — but a differing warm-up is
+      # not. `scripts/check-tooling-contract.sh` counts this line once per job.
       - name: Warm up
-        run: mise run bench > /dev/null
+        run: mise run bench_warmup > /dev/null
       - name: Run benchmarks
         # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
         # status of `tee`, so a failed benchmark run would pass this step and publish
@@ -230,15 +242,31 @@ jobs:
       # jobs fail while building `alsa-sys` and publish nothing.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
-      # `mise run bench` needs only cargo, which the toolchain step provides. Without
+      # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}
+      # The first run after a fresh compile is contaminated: measured locally,
+      # parse_source reported 1,204 ns on the first run and a settled 417 ns on the
+      # three that followed. CI only ever runs a freshly compiled binary, so the
+      # first result is discarded.
+      #
+      # `bench_warmup` rather than `bench`, because this run's output goes to
+      # /dev/null and so needs no measurement fidelity. It keeps the warm-up half of
+      # the budget and cuts the measurement to the floor: what settles the binary is
+      # executing every benchmark, not measuring any of them well.
+      #
+      # This step stays in both jobs, and stays the same in both. The contamination
+      # moves the mean rather than widening the spread, so a pull request measured
+      # cold and compared against a series measured warm would read a regression off
+      # the difference between the two jobs. A differing measurement budget between
+      # them would be safe — that only widens variance — but a differing warm-up is
+      # not. Repeated because Actions does not support YAML anchors.
       - name: Warm up
-        run: mise run bench > /dev/null
+        run: mise run bench_warmup > /dev/null
       - name: Run benchmarks
         # `shell: bash` supplies `pipefail`. The default `bash -e` reports the exit
         # status of `tee`, so a failed benchmark run would pass this step and publish

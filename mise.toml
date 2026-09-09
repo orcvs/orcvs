@@ -85,7 +85,46 @@ description = "Benchmark the lang execution paths and the populated Source paths
 # `--benches` keeps the orcvs integration-test harnesses out, and each benchmarked
 # crate sets `[lib] bench = false` to keep its unit-test harness out. Every one of
 # them rejects `--output-format` and fails the task before criterion runs.
-run = 'cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher'
+#
+# The four criterion flags are a budget, and it is named rather than defaulted
+# because the default is far finer than anything that reads the result. The gate
+# in `.github/workflows/bench.yml` alerts at 150% and fails at 300%, comparing a
+# number measured on one hosted runner against one measured on another, so it
+# cannot see a change smaller than tens of per cent. Criterion's defaults spend a
+# 3s warm-up, a 5s measurement and a 100,000-resample bootstrap per benchmark to
+# resolve about 2%: on run 34321680905 that was ten seconds each across 29
+# benchmarks, twice per job, and 10m35s of a 12m32s job. Measured over `lang`,
+# these flags settle to the same numbers — `parse` 127 against 128, `parse_source`
+# 465 against 475, `parse_records/63` 650 against 656, all under 2% apart, three
+# orders of magnitude inside the threshold that reads them.
+#
+# `--nresamples` is not decoration. Roughly 2.7s of each benchmark's ten seconds
+# fell outside the configured time budget, and the default bootstrap was most of it.
+#
+# Never `--quick`, whatever it promises about speed. It drops the name from each
+# output line, and the action's `cargo` parser is one regex over
+# `test <name> ... bench: <N> ns/iter`; a line that does not match is skipped in
+# silence, so a `--quick` run stores zero benchmarks and reports green. Measured
+# here it was not even faster: 17.3s against 17.0s over the same nine benchmarks.
+# `scripts/check-tooling-contract.sh` asserts the flag appears in neither this file
+# nor the workflow.
+run = 'cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher --warm-up-time 0.5 --measurement-time 1 --sample-size 10 --nresamples 1000'
+
+[tasks.bench_warmup]
+description = "Run the benchmarks once and discard them, to settle a freshly compiled binary"
+# The discard run `.github/workflows/bench.yml` performs before the measured one.
+# Its output goes to /dev/null, so it needs no measurement fidelity at all, and
+# this task exists rather than a second `mise run bench` so it does not pay for
+# any.
+#
+# What it does need is to execute every benchmark. The contamination it exists for
+# is a property of the binary rather than of a benchmark: criterion already spends
+# its own warm-up inside each one, and that did not settle `parse_source`, which
+# reported 1,204 ns on the first run after a fresh compile against a settled 417 ns
+# on the three that followed. Only a prior whole-binary pass settled it. So the
+# warm-up keeps `--warm-up-time` and cuts `--measurement-time` to the floor: it
+# runs the same 29 benchmarks over the same code, and reads none of the answers.
+run = 'cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher --warm-up-time 0.5 --measurement-time 0.1 --sample-size 10 --nresamples 1000'
 
 [tasks.check]
 description = "Full repository verification gate"
