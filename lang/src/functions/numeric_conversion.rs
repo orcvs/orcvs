@@ -85,6 +85,39 @@ mod test {
     }
 
     #[test]
+    fn conversion_to_note_is_the_identity_over_every_note_and_refuses_every_number_above_the_range()
+    {
+        // ADR 0021 gives `.^` a monomorphic literal signature and an
+        // evaluation-time identity, and the two together are what the whole
+        // domain is enumerated for. Every Note is left exactly as it is —
+        // a value arriving from nested evaluation or from broadcasting, never
+        // from the Function's own operand slot, which the parser reads as a
+        // Number.
+        for value in 0x00..=0x7F {
+            assert_eq!(
+                evaluate(Function::ConvertToNote, note(value)).unwrap(),
+                Interpretation::Cell(note(value)),
+                "{value:02X}"
+            );
+        }
+
+        // And every Number above the range diagnoses and produces no result at
+        // all. Not `Atom::Empty`, which is the Interpreter's silent "no result
+        // write", and not a value folded into the range: `80`–`FF` name no
+        // pitch, so the Source is told rather than answered.
+        for value in 0x80..=u8::MAX {
+            assert!(
+                matches!(
+                    evaluate(Function::ConvertToNote, Atom::Number(value)),
+                    Err(Error::Interpretation(InterpretationError::NoteConversion(found)))
+                        if found == value
+                ),
+                "{value:02X}"
+            );
+        }
+    }
+
+    #[test]
     fn a_conversion_extends_atom_wise_and_preserves_order() {
         // Members that are not in ascending order, so a conversion that sorted
         // or reversed its Sequence answers a different value rather than the
