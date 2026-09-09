@@ -952,12 +952,14 @@ mod test {
         // list and each element's Atoms are still `ArrayVec`s of exactly
         // `MAX_OPERANDS`, sized by the widest declared signature.
         //
-        // The annotations are the assertion. A field or a return type that
-        // became a `Vec` fails to compile here rather than passing a runtime
-        // check that cannot see the difference; the runtime lines below add what
-        // a type alone does not say, that the capacity is the derived one and
-        // that the buffer stores its `Value`s inline rather than behind a
-        // pointer.
+        // The annotations are the assertion, and they are the whole of it for
+        // inline storage: a field or a return type that became a `Vec` fails to
+        // compile here, which is the only check that can see the difference. A
+        // `size_of` comparison cannot — every `ArrayVec<T, N>` holds `N` slots
+        // by construction, so one would pass for any capacity, including a
+        // wrong one, and could never fail for the reason it named. The runtime
+        // lines are left to say what the types do not, that the capacity is the
+        // derived one rather than any inline capacity at all.
         let mut stack = empty_stack();
         push_all(
             &mut stack,
@@ -970,10 +972,6 @@ mod test {
 
         assert_eq!(operands.capacity(), MAX_OPERANDS);
         assert_eq!(element.capacity(), MAX_OPERANDS);
-        assert!(
-            size_of::<ArrayVec<Value, MAX_OPERANDS>>() >= MAX_OPERANDS * size_of::<Value>(),
-            "the operand list no longer stores its Values inline"
-        );
     }
 
     #[test]

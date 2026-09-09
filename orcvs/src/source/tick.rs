@@ -187,7 +187,7 @@ impl Lookup {
             let start = grid.index(node.anchor).get();
             // A Function's own spelling, not a result: this 2 is the glyph
             // width and stays a literal, because `SCALAR_WIDTH` would tie it to
-            // a scalar result's footprint, which is a different fact.
+            // the Cells a scalar result reserves, which is a different fact.
             functions.push(Claim {
                 cells: start..start + 2,
                 node: index,
@@ -301,8 +301,22 @@ impl Lookup {
     /// suppressed. A width is what the caller has — the Cells it names are this
     /// Grid's to number — and those Cells are always a subset of what
     /// scheduling reserved: a Cell pair is exactly the scalar reservation, and
-    /// a Portal refuses any encoding that leaves the destination's row. So
-    /// every relationship this answers is one a dependency edge already names.
+    /// a Portal refuses any encoding that leaves the destination's row.
+    ///
+    /// That subset holds over the Cells, and so over the two relationships that
+    /// grow with them: [`PortalRelationships::functions`] and
+    /// [`PortalRelationships::literal_consumers`] each answer a subset of what
+    /// they answered for the reservation, so every contact execution acts on is
+    /// one a dependency edge already names. It does not carry to
+    /// [`PortalRelationships::bang_roots`], which is not monotonic in its
+    /// range: a range touching any operand Cell answers nothing at all, so the
+    /// wide reservation can answer no root where these narrower Cells answer
+    /// one. Only a `Reserved::Row` producer answering Bang could tell the two
+    /// apart, and none exists — Equality is the sole Function that can emit
+    /// Bang and it declares `Answer::Atom`, so every Bang producer is reserved
+    /// a Cell pair and asks both questions over the same two Cells.
+    /// [`PortalRelationships::bang_roots`] states what the first such Function
+    /// has to settle.
     fn written_over(&self, output: Position, width: usize) -> PortalRelationships<'_> {
         let start = self.grid.index(output).get();
         PortalRelationships {
@@ -627,19 +641,46 @@ fn schedule(
             let Some(relationships) = lookup.reserved_at(index, *output) else {
                 continue;
             };
+            // A self-edge is an unsatisfiable indegree, so it is how a
+            // computation that writes over its own Cells reports itself as a
+            // same-Tick cycle. That is exact for a `Reserved::Pair` producer,
+            // whose write is held to the `SCALAR_WIDTH` Cells it reserved: the
+            // reservation covering the producer and the write reaching it are
+            // the same fact, and `live_cycles_reject_independent_effects_and_
+            // self_dependency` holds that rule.
+            //
+            // The two come apart for a `Reserved::Row` producer. Its
+            // reservation runs to the end of the destination's row, so a
+            // destination in its own row at or left of its Cells covers its
+            // spelling and literals whatever the answer turns out to be, and
+            // per ADR 0036 a reservation orders Turns and decides nothing else.
+            // Ordering such a producer after itself would reject the whole
+            // Grid's Tick for a write that may stop columns short of it, which
+            // is the cycle between computations that never touch that ADR
+            // 0036's rejected alternative exists to avoid. No edge can express
+            // "take your Turn after yourself" in any case, so whether the write
+            // reached the producer is left to the admitted write: execution
+            // asks `written_over` over the Cells actually covered, and ADR
+            // 0034's executed-computation guard is waiting for them there.
+            let reserves_row = lookup.reserved(index) == Reserved::Row;
+            let mut order_after = |consumer: usize| {
+                if !(reserves_row && consumer == index) {
+                    edges.insert((index, consumer));
+                }
+            };
             for contact in relationships.functions() {
                 for descendant in contact.subtree {
-                    edges.insert((index, descendant));
+                    order_after(descendant);
                 }
             }
             for consumer in relationships.literal_consumers() {
-                edges.insert((index, consumer));
+                order_after(consumer);
             }
             if node.function.can_emit_bang() {
                 for owner in relationships.bang_roots() {
                     if !nodes[owner].function.answers_value() {
                         for consumer in lookup.descendants(owner) {
-                            edges.insert((index, consumer));
+                            order_after(consumer);
                         }
                     }
                 }
@@ -1431,6 +1472,66 @@ mod test {
         assert_eq!(
             source.snapshot(),
             snapshot(grid, &["0A0B    .+0102", ".+0000  03"]),
+        );
+    }
+
+    #[test]
+    fn live_a_reservation_covering_its_own_producer_orders_nothing_against_it() {
+        // ADR 0036: a Reservation orders Turns and decides nothing else, and a
+        // computation the admitted write stopped short of is left standing.
+        // The producer is one such computation whenever its destination lies
+        // in its own row at or left of its own Cells, because a
+        // `Reserved::Row` reservation runs from the destination through the
+        // end of that row and so covers the producer's spelling and literals
+        // along with everything else.
+        //
+        // Ordering a producer after itself is not a dependency, it is an
+        // artefact of measuring the reservation from the row rather than from
+        // the write: the four Cells this Sequence actually reaches stop at
+        // column 3 and never come near the Expression at column 8. A self-edge
+        // makes that Tick a cycle and discards every write and Play Command in
+        // the Grid, which is the outcome ADR 0036's rejected alternative names
+        // — a cycle manufactured between computations that never touch.
+        let grid = Grid::new(16, 2);
+        let (plan, source) = configured_source_answers(
+            grid,
+            &["        .+0102", ""],
+            &[(8, 0)],
+            &[(8, numbers(&[0x0A, 0x0B]))],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 4);
+        assert_eq!(source.snapshot(), snapshot(grid, &["0A0B    .+0102", ""]));
+    }
+
+    #[test]
+    fn live_a_sequence_that_writes_over_its_own_producer_rejects_the_tick() {
+        // The other half of the rule above. Dropping the self-edge for a
+        // `Reserved::Row` producer moves the question of writing over itself
+        // from the schedule to the admitted write; it does not answer it away.
+        // Twelve Cells from column 0 reach the `.+` at column 8, and the
+        // producer is the executed computation ADR 0034 refuses an output to,
+        // so the Tick is rejected entire and the Source is unchanged. The
+        // Expression that is left standing when the write stops short is the
+        // test above; this is what happens when it does not.
+        let grid = Grid::new(16, 2);
+        let rows = ["        .+0102", ""];
+        let (plan, source) = configured_source_answers(
+            grid,
+            &rows,
+            &[(8, 0)],
+            &[(8, numbers(&[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]))],
+        );
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics.iter().any(|d| {
+                d.message == "spatial output reached an executed computation; Tick effects rejected"
+            }),
+            "{:?}",
+            plan.diagnostics
         );
     }
 
