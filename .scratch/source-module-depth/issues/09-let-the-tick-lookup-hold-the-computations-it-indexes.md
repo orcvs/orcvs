@@ -91,6 +91,13 @@ structure. Existing behavior tests remain the test surface, with no new performa
 
 ### Verification, 2026-09-09
 
+Changed: `orcvs/src/source/tick.rs` — `Lookup` owns the `Vec<Computation>` its Claims and subtree
+ranges index; `Lookup::at`, `Lookup::root_at`, and `potentially_active` lose their `nodes`
+parameter; `Schedule` and `PortalRelationships` lose their computation fields.
+
+Tests added or updated: none. The change is an ownership refactor the compiler enforces, so the
+existing suite is the regression surface and no test file is touched.
+
 - `cargo fmt --all -- --check` — passed.
 - `cargo clippy --package orcvs --package shell --all-targets --locked -- -D warnings` — passed.
 - `PROPTEST_CASES=32 cargo nextest run --package orcvs --package shell --locked` — failed before
@@ -117,3 +124,56 @@ changes. Scheduling and execution rules are unchanged. No performance improvemen
 
 The compiler cache remained disabled for these runs because of the sccache permission failure
 recorded above. Tests are unchanged.
+
+### Review follow-up: the Grid half of the same clump, 2026-09-09
+
+A three-source review of the branch — the repository's Standards and Spec axes, the built-in
+correctness review, and the CodeRabbit CLI — converged on one gap. Absorbing `nodes` closed half
+of the hazard the ticket names and left the other half standing: `Lookup` held no `Grid`, yet every
+`Claim.cells` and `subtree_ends` entry is a Cell number stated in the coordinates of the Grid that
+built it, and `at` and `root_at` recomputed Cell numbers from a Grid the caller supplied.
+
+`Grid::assert_owns` cannot refuse that pairing, because a caller offering a foreign Grid would also
+be offering a Position that Grid genuinely owns. A `Lookup` built on a twenty-column Grid, queried
+with a sixteen-column Grid's Position, would match `y * 16 + x` against claims stated as
+`y * 20 + x` — no panic, wrong contacts, and the same silent `at_anchor` reversal the ticket exists
+to eliminate, displaced one argument over. No caller does this today; neither did the `nodes`
+mismatch the ticket was written about.
+
+`Lookup` now owns the `Grid` as well. `at`, `root_at`, and `potentially_active` take no `Grid`, and
+`PortalRelationships` reads it through the `Lookup` it already borrows rather than carrying a second
+copy. `Grid` is `Copy` and three words wide, so this adds no allocation and no query-time cost.
+Behaviour is unchanged and the compiler now refuses the pairing outright.
+
+Not fixed: commit `fb1bf9a` carries a bare subject line with no rationale body and no
+`Claude-Session:` trailer, unlike every preceding non-merge commit. Correcting it means rewriting
+history already published to pull request #41, so it is left for the author to decide.
+
+### Follow-up verification, 2026-09-09
+
+Changed: `orcvs/src/source/tick.rs` — `Lookup` owns the `Grid` its Cell numbering is stated in;
+`Lookup::at`, `Lookup::root_at`, and `potentially_active` lose their `Grid` parameter;
+`PortalRelationships` drops its `Grid` copy. Plus the two prescribed completion-evidence lines and
+the field comment's `///` form in this file and above.
+
+Tests added or updated: none. Removing a parameter is a compile-time invariant with no runtime
+behaviour to regress, so the existing suite is the regression surface.
+
+- `cargo fmt --all -- --check` — passed.
+- `cargo clippy --package orcvs --package shell --all-targets --locked -- -D warnings` — passed.
+- `PROPTEST_CASES=32 cargo nextest run --package orcvs --package shell --locked` — 334 tests
+  passed, the same count and set as before the change.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
+- `PROPTEST_CASES=32 cargo nextest run --workspace --locked` — all 523 tests passed.
+- `cargo test --workspace --doc --locked` — all 9 doctests passed.
+- `git diff --check` — passed; complete diff reviewed.
+
+`RUSTC_WRAPPER=` was exported for every run above, because the sccache `Operation not permitted`
+failure recorded earlier still stands.
+
+Not run: persistence, Linux, and WASM combinations, `mise run check`, `mise run check_merge`,
+`mise run test_wasm`, `mise run bench`, and proptest's 256-case default — deferred to CI. No
+persistence, feature, platform, or benchmark input changed.
+
+Risks: private ownership refactor; no public interface, unsafe, concurrency, dependency, or feature
+changes. Scheduling and execution rules are unchanged. No performance claim.

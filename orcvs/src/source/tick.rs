@@ -83,8 +83,13 @@ impl Claims {
 }
 
 struct Lookup {
-    // Claims and subtree ranges index this fixed collection. Owning it keeps
-    // queries from pairing those indices with a different set of computations.
+    /// The Grid whose Cell numbering every Claim and subtree range below is
+    /// stated in. Owning it keeps a query from restating a Position in another
+    /// Grid's coordinates, which `Grid::assert_owns` cannot refuse because the
+    /// caller would be offering a Position that Grid genuinely owns.
+    grid: Grid,
+    /// Claims and subtree ranges index this fixed collection. Owning it keeps
+    /// queries from pairing those indices with a different set of computations.
     nodes: Vec<Computation>,
     functions: Claims,
     literals: Claims,
@@ -100,7 +105,6 @@ struct Lookup {
 /// suppresses a contacted computation.
 struct PortalRelationships<'a> {
     lookup: &'a Lookup,
-    grid: Grid,
     output: Position,
     cells: Range<usize>,
 }
@@ -153,6 +157,7 @@ impl Lookup {
             }
         }
         Self {
+            grid,
             nodes,
             functions: Claims::new(functions),
             literals: Claims::new(literals),
@@ -169,8 +174,8 @@ impl Lookup {
         ancestor..self.subtree_ends[ancestor]
     }
 
-    fn root_at(&self, grid: Grid, anchor: Position) -> Option<usize> {
-        let cell = grid.index(anchor).get();
+    fn root_at(&self, anchor: Position) -> Option<usize> {
+        let cell = self.grid.index(anchor).get();
         self.functions
             .touching(cell..cell + 1)
             .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
@@ -179,12 +184,11 @@ impl Lookup {
     /// A fixed destination has relationships only if its complete Cell pair
     /// fits the row. Actual writes still go through `Portal::admit`, which also
     /// validates their encoding and supplies the producer's diagnostic.
-    fn at(&self, grid: Grid, output: Position) -> Option<PortalRelationships<'_>> {
-        grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
-        let start = grid.index(output).get();
+    fn at(&self, output: Position) -> Option<PortalRelationships<'_>> {
+        self.grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
+        let start = self.grid.index(output).get();
         Some(PortalRelationships {
             lookup: self,
-            grid,
             output,
             cells: start..start + SCALAR_WIDTH,
         })
@@ -227,18 +231,18 @@ impl PortalRelationships<'_> {
         } else {
             [
                 row.checked_sub(1)
-                    .and_then(|north| self.grid.position(column, north)),
-                self.grid.position(column, row + 1),
+                    .and_then(|north| self.lookup.grid.position(column, north)),
+                self.lookup.grid.position(column, row + 1),
                 column
                     .checked_sub(2)
-                    .and_then(|west| self.grid.position(west, row)),
-                self.grid.position(column + 2, row),
+                    .and_then(|west| self.lookup.grid.position(west, row)),
+                self.lookup.grid.position(column + 2, row),
             ]
         };
         anchors
             .into_iter()
             .flatten()
-            .filter_map(|anchor| self.lookup.root_at(self.grid, anchor))
+            .filter_map(|anchor| self.lookup.root_at(anchor))
     }
 }
 
@@ -451,7 +455,7 @@ pub(super) fn plan_configured(
                         };
                     let output = output.expect("an admitted write has a destination");
                     let relationships = lookup
-                        .at(grid, output)
+                        .at(output)
                         .expect("an admitted Cell pair fits its row");
                     if value == Value::Atom(Atom::Bang) {
                         for owner in relationships.bang_roots() {
@@ -524,7 +528,7 @@ pub(super) fn plan_configured(
 /// An inactive root can contribute no child Portal. Start from value roots,
 /// then close over potential Bang deliveries; actual activation is still
 /// checked during execution, after those producers have settled.
-fn potentially_active(grid: Grid, lookup: &Lookup) -> Vec<bool> {
+fn potentially_active(lookup: &Lookup) -> Vec<bool> {
     let nodes = lookup.nodes();
     let mut active: Vec<_> = nodes
         .iter()
@@ -546,7 +550,7 @@ fn potentially_active(grid: Grid, lookup: &Lookup) -> Vec<bool> {
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
-                let Some(relationships) = lookup.at(grid, *output) else {
+                let Some(relationships) = lookup.at(*output) else {
                     continue;
                 };
                 for index in relationships.bang_roots() {
@@ -656,7 +660,7 @@ fn schedule(
     }
     let lookup = Lookup::new(grid, nodes);
     let nodes = lookup.nodes();
-    let active = potentially_active(grid, &lookup);
+    let active = potentially_active(&lookup);
     let mut edges = BTreeSet::new();
     for (index, node) in nodes.iter().enumerate() {
         if let Some(parent) = node.parent {
@@ -670,7 +674,7 @@ fn schedule(
             .iter()
             .filter_map(|output| output.as_ref().ok())
         {
-            let Some(relationships) = lookup.at(grid, *output) else {
+            let Some(relationships) = lookup.at(*output) else {
                 continue;
             };
             for contact in relationships.functions() {
