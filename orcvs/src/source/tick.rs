@@ -90,9 +90,12 @@ struct Lookup {
     subtree_ends: Vec<usize>,
 }
 
-/// Relationships of one fixed two-Cell Portal destination to the original
-/// computations. The phases share these facts, but decide separately whether
-/// a producer can activate, must precede, or suppresses a contacted computation.
+/// Relationships of one fixed Portal destination, and of the Cell pair
+/// scheduling reserves beyond it, to the original computations. A Portal names
+/// where a result begins rather than how wide it is, so the pair below is the
+/// scheduling footprint, not the Portal. The phases share these facts, but
+/// decide separately whether a producer can activate, must precede, or
+/// suppresses a contacted computation.
 struct PortalRelationships<'a> {
     lookup: &'a Lookup,
     nodes: &'a [Computation],
@@ -121,6 +124,9 @@ impl Lookup {
         let mut subtree_ends: Vec<_> = (1..=nodes.len()).collect();
         for (index, node) in nodes.iter().enumerate() {
             let start = grid.index(node.anchor).get();
+            // A Function's own spelling, not a result: this 2 is the glyph
+            // width and stays a literal, because `SCALAR_WIDTH` would tie it to
+            // a scalar result's footprint, which is a different fact.
             functions.push(Claim {
                 cells: start..start + 2,
                 node: index,
@@ -1617,7 +1623,7 @@ mod test {
     }
 
     #[test]
-    fn fixed_bang_destinations_respect_alignment_operand_contact_and_row_fit() {
+    fn fixed_bang_destinations_respect_alignment_and_operand_contact() {
         let grid = Grid::new(16, 6);
         // One terminal at (4, 2). A Bang two Cells east of it is in its
         // channel operand, so cardinal alignment alone cannot activate it.
@@ -1649,6 +1655,12 @@ mod test {
                 plan.diagnostics
             );
             if column == 15 {
+                // A destination whose pair leaves the row is refused at the
+                // Portal, and a terminal wide enough to sound cannot be
+                // cardinally aligned with one, so this case cannot separate
+                // `Lookup::at`'s row-fit guard from `Portal::admit`'s refusal.
+                // `competing_writers_preserve_an_independent_rejected_destination_diagnostic`
+                // is what holds that guard.
                 assert!(plan.writes.is_empty());
                 assert_eq!(plan.diagnostics.len(), 1);
                 assert!(plan.diagnostics[0].message.contains("crosses the row edge"));
@@ -1657,6 +1669,27 @@ mod test {
                 assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
             }
         }
+    }
+
+    #[test]
+    fn a_bang_half_inside_an_operand_does_not_activate_an_aligned_terminal() {
+        // Operand contact is a fact about the whole reserved pair, so a
+        // destination whose first Cell is free still belongs to an operand when
+        // its second Cell lands in one. Row 2 holds `.=` at columns 3 and 4
+        // with its first operand at columns 5 and 6; the destination (4, 2)
+        // covers columns 4 and 5, so only its second Cell is in that operand.
+        // The terminal directly below is cardinally aligned and must stay
+        // silent anyway -- narrowing the contact test to the anchor Cell alone
+        // would sound it.
+        let (plan, _) = configured_source(
+            Grid::new(16, 6),
+            &["", "", "   .=0101", "    !>007FC4", "", ".=0101"],
+            &[(80, 2 * 16 + 4)],
+            &[],
+        );
+        assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 2);
     }
 
     #[test]
