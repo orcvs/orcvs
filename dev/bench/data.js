@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788936953323,
+  "lastUpdate": 1788937844077,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -3815,6 +3815,204 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_edges/128x128",
             "value": 1327494,
             "range": "± 17215",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b332ac7e906b709e129078f8de8c357c2066079c",
+          "message": "Merge pull request #40 from orcvs/02-grid-position-round-trip\n\nEncode the Grid laws the glossary already states",
+          "timestamp": "2026-09-09T16:59:25+10:00",
+          "tree_id": "f80f23c09cdbf42f8310ca0ff31a3cf0fd4978aa",
+          "url": "https://github.com/orcvs/orcvs/commit/b332ac7e906b709e129078f8de8c357c2066079c"
+        },
+        "date": 1788937843015,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 171,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 62,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 86,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 680,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 52,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 242,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 495,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 870,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 41,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 43,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 91,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2649,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 10414,
+            "range": "± 111",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 40445,
+            "range": "± 928",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 5690,
+            "range": "± 27",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 19612,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 81465,
+            "range": "± 648",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 5806,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 20424,
+            "range": "± 214",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 81264,
+            "range": "± 981",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 18553,
+            "range": "± 52",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 71244,
+            "range": "± 478",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 297308,
+            "range": "± 1485",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1300536,
+            "range": "± 13003",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 11516,
+            "range": "± 169",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 68937,
+            "range": "± 475",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 317895,
+            "range": "± 1652",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1383756,
+            "range": "± 9079",
             "unit": "ns/iter"
           }
         ]
