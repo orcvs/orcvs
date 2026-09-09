@@ -4,7 +4,7 @@ pub mod console;
 pub mod diagnostics;
 mod grid_viewport;
 mod midi;
-mod persistence;
+pub mod persistence;
 mod report;
 pub mod style;
 #[cfg(target_arch = "wasm32")]

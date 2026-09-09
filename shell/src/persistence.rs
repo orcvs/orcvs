@@ -11,6 +11,29 @@ use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 use orcvs::source::Source;
 
 ///
+/// The Storage key one stored Source revision lives under.
+///
+/// Deliberately not `eframe::APP_KEY`: that key names the whole App value, and
+/// `source-playback-engine/18` settled that the Console is a runtime
+/// coordinator with nothing to restore. What is stored here is the one
+/// supported persistence root, the Source, so a reader of the stored file is
+/// not told the Console was saved.
+///
+#[cfg(feature = "persistence")]
+pub(crate) const SOURCE_KEY: &str = "orcvs_source";
+
+///
+/// The Storage key a value that could not be read back is moved to.
+///
+/// A refused value is Cells a viewer may still recover by hand, and the
+/// console's own save is the one thing certain to destroy them: eframe calls
+/// it every thirty seconds and it writes [`SOURCE_KEY`]. Moving the value here
+/// first is what makes a refusal mean "not restored" rather than "deleted".
+///
+#[cfg(feature = "persistence")]
+pub(crate) const REFUSED_KEY: &str = "orcvs_source_refused";
+
+///
 /// The Source a console starts from when it restores nothing: the ordinary
 /// default Grid, empty.
 ///
@@ -25,8 +48,10 @@ fn default_source() -> Source {
 /// console always starts the ordinary default Grid.
 ///
 #[cfg(not(feature = "persistence"))]
-pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source {
-    default_source()
+pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
+    Start {
+        source: default_source(),
+    }
 }
 
 ///
@@ -36,10 +61,29 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source 
 enum StoredSource {
     /// Storage holds no revision: an ordinary first start.
     Absent,
-    /// Storage holds a value this build will not read.
-    Refused,
+    /// Storage holds a value this build will not read. The value is kept, so
+    /// the console's next save can move it aside rather than write over it.
+    Refused(String),
     /// The stored revision, with every derived view rebuilt from it.
     Restored(Source),
+}
+
+///
+/// What a start found: the Source to open on, and what the console still owes
+/// a viewer because of it.
+///
+/// A refusal leaves two obligations that end at different moments. The value
+/// is moved aside by the first save, which would otherwise write over the key
+/// it sits under, and is gone from here once it has been. The notice outlives
+/// that move: a viewer who has not looked yet has not been told, and a Grid
+/// that silently is not theirs is the failure this seam exists to avoid.
+///
+pub(crate) struct Start {
+    pub(crate) source: Source,
+    #[cfg(feature = "persistence")]
+    pub(crate) refused: Option<String>,
+    #[cfg(feature = "persistence")]
+    pub(crate) notice: bool,
 }
 
 ///
@@ -55,12 +99,12 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
     let Some(storage) = storage else {
         return StoredSource::Absent;
     };
-    if storage.get_string(eframe::APP_KEY).is_none() {
+    let Some(stored) = storage.get_string(SOURCE_KEY) else {
         return StoredSource::Absent;
-    }
+    };
 
-    eframe::get_value::<Source>(storage, eframe::APP_KEY)
-        .map_or(StoredSource::Refused, StoredSource::Restored)
+    eframe::get_value::<Source>(storage, SOURCE_KEY)
+        .map_or(StoredSource::Refused(stored), StoredSource::Restored)
 }
 
 ///
@@ -73,15 +117,36 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
 /// restored one.
 ///
 #[cfg(feature = "persistence")]
-pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
+pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
     match stored_source(storage) {
-        StoredSource::Restored(source) => source,
-        StoredSource::Absent => default_source(),
-        StoredSource::Refused => {
+        StoredSource::Restored(source) => Start {
+            source,
+            refused: None,
+            notice: false,
+        },
+        StoredSource::Absent => Start {
+            source: default_source(),
+            refused: None,
+            notice: false,
+        },
+        StoredSource::Refused(stored) => {
             report_refusal();
-            default_source()
+            Start {
+                source: default_source(),
+                refused: Some(stored),
+                notice: true,
+            }
         }
     }
+}
+
+///
+/// Moves a refused value aside, before the save that follows writes over the
+/// key it sits under.
+///
+#[cfg(feature = "persistence")]
+pub(crate) fn preserve_refused(storage: &mut dyn eframe::Storage, refused: String) {
+    storage.set_string(REFUSED_KEY, refused);
 }
 
 ///
@@ -97,7 +162,12 @@ fn report_refusal() {
     const REFUSED: &str = "refused the stored Source: it is not a Source this build can read; \
                            starting the default Grid";
 
-    crate::report::error!("{}: {}", eframe::APP_KEY, REFUSED);
+    crate::report::error!(
+        "{}: {}; the stored value is kept under {}",
+        SOURCE_KEY,
+        REFUSED,
+        REFUSED_KEY
+    );
 }
 
 ///
@@ -109,7 +179,7 @@ pub(crate) fn store_source(
     storage: &mut dyn eframe::Storage,
     source: &orcvs::source::SourceCommander,
 ) {
-    source.read_source(|source| eframe::set_value(storage, eframe::APP_KEY, source));
+    source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
 }
 
 ///
@@ -186,7 +256,7 @@ mod tests {
     fn a_console_with_no_storage_starts_the_default_grid() {
         // The whole of what a build without the `persistence` feature does,
         // and what a first start does with the feature.
-        assert_default_grid(&starting_source(None));
+        assert_default_grid(&starting_source(None).source);
     }
 }
 
@@ -196,12 +266,12 @@ mod stored_source_tests {
     use orcvs::source::SourceCommander;
 
     use super::{
-        InMemoryStorage, StoredSource, assert_default_grid, edited_source, starting_source,
-        store_source, stored_source,
+        InMemoryStorage, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
+        starting_source, store_source, stored_source,
     };
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
-        eframe::Storage::get_string(storage, eframe::APP_KEY)
+        eframe::Storage::get_string(storage, SOURCE_KEY)
     }
 
     #[test]
@@ -215,7 +285,7 @@ mod stored_source_tests {
         // where the next start looks for it.
         assert!(stored(&storage).is_some());
 
-        let restored = SourceCommander::with_source(starting_source(Some(&storage)));
+        let restored = SourceCommander::with_source(starting_source(Some(&storage)).source);
 
         assert_eq!(restored.snapshot(), saved.snapshot());
         assert_eq!(restored.grid().count(), 18);
@@ -241,7 +311,7 @@ mod stored_source_tests {
             stored_source(Some(&storage)),
             StoredSource::Absent
         ));
-        assert_default_grid(&starting_source(Some(&storage)));
+        assert_default_grid(&starting_source(Some(&storage)).source);
     }
 
     #[test]
@@ -268,13 +338,13 @@ mod stored_source_tests {
             let mut storage = InMemoryStorage::default();
             storage
                 .entries
-                .insert(eframe::APP_KEY.to_owned(), value.to_owned());
+                .insert(SOURCE_KEY.to_owned(), value.to_owned());
 
             assert!(
-                matches!(stored_source(Some(&storage)), StoredSource::Refused),
+                matches!(stored_source(Some(&storage)), StoredSource::Refused(_)),
                 "{value} is not a Source this build can read"
             );
-            assert_default_grid(&starting_source(Some(&storage)));
+            assert_default_grid(&starting_source(Some(&storage)).source);
         }
     }
 }

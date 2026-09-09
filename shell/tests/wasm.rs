@@ -344,7 +344,7 @@ mod refused_revision {
 
     impl eframe::Storage for MalformedStorage {
         fn get_string(&self, key: &str) -> Option<String> {
-            (key == eframe::APP_KEY).then(|| "not a stored Source".to_owned())
+            (key == shell::persistence::SOURCE_KEY).then(|| "not a stored Source".to_owned())
         }
 
         fn set_string(&mut self, _key: &str, _value: String) {}
@@ -365,13 +365,13 @@ mod refused_revision {
 
     impl eframe::Storage for RecordingStorage {
         fn get_string(&self, key: &str) -> Option<String> {
-            (key == eframe::APP_KEY)
+            (key == shell::persistence::SOURCE_KEY)
                 .then_some(self.stored.clone())
                 .flatten()
         }
 
         fn set_string(&mut self, key: &str, value: String) {
-            if key == eframe::APP_KEY {
+            if key == shell::persistence::SOURCE_KEY {
                 self.stored = Some(value);
             }
         }
@@ -403,8 +403,8 @@ mod refused_revision {
         // Grid, which is the revision its next save stores.
         let mut saved = RecordingStorage::default();
         console.save(&mut saved);
-        let started: Source =
-            eframe::get_value(&saved, eframe::APP_KEY).expect("the console saved a revision");
+        let started: Source = eframe::get_value(&saved, shell::persistence::SOURCE_KEY)
+            .expect("the console saved a revision");
         assert_eq!(
             started.grid().count(),
             DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT

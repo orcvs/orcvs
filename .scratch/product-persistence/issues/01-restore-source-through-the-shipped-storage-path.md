@@ -7,6 +7,10 @@ revision and restores it on the next start. The model layer already round-trips;
 
 **Status:** resolved
 
+**Claimed by:** `11-persist-source` / PR #38 — 2026-09-09. Recorded because this ticket was
+implemented twice: the claim was invisible once the first branch's worktree was removed, and the
+tracker has no field or status that says a ticket is being worked. See the last comment.
+
 **Tags:** release/v1
 
 - [x] `eframe::App::save` stores the current `Source` revision. It replaces the commented-out
@@ -43,8 +47,8 @@ no issue owned it, so those items had nothing to test.
 `shell/src/persistence.rs`, the console's storage seam: it starts the stored `Source` revision,
 the ordinary default Grid when storage holds none, and — for a value that is present but does not
 decode — the default Grid after reporting the refusal, so a partly restored Source never reaches
-the console. `eframe::App::save` stores the current revision under `eframe::APP_KEY` through the
-same module. `Orcvs::with_source`, `Orcvs::with_source_and_output_adapter`,
+the console. `eframe::App::save` stores the current revision under an `orcvs_source` key through
+the same module. `Orcvs::with_source`, `Orcvs::with_source_and_output_adapter`,
 `SourceCommander::with_source` and the persistence-gated `SourceCommander::read_source` and
 `Orcvs::source` are the seam the shell reaches the root through; every existing constructor now
 runs through the same path. Native and WASM share the code and differ only in eframe's storage
@@ -68,3 +72,38 @@ into two feature-off runs and leave the storage path compiled nowhere.
 `mise run test_wasm` drops its flag and runs the browser's own configuration; `mise run
 test_persistence` keeps its explicit `--features persistence`, which `orcvs` — still `default = []`
 — needs for its own `--package orcvs --lib` line. `docs/tooling.md` records the arrangement.
+
+2026-09-09: Review pass, and the merge of a duplicate implementation. A second branch
+(`01-restore-source-through-the-shipped-storage-path`) implemented this same ticket independently
+— see the `Claimed by` note below for why that was possible. Three reviews of it found two defects
+that this branch shared, both in the "is refused, is reported" bullet. Both are fixed here, and the
+duplicate branch is dropped.
+
+- A refused value was destroyed thirty seconds later. eframe's default `auto_save_interval` is
+  thirty seconds and `store_source` wrote its key unconditionally, so a value refused for a
+  recoverable reason — a format skew, a truncated write, one bad byte — was overwritten with the
+  empty default Grid before a viewer could act. `StoredSource::Refused` now carries the value,
+  `Start` hands it to the console, and the first `save` moves it to `orcvs_source_refused` before
+  writing. The save still happens: a console that stopped saving after a refusal would lose the
+  session that followed instead.
+- "Reported" reached no viewer. `crate::report` reaches a terminal or a browser developer console,
+  which is the right channel for a developer and no channel at all for the person looking at a Grid
+  that is not theirs. A refusal now also raises a dismissible notice in the menu bar in the error
+  colour, beside the existing MIDI status line. The Diagnostics window was the other candidate and
+  is the wrong one: it opens on request and reports the running frame, where this is a start-up
+  answer about the Source in front of the viewer.
+
+Also from the duplicate: the storage key is `orcvs_source`, not `eframe::APP_KEY`. That key names
+the whole App value, and `source-playback-engine/18` settled that the Console is a runtime
+coordinator with nothing to restore; storing a Source under "app" reads as storing the Console
+again. `shell/tests/wasm.rs` and the storage tests follow the key.
+
+The duplicate's own reporting fix — enabling `tracing/log` for the whole `shell` graph — was
+deliberately **not** taken. Cargo unifies features, so it bridges every `tracing` event in the
+build to `log`, including `Source::set`'s per-write `debug!`, and `main` wires `WebLogger` at
+`Debug`. `shell/src/report.rs` pays the second channel only where a call site asks for it, which is
+the same fix without the traffic.
+
+Deliberately not changed: a save taken while the transport runs stores tick-written Cells, because
+`execute` commits `TickPlan.writes` into the Source. Bangs are Grid Cells; that is Orca's model,
+not runtime state leaking into the root.
