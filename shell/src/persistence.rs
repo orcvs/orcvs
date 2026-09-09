@@ -20,7 +20,7 @@ use orcvs::source::Source;
 /// not told the Console was saved.
 ///
 #[cfg(feature = "persistence")]
-pub(crate) const SOURCE_KEY: &str = "orcvs_source";
+pub const SOURCE_KEY: &str = "orcvs_source";
 
 ///
 /// The Storage key a value that could not be read back is moved to.
@@ -31,7 +31,7 @@ pub(crate) const SOURCE_KEY: &str = "orcvs_source";
 /// first is what makes a refusal mean "not restored" rather than "deleted".
 ///
 #[cfg(feature = "persistence")]
-pub(crate) const REFUSED_KEY: &str = "orcvs_source_refused";
+pub const REFUSED_KEY: &str = "orcvs_source_refused";
 
 ///
 /// The Source a console starts from when it restores nothing: the ordinary
