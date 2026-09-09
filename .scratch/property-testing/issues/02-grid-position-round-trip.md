@@ -19,7 +19,8 @@ candidate coordinates, and check containment, the index round trip, and row cove
 - [x] `rows()` yields exactly `count()` Positions, each index appearing once.
 - [x] `offset_in_row(p, offset)` agrees with the column arithmetic at the right-hand edge: it
       answers `Some(CellIndex)` exactly while `p` plus the offset stays inside `p`'s own row. It
-      has no test today, and three production sites call it.
+      had no test at all, and two production sites call it — see the correction below, which
+      records why this line said three.
 - [x] `up`, `down`, `left`, and `right` always return a Position the Grid owns.
 - [x] Generated Grids include the one-column and one-row cases.
 
@@ -122,7 +123,7 @@ proptest dependency and its `cfg` gate are real — the suite proves eight times
 
 ### Correction: `offset_in_row` has two production call sites, not three
 
-The seventh acceptance line says three. There are two: `Portal::admit`
+The seventh acceptance line was written asking for three. There are two: `Portal::admit`
 (`orcvs/src/source/portal.rs:129`) and `tick::Lookup::at` (`orcvs/src/source/tick.rs:182`). The
 third was `LanguageMap::derive`, named in `source-module-depth/07`'s comments on 2026-09-04; the
 Language Map now bounds a Span with a row slice that simply has no second byte at the row's edge,
@@ -229,9 +230,14 @@ as buying 32 distinct dimension pairs when the weighted generator repeats edge s
 `grid_id` makes the equality subsume `owns`; and the coverage guard's failure message named half
 its own condition.
 
-**Acceptance line 7 is restored to what it originally asked.** Amending it in place mutated the
-record of what was commissioned; `docs/agents/issue-tracker.md` has corrections append under
-`## Comments`, which is where the "two call sites, not three" correction already lived.
+**Acceptance line 7 keeps its correction, and a review finding against that was wrong.** The Spec
+axis read the amended line as mutating the record of what was commissioned, since
+`docs/agents/issue-tracker.md` has corrections append under `## Comments`. Restoring the original
+wording reinstated two false claims — three call sites where there are two, and "no test today" on
+a ticked line whose test this branch adds — in a file that names the contradicting correction two
+headings below and cross-references it again below that. The convention is about not losing the
+record, and the line does not lose it: it carries the corrected fact and points at the correction
+for what it originally said. That is the form to keep.
 
 Three findings were not acted on. `test_grid_indices_cover_every_cell_exactly_once` and the
 `cell_index(8)/cell_index(100)` assertions in `mod test` are subsumed by the new properties, but
