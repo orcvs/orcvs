@@ -41,22 +41,18 @@ pub fn to_note(ctx: &mut Context) -> Result<Value, Error> {
 
 #[cfg(test)]
 mod test {
-    use super::{to_note, to_number};
     use crate::{
-        Anchor, Atom, Error, InterpretationError, Note, Sequence, Tick, TickInputs, TypeError,
-        Value, interpreter::Context,
+        Anchor, Atom, Error, Function, Interpretation, InterpretationError, Interpreter, Note,
+        Sequence, Tick, TickInputs, TypeError, Value,
     };
 
-    type Conversion = fn(&mut Context) -> Result<Value, Error>;
-
-    /// Evaluates one conversion against the whole language value its single
-    /// operand position holds.
-    fn evaluate(conversion: Conversion, value: impl Into<Value>) -> Result<Value, Error> {
-        // A conversion reads no Tick and no Position, so the first Tick at the
-        // Grid origin is as good as any other.
-        let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)), 1);
-        ctx.stack.push(value.into()).unwrap();
-        conversion(&mut ctx)
+    /// Exercises conversion dispatch with one resolved language value.
+    fn evaluate(function: Function, value: impl Into<Value>) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(
+            function,
+            &[value.into()],
+            TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+        )
     }
 
     fn note(value: u8) -> Atom {
@@ -78,12 +74,12 @@ mod test {
         // reach tick planning through a different arm.
         for value in 0x00..=0x7F {
             assert_eq!(
-                evaluate(to_number, note(value)).unwrap(),
-                Value::Atom(Atom::Number(value))
+                evaluate(Function::ConvertToNumber, note(value)).unwrap(),
+                Interpretation::Cell(Atom::Number(value))
             );
             assert_eq!(
-                evaluate(to_note, Atom::Number(value)).unwrap(),
-                Value::Atom(note(value))
+                evaluate(Function::ConvertToNote, Atom::Number(value)).unwrap(),
+                Interpretation::Cell(note(value))
             );
         }
     }
@@ -94,23 +90,23 @@ mod test {
         // or reversed its Sequence answers a different value rather than the
         // same one.
         assert_eq!(
-            evaluate(to_number, notes([0x3C, 0x00, 0x7F])).unwrap(),
-            Value::Sequence(numbers([0x3C, 0x00, 0x7F]))
+            evaluate(Function::ConvertToNumber, notes([0x3C, 0x00, 0x7F])).unwrap(),
+            Interpretation::Sequence(numbers([0x3C, 0x00, 0x7F]))
         );
         assert_eq!(
-            evaluate(to_note, numbers([0x3C, 0x00, 0x7F])).unwrap(),
-            Value::Sequence(notes([0x3C, 0x00, 0x7F]))
+            evaluate(Function::ConvertToNote, numbers([0x3C, 0x00, 0x7F])).unwrap(),
+            Interpretation::Sequence(notes([0x3C, 0x00, 0x7F]))
         );
 
         // An empty Sequence converts to the empty Sequence, and a singleton
         // stays a Sequence rather than collapsing to the Atom it holds.
         assert_eq!(
-            evaluate(to_note, Sequence::empty()).unwrap(),
-            Value::Sequence(Sequence::empty())
+            evaluate(Function::ConvertToNote, Sequence::empty()).unwrap(),
+            Interpretation::Sequence(Sequence::empty())
         );
         assert_eq!(
-            evaluate(to_number, notes([0x3C])).unwrap(),
-            Value::Sequence(numbers([0x3C]))
+            evaluate(Function::ConvertToNumber, notes([0x3C])).unwrap(),
+            Interpretation::Sequence(numbers([0x3C]))
         );
     }
 
@@ -121,12 +117,12 @@ mod test {
         // Without it a broadcast conversion could not compose with another one
         // over the same Sequence.
         assert_eq!(
-            evaluate(to_number, numbers([0x3C, 0x7F])).unwrap(),
-            Value::Sequence(numbers([0x3C, 0x7F]))
+            evaluate(Function::ConvertToNumber, numbers([0x3C, 0x7F])).unwrap(),
+            Interpretation::Sequence(numbers([0x3C, 0x7F]))
         );
         assert_eq!(
-            evaluate(to_note, notes([0x3C, 0x7F])).unwrap(),
-            Value::Sequence(notes([0x3C, 0x7F]))
+            evaluate(Function::ConvertToNote, notes([0x3C, 0x7F])).unwrap(),
+            Interpretation::Sequence(notes([0x3C, 0x7F]))
         );
     }
 
@@ -137,7 +133,7 @@ mod test {
         for value in 0x80..=u8::MAX {
             assert!(
                 matches!(
-                    evaluate(to_note, numbers([0x00, 0x3C, value])),
+                    evaluate(Function::ConvertToNote, numbers([0x00, 0x3C, value])),
                     Err(Error::Interpretation(InterpretationError::NoteConversion(found)))
                         if found == value
                 ),
@@ -153,7 +149,7 @@ mod test {
         // would itself fail to convert, which is what makes the ordering
         // observable rather than incidental.
         assert!(matches!(
-            evaluate(to_note, Sequence::new([Atom::Number(0x80), Atom::Bang]).unwrap()),
+            evaluate(Function::ConvertToNote, Sequence::new([Atom::Number(0x80), Atom::Bang]).unwrap()),
             Err(Error::Type(TypeError::Numeric(found))) if found == "**"
         ));
     }
