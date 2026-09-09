@@ -8,13 +8,13 @@ compiler states what the prose currently asks for.
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A `Lookup` cannot be asked a question against computations other than the ones it indexed.
-- [ ] `Lookup::at` and `Lookup::root_at` no longer take a `nodes` parameter.
-- [ ] `Schedule` still hands its caller both the computations and the index, without a second
+- [x] A `Lookup` cannot be asked a question against computations other than the ones it indexed.
+- [x] `Lookup::at` and `Lookup::root_at` no longer take a `nodes` parameter.
+- [x] `Schedule` still hands its caller both the computations and the index, without a second
       owner of the computations and without copying them per query.
-- [ ] The existing suite passes unchanged; no Source that ticks today ticks differently.
+- [x] The existing suite passes unchanged; no Source that ticks today ticks differently.
 
 ## Comments
 
@@ -76,3 +76,44 @@ The first keeps the current data layout and is probably the smallest, but it mov
 
 Pairs naturally with `06-measure-the-rebuild-path.md` if the chosen shape touches allocation on the
 Tick path — `orcvs/benches/source.rs` is the arbiter for any claim that it does.
+
+### Confirmed ownership design, 2026-09-09
+
+Lookup owns the original computations it indexes and lends read-only access to scheduling and
+execution. Moving the existing `Vec<Computation>` into Lookup keeps construction inside `schedule`
+and avoids a self-referential Schedule, shared ownership, or copies per query. `Schedule` carries
+the Lookup alongside execution order and diagnostics.
+
+`PortalRelationships` borrows only Lookup rather than pairing it with a separate computation slice.
+`potentially_active` likewise obtains the computations from Lookup. Replacement Functions and the
+other changing execution state stay local to the Tick; the index retains the original parsed
+structure. Existing behavior tests remain the test surface, with no new performance claim.
+
+### Verification, 2026-09-09
+
+- `cargo fmt --all -- --check` — passed.
+- `cargo clippy --package orcvs --package shell --all-targets --locked -- -D warnings` — passed.
+- `PROPTEST_CASES=32 cargo nextest run --package orcvs --package shell --locked` — failed before
+  compilation because sccache returned `Operation not permitted`, including on the escalated retry.
+- `RUSTC_WRAPPER= PROPTEST_CASES=32 cargo nextest run --package orcvs --package shell --locked` —
+  passed all 334 existing tests with the compiler cache disabled; no tests changed.
+- `node --test scripts/tests/roadmap.test.ts` — passed all 10 tests.
+- `node scripts/roadmap.ts > /dev/null` — passed.
+- `git diff --check` — passed; complete diff reviewed.
+
+Not run: persistence, Linux, and WASM combinations — deferred to CI; no persistence, feature, or
+platform-specific code changed. `mise run check`, `mise run check_merge`, `mise run test_wasm`,
+`mise run bench`, and proptest's 256-case default — deferred to CI. Pre-PR workspace and doctest
+gates subsequently passed as recorded below.
+
+Risks: private ownership refactor; no public interface, unsafe, concurrency, dependency, or feature
+changes. Scheduling and execution rules are unchanged. No performance improvement is claimed.
+
+### Pre-PR verification, 2026-09-09
+
+- `RUSTC_WRAPPER= cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
+- `RUSTC_WRAPPER= PROPTEST_CASES=32 cargo nextest run --workspace --locked` — all 523 tests passed.
+- `RUSTC_WRAPPER= cargo test --workspace --doc --locked` — all 9 doctests passed.
+
+The compiler cache remained disabled for these runs because of the sccache permission failure
+recorded above. Tests are unchanged.

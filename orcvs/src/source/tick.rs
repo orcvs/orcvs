@@ -44,7 +44,6 @@ pub(super) struct Configuration {
 }
 
 struct Schedule {
-    nodes: Vec<Computation>,
     lookup: Lookup,
     order: Vec<usize>,
     diagnostics: Vec<Diagnostic>,
@@ -84,6 +83,9 @@ impl Claims {
 }
 
 struct Lookup {
+    // Claims and subtree ranges index this fixed collection. Owning it keeps
+    // queries from pairing those indices with a different set of computations.
+    nodes: Vec<Computation>,
     functions: Claims,
     literals: Claims,
     operands: Claims,
@@ -98,7 +100,6 @@ struct Lookup {
 /// suppresses a contacted computation.
 struct PortalRelationships<'a> {
     lookup: &'a Lookup,
-    nodes: &'a [Computation],
     grid: Grid,
     output: Position,
     cells: Range<usize>,
@@ -117,7 +118,7 @@ struct FunctionContact {
 const SCALAR_WIDTH: usize = 2;
 
 impl Lookup {
-    fn new(grid: Grid, nodes: &[Computation]) -> Self {
+    fn new(grid: Grid, nodes: Vec<Computation>) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
@@ -152,6 +153,7 @@ impl Lookup {
             }
         }
         Self {
+            nodes,
             functions: Claims::new(functions),
             literals: Claims::new(literals),
             operands: Claims::new(operands),
@@ -159,31 +161,29 @@ impl Lookup {
         }
     }
 
+    fn nodes(&self) -> &[Computation] {
+        &self.nodes
+    }
+
     fn descendants(&self, ancestor: usize) -> Range<usize> {
         ancestor..self.subtree_ends[ancestor]
     }
 
-    fn root_at(&self, grid: Grid, nodes: &[Computation], anchor: Position) -> Option<usize> {
+    fn root_at(&self, grid: Grid, anchor: Position) -> Option<usize> {
         let cell = grid.index(anchor).get();
         self.functions
             .touching(cell..cell + 1)
-            .find(|&index| nodes[index].parent.is_none() && nodes[index].anchor == anchor)
+            .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
     }
 
     /// A fixed destination has relationships only if its complete Cell pair
     /// fits the row. Actual writes still go through `Portal::admit`, which also
     /// validates their encoding and supplies the producer's diagnostic.
-    fn at<'a>(
-        &'a self,
-        grid: Grid,
-        nodes: &'a [Computation],
-        output: Position,
-    ) -> Option<PortalRelationships<'a>> {
+    fn at(&self, grid: Grid, output: Position) -> Option<PortalRelationships<'_>> {
         grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
         let start = grid.index(output).get();
         Some(PortalRelationships {
             lookup: self,
-            nodes,
             grid,
             output,
             cells: start..start + SCALAR_WIDTH,
@@ -198,7 +198,7 @@ impl PortalRelationships<'_> {
             .touching(self.cells.clone())
             .map(|index| FunctionContact {
                 index,
-                at_anchor: self.nodes[index].anchor == self.output,
+                at_anchor: self.lookup.nodes()[index].anchor == self.output,
                 subtree: self.lookup.descendants(index),
             })
     }
@@ -238,7 +238,7 @@ impl PortalRelationships<'_> {
         anchors
             .into_iter()
             .flatten()
-            .filter_map(|anchor| self.lookup.root_at(self.grid, self.nodes, anchor))
+            .filter_map(|anchor| self.lookup.root_at(self.grid, anchor))
     }
 }
 
@@ -303,8 +303,8 @@ pub(super) fn plan_configured(
         apply_write(&mut working, &clear);
         effects.push(Effect::Write(clear));
     }
-    let nodes = &schedule.nodes;
     let lookup = &schedule.lookup;
+    let nodes = lookup.nodes();
     let mut results: Vec<Option<Value>> = vec![None; nodes.len()];
     let mut syntax_blocked = vec![false; nodes.len()];
     let mut activated = vec![false; nodes.len()];
@@ -451,7 +451,7 @@ pub(super) fn plan_configured(
                         };
                     let output = output.expect("an admitted write has a destination");
                     let relationships = lookup
-                        .at(grid, nodes, output)
+                        .at(grid, output)
                         .expect("an admitted Cell pair fits its row");
                     if value == Value::Atom(Atom::Bang) {
                         for owner in relationships.bang_roots() {
@@ -524,7 +524,8 @@ pub(super) fn plan_configured(
 /// An inactive root can contribute no child Portal. Start from value roots,
 /// then close over potential Bang deliveries; actual activation is still
 /// checked during execution, after those producers have settled.
-fn potentially_active(grid: Grid, nodes: &[Computation], lookup: &Lookup) -> Vec<bool> {
+fn potentially_active(grid: Grid, lookup: &Lookup) -> Vec<bool> {
+    let nodes = lookup.nodes();
     let mut active: Vec<_> = nodes
         .iter()
         .map(|node| node.parent.is_none() && node.function.answers_value())
@@ -545,7 +546,7 @@ fn potentially_active(grid: Grid, nodes: &[Computation], lookup: &Lookup) -> Vec
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
-                let Some(relationships) = lookup.at(grid, nodes, *output) else {
+                let Some(relationships) = lookup.at(grid, *output) else {
                     continue;
                 };
                 for index in relationships.bang_roots() {
@@ -653,8 +654,9 @@ fn schedule(
             diagnostics.push(diagnose(node, boundary));
         }
     }
-    let lookup = Lookup::new(grid, &nodes);
-    let active = potentially_active(grid, &nodes, &lookup);
+    let lookup = Lookup::new(grid, nodes);
+    let nodes = lookup.nodes();
+    let active = potentially_active(grid, &lookup);
     let mut edges = BTreeSet::new();
     for (index, node) in nodes.iter().enumerate() {
         if let Some(parent) = node.parent {
@@ -668,7 +670,7 @@ fn schedule(
             .iter()
             .filter_map(|output| output.as_ref().ok())
         {
-            let Some(relationships) = lookup.at(grid, &nodes, *output) else {
+            let Some(relationships) = lookup.at(grid, *output) else {
                 continue;
             };
             for contact in relationships.functions() {
@@ -721,7 +723,6 @@ fn schedule(
         return Err(diagnostics);
     }
     Ok(Schedule {
-        nodes,
         lookup,
         order,
         diagnostics,
