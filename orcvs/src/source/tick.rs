@@ -501,12 +501,20 @@ fn schedule(
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
                 let configured = configuration.destinations.get(&grid.index(anchor));
-                let outputs = if !function.answers_value() {
+                // The one gate that means Terminal Output rather than
+                // "answers an effect": a Terminal Output Function has no Cell
+                // destination at all, while ADR 0004 gives a Source-writing
+                // Function a validated write bundle and ADR 0009 lets it
+                // resolve multiple Portals. Asking the wide question here
+                // would diagnose the Halt, Directional Bang, and Jump
+                // Functions for a Portal they are entitled to and hand each of
+                // them no destination.
+                let outputs = if function.performs_terminal_output() {
                     if configured.is_some() {
                         diagnostics.push(Diagnostic::for_expression(
                             anchor,
                             expression.span(),
-                            "a Function that answers an effect cannot have a Portal".to_owned(),
+                            "a Terminal Output Function cannot have a Portal".to_owned(),
                         ));
                     }
                     vec![]
