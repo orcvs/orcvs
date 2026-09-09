@@ -102,13 +102,71 @@ Permissions are declared per job, so only the publishing job can write repositor
 triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`
 or `orcvs` performance runs no benchmark. `mise run check` does not run either.
 
+Both jobs publish a second series beside the timings, and it measures allocation rather than wall
+clock. `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` count the blocks and bytes a Tick,
+a Render Frame re-read, a Cell write, and a Language Map rebuild ask the allocator for, and assert
+shapes over them on every `cargo nextest run --workspace`. Setting `ORCVS_MEMORY_SERIES=1` makes the
+same test functions print what they just measured, and the workflow turns those records into the
+`customSmallerIsBetter` JSON the same pinned action stores under the series name `memory`. The
+series is fed by the asserting tests rather than by a binary of its own, so the published number and
+the asserted number cannot drift apart.
+
+Three things about that series differ from the timings beside it, and each is a decision. It is
+collected with a plain `cargo test`, because both bench jobs run `mise-action` with `install: false`
+and hold no cargo tool beyond the toolchain; the thread-local counters in those files are
+`const`-initialised precisely so they stay correct in the one shared process a bare `cargo test`
+runs every test in. It takes no warm-up run, because an allocation count is deterministic for a
+fixed input and a second run would only cost the job twice. And it alerts without failing, at
+`110%`/`125%` against the timings' `150%`/`300%`: the metric has no runner noise for a loose
+threshold to sit above, and the action offers no in-repo way to accept a deliberate increase, so
+failing waits until the series has enough points to show it is stable.
+`.scratch/memory-verification/spec.md` records the effort behind it.
+
 This benchmark gate is the one exception to the equivalence above. The measurement is reproducible
 from a checkout; the comparison is not, because it lives in the action rather than in `mise.toml`.
 `.scratch/benchmarks/spec.md` records what the gate can and cannot detect.
 
+A fourth trigger runs nothing at all unless someone asks for it. `mise run miri` interprets the
+Source model tests under Miri, and `.github/workflows/miri.yml` runs that task on
+`workflow_dispatch` alone — no pull request, no push, no required status context, and no other mise
+task calls it. That is deliberate rather than an omission.
+`.scratch/verification-gaps/issues/12-name-an-unsafe-review-gate-that-runs.md` decided the contract
+would stop *requiring* Miri, because it ships on nightly only while `rust-toolchain.toml` pins
+stable, and a gate the toolchain cannot run makes the contract unfollowable at the one place it
+matters most. What that decision kept is Miri as the tool the unsafe gate would prefer, run
+deliberately. This is the path it points at, and it stays off both tiers so that reaching for it
+remains a decision rather than a cost every change pays.
+
+What it covers is the one `unsafe` block in the workspace's shipped code: the in-place ASCII
+byte write in `Source::set_source`, `orcvs/src/source/model.rs`. Two more live in the counting
+allocators of `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, and the filter leaves them
+out on purpose — each is an `unsafe impl GlobalAlloc` forwarding to `System`, which is the one thing
+Miri replaces with its own allocator rather than interpreting, and no shipped target links either. The `undocumented_unsafe_blocks` and
+`unsafe_op_in_unsafe_fn` denials in `[workspace.lints]` already check on every clippy run that the
+block states an invariant; they cannot check that the invariant holds. Miri can, and the moment to
+spend it is when that byte write, or the Grid indexing that mints the index it takes, changes.
+
+The task installs `nightly` and the `miri` component itself rather than moving the pinned channel,
+so nothing else in the repository becomes nightly's problem for the length of a run. It is scoped by
+test filter — `-E 'test(/^source::model::test::/)'`, the 68 tests in the module that holds the block
+— and not by crate. That distinction is what makes the run possible at all: `orcvs` links ALSA
+through `midir` and builds a multi-threaded Tokio runtime, and Miri can execute neither, having no
+foreign functions and no real threads to hand them. But Miri interprets what actually runs rather
+than what the crate links, so a dependency no selected test calls never becomes a problem, where
+`cargo miri nextest run --package orcvs` would meet both. The run goes through `nextest` for the
+reason every gate here does, with one addition: process-per-test gives each test its own interpreter
+context, so Miri's leak check at termination reports per test rather than per binary. The job's
+`timeout-minutes` is longer than any other job in this repository carries, because interpretation
+costs roughly two orders of magnitude over native execution and `cargo miri setup` builds a MIR
+standard library before any of it starts. `scripts/check-tooling-contract.sh` pins the filter, pins
+that no task calls `mise run miri`, and requires any workflow that does run it to carry
+`workflow_dispatch` and neither of the other two triggers.
+
 - `criterion` measures both benchmarked paths — language execution in `lang`, and populated Source
   reading, rendering, and editing in `orcvs`; `benchmark-action/github-action-benchmark` stores and
-  compares the results.
+  compares the results, and the same pinned action stores the allocation series beside them. The
+  allocation counting itself takes no dependency at all: it is a `GlobalAlloc` forwarding to
+  `System` inside each crate's `tests/allocation.rs`, which those files explain in place.
 - `proptest` generates the property tests that encode the invariants `CONTEXT.md` and the ADRs
   already state.
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI

@@ -3,10 +3,18 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Every assertion below pipes the comment-stripped file into a second grep, and
+# that second grep must read to end of input. `grep -q` does not: it exits on its
+# first match, the upstream grep dies of SIGPIPE, and `set -o pipefail` above
+# then reports 141 for a pipeline whose pattern *did* match. It is a race on how
+# much the upstream has managed to write, so it stays invisible on small files
+# and on macOS, and fires on Linux once a file is long enough — at 350 lines of
+# `bench.yml` it failed 160 of 200 identical assertions. Redirecting to
+# /dev/null instead of asking for `-q` costs nothing here and cannot race.
 assert_contains() {
   local file="$1"
   local pattern="$2"
-  if ! grep -Ev '^[[:space:]]*#' "$file" | grep -Eq "$pattern"; then
+  if ! grep -Ev '^[[:space:]]*#' "$file" | grep -E "$pattern" >/dev/null; then
     echo "expected $file to match: $pattern" >&2
     exit 1
   fi
@@ -27,7 +35,7 @@ assert_occurs_exactly() {
 assert_not_contains() {
   local file="$1"
   local pattern="$2"
-  if grep -Ev '^[[:space:]]*#' "$file" | grep -Eq "$pattern"; then
+  if grep -Ev '^[[:space:]]*#' "$file" | grep -E "$pattern" >/dev/null; then
     echo "expected $file not to match: $pattern" >&2
     exit 1
   fi
@@ -107,6 +115,35 @@ workflow_job_count() {
 # number is another property of the same file rather than a literal.
 count_matches() {
   grep -Ev '^[[:space:]]*#' "$1" | grep -Ec "$2" || true
+}
+
+# The triggers a workflow declares, one per line: the keys at exactly one indent
+# level inside `on:`. Read as a set rather than matched as forbidden names, so a
+# rule about what may run a workflow cannot be stepped around by reaching for a
+# trigger the rule's authors did not think to forbid.
+workflow_triggers() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^on:[[:space:]]*$/ { in_on = 1; next }
+    in_on && /^[^[:space:]]/ { in_on = 0 }
+    in_on && /^  [A-Za-z_]+[[:space:]]*:/ {
+      line = $0
+      sub(/^  /, "", line)
+      sub(/[[:space:]]*:.*/, "", line)
+      print line
+    }
+  ' "$1"
+}
+
+assert_only_trigger() {
+  local file="$1"
+  local expected="$2"
+  local actual
+  actual="$(workflow_triggers "$file" | paste -sd, -)"
+  if [ "$actual" != "$expected" ]; then
+    echo "expected $file to declare $expected as its only trigger, found: ${actual:-none}" >&2
+    exit 1
+  fi
 }
 
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
@@ -202,6 +239,50 @@ if [ "$bench_job_count" -lt 1 ]; then
   exit 1
 fi
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev$' "$bench_job_count"
+# The memory series is published from the same jobs and from the same test
+# functions that assert on the numbers. A separate binary re-running the measured
+# paths would let the published number and the asserted number drift apart, so
+# the command is pinned rather than merely the fact that something is measured.
+# `cargo test` and not `cargo nextest run`: both bench jobs run `mise-action` with
+# `install: false`, so nextest is not installed and asking for it would either
+# fail the job or put ten minutes of tool building back into it.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture [|] tee allocations[.]txt$' "$bench_job_count"
+assert_not_contains "$root_dir/.github/workflows/bench.yml" 'cargo nextest run'
+# Exactly once per job is also what pins "no warm-up run for the memory series".
+# The timing series runs `mise run bench` twice per job because a freshly compiled
+# criterion binary's first pass is contaminated; an allocation count is
+# deterministic for a fixed input, so a second run would only cost the job twice.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench > /dev/null$' "$bench_job_count"
+# The series name the action keys the stored history by. A rename does not move
+# the history, it starts an empty series beside it, which is why the existing
+# `lang` name carries the same rule and is pinned the same way.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          name: memory$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          name: lang$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          tool: customSmallerIsBetter$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          tool: cargo$' "$bench_job_count"
+# The memory step in each job runs after a `github-action-benchmark` step that has
+# already fetched `gh-pages` — and, in the publishing job, pushed to it. Fetching
+# again would discard the commit that step just made.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          skip-fetch-gh-pages: true$' "$bench_job_count"
+# The memory series alerts and writes a job summary and does not fail the
+# workflow. That is a decision rather than an omission: a deterministic metric at
+# a threshold this tight fires on any real change, and the action offers no
+# in-repo way to accept a deliberate increase, since the series lives on
+# `gh-pages` rather than in a file a pull request can edit beside the change that
+# moves it. Whether this workflow blocks a merge at all belongs to
+# `.scratch/verification-gaps/issues/09`, which this series stays out of.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          fail-on-alert: false$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          alert-threshold: '110%'\$" "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-threshold: '125%'\$" "$bench_job_count"
+# The timing series' own thresholds, stated beside them, because "far tighter than
+# the timing series" is only a property of the pair.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          alert-threshold: '150%'\$" "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-threshold: '300%'\$" "$bench_job_count"
+# The JSON is assembled with coreutils and shell builtins, so this step installs
+# nothing and `mise.toml` gains no tool for it. `jq` is the obvious reach and it is
+# the one thing this must not become.
+assert_contains "$root_dir/.github/workflows/bench.yml" '^          printf .\[%s\].n. "[$][(]printf'
+assert_not_contains "$root_dir/.github/workflows/bench.yml" '(^|[^[:alnum:]-])jq([^[:alnum:]-]|$)'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
@@ -307,6 +388,14 @@ assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: dtolnay/rust-tool
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/bench.yml" 'taiki-e/install-action'
+# The memory series reuses the timing series' action rather than adding one, so
+# every use of it carries the same pin. Two steps per job — the timing series and
+# the memory series — derived from the job count rather than from a literal, so a
+# job added with only one of them fails here.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" 'uses: benchmark-action/github-action-benchmark@[0-9a-f]{40}[[:space:]]+# v1([.][0-9]+)*$' "$((bench_job_count * 2))"
+# A short SHA or a missing pin is already caught by the count above, which only
+# a full forty-character digest satisfies; this states the mutable refs by name.
+assert_not_contains "$root_dir/.github/workflows/bench.yml" 'benchmark-action/github-action-benchmark@(v[0-9]|main|master)'
 
 # Every job in every workflow carries a bound on its runtime. Without one a job
 # inherits the six-hour runner limit, and the shape that would spend it is a
@@ -345,6 +434,54 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
     exit 1
   fi
   assert_occurs_exactly "$workflow" '^    timeout-minutes: [0-9]+$' "$workflow_jobs"
+done
+
+# Miri is deliberate and non-gating, and both halves of that are pinned here.
+# `.scratch/verification-gaps/issues/12` decided the contract stops *requiring*
+# Miri — it ships on nightly only, `rust-toolchain.toml` pins stable, and naming
+# a gate the toolchain cannot run makes the contract unfollowable at the one
+# place it matters most. What that decision kept is Miri as the tool the unsafe
+# gate would prefer, run on purpose, so the task is that purpose written down and
+# its two lines are pinned rather than left to drift. The first is the channel
+# and component the task installs for itself: declaring them in
+# `rust-toolchain.toml` instead would make every other gate nightly's problem.
+assert_toml_task_contains "$root_dir/mise.toml" 'miri' '^rustup toolchain install nightly --component miri$'
+# The second is the run itself, scoped by test filter rather than by crate.
+# `orcvs` links ALSA through `midir` and builds a multi-threaded Tokio runtime,
+# and Miri can execute neither; it interprets what actually runs rather than what
+# the crate links, so the filter is the whole reason those never become a
+# problem. Widening it to the package would put them back, which is why the
+# selection is pinned and not merely the `cargo miri` prefix. The task-scoped
+# check reads through awk, which rejects an escaped `^` inside a pattern, so it
+# holds the shape and the grep-backed line beneath it holds the exact text.
+assert_toml_task_contains "$root_dir/mise.toml" 'miri' '^cargo [+]nightly miri nextest run --package orcvs -E .test[(]/.source::model::test::/[)].$'
+assert_contains "$root_dir/mise.toml" "^cargo [+]nightly miri nextest run --package orcvs -E 'test[(]/\^source::model::test::/[)]'\$"
+# No tier calls it. A `mise run miri` line inside another task is the shape that
+# turns the deliberate path back into a requirement without anyone deciding to,
+# and it would arrive on every pull request as an interpreter roughly two orders
+# of magnitude slower than the suite beside it. Matched unanchored and with
+# mise's `r` abbreviation, because an anchored `^mise run miri$` reads only a
+# line that is nothing else: `mise run check && mise run miri` and `mise r miri`
+# are the same call and would both have walked past it.
+assert_not_contains "$root_dir/mise.toml" 'mise (run|r) miri([^[:alnum:]_-]|$)'
+# The same rule against the workflow that runs it, stated over whichever workflow
+# runs the task rather than over a file name — so a renamed or copied job cannot
+# step around it, and so the contract's own fixture has no missing file to
+# dereference.
+#
+# Stated as a whole trigger set rather than as a list of forbidden names.
+# `workflow_dispatch` has to be there, because a job with no trigger is not a
+# path anyone can take. Naming `pull_request` and `push` as the two that must
+# not be left every other automatic trigger through: a `schedule:` with a nightly
+# cron reverses `verification-gaps/12` exactly as a `push:` would — a 90-minute
+# interpreter running unasked — and forbidding the two spellings someone thought
+# of is not a rule about what may run this workflow. `release`, `workflow_run`
+# and `workflow_call` are the same hole. Requiring the set to be exactly
+# `workflow_dispatch` leaves none of them.
+for workflow in "$root_dir"/.github/workflows/*.yml; do
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E '^[[:space:]]*-?[[:space:]]*run: mise (run|r) miri([^[:alnum:]_-]|$)' >/dev/null; then
+    assert_only_trigger "$workflow" 'workflow_dispatch'
+  fi
 done
 
 # Criterion covers both benchmarked paths: language execution in `lang`, and

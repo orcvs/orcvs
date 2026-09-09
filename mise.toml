@@ -47,6 +47,34 @@ description = "Lang tests"
 env = { RUST_BACKTRACE = 'full' }
 run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="test",default="")}}'
 
+[tasks.miri]
+description = "Interpret the Source model tests under Miri"
+# Deliberate and non-gating, and nothing here calls it. `verification-gaps/12`
+# decided the contract stops *requiring* Miri while keeping it the tool the
+# unsafe gate would prefer; this task is the deliberate path that decision
+# points at, not a tier a change owes. It is absent from `check`,
+# `check_pull_request`, and `check_merge` on purpose, and
+# `.github/workflows/miri.yml` runs it on manual dispatch only.
+#
+# Miri ships on nightly and nothing else. `rust-toolchain.toml` pins stable with
+# two components and AGENTS.md keeps nightly optional, so the task installs the
+# channel and the component it needs for the length of the run rather than
+# moving the pin and making every other gate nightly's problem.
+#
+# Scoped by test filter, not by crate. `orcvs` links ALSA through `midir` and
+# builds a multi-threaded Tokio runtime, and Miri can execute neither: it has no
+# foreign functions and no real threads to hand them. But Miri interprets what
+# actually runs, not what the crate links, so a dependency no selected test
+# calls never becomes a problem. The filter selects the tests in the module that
+# holds the one unsafe block in shipped code — the in-place ASCII byte write in
+# `Source::set_source`, `orcvs/src/source/model.rs` — which are the tests that
+# reach it. `nextest` gives each of them its own interpreter context, so Miri's
+# leak check at termination reports per test rather than per binary.
+run = '''
+rustup toolchain install nightly --component miri
+cargo +nightly miri nextest run --package orcvs -E 'test(/^source::model::test::/)'
+'''
+
 [tasks.bench]
 description = "Benchmark the lang execution paths and the populated Source paths"
 # `--benches` keeps the orcvs integration-test harnesses out, and each benchmarked

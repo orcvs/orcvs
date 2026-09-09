@@ -25,7 +25,11 @@ make_fixture() {
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$fixture_dir/.github/workflows/"
+  # `miri.yml` is copied like the other three. The contract's Miri rules are
+  # stated over whichever workflow runs the task rather than over a file name,
+  # so without the file here nothing in the fixture matches `run: mise run miri`
+  # and every one of those rules is dead code in this suite.
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
@@ -369,6 +373,82 @@ test_unpinned_workflow_linter_is_rejected() {
   assert_rejected "a workflow security linter pinned only to a major version"
 }
 
+test_automatically_triggered_miri_workflow_is_rejected() {
+  # `verification-gaps/12` kept Miri as a path taken on purpose. Every trigger
+  # below turns it back into something a change pays for without anyone
+  # deciding to, which is that decision reversed by a different route.
+  make_fixture
+  perl -pi -e "s/^on:\$/on:\n  schedule:\n    - cron: '0 3 * * *'/" "$fixture_dir/.github/workflows/miri.yml"
+  assert_rejected "a Miri workflow running on a schedule"
+
+  make_fixture
+  perl -pi -e "s/^on:\$/on:\n  push:\n    branches: [main]/" "$fixture_dir/.github/workflows/miri.yml"
+  assert_rejected "a Miri workflow running on a push"
+
+  make_fixture
+  perl -pi -e 's/^on:$/on:\n  workflow_call:/' "$fixture_dir/.github/workflows/miri.yml"
+  assert_rejected "a Miri workflow another workflow can call"
+
+  make_fixture
+  perl -pi -e 's/^  workflow_dispatch:$//' "$fixture_dir/.github/workflows/miri.yml"
+  assert_rejected "a Miri workflow nobody can dispatch"
+}
+
+test_miri_called_by_another_task_is_rejected() {
+  # No tier calls it, in any spelling. `mise r` is the same call as `mise run`,
+  # and a second command on one line is the same call again.
+  make_fixture
+  perl -pi -e 's/^(\[tasks\.bench\])$/[tasks.sneak]\nrun = "mise r miri"\n\n$1/' "$fixture_dir/mise.toml"
+  assert_rejected "a task calling Miri through mise's run abbreviation"
+
+  make_fixture
+  perl -pi -e 's/^(cargo fmt --all -- --check)$/$1 \&\& mise run miri/' "$fixture_dir/mise.toml"
+  assert_rejected "a tier calling Miri as the second half of a line"
+}
+
+test_memory_series_measured_by_a_second_binary_is_rejected() {
+  # The series is fed by the very test functions that assert on the numbers. A
+  # run that measures some other way lets the published number and the asserted
+  # number drift apart, which is the one thing the series exists to prevent.
+  make_fixture
+  perl -pi -e 's/^(        run: ORCVS_MEMORY_SERIES=1 cargo test .*)$/# $1/' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a bench workflow publishing no allocation measurement"
+
+  make_fixture
+  perl -pi -e 's/^(        run: ORCVS_MEMORY_SERIES=1 )cargo test( --package lang)/$1cargo nextest run$2/' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "an allocation measurement asking for a cargo tool the bench jobs do not install"
+}
+
+test_memory_series_assembled_with_jq_is_rejected() {
+  # Shell builtins and coreutils only, so the step installs nothing and
+  # `mise.toml` gains no tool for it.
+  make_fixture
+  perl -pi -e "s/^(          printf '\\[%s\\]).*\$/          jq -s '.' > memory.json/" "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a memory series assembled with jq"
+}
+
+test_contract_assertions_read_their_whole_input() {
+  # The contract script runs under `set -o pipefail`, so an assertion that pipes
+  # into `grep -q` reports failure for a pattern that matched: `-q` exits on the
+  # first match, the upstream grep dies of SIGPIPE, and pipefail surfaces its 141
+  # as the pipeline's status. Whether that happens is a race on how much the
+  # upstream has written, which is why it hid on macOS and on small files and
+  # then failed 160 of 200 identical assertions against a 350-line `bench.yml` on
+  # Linux — every one of them red for a line that was present.
+  #
+  # A race cannot be caught by running the suite once, so this asserts the shape
+  # instead of the symptom: no assertion helper may pipe into a short-circuiting
+  # grep. `grep -c` and a plain `grep` redirected to /dev/null both read to end
+  # of input and are safe.
+  local offenders
+  offenders="$(grep -n '|[[:space:]]*grep -[A-Za-z]*q' "$repo_root/scripts/check-tooling-contract.sh" || true)"
+  if [ -n "$offenders" ]; then
+    echo "the contract script pipes into a short-circuiting grep -q, which races with pipefail:" >&2
+    printf '%s\n' "$offenders" >&2
+    return 1
+  fi
+}
+
 test_pull_request_tier_without_workflow_linting_is_rejected() {
   make_fixture
   perl -pi -e 's/^actionlint\n$//' "$fixture_dir/mise.toml"
@@ -529,6 +609,11 @@ case "${1:-all}" in
   untimed-job) test_untimed_workflow_job_is_rejected ;;
   unscheduled-advisories) test_advisory_audit_without_a_schedule_is_rejected ;;
   advisories-without-audit) test_advisory_workflow_without_the_audit_is_rejected ;;
+  automatically-triggered-miri) test_automatically_triggered_miri_workflow_is_rejected ;;
+  miri-called-by-another-task) test_miri_called_by_another_task_is_rejected ;;
+  memory-series-second-binary) test_memory_series_measured_by_a_second_binary_is_rejected ;;
+  memory-series-jq) test_memory_series_assembled_with_jq_is_rejected ;;
+  contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
@@ -598,6 +683,11 @@ case "${1:-all}" in
     test_untimed_workflow_job_is_rejected
     test_advisory_audit_without_a_schedule_is_rejected
     test_advisory_workflow_without_the_audit_is_rejected
+    test_automatically_triggered_miri_workflow_is_rejected
+    test_miri_called_by_another_task_is_rejected
+    test_memory_series_measured_by_a_second_binary_is_rejected
+    test_memory_series_assembled_with_jq_is_rejected
+    test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected

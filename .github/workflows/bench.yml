@@ -7,7 +7,9 @@ on:
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. Repeated because Actions does not support YAML anchors.
+    # the Render Frame. The memory series needs no entry of its own: it is measured by
+    # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
+    # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
       - 'lang/**'
       - 'orcvs/**'
@@ -21,7 +23,9 @@ on:
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. Repeated because Actions does not support YAML anchors.
+    # the Render Frame. The memory series needs no entry of its own: it is measured by
+    # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
+    # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
       - 'lang/**'
       - 'orcvs/**'
@@ -107,6 +111,97 @@ jobs:
           comment-on-alert: true
           fail-threshold: '300%'
           fail-on-alert: true
+      # The allocation counts, taken from the very test functions that assert on them.
+      # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
+      # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers
+      # in the same run, so the published number and the asserted number cannot drift
+      # apart. A separate binary re-running the measured paths would let them drift
+      # silently, which is what this series exists to make visible.
+      #
+      # `cargo test`, not `cargo nextest run`: `mise-action` above runs with
+      # `install: false`, so this job holds no cargo tool beyond the toolchain, and
+      # keeping it that way is why this step installs none either. A bare `cargo test`
+      # shares one process across each binary's test threads, which is exactly the case
+      # the `const`-initialised thread-local counters in those files are correct for.
+      #
+      # No warm-up run, unlike the timing series above. An allocation count is
+      # deterministic for a fixed input, so a first run produces the second run's
+      # numbers; warming up would double this step's cost for no signal at all.
+      - name: Measure allocations
+        # `shell: bash` supplies `pipefail`, for the reason the benchmark run above
+        # gives: without it a failed assertion would pass this step and publish
+        # whatever partial output the tests had already written.
+        shell: bash
+        run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture | tee allocations.txt
+      - name: Assemble the memory series
+        # Shell builtins and coreutils only: no `jq`, no addition to `mise.toml`, and so
+        # nothing new for this job to install. Each test already prints a complete
+        # `customSmallerIsBetter` object, so this strips the marker, sorts for a
+        # reproducible file, joins the records with commas and wraps them in an array.
+        # `cut -d'"' -f4` reads each record's name back to reject a duplicate, which the
+        # action would otherwise store as two points of one series; the names carry no
+        # quote of their own, which is stated where they are built.
+        shell: bash
+        run: |
+          # `|| true` because the step runs under `-eo pipefail`: without it a
+          # `grep` that matches nothing makes the assignment fail and `errexit`
+          # kills the step here, before the diagnostic below can say why.
+          # `grep -o` rather than a `^`-anchored match because libtest only
+          # suppresses its own partial `test <name> ... ` line prefix when it
+          # runs tests concurrently, so an anchored pattern would drop every
+          # record on a single-core runner or under `RUST_TEST_THREADS=1`.
+          records="$(grep -o 'ORCVS-MEMORY-SERIES .*' allocations.txt | cut -d' ' -f2- | LC_ALL=C sort || true)"
+          if [ -z "$records" ]; then
+            echo 'the allocation tests published no records' >&2
+            exit 1
+          fi
+          # Emptiness is not enough: the two test binaries publish
+          # independently, so renaming the marker in one of them leaves the
+          # other's records arriving and half the series silently stops
+          # receiving points. Each crate is named in its own records, so
+          # requiring both says the whole measurement arrived.
+          for crate in lang orcvs; do
+            if ! printf '%s\n' "$records" | grep -q "\"name\": \"$crate "; then
+              echo "the $crate allocation tests published no records" >&2
+              exit 1
+            fi
+          done
+          duplicates="$(printf '%s\n' "$records" | cut -d'"' -f4 | LC_ALL=C uniq -d)"
+          if [ -n "$duplicates" ]; then
+            printf 'two records share one series name:\n%s\n' "$duplicates" >&2
+            exit 1
+          fi
+          printf '[%s]\n' "$(printf '%s\n' "$records" | paste -sd, -)" > memory.json
+          cat memory.json
+      - name: Publish and compare allocations
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        with:
+          # The action keys the stored series by this name, and it must never change,
+          # for the same reason the `lang` name above must not: a rename does not move
+          # the history, it starts an empty series beside it.
+          name: memory
+          tool: customSmallerIsBetter
+          output-file-path: memory.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # The step above has already fetched `gh-pages` and pushed to it in this same
+          # job, so fetching it again would discard the commit that step just made.
+          skip-fetch-gh-pages: true
+          # Far tighter than the timing series' 150%/300%, because an allocation count
+          # is deterministic for a fixed input: there is no busy-runner noise for a
+          # threshold to sit above, so anything past a few per cent is a real change.
+          alert-threshold: '110%'
+          comment-on-alert: true
+          # Recorded so that turning failing on is one line, and deliberately not
+          # turned on yet. A deterministic metric at this threshold fires on any real
+          # change, and the action offers no in-repo way to accept a deliberate
+          # increase — the series lives on `gh-pages`, not in a file a pull request
+          # can edit beside the change that moves it. Flip it once the series has
+          # enough points to show it is stable. `verification-gaps/09` owns whether
+          # this workflow blocks a merge at all; this series stays out of that.
+          fail-threshold: '125%'
+          fail-on-alert: false
+          summary-always: true
 
   # Measures pull requests and manual branch runs against the last point stored by main.
   # It reads the series and never writes it: no token, no push, no stored result.
@@ -164,4 +259,92 @@ jobs:
           comment-on-alert: false
           fail-threshold: '300%'
           fail-on-alert: true
+          summary-always: true
+      # The allocation counts, taken from the very test functions that assert on them.
+      # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` print one record per
+      # measurement when `ORCVS_MEMORY_SERIES` is set, and assert over the same numbers
+      # in the same run, so the published number and the asserted number cannot drift
+      # apart. A separate binary re-running the measured paths would let them drift
+      # silently, which is what this series exists to make visible.
+      #
+      # `cargo test`, not `cargo nextest run`: `mise-action` above runs with
+      # `install: false`, so this job holds no cargo tool beyond the toolchain, and
+      # keeping it that way is why this step installs none either. A bare `cargo test`
+      # shares one process across each binary's test threads, which is exactly the case
+      # the `const`-initialised thread-local counters in those files are correct for.
+      #
+      # No warm-up run, unlike the timing series above. An allocation count is
+      # deterministic for a fixed input, so a first run produces the second run's
+      # numbers; warming up would double this step's cost for no signal at all.
+      - name: Measure allocations
+        # `shell: bash` supplies `pipefail`, for the reason the benchmark run above
+        # gives: without it a failed assertion would pass this step and publish
+        # whatever partial output the tests had already written.
+        shell: bash
+        run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture | tee allocations.txt
+      - name: Assemble the memory series
+        # Shell builtins and coreutils only: no `jq`, no addition to `mise.toml`, and so
+        # nothing new for this job to install. Each test already prints a complete
+        # `customSmallerIsBetter` object, so this strips the marker, sorts for a
+        # reproducible file, joins the records with commas and wraps them in an array.
+        # `cut -d'"' -f4` reads each record's name back to reject a duplicate, which the
+        # action would otherwise store as two points of one series; the names carry no
+        # quote of their own, which is stated where they are built.
+        shell: bash
+        run: |
+          # `|| true` because the step runs under `-eo pipefail`: without it a
+          # `grep` that matches nothing makes the assignment fail and `errexit`
+          # kills the step here, before the diagnostic below can say why.
+          # `grep -o` rather than a `^`-anchored match because libtest only
+          # suppresses its own partial `test <name> ... ` line prefix when it
+          # runs tests concurrently, so an anchored pattern would drop every
+          # record on a single-core runner or under `RUST_TEST_THREADS=1`.
+          records="$(grep -o 'ORCVS-MEMORY-SERIES .*' allocations.txt | cut -d' ' -f2- | LC_ALL=C sort || true)"
+          if [ -z "$records" ]; then
+            echo 'the allocation tests published no records' >&2
+            exit 1
+          fi
+          # Emptiness is not enough: the two test binaries publish
+          # independently, so renaming the marker in one of them leaves the
+          # other's records arriving and half the series silently stops
+          # receiving points. Each crate is named in its own records, so
+          # requiring both says the whole measurement arrived.
+          for crate in lang orcvs; do
+            if ! printf '%s\n' "$records" | grep -q "\"name\": \"$crate "; then
+              echo "the $crate allocation tests published no records" >&2
+              exit 1
+            fi
+          done
+          duplicates="$(printf '%s\n' "$records" | cut -d'"' -f4 | LC_ALL=C uniq -d)"
+          if [ -n "$duplicates" ]; then
+            printf 'two records share one series name:\n%s\n' "$duplicates" >&2
+            exit 1
+          fi
+          printf '[%s]\n' "$(printf '%s\n' "$records" | paste -sd, -)" > memory.json
+          cat memory.json
+      - name: Compare allocations against main
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        with:
+          name: memory
+          tool: customSmallerIsBetter
+          output-file-path: memory.json
+          # No github-token and no push, for the reason the timing comparison above
+          # gives: this job reads the series and never writes it.
+          auto-push: false
+          # The comparison above has already fetched `gh-pages` in this same job.
+          skip-fetch-gh-pages: true
+          # Far tighter than the timing series' 150%/300%, because an allocation count
+          # is deterministic for a fixed input: there is no busy-runner noise for a
+          # threshold to sit above, so anything past a few per cent is a real change.
+          alert-threshold: '110%'
+          comment-on-alert: false
+          # Recorded so that turning failing on is one line, and deliberately not
+          # turned on yet. A deterministic metric at this threshold fires on any real
+          # change, and the action offers no in-repo way to accept a deliberate
+          # increase — the series lives on `gh-pages`, not in a file a pull request
+          # can edit beside the change that moves it. Flip it once the series has
+          # enough points to show it is stable. `verification-gaps/09` owns whether
+          # this workflow blocks a merge at all; this series stays out of that.
+          fail-threshold: '125%'
+          fail-on-alert: false
           summary-always: true
