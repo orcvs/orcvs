@@ -129,14 +129,16 @@ impl Interpreter {
             // a Sequence needs an arm here and nothing else: the push below already
             // carries whichever shape the Value holds.
             let value = match atom {
-                // A Terminal Output Function performs an effect and answers
-                // with no language value, so the only place it can stand is
-                // the one place nothing consumes an answer: the Expression
-                // root, which the Interpreter reaches last. Rejecting every
-                // other index here leaves each terminal arm below free to
-                // assume it is the root.
-                Atom::Function(fun) if fun.is_terminal() && index != 0 => {
-                    return Err(InterpretationError::NestedTerminalFunction.into());
+                // A Function that answers an effect rather than a value can
+                // stand in only one place: the one place nothing consumes an
+                // answer, which is the Expression root the Interpreter reaches
+                // last. The guard asks the Function's declared kind and not
+                // which effect it performs, so the Source-writing Functions of
+                // ADR 0004 are nested-invalid the day they are declared.
+                // Rejecting every other index here leaves each effect arm below
+                // free to assume it is the root.
+                Atom::Function(fun) if !fun.answers_value() && index != 0 => {
+                    return Err(InterpretationError::NestedEffectFunction.into());
                 }
                 Atom::Function(fun) => match fun {
                     Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
@@ -514,10 +516,11 @@ mod test {
     }
 
     #[test]
-    fn every_terminal_function_is_invalid_where_a_value_is_required() {
-        // The guard reads the Function's own classification, so a terminal
-        // spelling added by a later issue is nested-invalid the day it exists.
-        for function in Function::ALL.iter().copied().filter(|f| f.is_terminal()) {
+    fn every_effect_function_is_invalid_where_a_value_is_required() {
+        // The guard reads the Function's own classification and not which
+        // effect it performs, so a Function declared with any effect kind by a
+        // later issue is nested-invalid the day it exists.
+        for function in Function::ALL.iter().copied().filter(|f| !f.answers_value()) {
             let atoms = [
                 Atom::Function(Function::Add),
                 Atom::Function(function),
@@ -528,7 +531,7 @@ mod test {
                 matches!(
                     Interpreter::execute(&atoms, inputs()),
                     Err(Error::Interpretation(
-                        InterpretationError::NestedTerminalFunction
+                        InterpretationError::NestedEffectFunction
                     ))
                 ),
                 "{function:?}"
@@ -726,7 +729,7 @@ mod test {
         // Every operand of one attempt carries the same value, which is what
         // reaches Equality's Bang at all: an unequal pair answers Empty.
         for &function in Function::ALL {
-            if function.is_terminal() {
+            if !function.answers_value() {
                 continue;
             }
 
@@ -890,7 +893,7 @@ mod test {
         let binary: Vec<Function> = Function::ALL
             .iter()
             .copied()
-            .filter(|function| !function.is_terminal() && function.signature().len() == 2)
+            .filter(|function| function.answers_value() && function.signature().len() == 2)
             .collect();
 
         let widest = Function::ALL
@@ -1024,7 +1027,7 @@ mod property {
         Function::ALL
             .iter()
             .copied()
-            .filter(|function| !function.is_terminal())
+            .filter(|function| function.answers_value())
             .collect()
     }
 

@@ -4,19 +4,19 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
 **Sources of truth:** ADR 0028 states the value-or-effect rule; ADR 0029 states that the kind must carry it and that spelling must not decide it; ADR 0024 states that spelling does not decide what an Atom is; ADR 0025 makes `Sequence::new` the single membership point.
 
-- [ ] `FunctionKind` distinguishes value from effect.
-- [ ] `Function::is_terminal` either keeps its narrower meaning honestly or is replaced by the question each caller actually asks.
-- [ ] The Interpreter's nesting guard asks whether a Function answers a value.
-- [ ] Tick planning's activation gate asks the question it means, not a narrower one that happens to coincide.
-- [ ] `Sequence::new` refuses a Function Atom by its declared kind, per ADR 0029.
-- [ ] No check enumerates spellings, and no check infers a kind from a family prefix.
-- [ ] A Function added with an effect kind joins every one of those callers by its definition alone.
+- [x] `FunctionKind` distinguishes value from effect.
+- [x] `Function::is_terminal` either keeps its narrower meaning honestly or is replaced by the question each caller actually asks.
+- [x] The Interpreter's nesting guard asks whether a Function answers a value.
+- [x] Tick planning's activation gate asks the question it means, not a narrower one that happens to coincide.
+- [x] `Sequence::new` refuses a Function Atom by its declared kind, per ADR 0029.
+- [x] No check enumerates spellings, and no check infers a kind from a family prefix.
+- [x] A Function added with an effect kind joins every one of those callers by its definition alone.
 
 ## Comments
 

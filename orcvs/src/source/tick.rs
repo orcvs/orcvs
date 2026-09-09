@@ -218,15 +218,22 @@ pub(super) fn plan_configured(
     let mut functions: Vec<_> = nodes.iter().map(|node| node.function).collect();
     for index in schedule.order {
         let node = &nodes[index];
-        if suppressed[index] || (nodes[node.owner].function.is_terminal() && !activated[node.owner])
+        // A root that answers an effect performs only once it is activated, so
+        // the gate asks the owner's declared kind. It asks whether that kind
+        // answers a value and not which effect it performs: the two questions
+        // coincide only while Terminal Output is the one effect declared, and
+        // ADR 0029 records that a Function declared with any other effect must
+        // reach the same gate by its definition alone.
+        if suppressed[index]
+            || (!nodes[node.owner].function.answers_value() && !activated[node.owner])
         {
             continue;
         }
         executed[index] = true;
-        if node.parent.is_some() && node.function.is_terminal() {
+        if node.parent.is_some() && !node.function.answers_value() {
             effects.push(Effect::Diagnose(diagnose(
                 node,
-                lang::InterpretationError::NestedTerminalFunction.to_string(),
+                lang::InterpretationError::NestedEffectFunction.to_string(),
             )));
             continue;
         }
@@ -362,7 +369,7 @@ pub(super) fn plan_configured(
                         && lookup.functions.touching(start..start + 1).any(|target| {
                             let target = &nodes[target];
                             grid.index(target.anchor).get() == start
-                                && (replacement.is_terminal() != target.function.is_terminal()
+                                && (replacement.answers_value() != target.function.answers_value()
                                     || replacement.can_emit_bang()
                                         != target.function.can_emit_bang())
                         })
@@ -432,7 +439,7 @@ pub(super) fn plan_configured(
 fn potentially_active(grid: Grid, nodes: &[Computation], lookup: &Lookup) -> Vec<bool> {
     let mut active: Vec<_> = nodes
         .iter()
-        .map(|node| node.parent.is_none() && !node.function.is_terminal())
+        .map(|node| node.parent.is_none() && node.function.answers_value())
         .collect();
     let mut pending: Vec<_> = active
         .iter()
@@ -457,7 +464,7 @@ fn potentially_active(grid: Grid, nodes: &[Computation], lookup: &Lookup) -> Vec
                 }
                 for anchor in activated_anchors(grid, *output).into_iter().flatten() {
                     if let Some(index) = lookup.root_at(grid, nodes, anchor)
-                        && nodes[index].function.is_terminal()
+                        && !nodes[index].function.answers_value()
                         && !active[index]
                     {
                         active[index] = true;
@@ -494,7 +501,15 @@ fn schedule(
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
                 let configured = configuration.destinations.get(&grid.index(anchor));
-                let outputs = if function.is_terminal() {
+                // The one gate that means Terminal Output rather than
+                // "answers an effect": a Terminal Output Function has no Cell
+                // destination at all, while ADR 0004 gives a Source-writing
+                // Function a validated write bundle and ADR 0009 lets it
+                // resolve multiple Portals. Asking the wide question here
+                // would diagnose the Halt, Directional Bang, and Jump
+                // Functions for a Portal they are entitled to and hand each of
+                // them no destination.
+                let outputs = if function.performs_terminal_output() {
                     if configured.is_some() {
                         diagnostics.push(Diagnostic::for_expression(
                             anchor,
@@ -586,7 +601,7 @@ fn schedule(
             if node.function.can_emit_bang() && !lookup.is_operand_destination(grid, *output) {
                 for anchor in activated_anchors(grid, *output).into_iter().flatten() {
                     if let Some(owner) = lookup.root_at(grid, &nodes, anchor)
-                        && nodes[owner].function.is_terminal()
+                        && !nodes[owner].function.answers_value()
                     {
                         for consumer in lookup.descendants(owner) {
                             edges.insert((index, consumer));

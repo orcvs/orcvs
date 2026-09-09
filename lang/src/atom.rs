@@ -246,16 +246,71 @@ impl TryFrom<&str> for Activation {
 
 /// What a Function contributes to the Expression that contains it.
 ///
-/// A Value Function answers with a language value the surrounding Expression
-/// can consume. A Terminal Function performs a Terminal Output effect and
-/// answers with nothing, so it is valid only where no value is required.
-/// Every Function states which it is in the canonical definitions below, and
-/// nothing else is allowed to decide: a spelling table that disagreed with the
-/// interpreter would silently make a terminal Function usable as an operand.
+/// ADR 0028 states that an instruction answers either a value or an effect,
+/// never both and never neither, so that is the distinction this enum draws. A
+/// Value Function answers with a language value the surrounding Expression can
+/// consume. A Function that answers an effect performs something and answers
+/// with nothing, so it is valid only where no value is required. Every
+/// Function states which it is in the canonical definitions below, and nothing
+/// else is allowed to decide: a spelling table that disagreed with the
+/// interpreter would silently make an effect Function usable as an operand.
+///
+/// The effect a Function performs is carried inside the variant rather than
+/// being the variant, because ADR 0029 records that Terminal Output is one
+/// effect kind and not the definition of effect. Every caller that means
+/// "answers no value" therefore asks [`FunctionKind::answers_value`] and stays
+/// correct when the Source-writing effects of ADR 0004 arrive, instead of
+/// borrowing a narrower question that coincides with it only while Terminal
+/// Output is the one effect defined.
 #[derive(Clone, Copy)]
 enum FunctionKind {
     Value,
-    Terminal,
+    Effect(EffectKind),
+}
+
+impl FunctionKind {
+    #[inline(always)]
+    const fn answers_value(self) -> bool {
+        matches!(self, Self::Value)
+    }
+
+    #[inline(always)]
+    const fn performs_terminal_output(self) -> bool {
+        matches!(self, Self::Effect(EffectKind::TerminalOutput))
+    }
+}
+
+/// Which effect a Function that answers an effect performs.
+///
+/// Named for the kind rather than for the Effect itself, because CONTEXT.md
+/// gives Effect to what a Producer contributes to the Tick Plan and this is a
+/// property a Function declares before any Tick runs. One variant today: it is
+/// a type of its own rather than a second arm of [`FunctionKind`] so that the
+/// Halt, Directional Bang, and Jump Functions of ADR 0004 are added here, where
+/// they answer no value by construction, rather than beside `Value`, where each
+/// would have to be re-excluded at every caller.
+#[derive(Clone, Copy)]
+enum EffectKind {
+    /// The `!` family of ADR 0016: a Play Command delivered to the Playback
+    /// Engine, with nothing written back into the Source.
+    TerminalOutput,
+}
+
+/// The kind column of the canonical definitions, mapped to the declaration it
+/// names.
+///
+/// A row names its effect rather than the word "effect", so the table says what
+/// each Function does, and this is the one place a new effect is related to the
+/// value-or-effect rule. It is a macro arm for the same reason `operand_token!`
+/// is: the column stays one identifier per row while the shape it expands to is
+/// free to grow.
+macro_rules! function_kind {
+    (Value) => {
+        FunctionKind::Value
+    };
+    (TerminalOutput) => {
+        FunctionKind::Effect(EffectKind::TerminalOutput)
+    };
 }
 
 /// Whether a Function extends across a Sequence operand or requires a scalar
@@ -266,9 +321,8 @@ enum FunctionKind {
 /// identity across Ticks would need hidden state their one visible Atom cannot
 /// hold. An exception that arrived by omission would therefore be silent, so
 /// this is declared beside every other property of a Function rather than
-/// inferred from a family prefix or assumed from a signature: `is_terminal`
-/// can be read off the `!` family, and this cannot, because two Functions of
-/// the same family and the same signature differ in it.
+/// inferred from a family prefix or assumed from a signature: two Functions of
+/// the same family and the same signature can differ in it.
 #[derive(Clone, Copy)]
 enum Pervasion {
     Pervasive,
@@ -493,7 +547,7 @@ macro_rules! define_functions {
 
             const fn kind(self) -> FunctionKind {
                 match self {
-                    $(Self::$variant => FunctionKind::$kind,)+
+                    $(Self::$variant => function_kind!($kind),)+
                 }
             }
 
@@ -503,14 +557,36 @@ macro_rules! define_functions {
                 }
             }
 
-            /// Whether this Function performs a Terminal Output effect instead
-            /// of producing a value. Both the Interpreter's nesting guard and
-            /// tick planning's activation gate ask this rather than naming
-            /// individual Functions, so a new terminal spelling joins both by
-            /// its definition alone.
+            /// Whether this Function answers a language value the surrounding
+            /// Expression can consume, rather than performing an effect.
+            ///
+            /// This is the one question the Interpreter's nesting guard, tick
+            /// planning's activation gate, and Sequence membership each ask, so
+            /// a Function declared with an effect kind joins all three by its
+            /// definition alone. None of them asks which effect: ADR 0029
+            /// records that they would each be borrowing a narrower question
+            /// that happens to coincide with the one they mean.
             #[inline(always)]
-            pub const fn is_terminal(self) -> bool {
-                matches!(self.kind(), FunctionKind::Terminal)
+            pub const fn answers_value(self) -> bool {
+                self.kind().answers_value()
+            }
+
+            /// Whether this Function performs the Terminal Output effect of
+            /// ADR 0016: a Play Command delivered to the Playback Engine, with
+            /// nothing written back into the Source.
+            ///
+            /// This is the narrow question, and it is asked only where the
+            /// rule is about Terminal Output rather than about answering an
+            /// effect. Having no Cell destination is such a rule: ADR 0004
+            /// gives a Source-writing Function a validated write bundle and
+            /// ADR 0009 lets it resolve multiple Portals, so a gate that
+            /// refused a Portal to every Function answering an effect would
+            /// deny the Halt, Directional Bang, and Jump Functions their
+            /// destinations. Ask [`Function::answers_value`] instead wherever
+            /// the rule is that nothing consumes the answer.
+            #[inline(always)]
+            pub const fn performs_terminal_output(self) -> bool {
+                self.kind().performs_terminal_output()
             }
 
             /// Whether this Function can return Bang, even when the current
@@ -669,7 +745,7 @@ macro_rules! define_functions {
 define_functions! {
     AbsoluteDifference => (".|", Value, Pervasive, false, [left: Number, right: Number]),
     Add => (".+", Value, Pervasive, false, [left: Number, right: Number]),
-    ControlChange => ("!c", Terminal, Pervasive, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ControlChange => ("!c", TerminalOutput, Pervasive, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Pervasive, false, [value: Number]),
     ConvertToNumber => (".v", Value, Pervasive, false, [value: Note]),
     Divide => ("./", Value, Pervasive, false, [left: Number, right: Number]),
@@ -677,12 +753,12 @@ define_functions! {
     Maximum => (".>", Value, Pervasive, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Pervasive, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Pervasive, false, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", Terminal, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    MonophonicPlay => ("!%", TerminalOutput, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Pervasive, false, [left: Number, right: Number]),
-    PitchBend => ("!b", Terminal, Pervasive, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    RawPlay => ("!>", Terminal, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    PitchBend => ("!b", TerminalOutput, Pervasive, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    RawPlay => ("!>", TerminalOutput, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
     Subtract => (".-", Value, Pervasive, false, [left: Number, right: Number]),
-    TimedPlay => ("!~", Terminal, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    TimedPlay => ("!~", TerminalOutput, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -1010,37 +1086,66 @@ mod test {
     }
 
     #[test]
-    fn exactly_the_terminal_output_family_is_classified_terminal() {
-        // The two families are visible in the spellings a user types: the dot
-        // family answers with a value, and the `!` family performs. A
-        // definition whose classification contradicted its spelling would let
-        // a terminal Function stand where an operand belongs.
+    fn every_function_declares_whether_it_answers_a_value_or_an_effect() {
+        // ADR 0028 gives every Function exactly one of two answers, and ADR
+        // 0029 requires the declaration to be read rather than derived: an
+        // enumerated check naming spellings would be a second place to keep in
+        // step with the definitions, and reading the `!` family prefix would
+        // classify the Source-writing Functions of ADR 0004 as answering a
+        // value the day they are spelled `*^` or `*!`. So this match is
+        // exhaustive over `Function` with no wildcard, the way pervasion's is
+        // below: a Function added later has to be classified here as well as in
+        // the table, and a copied row that answers the wrong kind fails here
+        // rather than standing where an operand belongs.
         for function in Function::ALL.iter().copied() {
+            let expected = match function {
+                Function::AbsoluteDifference
+                | Function::Add
+                | Function::ConvertToNote
+                | Function::ConvertToNumber
+                | Function::Divide
+                | Function::Equality
+                | Function::Maximum
+                | Function::Minimum
+                | Function::Modulo
+                | Function::Multiply
+                | Function::Subtract => true,
+                Function::ControlChange
+                | Function::MonophonicPlay
+                | Function::PitchBend
+                | Function::RawPlay
+                | Function::TimedPlay => false,
+            };
+
+            assert_eq!(function.answers_value(), expected, "{function:?}");
+
+            // Terminal Output is the one effect kind declared today, so the
+            // two classifications are exact complements. That coincidence is
+            // why the narrow question needs a predicate of its own rather than
+            // a negation of the wide one: the day a Source-writing effect
+            // Function of ADR 0004 is declared, this assertion fails and names
+            // the Function whose callers must each choose again which question
+            // they mean.
             assert_eq!(
-                function.is_terminal(),
-                function.spelling().starts_with('!'),
-                "{function:?} spells {:?}",
-                function.spelling()
+                function.performs_terminal_output(),
+                !expected,
+                "{function:?}"
             );
         }
-
-        assert!(Function::RawPlay.is_terminal());
-        assert!(!Function::Add.is_terminal());
     }
 
     #[test]
     fn every_function_declares_whether_it_extends_over_a_sequence() {
         // ADR 0007 makes pervasive extension the rule for Atomic Functions and
         // ADR 0012 makes Increment and Interpolation exceptions to it, so the
-        // property cannot be inferred from a family prefix the way
-        // `is_terminal` can. ADR 0030 settles the other family the same way:
-        // the Terminal Output Functions extend as well, so pervasion is not a
-        // property of answering a value either, and a `!`-spelled row is no
-        // more predictable from its spelling than a `.`-spelled one. It is
-        // declared per Function instead, and this match is exhaustive over
-        // `Function` with no wildcard: a Function added later has to be
-        // classified here as well as in the table, so neither an omission nor a
-        // copied row can make it broadcast by accident.
+        // property cannot be inferred from a family prefix. ADR 0030 settles
+        // the other family the same way: the Terminal Output Functions extend
+        // as well, so pervasion is not a property of answering a value either,
+        // and a `!`-spelled row is no more predictable from its spelling than a
+        // `.`-spelled one. It is declared per Function instead, and this match
+        // is exhaustive over `Function` with no wildcard: a Function added
+        // later has to be classified here as well as in the table, so neither
+        // an omission nor a copied row can make it broadcast by accident.
         for function in Function::ALL.iter().copied() {
             let expected = match function {
                 Function::AbsoluteDifference

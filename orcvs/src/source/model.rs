@@ -1691,8 +1691,7 @@ mod test {
         assert!(
             tick.diagnostics
                 .iter()
-                .any(|d| d.message
-                    == "a terminal Function is valid only at the root of an Expression")
+                .any(|d| d.message == lang::InterpretationError::NestedEffectFunction.to_string())
         );
         assert!(
             tick.diagnostics
