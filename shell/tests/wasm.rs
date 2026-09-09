@@ -197,31 +197,17 @@ async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
 }
 
 ///
-/// The browser end of the storage seam.
+/// The developer console, as a test can see it.
 ///
-/// `shell/src/persistence.rs` reports a refused revision on two channels
-/// because the two targets read different ones: the native binary installs a
-/// `tracing` subscriber, and the browser build installs `eframe::WebLogger`,
-/// which reads `log` and knows nothing of `tracing`. Every other persistence
-/// test runs on the native target, where the `tracing` line alone is enough, so
-/// only a test compiled for `wasm32` can hold the browser's half of "a
-/// malformed stored value is refused, and is reported".
+/// A browser build reports on `log`, which is the channel
+/// `eframe::WebLogger` forwards to the developer console; a `tracing` event
+/// alone reaches no subscriber on this target and is dropped. Standing in for
+/// that logger is the only way a test sees what the console would show, so
+/// every browser report this file asserts on comes back through here.
 ///
-#[cfg(feature = "persistence")]
-mod refused_revision {
+mod developer_console {
     use std::sync::Mutex;
 
-    use eframe::App as _;
-    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
-    use orcvs::source::Source;
-    use shell::console::Console;
-    use wasm_bindgen_test::wasm_bindgen_test;
-
-    ///
-    /// The error records the browser build put on `log`, which is the channel
-    /// `eframe::WebLogger` forwards to the developer console. Standing in for
-    /// that logger is the only way a test sees what the console would show.
-    ///
     static REPORTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
     struct CapturingLogger;
@@ -242,6 +228,113 @@ mod refused_revision {
 
         fn flush(&self) {}
     }
+
+    ///
+    /// The error records `action` puts on `log`.
+    ///
+    /// `log::set_logger` takes the first logger installed and refuses the rest,
+    /// which is why the record list is cleared here rather than at
+    /// installation: the second test to run reuses the logger the first
+    /// installed.
+    ///
+    pub fn records_from(action: impl FnOnce()) -> Vec<String> {
+        log::set_logger(&CapturingLogger).ok();
+        log::set_max_level(log::LevelFilter::Error);
+        REPORTED
+            .lock()
+            .expect("no test panics while holding the record list")
+            .clear();
+
+        action();
+
+        REPORTED
+            .lock()
+            .expect("no test panics while holding the record list")
+            .clone()
+    }
+}
+
+///
+/// The browser end of the Playback failure report.
+///
+/// `Console::ui` hands the Playback diagnostics it drains to
+/// `shell::diagnostics::report_playback_failures` on every non-desktop target,
+/// and in the browser that report is the whole of what a Playback failure
+/// produces: the desktop's MIDI panel is compiled out there, so nothing else
+/// shows it. This holds the browser's half of "a Playback failure is
+/// reported".
+///
+/// What it drives is the reporting path itself, with a real
+/// `PlaybackDiagnostic` and the real failure decision: a diagnostic that is not
+/// a failure has to stay silent, and one that is has to reach the developer
+/// console. What it does not drive is `Console::ui` calling it. Console holds
+/// its own `Orcvs` over its own adapter, and the browser build has no reachable
+/// way to make that engine fail — `InMemoryOutputAdapter::fail_next_submission`
+/// needs the adapter instance, and the zero Tick period that fails a start or a
+/// retune is unreachable through `Bpm`, whose delay is at least one
+/// millisecond. So the call in `ui()` is a one-line hand-off this test does not
+/// cover.
+///
+mod playback_failure {
+    use orcvs::playback::PlaybackDiagnostic;
+    use shell::diagnostics::report_playback_failures;
+    use std::time::Duration;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::developer_console::records_from;
+
+    #[wasm_bindgen_test]
+    fn the_browser_reports_a_playback_failure() {
+        let reported = records_from(|| {
+            report_playback_failures(&[PlaybackDiagnostic::ClockFailure {
+                message: "Playback clock terminated unexpectedly".to_owned(),
+            }])
+        });
+
+        assert!(
+            reported
+                .iter()
+                .any(|record| record == "Playback failure: Playback clock terminated unexpectedly"),
+            "the browser build reported nothing a developer console would show: {reported:?}"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn the_browser_reports_nothing_for_a_diagnostic_that_is_not_a_failure() {
+        let reported = records_from(|| {
+            report_playback_failures(&[PlaybackDiagnostic::Overrun {
+                scheduled_at: Duration::from_millis(750),
+                observed_at: Duration::from_millis(1_600),
+            }])
+        });
+
+        assert!(
+            reported.is_empty(),
+            "an Overrun is a skipped Tick, not a failure: {reported:?}"
+        );
+    }
+}
+
+///
+/// The browser end of the storage seam.
+///
+/// `shell/src/persistence.rs` reports a refused revision on two channels
+/// because the two targets read different ones: the native binary installs a
+/// `tracing` subscriber, and the browser build installs `eframe::WebLogger`,
+/// which reads `log` and knows nothing of `tracing`. Every other persistence
+/// test runs on the native target, where the `tracing` line alone is enough, so
+/// only a test compiled for `wasm32` can hold the browser's half of "a
+/// malformed stored value is refused, and is reported".
+///
+#[cfg(feature = "persistence")]
+mod refused_revision {
+    use eframe::App as _;
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
+    use orcvs::source::Source;
+    use shell::console::Console;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::developer_console::records_from;
 
     ///
     /// Storage holding bytes that are not the stored encoding at all, under the
@@ -290,25 +383,17 @@ mod refused_revision {
 
     #[wasm_bindgen_test]
     fn the_browser_reports_a_refused_revision_and_starts_the_default_grid() {
-        log::set_logger(&CapturingLogger).ok();
-        log::set_max_level(log::LevelFilter::Error);
-        REPORTED
-            .lock()
-            .expect("no test panics while holding the record list")
-            .clear();
-
         let storage = MalformedStorage;
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(&storage);
-        let mut console = Console::new(&cc);
+        let mut console = None;
 
         // The report is the whole of what the browser has: the console shows a
         // developer-console record or it shows nothing at all. A `tracing`
         // event alone reaches no subscriber on this target and is dropped.
-        let reported = REPORTED
-            .lock()
-            .expect("no test panics while holding the record list")
-            .clone();
+        let reported = records_from(|| console = Some(Console::new(&cc)));
+        let mut console = console.expect("the console was built inside the capture");
+
         assert!(
             reported.iter().any(|record| record.contains("refused")),
             "the browser build reported nothing a developer console would show: {reported:?}"

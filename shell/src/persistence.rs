@@ -85,34 +85,19 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
 }
 
 ///
-/// What is stored is the same shape on both targets; what reports a refusal is
-/// not, so the refusal is put on both channels.
+/// Reports the refusal, on whichever channel the target being built reads.
 ///
-/// The native binary installs a `tracing` subscriber (`shell/src/main.rs`) and
-/// reads `tracing`. The browser build installs `eframe::WebLogger` instead,
-/// which forwards `log` records to the developer console and knows nothing of
-/// `tracing`; with no `tracing` subscriber on that target a `tracing` event is
-/// dropped where nobody sees it. Reporting on the channel each target actually
-/// reads is what makes "refused, and reported" true in the browser as well.
-///
-/// `log` is already a `wasm32`-only dependency of this crate, so the second
-/// line costs no manifest change. The alternative — enabling `tracing`'s `log`
-/// feature in the workspace manifest, which bridges every `tracing` event to
-/// `log` wherever no subscriber is installed — is one line but a much wider
-/// change: it routes every event in the workspace to the browser console at
-/// `WebLogger`'s `Debug` filter, and `orcvs/src/source/model.rs` emits
-/// `debug!` on every Cell write, which is the Tick and edit path. Turning one
-/// refusal report into per-Cell console traffic in the browser is an unmeasured
-/// cost on a hot path, so the report is placed at the one site that needs it.
+/// `crate::report` is the one place that knows which those are; the storage
+/// seam only has to say that a refusal happened. The key is in the message
+/// rather than beside it as a `tracing` field because that report has to read
+/// the same in a browser developer console, which has no fields.
 ///
 #[cfg(feature = "persistence")]
 fn report_refusal() {
     const REFUSED: &str = "refused the stored Source: it is not a Source this build can read; \
                            starting the default Grid";
 
-    tracing::error!(key = eframe::APP_KEY, "{}", REFUSED);
-    #[cfg(target_arch = "wasm32")]
-    log::error!("{}: {}", eframe::APP_KEY, REFUSED);
+    crate::report::error!("{}: {}", eframe::APP_KEY, REFUSED);
 }
 
 ///

@@ -413,13 +413,9 @@ impl eframe::App for Console {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
             // Without a native backend there is no MIDI menu, so the status
-            // line those diagnostics would reach is never presented and the log
-            // is the only channel a failure has.
-            for diagnostic in &playback_diagnostics {
-                if let Some(message) = crate::diagnostics::failure_message(diagnostic) {
-                    tracing::error!("Playback failure: {message}");
-                }
-            }
+            // line those diagnostics would reach is never presented and the
+            // developer console is the only channel a failure has.
+            crate::diagnostics::report_playback_failures(&playback_diagnostics);
         }
         let top_panel = egui::Panel::top("top_panel")
             .resizable(true)

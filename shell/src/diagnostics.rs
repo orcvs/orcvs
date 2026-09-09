@@ -18,6 +18,23 @@ pub(crate) fn failure_message(diagnostic: &PlaybackDiagnostic) -> Option<String>
     }
 }
 
+///
+/// Reports every Playback failure among `diagnostics`.
+///
+/// The desktop presents these in the MIDI panel
+/// (`MidiDeviceSelection::observe_diagnostics`), so this is the reporting path
+/// every other target takes — the browser among them — and it is compiled
+/// there only.
+///
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+pub fn report_playback_failures(diagnostics: &[PlaybackDiagnostic]) {
+    for diagnostic in diagnostics {
+        if let Some(message) = failure_message(diagnostic) {
+            crate::report::error!("Playback failure: {message}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
