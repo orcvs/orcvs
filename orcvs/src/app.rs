@@ -8,7 +8,7 @@ use crate::grid::{Grid, Position};
 use crate::native_midi::{self, NativeMidiOutputAdapter};
 use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackState};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
-use crate::source::SourceCommander;
+use crate::source::{Source, SourceCommander};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputKey {
@@ -74,13 +74,64 @@ impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Self {
         Self::with_output_adapter(cols, rows, native_midi::output_adapter())
     }
+
+    ///
+    /// A running Orcvs over `source`, such as a Source read back from
+    /// persistence, on the output the platform supplies.
+    ///
+    /// ```
+    /// use orcvs::app::Orcvs;
+    /// use orcvs::grid::Grid;
+    /// use orcvs::source::Source;
+    ///
+    /// let mut restored = Source::new(Grid::new(6, 3));
+    /// let cell = restored.grid().cell_index(0).expect("inside the Grid");
+    /// restored.set(cell, "1").expect("a Cell the Source accepts");
+    ///
+    /// let orcvs = Orcvs::with_source(restored);
+    ///
+    /// // the Source arrives whole: its Cells, and the Grid it was built from
+    /// let frame = orcvs.render_frame();
+    /// assert_eq!(frame.rows().len(), 3);
+    /// assert_eq!(frame.rows()[0].len(), 6);
+    /// assert_eq!(frame.rows()[0][0].content(), Some('1'));
+    /// ```
+    ///
+    pub fn with_source(source: Source) -> Self {
+        Self::with_source_and_output_adapter(source, native_midi::output_adapter())
+    }
 }
 
 impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     pub fn with_output_adapter(cols: usize, rows: usize, adapter: A) -> Self {
-        let grid = Grid::new(cols, rows);
+        Self::with_source_and_output_adapter(Source::new(Grid::new(cols, rows)), adapter)
+    }
+
+    ///
+    /// A running Orcvs over `source`, taking the Grid the Source was built
+    /// from: a Source read back from persistence carries the shape it was
+    /// stored with, and the Cursor starts at that Grid's origin.
+    ///
+    /// ```
+    /// use orcvs::app::Orcvs;
+    /// use orcvs::grid::Grid;
+    /// use orcvs::playback::InMemoryOutputAdapter;
+    /// use orcvs::source::Source;
+    ///
+    /// let restored = Source::new(Grid::new(6, 3));
+    /// let orcvs =
+    ///     Orcvs::with_source_and_output_adapter(restored, InMemoryOutputAdapter::default());
+    ///
+    /// // the shape is the Source's, not a pair passed alongside it, and the
+    /// // Cursor opens on that Grid's origin
+    /// assert_eq!(orcvs.render_frame().rows().len(), 3);
+    /// assert!(orcvs.render_frame().rows()[0][0].selected());
+    /// ```
+    ///
+    pub fn with_source_and_output_adapter(source: Source, adapter: A) -> Self {
+        let grid = source.grid();
         let opts = Opts::new();
-        let source = SourceCommander::new(grid);
+        let source = SourceCommander::with_source(source);
         let playback = PlaybackEngine::new(source.clone(), adapter);
 
         Self {
@@ -91,6 +142,15 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
             playback,
             playback_state: PlaybackState::Stopped,
         }
+    }
+
+    ///
+    /// The Source root, for the storage a console saves the current revision
+    /// into.
+    ///
+    #[cfg(feature = "persistence")]
+    pub fn source(&self) -> &SourceCommander {
+        &self.source
     }
 
     pub fn observe_playback(&mut self) -> Vec<PlaybackDiagnostic> {

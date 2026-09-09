@@ -65,8 +65,11 @@ Then run only the gates whose inputs the change actually touched:
   `actionlint`, and `zizmor --offline .github/workflows`
 - `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
   `node scripts/roadmap.ts > /dev/null`
-- persistence: `cargo nextest run --workspace --tests --features persistence --locked`.
-  `mise run test_persistence` is the merge tier's whole pass and belongs to CI.
+- persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
+  `shell` enables `persistence` by default, so the ordinary run already covers the feature-on
+  path and `--features persistence` adds nothing; the arm worth running per change is the one
+  that proves the feature still compiles out. `mise run test_persistence` is the merge tier's
+  whole pass and belongs to CI.
 - WASM or platform code: `mise run check_wasm`
 - dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
