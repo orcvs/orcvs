@@ -2,7 +2,7 @@
 
 **What to verify:** Close the original Bang-lifecycle issue against `CONTEXT.md` and ADR 0032. Implementation is tracked in `tick-execution-order/02`; do not implement the old cleanup-turn design independently.
 
-**Blocked by:** tick-execution-order/03.
+**Blocked by:** None — tick-execution-order/03 is resolved.
 
 **Status:** ready-for-agent
 

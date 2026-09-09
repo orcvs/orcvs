@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 **Sources of truth:** ADR 0028 states the value-or-effect rule; ADR 0029 states that the kind must carry it and that spelling must not decide it; ADR 0024 states that spelling does not decide what an Atom is; ADR 0025 makes `Sequence::new` the single membership point.
 
 - [ ] `FunctionKind` distinguishes value from effect.

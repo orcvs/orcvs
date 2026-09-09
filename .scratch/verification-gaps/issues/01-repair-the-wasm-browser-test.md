@@ -4,11 +4,11 @@
 
 **Blocked by:** None — can start immediately. `main` is red until it lands.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] `mise run test_wasm` compiles.
 - [x] The Raw Play regression asserts on the Output Command the adapter records.
-- [ ] A push to `main` reports the WASM job green.
+- [x] A push to `main` reports the WASM job green.
 
 ## Comments
 

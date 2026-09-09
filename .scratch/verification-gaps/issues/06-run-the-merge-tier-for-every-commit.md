@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Refresh the tooling contract's stale action pins.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] A push to `main` cannot cancel an in-progress run for an earlier commit on `main`.
 - [x] A manual dispatch runs the merge tier.

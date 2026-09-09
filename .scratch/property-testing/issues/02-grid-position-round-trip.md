@@ -3,19 +3,23 @@
 **What to build:** Encode the Grid laws that CONTEXT.md states. Generate Grid dimensions and
 candidate coordinates, and check containment, the index round trip, and row coverage.
 
-**Blocked by:** 01 — Add proptest for native targets; source-module-depth/07 — Decide whether a Grid still answers what fits in a row.
+**Blocked by:** None — every listed blocker is resolved.
 
 **Status:** ready-for-agent
 
 **Tags:** release/v1
 
 - [ ] `position(x, y)` returns `Some` exactly when `x` is inside the columns and `y` inside the rows.
-- [ ] `position_at(index(p)) == Some(p)` for every Position the Grid mints.
-- [ ] `index(position_at(i).unwrap()) == i` for every `i` below `count()`.
+- [ ] `position_at(index(p)) == p` for every Position the Grid mints. `index` answers a
+      `CellIndex` and `position_at` is total.
+- [ ] `index(position_at(c)) == c` for every `c` that `cell_index(i)` answers, for every `i`
+      below `count()`.
+- [ ] `cell_index(i)` answers `None` exactly when `i` is at or above `count()`.
 - [ ] `owns(p)` holds for every Position the Grid mints.
 - [ ] `rows()` yields exactly `count()` Positions, each index appearing once.
 - [ ] `offset_in_row(p, offset)` agrees with the column arithmetic at the right-hand edge: it
-      returns `Some` exactly while `p` plus the offset stays inside `p`'s own row.
+      answers `Some(CellIndex)` exactly while `p` plus the offset stays inside `p`'s own row. It
+      has no test today, and three production sites call it.
 - [ ] `up`, `down`, `left`, and `right` always return a Position the Grid owns.
 - [ ] Generated Grids include the one-column and one-row cases.
 

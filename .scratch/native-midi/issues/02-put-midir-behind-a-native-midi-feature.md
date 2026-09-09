@@ -8,6 +8,8 @@ Feature name is `native-midi`, not `midi`: the target-agnostic MIDI vocabulary â
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `orcvs` declares a `native-midi` feature, on by default, and `midir` is an optional dependency reached only through it.
 - [ ] With the feature enabled, dependency resolution, behaviour, and the public surface are unchanged from today.
 - [ ] With the feature disabled, `orcvs` builds with neither `midir` nor a system audio library anywhere in its dependency tree, and a running Orcvs uses an output adapter that emits nothing.
@@ -21,11 +23,13 @@ Feature name is `native-midi`, not `midi`: the target-agnostic MIDI vocabulary â
 
 ### Release freeze
 
-Recorded during the `release/v1` issue alignment on 2026-09-04. This issue carries no
-`release/v1` tag and is not release work, but it must not land inside the release window: from the
-moment `v1-release/03` cuts the candidate SHA until `v1-release/01` records the GO decision.
+Recorded during the `release/v1` issue alignment on 2026-09-04, and revised on 2026-09-09. This
+issue now carries the `release/v1` tag and blocks `v1-release/03`, so it must land **before**
+`v1-release/03` cuts the candidate SHA â€” never inside the window that runs from the cut until
+`v1-release/01` records the GO decision.
 
 The reason is evidence, not behaviour. `v1-release/03` records a `cargo deny --locked check` result
 that describes one dependency tree. Making `midir` optional changes that tree, so a merge inside the
-window leaves the recorded result describing a build that is no longer the candidate. Land it before
-the SHA is cut, or after GO.
+window leaves the recorded result describing a build that is no longer the candidate. Listing this
+issue as a blocker of `v1-release/03` is what enforces that: the SHA cannot be cut until it is
+resolved.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Refresh the tooling contract's stale action pins.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] The dependency audit runs in the pull-request tier.
 - [x] `mise run audit_deps` has an automatic caller, or its contents are folded into a task that has one.

@@ -3,7 +3,8 @@
 The First Release Candidate proves the inventory decided in
 `v1-roadmap-wayfinding/issues/01-name-the-shipped-language-inventory.md`. That issue is the
 inventory of record: it names every member and gives the state of each one, so no count of shipped
-or unshipped members is copied into this document. ADRs and `CONTEXT.md` remain design inputs until
+or unshipped members is copied into this document. Its "Current state" column is refreshed against
+implemented behaviour before it is read as that authority. ADRs and `CONTEXT.md` remain design inputs until
 implementation and this evidence agree; glossary presence alone does not make a capability shipped.
 
 ## Language and Source
@@ -28,8 +29,9 @@ implementation and this evidence agree; glossary presence alone does not make a 
 - [ ] Tick Functions `~.`, `~*`, `~+`, `~?`, `~%`, and `~>` use explicit Tick/Position inputs,
       deterministic randomness, and visible Source feedback without hidden cross-Tick state.
 - [ ] Spatial behavior covers Bang activation and expiry, all four Directional Bang forms and
-      Self-Banging Function movements, Jump chains `&^`, `&v`, `&<`, `&>`, Halt `*!`, Source-order
-      turns, atomic writes, conflicts, later-root activation, and boundary diagnostics.
+      Self-Banging Function movements, Jump chains `&^`, `&v`, `&<`, `&>`, Halt `*!`,
+      dependency-ordered turns with Position breaking ties per ADR 0032, atomic writes, conflicts,
+      activation of the reached root, and boundary diagnostics.
 - [ ] MIDI terminal output covers Raw `!>`, Timed `!~`, Monophonic `!%`, Control Change `!c`, and
       Pitch Bend `!b` with explicit operand types, protocol ranges, ordering, scheduling, ownership,
       device lifecycle, and exact wire bytes.
@@ -49,15 +51,19 @@ implementation and this evidence agree; glossary presence alone does not make a 
 ## Product evidence
 
 - [ ] Native and WASM persistence store Grid and character Source as authority, reject malformed
-      state, rebuild derived state, and restore through the shipped save–restart–reload paths.
+      state, rebuild derived state, and restore through the save–restart–reload paths the candidate
+      ships. No such path existed when this line was written; `product-persistence/01` adds it.
+      Either it ships and is proved, or the exclusion joins the accepted deferrals below.
 - [ ] Four candidate-bound captures—native/WASM × wide/tall—record SHA, platform, viewport,
       procedure, and reviewer and pass the decided geometry, palette, semantic-state, diagnostic,
       and Cursor checklist.
 - [ ] Deterministic fake MIDI tests prove exact bytes and lifecycle; one recorded physical-device
       smoke proves the exact candidate's native adapter and OS/port/device integration.
-- [ ] Criterion output compares the candidate with a named stable baseline under the same toolchain,
-      profile, workloads, and environment; archived output and history review rule out unacceptable
-      point or cumulative regression in the claimed parse/interpret paths.
+- [ ] Criterion output compares the candidate against the nominated `gh-pages` series point under
+      the same toolchain, profile, and workloads. `.github/workflows/bench.yml` compares against the
+      previous stored point across runners rather than against a fixed baseline, so the reviewer
+      supplies the baseline judgment; archived output and history review rule out unacceptable point
+      or cumulative regression in the claimed parse/interpret paths.
 
 ## Release decision
 

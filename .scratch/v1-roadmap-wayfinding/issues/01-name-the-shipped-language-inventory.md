@@ -16,6 +16,10 @@ every term in the evolving glossary as automatically shipped.
 
 ## Answer
 
+**State column refreshed 2026-09-09 against `f131e5e`.** The original column was written against
+`bbe882e` (2026-09-01). Nine members moved after it, so the release-candidate audit restated each
+one. The FRC contract column is unchanged.
+
 The First Release Candidate ships the complete accepted numeric, Sequence, Tick, spatial, and MIDI
 slice below. Release membership follows this inventory, not mere appearance in `CONTEXT.md` or ADR
 0019. “Satisfied” means the current implementation substantially provides the release behavior;
@@ -27,11 +31,11 @@ already exists.
 | Inventory member | FRC contract | Current state |
 | --- | --- | --- |
 | Number | Contextual two-Cell uppercase hexadecimal `00`–`FF`; wrapping general arithmetic | Substantially satisfied |
-| Note | Contextual canonical pitch spelling `C/`–`G9`, carrying MIDI `00`–`7F` | Partial: the current tables omit MIDI 0–20 |
-| Bang `**` | One-Tick Atom with deterministic activation and expiry | Syntax partial; Tick behavior missing |
-| Self-Banging Functions `^^`, `vv`, `<<`, `>>` | Root-only Source Functions with intrinsic Bang activation, one-Cell-per-Tick Portal writes, and collision-to-Bang behavior | East syntax only; behavior missing |
-| Sequence | Flat ordered, non-nesting Atom value; compatible Atomic Functions extend pervasively | Missing |
-| Comment | `##` through row end; lone `#` is incomplete or invalid | Missing pending Language Map |
+| Note | Contextual canonical pitch spelling `C/`–`G9`, carrying MIDI `00`–`7F` | Satisfied: conversion is algorithmic and total over `00`–`7F` (`lang/src/lib.rs`) |
+| Bang `**` | One-Tick Atom with deterministic activation and expiry | Substantially satisfied: activation, producer-before-consumer ordering, once-only execution, stale-display clearing, and parser-owned validity ship through the ADR 0032/0034 scheduler. East and west anchor coverage and direct delivery remain (`spatial-tick-planning/02`) |
+| Self-Banging Functions `^^`, `vv`, `<<`, `>>` | Root-only Source Functions with intrinsic Bang activation, one-Cell-per-Tick Portal writes, and collision-to-Bang behavior | All four spellings parse (`lang/src/atom.rs`, `lang/src/parser.rs`); movement and emission missing |
+| Sequence | Flat ordered, non-nesting Atom value; compatible Atomic Functions extend pervasively | Value and pervasive broadcasting ship (`lang/src/sequence.rs`, `lang/src/stack.rs`); unreachable from Source until `:-` or `:#` can spell one, and a Sequence result cannot reach Source (`sequence-values/06`) |
+| Comment | `##` through row end; lone `#` is incomplete or invalid | Shipped (`orcvs/src/source/language_map.rs`); `sequence-values/07` moves the rule from a byte pre-pass into the parse |
 
 Function and Character implementation variants and `Empty` sentinels are not automatically shipped
 language values. Bangs may inhabit Sequences: structural operations preserve, select, or replace
@@ -44,14 +48,18 @@ The FRC ships the complete accepted family: Addition `.+`, ordered Subtraction `
 Difference `.|`, Multiplication `.x`, Division `./`, Modulo `.%`, Minimum `.<`, Maximum `.>`,
 Equality `.=` and explicit Note-to-Number `.v` / Number-to-Note `.^` conversion.
 
-`.+`, `.-`, `.x`, and `./` are substantially implemented. `.v` and `.^` have core evaluation but
-remain partial until the full Note domain and Sequence extension are satisfied. `.|`, `.%`, `.<`,
-`.>`, and `.=` are missing.
+The complete family is implemented. `.+`, `.-`, `.x`, and `./` were already substantially
+implemented; `.|`, `.%`, `.<`, `.>`, and `.=` have since shipped, and both conditions that held
+`.v` and `.^` partial — the full Note domain and pervasive Sequence extension — are now met. All
+eleven appear in `define_functions!` (`lang/src/atom.rs`), and the arithmetic laws run exhaustively
+over every byte pair (`lang/src/interpreter.rs`, `lang/src/functions/math.rs`).
 
 ### Sequence family
 
 The FRC ships Number Range `:-`, Note Range `:#`, Reverse `:<`, Concatenate `:&`, Select `:?`, and
-Replace `:=` with the accepted flat-Sequence behavior. All are currently missing. Replace is a pure
+Replace `:=` with the accepted flat-Sequence behavior. All six are currently missing. Two
+prerequisites are also missing and are tracked in `sequence-values/06`: the executor refuses every
+Sequence result, and a signature cannot name a generic Atom or Sequence operand. Replace is a pure
 value operation; the general Source Write that may follow it remains deferred. Complete-fit atomic
 Sequence result delivery through Portals is release infrastructure, not a shipped Portal value.
 
@@ -66,9 +74,12 @@ determinism boundaries. All are currently missing.
 The FRC ships Directional Bang Functions `*^`, `*v`, `*<`, `*>`; Halt `*!`; and directional Jump
 Functions `&^`, `&v`, `&<`, `&>`. It includes Bang routing and expiry, Activation movement and
 collision, Source-order root turns, later-root same-Tick activation, Halt locking, directional Jump
-chains over complete aligned Language Units, snapshot reads, atomic writes, deterministic effect
-ordering, and diagnostics. Jump does not transport a Sequence or partial Language Unit. This
-behavior is currently missing apart from limited lexical spellings.
+chains over complete aligned Language Units, atomic writes, deterministic effect ordering, and
+diagnostics. Jump does not transport a Sequence or partial Language Unit. Bang routing, expiry, and
+effect ordering now ship through the dependency scheduler; ADR 0032 replaced Source-order root
+turns with dependency order, where Position only breaks ties. Directional Bang Functions, Halt, and
+Jump remain missing — no `*^`, `*v`, `*<`, `*>`, `*!`, `&^`, `&v`, `&<`, or `&>` appears in
+`lang/src` or `orcvs/src`.
 
 ### MIDI terminal-output family
 
@@ -80,9 +91,12 @@ The FRC ships all five accepted MIDI forms:
 - Control Change `!c` with direct controller/value data bytes.
 - Pitch Bend `!b` with direct LSB then MSB data bytes.
 
-Raw Play is partial: parsing, a command shape, and native delivery exist, but channel validation,
-the complete Note domain, activation, and Tick Plan integration remain incomplete. Timed Play,
-Monophonic Play, Control Change, and Pitch Bend are missing.
+All five ship. Raw Play's four recorded gaps are closed: channel and velocity carry typed MIDI
+domains, the Note domain is complete, terminal activation gates execution, and Tick Plan
+integration is in place. Timed Play, Monophonic Play, Control Change, and Pitch Bend have since
+shipped (`lang/src/atom.rs`; `midi-output-family/02`–`04`). The residual is Bang expiry and the
+narrow safety action — CC 123 only, with CC 121 and the centred bend open in
+`midi-output-family/06`.
 
 ### Explicit deferrals and omissions
 

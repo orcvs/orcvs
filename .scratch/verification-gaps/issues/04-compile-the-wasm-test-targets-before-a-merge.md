@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Repair the WASM browser test against the Output Command seam; 02 — Refresh the tooling contract's stale action pins.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] The WASM tier compiles shell's test targets for `wasm32-unknown-unknown`.
 - [x] The WASM job runs the compile-and-build tier on a pull request.
