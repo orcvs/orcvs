@@ -195,3 +195,135 @@ async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
     assert!(adapter.command_lists().len() > stopped_count);
     engine.stop();
 }
+
+///
+/// The browser end of the storage seam.
+///
+/// `shell/src/persistence.rs` reports a refused revision on two channels
+/// because the two targets read different ones: the native binary installs a
+/// `tracing` subscriber, and the browser build installs `eframe::WebLogger`,
+/// which reads `log` and knows nothing of `tracing`. Every other persistence
+/// test runs on the native target, where the `tracing` line alone is enough, so
+/// only a test compiled for `wasm32` can hold the browser's half of "a
+/// malformed stored value is refused, and is reported".
+///
+#[cfg(feature = "persistence")]
+mod refused_revision {
+    use std::sync::Mutex;
+
+    use eframe::App as _;
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
+    use orcvs::source::Source;
+    use shell::console::Console;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    ///
+    /// The error records the browser build put on `log`, which is the channel
+    /// `eframe::WebLogger` forwards to the developer console. Standing in for
+    /// that logger is the only way a test sees what the console would show.
+    ///
+    static REPORTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    struct CapturingLogger;
+
+    impl log::Log for CapturingLogger {
+        fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+            metadata.level() <= log::Level::Error
+        }
+
+        fn log(&self, record: &log::Record<'_>) {
+            if self.enabled(record.metadata()) {
+                REPORTED
+                    .lock()
+                    .expect("no test panics while holding the record list")
+                    .push(record.args().to_string());
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    ///
+    /// Storage holding bytes that are not the stored encoding at all, under the
+    /// key the console reads.
+    ///
+    struct MalformedStorage;
+
+    impl eframe::Storage for MalformedStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            (key == eframe::APP_KEY).then(|| "not a stored Source".to_owned())
+        }
+
+        fn set_string(&mut self, _key: &str, _value: String) {}
+
+        fn remove_string(&mut self, _key: &str) {}
+
+        fn flush(&mut self) {}
+    }
+
+    ///
+    /// Storage that keeps what it is given, so the revision the console saves
+    /// can be read back and decoded.
+    ///
+    #[derive(Default)]
+    struct RecordingStorage {
+        stored: Option<String>,
+    }
+
+    impl eframe::Storage for RecordingStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            (key == eframe::APP_KEY)
+                .then_some(self.stored.clone())
+                .flatten()
+        }
+
+        fn set_string(&mut self, key: &str, value: String) {
+            if key == eframe::APP_KEY {
+                self.stored = Some(value);
+            }
+        }
+
+        fn remove_string(&mut self, _key: &str) {}
+
+        fn flush(&mut self) {}
+    }
+
+    #[wasm_bindgen_test]
+    fn the_browser_reports_a_refused_revision_and_starts_the_default_grid() {
+        log::set_logger(&CapturingLogger).ok();
+        log::set_max_level(log::LevelFilter::Error);
+        REPORTED
+            .lock()
+            .expect("no test panics while holding the record list")
+            .clear();
+
+        let storage = MalformedStorage;
+        let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        cc.storage = Some(&storage);
+        let mut console = Console::new(&cc);
+
+        // The report is the whole of what the browser has: the console shows a
+        // developer-console record or it shows nothing at all. A `tracing`
+        // event alone reaches no subscriber on this target and is dropped.
+        let reported = REPORTED
+            .lock()
+            .expect("no test panics while holding the record list")
+            .clone();
+        assert!(
+            reported.iter().any(|record| record.contains("refused")),
+            "the browser build reported nothing a developer console would show: {reported:?}"
+        );
+
+        // And the refusal is whole: the console starts the ordinary default
+        // Grid, which is the revision its next save stores.
+        let mut saved = RecordingStorage::default();
+        console.save(&mut saved);
+        let started: Source =
+            eframe::get_value(&saved, eframe::APP_KEY).expect("the console saved a revision");
+        assert_eq!(
+            started.grid().count(),
+            DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT
+        );
+        assert!(started.snapshot().bytes().all(|byte| byte == b' '));
+    }
+}

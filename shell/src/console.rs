@@ -1039,3 +1039,67 @@ mod tests {
         assert_eq!(super::cell_line_width(true, true), super::GRID_LINE_WIDTH);
     }
 }
+
+///
+/// The console's own end of the storage seam: the two lines that wire the
+/// running Console to `shell::persistence`. Every other persistence test drives
+/// `starting_source`/`store_source` directly and would still pass with the
+/// Console unwired, so these construct a real `Console` and call the real
+/// `eframe::App::save`.
+///
+#[cfg(all(test, feature = "persistence"))]
+mod storage_tests {
+    use eframe::App as _;
+    use orcvs::source::SourceCommander;
+
+    use super::Console;
+    use crate::persistence::{InMemoryStorage, edited_source, starting_source, store_source};
+
+    ///
+    /// A Console started the way eframe starts it, over `storage`.
+    ///
+    /// `_new_kittest` is eframe's own headless `CreationContext`, which is how
+    /// an `App` is constructed outside a window; it opens with no storage, and
+    /// the field is public precisely so a test can supply one.
+    ///
+    fn console_over(storage: &dyn eframe::Storage) -> Console {
+        let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        cc.storage = Some(storage);
+        Console::new(&cc)
+    }
+
+    #[test]
+    fn a_console_starts_the_revision_its_creation_storage_holds() {
+        let saved = edited_source();
+        let mut storage = InMemoryStorage::default();
+        store_source(&mut storage, &saved);
+
+        let console = console_over(&storage);
+
+        assert_eq!(
+            console.orcvs.source().snapshot(),
+            saved.snapshot(),
+            "the Console did not start the revision storage held"
+        );
+        assert_eq!(console.orcvs.source().grid().count(), 18);
+    }
+
+    #[test]
+    fn the_console_save_call_stores_the_current_revision() {
+        let mut restored_from = InMemoryStorage::default();
+        store_source(&mut restored_from, &edited_source());
+        let mut console = console_over(&restored_from);
+        let mut storage = InMemoryStorage::default();
+
+        console.save(&mut storage);
+
+        // A Console that never saves leaves storage empty, and the start that
+        // reads it opens the ordinary default Grid instead of this revision.
+        let next_start = SourceCommander::with_source(starting_source(Some(&storage)));
+        assert_eq!(
+            next_start.snapshot(),
+            edited_source().snapshot(),
+            "the next start did not open the revision the Console saved"
+        );
+    }
+}
