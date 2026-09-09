@@ -36,13 +36,41 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     outputs: Vec<Result<Position, PortalError>>,
+    /// A test-supplied answer replaces this computation's declared one, so it
+    /// replaces the width scheduling reserves for it too. Production reads the
+    /// Function's own declaration and nothing else, which is why the field is
+    /// absent rather than false there: a reservation that could be widened from
+    /// outside the table would not be the declared fact ADR 0036 rests on.
+    #[cfg(test)]
+    supplied_sequence: bool,
+}
+
+impl Computation {
+    #[cfg(test)]
+    fn supplies_sequence(&self) -> bool {
+        self.supplied_sequence
+    }
+
+    #[cfg(not(test))]
+    fn supplies_sequence(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Default)]
 pub(super) struct Configuration {
     destinations: BTreeMap<CellIndex, Vec<Position>>,
+    /// The answer to deliver in place of the one the Function would compute.
+    ///
+    /// A whole [`Interpretation`] rather than an [`Atom`], because ADR 0036's
+    /// reservation is a fact about the answer's width and an Atom can only ever
+    /// state one of the two widths. Nothing spells a Sequence-answering Function
+    /// in Source until ADR 0007's Range and Concatenate are built, so this is
+    /// the seam a test states one through, and it is read twice: once while
+    /// scheduling, to reserve the Cells the answer can reach, and once during
+    /// execution, in place of the Interpreter's result.
     #[cfg(test)]
-    supplied: BTreeMap<CellIndex, Atom>,
+    supplied: BTreeMap<CellIndex, Interpretation>,
 }
 
 struct Schedule {
@@ -97,14 +125,39 @@ struct Lookup {
     literals: Claims,
     operands: Claims,
     subtree_ends: Vec<usize>,
+    /// One entry per node, in the same order, computed once because a node's
+    /// reservation reads its children's.
+    reserved: Vec<Reserved>,
 }
 
-/// Relationships of one fixed Portal destination, and of the Cell pair
-/// scheduling reserves beyond it, to the original computations. A Portal names
-/// where a result begins rather than how wide it is, so the pair below is the
-/// scheduling footprint, not the Portal. The phases share these facts, but
-/// decide separately whether a producer can activate, must precede, or
-/// suppresses a contacted computation.
+/// How many Cells scheduling reserves for one computation's result, per
+/// ADR 0036.
+///
+/// A schedule is fixed before any Function evaluates, so this is derived from
+/// declarations rather than from a width that does not exist yet. It is an
+/// over-approximation on purpose: the reservation orders the Turns, and the
+/// admitted write — always a subset of it — decides what is actually written,
+/// suppressed, or activated.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reserved {
+    /// The `SCALAR_WIDTH` Cells one Atom occupies. This stays the case for
+    /// every computation whose answer cannot be a Sequence, which today is
+    /// every computation there is.
+    Pair,
+    /// Every Cell from the destination through the end of its row. A Sequence's
+    /// width is not known when the schedule is built, and no Span reaches past
+    /// the row it begins in, so the rest of the row is the smallest reservation
+    /// that can name every Cell such a write might reach.
+    Row,
+}
+
+/// Relationships of one fixed Portal destination, and of the Cells following it
+/// along its row, to the original computations. A Portal names where a result
+/// begins rather than how wide it is, so how many Cells to ask about is the
+/// caller's to state: scheduling asks over the Cells it reserved and execution
+/// asks over the Cells an admitted write actually covers. The phases share these
+/// facts, but decide separately whether a producer can activate, must precede,
+/// or suppresses a contacted computation.
 struct PortalRelationships<'a> {
     lookup: &'a Lookup,
     output: Position,
@@ -119,8 +172,9 @@ struct FunctionContact {
 }
 
 /// The Cell width scheduling reserves for one scalar result. Execution
-/// refuses any other width before it admits a write, which is the only reason
-/// `Lookup::at` cannot answer `None` for an admitted destination.
+/// refuses any other width from a [`Reserved::Pair`] computation before it
+/// admits a write, which is the only reason a scalar destination admitted by a
+/// Portal is always one the reservation covers.
 const SCALAR_WIDTH: usize = 2;
 
 impl Lookup {
@@ -158,12 +212,20 @@ impl Lookup {
                 subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[index]);
             }
         }
+        // The same preorder is what makes one reverse pass enough here: every
+        // operand child sits at a higher index than the Function that owns it,
+        // so a node's children are already answered when its own turn comes.
+        let mut reserved = vec![Reserved::Pair; nodes.len()];
+        for index in (0..nodes.len()).rev() {
+            reserved[index] = reserved_for(&nodes, &reserved, index, nodes[index].function);
+        }
         Self {
             grid,
             nodes,
             functions: Claims::new(functions),
             literals: Claims::new(literals),
             operands: Claims::new(operands),
+            reserved,
             subtree_ends,
         }
     }
@@ -183,17 +245,104 @@ impl Lookup {
             .find(|&index| self.nodes[index].parent.is_none() && self.nodes[index].anchor == anchor)
     }
 
-    /// A fixed destination has relationships only if its complete Cell pair
-    /// fits the row. Actual writes still go through `Portal::admit`, which also
-    /// validates their encoding and supplies the producer's diagnostic.
-    fn at(&self, output: Position) -> Option<PortalRelationships<'_>> {
-        self.grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
+    /// What scheduling reserved for `index`'s result, per ADR 0036.
+    fn reserved(&self, index: usize) -> Reserved {
+        self.reserved[index]
+    }
+
+    /// What scheduling would have reserved for `index` had its Function been
+    /// `function`.
+    ///
+    /// A spatial write can replace a Function at its original anchor after the
+    /// schedule is fixed, and a replacement that answers a wider result than
+    /// the one reserved for would write Cells no dependency edge names. This
+    /// is the question `deliver_output` asks before it admits such a
+    /// replacement; it reads its children's settled reservations, which the
+    /// same guard keeps stable.
+    fn reserved_with(&self, index: usize, function: Function) -> Reserved {
+        reserved_for(&self.nodes, &self.reserved, index, function)
+    }
+
+    /// A fixed destination has relationships only if the Cells reserved for
+    /// `index` fit the row. Actual writes still go through `Portal::admit`,
+    /// which also validates their encoding and supplies the producer's
+    /// diagnostic.
+    ///
+    /// A [`Reserved::Row`] reservation runs to the end of the destination's own
+    /// row and so always fits, which is what makes the answer `None` a
+    /// statement about a scalar result specifically: a Cell pair whose second
+    /// Cell is in the next row is not a Span at all.
+    fn reserved_at(&self, index: usize, output: Position) -> Option<PortalRelationships<'_>> {
         let start = self.grid.index(output).get();
+        let cells = match self.reserved(index) {
+            Reserved::Pair => {
+                self.grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
+                start..start + SCALAR_WIDTH
+            }
+            // The row's remaining Cells, measured from the destination's own
+            // column so the count stops at the row edge rather than running on
+            // into the next row's Cells.
+            Reserved::Row => start..start + (self.grid.cols() - output.x()),
+        };
         Some(PortalRelationships {
             lookup: self,
             output,
-            cells: start..start + SCALAR_WIDTH,
+            cells,
         })
+    }
+
+    /// The relationships of the `width` Cells one admitted write actually
+    /// covers, from `output` along its row.
+    ///
+    /// Execution asks this rather than [`Lookup::reserved_at`] because the
+    /// reservation is deliberately wider than most writes: a computation inside
+    /// a `Reserved::Row` reservation that the write stopped short of was
+    /// ordered after its producer and then not written over, so it must not be
+    /// suppressed. A width is what the caller has — the Cells it names are this
+    /// Grid's to number — and those Cells are always a subset of what
+    /// scheduling reserved: a Cell pair is exactly the scalar reservation, and
+    /// a Portal refuses any encoding that leaves the destination's row. So
+    /// every relationship this answers is one a dependency edge already names.
+    fn written_over(&self, output: Position, width: usize) -> PortalRelationships<'_> {
+        let start = self.grid.index(output).get();
+        PortalRelationships {
+            lookup: self,
+            output,
+            cells: start..start + width,
+        }
+    }
+}
+
+/// Whether a computation's answer can be wider than one Atom, given the
+/// reservations already settled for its operand children.
+///
+/// Sequence-capability is derivable before any Function evaluates because a
+/// Sequence can only reach a computation from a nested child: ADR 0034 makes a
+/// spatial write literal characters that the receiving operand decodes by its
+/// declared literal type, and ADR 0007 gives a Sequence no literal spelling to
+/// decode. So a literal operand is always one Atom however it was written over,
+/// and the two declared columns decide the rest — a Function that answers a
+/// Sequence outright, or one that widens over an operand that is itself one.
+///
+/// The nodes are read rather than the [`Lookup`] because this also runs while
+/// that `Lookup` is being built.
+fn reserved_for(
+    nodes: &[Computation],
+    reserved: &[Reserved],
+    index: usize,
+    function: Function,
+) -> Reserved {
+    let node = &nodes[index];
+    let widened = function.widens_over_a_sequence_operand()
+        && node.operands.iter().any(|operand| {
+            operand
+                .child
+                .is_some_and(|child| reserved[child] == Reserved::Row)
+        });
+    if function.answers_sequence() || widened || node.supplies_sequence() {
+        Reserved::Row
+    } else {
+        Reserved::Pair
     }
 }
 
@@ -217,9 +366,22 @@ impl PortalRelationships<'_> {
     /// whether this producer actually returns Bang. Even a partial overlap
     /// with an operand excludes activation; nested operands count here too.
     ///
-    /// Operand contact is a fact about the whole destination pair rather than
-    /// about any one anchor, so it decides the empty answer up front instead of
+    /// Operand contact is a fact about the whole destination rather than about
+    /// any one anchor, so it decides the empty answer up front instead of
     /// filtering the four cardinal anchors one at a time.
+    ///
+    /// "The whole destination" is whichever Cells the caller stated, which for
+    /// a [`Reserved::Row`] producer asked through [`Lookup::reserved_at`] is
+    /// the rest of the row: such a producer touches an operand almost wherever
+    /// it points and so answers no Bang root at all. Nothing reaches that
+    /// today, because Equality is the only Function that can emit Bang and it
+    /// answers one Atom whatever its operands carry, so every Bang producer is
+    /// reserved a Cell pair. The constraint becomes live the first time a
+    /// Function that answers or widens into a Sequence can also emit Bang, and
+    /// it is that Function's decision to make: alignment is a fact about a
+    /// Bang's own two Cells rather than about the Cells a wider answer might
+    /// have reached, so what the reservation should be asked here is settled
+    /// against that Function's tests rather than guessed at now.
     fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
         let in_operand = self
             .lookup
@@ -324,7 +486,7 @@ fn potentially_active(lookup: &Lookup) -> Vec<bool> {
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
-                let Some(relationships) = lookup.at(*output) else {
+                let Some(relationships) = lookup.reserved_at(index, *output) else {
                     continue;
                 };
                 for index in relationships.bang_roots() {
@@ -402,6 +564,15 @@ fn schedule(
                     operands: vec![],
                     syntax_valid: true,
                     outputs,
+                    // Read here, beside the destinations the same Configuration
+                    // supplies, so a stated answer reaches the schedule that
+                    // has to reserve for it and not only the execution that
+                    // delivers it.
+                    #[cfg(test)]
+                    supplied_sequence: matches!(
+                        configuration.supplied.get(&grid.index(anchor)),
+                        Some(Interpretation::Sequence(_))
+                    ),
                 });
                 functions.insert(entry_index, index);
                 Some(index)
@@ -453,7 +624,7 @@ fn schedule(
             .iter()
             .filter_map(|output| output.as_ref().ok())
         {
-            let Some(relationships) = lookup.at(*output) else {
+            let Some(relationships) = lookup.reserved_at(index, *output) else {
                 continue;
             };
             for contact in relationships.functions() {
@@ -614,7 +785,7 @@ mod observed {
 
 #[cfg(test)]
 mod test {
-    use super::{Effect, Portal, Tick, observed, resolve};
+    use super::{Effect, Interpretation, Portal, Tick, observed, resolve};
 
     ///
     /// Builds one Source Snapshot from `rows`, padded to the Grid's width.
@@ -647,6 +818,32 @@ mod test {
         outputs: &[(usize, usize)],
         supplied: &[(usize, lang::Atom)],
     ) -> (TickPlan, crate::source::Source) {
+        configured_source_answers(
+            grid,
+            rows,
+            outputs,
+            &supplied
+                .iter()
+                .map(|(anchor, atom)| (*anchor, Interpretation::Cell(*atom)))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    ///
+    /// Supplies a whole answer where the Interpreter would have computed one.
+    ///
+    /// The seam a Sequence result is stated through until ADR 0007's Range and
+    /// Concatenate can spell one in Source. A supplied Sequence replaces the
+    /// answer its Function declares, so scheduling reserves for it exactly as
+    /// it will for a Range: these tests drive the production reservation rather
+    /// than a test-only path around it.
+    ///
+    fn configured_source_answers(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        supplied: &[(usize, Interpretation)],
+    ) -> (TickPlan, crate::source::Source) {
         let mut source = crate::source::Source::new(grid);
         for (index, byte) in snapshot(grid, rows).bytes().enumerate() {
             source
@@ -664,7 +861,7 @@ mod test {
         configuration.supplied.extend(
             supplied
                 .iter()
-                .map(|(anchor, function)| (cell(grid, *anchor), *function)),
+                .map(|(anchor, answer)| (cell(grid, *anchor), answer.clone())),
         );
         let plan = source.execute_configured(Tick::ZERO, &configuration);
         (plan, source)
@@ -976,10 +1173,264 @@ mod test {
         );
         assert_eq!(&source.snapshot()[..6], ".+0204");
         assert_eq!(&source.snapshot()[32..34], "06");
+        assert!(plan.diagnostics.iter().any(|d| {
+            d.message
+                .contains("activation requirements, output kind, or result width")
+        }));
+    }
+
+    ///
+    /// One Sequence answer of Numbers, stated for the `supplied` seam.
+    ///
+    fn numbers(values: &[u8]) -> Interpretation {
+        Interpretation::Sequence(
+            lang::Sequence::new(values.iter().copied().map(lang::Atom::Number))
+                .expect("a Number is a Sequence member"),
+        )
+    }
+
+    #[test]
+    fn live_a_sequence_result_reaches_its_destination_cells() {
+        // ADR 0007's ordinary Sequence result, reached through a Tick rather
+        // than through the Portal on its own: the schedule reserves Cells for
+        // it, execution encodes it, and the Source Grid the next Tick reads
+        // carries all six Cells. Three Atoms rather than one is what separates
+        // this from the scalar case it now shares a path with.
+        let grid = Grid::new(16, 2);
+        let (plan, source) = configured_source_answers(
+            grid,
+            &[".+0102", ""],
+            &[],
+            &[(0, numbers(&[0x0A, 0x0B, 0x0C]))],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(plan.writes.len(), 6, "one Cell write per encoded Cell");
+        assert_eq!(source.snapshot(), snapshot(grid, &[".+0102", "0A0B0C"]));
+    }
+
+    #[test]
+    fn live_a_sequence_result_that_leaves_its_row_writes_no_cell_of_it() {
+        // ADR 0007's complete-fit rule, which ADR 0009's Portal enforces, for a
+        // Sequence exactly as for a scalar: no Span reaches past the row it
+        // begins in, so an encoding running past the row's end is refused
+        // entire. Four of the six Cells fit and none of them is written, which
+        // is the half of the rule a diagnostic alone would not hold.
+        //
+        // The destination sits in the middle row of three, so the row edge it
+        // overruns has another row after it: what is refused here is leaving
+        // the row, not approaching the end of the Grid. The Grid's own edges
+        // are the test below.
+        let grid = Grid::new(16, 3);
+        let rows = [".+0102", "", ""];
+        let (plan, source) = configured_source_answers(
+            grid,
+            &rows,
+            &[(0, 28)],
+            &[(0, numbers(&[0x0A, 0x0B, 0x0C]))],
+        );
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|d| d.message.contains("activation requirements or output kind"))
+                .any(|d| d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn live_a_sequence_result_at_a_grid_edge_writes_no_cell_of_it() {
+        // The two ways the Grid, rather than the row, refuses a Sequence. A
+        // root in the last row resolves no ordinary destination at all, so
+        // there is nothing to fit into; and the last row's final Cells are the
+        // Grid's final Cells, so an encoding past them leaves the Grid. The
+        // third case is the one that must still work: a Sequence ending exactly
+        // on the Grid's last Cell is admitted, so the refusals above are about
+        // leaving the Grid and not about being near its edge.
+        let grid = Grid::new(16, 2);
+        let below = ["", ".+0102"];
+        let (plan, source) =
+            configured_source_answers(grid, &below, &[], &[(16, numbers(&[0x0A, 0x0B]))]);
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &below));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("falls below the Source")),
+            "{:?}",
+            plan.diagnostics
+        );
+
+        let rows = [".+0102", ""];
+        let (plan, source) =
+            configured_source_answers(grid, &rows, &[(0, 30)], &[(0, numbers(&[0x0A, 0x0B]))]);
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
+        );
+
+        let (plan, source) =
+            configured_source_answers(grid, &rows, &[(0, 30)], &[(0, numbers(&[0x0A]))]);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 2);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &[".+0102", "              0A"])
+        );
+    }
+
+    #[test]
+    fn live_two_overlapping_sequence_results_resolve_cell_by_cell() {
+        // ADR 0020's Cell-wise conflict resolution, which a Sequence inherits
+        // rather than restates: one admitted write is one validated effect
+        // until the Tick Plan resolves, and then as many independently
+        // contested Cells as it has characters. The later producer wins the two
+        // Cells it overlaps and the earlier producer's first four Cells stand,
+        // which a rule resolving whole writes would have replaced together.
+        let grid = Grid::new(16, 2);
+        let (plan, source) = configured_source_answers(
+            grid,
+            &[".+0000.+0000", ""],
+            &[(0, 16), (6, 20)],
+            &[
+                (0, numbers(&[0x0A, 0x0B, 0x0C])),
+                (6, numbers(&[0x0D, 0x0E])),
+            ],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            plan.writes.len(),
+            8,
+            "six Cells and four Cells sharing two of them"
+        );
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &[".+0000.+0000", "0A0B0D0E"])
+        );
+    }
+
+    #[test]
+    fn live_an_empty_sequence_result_plans_no_write_and_no_diagnostic() {
+        // ADR 0007: the empty Sequence is a value holding no Atoms rather than
+        // a refused one, so it plans no Cell write and reports nothing. It
+        // never reaches a Portal, which is what lets `Portal::admit` assert
+        // that a write places at least one Cell.
+        let grid = Grid::new(16, 2);
+        let rows = [".+0102", ""];
+        let (plan, source) = configured_source_answers(
+            grid,
+            &rows,
+            &[],
+            &[(0, Interpretation::Sequence(lang::Sequence::empty()))],
+        );
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+    }
+
+    #[test]
+    fn live_a_sequence_reservation_orders_every_computation_its_write_can_reach() {
+        // ADR 0036's reservation, observed as the ordering it buys. The
+        // producer sits in row 1 and writes upward into row 0, so row-major
+        // order alone would run the Expression at column 8 first. A scalar
+        // reservation covers only columns 0 and 1 and names no edge to it; the
+        // Sequence's write then reaches an already-executed computation and
+        // ADR 0034 rejects the whole Tick. Reserving through the end of the
+        // destination row instead orders the producer first, and the
+        // Expression it covers is suppressed rather than executed against a
+        // spelling that is no longer there.
+        let grid = Grid::new(16, 2);
+        let (plan, source) = configured_source_answers(
+            grid,
+            &["        .+0102", ".+0000"],
+            &[(16, 0)],
+            &[(16, numbers(&[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]))],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 12);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &["0A0B0C0D0E0F02", ".+0000"]),
+            "the covered Expression neither executed nor kept its spelling",
+        );
+    }
+
+    #[test]
+    fn live_a_nested_sequence_answer_widens_the_reservation_of_the_root_above_it() {
+        // ADR 0036's Consequences: a Function that answers a Sequence widens
+        // the reservation of every pervasive ancestor between it and its root.
+        // The Sequence is answered by the nested `.-` at column 2 of row 1, and
+        // the root `.+` that owns it declares no Sequence answer of its own —
+        // it reserves the whole of the destination row only because the
+        // production table says it widens over an operand that is one. That is
+        // the propagation every other Sequence test here short-circuits by
+        // stating its answer at the root itself.
+        //
+        // The ordering is again the evidence, for the reason the test above
+        // gives: the root writes upward into row 0, and the Expression at
+        // column 10 there is inside the widened reservation, so it is ordered
+        // after the root and suppressed rather than executed against a spelling
+        // the write has replaced. A scalar reservation would name no edge to
+        // it, and the root's twelve-Cell answer would then be refused as a
+        // result that is not a scalar Cell pair.
+        assert!(
+            !lang::Function::Add.answers_sequence()
+                && lang::Function::Add.widens_over_a_sequence_operand(),
+            "the root's reservation can only have been derived from its child",
+        );
+
+        let grid = Grid::new(16, 2);
+        let (plan, source) = configured_source_answers(
+            grid,
+            &["          .+0102", ".+.-000003"],
+            &[(16, 0)],
+            &[(18, numbers(&[0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]))],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 12);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &["0A0B0C0D0E0F0102", ".+.-000003"]),
+            "the root answered its child's Sequence widened by `03`, and the \
+             Expression it covered neither executed nor kept its spelling",
+        );
+    }
+
+    #[test]
+    fn live_a_reservation_the_sequence_stopped_short_of_suppresses_nothing() {
+        // The other half of ADR 0036: a reservation is deliberately wider than
+        // most of the writes it covers, and only the write decides what
+        // happened to a Cell. The Expression at column 8 is inside the reserved
+        // row and outside the four Cells the Sequence actually reached, so it
+        // is ordered after the producer and then executes normally, answering
+        // `03` into row 1. Suppressing everything the reservation names would
+        // leave that Cell pair empty.
+        let grid = Grid::new(16, 2);
+        let (plan, source) = configured_source_answers(
+            grid,
+            &["        .+0102", ".+0000"],
+            &[(16, 0)],
+            &[(16, numbers(&[0x0A, 0x0B]))],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &["0A0B    .+0102", ".+0000  03"]),
         );
     }
 
@@ -1618,7 +2069,8 @@ mod test {
                 // A destination whose pair leaves the row is refused at the
                 // Portal, and a terminal wide enough to sound cannot be
                 // cardinally aligned with one, so this case cannot separate
-                // `Lookup::at`'s row-fit guard from `Portal::admit`'s refusal.
+                // `Lookup::reserved_at`'s row-fit guard from `Portal::admit`'s
+                // refusal.
                 // `competing_writers_preserve_an_independent_rejected_destination_diagnostic`
                 // is what holds that guard.
                 assert!(plan.writes.is_empty());

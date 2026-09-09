@@ -342,6 +342,48 @@ enum Pervasion {
     Scalar,
 }
 
+/// How wide an answer a Function gives: one Atom, as many Atoms as its operands
+/// carry, or a Sequence whatever they carry.
+///
+/// [`Pervasion`] above says whether a Sequence operand is admitted at all; this
+/// says what reaches the answer when one is. The two are independent, and
+/// Equality is why. ADR 0011 makes it "a whole-value predicate": it broadcasts
+/// to find its comparison pairs, so it is `Pervasive`, and it still returns one
+/// scalar Bang or no value at all, so its answer is one Atom however wide its
+/// operands were. Deriving the width from the pervasion column would make
+/// Equality answer a Sequence it never returns, and deriving it from the family
+/// prefix would do the same to every `.`-spelled row.
+///
+/// Tick scheduling reads this, per ADR 0036, to decide how many Cells one
+/// result can reach before any Function has evaluated. That is why the answer
+/// is declared rather than observed: a schedule is fixed before a width exists.
+#[derive(Clone, Copy)]
+enum Answer {
+    /// One Atom, whatever its operands carry. Equality is the row that declares
+    /// this today; ADR 0012's Increment and Interpolation, which refuse a
+    /// Sequence operand outright, will declare it beside `Pervasion::Scalar`.
+    Atom,
+    /// One answer per element, so as wide as the widest operand: an Atom for
+    /// Atom operands and a Sequence of the same length for a Sequence one. This
+    /// is ADR 0007's pervasive extension seen from the result, so a row
+    /// declaring it must also declare `Pervasion::Pervasive` — a Function that
+    /// refuses a Sequence operand can never widen over one — and a test below
+    /// holds the two columns to that.
+    Elementwise,
+    /// A Sequence, whatever its operands carry. No row declares this today: it
+    /// is the answer ADR 0007's Range, Reverse, Concatenate, and Replace give,
+    /// and none of the four is built. Declaring it now is what lets ADR 0036's
+    /// scheduling reserve Cells for a width nothing can yet produce, so those
+    /// Functions arrive as one table row each rather than as a scheduling
+    /// change. `expect` rather than `allow`, so the first of them turns this
+    /// attribute into the error that deletes it.
+    #[expect(
+        dead_code,
+        reason = "the Sequence Functions of ADR 0007 are unbuilt: this is the answer they will declare"
+    )]
+    Sequence,
+}
+
 // An operand's declared type decides three things, one per macro below: the
 // `Token` its signature is checked against, the Rust value a Function body
 // receives for it, and how the checked `Atom` becomes that value. A new operand
@@ -524,7 +566,7 @@ macro_rules! unary_operands {
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $pervasion:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -554,6 +596,12 @@ macro_rules! define_functions {
             const fn pervasion(self) -> Pervasion {
                 match self {
                     $(Self::$variant => Pervasion::$pervasion,)+
+                }
+            }
+
+            const fn answer(self) -> Answer {
+                match self {
+                    $(Self::$variant => Answer::$answer,)+
                 }
             }
 
@@ -610,6 +658,33 @@ macro_rules! define_functions {
             #[inline(always)]
             pub const fn is_pervasive(self) -> bool {
                 matches!(self.pervasion(), Pervasion::Pervasive)
+            }
+
+            /// Whether this Function answers a Sequence whatever its operands
+            /// carry.
+            ///
+            /// Per ADR 0036 this is one of the two questions Tick scheduling
+            /// asks to decide how many Cells a result can reach, and it is the
+            /// one that needs no operand: a Range answers a Sequence from two
+            /// Number bounds. No Function answers `true` today, so every
+            /// scheduled result is still as wide as its operands make it.
+            #[inline(always)]
+            pub const fn answers_sequence(self) -> bool {
+                matches!(self.answer(), Answer::Sequence)
+            }
+
+            /// Whether a Sequence operand widens this Function's answer into a
+            /// Sequence, rather than being consumed into one Atom.
+            ///
+            /// The other question ADR 0036's scheduling asks, and the one that
+            /// separates the Atomic Functions from Equality: each of them
+            /// broadcasts over a Sequence operand, and Equality alone answers
+            /// one Atom when it has. A Function that refuses a Sequence operand
+            /// outright answers `false` here as well, because there is no
+            /// operand to widen from.
+            #[inline(always)]
+            pub const fn widens_over_a_sequence_operand(self) -> bool {
+                matches!(self.answer(), Answer::Elementwise)
             }
 
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
@@ -743,22 +818,22 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, Pervasive, false, [left: Number, right: Number]),
-    Add => (".+", Value, Pervasive, false, [left: Number, right: Number]),
-    ControlChange => ("!c", TerminalOutput, Pervasive, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Pervasive, false, [value: Number]),
-    ConvertToNumber => (".v", Value, Pervasive, false, [value: Note]),
-    Divide => ("./", Value, Pervasive, false, [left: Number, right: Number]),
-    Equality => (".=", Value, Pervasive, true, [left: Number, right: Number]),
-    Maximum => (".>", Value, Pervasive, false, [left: Number, right: Number]),
-    Minimum => (".<", Value, Pervasive, false, [left: Number, right: Number]),
-    Modulo => (".%", Value, Pervasive, false, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Multiply => (".x", Value, Pervasive, false, [left: Number, right: Number]),
-    PitchBend => ("!b", TerminalOutput, Pervasive, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    RawPlay => ("!>", TerminalOutput, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    Subtract => (".-", Value, Pervasive, false, [left: Number, right: Number]),
-    TimedPlay => ("!~", TerminalOutput, Pervasive, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    AbsoluteDifference => (".|", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Add => (".+", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    ControlChange => ("!c", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", Value, Pervasive, Elementwise, false, [value: Number]),
+    ConvertToNumber => (".v", Value, Pervasive, Elementwise, false, [value: Note]),
+    Divide => ("./", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Equality => (".=", Value, Pervasive, Atom, true, [left: Number, right: Number]),
+    Maximum => (".>", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Minimum => (".<", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Modulo => (".%", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Multiply => (".x", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    PitchBend => ("!b", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    RawPlay => ("!>", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    Subtract => (".-", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    TimedPlay => ("!~", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -1167,6 +1242,72 @@ mod test {
             };
 
             assert_eq!(function.is_pervasive(), expected, "{function:?}");
+        }
+    }
+
+    #[test]
+    fn every_function_declares_how_wide_an_answer_it_gives() {
+        // ADR 0036 schedules a result's Cells before any Function evaluates, so
+        // the width of an answer is declared rather than observed. Equality is
+        // the row that makes this a column of its own: ADR 0011 makes it a
+        // whole-value predicate that broadcasts to find its comparison pairs
+        // and still answers one scalar, so it is `Pervasive` like the other
+        // ten `.`-spelled rows and is the only one of them whose answer stays
+        // one Atom. Neither the family prefix nor the pervasion column can tell
+        // it apart, which is why this match is exhaustive with no wildcard.
+        //
+        // That exhaustiveness is also what holds ADR 0036's premise that no
+        // Function answers a Sequence yet. Every arm below declares `sequence`
+        // false, and a row added to the table has to be given an arm here, so
+        // the day ADR 0007's Range is declared this test fails and names it.
+        //
+        // The `!`-spelled rows widen too, per ADR 0030: one Expression answers
+        // an ordered group of Play Commands over a Sequence operand, and that
+        // widening reaches the Playback Engine rather than a Cell. Scheduling
+        // reads their declaration all the same — `reserved_for` asks every node
+        // it derives a reservation for, Terminal Output included, without first
+        // asking what kind of answer its Function gives. What that reservation
+        // cannot do is reach a Cell: a Terminal Output Function is given no
+        // Portal, so it has no destination for a reservation to be measured
+        // from and no write for one to order. They declare the column because
+        // it says how wide an answer is, not how wide a write is.
+        for function in Function::ALL.iter().copied() {
+            let (sequence, widens) = match function {
+                Function::Equality => (false, false),
+                Function::AbsoluteDifference
+                | Function::Add
+                | Function::ControlChange
+                | Function::ConvertToNote
+                | Function::ConvertToNumber
+                | Function::Divide
+                | Function::Maximum
+                | Function::Minimum
+                | Function::Modulo
+                | Function::MonophonicPlay
+                | Function::Multiply
+                | Function::PitchBend
+                | Function::RawPlay
+                | Function::Subtract
+                | Function::TimedPlay => (false, true),
+            };
+
+            assert_eq!(function.answers_sequence(), sequence, "{function:?}");
+            assert_eq!(
+                function.widens_over_a_sequence_operand(),
+                widens,
+                "{function:?}"
+            );
+
+            // The two columns are independent but not free of each other: a
+            // Function that refuses a Sequence operand has none to widen from,
+            // so `Elementwise` beside `Pervasion::Scalar` would declare a
+            // widening that can never happen. ADR 0012's Increment is the row
+            // that will first be able to break this, and it should fail here
+            // rather than reserve Cells for a Sequence it refuses.
+            assert!(
+                !function.widens_over_a_sequence_operand() || function.is_pervasive(),
+                "{function:?} widens over an operand it refuses",
+            );
         }
     }
 

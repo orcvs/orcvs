@@ -6,7 +6,7 @@ had an owner.
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -30,20 +30,20 @@ it reaches `unreachable!("scalar and terminal signatures contain only typed oper
 structural Functions in issue 03 stay generic over Atom type, and Concatenate and Replace take a
 Sequence operand. Neither shape can be declared today.
 
-- [ ] A Sequence result reaches its destination Cells. The refusal at
+- [x] A Sequence result reaches its destination Cells. The refusal at
       `orcvs/src/source/tick.rs:310-321` is replaced, not merely relaxed.
-- [ ] Scheduling reserves the Cells a variable-width result occupies, so a dependency edge still
+- [x] Scheduling reserves the Cells a variable-width result occupies, so a dependency edge still
       names every Cell the write touches. The scalar Cell pair stays the special case, not the
       only case.
-- [ ] A write that does not fit its row or its Grid writes no Cell of it. The complete-fit rule of
+- [x] A write that does not fit its row or its Grid writes no Cell of it. The complete-fit rule of
       issue 04 holds for a Sequence exactly as it does for a scalar.
-- [ ] Two producers whose Sequence results overlap resolve Cell by Cell, as two scalar producers
+- [x] Two producers whose Sequence results overlap resolve Cell by Cell, as two scalar producers
       already do.
-- [ ] `Token` can name a generic Atom operand and a Sequence operand. `check_token`'s
+- [x] `Token` can name a generic Atom operand and a Sequence operand. `check_token`'s
       `unreachable!` is replaced by a decision for each new variant.
-- [ ] `MAX_OPERANDS` and the inline operand storage are unchanged in shape. A wider operand type
+- [x] `MAX_OPERANDS` and the inline operand storage are unchanged in shape. A wider operand type
       does not make the operand list heap-allocated.
-- [ ] Tick-by-Tick Source Grid tests cover a Sequence result at a row edge, at a Grid edge, and
+- [x] Tick-by-Tick Source Grid tests cover a Sequence result at a row edge, at a Grid edge, and
       against a competing writer.
 
 ## Comments
@@ -51,3 +51,26 @@ Sequence operand. Neither shape can be declared today.
 2026-09-09: Raised by the release-candidate audit. Issues 03 and 05 each carry an acceptance item
 that this work must satisfy first, and both listed only resolved blockers, so both read as ready
 when neither was.
+
+2026-09-09: Resolved. ADR 0036 records the scheduling decision and amends ADR 0032's
+"variable-width Sequence projection" deferral, which this work lifts. A Function now declares how
+wide an answer it gives — one Atom, as wide as its operands, or a Sequence — beside its kind,
+pervasion and Bang. Scheduling reserves one Cell pair for a computation whose answer cannot be a
+Sequence and the Cells following the destination along its row for one whose answer can be; the
+reservation orders Turns, and the admitted write decides what happened to each Cell. Equality is
+why the declaration is a column of its own rather than pervasion read a second way: it extends over
+a Sequence operand and still answers one Atom.
+
+Two boundaries this issue did not settle, both belonging to 03. `Token` names a generic Atom
+operand and a Sequence operand and `check_token` decides each, but no Function signature can
+declare one yet: `operand_token!` gains its arms when 03 adds the rows that need them, and
+`declaration_agreement` will demand a witness for each at that point — a Sequence operand can have
+no Atom witness, which is the signal that such a Function cannot go through `Stack::extract`.
+Neither `Pervasion` value describes a Sequence-shaped operand either; 03 needs the whole-`Value`
+pop, not a third pervasion.
+
+This issue's premise about `Portal::ordinary_result` was wrong. It is production code, called from
+`schedule` for every value root's default destination, not reached only from the `#[cfg(test)]`
+`plan_result` helper. That helper was kept; its callers test Source commit, re-parse, glyphs and
+persistence, and routing them through the scheduler would couple them to the reservation design
+without testing more.

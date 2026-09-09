@@ -10,7 +10,7 @@ use lang::{Atom, Function, Interpretation, Tick, Value};
 
 use super::{
     Computation, Configuration, Diagnostic, Effect, Grid, LanguageMap, Lookup, Portal, PortalError,
-    Position, SCALAR_WIDTH, Schedule, SpanWrite, TickPlan, diagnose, interpret, resolve,
+    Position, Reserved, SCALAR_WIDTH, Schedule, SpanWrite, TickPlan, diagnose, interpret, resolve,
     tick_inputs,
 };
 
@@ -144,7 +144,7 @@ impl Execution<'_> {
             .configuration
             .supplied
             .get(&self.grid.index(node.anchor))
-            .map_or(result, |atom| Ok(Interpretation::Cell(*atom)));
+            .map_or(result, |answer| Ok(answer.clone()));
         match result {
             Err(message) => self.effects.push(Effect::Diagnose(diagnose(node, message))),
             Ok(Interpretation::Play(performance)) => self.effects.push(Effect::Play(performance)),
@@ -210,25 +210,33 @@ impl Execution<'_> {
         // A successful nested answer survives every refusal to project it.
         self.states[index].result = Some(value.clone());
         let encoding = match &value {
+            // CONTEXT.md keeps these two apart in kind and has them agree on
+            // effect: the Absence Marker is the absence of a value and the
+            // empty Sequence is a value holding no Atoms, and per ADR 0007
+            // neither plans a Cell write. Each is answered on its own arm
+            // because each is its own rule, and answering them here is also
+            // what lets `Portal::admit` assert that a write places at least one
+            // Cell.
             Value::Atom(Atom::Empty) => return Continue(()),
-            Value::Atom(atom) => atom.to_string(),
             Value::Sequence(sequence) if sequence.is_empty() => return Continue(()),
-            Value::Sequence(sequence) => {
-                if !node.outputs.is_empty() {
-                    self.effects.push(Effect::Diagnose(diagnose(
-                        node,
-                        format!(
-                            "Sequence result {:?} has no fixed scalar scheduling footprint",
-                            sequence.to_string()
-                        ),
-                    )));
-                }
-                return Continue(());
-            }
+            Value::Atom(atom) => atom.to_string(),
+            // ADR 0007: a non-empty Sequence encodes horizontally from the
+            // ordinary result Position through one Portal carrying the intact
+            // Sequence. It needs nothing of its own here, which is the point of
+            // encoding it and falling through — `Portal::admit` already refuses
+            // an encoding wider than its row entire, and `SpanWrite::cells`
+            // already fans one admitted write out Cell-wise, so the complete-fit
+            // rule and ADR 0020's Cell-wise conflict resolution are inherited
+            // rather than restated for a second width.
+            Value::Sequence(sequence) => sequence.to_string(),
         };
-        // The dependency schedule reserves one scalar Cell pair per destination.
-        // A different width cannot safely use those dependency edges.
-        if encoding.len() != SCALAR_WIDTH {
+        // ADR 0036: scheduling reserved one Cell pair for a computation whose
+        // answer could not be a Sequence, so any other width from one would
+        // write Cells no dependency edge names. A narrower answer is refused
+        // alongside a wider one: the reservation is what the row fit was
+        // decided against, and a single Cell at the last Cell of a row is a
+        // write the Portal admits and the schedule never reserved.
+        if self.lookup.reserved(index) == Reserved::Pair && encoding.len() != SCALAR_WIDTH {
             if !node.outputs.is_empty() {
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
@@ -262,10 +270,21 @@ impl Execution<'_> {
             }
         };
         let output = output.expect("an admitted write has a destination");
-        let relationships = self
-            .lookup
-            .at(output)
-            .expect("an admitted Cell pair fits its row");
+        // The Cells this write actually covers, not the Cells scheduling
+        // reserved for it. The two coincide for a scalar answer and come apart
+        // for a Sequence, whose reservation runs to the end of its row: a
+        // computation inside that reservation which the encoding stopped short
+        // of was ordered after this producer and then never written over, so it
+        // is neither suppressed nor replaced. Ordering is what a reservation
+        // decides; what happened to a Cell is what the write decides.
+        let relationships = self.lookup.written_over(output, encoding.len());
+        // Both rules below read `value` rather than the Cells, and both are
+        // therefore untouched by the width of the write: `Atom::Bang` and
+        // `Atom::Function` are single Atoms by construction, so a Sequence
+        // answer never satisfies either pattern. A Sequence carrying a Function
+        // spelling writes those two Cells as ordinary Source content under
+        // ADR 0007 — the next Tick's parse reads a Function there, this one
+        // replaces nothing.
         if *value == Value::Atom(Atom::Bang) {
             for owner in relationships.bang_roots() {
                 self.states[owner].activated = true;
@@ -276,12 +295,20 @@ impl Execution<'_> {
                 let target = &self.lookup.nodes()[contact.index];
                 contact.at_anchor
                     && (replacement.answers_value() != target.function.answers_value()
-                        || replacement.can_emit_bang() != target.function.can_emit_bang())
+                        || replacement.can_emit_bang() != target.function.can_emit_bang()
+                        // ADR 0036: a schedule reserves Cells from the Function
+                        // it found at each anchor, so a replacement that would
+                        // widen or narrow that reservation is refused with the
+                        // ones that change activation or output kind. The
+                        // reservations it reads are its children's, which this
+                        // same guard keeps as the schedule settled them.
+                        || self.lookup.reserved_with(contact.index, *replacement)
+                            != self.lookup.reserved(contact.index))
             })
         {
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
-                "Function replacement changes activation requirements or output kind",
+                "Function replacement changes activation requirements, output kind, or result width",
             )));
             return Continue(());
         }
@@ -295,6 +322,10 @@ impl Execution<'_> {
                 "spatial output reached an executed computation; Tick effects rejected",
             ));
         }
+        // The one rule of the three that a wide write genuinely changes: a
+        // Sequence can cover several Expressions along its row, and each of
+        // them is suppressed for the same reason a scalar suppresses the one it
+        // covers — its spelling is no longer the one that was scheduled.
         for contact in relationships.functions() {
             let target = contact.index;
             if contact.at_anchor

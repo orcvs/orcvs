@@ -60,6 +60,16 @@ impl From<Token> for Glyph {
             Token::Note => G::Note,
             Token::Number => G::Number,
             Token::Char => G::Char,
+            // A Token that names an operand's declared type rather than a
+            // spelling the Parser recognised has no paint of its own. A generic
+            // Atom position declares no type to colour, and a Sequence is never
+            // spelled in Source at all, so the Cells at either position take the
+            // ordinary glyph `Token::Activation` already takes for having no
+            // colour of its own. Whatever actually stands there — a nested
+            // Function, or a literal that decoded to a Number, a Note, or a
+            // Char — is labelled by its own entry and painted by its own arm
+            // above.
+            Token::Atom | Token::Sequence => G::Char,
         }
     }
 }
@@ -174,6 +184,18 @@ mod test {
         // The contrast that makes it a decision: an unfilled operand slot does
         // stand in for the spelling its signature names.
         assert_eq!(GlyphString::new(None, Glyph::Number).to_string(), "h");
+    }
+
+    #[test]
+    fn an_operand_declared_without_a_literal_type_paints_as_ordinary_source() {
+        // A generic Atom operand declares no type to colour and a Sequence has
+        // no Source spelling to colour, so neither has paint of its own and
+        // both take the ordinary glyph. Asserted rather than left to the match
+        // so that giving either one a colour later is a deliberate edit here
+        // and not a side effect of adding a `Glyph` variant.
+        assert_eq!(Glyph::from(lang::Token::Atom), Glyph::Char);
+        assert_eq!(Glyph::from(lang::Token::Sequence), Glyph::Char);
+        assert_eq!(Glyph::from(lang::Token::Activation), Glyph::Char);
     }
 
     #[test]
