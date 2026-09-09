@@ -15,14 +15,10 @@ what those ADRs already say.
 
 ## Delivery order
 
-1. `issues/01-delete-the-standalone-run-recognizer.md`
-2. `issues/02-establish-spans-and-units-in-one-walk.md`
-3. `issues/03-tidy-the-language-map-interfaces.md`
-4. `issues/04-offer-the-editing-seam-a-typed-cell-index.md`
-5. `issues/05-retire-the-untyped-editing-seam.md`
-6. `issues/06-measure-the-rebuild-path.md`
-
-Issues 01 and 03 and 06 have no blockers and can run in parallel.
+Derived, never authored. Each issue carries its own `Status:` and `Blocked by:` lines, and
+`pnpm roadmap` rolls those into the order and into the parallel-work bucket. A list here would be
+a second statement of a fact the tickets already hold, which is the friction this effort exists to
+remove.
 
 ## Required behavior
 

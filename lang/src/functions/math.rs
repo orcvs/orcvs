@@ -112,41 +112,25 @@ pub fn subtract(ctx: &mut Context) -> Result<Value, Error> {
 
 #[cfg(test)]
 mod test {
-    use super::{add, divide, equality, modulo, subtract};
     use crate::{
-        Anchor, Atom, Error, InterpretationError, Sequence, SequenceError, Tick, TickInputs, Value,
-        interpreter::Context,
+        Anchor, Atom, Error, Function, Interpretation, InterpretationError, Interpreter, Sequence,
+        SequenceError, Tick, TickInputs, Value,
     };
 
-    type Arithmetic = fn(&mut Context) -> Result<Value, Error>;
-
-    /// What a Function should answer for one operand pair, read in signature
-    /// order, naming the diagnostic where the pair has no answer.
+    /// What a Function should answer for one operand pair, in signature order.
     type Reference = fn(u8, u8) -> Result<Atom, InterpretationError>;
 
-    /// Evaluates `function` against the two operands its signature names
-    /// `left` and `right`, pushed so that extraction pops them in signature
-    /// order.
-    fn evaluate(function: Arithmetic, left: u8, right: u8) -> Result<Value, Error> {
-        // Arithmetic reads no Tick and no Position, so the first Tick at the
-        // Grid origin is as good as any other.
-        let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)), 2);
-        ctx.stack.push(Atom::Number(right)).unwrap();
-        ctx.stack.push(Atom::Number(left)).unwrap();
-        function(&mut ctx)
-    }
-
-    /// Evaluates `function` against two whole language values, pushed so that
-    /// the broadcast pops them in signature order.
-    fn evaluate_values(
-        function: Arithmetic,
+    /// Exercises Function dispatch with resolved operands in signature order.
+    fn evaluate(
+        function: Function,
         left: impl Into<Value>,
         right: impl Into<Value>,
-    ) -> Result<Value, Error> {
-        let mut ctx = Context::new(TickInputs::new(Tick::ZERO, Anchor::new(0, 0)), 2);
-        ctx.stack.push(right.into()).unwrap();
-        ctx.stack.push(left.into()).unwrap();
-        function(&mut ctx)
+    ) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(
+            function,
+            &[left.into(), right.into()],
+            TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+        )
     }
 
     fn numbers(values: impl IntoIterator<Item = u8>) -> Sequence {
@@ -154,19 +138,19 @@ mod test {
     }
 
     #[test]
-    fn an_arithmetic_function_body_states_one_element_and_still_broadcasts() {
+    fn arithmetic_evaluation_broadcasts_and_rejects_partial_answers() {
         // The stack seam is tested where it lives; this is the claim that the
         // Functions the Source can write are actually wired to it, which a test
         // of `Stack::apply` alone cannot make.
         assert_eq!(
-            evaluate_values(add, Atom::Number(0x10), numbers([1, 2, 3])).unwrap(),
-            Value::Sequence(numbers([0x11, 0x12, 0x13]))
+            evaluate(Function::Add, Atom::Number(0x10), numbers([1, 2, 3])).unwrap(),
+            Interpretation::Sequence(numbers([0x11, 0x12, 0x13]))
         );
 
         // And that an evaluation fault at an element other than the first still
         // discards the elements that answered.
         assert!(matches!(
-            evaluate_values(divide, Atom::Number(0x10), numbers([1, 1, 0])),
+            evaluate(Function::Divide, Atom::Number(0x10), numbers([1, 1, 0])),
             Err(Error::Interpretation(InterpretationError::DivisionByZero))
         ));
     }
@@ -185,8 +169,8 @@ mod test {
             (numbers([1, 2, 3]).into(), numbers([1, 2, 3]).into()),
         ] {
             assert_eq!(
-                evaluate_values(equality, left.clone(), right.clone()).unwrap(),
-                Value::Atom(Atom::Bang),
+                evaluate(Function::Equality, left.clone(), right.clone()).unwrap(),
+                Interpretation::Cell(Atom::Bang),
                 "{left:?} against {right:?}"
             );
         }
@@ -200,8 +184,8 @@ mod test {
             (numbers([1, 2, 3]).into(), numbers([1, 2, 4]).into()),
         ] {
             assert_eq!(
-                evaluate_values(equality, left.clone(), right.clone()).unwrap(),
-                Value::Atom(Atom::Empty),
+                evaluate(Function::Equality, left.clone(), right.clone()).unwrap(),
+                Interpretation::Cell(Atom::Empty),
                 "{left:?} against {right:?}"
             );
         }
@@ -222,8 +206,8 @@ mod test {
             (Sequence::empty().into(), Atom::Number(1).into()),
         ] {
             assert_eq!(
-                evaluate_values(equality, left.clone(), right.clone()).unwrap(),
-                Value::Atom(Atom::Bang),
+                evaluate(Function::Equality, left.clone(), right.clone()).unwrap(),
+                Interpretation::Cell(Atom::Bang),
                 "{left:?} against {right:?}"
             );
         }
@@ -245,7 +229,7 @@ mod test {
         ] {
             assert!(
                 matches!(
-                    evaluate_values(equality, left.clone(), right.clone()),
+                    evaluate(Function::Equality, left.clone(), right.clone()),
                     Err(Error::Sequence(SequenceError::IncompatibleLengths { left: l, right: r }))
                         if (l, r) == lengths
                 ),
@@ -267,15 +251,15 @@ mod test {
         // the other six answer the same for either operand order, so no test
         // of theirs can observe a transposition, and only the role names in
         // the declaration say which Cell is which.
-        let cases: [(Arithmetic, Reference); 3] = [
-            (subtract, |left, right| {
+        let cases: [(Function, Reference); 3] = [
+            (Function::Subtract, |left, right| {
                 Ok(Atom::Number(left.wrapping_sub(right)))
             }),
-            (divide, |left, right| match right {
+            (Function::Divide, |left, right| match right {
                 0 => Err(InterpretationError::DivisionByZero),
                 right => Ok(Atom::Number(left / right)),
             }),
-            (modulo, |left, right| match right {
+            (Function::Modulo, |left, right| match right {
                 0 => Err(InterpretationError::ModuloByZero),
                 right => Ok(Atom::Number(left % right)),
             }),
@@ -284,9 +268,16 @@ mod test {
         for (function, reference) in cases {
             for left in 0..=u8::MAX {
                 for right in 0..=u8::MAX {
-                    match (evaluate(function, left, right), reference(left, right)) {
+                    match (
+                        evaluate(function, Atom::Number(left), Atom::Number(right)),
+                        reference(left, right),
+                    ) {
                         (Ok(answer), Ok(expected)) => {
-                            assert_eq!(answer, expected.into(), "{left:02X} {right:02X}");
+                            assert_eq!(
+                                answer,
+                                Interpretation::Cell(expected),
+                                "{left:02X} {right:02X}"
+                            );
                         }
                         // `InterpretationError` derives no `PartialEq`, and the
                         // wording is what the Source is shown, so the rendered

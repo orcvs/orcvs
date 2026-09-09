@@ -90,6 +90,32 @@ struct Lookup {
     subtree_ends: Vec<usize>,
 }
 
+/// Relationships of one fixed Portal destination, and of the Cell pair
+/// scheduling reserves beyond it, to the original computations. A Portal names
+/// where a result begins rather than how wide it is, so the pair below is the
+/// scheduling footprint, not the Portal. The phases share these facts, but
+/// decide separately whether a producer can activate, must precede, or
+/// suppresses a contacted computation.
+struct PortalRelationships<'a> {
+    lookup: &'a Lookup,
+    nodes: &'a [Computation],
+    grid: Grid,
+    output: Position,
+    cells: Range<usize>,
+}
+
+struct FunctionContact {
+    index: usize,
+    at_anchor: bool,
+    /// Includes the contacted Function itself, in Parser preorder.
+    subtree: Range<usize>,
+}
+
+/// The Cell width scheduling reserves for one scalar result. `plan_configured`
+/// refuses any other width before it admits a write, which is the only reason
+/// `Lookup::at` cannot answer `None` for an admitted destination.
+const SCALAR_WIDTH: usize = 2;
+
 impl Lookup {
     fn new(grid: Grid, nodes: &[Computation]) -> Self {
         let mut functions = Vec::new();
@@ -98,6 +124,9 @@ impl Lookup {
         let mut subtree_ends: Vec<_> = (1..=nodes.len()).collect();
         for (index, node) in nodes.iter().enumerate() {
             let start = grid.index(node.anchor).get();
+            // A Function's own spelling, not a result: this 2 is the glyph
+            // width and stays a literal, because `SCALAR_WIDTH` would tie it to
+            // a scalar result's footprint, which is a different fact.
             functions.push(Claim {
                 cells: start..start + 2,
                 node: index,
@@ -141,9 +170,75 @@ impl Lookup {
             .find(|&index| nodes[index].parent.is_none() && nodes[index].anchor == anchor)
     }
 
-    fn is_operand_destination(&self, grid: Grid, output: Position) -> bool {
+    /// A fixed destination has relationships only if its complete Cell pair
+    /// fits the row. Actual writes still go through `Portal::admit`, which also
+    /// validates their encoding and supplies the producer's diagnostic.
+    fn at<'a>(
+        &'a self,
+        grid: Grid,
+        nodes: &'a [Computation],
+        output: Position,
+    ) -> Option<PortalRelationships<'a>> {
+        grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
         let start = grid.index(output).get();
-        self.operands.touching(start..start + 2).next().is_some()
+        Some(PortalRelationships {
+            lookup: self,
+            nodes,
+            grid,
+            output,
+            cells: start..start + SCALAR_WIDTH,
+        })
+    }
+}
+
+impl PortalRelationships<'_> {
+    fn functions(&self) -> impl Iterator<Item = FunctionContact> + '_ {
+        self.lookup
+            .functions
+            .touching(self.cells.clone())
+            .map(|index| FunctionContact {
+                index,
+                at_anchor: self.nodes[index].anchor == self.output,
+                subtree: self.lookup.descendants(index),
+            })
+    }
+
+    fn literal_consumers(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lookup.literals.touching(self.cells.clone())
+    }
+
+    /// Geometrically eligible roots, regardless of their activation policy or
+    /// whether this producer actually returns Bang. Even a partial overlap
+    /// with an operand excludes activation; nested operands count here too.
+    ///
+    /// Operand contact is a fact about the whole destination pair rather than
+    /// about any one anchor, so it decides the empty answer up front instead of
+    /// filtering the four cardinal anchors one at a time.
+    fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
+        let in_operand = self
+            .lookup
+            .operands
+            .touching(self.cells.clone())
+            .next()
+            .is_some();
+        let (column, row) = (self.output.x(), self.output.y());
+        let anchors = if in_operand {
+            [None, None, None, None]
+        } else {
+            [
+                row.checked_sub(1)
+                    .and_then(|north| self.grid.position(column, north)),
+                self.grid.position(column, row + 1),
+                column
+                    .checked_sub(2)
+                    .and_then(|west| self.grid.position(west, row)),
+                self.grid.position(column + 2, row),
+            ]
+        };
+        anchors
+            .into_iter()
+            .flatten()
+            .filter_map(|anchor| self.lookup.root_at(self.grid, self.nodes, anchor))
     }
 }
 
@@ -333,7 +428,7 @@ pub(super) fn plan_configured(
                 };
                 // Scheduling reserves one scalar Cell pair per destination.
                 // A different width cannot safely use those dependency edges.
-                if encoding.len() != 2 {
+                if encoding.len() != SCALAR_WIDTH {
                     if !node.outputs.is_empty() {
                         effects.push(Effect::Diagnose(diagnose(
                             node,
@@ -355,20 +450,18 @@ pub(super) fn plan_configured(
                             }
                         };
                     let output = output.expect("an admitted write has a destination");
-                    if value == Value::Atom(Atom::Bang)
-                        && !lookup.is_operand_destination(grid, output)
-                    {
-                        for anchor in activated_anchors(grid, output).into_iter().flatten() {
-                            if let Some(owner) = lookup.root_at(grid, nodes, anchor) {
-                                activated[owner] = true;
-                            }
+                    let relationships = lookup
+                        .at(grid, nodes, output)
+                        .expect("an admitted Cell pair fits its row");
+                    if value == Value::Atom(Atom::Bang) {
+                        for owner in relationships.bang_roots() {
+                            activated[owner] = true;
                         }
                     }
-                    let start = grid.index(output).get();
                     if let Value::Atom(Atom::Function(replacement)) = value
-                        && lookup.functions.touching(start..start + 1).any(|target| {
-                            let target = &nodes[target];
-                            grid.index(target.anchor).get() == start
+                        && relationships.functions().any(|contact| {
+                            let target = &nodes[contact.index];
+                            contact.at_anchor
                                 && (replacement.answers_value() != target.function.answers_value()
                                     || replacement.can_emit_bang()
                                         != target.function.can_emit_bang())
@@ -382,14 +475,9 @@ pub(super) fn plan_configured(
                     }
                     // A schedule defect must not panic under the Source lock
                     // or publish any of this Tick's already accumulated effects.
-                    if lookup
-                        .functions
-                        .touching(start..start + encoding.len())
-                        .any(|target| {
-                            lookup
-                                .descendants(target)
-                                .any(|descendant| executed[descendant])
-                        })
+                    if relationships
+                        .functions()
+                        .any(|mut contact| contact.subtree.any(|descendant| executed[descendant]))
                     {
                         let mut diagnostics: Vec<_> = effects
                             .into_iter()
@@ -411,16 +499,16 @@ pub(super) fn plan_configured(
                             diagnostics,
                         };
                     }
-                    for target in lookup.functions.touching(start..start + encoding.len()) {
-                        let anchor = grid.index(nodes[target].anchor).get();
-                        if start == anchor
+                    for contact in relationships.functions() {
+                        let target = contact.index;
+                        if contact.at_anchor
                             && !suppressed[target]
                             && let Value::Atom(Atom::Function(replacement)) = value
                         {
                             functions[target] = replacement;
                             continue;
                         }
-                        for descendant in lookup.descendants(target) {
+                        for descendant in contact.subtree {
                             suppressed[descendant] = true;
                         }
                     }
@@ -457,16 +545,11 @@ fn potentially_active(grid: Grid, nodes: &[Computation], lookup: &Lookup) -> Vec
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
-                if grid.offset_in_row(*output, 1).is_none()
-                    || lookup.is_operand_destination(grid, *output)
-                {
+                let Some(relationships) = lookup.at(grid, nodes, *output) else {
                     continue;
-                }
-                for anchor in activated_anchors(grid, *output).into_iter().flatten() {
-                    if let Some(index) = lookup.root_at(grid, nodes, anchor)
-                        && !nodes[index].function.answers_value()
-                        && !active[index]
-                    {
+                };
+                for index in relationships.bang_roots() {
+                    if !nodes[index].function.answers_value() && !active[index] {
                         active[index] = true;
                         pending.push(index);
                     }
@@ -585,24 +668,20 @@ fn schedule(
             .iter()
             .filter_map(|output| output.as_ref().ok())
         {
-            if grid.offset_in_row(*output, 1).is_none() {
+            let Some(relationships) = lookup.at(grid, &nodes, *output) else {
                 continue;
-            }
-            let start = grid.index(*output).get();
-            let cells = start..start + 2;
-            for consumer in lookup.functions.touching(cells.clone()) {
-                for descendant in lookup.descendants(consumer) {
+            };
+            for contact in relationships.functions() {
+                for descendant in contact.subtree {
                     edges.insert((index, descendant));
                 }
             }
-            for consumer in lookup.literals.touching(cells) {
+            for consumer in relationships.literal_consumers() {
                 edges.insert((index, consumer));
             }
-            if node.function.can_emit_bang() && !lookup.is_operand_destination(grid, *output) {
-                for anchor in activated_anchors(grid, *output).into_iter().flatten() {
-                    if let Some(owner) = lookup.root_at(grid, &nodes, anchor)
-                        && !nodes[owner].function.answers_value()
-                    {
+            if node.function.can_emit_bang() {
+                for owner in relationships.bang_roots() {
+                    if !nodes[owner].function.answers_value() {
                         for consumer in lookup.descendants(owner) {
                             edges.insert((index, consumer));
                         }
@@ -663,20 +742,6 @@ fn portal_message(reason: PortalError, encoding: &str) -> String {
             format!("result {encoding:?} contains Cells outside printable ASCII")
         }
     }
-}
-
-fn activated_anchors(grid: Grid, bang: Position) -> [Option<Position>; 4] {
-    grid.assert_owns(bang);
-    let (column, row) = (bang.x(), bang.y());
-    [
-        row.checked_sub(1)
-            .and_then(|north| grid.position(column, north)),
-        grid.position(column, row + 1),
-        column
-            .checked_sub(2)
-            .and_then(|west| grid.position(west, row)),
-        grid.position(column + 2, row),
-    ]
 }
 
 ///
@@ -1555,6 +1620,93 @@ mod test {
             "diagnostics: {:?}",
             plan.diagnostics
         );
+    }
+
+    #[test]
+    fn fixed_bang_destinations_respect_alignment_and_operand_contact() {
+        let grid = Grid::new(16, 6);
+        // One terminal at (4, 2). A Bang two Cells east of it is in its
+        // channel operand, so cardinal alignment alone cannot activate it.
+        for (column, row, performs) in [
+            (4, 1, true),
+            (4, 3, true),
+            (2, 2, true),
+            (6, 2, false),
+            (3, 1, false),
+            (5, 1, false),
+            (1, 2, false),
+            (3, 2, false),
+            (15, 1, false),
+        ] {
+            let (plan, _) = configured_source(
+                grid,
+                &["", "", "    !>007FC4", "", "", ".=0101"],
+                &[(80, row * 16 + column)],
+                &[],
+            );
+            let expected = if performs {
+                vec![raw(0, 0x7F, 60)]
+            } else {
+                vec![]
+            };
+            assert_eq!(
+                plan.play_commands, expected,
+                "destination ({column}, {row}): {:?}",
+                plan.diagnostics
+            );
+            if column == 15 {
+                // A destination whose pair leaves the row is refused at the
+                // Portal, and a terminal wide enough to sound cannot be
+                // cardinally aligned with one, so this case cannot separate
+                // `Lookup::at`'s row-fit guard from `Portal::admit`'s refusal.
+                // `competing_writers_preserve_an_independent_rejected_destination_diagnostic`
+                // is what holds that guard.
+                assert!(plan.writes.is_empty());
+                assert_eq!(plan.diagnostics.len(), 1);
+                assert!(plan.diagnostics[0].message.contains("crosses the row edge"));
+            } else {
+                assert_eq!(plan.writes.len(), 2);
+                assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn a_bang_half_inside_an_operand_does_not_activate_an_aligned_terminal() {
+        // Operand contact is a fact about the whole reserved pair, so a
+        // destination whose first Cell is free still belongs to an operand when
+        // its second Cell lands in one. Row 2 holds `.=` at columns 3 and 4
+        // with its first operand at columns 5 and 6; the destination (4, 2)
+        // covers columns 4 and 5, so only its second Cell is in that operand.
+        // The terminal directly below is cardinally aligned and must stay
+        // silent anyway -- narrowing the contact test to the anchor Cell alone
+        // would sound it.
+        let (plan, _) = configured_source(
+            Grid::new(16, 6),
+            &["", "", "   .=0101", "    !>007FC4", "", ".=0101"],
+            &[(80, 2 * 16 + 4)],
+            &[],
+        );
+        assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 2);
+    }
+
+    #[test]
+    fn a_bang_touching_a_nested_function_operand_does_not_activate_a_neighbour() {
+        // The destination contacts a nested Function rather than a literal.
+        // It still belongs to an operand, so neither its inactive owner nor
+        // the aligned terminal below it can perform.
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &["    .=0101", "!>00.+0101C4", "    !>007FC5", ""],
+            &[],
+            &[],
+        );
+        assert!(plan.play_commands.is_empty());
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(&source.snapshot()[16..28], "!>00**0101C4");
+        assert_eq!(plan.writes.len(), 2);
     }
 
     #[test]
