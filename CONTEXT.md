@@ -69,7 +69,7 @@ The stack of values one Expression is evaluated against. A literal Atom pushes o
 _Avoid_: Value stack, call stack, machine memory, register
 
 **Function**:
-A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility.
+A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility. Per ADR 0028 every Function declares whether it answers a value the surrounding Expression can consume or performs an effect and answers nothing, never both and never neither, and per ADR 0029 that declaration is what the nesting guard, the activation gate, and Sequence membership each read rather than a spelling or a family prefix. The declaration is a property of the definition, settled before any Tick runs, and is not the Effect a Producer contributes to a Tick Plan. Terminal Output is one effect a Function may declare rather than the definition of effect, so a rule about having no Cell destination reads that narrower declaration while a rule about nothing consuming the answer reads the wider one.
 _Avoid_: Operator, command
 
 **Source Function**:

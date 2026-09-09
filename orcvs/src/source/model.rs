@@ -1688,8 +1688,11 @@ mod test {
 
         assert!(tick.play_commands.is_empty());
         assert!(tick.writes.is_empty());
-        assert!(tick.diagnostics.iter().any(|d| d.message
-            == "a Function that answers an effect is valid only at the root of an Expression"));
+        assert!(
+            tick.diagnostics
+                .iter()
+                .any(|d| d.message == lang::InterpretationError::NestedEffectFunction.to_string())
+        );
         assert!(
             tick.diagnostics
                 .iter()

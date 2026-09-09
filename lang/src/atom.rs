@@ -249,11 +249,11 @@ impl TryFrom<&str> for Activation {
 /// ADR 0028 states that an instruction answers either a value or an effect,
 /// never both and never neither, so that is the distinction this enum draws. A
 /// Value Function answers with a language value the surrounding Expression can
-/// consume. An Effect Function performs something and answers with nothing, so
-/// it is valid only where no value is required. Every Function states which it
-/// is in the canonical definitions below, and nothing else is allowed to
-/// decide: a spelling table that disagreed with the interpreter would silently
-/// make an effect Function usable as an operand.
+/// consume. A Function that answers an effect performs something and answers
+/// with nothing, so it is valid only where no value is required. Every
+/// Function states which it is in the canonical definitions below, and nothing
+/// else is allowed to decide: a spelling table that disagreed with the
+/// interpreter would silently make an effect Function usable as an operand.
 ///
 /// The effect a Function performs is carried inside the variant rather than
 /// being the variant, because ADR 0029 records that Terminal Output is one
@@ -273,9 +273,14 @@ impl FunctionKind {
     const fn answers_value(self) -> bool {
         matches!(self, Self::Value)
     }
+
+    #[inline(always)]
+    const fn performs_terminal_output(self) -> bool {
+        matches!(self, Self::Effect(EffectKind::TerminalOutput))
+    }
 }
 
-/// Which effect an Effect Function performs.
+/// Which effect a Function that answers an effect performs.
 ///
 /// Named for the kind rather than for the Effect itself, because CONTEXT.md
 /// gives Effect to what a Producer contributes to the Tick Plan and this is a
@@ -564,6 +569,24 @@ macro_rules! define_functions {
             #[inline(always)]
             pub const fn answers_value(self) -> bool {
                 self.kind().answers_value()
+            }
+
+            /// Whether this Function performs the Terminal Output effect of
+            /// ADR 0016: a Play Command delivered to the Playback Engine, with
+            /// nothing written back into the Source.
+            ///
+            /// This is the narrow question, and it is asked only where the
+            /// rule is about Terminal Output rather than about answering an
+            /// effect. Having no Cell destination is such a rule: ADR 0004
+            /// gives a Source-writing Function a validated write bundle and
+            /// ADR 0009 lets it resolve multiple Portals, so a gate that
+            /// refused a Portal to every Function answering an effect would
+            /// deny the Halt, Directional Bang, and Jump Functions their
+            /// destinations. Ask [`Function::answers_value`] instead wherever
+            /// the rule is that nothing consumes the answer.
+            #[inline(always)]
+            pub const fn performs_terminal_output(self) -> bool {
+                self.kind().performs_terminal_output()
             }
 
             /// Whether this Function can return Bang, even when the current
@@ -1095,6 +1118,19 @@ mod test {
             };
 
             assert_eq!(function.answers_value(), expected, "{function:?}");
+
+            // Terminal Output is the one effect kind declared today, so the
+            // two classifications are exact complements. That coincidence is
+            // why the narrow question needs a predicate of its own rather than
+            // a negation of the wide one: the day a Source-writing effect
+            // Function of ADR 0004 is declared, this assertion fails and names
+            // the Function whose callers must each choose again which question
+            // they mean.
+            assert_eq!(
+                function.performs_terminal_output(),
+                !expected,
+                "{function:?}"
+            );
         }
     }
 
