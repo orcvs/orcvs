@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788932204922,
+  "lastUpdate": 1788932283801,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -4030,6 +4030,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/74d2aa3cf31f14ca30c46dd9234cfc0c0f42fca5"
         },
         "date": 1788929922186,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 24,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture bytes",
+            "value": 816,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture written four times blocks",
+            "value": 44,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture written four times bytes",
+            "value": 3264,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 16,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 6117,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 79,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 47971,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 16,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 9061,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 247,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 173913,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 16,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 16485,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 928,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 658728,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2404c2afe348f0ec26d2572df1da2269a5555acd",
+          "message": "Merge pull request #35 from orcvs/deepen-portal-and-evaluator-seams\n\nDeepen Portal relationships and test through the Evaluator",
+          "timestamp": "2026-09-09T15:25:34+10:00",
+          "tree_id": "e1ac1c2c0894d7da324e4ecd3bfdb302da754693",
+          "url": "https://github.com/orcvs/orcvs/commit/2404c2afe348f0ec26d2572df1da2269a5555acd"
+        },
+        "date": 1788932283757,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
