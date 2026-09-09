@@ -5,14 +5,10 @@ use crate::opts::{Bpm, Opts};
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-use crate::playback::InMemoryOutputAdapter;
+use crate::native_midi::{self, NativeMidiOutputAdapter};
 use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackState};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::SourceCommander;
-
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputKey {
@@ -31,10 +27,13 @@ pub enum InputEvent {
     Text(String),
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+///
+/// What a running Orcvs sends its Output Commands to unless it is handed
+/// another adapter. `orcvs::native_midi` decides what backend that adapter has
+/// on this target, so this alias names a valid type everywhere, the browser
+/// included.
+///
 pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-pub type OrcvsOutputAdapter = InMemoryOutputAdapter;
 
 ///
 /// One running Orcvs: its options, Source and Grid, Cursor, and Playback
@@ -73,11 +72,7 @@ pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
 
 impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Self {
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        let adapter = NativeMidiOutputAdapter::new(MidirBackend);
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        let adapter = InMemoryOutputAdapter::default();
-        Self::with_output_adapter(cols, rows, adapter)
+        Self::with_output_adapter(cols, rows, native_midi::output_adapter())
     }
 }
 
@@ -238,7 +233,6 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter<B>> {
     /// Returns the MIDI configuration capability without exposing Playback
     /// lifecycle control.

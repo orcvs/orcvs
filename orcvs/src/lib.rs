@@ -5,7 +5,6 @@ pub mod cursor;
 pub mod glyph;
 pub mod grid;
 pub mod midi;
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub mod native_midi;
 pub mod opts;
 pub mod playback;

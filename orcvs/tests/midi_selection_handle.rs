@@ -1,5 +1,3 @@
-#![cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-
 use std::sync::{Arc, Mutex};
 
 use orcvs::app::{InputEvent, InputKey, Orcvs};
