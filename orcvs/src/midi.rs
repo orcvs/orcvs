@@ -103,7 +103,7 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
         let safety_failure = self
             .connection
             .is_some()
-            .then(|| self.send_all_notes_off().err())
+            .then(|| self.send_safety_reset().err())
             .flatten();
         let connection = self.backend.connect(destination_id)?;
         self.connection = Some(connection);
@@ -116,14 +116,25 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
         self.selected_destination_id.as_ref()
     }
 
-    fn send_all_notes_off(&mut self) -> Result<(), MidiError> {
+    ///
+    /// Returns every channel of the connected destination to silence and to
+    /// its defaults, and answers the first refusal if any message was refused.
+    ///
+    /// A refusal does not end the run. The action exists to leave no device
+    /// holding state Orcvs can no longer reach, and a channel skipped because
+    /// an earlier one failed is exactly such a device; the first error is the
+    /// one reported because it is the one that describes what went wrong.
+    ///
+    fn send_safety_reset(&mut self) -> Result<(), MidiError> {
         let Some(connection) = self.connection.as_mut() else {
             return Ok(());
         };
         let mut first_error = None;
         for channel in 0..16 {
-            if let Err(error) = connection.send(&[0xb0 | channel, 123, 0]) {
-                first_error.get_or_insert(error);
+            for message in safety_reset_messages(channel) {
+                if let Err(error) = connection.send(&message) {
+                    first_error.get_or_insert(error);
+                }
             }
         }
         if let Some(error) = first_error {
@@ -132,6 +143,42 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
             Ok(())
         }
     }
+}
+
+/// MIDI's All Notes Off, which silences the channel and says nothing about
+/// anything else it is holding.
+const ALL_NOTES_OFF: u8 = 123;
+
+/// MIDI's Reset All Controllers: the message the protocol provides for a
+/// sequencer stopping mid-gesture, which releases the sustain pedal CC 123
+/// leaves down and returns the mod wheel to zero.
+const RESET_ALL_CONTROLLERS: u8 = 121;
+
+///
+/// The safety action's messages for one channel, in the order they go out.
+///
+/// The order is part of the action rather than a detail of this loop. All
+/// Notes Off comes first so the channel is silent before anything else is
+/// changed on it. Reset All Controllers follows, because it is the message
+/// that clears what a Control Change latched. The centred bend comes last and
+/// is sent at all because device support for CC 121 varies: `0x2000` is
+/// unambiguous where CC 121's coverage is not, and a device that does honour
+/// CC 121 may move the wheel itself, so the explicit centre has to be the last
+/// word on it rather than the first.
+///
+/// `channel` must be one of the sixteen. A wider value would not overflow the
+/// `|`; it would set a bit of the status nibble and turn each message into a
+/// different MIDI message on a different channel, which is the same reason
+/// `submit` states for its own `0x90 | channel`. The one caller counts
+/// `0..16`, so this is asserted rather than returned.
+///
+fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
+    debug_assert!(channel < 16, "channel {channel} is not a MIDI channel");
+    [
+        [0xB0 | channel, ALL_NOTES_OFF, 0x00],
+        [0xB0 | channel, RESET_ALL_CONTROLLERS, 0x00],
+        [0xE0 | channel, 0x00, 0x40],
+    ]
 }
 
 impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
@@ -173,7 +220,16 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
             };
             if let Err(error) = connection.send(&message) {
                 let delivery_error = OutputAdapterError::new(error.message);
-                let _ = self.send_all_notes_off();
+                // The teardown's own refusals are discarded deliberately, and
+                // all forty-eight of them rather than the sixteen this arm
+                // discarded before the action widened. The sibling call sites
+                // report theirs because they have a caller expecting an answer
+                // about the action; here the delivery failure is already the
+                // answer, and it is the one that describes what went wrong. A
+                // destination that refused the message being delivered is
+                // expected to refuse the safety action behind it, so reporting
+                // that instead would replace the cause with its consequence.
+                let _ = self.send_safety_reset();
                 self.connection = None;
                 self.selected_destination_id = None;
                 self.delivery_failure = Some(delivery_error.clone());
@@ -183,8 +239,8 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
         Ok(())
     }
 
-    fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
-        self.send_all_notes_off()
+    fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+        self.send_safety_reset()
             .map_err(|error| OutputAdapterError::new(error.message))
     }
 }
@@ -211,9 +267,16 @@ mod tests {
     #[derive(Default)]
     struct FakeState {
         messages: Vec<Vec<u8>>,
-        fail_next_send: bool,
         fail_next_connect: bool,
         connection_count: usize,
+        /// The zero-based send attempts this connection refuses, each with an
+        /// error naming its own index. A safety action refused part-way owes
+        /// the first error and the remaining attempts, and neither claim is
+        /// visible through a fake that can only fail once or can only fail
+        /// with one message. `vec![0]` is the one-shot refusal a test that
+        /// wants the next send to fail asks for.
+        failing_sends: Vec<usize>,
+        send_count: usize,
     }
 
     struct FakeBackend {
@@ -249,9 +312,10 @@ mod tests {
     impl MidiConnection for FakeConnection {
         fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
             let mut state = self.state.lock().unwrap();
-            if state.fail_next_send {
-                state.fail_next_send = false;
-                return Err(MidiError::new("device lost"));
+            let attempt = state.send_count;
+            state.send_count += 1;
+            if state.failing_sends.contains(&attempt) {
+                return Err(MidiError::new(format!("device lost on send {attempt}")));
             }
             state.messages.push(message.to_vec());
             Ok(())
@@ -388,13 +452,13 @@ mod tests {
     }
 
     #[test]
-    fn delivery_failure_attempts_all_notes_off_and_reselection_reconnects() {
+    fn delivery_failure_attempts_the_safety_action_and_reselection_reconnects() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let mut adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
         adapter.select(&MidiDestinationId::new("one")).unwrap();
-        state.lock().unwrap().fail_next_send = true;
+        state.lock().unwrap().failing_sends = vec![0];
 
         let error = adapter
             .submit(&[OutputCommand::NoteOn {
@@ -404,8 +468,11 @@ mod tests {
             }])
             .unwrap_err();
 
-        assert_eq!(error, OutputAdapterError::new("device lost"));
-        assert_eq!(state.lock().unwrap().messages.len(), 16);
+        assert_eq!(error, OutputAdapterError::new("device lost on send 0"));
+        // The refused Note On is not recorded, so every message here belongs
+        // to the teardown: the same widened action a stop sends, on all
+        // sixteen channels.
+        assert_eq!(state.lock().unwrap().messages.len(), SAFETY_ACTION_LEN);
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
             adapter
@@ -415,7 +482,7 @@ mod tests {
                     note: Note::try_from(60).unwrap()
                 }])
                 .unwrap_err(),
-            OutputAdapterError::new("device lost")
+            OutputAdapterError::new("device lost on send 0")
         );
 
         adapter.select(&MidiDestinationId::new("one")).unwrap();
@@ -432,20 +499,185 @@ mod tests {
         assert_eq!(state.messages.last(), Some(&vec![0x91, 61, 1]));
     }
 
+    /// The messages the safety action owes one channel. Named so a test's
+    /// lengths and offsets say what they are counting.
+    const SAFETY_TRIPLE_LEN: usize = 3;
+
+    /// The messages one complete run of the safety action owes, across the
+    /// sixteen channels.
+    const SAFETY_ACTION_LEN: usize = 16 * SAFETY_TRIPLE_LEN;
+
+    ///
+    /// The three messages the safety action owes `channel`, in the order it
+    /// owes them. A test states this rather than deriving it from the adapter,
+    /// so an implementation that reordered the triple or dropped one of its
+    /// members disagrees with the expectation instead of moving it.
+    ///
+    fn safety_triple(channel: u8) -> Vec<Vec<u8>> {
+        vec![
+            vec![0xB0 | channel, 123, 0],
+            vec![0xB0 | channel, 121, 0],
+            vec![0xE0 | channel, 0x00, 0x40],
+        ]
+    }
+
+    /// One complete run of the safety action: every channel's triple, channel
+    /// by channel, in the order the action delivers them.
+    fn safety_action_messages() -> Vec<Vec<u8>> {
+        (0..16u8).flat_map(safety_triple).collect()
+    }
+
+    /// The triple `channel` is owed, read out of the safety action run that
+    /// begins at `run_start`, so a test names the channel it is reading rather
+    /// than the arithmetic that finds it.
+    fn triple_at(messages: &[Vec<u8>], run_start: usize, channel: u8) -> &[Vec<u8>] {
+        let at = run_start + usize::from(channel) * SAFETY_TRIPLE_LEN;
+        &messages[at..at + SAFETY_TRIPLE_LEN]
+    }
+
     #[test]
-    fn all_notes_off_addresses_every_channel() {
+    fn the_safety_action_clears_notes_controllers_and_bend_on_every_channel() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let mut adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
         adapter.select(&MidiDestinationId::new("one")).unwrap();
 
-        adapter.all_notes_off().unwrap();
+        adapter.safety_reset().unwrap();
 
-        let messages = &state.lock().unwrap().messages;
-        assert_eq!(messages.len(), 16);
-        assert_eq!(messages.first(), Some(&vec![0xb0, 123, 0]));
-        assert_eq!(messages.last(), Some(&vec![0xbf, 123, 0]));
+        let messages = state.lock().unwrap().messages.clone();
+        // Sixteen channels, three messages each, channel-major: the triple is
+        // what one channel is owed, so a channel is finished before the next
+        // is begun.
+        assert_eq!(messages.len(), SAFETY_ACTION_LEN);
+        // The ends of the run spelled out, so a loop expectation sharing the
+        // adapter's `0xB0 | channel` arithmetic cannot be the only thing that
+        // pins the status bytes.
+        assert_eq!(messages.first(), Some(&vec![0xB0, 123, 0]));
+        assert_eq!(messages.last(), Some(&vec![0xEF, 0x00, 0x40]));
+        for channel in 0..16u8 {
+            assert_eq!(
+                triple_at(&messages, 0, channel),
+                &safety_triple(channel)[..],
+                "channel {channel:#04X}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_safety_message_reports_the_first_error_and_attempts_the_rest() {
+        // The two attempts refused below, which the run records nothing for
+        // and still counts.
+        const REFUSALS: usize = 2;
+
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        // Two refusals, neither of them the last attempt, so a run that
+        // stopped at the first would deliver fewer messages and a run that
+        // reported the last would name the wrong one.
+        state.lock().unwrap().failing_sends = vec![1, 20];
+
+        let error = adapter.safety_reset().unwrap_err();
+
+        assert_eq!(error, OutputAdapterError::new("device lost on send 1"));
+        let state = state.lock().unwrap();
+        assert_eq!(state.send_count, SAFETY_ACTION_LEN);
+        assert_eq!(state.messages.len(), SAFETY_ACTION_LEN - REFUSALS);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_clears_the_bend_and_the_latched_controller_a_source_left_standing() {
+        // The Control Change and the Pitch Bend the Source performs, which the
+        // safety action's run follows.
+        const SOURCE_MESSAGES: usize = 2;
+
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let grid = Grid::new(10, 6);
+        let source = SourceCommander::new(grid);
+        // Controller `40` is sustain and value `7F` latches it down; the bend
+        // on channel `03` is deflected to its top. Neither is a note, so
+        // neither ends when the Source stops writing it: what the device is
+        // left holding is decided by the safety action alone.
+        for (index, content) in ".=0101              !c01407F  .=0101              !b03007F  "
+            .chars()
+            .enumerate()
+        {
+            source.set(cell(grid, index), &content.to_string()).unwrap();
+        }
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = PlaybackEngine::new(source, adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+
+        playback.start(Duration::from_secs(1)).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            state.lock().unwrap().messages,
+            vec![vec![0xB1, 0x40, 0x7F], vec![0xE3, 0x00, 0x7F]]
+        );
+
+        playback.stop();
+
+        let messages = state.lock().unwrap().messages.clone();
+        assert_eq!(messages.len(), SOURCE_MESSAGES + SAFETY_ACTION_LEN);
+        // The two channels the Source touched, read out of the run that
+        // follows the stop: the sustain pedal on `01` is released by CC 121
+        // and the wheel on `03` is returned to `0x2000` explicitly.
+        assert_eq!(
+            triple_at(&messages, SOURCE_MESSAGES, 0x01),
+            &safety_triple(0x01)[..]
+        );
+        assert_eq!(
+            triple_at(&messages, SOURCE_MESSAGES, 0x03),
+            &safety_triple(0x03)[..]
+        );
+    }
+
+    #[test]
+    fn a_destination_change_sends_the_safety_action_to_the_destination_it_leaves() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        // A first selection holds no connection to make safe, so every message
+        // recorded below belongs to the change itself.
+        assert!(state.lock().unwrap().messages.is_empty());
+
+        adapter.select(&MidiDestinationId::new("two")).unwrap();
+
+        // The bytes, not a delta: a count that only grew would be satisfied by
+        // the narrower All Notes Off loop this action replaced.
+        let state = state.lock().unwrap();
+        assert_eq!(state.messages, safety_action_messages());
+        assert_eq!(state.connection_count, 2);
+    }
+
+    #[test]
+    fn a_disconnect_sends_the_safety_action_to_the_destination_it_releases() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        // Asserted here rather than beside the engine's own disconnect test,
+        // which drives `InMemoryOutputAdapter`: that fake counts the calls and
+        // emits no bytes, so what a device receives can only be read off the
+        // adapter that assembles it.
+        let playback = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        assert!(state.lock().unwrap().messages.is_empty());
+
+        playback.disconnect();
+
+        assert_eq!(state.lock().unwrap().messages, safety_action_messages());
     }
 
     #[tokio::test(start_paused = true)]
@@ -496,7 +728,7 @@ mod tests {
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
-        state.lock().unwrap().fail_next_send = true;
+        state.lock().unwrap().failing_sends = vec![0];
 
         playback.start(Duration::from_secs(1)).unwrap();
         tokio::task::yield_now().await;
@@ -508,7 +740,7 @@ mod tests {
         assert_eq!(
             playback.observe().diagnostics,
             vec![crate::playback::PlaybackDiagnostic::OutputFailure(
-                OutputAdapterError::new("device lost")
+                OutputAdapterError::new("device lost on send 0")
             )]
         );
     }
@@ -550,7 +782,7 @@ mod tests {
 
             // Make the comparison false so nothing new plays, then change
             // destination. The note is sounding on the destination being
-            // left, which is sent all-notes-off as it goes, so its scheduled
+            // left, which is sent the safety action as it goes, so its scheduled
             // stop belongs to a device this engine no longer holds.
             source.set(cell(grid, 5), "2").unwrap();
             playback
@@ -608,7 +840,7 @@ mod tests {
             );
 
             // Make the comparison false, then attempt a change the device
-            // refuses. The all-notes-off that precedes the connection is sent
+            // refuses. The safety action that precedes the connection is sent
             // regardless, so the note is silenced whether or not the new
             // destination is reached: a change that silences the old device
             // owes the same cleared schedule whether it completes or fails.
@@ -647,7 +879,7 @@ mod tests {
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
-        state.lock().unwrap().fail_next_send = true;
+        state.lock().unwrap().failing_sends = vec![0];
 
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
@@ -658,7 +890,7 @@ mod tests {
         assert_eq!(
             observation.diagnostics,
             vec![crate::playback::PlaybackDiagnostic::OutputFailure(
-                OutputAdapterError::new("device lost")
+                OutputAdapterError::new("device lost on send 0")
             )]
         );
     }

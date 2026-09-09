@@ -320,7 +320,7 @@ mod test {
             tokio::task::yield_now().await;
         }
 
-        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(adapter.safety_reset_count(), 0);
         assert_eq!(adapter.command_lists().len(), 1);
         orcvs.observe_playback();
         assert!(orcvs.playing());
@@ -357,7 +357,7 @@ mod test {
         let diagnostics = orcvs.observe_playback();
         assert!(orcvs.playing());
         assert_eq!(orcvs.bpm().beats_per_minute(), 20);
-        assert_eq!(adapter.all_notes_off_count(), 0);
+        assert_eq!(adapter.safety_reset_count(), 0);
         assert_eq!(
             diagnostics,
             vec![crate::playback::PlaybackDiagnostic::RetuneFailure {
