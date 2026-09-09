@@ -153,7 +153,7 @@ pub fn pitch_bend(ctx: &mut Context) -> Result<Performance, Error> {
 
 #[cfg(test)]
 mod test {
-    use super::raw_play;
+    use super::{control_change, monophonic_play, pitch_bend, raw_play, timed_play};
     use crate::{
         Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
         Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, Parser,
@@ -179,6 +179,24 @@ mod test {
     /// Exercises Function dispatch with resolved operands in signature order.
     fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
         Interpreter::execute_function(function, operands, inputs())
+    }
+
+    /// A terminal body, so the two spellings that share a claim can be stated
+    /// once and asserted over rather than written out for each.
+    type Terminal = fn(&mut Context) -> Result<Performance, Error>;
+
+    /// Calls a shipped body with `operands` on the stack in signature order.
+    ///
+    /// `Interpreter::execute_function` answers a wrong operand count itself,
+    /// before it dispatches, so an arity claim made through `evaluate` observes
+    /// that guard rather than the Function it names. The bodies own their
+    /// arity demand, so the tests that pin it reach them here.
+    fn call_body(body: Terminal, operands: &[Value]) -> Result<Performance, Error> {
+        let mut ctx = Context::new(inputs(), 4);
+        for operand in operands.iter().rev() {
+            ctx.stack.push(operand.clone()).unwrap();
+        }
+        body(&mut ctx)
     }
 
     /// A Sequence of Notes, for the operand position a chord is spelled in.
@@ -354,8 +372,8 @@ mod test {
         );
 
         // The same claim from Source text, which adds the parse and the
-        // right-to-left walk to what resolved-operand evaluation proves: `!>` reads
-        // channel, then velocity, then note, left to right in the Cells.
+        // right-to-left walk to what resolved-operand evaluation proves:
+        // `!>` reads channel, then velocity, then note, left to right.
         assert_eq!(
             interpret("!>0102C4").unwrap(),
             Interpretation::Play(Performance::One(expected))
@@ -434,7 +452,8 @@ mod test {
     #[test]
     fn monophonic_play_requires_four_arguments() {
         // A well-typed prefix at every length, as Timed Play's arity test
-        // does: what is missing is the count rather than a type.
+        // does: what is missing is the count rather than a type. Driven
+        // against the body, which is where the arity demand lives.
         let operands = [
             Atom::Number(0x01),
             Atom::Number(0x02),
@@ -444,7 +463,7 @@ mod test {
         .map(Value::from);
 
         for found in 0..4 {
-            let error = evaluate(Function::MonophonicPlay, &operands[..found]).unwrap_err();
+            let error = call_body(monophonic_play, &operands[..found]).unwrap_err();
 
             assert!(
                 matches!(
@@ -502,6 +521,7 @@ mod test {
         // Each prefix of a well-typed operand list, so what is missing is the
         // count rather than a type: an arity diagnostic must precede every
         // other one, and only a correctly typed prefix can prove it does.
+        // That ordering is the body's, so the body is what this drives.
         let operands = [
             Atom::Number(0x01),
             Atom::Number(0x02),
@@ -511,7 +531,7 @@ mod test {
         .map(Value::from);
 
         for found in 0..4 {
-            let error = evaluate(Function::TimedPlay, &operands[..found]).unwrap_err();
+            let error = call_body(timed_play, &operands[..found]).unwrap_err();
 
             assert!(
                 matches!(
@@ -593,8 +613,8 @@ mod test {
         );
 
         // The same claim from Source text, which adds the parse and the
-        // right-to-left walk to what resolved-operand evaluation proves: `!c` reads
-        // channel, then controller, then value, left to right in the Cells.
+        // right-to-left walk to what resolved-operand evaluation proves:
+        // `!c` reads channel, then controller, then value, left to right.
         assert_eq!(
             interpret("!c010203").unwrap(),
             Interpretation::Play(Performance::One(expected))
@@ -643,11 +663,12 @@ mod test {
         // Each prefix of a well-typed operand list, so what is missing is the
         // count rather than a type: an arity diagnostic must precede every
         // other one, and only a correctly typed prefix can prove it does.
-        for function in [Function::ControlChange, Function::PitchBend] {
+        // That ordering is the body's, so the bodies are what this drives.
+        let operands =
+            [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)].map(Value::from);
+        for body in [control_change as Terminal, pitch_bend as Terminal] {
             for found in 0..3 {
-                let operands =
-                    [Atom::Number(0x01), Atom::Number(0x02), Atom::Number(0x03)].map(Value::from);
-                let error = evaluate(function, &operands[..found]).unwrap_err();
+                let error = call_body(body, &operands[..found]).unwrap_err();
 
                 assert!(
                     matches!(
@@ -786,9 +807,9 @@ mod test {
 
     #[test]
     fn test_raw_play_requires_three_arguments() {
+        let operands = [Atom::Number(1); 3].map(Value::from);
         for found in 0..3 {
-            let operands = [Atom::Number(1); 3].map(Value::from);
-            let error = evaluate(Function::RawPlay, &operands[..found]).unwrap_err();
+            let error = call_body(raw_play, &operands[..found]).unwrap_err();
 
             assert!(
                 matches!(

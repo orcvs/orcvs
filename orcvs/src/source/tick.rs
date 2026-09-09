@@ -108,6 +108,11 @@ struct FunctionContact {
     subtree: Range<usize>,
 }
 
+/// The Cell width scheduling reserves for one scalar result. `plan_configured`
+/// refuses any other width before it admits a write, which is the only reason
+/// `Lookup::at` cannot answer `None` for an admitted destination.
+const SCALAR_WIDTH: usize = 2;
+
 impl Lookup {
     fn new(grid: Grid, nodes: &[Computation]) -> Self {
         let mut functions = Vec::new();
@@ -168,14 +173,14 @@ impl Lookup {
         nodes: &'a [Computation],
         output: Position,
     ) -> Option<PortalRelationships<'a>> {
-        grid.offset_in_row(output, 1)?;
+        grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
         let start = grid.index(output).get();
         Some(PortalRelationships {
             lookup: self,
             nodes,
             grid,
             output,
-            cells: start..start + 2,
+            cells: start..start + SCALAR_WIDTH,
         })
     }
 }
@@ -199,6 +204,10 @@ impl PortalRelationships<'_> {
     /// Geometrically eligible roots, regardless of their activation policy or
     /// whether this producer actually returns Bang. Even a partial overlap
     /// with an operand excludes activation; nested operands count here too.
+    ///
+    /// Operand contact is a fact about the whole destination pair rather than
+    /// about any one anchor, so it decides the empty answer up front instead of
+    /// filtering the four cardinal anchors one at a time.
     fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
         let in_operand = self
             .lookup
@@ -207,19 +216,22 @@ impl PortalRelationships<'_> {
             .next()
             .is_some();
         let (column, row) = (self.output.x(), self.output.y());
-        let anchors = [
-            row.checked_sub(1)
-                .and_then(|north| self.grid.position(column, north)),
-            self.grid.position(column, row + 1),
-            column
-                .checked_sub(2)
-                .and_then(|west| self.grid.position(west, row)),
-            self.grid.position(column + 2, row),
-        ];
+        let anchors = if in_operand {
+            [None, None, None, None]
+        } else {
+            [
+                row.checked_sub(1)
+                    .and_then(|north| self.grid.position(column, north)),
+                self.grid.position(column, row + 1),
+                column
+                    .checked_sub(2)
+                    .and_then(|west| self.grid.position(west, row)),
+                self.grid.position(column + 2, row),
+            ]
+        };
         anchors
             .into_iter()
             .flatten()
-            .filter(move |_| !in_operand)
             .filter_map(|anchor| self.lookup.root_at(self.grid, self.nodes, anchor))
     }
 }
@@ -410,7 +422,7 @@ pub(super) fn plan_configured(
                 };
                 // Scheduling reserves one scalar Cell pair per destination.
                 // A different width cannot safely use those dependency edges.
-                if encoding.len() != 2 {
+                if encoding.len() != SCALAR_WIDTH {
                     if !node.outputs.is_empty() {
                         effects.push(Effect::Diagnose(diagnose(
                             node,
