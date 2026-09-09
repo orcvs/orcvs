@@ -349,6 +349,99 @@ mod test {
         }
     }
 
+    /// Every two-character spelling an ASCII Source can write.
+    ///
+    /// A Number and a Note each occupy two Cells, and a Cell holds one ASCII
+    /// character, so this is the complete candidate set for either reading
+    /// rather than a sample of it. Enumerating it is what lets the two sweeps
+    /// below say which spellings are accepted, instead of only that some named
+    /// rejected ones are rejected.
+    fn two_cell_ascii_spellings() -> impl Iterator<Item = String> {
+        (0u8..=0x7F).flat_map(|first| {
+            (0u8..=0x7F)
+                .map(move |second| String::from_utf8(vec![first, second]).expect("ASCII is UTF-8"))
+        })
+    }
+
+    /// The value of one uppercase hexadecimal Cell.
+    ///
+    /// Written out here rather than delegated to `from_str_radix`, which is
+    /// the thing under test and accepts spellings this does not.
+    fn hex_digit(cell: u8) -> Option<u8> {
+        let index = "0123456789ABCDEF".bytes().position(|digit| digit == cell)?;
+        u8::try_from(index).ok()
+    }
+
+    #[test]
+    fn str_to_num_accepts_exactly_the_uppercase_two_cell_hexadecimal_spellings() {
+        // A Number renders back into the Source in uppercase and is re-read
+        // from it on the next Tick, so one value must have exactly one
+        // spelling and one spelling exactly one value. Sweeping the candidates
+        // is what makes this an "exactly": the lowercase spelling of every
+        // value is refused by the sweep rather than by the sampled list above.
+        let mut accepted = 0usize;
+
+        for source in two_cell_ascii_spellings() {
+            let [high, low] = *source.as_bytes() else {
+                unreachable!("two ASCII Cells");
+            };
+
+            match (hex_digit(high), hex_digit(low)) {
+                (Some(high), Some(low)) => {
+                    assert_eq!(str_to_num(&source).unwrap(), high * 16 + low, "{source:?}");
+                    accepted += 1;
+                }
+                _ => assert!(str_to_num(&source).is_err(), "accepted {source:?}"),
+            }
+        }
+
+        // One accepted spelling per Number and no more.
+        assert_eq!(accepted, 256);
+    }
+
+    #[test]
+    fn midi_note_to_number_accepts_exactly_the_pitch_spellings_inside_the_midi_range() {
+        // The counterpart sweep, and the half of the range claim a round trip
+        // cannot make: `A9` and `B9` are spelled the way every other Note is
+        // and name 129 and 131, so a reading that computed a pitch without
+        // checking the range would accept them and mint a Note with no MIDI
+        // byte behind it.
+        let mut accepted = 0usize;
+
+        for source in two_cell_ascii_spellings() {
+            let [pitch, octave] = *source.as_bytes() else {
+                unreachable!("two ASCII Cells");
+            };
+
+            // ADR 0021's spelling, stated here rather than read from the
+            // table under test: twelve chromatic pitches to the octave, from
+            // `C/` through `G9`.
+            let pitch = "CcDdEFfGgAaB"
+                .bytes()
+                .position(|candidate| candidate == pitch)
+                .and_then(|pitch| u16::try_from(pitch).ok());
+            let octave = match octave {
+                b'/' => Some(0u16),
+                b'0'..=b'9' => Some(u16::from(octave - b'0') + 1),
+                _ => None,
+            };
+            let expected = match (pitch, octave) {
+                (Some(pitch), Some(octave)) => u8::try_from(octave * 12 + pitch)
+                    .ok()
+                    .filter(|n| *n <= 0x7F),
+                _ => None,
+            };
+
+            assert_eq!(midi_note_to_number(&source), expected, "{source:?}");
+            if expected.is_some() {
+                accepted += 1;
+            }
+        }
+
+        // One accepted spelling per MIDI value and no more.
+        assert_eq!(accepted, 128);
+    }
+
     #[test]
     fn every_midi_note_round_trips_through_its_two_cell_source_encoding() {
         for number in 0x00..=0x7F {

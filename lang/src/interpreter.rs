@@ -541,15 +541,28 @@ mod test {
 
     #[test]
     fn explicit_numeric_conversions_have_fixed_result_types() {
-        for value in 0..=0x7F {
+        // `.v` is the identity over Numbers across the whole byte domain, not
+        // only the MIDI part of it. A Number reaches this Function from nested
+        // evaluation or from broadcasting rather than from its literal operand
+        // slot, and the arithmetic that produced it wraps over `00`–`FF`, so
+        // `80`–`FF` arrive as often as anything else. Folding them into the
+        // Note range would be the coercion ADR 0021 refuses, and diagnosing
+        // them would make `.v` reject values `.^` never had to accept.
+        for value in 0..=u8::MAX {
             assert_eq!(
                 interpret_stack(vec![
                     Atom::Function(Function::ConvertToNumber),
                     Atom::Number(value),
                 ])
                 .unwrap(),
-                Atom::Number(value)
+                Atom::Number(value),
+                "{value:02X}"
             );
+        }
+
+        // The typed conversions themselves are defined over the MIDI range,
+        // which is every value a Note can hold.
+        for value in 0..=0x7F {
             assert_eq!(
                 interpret_stack(vec![
                     Atom::Function(Function::ConvertToNumber),
@@ -965,6 +978,54 @@ mod test {
                         "{function:?}({left:02X}, {right:02X})",
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn division_is_the_asymmetry_that_diagnoses_every_zero_divisor() {
+        // ADR 0011 wraps the rest of general arithmetic modulo 256, so every
+        // other Function of the family answers a Number for every pair the
+        // Source can write. Division is the one that cannot: a quotient by
+        // zero has no cyclic position to wrap into, so `./` produces a
+        // diagnostic and no result instead of inventing a Number. Both halves
+        // of that asymmetry are enumerated here — a diagnostic for all 256
+        // zero divisors, and a Number for all 65,280 pairs that have one.
+        //
+        // The expected quotient is counted by repeated subtraction rather than
+        // written as `left / right`, so what it asserts is the definition of
+        // floor division rather than a second spelling of the implementation.
+        for left in 0..=u8::MAX {
+            assert!(
+                matches!(
+                    interpret_stack(vec![
+                        Atom::Function(Function::Divide),
+                        Atom::Number(left),
+                        Atom::Number(0),
+                    ]),
+                    Err(Error::Interpretation(InterpretationError::DivisionByZero))
+                ),
+                "Divide({left:02X}, 00)",
+            );
+
+            for right in 1..=u8::MAX {
+                let mut remainder = left;
+                let mut quotient = 0u8;
+                while remainder >= right {
+                    remainder -= right;
+                    quotient += 1;
+                }
+
+                assert_eq!(
+                    interpret_stack(vec![
+                        Atom::Function(Function::Divide),
+                        Atom::Number(left),
+                        Atom::Number(right),
+                    ])
+                    .unwrap(),
+                    Atom::Number(quotient),
+                    "Divide({left:02X}, {right:02X})",
+                );
             }
         }
     }
