@@ -601,11 +601,37 @@ mod test {
 }
 
 ///
-/// The wiring seed for the property-testing effort: one narrow property that
-/// proves the native-only proptest dependency and its `cfg` gate are real.
-/// The full Grid suite — containment, `owns`, `rows`, `offset_in_row`, and
-/// directional movement — belongs to
+/// The Grid laws CONTEXT.md states, over shapes and Positions no example names.
+///
+/// "A Position can be obtained only from the Grid that contains it, so a
+/// Position outside its Grid does not exist; the Grid converts between a
+/// Position and the index the Source addresses Cells by." Every property below
+/// is one clause of that sentence, or of the Grid entry's own "A Grid has at
+/// least one column and one row, and a position outside it does not exist".
+///
+/// The generated value is the shape alone, and each case then sweeps every
+/// Position inside it. That split is the point rather than an economy: the
+/// glossary quantifies over *every* Position a Grid mints, so drawing one
+/// Position per case would leave the quantifier itself unchecked. What the
+/// sample buys is the shape — 4,096 dimension pairs, of which a pull request's
+/// 32 cases see 32 and the merge tier's 256 see 256 — and, for
+/// `offset_in_row`, the (shape, Position, offset) space those shapes open,
+/// which runs to some 10^8 triples and is out of an enumeration's reach.
+///
+/// This replaces the effort's wiring seed, whose own comment said that proving
+/// the round trip for every minted Position belonged to
 /// `.scratch/property-testing/issues/02-grid-position-round-trip.md`.
+/// `every_position_the_grid_mints_round_trips_through_its_index` is that
+/// proof, so keeping the seed beside it would be a second, weaker statement of
+/// the same law.
+///
+/// Dimensions start at one because `Grid::new` refuses zero: both counts are
+/// `assert!`ed rather than `debug_assert!`ed, so a Grid of no Cells cannot be
+/// constructed in a release build either, and no property here has to admit
+/// one. `mod test`'s `test_grid_cannot_have_zero_cols` and
+/// `test_grid_cannot_have_zero_rows` pin that, and the `persistence`
+/// `TryFrom<PersistedGrid>` refuses the same shape with an error rather than a
+/// panic, so a deserialized Grid cannot arrive empty either.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
 /// table that declares proptest, so a WASM build never sees the dependency.
@@ -613,33 +639,436 @@ mod test {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
 
-    use crate::grid::Grid;
+    use crate::grid::{Grid, Position};
     use proptest::prelude::*;
+    use proptest::test_runner::{Config, TestRunner};
+    // Aliased because `Cell` is a domain noun in this file and in CONTEXT.md.
+    // What `std::cell::Cell` holds here is a draw count.
+    use std::cell::Cell as Counter;
+
+    /// The largest side a generated Grid has. Every property sweeps every Cell
+    /// of the shape it draws, so this bounds a case's work as well as the
+    /// domain: at the largest shape that is 4,096 Cells, and `offset_in_row`
+    /// asks about every offset from each of them.
+    const MAX_SIDE: usize = 64;
+
+    /// How far past the last column, row, or Cell a sweep looks. One is the
+    /// first refusal; two says the refusal is a comparison rather than an
+    /// off-by-one that happens to answer once more.
+    const PAST_THE_END: usize = 2;
+
+    ///
+    /// A Grid's dimensions: at least one column and one row, and no larger
+    /// than a case can sweep.
+    ///
+    /// A weighted union rather than a pair of ranges, because the shapes where
+    /// the edges coincide are the ones the arithmetic is most likely to get
+    /// wrong and the ones a uniform draw from `1..=64` reaches once in 64
+    /// cases. In a one-column Grid every Cell is both the first and the last of
+    /// its row, in a one-row Grid the Cell index and the column are the same
+    /// number, and a 1 x 1 Grid is every edge at once.
+    /// `generated_grids_include_the_one_column_and_one_row_cases` is what says
+    /// they are actually drawn rather than merely drawable.
+    ///
+    /// The rectangular arm keeps its own weight because a transposed
+    /// implementation — `x * rows + y` for an index, or a `rows()` that yields
+    /// columns — agrees with a correct one on every square Grid.
+    ///
+    fn dimensions() -> impl Strategy<Value = (usize, usize)> {
+        prop_oneof![
+            4 => (1usize..=MAX_SIDE, 1usize..=MAX_SIDE),
+            1 => (Just(1usize), 1usize..=MAX_SIDE),
+            1 => (1usize..=MAX_SIDE, Just(1usize)),
+            1 => Just((1usize, 1usize)),
+        ]
+    }
+
+    ///
+    /// Whether `pos` is a Cell of `grid`: minted by it, and inside it.
+    ///
+    /// `owns` alone is not that claim. `up`, `down`, `left` and `right` build a
+    /// Position from its fields rather than asking `position` for one, so a
+    /// clamp that let a column run past the last would still produce a
+    /// Position carrying this Grid's identity. Asking `position` for the same
+    /// coordinates is what refuses it, and comparing the answer keeps the
+    /// identity in the comparison.
+    ///
+    fn is_a_cell_of(grid: Grid, pos: Position) -> bool {
+        grid.owns(pos) && grid.position(pos.x(), pos.y()) == Some(pos)
+    }
+
+    ///
+    /// Every Position a Grid of these dimensions mints, in row order.
+    ///
+    /// The bounds come from the generated dimensions rather than from the Grid,
+    /// so a sweep never agrees with the Grid's own answer about its shape by
+    /// construction. Obtained through `position` rather than through `rows`,
+    /// for the same reason: `rows` is itself under test in
+    /// `rows_yields_every_cell_of_the_grid_once`.
+    ///
+    fn every_position(grid: Grid, cols: usize, rows: usize) -> impl Iterator<Item = Position> {
+        (0..rows).flat_map(move |y| {
+            (0..cols).map(move |x| grid.position(x, y).expect("inside the Grid"))
+        })
+    }
 
     proptest! {
         ///
-        /// "The Grid converts between a Position and the index the Source
-        /// addresses Cells by": `position_at` inverts `index` for a Position the
-        /// Grid mints. Dimensions start at one, because a Grid has at least one
-        /// column and one row.
+        /// "A Grid has at least one column and one row, and a position outside
+        /// it does not exist": `position` answers `Some` exactly at the
+        /// coordinates the Grid has a Cell for, and the Position it answers
+        /// with is the one that was asked for.
         ///
-        /// The Position is generated with the Grid rather than swept inside each
-        /// case. Sweeping would make the generated domain the 1,024 dimension
-        /// pairs alone — small enough that the effort's own rule calls for an
-        /// exhaustive loop instead of a sample — and would leave the case count
-        /// buying nothing. Drawing `x` and `y` from the generated dimensions puts
-        /// roughly a million shapes in reach and gives `PROPTEST_CASES` something
-        /// to trade. Proving the law for *every* minted Position is issue 02's.
+        /// The sweep runs past both dimensions, so every case states the
+        /// refusal as well as the acceptance, and the far coordinates below
+        /// state that the refusal is a comparison against the dimensions
+        /// rather than a bound on how far outside a caller may ask.
         ///
         #[test]
-        fn position_at_inverts_index_for_a_minted_position(
-            (cols, rows, x, y) in (1usize..=32, 1usize..=32)
-                .prop_flat_map(|(cols, rows)| (Just(cols), Just(rows), 0..cols, 0..rows)),
+        fn a_position_exists_exactly_where_the_grid_has_a_cell(
+            (cols, rows) in dimensions(),
         ) {
             let grid = Grid::new(cols, rows);
 
-            let pos = grid.position(x, y).expect("inside the grid");
-            prop_assert_eq!(grid.position_at(grid.index(pos)), pos);
+            for y in 0..rows + PAST_THE_END {
+                for x in 0..cols + PAST_THE_END {
+                    let inside = x < cols && y < rows;
+                    let answered = grid.position(x, y);
+
+                    prop_assert_eq!(
+                        answered.is_some(),
+                        inside,
+                        "({}, {}) in a {} x {} Grid",
+                        x, y, cols, rows,
+                    );
+                    if let Some(pos) = answered {
+                        prop_assert_eq!((pos.x(), pos.y()), (x, y));
+                        prop_assert!(is_a_cell_of(grid, pos));
+                    }
+                }
+            }
+
+            prop_assert_eq!(grid.position(usize::MAX, 0), None);
+            prop_assert_eq!(grid.position(0, usize::MAX), None);
+            prop_assert_eq!(grid.position(usize::MAX, usize::MAX), None);
+
+            // The one Position a Grid hands out without being asked for
+            // coordinates is the first Cell it has, so it is subject to the
+            // same law.
+            prop_assert_eq!(Some(grid.origin()), grid.position(0, 0));
+            prop_assert!(is_a_cell_of(grid, grid.origin()));
         }
+
+        ///
+        /// "The Grid converts between a Position and the index the Source
+        /// addresses Cells by": `position_at` inverts `index` for every
+        /// Position the Grid mints, and the index it converts to is one the
+        /// Grid would answer for that number.
+        ///
+        /// The round trip alone would hold for an `index` that mapped two
+        /// Cells to the same number, as long as `position_at` mapped it back
+        /// to whichever one was asked. It cannot: a round trip that survives
+        /// for every Cell of the shape is injective, because a collision
+        /// returns at most one of the two Positions that reached it. That is
+        /// what sweeping the whole shape buys over sampling one Position.
+        ///
+        #[test]
+        fn every_position_the_grid_mints_round_trips_through_its_index(
+            (cols, rows) in dimensions(),
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            for pos in every_position(grid, cols, rows) {
+                let idx = grid.index(pos);
+
+                prop_assert_eq!(grid.position_at(idx), pos);
+                // The Source addresses Cells by this number, and it holds
+                // `count` of them.
+                prop_assert!(idx.get() < grid.count());
+                // And the number names the same Cell coming the other way, so
+                // the two ways of obtaining an index cannot disagree.
+                prop_assert_eq!(grid.cell_index(idx.get()), Some(idx));
+            }
+        }
+
+        ///
+        /// The other direction of the same conversion: `index` inverts
+        /// `position_at` for every `CellIndex` the Grid answers with, and the
+        /// Position it passes through is a Cell of the Grid.
+        ///
+        /// `position_at` is documented as total for an index its own Grid
+        /// minted, so a case failing by panic is this property failing.
+        ///
+        #[test]
+        fn every_index_the_grid_answers_round_trips_through_its_position(
+            (cols, rows) in dimensions(),
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            for i in 0..grid.count() {
+                let cell = grid.cell_index(i).expect("below the Cell count");
+                prop_assert_eq!(cell.get(), i);
+
+                let pos = grid.position_at(cell);
+                prop_assert!(is_a_cell_of(grid, pos));
+                prop_assert_eq!(grid.index(pos), cell);
+            }
+        }
+
+        ///
+        /// "An index this Grid cannot address never comes into being":
+        /// `cell_index` answers `Some` exactly below the Cell count.
+        ///
+        /// Stated separately from the round trip because it is the half a
+        /// round trip cannot see. Every index the round trip walks is one
+        /// `cell_index` already answered, so an implementation that minted an
+        /// index past the last Cell would round-trip that index too.
+        ///
+        #[test]
+        fn an_index_exists_exactly_below_the_cell_count(
+            (cols, rows) in dimensions(),
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            for i in 0..grid.count() + PAST_THE_END {
+                prop_assert_eq!(
+                    grid.cell_index(i).is_some(),
+                    i < grid.count(),
+                    "index {} of a {} x {} Grid",
+                    i, cols, rows,
+                );
+            }
+
+            prop_assert_eq!(grid.cell_index(usize::MAX), None);
+        }
+
+        ///
+        /// "One repaint of the console, in which every Position the Grid yields
+        /// is drawn once": `rows` yields exactly `count` Positions, each index
+        /// appearing once, in the order the Source stores its Cells.
+        ///
+        /// Equality with `0..count` states all three at once — a repeat, an
+        /// omission, or a swapped axis each make the sequence differ somewhere
+        /// — and it states them for oblong shapes, where a transposed
+        /// implementation is distinguishable at all.
+        ///
+        #[test]
+        fn rows_yields_every_cell_of_the_grid_once(
+            (cols, rows) in dimensions(),
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            let yielded: Vec<Vec<Position>> = grid.rows().map(|row| row.collect()).collect();
+
+            prop_assert_eq!(yielded.len(), rows);
+            for row in &yielded {
+                prop_assert_eq!(row.len(), cols);
+            }
+
+            let positions: Vec<Position> = yielded.into_iter().flatten().collect();
+            prop_assert_eq!(positions.len(), grid.count());
+            for pos in &positions {
+                prop_assert!(is_a_cell_of(grid, *pos));
+            }
+
+            prop_assert_eq!(
+                positions.iter().map(|pos| grid.index(*pos).get()).collect::<Vec<usize>>(),
+                (0..grid.count()).collect::<Vec<usize>>()
+            );
+        }
+
+        ///
+        /// "A row is the whole horizontal extent there is": `offset_in_row`
+        /// answers `Some` exactly while the offset Cell is still in the row it
+        /// started from, and the index it answers with names that Cell.
+        ///
+        /// The sweep asks every offset from every Cell, one and two past the
+        /// last the row admits, so each case states both the last acceptance
+        /// and the first refusal of every row. `usize::MAX` is asked as well
+        /// and takes two different paths to the same answer: from column zero
+        /// the sum is representable and simply lands outside the Grid, and from
+        /// any other column it overflows, which is why the addition is checked.
+        ///
+        /// Both production call sites — `Portal::admit` and `tick::Lookup::at`
+        /// — ask on behalf of a run of Cells they already hold, so `width - 1`
+        /// is the offset each hands over and the row's last Cell is what
+        /// decides whether a write is refused or a destination has
+        /// relationships at all. There was no test of this method before this
+        /// one.
+        ///
+        #[test]
+        fn an_offset_in_row_stays_inside_the_row_it_started_in(
+            (cols, rows) in dimensions(),
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            for pos in every_position(grid, cols, rows) {
+                let start = grid.index(pos);
+
+                // The first offset outside the row is `cols - pos.x()`, so the
+                // range reaches one past that.
+                for offset in 0..cols - pos.x() + PAST_THE_END {
+                    let answered = grid.offset_in_row(pos, offset);
+                    let inside = pos.x() + offset < cols;
+
+                    prop_assert_eq!(
+                        answered.is_some(),
+                        inside,
+                        "offset {} from ({}, {}) in a {} x {} Grid",
+                        offset, pos.x(), pos.y(), cols, rows,
+                    );
+
+                    if let Some(cell) = answered {
+                        let landed = grid.position_at(cell);
+                        prop_assert_eq!(landed.y(), pos.y(), "left its own row");
+                        prop_assert_eq!(landed.x(), pos.x() + offset);
+                        prop_assert_eq!(cell.get(), start.get() + offset);
+                    }
+                }
+
+                // No offset at all is the Position's own Cell, which is what a
+                // one-Cell write asks for.
+                prop_assert_eq!(grid.offset_in_row(pos, 0), Some(start));
+                prop_assert_eq!(grid.offset_in_row(pos, usize::MAX), None);
+            }
+        }
+
+        ///
+        /// "The Cursor holds no dimensions and does no clamping of its own —
+        /// the Grid answers where a move lands": every move lands on a Cell of
+        /// this Grid, one step along one axis, or stays where the Grid ends.
+        ///
+        /// `is_a_cell_of` rather than `owns` because these four are the only
+        /// methods that build a Position from its fields instead of asking
+        /// `position` for one. A clamp that ran one column past the last would
+        /// mint a Position this Grid owns and cannot address, and `index`
+        /// would then hand the Source a Cell in the next row.
+        ///
+        /// The two vertical edge behaviours are stated together because the
+        /// names do not distinguish them: `down` clamps and answers a Position,
+        /// `below` answers `Option` and gives `None` in the bottom row. Each
+        /// branch below names both, so neither can be read as the other.
+        ///
+        /// The inverses — `up` after `down`, `left` after `right` — are what
+        /// says a move is one Cell rather than merely a Cell in the right
+        /// direction, without restating the saturating arithmetic the methods
+        /// are written in.
+        ///
+        #[test]
+        fn every_move_lands_on_a_cell_of_the_grid(
+            (cols, rows) in dimensions(),
+        ) {
+            let grid = Grid::new(cols, rows);
+
+            for pos in every_position(grid, cols, rows) {
+                for landed in [grid.up(pos), grid.down(pos), grid.left(pos), grid.right(pos)] {
+                    prop_assert!(
+                        is_a_cell_of(grid, landed),
+                        "({}, {}) left a {} x {} Grid",
+                        landed.x(), landed.y(), cols, rows,
+                    );
+                }
+
+                // One axis at a time.
+                prop_assert_eq!(grid.up(pos).x(), pos.x());
+                prop_assert_eq!(grid.down(pos).x(), pos.x());
+                prop_assert_eq!(grid.left(pos).y(), pos.y());
+                prop_assert_eq!(grid.right(pos).y(), pos.y());
+
+                if pos.y() + 1 < rows {
+                    let below = grid.below(pos).expect("a row below");
+                    prop_assert!(is_a_cell_of(grid, below));
+                    prop_assert_eq!((below.x(), below.y()), (pos.x(), pos.y() + 1));
+                    prop_assert_eq!(grid.down(pos), below);
+                    prop_assert_eq!(grid.up(below), pos);
+                } else {
+                    // The bottom row: `below` says there is no row below, and
+                    // `down` clamps to the Cell it was given.
+                    prop_assert_eq!(grid.below(pos), None);
+                    prop_assert_eq!(grid.down(pos), pos);
+                }
+
+                if pos.y() > 0 {
+                    prop_assert_eq!(grid.up(pos).y(), pos.y() - 1);
+                    prop_assert_eq!(grid.below(grid.up(pos)), Some(pos));
+                } else {
+                    prop_assert_eq!(grid.up(pos), pos);
+                }
+
+                if pos.x() + 1 < cols {
+                    prop_assert_eq!(grid.right(pos).x(), pos.x() + 1);
+                    prop_assert_eq!(grid.left(grid.right(pos)), pos);
+                } else {
+                    prop_assert_eq!(grid.right(pos), pos);
+                }
+
+                if pos.x() > 0 {
+                    prop_assert_eq!(grid.left(pos).x(), pos.x() - 1);
+                    prop_assert_eq!(grid.right(grid.left(pos)), pos);
+                } else {
+                    prop_assert_eq!(grid.left(pos), pos);
+                }
+            }
+        }
+    }
+
+    ///
+    /// The generator reaches the shapes where a Grid's edges coincide: one
+    /// column, one row, the 1 x 1 Grid that is both, and an oblong one where a
+    /// transposed implementation is distinguishable.
+    ///
+    /// A property is only as good as what its generator produces, and none of
+    /// the properties above can tell a shape it never saw from one it saw and
+    /// handled. Driving the runner directly is what lets the draws be counted
+    /// across cases; the count is asserted afterwards, where `proptest!` would
+    /// have had nowhere to put it. This is the same guard, for the same
+    /// reason, as `lang::parser`'s
+    /// `generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer`.
+    ///
+    /// The case count is pinned rather than taken from `PROPTEST_CASES`,
+    /// because the claim is about the generator rather than about the Grid.
+    /// Nothing is constructed per case, so 256 draws of two numbers cost
+    /// nothing either tier would want back.
+    ///
+    #[test]
+    fn generated_grids_include_the_one_column_and_one_row_cases() {
+        let config = Config {
+            cases: 256,
+            source_file: Some(file!()),
+            ..Config::default()
+        };
+        let one_column = Counter::new(0usize);
+        let one_row = Counter::new(0usize);
+        let single_cell = Counter::new(0usize);
+        let oblong = Counter::new(0usize);
+
+        TestRunner::new(config)
+            .run(&dimensions(), |(cols, rows)| {
+                if cols == 1 {
+                    one_column.set(one_column.get() + 1);
+                }
+                if rows == 1 {
+                    one_row.set(one_row.get() + 1);
+                }
+                if cols == 1 && rows == 1 {
+                    single_cell.set(single_cell.get() + 1);
+                }
+                if cols > 1 && rows > 1 && cols != rows {
+                    oblong.set(oblong.get() + 1);
+                }
+                Ok(())
+            })
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(one_column.get() > 0, "no generated Grid had one column");
+        assert!(one_row.get() > 0, "no generated Grid had one row");
+        assert!(
+            single_cell.get() > 0,
+            "no generated Grid held a single Cell"
+        );
+        assert!(
+            oblong.get() > 0,
+            "no generated Grid had more columns than rows or the other way about",
+        );
     }
 }
