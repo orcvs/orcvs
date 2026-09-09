@@ -248,10 +248,7 @@ fn rows(source: &[&str], empty_rows: usize) -> Vec<String> {
 /// nothing, which is the point the Tick assertions rest on.
 fn expressions(rows: &[String]) -> Vec<Vec<Atom>> {
     rows.iter()
-        .filter_map(|row| {
-            let mut row = row.clone();
-            Parser::from(row.as_mut_str()).try_parse().ok()
-        })
+        .filter_map(|row| Parser::at(row, 0).try_parse().ok())
         .collect()
 }
 
@@ -267,15 +264,22 @@ fn tick(expressions: &[Vec<Atom>], inputs: TickInputs) -> usize {
 
 /// One Render Frame re-read: `analyze` per row, the permissive path a Source
 /// mid-edit is read through.
-fn reread(rows: &mut [String]) -> usize {
+fn reread(rows: &[String]) -> usize {
     let mut units = 0;
-    for row in rows.iter_mut() {
-        units += Parser::from(black_box(row.as_mut_str()))
+    for row in rows {
+        units += Parser::at(black_box(row.as_str()), 0)
             .analyze()
             .expression()
             .len();
     }
     units
+}
+
+/// The characters a Source actually has written in it. Every ceiling below is
+/// derived from this rather than stated as a number, so a cheaper path still
+/// passes and no assertion rots on a compiler or dependency release.
+fn written(rows: &[String]) -> usize {
+    rows.iter().map(String::len).sum()
 }
 
 #[test]
@@ -342,12 +346,25 @@ fn a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row
     assert_eq!(four.bytes, one.bytes * 4);
 
     // Empty rows hold no Expression, so a taller Grid over the same writing
-    // costs a Tick nothing at all.
+    // leaves a Tick exactly the work it already had.
+    //
+    // Asserted over what a Tick runs on, not over a fourth measurement. An
+    // empty row is one the Parser refuses, so `expressions` drops all 512 of
+    // them and a padded Source yields a `Vec` element-wise identical to
+    // `short`. Measuring a Tick over it would compare two runs over the very
+    // same input and could not fail for any implementation of
+    // `Interpreter::execute` — it would read as a fourth assertion while
+    // asserting nothing. The independence from empty rows that *is* worth
+    // stating is this one, and it is the Source's property rather than the
+    // Interpreter's. `re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty`
+    // below states the Interpreter-side half, where `reread` does iterate the
+    // padding and the equality has something to catch.
     let padded = rows(SOURCE, 512);
     let padded = expressions(&padded);
-    let (with_empty_rows, interpreted) = measure(|| tick(black_box(&padded), inputs));
-    black_box(interpreted);
-    assert_eq!(with_empty_rows, one);
+    assert_eq!(
+        padded, short,
+        "512 empty rows changed what a Tick runs over"
+    );
 }
 
 #[test]
@@ -367,15 +384,15 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     // What is asserted is what the Grid actually varies: a Source is as tall
     // as the Grid, most of it empty most of the time, and re-reading it must
     // cost only what is written in it.
-    let mut few = rows(SOURCE, 4);
-    let mut many = rows(SOURCE, 512);
+    let few = rows(SOURCE, 4);
+    let many = rows(SOURCE, 512);
 
     // Warm up, for the same reason the Tick test does.
-    black_box(reread(&mut few));
+    black_box(reread(&few));
 
-    let (sparse, units) = measure(|| reread(black_box(&mut few)));
+    let (sparse, units) = measure(|| reread(black_box(&few)));
     black_box(units);
-    let (empty, units) = measure(|| reread(black_box(&mut many)));
+    let (empty, units) = measure(|| reread(black_box(&many)));
     black_box(units);
 
     // One point of the three measured here. `empty` is asserted equal to
@@ -391,11 +408,43 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
         many.len()
     );
 
+    // A ceiling as well as the independence — the shape `01` prefers over an
+    // equality, and the one this test was missing. The equality above compares
+    // two Sources against each other, so a cost that rises on both moves them
+    // together and it sees nothing; a second discarded
+    // `SyntaxError::UnknownFunction` per operand would double this path and
+    // still pass it.
+    //
+    // The bound is one allocation of the operand's spelling per literal
+    // operand, which is what the FINDING above describes. A literal operand is
+    // a two-character Cell pair and an Expression spends at least two more
+    // characters on its Anchor and Function, so a Source of `characters`
+    // written characters holds at most `characters / 2` operands whatever is
+    // written in it — the ceiling is derived from the input, never from the
+    // measurement. Relieving the discarded error, which is the whole of
+    // `.scratch/allocation-reduction/issues/02-test-a-function-spelling-without-building-an-error.md`,
+    // drives both counts to zero and must still pass.
+    let characters = written(&few);
+    let operands = characters / 2;
+    assert!(
+        sparse.blocks <= operands,
+        "re-reading {characters} written characters, at most {operands} literal operands, \
+         took {} blocks",
+        sparse.blocks
+    );
+    // Two bytes per operand spelling, so the same ceiling in bytes is one per
+    // written character.
+    assert!(
+        sparse.bytes <= characters,
+        "re-reading {characters} written characters took {} bytes",
+        sparse.bytes
+    );
+
     // The stronger half of the same statement: a row with nothing written in
     // it costs nothing, so the equality above is independence rather than two
     // equally wasteful passes.
-    let mut blank = rows(&[], 512);
-    let (nothing, units) = measure(|| reread(black_box(&mut blank)));
+    let blank = rows(&[], 512);
+    let (nothing, units) = measure(|| reread(black_box(&blank)));
     black_box(units);
     assert_eq!(nothing, Allocations::default());
 }

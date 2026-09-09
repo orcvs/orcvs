@@ -143,11 +143,29 @@ jobs:
         # quote of their own, which is stated where they are built.
         shell: bash
         run: |
-          records="$(grep '^ORCVS-MEMORY-SERIES ' allocations.txt | cut -d' ' -f2- | LC_ALL=C sort)"
+          # `|| true` because the step runs under `-eo pipefail`: without it a
+          # `grep` that matches nothing makes the assignment fail and `errexit`
+          # kills the step here, before the diagnostic below can say why.
+          # `grep -o` rather than a `^`-anchored match because libtest only
+          # suppresses its own partial `test <name> ... ` line prefix when it
+          # runs tests concurrently, so an anchored pattern would drop every
+          # record on a single-core runner or under `RUST_TEST_THREADS=1`.
+          records="$(grep -o 'ORCVS-MEMORY-SERIES .*' allocations.txt | cut -d' ' -f2- | LC_ALL=C sort || true)"
           if [ -z "$records" ]; then
             echo 'the allocation tests published no records' >&2
             exit 1
           fi
+          # Emptiness is not enough: the two test binaries publish
+          # independently, so renaming the marker in one of them leaves the
+          # other's records arriving and half the series silently stops
+          # receiving points. Each crate is named in its own records, so
+          # requiring both says the whole measurement arrived.
+          for crate in lang orcvs; do
+            if ! printf '%s\n' "$records" | grep -q "\"name\": \"$crate "; then
+              echo "the $crate allocation tests published no records" >&2
+              exit 1
+            fi
+          done
           duplicates="$(printf '%s\n' "$records" | cut -d'"' -f4 | LC_ALL=C uniq -d)"
           if [ -n "$duplicates" ]; then
             printf 'two records share one series name:\n%s\n' "$duplicates" >&2
@@ -274,11 +292,29 @@ jobs:
         # quote of their own, which is stated where they are built.
         shell: bash
         run: |
-          records="$(grep '^ORCVS-MEMORY-SERIES ' allocations.txt | cut -d' ' -f2- | LC_ALL=C sort)"
+          # `|| true` because the step runs under `-eo pipefail`: without it a
+          # `grep` that matches nothing makes the assignment fail and `errexit`
+          # kills the step here, before the diagnostic below can say why.
+          # `grep -o` rather than a `^`-anchored match because libtest only
+          # suppresses its own partial `test <name> ... ` line prefix when it
+          # runs tests concurrently, so an anchored pattern would drop every
+          # record on a single-core runner or under `RUST_TEST_THREADS=1`.
+          records="$(grep -o 'ORCVS-MEMORY-SERIES .*' allocations.txt | cut -d' ' -f2- | LC_ALL=C sort || true)"
           if [ -z "$records" ]; then
             echo 'the allocation tests published no records' >&2
             exit 1
           fi
+          # Emptiness is not enough: the two test binaries publish
+          # independently, so renaming the marker in one of them leaves the
+          # other's records arriving and half the series silently stops
+          # receiving points. Each crate is named in its own records, so
+          # requiring both says the whole measurement arrived.
+          for crate in lang orcvs; do
+            if ! printf '%s\n' "$records" | grep -q "\"name\": \"$crate "; then
+              echo "the $crate allocation tests published no records" >&2
+              exit 1
+            fi
+          done
           duplicates="$(printf '%s\n' "$records" | cut -d'"' -f4 | LC_ALL=C uniq -d)"
           if [ -n "$duplicates" ]; then
             printf 'two records share one series name:\n%s\n' "$duplicates" >&2

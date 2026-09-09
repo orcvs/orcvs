@@ -13,8 +13,11 @@ name: Miri
 # pays for the moment it runs unasked. The workflow is not a required status
 # context and is not meant to become one.
 #
-# What it is for: the workspace holds exactly one `unsafe` block, the in-place
-# ASCII byte write in `Source::set_source`. The `undocumented_unsafe_blocks` and
+# What it is for: the workspace's shipped code holds exactly one `unsafe` block,
+# the in-place ASCII byte write in `Source::set_source`. (The counting allocators
+# in `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` hold one
+# `unsafe impl GlobalAlloc` each, deliberately outside this filter: they forward
+# to `System`, which Miri does not interpret, and nothing shipped links them.) The `undocumented_unsafe_blocks` and
 # `unsafe_op_in_unsafe_fn` denials already check that its invariant is written
 # down on every clippy run. Miri is what checks whether the invariant holds, and
 # the moment to spend it is when that byte write, or the Grid indexing that feeds

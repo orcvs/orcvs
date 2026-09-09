@@ -109,6 +109,35 @@ count_matches() {
   grep -Ev '^[[:space:]]*#' "$1" | grep -Ec "$2" || true
 }
 
+# The triggers a workflow declares, one per line: the keys at exactly one indent
+# level inside `on:`. Read as a set rather than matched as forbidden names, so a
+# rule about what may run a workflow cannot be stepped around by reaching for a
+# trigger the rule's authors did not think to forbid.
+workflow_triggers() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^on:[[:space:]]*$/ { in_on = 1; next }
+    in_on && /^[^[:space:]]/ { in_on = 0 }
+    in_on && /^  [A-Za-z_]+[[:space:]]*:/ {
+      line = $0
+      sub(/^  /, "", line)
+      sub(/[[:space:]]*:.*/, "", line)
+      print line
+    }
+  ' "$1"
+}
+
+assert_only_trigger() {
+  local file="$1"
+  local expected="$2"
+  local actual
+  actual="$(workflow_triggers "$file" | paste -sd, -)"
+  if [ "$actual" != "$expected" ]; then
+    echo "expected $file to declare $expected as its only trigger, found: ${actual:-none}" >&2
+    exit 1
+  fi
+}
+
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
@@ -422,20 +451,28 @@ assert_contains "$root_dir/mise.toml" "^cargo [+]nightly miri nextest run --pack
 # No tier calls it. A `mise run miri` line inside another task is the shape that
 # turns the deliberate path back into a requirement without anyone deciding to,
 # and it would arrive on every pull request as an interpreter roughly two orders
-# of magnitude slower than the suite beside it.
-assert_not_contains "$root_dir/mise.toml" '^[[:space:]]*mise run miri$'
+# of magnitude slower than the suite beside it. Matched unanchored and with
+# mise's `r` abbreviation, because an anchored `^mise run miri$` reads only a
+# line that is nothing else: `mise run check && mise run miri` and `mise r miri`
+# are the same call and would both have walked past it.
+assert_not_contains "$root_dir/mise.toml" 'mise (run|r) miri([^[:alnum:]_-]|$)'
 # The same rule against the workflow that runs it, stated over whichever workflow
 # runs the task rather than over a file name — so a renamed or copied job cannot
-# step around it, and so the contract's own fixture, which carries only the
-# workflows it names, has no missing file to dereference. `workflow_dispatch` has
-# to be there, because a job with no trigger is not a path anyone can take;
-# `pull_request:` and `push:` must not be, because either one is the decision
-# above reversed by a different route.
+# step around it, and so the contract's own fixture has no missing file to
+# dereference.
+#
+# Stated as a whole trigger set rather than as a list of forbidden names.
+# `workflow_dispatch` has to be there, because a job with no trigger is not a
+# path anyone can take. Naming `pull_request` and `push` as the two that must
+# not be left every other automatic trigger through: a `schedule:` with a nightly
+# cron reverses `verification-gaps/12` exactly as a `push:` would — a 90-minute
+# interpreter running unasked — and forbidding the two spellings someone thought
+# of is not a rule about what may run this workflow. `release`, `workflow_run`
+# and `workflow_call` are the same hole. Requiring the set to be exactly
+# `workflow_dispatch` leaves none of them.
 for workflow in "$root_dir"/.github/workflows/*.yml; do
-  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -Eq '^[[:space:]]*-?[[:space:]]*run: mise run miri$'; then
-    assert_contains "$workflow" '^  workflow_dispatch:$'
-    assert_not_contains "$workflow" '^[[:space:]]*(pull_request|push)[[:space:]]*:'
-    assert_not_contains "$workflow" '^on:.*(pull_request|push)'
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -Eq '^[[:space:]]*-?[[:space:]]*run: mise (run|r) miri([^[:alnum:]_-]|$)'; then
+    assert_only_trigger "$workflow" 'workflow_dispatch'
   fi
 done
 

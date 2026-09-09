@@ -137,8 +137,11 @@ matters most. What that decision kept is Miri as the tool the unsafe gate would 
 deliberately. This is the path it points at, and it stays off both tiers so that reaching for it
 remains a decision rather than a cost every change pays.
 
-What it covers is the workspace's one `unsafe` block: the in-place ASCII byte write in
-`Source::set_source`, `orcvs/src/source/model.rs`. The `undocumented_unsafe_blocks` and
+What it covers is the one `unsafe` block in the workspace's shipped code: the in-place ASCII
+byte write in `Source::set_source`, `orcvs/src/source/model.rs`. Two more live in the counting
+allocators of `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, and the filter leaves them
+out on purpose — each is an `unsafe impl GlobalAlloc` forwarding to `System`, which is the one thing
+Miri replaces with its own allocator rather than interpreting, and no shipped target links either. The `undocumented_unsafe_blocks` and
 `unsafe_op_in_unsafe_fn` denials in `[workspace.lints]` already check on every clippy run that the
 block states an invariant; they cannot check that the invariant holds. Miri can, and the moment to
 spend it is when that byte write, or the Grid indexing that mints the index it takes, changes.

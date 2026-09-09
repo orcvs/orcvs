@@ -194,6 +194,23 @@ fn publish(name: &str, allocations: Allocations) {
 }
 
 /// The Expressions a rebuild carried, published beside the counts it divides.
+///
+/// This is a fixture size rather than a cost, and it goes into the same
+/// `customSmallerIsBetter` series as the counts, so the action scores it as if
+/// smaller were better and alerts when it rises past `alert-threshold`. That is
+/// the trade rather than an oversight. `github-action-benchmark` has no
+/// per-metric threshold, so keeping the divisor unscored would mean a second
+/// series, a second `memory.json`, and a second action step in each of the two
+/// bench jobs — and it would put the divisor on a different chart from the
+/// numbers it exists to make readable, which is the whole of why it is
+/// published.
+///
+/// What it costs is bounded: `SIZES`, `EXPRESSIONS` and `source_text` are
+/// constants, so this number moves only on a commit that deliberately edits the
+/// fixture, and that commit moves the allocation counts beside it. An alert here
+/// therefore means "the fixture changed", which is exactly what a reader needs
+/// to know to read the alerts next to it — and `fail-on-alert: false` keeps it
+/// from failing the job either way.
 fn publish_carried(name: &str, expressions: usize) {
     if !publishing() {
         return;
@@ -336,9 +353,21 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
     //
     //   - a refused edit stops before either half, so it allocates at most the
     //     error text it hands back;
-    //   - the same edit costs exactly the same on every later revision, so the
-    //     write path retains nothing per revision — the shape a leak on the
-    //     editing path would break.
+    //   - the same edit costs exactly the same on every later revision, so
+    //     nothing the write path retains gets *more expensive* per revision.
+    //
+    // That second one is weaker than "the write path leaks nothing", and the
+    // difference is worth stating because it is easy to read the equality as
+    // the stronger claim. `measure` counts allocations and never
+    // deallocations, so it sees cost per revision and not what is still held.
+    // A retention of constant size — pushing each `Arc<LanguageMap>` onto an
+    // undo history, say — allocates the same amount every round and passes
+    // here untouched. What breaks the equality is a retention whose cost
+    // *grows* with the revision count, and even then an amortised-doubling
+    // growth reallocates on roughly one round in five. The wasm counterpart in
+    // `shell/tests/wasm.rs` is the assertion that watches retention itself,
+    // because linear memory cannot shrink; on native there is no equivalent
+    // and this file does not claim one.
     //
     // Measured on the calling thread. `Source::set` is a direct call, and
     // `SourceCommander::set` only takes the write lock and delegates on the
@@ -360,9 +389,10 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
         "a refused edit allocated {refused:?}, past the error text it returns"
     );
 
-    // The same transition, revision after revision. A per-revision allocation
-    // — anything retained in the Source or its Map — shows up as an inequality
-    // here, and nothing else in this file would catch it.
+    // The same transition, revision after revision. A per-revision cost that
+    // grows — anything retained in the Source or its Map that gets dearer to
+    // add — shows up as an inequality here, and nothing else in this file
+    // would catch it. A retention of constant size does not; see above.
     let first = measure_one_write(&mut source, edited, EDITED_VALID);
     for round in 0..4 {
         let again = measure_one_write(&mut source, edited, EDITED_VALID);

@@ -66,7 +66,7 @@ description = "Interpret the Source model tests under Miri"
 # foreign functions and no real threads to hand them. But Miri interprets what
 # actually runs, not what the crate links, so a dependency no selected test
 # calls never becomes a problem. The filter selects the tests in the module that
-# holds the workspace's one unsafe block — the in-place ASCII byte write in
+# holds the one unsafe block in shipped code — the in-place ASCII byte write in
 # `Source::set_source`, `orcvs/src/source/model.rs` — which are the tests that
 # reach it. `nextest` gives each of them its own interpreter context, so Miri's
 # leak check at termination reports per test rather than per binary.
