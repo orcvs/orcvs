@@ -1710,6 +1710,26 @@ mod test {
     }
 
     #[test]
+    fn a_bang_cardinally_aligned_with_a_nested_function_anchor_activates_nothing() {
+        // The other half of non-root contact. The test above puts the Bang
+        // inside the operand Cells, so operand contact alone answers it. Here
+        // the destination is a clear row of its own and only its southern
+        // anchor lands anywhere: on the `.+` at column 4, which is a nested
+        // Function and so no root. Nothing is eligible, so the terminal that
+        // owns that `.+` never performs and its row is left exactly as typed.
+        let (plan, source) = configured_source(
+            Grid::new(16, 4),
+            &["", "!>00.+0101C4", "", ".=0101"],
+            &[(48, 4)],
+            &[],
+        );
+        assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(&source.snapshot()[0..8], "    **  ");
+        assert_eq!(&source.snapshot()[16..28], "!>00.+0101C4");
+    }
+
+    #[test]
     fn a_bang_rejected_in_a_typed_operand_never_activates() {
         // ADR 0032: "A `**` rejected in a typed operand is still invalid
         // syntax and neither activates nor receives display cleanup." The
