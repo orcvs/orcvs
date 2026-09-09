@@ -65,9 +65,10 @@ description = "Interpret the Source model tests under Miri"
 # channel and the component it needs for the length of the run rather than
 # moving the pin and making every other gate nightly's problem.
 #
-# Scoped by test filter, not by crate. `orcvs` links ALSA through `midir` and
-# builds a multi-threaded Tokio runtime, and Miri can execute neither: it has no
-# foreign functions and no real threads to hand them. But Miri interprets what
+# Scoped by test filter, not by crate. `orcvs` links ALSA through `midir` in the
+# default-featured build this task runs — `native-midi` is what decides that —
+# and builds a multi-threaded Tokio runtime, and Miri can execute neither: it
+# has no foreign functions and no real threads to hand them. But Miri interprets what
 # actually runs, not what the crate links, so a dependency no selected test
 # calls never becomes a problem. The filter selects the tests in the module that
 # holds the one unsafe block in shipped code — the in-place ASCII byte write in

@@ -206,8 +206,8 @@ The task installs `nightly` and the `miri` component itself rather than moving t
 so nothing else in the repository becomes nightly's problem for the length of a run. It is scoped by
 test filter — `-E 'test(/^source::model::test::/)'`, the 68 tests in the module that holds the block
 — and not by crate. That distinction is what makes the run possible at all: `orcvs` links ALSA
-through `midir` and builds a multi-threaded Tokio runtime, and Miri can execute neither, having no
-foreign functions and no real threads to hand them. But Miri interprets what actually runs rather
+through `midir` in the default-featured build the task runs, and builds a multi-threaded Tokio
+runtime, and Miri can execute neither, having no foreign functions and no real threads to hand them. But Miri interprets what actually runs rather
 than what the crate links, so a dependency no selected test calls never becomes a problem, where
 `cargo miri nextest run --package orcvs` would meet both. The run goes through `nextest` for the
 reason every gate here does, with one addition: process-per-test gives each test its own interpreter

@@ -257,12 +257,37 @@ const _: () = assert!(
 #[cfg(all(test, not(feature = "native-midi")))]
 mod feature_disabled_tests {
     use super::output_adapter;
+    use crate::midi::MidiDestinationId;
     use crate::playback::{OutputAdapter, OutputCommand};
     use crate::source::{MidiChannel, Note, Velocity};
 
+    ///
+    /// What the sibling tests in `silent` cannot say: the adapter a running
+    /// Orcvs is handed is that backend, not merely one that could be built from
+    /// it. `silent::tests` constructs `MidiOutputAdapter::new(SilentMidiBackend)`
+    /// itself, so it holds the backend to its contract and says nothing about
+    /// which backend `output_adapter()` reaches for. Asserting only that submit
+    /// and safety reset return `Ok` here restated the sibling and left the
+    /// wiring untested: a feature-off `backend` re-exporting something that
+    /// forwarded commands and returned `Ok` passed both.
+    ///
+    /// So this asserts the pairing by its observable consequences — nowhere to
+    /// send, and no way to obtain a connection — before asserting that playing
+    /// anyway is accepted and silent.
+    ///
     #[test]
-    fn a_running_orcvs_still_has_an_adapter_and_it_delivers_nothing() {
+    fn a_running_orcvs_has_an_adapter_over_a_backend_with_nowhere_to_deliver() {
         let mut adapter = output_adapter();
+
+        assert_eq!(adapter.destinations(), Ok(Vec::new()));
+        assert_eq!(
+            adapter
+                .select(&MidiDestinationId::new("invented"))
+                .err()
+                .map(|error| error.message),
+            Some("this build has no native MIDI backend".to_owned())
+        );
+        assert_eq!(adapter.selected_destination_id(), None);
 
         assert!(
             adapter
