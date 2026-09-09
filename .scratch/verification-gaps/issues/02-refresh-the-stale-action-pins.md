@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] The contract passes against the current workflow.
 - [x] Both stale pins match the workflow, not just the first one.

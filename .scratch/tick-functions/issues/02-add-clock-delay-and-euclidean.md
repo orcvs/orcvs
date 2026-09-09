@@ -3,7 +3,7 @@
 **What to build:** Implement `~.`, `~*`, and `~%` from ADR 0012 using explicit absolute Tick and
 Number operands.
 
-**Blocked by:** 01 — Thread Tick and Position into interpretation; orcvs-language-migration/01; orcvs-language-migration/02; lang-foundations/06.
+**Blocked by:** None — every listed blocker is resolved.
 
 **Status:** ready-for-agent
 

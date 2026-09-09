@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] Shell's empty integration test target and the helper module it exists to pull in are removed, or given real tests.
 - [x] Shell's placeholder unit test is removed, or given an assertion.

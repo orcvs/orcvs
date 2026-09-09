@@ -6,5 +6,7 @@
 .scratch/**
 !.scratch/**/
 !.scratch/**/*.md
+# Release evidence captures are delivered artefacts, not working files.
+!.scratch/*/evidence/*.png
 .claude/worktrees/
 .worktrees/

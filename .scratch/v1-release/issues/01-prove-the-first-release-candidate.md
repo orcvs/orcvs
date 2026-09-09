@@ -3,7 +3,7 @@
 **What to build:** Close the release definition with the complete candidate-bound evidence bundle
 and an explicit, unwaived human GO/NO-GO decision.
 
-**Blocked by:** live-typed-execution/10 — Verify live execution through next-Tick Source; 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; language-map/10 — Reconcile historical scheduler tickets; live-typed-execution/01 — Execute against live typed expressions; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
+**Blocked by:** 04 — Record physical MIDI evidence; restyle-egui-console/03 — Native/WASM visual verification; v1-roadmap-wayfinding/07 — Correct the ticket statements flagged in review.
 
 **Status:** ready-for-agent
 
@@ -22,15 +22,20 @@ and an explicit, unwaived human GO/NO-GO decision.
       save–restart–reload behavior on the candidate.
 - [ ] Four visual captures and physical MIDI evidence carry the required candidate metadata and
       human checklists; fake MIDI results prove exact deterministic software behavior.
-- [ ] `mise run bench` output compares the candidate with a named stable baseline, links archived
-      output, reviews series history for cumulative drift, and records the reviewer's performance
-      judgment.
+- [ ] The benchmark record links the candidate's `.github/workflows/bench.yml` run and the
+      archived `gh-pages` series, reviews the series history for cumulative drift, and records the
+      reviewer's performance judgment against the nominated baseline. `mise run bench` measures but
+      does not compare — the comparison lives in the action, as `docs/tooling.md` and
+      `.scratch/benchmarks/spec.md` state — so a local run is not the evidence.
 - [ ] The Criterion baseline commit is nominated, with its toolchain pinned, before `v1-release/03`
       cuts the candidate SHA — not chosen afterwards from whatever the comparison favours. Nominate
       it from the series `benchmarks/03` publishes to `gh-pages`, and record the nomination here
       with its date.
 - [ ] Known defects, Improvement-only work, accepted deferrals, `CONTEXT.md`, and user-facing
-      documentation are reconciled against implemented behavior rather than speculative scope.
+      documentation are reconciled against implemented behavior rather than speculative scope. The
+      review names `verification-gaps/09` (advisory benchmark gate and branch-protection bypasses)
+      and `benchmarks/07` (no enforced benchmark floor) explicitly, and records a decision to
+      accept each or to move it into `release/v1`.
 - [ ] A named reviewer and date conclude with `GO` only when every requirement passes; otherwise the
       ticket records `NO-GO`. Missing evidence cannot be waived inside this ticket.
 

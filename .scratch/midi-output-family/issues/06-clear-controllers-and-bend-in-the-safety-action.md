@@ -1,4 +1,4 @@
-# 05 — Clear controllers and bend in the safety action
+# 06 — Clear controllers and bend in the safety action
 
 **What to build:** Widen the output adapter's safety action from All Notes Off alone to one that also
 returns controllers and the pitch wheel to their defaults.
@@ -6,6 +6,8 @@ returns controllers and the pitch wheel to their defaults.
 **Blocked by:** 04 — Send Control Change and Pitch Bend.
 
 **Status:** ready-for-agent
+
+**Tags:** release/v1
 
 - [ ] The safety action sends CC 121 Reset All Controllers per channel alongside the existing CC 123.
 - [ ] The safety action sends an explicit centred bend `[0xE0 | channel, 0x00, 0x40]` per channel.
@@ -20,13 +22,16 @@ returns controllers and the pitch wheel to their defaults.
 
 ## Comments
 
-### Release scope is undecided
+### Release scope is decided
 
-This issue carries no `release/v1` tag. Tagging it puts it inside the release gate's dependency
-closure, which `scripts/roadmap.ts` enforces, so it would have to be wired into `v1-release/01`'s
-chain — most naturally under `v1-release/04 — Record physical MIDI evidence`, which is where a
-stuck bend would actually be observed on a device. That is a decision to widen the release, and it
-belongs to whoever owns v1 scope rather than to the ticket that found the gap.
+2026-09-09: the release-candidate audit put this question to the owner of v1 scope and the answer
+was to widen the release. The issue now carries `release/v1` and blocks `v1-release/03`, not
+`v1-release/04`. The safety action must ship before the candidate SHA is cut, so the deterministic
+fake-adapter evidence and the recorded physical smoke describe the same implementation. The
+definition of done requires MIDI terminal output to cover device lifecycle, which is this issue.
+
+This file was also renumbered from `05` to `06`: the resolved
+`05-extend-terminal-output-functions-over-sequences.md` already claimed that reference.
 
 ### Why this is not part of 04
 

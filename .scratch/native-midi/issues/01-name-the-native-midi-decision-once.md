@@ -8,6 +8,8 @@ This is a refactor with no behaviour change. It exists because a consuming crate
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] Whether a native MIDI backend is available is decided in exactly one place in `orcvs`; no other module or crate spells out the equivalent target condition for MIDI.
 - [ ] `orcvs` exposes a default output adapter and a MIDI backend type that name a valid type on every supported target, including WASM.
 - [ ] The console obtains its running Orcvs and its MIDI device selection through that seam and carries no target condition of its own for MIDI.

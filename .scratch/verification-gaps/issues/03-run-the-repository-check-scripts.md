@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Refresh the tooling contract's stale action pins.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] The tooling contract runs in the pull-request tier.
 - [x] The contract's own test suite runs in the pull-request tier.
