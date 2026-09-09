@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Compile the WASM test targets before a merge.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] `orcvs`'s native-only tests are guarded so its test targets compile for the browser target.
 - [x] The WASM tier compiles the workspace's test targets rather than one package's.

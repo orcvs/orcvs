@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] The named gate exists as a task, or the contract stops naming it.
 - [x] If the gate is kept, the toolchain declares the channel it needs and a task invokes it.

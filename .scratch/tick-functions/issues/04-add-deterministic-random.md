@@ -3,7 +3,7 @@
 **What to build:** Implement `~? seed minimum maximum` with ADR 0013's ChaCha8 seed layout and
 inclusive byte-range mapping.
 
-**Blocked by:** 01 — Thread Tick and Position into interpretation; sequence-values/02; lang-foundations/06.
+**Blocked by:** None — every listed blocker is resolved.
 
 **Status:** ready-for-agent
 

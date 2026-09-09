@@ -4,7 +4,7 @@
 malformed state, rebuilds every derived language view, and restores through the actual shipped
 native and WASM storage integrations.
 
-**Blocked by:** language-map/03 — Move Source consumers behind the Language Map.
+**Blocked by:** product-persistence/01 — Restore Source through the shipped storage path.
 
 **Status:** ready-for-agent
 

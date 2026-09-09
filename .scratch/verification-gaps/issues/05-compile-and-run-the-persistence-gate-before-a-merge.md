@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Refresh the tooling contract's stale action pins.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] The pull-request tier type-checks every target with `persistence` enabled.
 - [x] The three persistence tests run in the pull-request tier.

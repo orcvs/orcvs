@@ -4,7 +4,7 @@
 
 The palette is a charcoal page over near-black Source, subtle one-pixel Cell grid lines, muted ordinary Glyphs, teal Functions, soft-red Bang and diagnostic states, restrained teal selection and Cursor treatment, and a calm blue Number colour distinct from Functions, Notes, and ordinary Characters. Cell backgrounds stay near-black: the only background changes are the meaningful states — selection and the Cursor field — and each of those is itself near-black. Nothing decorative is added on top: no gradients, no rounded tiles, no shadows, no animation.
 
-**Blocked by:** 01 — Square, centred Source Grid viewport.
+**Blocked by:** None — every listed blocker is resolved.
 
 **Status:** ready-for-agent
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] A failure in the interpreter property persists a counterexample.
 - [x] The property keeps counting the cases it reaches, which is why it drives the runner directly.
