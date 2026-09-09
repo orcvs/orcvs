@@ -588,8 +588,71 @@ test_spaced_key_merge_guard_is_rejected() {
   assert_rejected "a merge guard whose key is spelled with a detached colon"
 }
 
+test_non_optional_midir_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^midir = \{ version = "0.11", optional = true \}$/midir = "0.11"/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency that arrives whether native-midi is enabled or not"
+}
+
+test_shipped_midir_dependency_is_rejected() {
+  make_fixture
+  # The target table is what keeps `midir` out of a WASM build. Moved into the
+  # plain table it is optional and feature-gated still, and every other
+  # assertion about it holds, while a default-featured browser build now asks
+  # Cargo for a crate that links CoreMIDI.
+  perl -pi -e 's/^\[dependencies\]$/[dependencies]\nmidir = { version = "0.11", optional = true }/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency declared outside the native target table"
+}
+
+test_native_midi_off_by_default_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^default = \["native-midi"\]$/default = []/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "an orcvs crate that no longer defaults native-midi on"
+}
+
+test_console_without_native_midi_is_rejected() {
+  make_fixture
+  perl -pi -e 's/, features = \["native-midi"\] \}$/ }/' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a console that asks for no native MIDI backend on its native targets"
+
+  # Asking for it by name is the point: with `orcvs` defaulting the feature on,
+  # a console that merely leaves the default alone still ships MIDI today and
+  # loses it silently the day that default changes.
+  make_fixture
+  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a console that leans on the orcvs default instead of naming the feature"
+}
+
+test_pull_request_tier_without_the_disabled_feature_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that lints no build with native-midi disabled"
+
+  make_fixture
+  perl -pi -e 's/^(cargo nextest run --package orcvs --no-default-features --profile ci --locked)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that runs no tests with native-midi disabled"
+}
+
+test_audit_without_the_disabled_tree_check_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(native_midi_tree=.*)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a dependency audit that never resolves the native-midi-disabled tree"
+
+  # The tree is only evidence if something reads it. A printed tree that nothing
+  # greps is the shape this check replaced.
+  make_fixture
+  perl -pi -e 's/^(if printf .*)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a dependency audit that resolves the tree and asserts nothing about it"
+}
+
 case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
+  non-optional-midir) test_non_optional_midir_is_rejected ;;
+  shipped-midir) test_shipped_midir_dependency_is_rejected ;;
+  native-midi-default) test_native_midi_off_by_default_is_rejected ;;
+  console-native-midi) test_console_without_native_midi_is_rejected ;;
+  disabled-feature-tier) test_pull_request_tier_without_the_disabled_feature_is_rejected ;;
+  disabled-feature-tree) test_audit_without_the_disabled_tree_check_is_rejected ;;
   unbenchmarked-orcvs) test_unbenchmarked_orcvs_is_rejected ;;
   lang-only-bench) test_lang_only_bench_task_is_rejected ;;
   missing-orcvs-criterion) test_missing_orcvs_criterion_is_rejected ;;
@@ -657,6 +720,12 @@ case "${1:-all}" in
   all)
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
+    test_non_optional_midir_is_rejected
+    test_shipped_midir_dependency_is_rejected
+    test_native_midi_off_by_default_is_rejected
+    test_console_without_native_midi_is_rejected
+    test_pull_request_tier_without_the_disabled_feature_is_rejected
+    test_audit_without_the_disabled_tree_check_is_rejected
     test_unlocked_check_deny_is_rejected
     test_unbenchmarked_orcvs_is_rejected
     test_lang_only_bench_task_is_rejected

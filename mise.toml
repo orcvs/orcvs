@@ -115,6 +115,17 @@ cargo fmt --all -- --check
 # persistence` here would name the default twice and test one configuration.
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+# `native-midi` is on by default, so every line above and below this one builds
+# the crate one way — the `--no-default-features` line included, because `shell`
+# names the feature for its native targets and workspace resolution hands it
+# back. These two build it the other way, and they are scoped to `orcvs` because
+# it is the only crate the feature reaches. Crossed with `persistence` rather
+# than run twice plain, so the four feature cells are all compiled between here
+# and the lines around it, and the plain pass is the one that runs, because the
+# tests that state what disabling the feature gives up are compiled only with it
+# off.
+cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings
+cargo nextest run --package orcvs --no-default-features --profile ci --locked
 cargo nextest run --workspace --profile ci --locked
 cargo nextest run --workspace --tests --no-default-features --profile ci --locked
 cargo test --workspace --doc --locked
@@ -193,4 +204,15 @@ description = "Audit advisories, licenses, sources, and duplicate dependencies"
 run = '''
 cargo tree --workspace --all-features -e features --locked
 cargo deny --locked check
+# What `native-midi` is for is a claim about this tree, so the claim is checked
+# here rather than described in a comment somewhere. With the feature off,
+# `orcvs` reaches no platform MIDI service and so needs no system audio library:
+# `midir` and the ALSA and CoreMIDI crates beneath it are all absent. `cargo
+# tree` resolves the host target, so the Linux and macOS runners between them
+# check this against both libraries a native build could otherwise link.
+native_midi_tree="$(cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked)"
+if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|alsa|alsa-sys|coremidi|coremidi-sys) '; then
+  echo 'orcvs without native-midi still carries midir or a system audio library' >&2
+  exit 1
+fi
 '''

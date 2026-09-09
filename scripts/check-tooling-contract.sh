@@ -198,6 +198,16 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo cli
 # `product-persistence/01`'s own acceptance criterion. Pinning both halves is
 # what stops the pair collapsing back into one configuration named twice.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings$'
+# `native-midi` is on by default, so every workspace compilation in this tier
+# builds `orcvs` with a native MIDI backend — the `--no-default-features` one
+# included, because `shell` names the feature for its native targets. These two
+# are the ones that build it without: the clippy pass crosses the feature off
+# against `persistence`, so the four feature cells are all compiled, and the
+# nextest pass runs the tests that state what turning the feature off gives up,
+# which are compiled only with it off. Losing either leaves a shipped feature
+# state that no tier reaches.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --package orcvs --no-default-features --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --tests --no-default-features --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --locked$'
@@ -213,6 +223,19 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^cargo den
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo deny --locked check$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo tree --workspace --all-features -e features --locked$'
+# The reason `native-midi` exists is a claim about the dependency tree, and a
+# printed tree is read by a human or by nobody. This pins the check that fails
+# instead: the tree `orcvs` resolves with the feature off, and the grep over it
+# that rejects `midir` and the ALSA and CoreMIDI crates beneath it. Pinned as
+# three lines because each carries part of the answer — the resolution, the
+# rejection, and the non-zero exit. The rejecting pattern is held by the
+# grep-backed assertion beneath, for the reason the Miri filter is: the
+# task-scoped check reads through awk, which rejects the escaped `^` the pattern
+# needs.
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^native_midi_tree="[$][(]cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked[)]"$'
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^if printf'
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^  exit 1$'
+assert_contains "$root_dir/mise.toml" "grep -E '\^\(midir\|alsa\|alsa-sys\|coremidi\|coremidi-sys\) '"
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked$'
@@ -589,3 +612,39 @@ for regressions_path in \
       ;;
   esac
 done
+
+# `midir` is the one dependency in this workspace that links a system audio
+# library — ALSA on Linux, CoreMIDI on macOS — and `native-midi` is what decides
+# whether a build has it. The feature is on by default, so every build that
+# exists today resolves as it did; what turning it off gives up is MIDI
+# delivery, and what it buys is a tree with no `midir` and no audio library in
+# it. Two conditions have to hold together for that, and each is pinned here.
+#
+# The feature has to be the only way in. `midir` declared without `optional`, or
+# declared in a table the feature does not gate, is a dependency that arrives
+# whatever the feature says — and the tree check in `audit_deps` is the only
+# other thing that would notice.
+midir_native_table='^[[]target[.].cfg[(]any[(]target_os = "macos", target_os = "windows", target_os = "linux"[)][)].[.]dependencies[]]$'
+assert_contains "$root_dir/orcvs/Cargo.toml" '^default = \["native-midi"\]$'
+assert_contains "$root_dir/orcvs/Cargo.toml" '^native-midi = \["dep:midir"\]$'
+# Bracket forms rather than backslash escapes in every table pattern here and
+# below: they reach the matcher through `awk -v`, which drops the backslash from
+# `\{` and `\[` and turns what is left of `\["native-midi"\]` into a character
+# class carrying an `e-m` range. That class matches the `f` of
+# `default-features = false`, so the escaped spelling of the console assertion at
+# the end of this file passed against a console that had stopped naming the
+# feature at all.
+assert_toml_table_contains "$root_dir/orcvs/Cargo.toml" "$midir_native_table" '^[[:space:]]*midir[[:space:]]*=[[:space:]]*[{][^}]*optional[[:space:]]*=[[:space:]]*true'
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*midir[[:space:]]*='
+# And the target table has to stay, because the feature alone does not say where
+# a MIDI service could exist. Without it a default-featured WASM build would ask
+# Cargo for `midir`, which is the one thing this arrangement must not change.
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[]target[.].cfg[(]target_arch = "wasm32"[)].[.]dependencies[]]$' '^[[:space:]]*midir[[:space:]]*='
+#
+# The console asks for the feature by name for its native targets rather than
+# leaning on `orcvs`'s default, so the shipped application keeps its MIDI
+# destination list even if that default changes, and the browser build keeps
+# asking for no native backend at all. Both halves are one declaration each:
+# defaults off in the plain table, the feature named in the non-WASM one.
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*[^-]features[[:space:]]*=[[:space:]]*[[]"native-midi"[]]'

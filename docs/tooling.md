@@ -47,7 +47,7 @@ the pair collapses into two feature-off runs and nothing compiles the storage pa
 The browser suite and `mise run test_persistence` take no feature flag decision from this.
 `test_wasm` runs the default configuration, which is the one a browser loads, and spending a second
 headless Firefox run on a build `check_wasm` already compiles buys nothing. `test_persistence` keeps
-its explicit `--features persistence`: `orcvs` still declares `default = []`, so its
+its explicit `--features persistence`: `persistence` is not in the `orcvs` default set, so its
 `cargo check --package orcvs --lib` line has no other way to reach the feature, and the task keeps
 its meaning if the `shell` default ever moves.
 
@@ -55,6 +55,35 @@ its meaning if the `shell` default ever moves.
 is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the
 merge tier is the only place the properties run at proptest's 256-case default. What is genuinely
 merge-only is the browser run, the rustdoc gates, and that full-case run.
+
+`orcvs` carries a second feature, and it is the one a tier can pass without ever building.
+`native-midi` gates the platform MIDI backend and the `midir` dependency that reaches it, and it is
+on by default, so every command in this file resolves exactly as it did before the feature existed
+— the `--no-default-features` halves included, because `shell` names `orcvs/native-midi` for its
+non-WASM targets and workspace resolution hands it back.
+What turning it off gives up is delivery. A running Orcvs still composes, executes, and renders
+Source, and still has a MIDI output adapter; the adapter holds a backend that offers no destination
+and refuses to connect, so it accepts every submission and sends nothing. What it buys is a
+dependency tree with neither `midir` nor a system audio library — ALSA on Linux, CoreMIDI on macOS —
+anywhere in it. `orcvs/src/native_midi.rs` is the one place that chooses between the two answers:
+the feature says whether this build wants a native backend, and the manifest's target table says
+where one could exist, which is why a WASM build never sees `midir` whichever way the feature is
+set.
+
+Being on by default is exactly why the tier has to ask for the other state by name.
+`check_pull_request` lints `orcvs` with `--no-default-features --features persistence` and runs its
+tests with `--no-default-features`; between them and the two workspace passes beside them, which
+carry the backend either way, all four cells of the two features are compiled, and the tests that
+state what disabling
+`native-midi` gives up — compiled only with it off — are executed rather than merely type-checked.
+The scope is `orcvs` because it is the only crate the feature reaches: `shell` asks for
+`orcvs/native-midi` by name for its non-WASM targets and would keep it whatever the tier passed, and
+the browser build asks for no native backend at all. `mise run audit_deps` holds the tree claim
+itself rather than describing it — it resolves the feature-off tree and fails if `midir` or an audio
+library is still in it, and because `cargo tree` resolves the host target, the Linux and macOS
+runners between them check both libraries a native build could otherwise link.
+`scripts/check-tooling-contract.sh` pins all of it, down to `midir` staying optional and staying in
+its target table.
 
 Dependency auditing runs in the pull-request tier through `mise run audit_deps`, which checks
 advisories, licences, and sources and prints the feature-resolved dependency tree. Dependabot's
