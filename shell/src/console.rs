@@ -419,11 +419,7 @@ impl eframe::App for Console {
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         self.midi.observe_diagnostics(playback_diagnostics);
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        for diagnostic in &playback_diagnostics {
-            if let Some(message) = crate::diagnostics::failure_message(diagnostic) {
-                tracing::error!("Playback failure: {message}");
-            }
-        }
+        crate::diagnostics::report_playback_failures(&playback_diagnostics);
         let top_panel = egui::Panel::top("top_panel")
             .resizable(true)
             .min_size(TOP_PANEL_HEIGHT);
