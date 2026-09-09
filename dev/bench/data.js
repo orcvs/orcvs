@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788899687615,
+  "lastUpdate": 1788915202575,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -2231,6 +2231,204 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_edges/128x128",
             "value": 1111239,
             "range": "± 40108",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f131e5eac8d06622d509af7bab1d3c5e19c41cdc",
+          "message": "Merge pull request #30 from orcvs/07-cell-indexed-parse\n\nParse Source into positioned expressions and execute live typed ticks",
+          "timestamp": "2026-09-09T10:42:15+10:00",
+          "tree_id": "1e2ac7ecb4ca524e280a4b5785591b7d2f907800",
+          "url": "https://github.com/orcvs/orcvs/commit/f131e5eac8d06622d509af7bab1d3c5e19c41cdc"
+        },
+        "date": 1788915201586,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 185,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 76,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 107,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 820,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 68,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 110,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 260,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 537,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 922,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 39,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 123,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2826,
+            "range": "± 43",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 11315,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 44594,
+            "range": "± 150",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 5988,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 21939,
+            "range": "± 184",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 90125,
+            "range": "± 1112",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 6142,
+            "range": "± 58",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 22885,
+            "range": "± 215",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 87201,
+            "range": "± 734",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 19772,
+            "range": "± 103",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 76197,
+            "range": "± 1141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 315435,
+            "range": "± 2061",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1293984,
+            "range": "± 20575",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 12151,
+            "range": "± 145",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 74081,
+            "range": "± 404",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 330520,
+            "range": "± 10724",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1362167,
+            "range": "± 22646",
             "unit": "ns/iter"
           }
         ]
