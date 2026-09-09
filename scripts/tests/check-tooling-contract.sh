@@ -114,14 +114,18 @@ test_unlocked_audit_deny_is_rejected() {
 
 test_unlocked_wasm_pack_is_rejected() {
   make_fixture
-  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --features persistence/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm/' "$fixture_dir/mise.toml"
   assert_rejected "an unlocked wasm-pack test invocation"
 }
 
-test_wasm_build_without_persistence_is_rejected() {
+test_wasm_build_without_the_feature_off_arm_is_rejected() {
   make_fixture
-  perl -pi -e 's/trunk build --features persistence --locked/trunk build --locked/' "$fixture_dir/mise.toml"
-  assert_rejected "a WASM build without the persistence feature"
+  # `persistence` is a default feature, so the two trunk builds are only two
+  # configurations while one of them says `--no-default-features`. Dropping that
+  # leaves the task building the same application twice and compiling the
+  # storage-free WASM build nowhere.
+  perl -pi -e 's/trunk build --no-default-features --locked/trunk build --locked/' "$fixture_dir/mise.toml"
+  assert_rejected "a WASM task that never builds the feature-off configuration"
 }
 
 test_missing_default_wasm_build_is_rejected() {
@@ -132,8 +136,11 @@ test_missing_default_wasm_build_is_rejected() {
 
 test_wasm_test_without_persistence_is_rejected() {
   make_fixture
-  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --features persistence --locked/wasm-pack test --headless --firefox shell --test wasm --locked/' "$fixture_dir/mise.toml"
-  assert_rejected "browser tests without the persistence feature"
+  # The browser suite runs the shipped configuration, and storage is in it by
+  # default. Opting out here would leave the one gate that drives a real browser
+  # exercising a build the browser never loads.
+  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm --no-default-features --locked/' "$fixture_dir/mise.toml"
+  assert_rejected "browser tests that opt out of the persistence default"
 }
 
 test_stale_wasm_artifact_name_is_rejected() {
@@ -471,10 +478,28 @@ test_unwatched_rust_toolchain_is_rejected() {
   assert_rejected "a Dependabot config that watches the channel instead of the manifests"
 }
 
-test_pull_request_tier_without_persistence_doctests_is_rejected() {
+test_pull_request_tier_without_feature_off_doctests_is_rejected() {
   make_fixture
-  perl -0pi -e 's/cargo test --workspace --doc --locked\ncargo test --workspace --doc --features persistence --locked\n/cargo test --workspace --doc --locked\n/' "$fixture_dir/mise.toml"
-  assert_rejected "a pull-request tier that never compiles the persistence doctests"
+  perl -0pi -e 's/cargo test --workspace --doc --locked\ncargo test --workspace --doc --no-default-features --locked\n/cargo test --workspace --doc --locked\n/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles the feature-off doctests"
+}
+
+test_optional_persistence_default_is_rejected() {
+  make_fixture
+  # Every feature arm in the tiers is stated relative to the shell default. With
+  # `default = []` the plain workspace runs stop compiling the storage path and
+  # the `--no-default-features` runs beside them test the same thing, so the pair
+  # collapses into one configuration and persistence is verified nowhere.
+  perl -pi -e 's/^default = \["persistence"\]$/default = []/' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a shell manifest that ships persistence off"
+
+  # The other way to lose the pair is to stop the feature being a feature at all.
+  # `--no-default-features` then proves nothing, and the acceptance criterion the
+  # default-on decision was taken against — that the path still compiles out —
+  # has no build behind it.
+  make_fixture
+  perl -pi -e 's|^persistence = \["eframe/persistence", "orcvs/persistence"\]$|# $&|' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a shell manifest with no persistence feature to switch off"
 }
 
 test_prohibited_action_main_ref_is_rejected() {
@@ -573,7 +598,7 @@ case "${1:-all}" in
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
   unlocked-wasm-pack) test_unlocked_wasm_pack_is_rejected ;;
-  wasm-build-persistence) test_wasm_build_without_persistence_is_rejected ;;
+  wasm-build-feature-off) test_wasm_build_without_the_feature_off_arm_is_rejected ;;
   missing-default-wasm-build) test_missing_default_wasm_build_is_rejected ;;
   wasm-test-persistence) test_wasm_test_without_persistence_is_rejected ;;
   stale-wasm-artifact) test_stale_wasm_artifact_name_is_rejected ;;
@@ -617,7 +642,8 @@ case "${1:-all}" in
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
-  persistence-doctests) test_pull_request_tier_without_persistence_doctests_is_rejected ;;
+  feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
+  optional-persistence-default) test_optional_persistence_default_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   ungated-rust-cache) test_ungated_rust_cache_save_is_rejected ;;
   ungated-mise-cache) test_ungated_mise_cache_save_is_rejected ;;
@@ -639,7 +665,7 @@ case "${1:-all}" in
     test_bench_without_native_dependencies_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected
-    test_wasm_build_without_persistence_is_rejected
+    test_wasm_build_without_the_feature_off_arm_is_rejected
     test_missing_default_wasm_build_is_rejected
     test_wasm_test_without_persistence_is_rejected
     test_stale_wasm_artifact_name_is_rejected
@@ -691,7 +717,8 @@ case "${1:-all}" in
     test_unpinned_workflow_linter_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
-    test_pull_request_tier_without_persistence_doctests_is_rejected
+    test_pull_request_tier_without_feature_off_doctests_is_rejected
+    test_optional_persistence_default_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;
   *) echo "unknown test: $1" >&2; exit 2 ;;
