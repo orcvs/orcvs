@@ -188,8 +188,32 @@ unchanged revision, deriving its Render Frame, and applying an edit with the Lan
 forces. Each is measured over several Source sizes, so whole-map work shows as growth across the
 series rather than hiding inside one fixed size. `.github/workflows/bench.yml` runs the same command
 in two jobs and fails either when a benchmark is more than three times slower than the previous
-stored result. The publishing job runs after a push to `main` and appends the result to the series
-on the `gh-pages` branch. The pull-request job compares against that series and stores nothing.
+stored result.
+
+The task names criterion's measurement budget rather than taking its default, and the figures are
+sized to the gate that reads them. That gate alerts at 150% and fails at 300%, comparing a number
+measured on one hosted runner against one measured on another, so it cannot resolve better than
+tens of per cent; criterion's defaults spend a 3s warm-up, a 5s measurement and a 100,000-resample
+bootstrap per benchmark to resolve about 2%. At those defaults the job took 12m32s, of which 10m35s
+was criterion executing 29 benchmarks twice. `--quick` is the flag this budget appears to want and
+it must never be used: it drops the name from each output line, the action's parser is one regex
+over `test <name> ... bench: <N> ns/iter`, and a line that does not match is skipped silently, so a
+`--quick` run stores zero benchmarks and reports green. `scripts/check-tooling-contract.sh` pins
+both bench commands whole and refuses the flag in either file.
+
+Each job runs the benchmarks twice and discards the first pass, because a freshly compiled criterion
+binary's first run is contaminated — `parse_source` read 1,204 ns on a first run against a settled
+417 ns after. That discard run is `mise run bench_warmup`, which keeps the warm-up half of the
+budget and cuts the measurement to the floor: its output goes to `/dev/null`, so it needs to execute
+every benchmark and to measure none of them well. Both jobs run it and both run the same task. The
+contamination moves the mean rather than widening the spread, so a job that skipped the warm-up
+would report slower numbers than the job it is compared against, and the gate would read a
+regression off the difference between two jobs rather than between two commits. A differing
+measurement budget between the jobs would be safe, since that only widens variance; a differing
+warm-up is not.
+
+The publishing job runs after a push to `main` and appends the result to the series on the
+`gh-pages` branch. The pull-request job compares against that series and stores nothing.
 Permissions are declared per job, so only the publishing job can write repository contents. Both
 triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`
 or `orcvs` performance runs no benchmark. `mise run check` does not run either.

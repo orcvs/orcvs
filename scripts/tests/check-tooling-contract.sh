@@ -109,6 +109,51 @@ test_lang_only_bench_task_is_rejected() {
   assert_rejected "a benchmark task that measures only the lang crate"
 }
 
+test_defaulted_bench_budget_is_rejected() {
+  make_fixture
+  # Dropping the flags is how the budget regresses: the task still measures both
+  # crates and still prints the format the action parses, and the job goes back to
+  # ten seconds a benchmark for precision no threshold reads.
+  perl -pi -e 's/ --warm-up-time 0\.5 --measurement-time 1 --sample-size 10 --nresamples 1000//' "$fixture_dir/mise.toml"
+  assert_rejected "a benchmark task that takes criterion's default measurement budget"
+}
+
+test_measuring_warmup_run_is_rejected() {
+  make_fixture
+  # The warm-up's whole point is that it costs a fraction of the measured run. A
+  # warm-up given the measured budget is the twelve-minute job again.
+  perl -pi -e 's/^(run = .cargo bench.*)--measurement-time 0\.1 (.*)$/$1--measurement-time 1 $2/' "$fixture_dir/mise.toml"
+  assert_rejected "a warm-up run paying the measured run's budget"
+}
+
+test_asymmetric_bench_warmup_is_rejected() {
+  make_fixture
+  # The contamination moves the mean, so a job that skips the warm-up reports
+  # slower numbers than the job it is compared against.
+  perl -pi -e 'if (!$done && s/^(        run: mise run bench_warmup > \/dev\/null)$/# $1/) { $done = 1 }' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow whose first job skips the warm-up run"
+}
+
+test_quick_benchmark_output_is_rejected() {
+  # `--quick` drops the name from each line, the action's parser matches nothing,
+  # and the gate stores zero benchmarks and reports green.
+  #
+  # The two pinned bench tasks are already whole-line matches, so `--quick` cannot
+  # reach them without failing those pins instead. What this assertion is for is
+  # every other way the flag arrives: a third task that someone runs locally and
+  # then wires into the workflow, and the workflow's own run lines.
+  make_fixture
+  perl -pi -e 's/^(\[tasks\.bench\])$/[tasks.bench_local]\nrun = "cargo bench --benches -- --output-format bencher --quick"\n\n$1/' "$fixture_dir/mise.toml"
+  assert_rejected "a benchmark task asking criterion for unnamed quick output"
+
+  # Appending the flag to a pinned step would be caught by that step's whole-line
+  # pin instead, and the case would pass with this assertion deleted. A step the
+  # pins do not reach is what proves the ban itself.
+  make_fixture
+  perl -0pi -e 's/(      - name: Run benchmarks\n)/      - name: Benchmark the shell crate too\n        run: cargo bench --benches -- --output-format bencher --quick\n$1/' "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow asking criterion for unnamed quick output"
+}
+
 test_missing_orcvs_criterion_is_rejected() {
   make_fixture
   perl -pi -e 's/^criterion = /# criterion = /' "$fixture_dir/orcvs/Cargo.toml"
@@ -815,6 +860,10 @@ case "${1:-all}" in
   advisories-without-audit) test_advisory_workflow_without_the_audit_is_rejected ;;
   automatically-triggered-miri) test_automatically_triggered_miri_workflow_is_rejected ;;
   miri-called-by-another-task) test_miri_called_by_another_task_is_rejected ;;
+  defaulted-bench-budget) test_defaulted_bench_budget_is_rejected ;;
+  measuring-warmup-run) test_measuring_warmup_run_is_rejected ;;
+  asymmetric-bench-warmup) test_asymmetric_bench_warmup_is_rejected ;;
+  quick-benchmark-output) test_quick_benchmark_output_is_rejected ;;
   memory-series-second-binary) test_memory_series_measured_by_a_second_binary_is_rejected ;;
   memory-series-jq) test_memory_series_assembled_with_jq_is_rejected ;;
   contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
@@ -854,6 +903,10 @@ case "${1:-all}" in
     test_unlocked_check_deny_is_rejected
     test_unbenchmarked_orcvs_is_rejected
     test_lang_only_bench_task_is_rejected
+    test_defaulted_bench_budget_is_rejected
+    test_measuring_warmup_run_is_rejected
+    test_asymmetric_bench_warmup_is_rejected
+    test_quick_benchmark_output_is_rejected
     test_missing_orcvs_criterion_is_rejected
     test_shipped_orcvs_criterion_is_rejected
     test_bench_without_native_dependencies_is_rejected

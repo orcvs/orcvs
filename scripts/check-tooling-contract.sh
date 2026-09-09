@@ -299,7 +299,45 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR t
 # changes nothing; pinning the line without one is what catches a
 # `--no-default-features` browser run that no longer exercises storage.
 assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --locked.$'
-assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher.$'
+# Both bench tasks are pinned whole, flags included. The criterion budget is not a
+# tuning detail that may drift: the gate reading these numbers alerts at 150% and
+# fails at 300% across two different hosted runners, so it cannot resolve better
+# than tens of per cent, and criterion's defaults spend a 3s warm-up, a 5s
+# measurement and a 100,000-resample bootstrap per benchmark chasing about 2%. On
+# run 34321680905 that was ten seconds for each of 29 benchmarks, twice per job:
+# 10m35s of a 12m32s job, buying precision three orders of magnitude finer than
+# anything downstream reads. `--nresamples` carries its own share — roughly 2.7s of
+# each benchmark's ten seconds fell outside the configured time budget, and the
+# default bootstrap was most of it.
+assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 1 --sample-size 10 --nresamples 1000.$'
+# The discard run differs from the measured one in exactly one figure, and that is
+# the point of it having a task of its own: its output goes to /dev/null, so it
+# needs no measurement fidelity, but it must still execute every benchmark. The
+# contamination it exists for belongs to the binary rather than to a benchmark —
+# criterion's own per-benchmark warm-up did not settle `parse_source`, which read
+# 1,204 ns on the first run after a fresh compile against a settled 417 ns after.
+assert_toml_task_contains "$root_dir/mise.toml" 'bench_warmup' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 0[.]1 --sample-size 10 --nresamples 1000.$'
+# `--quick` looks like the flag this budget wants and it would disarm the gate in
+# silence. It drops the name from each output line, and the action's `cargo` parser
+# is one regex over `test <name> ... bench: <N> ns/iter`; a line that does not match
+# is skipped without an error, so a `--quick` run stores zero benchmarks and reports
+# green. It is not even faster than the flags above: 17.3s against 17.0s over the
+# same nine benchmarks. The leading dash is bracketed in both patterns so `grep -E`
+# reads them as patterns rather than as options of its own.
+#
+# The two shapes differ because the two files do. `mise.toml` holds every task in
+# the repository, so the ban is scoped to lines that invoke `cargo bench` — the
+# shape it guards is a third bench task written later, running `cargo bench` with
+# the flag and then wired into the workflow. A file-wide ban there would fire on a
+# trailing comment mentioning the flag, since the filter above strips only
+# whole-line comments, and on any future unrelated task passing `--quick` to a tool
+# that is not criterion. Scoping it to the two pinned tasks instead would guard
+# nothing the whole-line pins do not already cover.
+assert_not_contains "$root_dir/mise.toml" 'cargo bench.*[-]-quick'
+# `bench.yml` is the benchmark workflow and nothing unrelated lives in it, so the
+# ban stays file-wide there: the shape it guards is the flag appended to a step's
+# `run` line, in an existing step or a new one.
+assert_not_contains "$root_dir/.github/workflows/bench.yml" '[-]-quick'
 # The measurement is only compared when the workflow runs, so every path that can
 # move a number has to trigger it: the two benchmarked crates included.
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
@@ -325,10 +363,16 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: sud
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture [|] tee allocations[.]txt$' "$bench_job_count"
 assert_not_contains "$root_dir/.github/workflows/bench.yml" 'cargo nextest run'
 # Exactly once per job is also what pins "no warm-up run for the memory series".
-# The timing series runs `mise run bench` twice per job because a freshly compiled
+# The timing series runs the benchmarks twice per job because a freshly compiled
 # criterion binary's first pass is contaminated; an allocation count is
 # deterministic for a fixed input, so a second run would only cost the job twice.
-assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench > /dev/null$' "$bench_job_count"
+#
+# Once per job is the second thing this count pins, and it is about the timing
+# series rather than the memory one: the contamination moves the mean, so a job
+# that skipped the warm-up would report slower numbers than the job it is compared
+# against and read a regression off the difference between two jobs. Both jobs run
+# it, and both run the same task.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench_warmup > /dev/null$' "$bench_job_count"
 # The series name the action keys the stored history by. A rename does not move
 # the history, it starts an empty series beside it, which is why the existing
 # `lang` name carries the same rule and is pinned the same way.
