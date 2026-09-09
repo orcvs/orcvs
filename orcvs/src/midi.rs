@@ -166,7 +166,14 @@ const RESET_ALL_CONTROLLERS: u8 = 121;
 /// CC 121 may move the wheel itself, so the explicit centre has to be the last
 /// word on it rather than the first.
 ///
+/// `channel` must be one of the sixteen. A wider value would not overflow the
+/// `|`; it would set a bit of the status nibble and turn each message into a
+/// different MIDI message on a different channel, which is the same reason
+/// `submit` states for its own `0x90 | channel`. The one caller counts
+/// `0..16`, so this is asserted rather than returned.
+///
 fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
+    debug_assert!(channel < 16, "channel {channel} is not a MIDI channel");
     [
         [0xB0 | channel, ALL_NOTES_OFF, 0x00],
         [0xB0 | channel, RESET_ALL_CONTROLLERS, 0x00],
@@ -213,6 +220,15 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
             };
             if let Err(error) = connection.send(&message) {
                 let delivery_error = OutputAdapterError::new(error.message);
+                // The teardown's own refusals are discarded deliberately, and
+                // all forty-eight of them rather than the sixteen this arm
+                // discarded before the action widened. The sibling call sites
+                // report theirs because they have a caller expecting an answer
+                // about the action; here the delivery failure is already the
+                // answer, and it is the one that describes what went wrong. A
+                // destination that refused the message being delivered is
+                // expected to refuse the safety action behind it, so reporting
+                // that instead would replace the cause with its consequence.
                 let _ = self.send_safety_reset();
                 self.connection = None;
                 self.selected_destination_id = None;
@@ -251,14 +267,14 @@ mod tests {
     #[derive(Default)]
     struct FakeState {
         messages: Vec<Vec<u8>>,
-        fail_next_send: bool,
         fail_next_connect: bool,
         connection_count: usize,
         /// The zero-based send attempts this connection refuses, each with an
         /// error naming its own index. A safety action refused part-way owes
         /// the first error and the remaining attempts, and neither claim is
         /// visible through a fake that can only fail once or can only fail
-        /// with one message.
+        /// with one message. `vec![0]` is the one-shot refusal a test that
+        /// wants the next send to fail asks for.
         failing_sends: Vec<usize>,
         send_count: usize,
     }
@@ -298,10 +314,6 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             let attempt = state.send_count;
             state.send_count += 1;
-            if state.fail_next_send {
-                state.fail_next_send = false;
-                return Err(MidiError::new("device lost"));
-            }
             if state.failing_sends.contains(&attempt) {
                 return Err(MidiError::new(format!("device lost on send {attempt}")));
             }
@@ -446,7 +458,7 @@ mod tests {
             state: state.clone(),
         });
         adapter.select(&MidiDestinationId::new("one")).unwrap();
-        state.lock().unwrap().fail_next_send = true;
+        state.lock().unwrap().failing_sends = vec![0];
 
         let error = adapter
             .submit(&[OutputCommand::NoteOn {
@@ -456,11 +468,11 @@ mod tests {
             }])
             .unwrap_err();
 
-        assert_eq!(error, OutputAdapterError::new("device lost"));
+        assert_eq!(error, OutputAdapterError::new("device lost on send 0"));
         // The refused Note On is not recorded, so every message here belongs
         // to the teardown: the same widened action a stop sends, on all
         // sixteen channels.
-        assert_eq!(state.lock().unwrap().messages.len(), 48);
+        assert_eq!(state.lock().unwrap().messages.len(), SAFETY_ACTION_LEN);
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
             adapter
@@ -470,7 +482,7 @@ mod tests {
                     note: Note::try_from(60).unwrap()
                 }])
                 .unwrap_err(),
-            OutputAdapterError::new("device lost")
+            OutputAdapterError::new("device lost on send 0")
         );
 
         adapter.select(&MidiDestinationId::new("one")).unwrap();
@@ -487,6 +499,14 @@ mod tests {
         assert_eq!(state.messages.last(), Some(&vec![0x91, 61, 1]));
     }
 
+    /// The messages the safety action owes one channel. Named so a test's
+    /// lengths and offsets say what they are counting.
+    const SAFETY_TRIPLE_LEN: usize = 3;
+
+    /// The messages one complete run of the safety action owes, across the
+    /// sixteen channels.
+    const SAFETY_ACTION_LEN: usize = 16 * SAFETY_TRIPLE_LEN;
+
     ///
     /// The three messages the safety action owes `channel`, in the order it
     /// owes them. A test states this rather than deriving it from the adapter,
@@ -499,6 +519,20 @@ mod tests {
             vec![0xB0 | channel, 121, 0],
             vec![0xE0 | channel, 0x00, 0x40],
         ]
+    }
+
+    /// One complete run of the safety action: every channel's triple, channel
+    /// by channel, in the order the action delivers them.
+    fn safety_action_messages() -> Vec<Vec<u8>> {
+        (0..16u8).flat_map(safety_triple).collect()
+    }
+
+    /// The triple `channel` is owed, read out of the safety action run that
+    /// begins at `run_start`, so a test names the channel it is reading rather
+    /// than the arithmetic that finds it.
+    fn triple_at(messages: &[Vec<u8>], run_start: usize, channel: u8) -> &[Vec<u8>] {
+        let at = run_start + usize::from(channel) * SAFETY_TRIPLE_LEN;
+        &messages[at..at + SAFETY_TRIPLE_LEN]
     }
 
     #[test]
@@ -515,17 +549,16 @@ mod tests {
         // Sixteen channels, three messages each, channel-major: the triple is
         // what one channel is owed, so a channel is finished before the next
         // is begun.
-        assert_eq!(messages.len(), 48);
+        assert_eq!(messages.len(), SAFETY_ACTION_LEN);
         // The ends of the run spelled out, so a loop expectation sharing the
         // adapter's `0xB0 | channel` arithmetic cannot be the only thing that
         // pins the status bytes.
         assert_eq!(messages.first(), Some(&vec![0xB0, 123, 0]));
-        assert_eq!(messages[47], vec![0xEF, 0x00, 0x40]);
+        assert_eq!(messages.last(), Some(&vec![0xEF, 0x00, 0x40]));
         for channel in 0..16u8 {
-            let at = usize::from(channel) * 3;
             assert_eq!(
-                messages[at..at + 3],
-                safety_triple(channel)[..],
+                triple_at(&messages, 0, channel),
+                &safety_triple(channel)[..],
                 "channel {channel:#04X}"
             );
         }
@@ -533,6 +566,10 @@ mod tests {
 
     #[test]
     fn a_refused_safety_message_reports_the_first_error_and_attempts_the_rest() {
+        // The two attempts refused below, which the run records nothing for
+        // and still counts.
+        const REFUSALS: usize = 2;
+
         let state = Arc::new(Mutex::new(FakeState::default()));
         let mut adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
@@ -547,12 +584,16 @@ mod tests {
 
         assert_eq!(error, OutputAdapterError::new("device lost on send 1"));
         let state = state.lock().unwrap();
-        assert_eq!(state.send_count, 48);
-        assert_eq!(state.messages.len(), 46);
+        assert_eq!(state.send_count, SAFETY_ACTION_LEN);
+        assert_eq!(state.messages.len(), SAFETY_ACTION_LEN - REFUSALS);
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_stop_clears_the_bend_and_the_latched_controller_a_source_left_standing() {
+        // The Control Change and the Pitch Bend the Source performs, which the
+        // safety action's run follows.
+        const SOURCE_MESSAGES: usize = 2;
+
         let state = Arc::new(Mutex::new(FakeState::default()));
         let grid = Grid::new(10, 6);
         let source = SourceCommander::new(grid);
@@ -584,12 +625,59 @@ mod tests {
         playback.stop();
 
         let messages = state.lock().unwrap().messages.clone();
-        assert_eq!(messages.len(), 2 + 48);
+        assert_eq!(messages.len(), SOURCE_MESSAGES + SAFETY_ACTION_LEN);
         // The two channels the Source touched, read out of the run that
         // follows the stop: the sustain pedal on `01` is released by CC 121
         // and the wheel on `03` is returned to `0x2000` explicitly.
-        assert_eq!(messages[2 + 3..2 + 6], safety_triple(0x01)[..]);
-        assert_eq!(messages[2 + 9..2 + 12], safety_triple(0x03)[..]);
+        assert_eq!(
+            triple_at(&messages, SOURCE_MESSAGES, 0x01),
+            &safety_triple(0x01)[..]
+        );
+        assert_eq!(
+            triple_at(&messages, SOURCE_MESSAGES, 0x03),
+            &safety_triple(0x03)[..]
+        );
+    }
+
+    #[test]
+    fn a_destination_change_sends_the_safety_action_to_the_destination_it_leaves() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        // A first selection holds no connection to make safe, so every message
+        // recorded below belongs to the change itself.
+        assert!(state.lock().unwrap().messages.is_empty());
+
+        adapter.select(&MidiDestinationId::new("two")).unwrap();
+
+        // The bytes, not a delta: a count that only grew would be satisfied by
+        // the narrower All Notes Off loop this action replaced.
+        let state = state.lock().unwrap();
+        assert_eq!(state.messages, safety_action_messages());
+        assert_eq!(state.connection_count, 2);
+    }
+
+    #[test]
+    fn a_disconnect_sends_the_safety_action_to_the_destination_it_releases() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        // Asserted here rather than beside the engine's own disconnect test,
+        // which drives `InMemoryOutputAdapter`: that fake counts the calls and
+        // emits no bytes, so what a device receives can only be read off the
+        // adapter that assembles it.
+        let playback = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter);
+        playback
+            .select_midi_destination(&MidiDestinationId::new("one"))
+            .unwrap();
+        assert!(state.lock().unwrap().messages.is_empty());
+
+        playback.disconnect();
+
+        assert_eq!(state.lock().unwrap().messages, safety_action_messages());
     }
 
     #[tokio::test(start_paused = true)]
@@ -640,7 +728,7 @@ mod tests {
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
-        state.lock().unwrap().fail_next_send = true;
+        state.lock().unwrap().failing_sends = vec![0];
 
         playback.start(Duration::from_secs(1)).unwrap();
         tokio::task::yield_now().await;
@@ -652,7 +740,7 @@ mod tests {
         assert_eq!(
             playback.observe().diagnostics,
             vec![crate::playback::PlaybackDiagnostic::OutputFailure(
-                OutputAdapterError::new("device lost")
+                OutputAdapterError::new("device lost on send 0")
             )]
         );
     }
@@ -791,7 +879,7 @@ mod tests {
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
             .unwrap();
-        state.lock().unwrap().fail_next_send = true;
+        state.lock().unwrap().failing_sends = vec![0];
 
         playback
             .select_midi_destination(&MidiDestinationId::new("one"))
@@ -802,7 +890,7 @@ mod tests {
         assert_eq!(
             observation.diagnostics,
             vec![crate::playback::PlaybackDiagnostic::OutputFailure(
-                OutputAdapterError::new("device lost")
+                OutputAdapterError::new("device lost on send 0")
             )]
         );
     }
