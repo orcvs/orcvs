@@ -8,9 +8,10 @@ Verification has two trigger tiers:
 
 - `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
   workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
-  and without `persistence`, and the native tests and doctests under both feature sets.
+  and without the default features, and the native tests and doctests under both.
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
-  the application. Pull requests run the first on Linux and macOS and the second on the WASM job.
+  the application twice, once under each. Pull requests run the first on Linux and macOS and the
+  second on the WASM job.
 - `mise run check_merge` runs the browser regression suite, the rustdoc gates, and the persistence
   tier at proptest's full case count. CI distributes these gates across the existing Linux and WASM
   jobs after a push to `main` or a manual dispatch.
@@ -20,9 +21,35 @@ fixed before normal development continues. What the delayed tier holds is behavi
 compilation: a browser regression can still be found after merge, but a browser test that no longer
 compiles fails the pull request that wrote it. The same is true one feature over — the persistence
 tests live in a test-only module behind a dev-dependency, so no library build can reach them, and
-the pull-request tier reaches them by building all targets with the feature enabled. The doctests
-follow the same rule: a doctest on a `persistence`-gated item is compiled by no default-feature run,
-so the tier runs `cargo test --doc` under both feature sets rather than only the default one.
+the pull-request tier reaches them by building all targets. The doctests follow the same rule: a
+doctest that one feature set compiles and the other does not is compiled by only one of them, so
+the tier runs `cargo test --doc` under both rather than only the shipped one.
+
+`persistence` is a default feature of `shell`, so "both feature sets" now means the default one and
+`--no-default-features`. The shipped binary saves the current Source revision and restores it on the
+next start, which is what `product-persistence/01` requires of the shipped application: a feature
+that shipped off would be proved only in a configuration nobody launches, since `mise run run`,
+`cargo run`, the `.vscode` cargo tasks, and a plain `trunk build` all take the default set. `shell`
+pulls `orcvs/persistence` in through its own feature, so `orcvs` keeps `default = []` and the whole
+workspace still resolves with storage on whenever `shell` is in the build.
+
+That makes `--no-default-features` the arm that proves the feature-off build, and it is the arm that
+proves it *only* — nothing else in either tier compiles the application without the storage path.
+`product-persistence/01`'s criterion that "a build without the feature keeps today's behaviour and
+compiles" is what those runs are for, so the pull-request tier pairs `cargo clippy`, `cargo nextest
+run` and `cargo test --doc` over the default set with the same three over `--no-default-features`,
+and `check_wasm` pairs the two `trunk build` invocations the same way. Naming `--features
+persistence` on the other half of any of those pairs would name the default twice and leave one
+configuration tested; `scripts/check-tooling-contract.sh` pins both halves, and pins
+`default = ["persistence"]` in `shell/Cargo.toml` beside them, because with the default flipped back
+the pair collapses into two feature-off runs and nothing compiles the storage path at all.
+
+The browser suite and `mise run test_persistence` take no feature flag decision from this.
+`test_wasm` runs the default configuration, which is the one a browser loads, and spending a second
+headless Firefox run on a build `check_wasm` already compiles buys nothing. `test_persistence` keeps
+its explicit `--features persistence`: `orcvs` still declares `default = []`, so its
+`cargo check --package orcvs --lib` line has no other way to reach the feature, and the task keeps
+its meaning if the `shell` default ever moves.
 
 `mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
 is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the

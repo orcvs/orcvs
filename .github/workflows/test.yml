@@ -58,7 +58,14 @@ jobs:
         run: mise run check_merge
 
   macos:
-    timeout-minutes: 20
+    # Forty rather than the twenty every other job takes. This tier now compiles
+    # the workspace twice — default features and `--no-default-features` — since
+    # `shell` ships `persistence` on and the feature-off build is a separate
+    # feature set, so it shares nothing with the default one. The caches here
+    # only ever save on `main` (`save-if` and `cache_save` below), so a pull
+    # request restores a cache that has never held the feature-off arm and pays
+    # for it in full, on the slowest runner of the three.
+    timeout-minutes: 40
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

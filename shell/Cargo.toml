@@ -20,7 +20,20 @@ name = "shell"
 path = "src/main.rs"
 
 [features]
-default = []
+# Persistence ships on. `product-persistence/01` requires the *shipped*
+# application to save the current Source revision and restore it on the next
+# start, and a feature that ships off is only ever proved in a configuration
+# nobody launches: `mise run run`, `cargo run`, the `.vscode` cargo tasks, and a
+# `trunk build` all take the default set. Enabling it by default costs the
+# default binary `eframe/persistence` and `serde` in `orcvs`, both already in the
+# locked graph, and no runtime work beyond the storage read at start and the
+# write eframe schedules.
+#
+# The feature stays declared rather than being inlined, because the path must
+# still be compilable out — that is this ticket's own acceptance criterion. What
+# proves it is now `--no-default-features`, which is the arm every verification
+# tier runs beside the default one. See docs/tooling.md.
+default = ["persistence"]
 persistence = ["eframe/persistence", "orcvs/persistence"]
 
 [dependencies]
