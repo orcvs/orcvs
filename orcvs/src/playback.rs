@@ -65,7 +65,7 @@ pub enum OutputCommand {
 
 pub trait OutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError>;
-    fn all_notes_off(&mut self) -> Result<(), OutputAdapterError>;
+    fn safety_reset(&mut self) -> Result<(), OutputAdapterError>;
 }
 
 fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -486,7 +486,7 @@ impl OwnedNotes {
 #[derive(Default)]
 struct InMemoryOutputState {
     command_lists: Vec<Vec<OutputCommand>>,
-    all_notes_off_count: usize,
+    safety_reset_count: usize,
     next_failure: Option<OutputAdapterError>,
 }
 
@@ -500,8 +500,8 @@ impl InMemoryOutputAdapter {
         self.state.lock().unwrap().command_lists.clone()
     }
 
-    pub fn all_notes_off_count(&self) -> usize {
-        self.state.lock().unwrap().all_notes_off_count
+    pub fn safety_reset_count(&self) -> usize {
+        self.state.lock().unwrap().safety_reset_count
     }
 
     pub fn fail_next_submission(&self, message: impl Into<String>) {
@@ -519,8 +519,8 @@ impl OutputAdapter for InMemoryOutputAdapter {
         Ok(())
     }
 
-    fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
-        self.state.lock().unwrap().all_notes_off_count += 1;
+    fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+        self.state.lock().unwrap().safety_reset_count += 1;
         Ok(())
     }
 }
@@ -630,19 +630,19 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         if self.playing {
             self.playing = false;
             if self.connected {
-                self.send_all_notes_off();
+                self.send_safety_reset();
             }
         }
-        // All-notes-off has stopped whatever was sounding, so every claim is
+        // The safety action has stopped whatever was sounding, so every claim is
         // over and every scheduled stop is redundant. Clearing unconditionally
-        // rather than alongside the all-notes-off above is deliberate: a run
+        // rather than alongside the safety action above is deliberate: a run
         // that is already stopped owns nothing, and an engine that reached
         // here holding a claim would otherwise carry it into the next run.
         self.owned.clear();
     }
 
-    fn send_all_notes_off(&mut self) {
-        if let Err(error) = self.adapter.all_notes_off() {
+    fn send_safety_reset(&mut self) {
+        if let Err(error) = self.adapter.safety_reset() {
             self.record_output_failure(error);
         }
     }
@@ -785,7 +785,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     pub fn disconnect(&self) {
         let mut inner = lock_recover(&self.inner);
         if inner.connected {
-            inner.send_all_notes_off();
+            inner.send_safety_reset();
             inner.connected = false;
         }
         // Nothing this engine owns is sounding on a disconnected output, and
@@ -856,7 +856,7 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
         destination_id: &crate::midi::MidiDestinationId,
     ) -> Result<(), crate::midi::MidiError> {
         // The notes this engine owned are sounding on the destination it is
-        // leaving, which is sent all-notes-off before the new connection is
+        // leaving, which is sent the safety action before the new connection is
         // reached. Their scheduled stops would arrive at a device that never
         // started them, so the schedule goes with the attempt rather than with
         // its success: a change that cannot connect has silenced the old
@@ -1362,7 +1362,7 @@ mod tests {
             Ok(())
         }
 
-        fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
             Ok(())
         }
     }
@@ -1372,7 +1372,7 @@ mod tests {
     struct BlockingOutputState {
         delivery_started: bool,
         release_delivery: bool,
-        all_notes_off_count: usize,
+        safety_reset_count: usize,
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1397,8 +1397,8 @@ mod tests {
             changed.notify_all();
         }
 
-        fn all_notes_off_count(&self) -> usize {
-            self.state.0.lock().unwrap().all_notes_off_count
+        fn safety_reset_count(&self) -> usize {
+            self.state.0.lock().unwrap().safety_reset_count
         }
     }
 
@@ -1419,7 +1419,7 @@ mod tests {
             panic!("test output panic");
         }
 
-        fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
             Ok(())
         }
     }
@@ -1437,8 +1437,8 @@ mod tests {
             Ok(())
         }
 
-        fn all_notes_off(&mut self) -> Result<(), OutputAdapterError> {
-            self.control.state.0.lock().unwrap().all_notes_off_count += 1;
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            self.control.state.0.lock().unwrap().safety_reset_count += 1;
             Ok(())
         }
     }
@@ -2614,7 +2614,7 @@ mod tests {
             // gone is the safety the owned note is silenced by.
             let (engine, adapter) = engine_owning_a_note(expression);
             drop(engine);
-            assert_eq!(adapter.all_notes_off_count(), 1, "{expression}");
+            assert_eq!(adapter.safety_reset_count(), 1, "{expression}");
             assert_eq!(
                 adapter.command_lists(),
                 vec![vec![note_on(0, 0x7F, 60)]],
@@ -2669,7 +2669,7 @@ mod tests {
         tokio::task::yield_now().await;
 
         assert_eq!(engine.observe().state, PlaybackState::Stopped);
-        assert_eq!(adapter.all_notes_off_count(), 1);
+        assert_eq!(adapter.safety_reset_count(), 1);
     }
 
     #[tokio::test(start_paused = true)]
@@ -2690,12 +2690,12 @@ mod tests {
 
         assert_eq!(engine.observe().state, PlaybackState::Playing);
         assert_eq!(adapter.command_lists().len(), 2);
-        assert_eq!(adapter.all_notes_off_count(), 1);
+        assert_eq!(adapter.safety_reset_count(), 1);
 
         engine.stop();
         tokio::task::yield_now().await;
         assert_eq!(engine.observe().state, PlaybackState::Stopped);
-        assert_eq!(adapter.all_notes_off_count(), 2);
+        assert_eq!(adapter.safety_reset_count(), 2);
     }
 
     #[tokio::test(start_paused = true)]
@@ -2744,7 +2744,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stopping_and_disconnecting_each_send_all_notes_off() {
+    async fn stopping_and_disconnecting_each_send_the_safety_action() {
         let stopped_adapter = InMemoryOutputAdapter::default();
         let stopped = PlaybackEngine::new(
             SourceCommander::new(Grid::new(10, 6)),
@@ -2761,8 +2761,8 @@ mod tests {
         disconnected.start(Duration::from_secs(1)).unwrap();
         disconnected.disconnect();
 
-        assert_eq!(stopped_adapter.all_notes_off_count(), 1);
-        assert_eq!(disconnected_adapter.all_notes_off_count(), 1);
+        assert_eq!(stopped_adapter.safety_reset_count(), 1);
+        assert_eq!(disconnected_adapter.safety_reset_count(), 1);
         assert!(!stopped.is_playing());
     }
 
@@ -2830,7 +2830,7 @@ mod tests {
                 message: "Playback clock terminated unexpectedly".to_string(),
             }]
         );
-        assert_eq!(adapter.all_notes_off_count(), 1);
+        assert_eq!(adapter.safety_reset_count(), 1);
     }
 
     #[tokio::test(start_paused = true)]
@@ -2875,7 +2875,7 @@ mod tests {
         drop(engine);
         tokio::task::yield_now().await;
 
-        assert_eq!(adapter.all_notes_off_count(), 1);
+        assert_eq!(adapter.safety_reset_count(), 1);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2905,7 +2905,7 @@ mod tests {
         drop_thread.join().unwrap();
 
         assert!(!drop_returned_before_delivery);
-        assert_eq!(control.all_notes_off_count(), 1);
+        assert_eq!(control.safety_reset_count(), 1);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
