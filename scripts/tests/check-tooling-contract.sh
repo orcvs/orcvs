@@ -12,14 +12,36 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# A pristine fixture is the same tree every time — same tracked files, same
+# checker, same verdict — and building it meant a `git init`, a dozen copies and
+# a full contract run, ninety times over. That validating run was half the
+# suite's two minutes. It is done once now and the result copied, which takes the
+# suite to about thirty seconds.
+#
+# Only for the default checker. `test_invalid_fresh_fixture_is_rejected` drives
+# this function with `CHECKER_SOURCE` pointing at an invalid checker and depends
+# on the validating run *failing*; caching that call would seed every later
+# scenario from a poisoned template.
+template_dir=""
+
 make_fixture() {
+  if [ -z "${CHECKER_SOURCE:-}" ] && [ -n "$template_dir" ]; then
+    fixture_dir="$(mktemp -d)"
+    fixture_dirs+=("$fixture_dir")
+    cp -R "$template_dir/." "$fixture_dir/"
+    return 0
+  fi
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
-  mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  mkdir -p "$fixture_dir/scripts/tests" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   # The contract asks git whether the proptest regression files are ignored, so a
   # fixture has to be a work tree or that check cannot run against it at all.
   git -C "$fixture_dir" init --quiet
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
+  # The contract reads this file too now: it derives the fixture suite's input
+  # set from the `$repo_root` paths below and holds `tooling.yml`'s path filter
+  # against it. A fixture without it has nothing for that assertion to read.
+  cp "$repo_root/scripts/tests/check-tooling-contract.sh" "$fixture_dir/scripts/tests/"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
@@ -29,12 +51,17 @@ make_fixture() {
   # stated over whichever workflow runs the task rather than over a file name,
   # so without the file here nothing in the fixture matches `run: mise run miri`
   # and every one of those rules is dead code in this suite.
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
     return 1
+  fi
+  if [ -z "${CHECKER_SOURCE:-}" ]; then
+    template_dir="$(mktemp -d)"
+    fixture_dirs+=("$template_dir")
+    cp -R "$fixture_dir/." "$template_dir/"
   fi
 }
 
@@ -604,6 +631,29 @@ test_shipped_midir_dependency_is_rejected() {
   assert_rejected "a midir dependency declared outside the native target table"
 }
 
+test_fixture_suite_back_in_the_pull_request_tier_is_rejected() {
+  make_fixture
+  # Putting the line back is a one-word edit and no other check notices it, so
+  # the contract holds the absence as well as the presence.
+  perl -pi -e 's/^(bash scripts\/check-tooling-contract\.sh)$/$1\nbash scripts\/tests\/check-tooling-contract.sh/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that runs the fixture suite on every change"
+}
+
+test_tooling_workflow_that_runs_nothing_is_rejected() {
+  make_fixture
+  # Taking the suite out of the tier is only sound because a workflow runs it.
+  perl -pi -e 's/^(      - run: bash scripts\/tests\/check-tooling-contract\.sh)$/#$1/' "$fixture_dir/.github/workflows/tooling.yml"
+  assert_rejected "a tooling workflow that no longer runs the fixture suite"
+}
+
+test_tooling_workflow_missing_a_fixture_input_is_rejected() {
+  make_fixture
+  # The path filter and the files the suite reads are the same set stated twice.
+  # Drop one and the gate goes blind to exactly the file it reads.
+  perl -pi -e "s|^      - 'mise\.toml'\n||" "$fixture_dir/.github/workflows/tooling.yml"
+  assert_rejected "a tooling workflow whose path filter misses a file the suite reads"
+}
+
 test_wasm_midir_dependency_is_rejected() {
   make_fixture
   # The target table is what keeps `midir` out of a browser build. Declared in
@@ -702,6 +752,9 @@ case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
   non-optional-midir) test_non_optional_midir_is_rejected ;;
   shipped-midir) test_shipped_midir_dependency_is_rejected ;;
+  suite-in-tier) test_fixture_suite_back_in_the_pull_request_tier_is_rejected ;;
+  tooling-workflow-idle) test_tooling_workflow_that_runs_nothing_is_rejected ;;
+  tooling-workflow-paths) test_tooling_workflow_missing_a_fixture_input_is_rejected ;;
   wasm-midir) test_wasm_midir_dependency_is_rejected ;;
   native-midi-gates-nothing) test_native_midi_gating_nothing_is_rejected ;;
   native-midi-default) test_native_midi_off_by_default_is_rejected ;;
@@ -779,6 +832,9 @@ case "${1:-all}" in
     test_commented_requirement_is_rejected
     test_non_optional_midir_is_rejected
     test_shipped_midir_dependency_is_rejected
+    test_fixture_suite_back_in_the_pull_request_tier_is_rejected
+    test_tooling_workflow_that_runs_nothing_is_rejected
+    test_tooling_workflow_missing_a_fixture_input_is_rejected
     test_wasm_midir_dependency_is_rejected
     test_native_midi_gating_nothing_is_rejected
     test_native_midi_off_by_default_is_rejected

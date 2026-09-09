@@ -56,6 +56,24 @@ is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASE
 merge tier is the only place the properties run at proptest's 256-case default. What is genuinely
 merge-only is the browser run, the rustdoc gates, and that full-case run.
 
+The tooling contract and its fixture suite are gated differently, and the split is worth stating
+because it looks like an inconsistency. `scripts/check-tooling-contract.sh` runs in
+`check_pull_request`: it costs under a second, and it is what fails when someone edits a pinned
+line, so every pull request owes it whatever that pull request touched. Its fixture suite,
+`scripts/tests/check-tooling-contract.sh`, does not run there. The suite copies a tree, breaks one
+line and re-runs the contract, ninety times over — about thirty seconds — and the tier runs on both
+the Linux and macOS legs, so every pull request paid it twice, including the ones that touched no
+tooling at all. What the suite can answer depends only on the files it copies into a fixture, so
+`.github/workflows/tooling.yml` runs it path-filtered on exactly those, plus the two scripts
+themselves.
+
+That filter is derived rather than trusted. The paths and the files the suite reads are the same set
+stated twice, and a file added to the suite and not to the workflow would leave the gate blind to
+exactly the file it had just started reading — which is the failure the contract exists to catch,
+one layer up. So the contract reads both lists out of the files and fails if any input is
+uncovered, and the absence of the suite from `check_pull_request` is pinned alongside its presence
+in the workflow, because putting the line back is a one-word edit nothing else notices.
+
 `orcvs` carries a second feature, and it is the one a tier can pass without ever building.
 `native-midi` gates the platform MIDI backend and the `midir` dependency that reaches it, and it is
 on by default, so every command in this file resolves exactly as it did before the feature existed

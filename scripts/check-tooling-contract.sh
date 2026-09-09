@@ -163,10 +163,44 @@ assert_contains "$root_dir/mise.toml" '^"aqua:rhysd/actionlint"[[:space:]]*=[[:s
 assert_contains "$root_dir/mise.toml" '^"aqua:zizmorcore/zizmor"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_pull_request$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_merge$'
-# The contract and its own tests run in the pull-request tier: nothing else
-# executes them, so a gate that only a local run reaches is a gate that drifts.
+# The contract runs in the pull-request tier: nothing else executes it, so a gate
+# that only a local run reaches is a gate that drifts. It costs under a second
+# and it is what fails when someone edits a pinned line, so it is owed by every
+# pull request whatever that pull request touched.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/check-tooling-contract.sh$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/tests/check-tooling-contract.sh$'
+# Its fixture suite is not, and must not be. The suite copies a tree, breaks one
+# line and re-runs the contract, ninety times over: two minutes, and the tier
+# runs on both the Linux and macOS legs, so every pull request paid it twice —
+# including the ones that touched no tooling. It runs path-filtered instead, in
+# the workflow asserted below. Pinned as an absence as well as a presence,
+# because putting the line back is a one-word edit that no other check notices.
+assert_not_contains "$root_dir/mise.toml" '^bash scripts/tests/check-tooling-contract.sh$'
+assert_contains "$root_dir/.github/workflows/tooling.yml" '^      - run: bash scripts/tests/check-tooling-contract.sh$'
+# Path-filtering the suite is only sound while the filter names every file the
+# suite reads. The two lists are the same set stated twice — the `$repo_root`
+# paths the suite copies into a fixture, and the `paths:` entries that decide
+# whether it runs — so a file added to the suite and not to the workflow leaves
+# the gate blind to exactly the file it had just started reading. That is the
+# failure this contract exists to catch, one layer up, so it is derived here
+# rather than trusted: both sides are read out of the files and compared.
+#
+# Subset, not equality: the workflow also lists itself and the suite script,
+# neither of which the suite reads from `$repo_root`. What must not happen is a
+# read that no path covers.
+fixture_inputs="$(grep -oE '[$]repo_root/[a-zA-Z0-9./_-]+' "$root_dir/scripts/tests/check-tooling-contract.sh" | sed 's|[$]repo_root/||' | grep '[.]' | sort -u)"
+workflow_paths="$(grep -oE "^      - '[^']+'$" "$root_dir/.github/workflows/tooling.yml" | sed "s|^      - '||; s|'$||" | sort -u)"
+uncovered="$(comm -23 <(printf '%s
+' "$fixture_inputs") <(printf '%s
+' "$workflow_paths"))"
+if [ -n "$uncovered" ]; then
+  echo "expected .github/workflows/tooling.yml to path-filter every file the fixture suite reads; uncovered:" >&2
+  printf '%s
+' "$uncovered" >&2
+  exit 1
+fi
+# And the suite's own two scripts, which are inputs by being the code that runs.
+assert_contains "$root_dir/.github/workflows/tooling.yml" "^      - 'scripts/tests/check-tooling-contract.sh'$"
+assert_contains "$root_dir/.github/workflows/tooling.yml" "^      - '.github/workflows/tooling.yml'$"
 # Both linters run beside the contract script, on the same reasoning: they check
 # the repository's own configuration, they cost seconds, and they fail before the
 # tier spends twenty minutes compiling. Expect little from them — the workflows

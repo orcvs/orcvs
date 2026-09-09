@@ -102,7 +102,9 @@ description = "Pull-request verification tier"
 env = { PROPTEST_CASES = '32' }
 run = '''
 bash scripts/check-tooling-contract.sh
-bash scripts/tests/check-tooling-contract.sh
+# The contract runs here; its fixture suite does not. The suite's verdict depends
+# only on the files `make_fixture` copies, so `.github/workflows/tooling.yml`
+# runs it path-filtered on those instead of twice on every pull request.
 actionlint
 zizmor --offline .github/workflows
 node --test scripts/tests/roadmap.test.ts
