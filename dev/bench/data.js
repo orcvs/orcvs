@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788943654563,
+  "lastUpdate": 1788945394805,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -4409,6 +4409,204 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_edges/128x128",
             "value": 1441874,
             "range": "± 16979",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c1bcb6cb37484b2b0ff5d6fff182f4ce5842e63",
+          "message": "Merge pull request #44 from orcvs/deepen-tick-execution\n\nOwn Tick-local state transitions behind execution seam",
+          "timestamp": "2026-09-09T19:05:36+10:00",
+          "tree_id": "f932e73578204104624e75b0d73b4953fc5e610f",
+          "url": "https://github.com/orcvs/orcvs/commit/1c1bcb6cb37484b2b0ff5d6fff182f4ce5842e63"
+        },
+        "date": 1788945394246,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 184,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 77,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 102,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 824,
+            "range": "± 38",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 68,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 110,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 273,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 524,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 911,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 37,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 38,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 106,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2810,
+            "range": "± 39",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 11457,
+            "range": "± 53",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 44786,
+            "range": "± 157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 6058,
+            "range": "± 99",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 22309,
+            "range": "± 415",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 93236,
+            "range": "± 1258",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 6432,
+            "range": "± 93",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 23022,
+            "range": "± 340",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 91105,
+            "range": "± 1338",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 19556,
+            "range": "± 86",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 77885,
+            "range": "± 870",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 318030,
+            "range": "± 1966",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1295676,
+            "range": "± 21849",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 12163,
+            "range": "± 40",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 74848,
+            "range": "± 475",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 334403,
+            "range": "± 1574",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1388332,
+            "range": "± 13057",
             "unit": "ns/iter"
           }
         ]
