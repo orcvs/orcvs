@@ -563,12 +563,10 @@ pub struct PlaybackEngine<A: OutputAdapter> {
     handle_count: Arc<AtomicUsize>,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub struct MidiSelectionHandle<B: crate::midi::MidiBackend> {
     inner: Weak<Mutex<PlaybackInner<crate::midi::MidiOutputAdapter<B>>>>,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl<B: crate::midi::MidiBackend> MidiSelectionHandle<B> {
     pub(crate) fn new(playback: &PlaybackEngine<crate::midi::MidiOutputAdapter<B>>) -> Self {
         Self {

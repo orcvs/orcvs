@@ -1,18 +1,16 @@
 use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
 
 use crate::grid_viewport::{GridViewport, grid_viewport};
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::midi::MidiDeviceSelection;
 use crate::style::{PALETTE, cell_visuals, sector_line, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
     glyph::GlyphString,
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
+    native_midi::{self, NativeMidiBackend},
     opts::{Bpm, DEFAULT_FONT_SIZE},
     render_frame::RenderFrame,
 };
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use orcvs::{midi::MidiOutputAdapter, native_midi::MidirBackend};
 
 const CELL_SIZE: f32 = 25.0;
 const CELL_PADDING: f32 = 0.5;
@@ -141,8 +139,11 @@ mod tempo_edit_tests {
 ///
 pub struct Console {
     orcvs: Orcvs,
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-    midi: MidiDeviceSelection<MidirBackend>,
+    /// Device discovery and selection for whatever MIDI backend `orcvs` has on
+    /// this target. The console never asks what target it is on: a target with
+    /// no native backend answers an empty destination list here, and
+    /// `native_midi::AVAILABLE` says whether the menu presenting it exists.
+    midi: MidiDeviceSelection<NativeMidiBackend>,
     font_family: egui::FontFamily,
     source_view: SourceView,
     diagnostics_open: bool,
@@ -181,21 +182,11 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        let orcvs = Orcvs::with_output_adapter(
-            DEFAULT_COL_COUNT,
-            DEFAULT_ROW_COUNT,
-            MidiOutputAdapter::new(MidirBackend),
-        );
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        midi.refresh_destinations();
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
+        midi.refresh_destinations();
         Self {
             orcvs,
-            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view: SourceView::default(),
@@ -409,12 +400,16 @@ impl eframe::App for Console {
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
         let playback_diagnostics = self.orcvs.observe_playback();
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        self.midi.observe_diagnostics(playback_diagnostics);
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        for diagnostic in &playback_diagnostics {
-            if let Some(message) = crate::diagnostics::failure_message(diagnostic) {
-                tracing::error!("Playback failure: {message}");
+        if native_midi::AVAILABLE {
+            self.midi.observe_diagnostics(playback_diagnostics);
+        } else {
+            // Without a native backend there is no MIDI menu, so the status
+            // line those diagnostics would reach is never presented and the log
+            // is the only channel a failure has.
+            for diagnostic in &playback_diagnostics {
+                if let Some(message) = crate::diagnostics::failure_message(diagnostic) {
+                    tracing::error!("Playback failure: {message}");
+                }
             }
         }
         let top_panel = egui::Panel::top("top_panel")
@@ -437,26 +432,30 @@ impl eframe::App for Console {
                     });
                     ui.add_space(16.0);
                 }
-                #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-                ui.menu_button("MIDI", |ui| {
-                    if ui.button("Refresh destinations").clicked() {
-                        self.midi.refresh_destinations();
-                    }
-                    let selected = self.midi.selected_destination_id();
-                    for destination in self.midi.destinations().to_vec() {
-                        let is_selected = selected.as_ref() == Some(&destination.id);
-                        if ui.selectable_label(is_selected, destination.name).clicked() {
-                            self.midi.select_destination(&destination.id);
+                // The menu presents a choice of destination, so it exists only
+                // where a backend can have one. Which targets those are is
+                // `orcvs`'s answer, not a condition restated here.
+                if native_midi::AVAILABLE {
+                    ui.menu_button("MIDI", |ui| {
+                        if ui.button("Refresh destinations").clicked() {
+                            self.midi.refresh_destinations();
                         }
-                    }
-                    if self.midi.destinations().is_empty() {
-                        ui.label("No MIDI destinations found");
-                    }
-                    if let Some(status) = self.midi.status() {
-                        ui.separator();
-                        ui.colored_label(ui.visuals().error_fg_color, status);
-                    }
-                });
+                        let selected = self.midi.selected_destination_id();
+                        for destination in self.midi.destinations().to_vec() {
+                            let is_selected = selected.as_ref() == Some(&destination.id);
+                            if ui.selectable_label(is_selected, destination.name).clicked() {
+                                self.midi.select_destination(&destination.id);
+                            }
+                        }
+                        if self.midi.destinations().is_empty() {
+                            ui.label("No MIDI destinations found");
+                        }
+                        if let Some(status) = self.midi.status() {
+                            ui.separator();
+                            ui.colored_label(ui.visuals().error_fg_color, status);
+                        }
+                    });
+                }
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
@@ -511,8 +510,7 @@ impl eframe::App for Console {
                 console_area = ui.available_size_before_wrap();
                 let Console {
                     orcvs,
-                    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-                        midi: _,
+                    midi: _,
                     font_family,
                     source_view,
                     diagnostics_open: _,

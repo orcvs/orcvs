@@ -68,8 +68,30 @@ mod tests {
         MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError,
         MidiOutputAdapter,
     };
+    use orcvs::native_midi::NativeMidiBackend;
 
     use super::MidiDeviceSelection;
+
+    ///
+    /// What the console does, with nothing target-specific in it. The shell
+    /// takes a default running Orcvs and asks it for a selection over whatever
+    /// backend `orcvs` decided this target has; it never names the operating
+    /// systems that carry one. Naming `NativeMidiBackend` is the whole
+    /// assertion — it compiles on a target with no native backend exactly as
+    /// it does on one with a native backend, so the shell has no flag to keep
+    /// in sync. What follows states the selection a console opens with, which
+    /// no device has been chosen for yet and so asks the backend nothing.
+    ///
+    #[test]
+    fn the_console_selection_comes_from_a_default_running_orcvs() {
+        let orcvs = Orcvs::new(1, 1);
+
+        let mut midi: MidiDeviceSelection<NativeMidiBackend> =
+            MidiDeviceSelection::new(orcvs.midi_selection_handle());
+
+        assert_eq!(midi.selected_destination_id(), None);
+        assert_eq!(midi.status(), None);
+    }
 
     fn selection_for<B: MidiBackend + 'static>(
         backend: B,
