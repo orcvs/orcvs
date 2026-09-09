@@ -64,6 +64,22 @@ impl SourceCommander {
     /// persistence. The Grid is the one that Source was built from, so it is
     /// the only Grid that mints an index addressing one of its Cells.
     ///
+    /// ```
+    /// use orcvs::grid::Grid;
+    /// use orcvs::source::{Source, SourceCommander};
+    ///
+    /// let mut built = Source::new(Grid::new(6, 3));
+    /// let cell = built.grid().cell_index(0).expect("inside the Grid");
+    /// built.set(cell, "1").expect("a Cell the Source accepts");
+    ///
+    /// let source = SourceCommander::with_source(built);
+    ///
+    /// // the Grid comes with the Source, and it is the Grid that mints the
+    /// // index naming one of its Cells
+    /// assert_eq!(source.grid().count(), 18);
+    /// assert_eq!(source.get(cell), Some("1".to_owned()));
+    /// ```
+    ///
     pub fn with_source(source: Source) -> Self {
         Self {
             inner: Arc::new(RwLock::new(source)),
@@ -77,9 +93,25 @@ impl SourceCommander {
     /// The Source stays behind the lock: it is the live state every reader of
     /// this handle shares, not a value to hand out.
     ///
+    /// ```
+    /// use orcvs::grid::Grid;
+    /// use orcvs::source::SourceCommander;
+    ///
+    /// let source = SourceCommander::new(Grid::new(6, 3));
+    /// let cell = source.grid().cell_index(0).expect("inside the Grid");
+    /// source.set(cell, "1").expect("a Cell the Source accepts");
+    ///
+    /// // the Source is read where it lives; what the reader takes from it is
+    /// // its own to keep
+    /// let mut stored = String::new();
+    /// source.read_source(|source| stored = source.snapshot());
+    ///
+    /// assert_eq!(&stored[..1], "1");
+    /// ```
+    ///
     #[cfg(feature = "persistence")]
-    pub fn read_source<R>(&self, read: impl FnOnce(&Source) -> R) -> R {
-        read(&read_recover(&self.inner))
+    pub fn read_source(&self, read: impl FnOnce(&Source)) {
+        read(&read_recover(&self.inner));
     }
 
     ///

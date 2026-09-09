@@ -78,14 +78,41 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
         StoredSource::Restored(source) => source,
         StoredSource::Absent => default_source(),
         StoredSource::Refused => {
-            tracing::error!(
-                key = eframe::APP_KEY,
-                "refused the stored Source: it is not a Source this build can read; \
-                 starting the default Grid"
-            );
+            report_refusal();
             default_source()
         }
     }
+}
+
+///
+/// What is stored is the same shape on both targets; what reports a refusal is
+/// not, so the refusal is put on both channels.
+///
+/// The native binary installs a `tracing` subscriber (`shell/src/main.rs`) and
+/// reads `tracing`. The browser build installs `eframe::WebLogger` instead,
+/// which forwards `log` records to the developer console and knows nothing of
+/// `tracing`; with no `tracing` subscriber on that target a `tracing` event is
+/// dropped where nobody sees it. Reporting on the channel each target actually
+/// reads is what makes "refused, and reported" true in the browser as well.
+///
+/// `log` is already a `wasm32`-only dependency of this crate, so the second
+/// line costs no manifest change. The alternative — enabling `tracing`'s `log`
+/// feature in the workspace manifest, which bridges every `tracing` event to
+/// `log` wherever no subscriber is installed — is one line but a much wider
+/// change: it routes every event in the workspace to the browser console at
+/// `WebLogger`'s `Debug` filter, and `orcvs/src/source/model.rs` emits
+/// `debug!` on every Cell write, which is the Tick and edit path. Turning one
+/// refusal report into per-Cell console traffic in the browser is an unmeasured
+/// cost on a hot path, so the report is placed at the one site that needs it.
+///
+#[cfg(feature = "persistence")]
+fn report_refusal() {
+    const REFUSED: &str = "refused the stored Source: it is not a Source this build can read; \
+                           starting the default Grid";
+
+    tracing::error!(key = eframe::APP_KEY, "{}", REFUSED);
+    #[cfg(target_arch = "wasm32")]
+    log::error!("{}: {}", eframe::APP_KEY, REFUSED);
 }
 
 ///
@@ -117,6 +144,55 @@ fn assert_default_grid(source: &Source) {
     assert!(source.snapshot().bytes().all(|byte| byte == b' '));
 }
 
+///
+/// Storage with no backing file, so a test drives the same seam the shipped
+/// backends drive.
+///
+#[cfg(all(test, feature = "persistence"))]
+#[derive(Default)]
+pub(crate) struct InMemoryStorage {
+    entries: std::collections::BTreeMap<String, String>,
+}
+
+#[cfg(all(test, feature = "persistence"))]
+impl eframe::Storage for InMemoryStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.entries.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.entries.insert(key.to_owned(), value);
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.entries.remove(key);
+    }
+
+    fn flush(&mut self) {}
+}
+
+///
+/// An edited Source on a non-square Grid: a restore that read the two
+/// dimensions the wrong way round addresses different Cells than the Source
+/// that was stored, and a start that read nothing holds no Cells at all.
+///
+#[cfg(all(test, feature = "persistence"))]
+pub(crate) fn edited_source() -> orcvs::source::SourceCommander {
+    use orcvs::source::SourceCommander;
+
+    let grid = Grid::new(6, 3);
+    let source = SourceCommander::new(grid);
+    for (index, content) in ".+0102".chars().enumerate() {
+        source
+            .set(
+                grid.cell_index(index).expect("inside the Grid"),
+                &content.to_string(),
+            )
+            .expect("a Cell the Source accepts");
+    }
+    source
+}
+
 #[cfg(test)]
 mod tests {
     use super::{assert_default_grid, starting_source};
@@ -131,53 +207,13 @@ mod tests {
 
 #[cfg(all(test, feature = "persistence"))]
 mod stored_source_tests {
-    use std::collections::BTreeMap;
-
     use orcvs::glyph::Glyph;
-    use orcvs::grid::Grid;
     use orcvs::source::SourceCommander;
 
-    use super::{StoredSource, assert_default_grid, starting_source, store_source, stored_source};
-
-    #[derive(Default)]
-    struct InMemoryStorage {
-        entries: BTreeMap<String, String>,
-    }
-
-    impl eframe::Storage for InMemoryStorage {
-        fn get_string(&self, key: &str) -> Option<String> {
-            self.entries.get(key).cloned()
-        }
-
-        fn set_string(&mut self, key: &str, value: String) {
-            self.entries.insert(key.to_owned(), value);
-        }
-
-        fn remove_string(&mut self, key: &str) {
-            self.entries.remove(key);
-        }
-
-        fn flush(&mut self) {}
-    }
-
-    ///
-    /// An edited Source on a non-square Grid: a restore that read the two
-    /// dimensions the wrong way round addresses different Cells than the
-    /// Source that was stored.
-    ///
-    fn edited_source() -> SourceCommander {
-        let grid = Grid::new(6, 3);
-        let source = SourceCommander::new(grid);
-        for (index, content) in ".+0102".chars().enumerate() {
-            source
-                .set(
-                    grid.cell_index(index).expect("inside the Grid"),
-                    &content.to_string(),
-                )
-                .expect("a Cell the Source accepts");
-        }
-        source
-    }
+    use super::{
+        InMemoryStorage, StoredSource, assert_default_grid, edited_source, starting_source,
+        store_source, stored_source,
+    };
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
         eframe::Storage::get_string(storage, eframe::APP_KEY)
@@ -237,6 +273,12 @@ mod stored_source_tests {
         // encoding at all, and a well-formed encoding whose Grid no longer
         // matches the Cells beside it. A restore that trusted the second would
         // start a partly restored Source.
+        //
+        // What refuses the second is `Source`'s own `Deserialize`, and
+        // `orcvs/src/source/model.rs` already covers that validation directly.
+        // What this adds is the end-to-end assertion that the refusal survives
+        // eframe's codec and reaches the console as a default Grid, not new
+        // coverage of the validation itself.
         for value in ["not a stored Source", &encoded.replace("cols:6", "cols:7")] {
             let mut storage = InMemoryStorage::default();
             storage
