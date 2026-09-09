@@ -42,6 +42,23 @@
 //! `AtomicUsize` with `Ordering::Relaxed` and would then be correct only under
 //! nextest's process-per-test isolation.
 //!
+//! # Publishing the numbers, not only asserting on them
+//!
+//! `.github/workflows/bench.yml` stores these measurements as a series on
+//! `gh-pages` beside the criterion timings, so a creep too small for any one
+//! assertion to catch is visible as a trend. `lang/tests/allocation.rs` says
+//! the whole of why, and the helpers below are the other half of the one
+//! harness these two files are meant to read as.
+//!
+//! Two things about the records this file adds. The published quantities are
+//! the ones the assertions are computed from rather than the assertions
+//! themselves — one Cell write at each fixture size, with the Grid empty and
+//! with it populated. And the Expressions a rebuild carries are published
+//! beside each populated point, because that count is the divisor which makes
+//! the two counts above it comparable at all: a change to the fixture moves
+//! the allocation counts for a reason that is not a regression, and the
+//! divisor moving beside them is what says so.
+//!
 // Native-only, the way the property suites and `lang/tests/allocation.rs` are:
 // `System` and this counting are native concerns, and `--all-targets` on
 // `wasm32-unknown-unknown` compiles this target too. The `cfg` matches the
@@ -136,6 +153,57 @@ fn measure<T>(f: impl FnOnce() -> T) -> (Allocations, T) {
         },
         value,
     )
+}
+
+/// The prefix every published record carries.
+///
+/// `cargo test -- --nocapture` writes these records into the same stream as
+/// the harness's own output, so the workflow step that turns them into JSON
+/// picks them out by this marker. It is matched literally in
+/// `.github/workflows/bench.yml`; it changes in both places or in neither.
+const SERIES_MARKER: &str = "ORCVS-MEMORY-SERIES";
+
+/// Whether this run publishes the series as well as asserting on it.
+///
+/// Reading the variable allocates, so every caller sits outside a measured
+/// span. Nothing here is on a measured path in any case: publishing happens
+/// after `measure_one_write` has already answered.
+fn publishing() -> bool {
+    std::env::var("ORCVS_MEMORY_SERIES").is_ok_and(|value| value == "1")
+}
+
+/// One `customSmallerIsBetter` record on its own line — the shape
+/// `benchmark-action/github-action-benchmark` reads.
+///
+/// `name` is built from literals and decimal Grid dimensions, so it holds no
+/// character JSON would need escaped and no escaping is written. A name that
+/// needed escaping would be a name that had changed, and a changed name starts
+/// an empty series rather than continuing this one.
+fn record(name: &str, unit: &str, value: usize) {
+    println!(r#"{SERIES_MARKER} {{"name": "{name}", "unit": "{unit}", "value": {value}}}"#);
+}
+
+/// Both halves of one measurement, as `<name> blocks` and `<name> bytes`.
+fn publish(name: &str, allocations: Allocations) {
+    if !publishing() {
+        return;
+    }
+
+    record(&format!("{name} blocks"), "blocks", allocations.blocks);
+    record(&format!("{name} bytes"), "bytes", allocations.bytes);
+}
+
+/// The Expressions a rebuild carried, published beside the counts it divides.
+fn publish_carried(name: &str, expressions: usize) {
+    if !publishing() {
+        return;
+    }
+
+    record(
+        &format!("{name} expressions carried"),
+        "expressions",
+        expressions,
+    );
 }
 
 /// Representative Source shapes, as `orcvs/benches/source.rs` fixes them: a
@@ -327,7 +395,9 @@ fn a_language_map_rebuild_is_bounded_independently_of_grid_size() {
         // The writing is bounded in the test below.
         let mut source = source_written_to(cols, rows, 0);
         let edited = cell(source.grid(), cols + EDIT_COLUMN);
-        measured.push(((cols, rows), measure_one_write(&mut source, edited, "x")));
+        let write = measure_one_write(&mut source, edited, "x");
+        publish(&format!("orcvs write one cell {cols}x{rows} empty"), write);
+        measured.push(((cols, rows), write));
     }
 
     let (_, first) = measured[0];
@@ -410,6 +480,9 @@ fn a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster() 
         let write = measure_one_write(&mut source, edited, EDITED_VALID);
         let expressions = carried_expressions(&source);
         assert!(expressions > 0, "the fixture must hold Expressions");
+        let name = format!("orcvs write one cell {cols}x{rows} populated");
+        publish(&name, write);
+        publish_carried(&name, expressions);
         measured.push(((cols, rows), expressions, write));
     }
 

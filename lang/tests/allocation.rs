@@ -46,6 +46,30 @@
 //! test target. That is why no feature gate is needed and why the contract's
 //! feature combinations are untouched.
 //!
+//! # Publishing the numbers, not only asserting on them
+//!
+//! `.github/workflows/bench.yml` stores these measurements as a series on
+//! `gh-pages` beside the criterion timings, so a creep too small for any one
+//! assertion to catch is visible as a trend.
+//!
+//! The series is fed by the tests below rather than by a binary of its own. A
+//! separate binary re-running the measured paths would let the published
+//! number and the asserted number drift apart silently, which is the one thing
+//! the series exists to prevent. So each test prints what it just measured and
+//! then asserts over the same numbers, and a failed assertion fails the run
+//! before anything is published.
+//!
+//! Printing is gated on `ORCVS_MEMORY_SERIES=1`, so an ordinary
+//! `cargo nextest run --workspace` is silent and the assertions are the same
+//! either way.
+//!
+//! The workflow collects the records with a bare `cargo test`, because the
+//! benchmark job runs `mise-action` with `install: false` and so has no
+//! `cargo-nextest`. That works for the reason the thread-local counters were
+//! chosen: under `cargo test` every test in this binary runs on its own thread
+//! of one shared process, which is exactly the case a `const`-initialised
+//! thread-local is correct for.
+//!
 // Native-only, the way the property suites are: `System` and this counting are
 // native concerns, and `--all-targets` on `wasm32-unknown-unknown` compiles
 // this target too. The `cfg` matches the shape of the
@@ -151,6 +175,42 @@ fn measure<T>(f: impl FnOnce() -> T) -> (Allocations, T) {
     )
 }
 
+/// The prefix every published record carries.
+///
+/// `cargo test -- --nocapture` writes these records into the same stream as
+/// the harness's own output, so the workflow step that turns them into JSON
+/// picks them out by this marker. It is matched literally in
+/// `.github/workflows/bench.yml`; it changes in both places or in neither.
+const SERIES_MARKER: &str = "ORCVS-MEMORY-SERIES";
+
+/// Whether this run publishes the series as well as asserting on it.
+///
+/// Reading the variable allocates, so every caller sits outside a measured
+/// span. Nothing here is on a measured path in any case: publishing happens
+/// after `measure` has already answered.
+fn publishing() -> bool {
+    std::env::var("ORCVS_MEMORY_SERIES").is_ok_and(|value| value == "1")
+}
+
+/// Both halves of one measurement, as `<name> blocks` and `<name> bytes`.
+///
+/// One `customSmallerIsBetter` object per line — the shape
+/// `benchmark-action/github-action-benchmark` reads. `name` is a literal here,
+/// so it holds no character JSON would need escaped and no escaping is
+/// written. A name that needed escaping would be a name that had changed, and
+/// a changed name starts an empty series rather than continuing this one.
+fn publish(name: &str, allocations: Allocations) {
+    if !publishing() {
+        return;
+    }
+
+    for (unit, value) in [("blocks", allocations.blocks), ("bytes", allocations.bytes)] {
+        println!(
+            r#"{SERIES_MARKER} {{"name": "{name} {unit}", "unit": "{unit}", "value": {value}}}"#
+        );
+    }
+}
+
 /// One Source revision, row by row, as the `lang` benchmarks fix it: complete
 /// Expressions, a Bang, an Activation Character, malformed text, and empty
 /// rows. Shared with `lang/benches/lang.rs` by duplication, because a bench
@@ -253,6 +313,12 @@ fn a_tick_over_an_already_parsed_source_allocates_per_expression_and_not_per_row
     let (four, interpreted) = measure(|| tick(black_box(&long), inputs));
     black_box(interpreted);
 
+    // The two points this test contributes to the series. `with_empty_rows`
+    // below is asserted equal to `one`, so publishing it too would store the
+    // same number twice under two names.
+    publish("lang tick fixture", one);
+    publish("lang tick fixture written four times", four);
+
     // At most one block per Expression, and never one per Atom.
     assert!(
         one.blocks <= short.len(),
@@ -311,6 +377,11 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     black_box(units);
     let (empty, units) = measure(|| reread(black_box(&mut many)));
     black_box(units);
+
+    // One point of the three measured here. `empty` is asserted equal to
+    // `sparse`, and `nothing` below is asserted to be zero — a zero point
+    // leaves the action's ratio against the previous one undefined.
+    publish("lang render frame re-read fixture", sparse);
 
     assert_eq!(
         sparse,

@@ -202,6 +202,50 @@ if [ "$bench_job_count" -lt 1 ]; then
   exit 1
 fi
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev$' "$bench_job_count"
+# The memory series is published from the same jobs and from the same test
+# functions that assert on the numbers. A separate binary re-running the measured
+# paths would let the published number and the asserted number drift apart, so
+# the command is pinned rather than merely the fact that something is measured.
+# `cargo test` and not `cargo nextest run`: both bench jobs run `mise-action` with
+# `install: false`, so nextest is not installed and asking for it would either
+# fail the job or put ten minutes of tool building back into it.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: ORCVS_MEMORY_SERIES=1 cargo test --package lang --package orcvs --test allocation --locked -- --nocapture [|] tee allocations[.]txt$' "$bench_job_count"
+assert_not_contains "$root_dir/.github/workflows/bench.yml" 'cargo nextest run'
+# Exactly once per job is also what pins "no warm-up run for the memory series".
+# The timing series runs `mise run bench` twice per job because a freshly compiled
+# criterion binary's first pass is contaminated; an allocation count is
+# deterministic for a fixed input, so a second run would only cost the job twice.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench > /dev/null$' "$bench_job_count"
+# The series name the action keys the stored history by. A rename does not move
+# the history, it starts an empty series beside it, which is why the existing
+# `lang` name carries the same rule and is pinned the same way.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          name: memory$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          name: lang$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          tool: customSmallerIsBetter$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          tool: cargo$' "$bench_job_count"
+# The memory step in each job runs after a `github-action-benchmark` step that has
+# already fetched `gh-pages` — and, in the publishing job, pushed to it. Fetching
+# again would discard the commit that step just made.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          skip-fetch-gh-pages: true$' "$bench_job_count"
+# The memory series alerts and writes a job summary and does not fail the
+# workflow. That is a decision rather than an omission: a deterministic metric at
+# a threshold this tight fires on any real change, and the action offers no
+# in-repo way to accept a deliberate increase, since the series lives on
+# `gh-pages` rather than in a file a pull request can edit beside the change that
+# moves it. Whether this workflow blocks a merge at all belongs to
+# `.scratch/verification-gaps/issues/09`, which this series stays out of.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^          fail-on-alert: false$' "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          alert-threshold: '110%'\$" "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-threshold: '125%'\$" "$bench_job_count"
+# The timing series' own thresholds, stated beside them, because "far tighter than
+# the timing series" is only a property of the pair.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          alert-threshold: '150%'\$" "$bench_job_count"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-threshold: '300%'\$" "$bench_job_count"
+# The JSON is assembled with coreutils and shell builtins, so this step installs
+# nothing and `mise.toml` gains no tool for it. `jq` is the obvious reach and it is
+# the one thing this must not become.
+assert_contains "$root_dir/.github/workflows/bench.yml" '^          printf .\[%s\].n. "[$][(]printf'
+assert_not_contains "$root_dir/.github/workflows/bench.yml" '(^|[^[:alnum:]-])jq([^[:alnum:]-]|$)'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
@@ -307,6 +351,14 @@ assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: dtolnay/rust-tool
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/bench.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v4([.][0-9]+)*$'
 assert_not_contains "$root_dir/.github/workflows/bench.yml" 'taiki-e/install-action'
+# The memory series reuses the timing series' action rather than adding one, so
+# every use of it carries the same pin. Two steps per job — the timing series and
+# the memory series — derived from the job count rather than from a literal, so a
+# job added with only one of them fails here.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" 'uses: benchmark-action/github-action-benchmark@[0-9a-f]{40}[[:space:]]+# v1([.][0-9]+)*$' "$((bench_job_count * 2))"
+# A short SHA or a missing pin is already caught by the count above, which only
+# a full forty-character digest satisfies; this states the mutable refs by name.
+assert_not_contains "$root_dir/.github/workflows/bench.yml" 'benchmark-action/github-action-benchmark@(v[0-9]|main|master)'
 
 # Every job in every workflow carries a bound on its runtime. Without one a job
 # inherits the six-hour runner limit, and the shape that would spend it is a

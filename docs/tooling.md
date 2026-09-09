@@ -102,6 +102,26 @@ Permissions are declared per job, so only the publishing job can write repositor
 triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`
 or `orcvs` performance runs no benchmark. `mise run check` does not run either.
 
+Both jobs publish a second series beside the timings, and it measures allocation rather than wall
+clock. `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` count the blocks and bytes a Tick,
+a Render Frame re-read, a Cell write, and a Language Map rebuild ask the allocator for, and assert
+shapes over them on every `cargo nextest run --workspace`. Setting `ORCVS_MEMORY_SERIES=1` makes the
+same test functions print what they just measured, and the workflow turns those records into the
+`customSmallerIsBetter` JSON the same pinned action stores under the series name `memory`. The
+series is fed by the asserting tests rather than by a binary of its own, so the published number and
+the asserted number cannot drift apart.
+
+Three things about that series differ from the timings beside it, and each is a decision. It is
+collected with a plain `cargo test`, because both bench jobs run `mise-action` with `install: false`
+and hold no cargo tool beyond the toolchain; the thread-local counters in those files are
+`const`-initialised precisely so they stay correct in the one shared process a bare `cargo test`
+runs every test in. It takes no warm-up run, because an allocation count is deterministic for a
+fixed input and a second run would only cost the job twice. And it alerts without failing, at
+`110%`/`125%` against the timings' `150%`/`300%`: the metric has no runner noise for a loose
+threshold to sit above, and the action offers no in-repo way to accept a deliberate increase, so
+failing waits until the series has enough points to show it is stable.
+`.scratch/memory-verification/spec.md` records the effort behind it.
+
 This benchmark gate is the one exception to the equivalence above. The measurement is reproducible
 from a checkout; the comparison is not, because it lives in the action rather than in `mise.toml`.
 `.scratch/benchmarks/spec.md` records what the gate can and cannot detect.
@@ -141,7 +161,9 @@ that no task calls `mise run miri`, and requires any workflow that does run it t
 
 - `criterion` measures both benchmarked paths — language execution in `lang`, and populated Source
   reading, rendering, and editing in `orcvs`; `benchmark-action/github-action-benchmark` stores and
-  compares the results.
+  compares the results, and the same pinned action stores the allocation series beside them. The
+  allocation counting itself takes no dependency at all: it is a `GlobalAlloc` forwarding to
+  `System` inside each crate's `tests/allocation.rs`, which those files explain in place.
 - `proptest` generates the property tests that encode the invariants `CONTEXT.md` and the ADRs
   already state.
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
