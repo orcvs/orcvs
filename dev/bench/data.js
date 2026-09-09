@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788915202575,
+  "lastUpdate": 1788916864053,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -2429,6 +2429,204 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_edges/128x128",
             "value": 1362167,
             "range": "± 22646",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "72bb2cc192a870c13b6263341c266dd45d07d97d",
+          "message": "Merge pull request #24 from orcvs/dependabot/rust_toolchain/rust-toolchain-1.98.1\n\nBump rust-toolchain from 1.98.0 to 1.98.1",
+          "timestamp": "2026-09-09T11:09:31+10:00",
+          "tree_id": "3e91d333d141bbdb851804a57e801032e93ac25a",
+          "url": "https://github.com/orcvs/orcvs/commit/72bb2cc192a870c13b6263341c266dd45d07d97d"
+        },
+        "date": 1788916863076,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 185,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 76,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 101,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 818,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 71,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 111,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 253,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 518,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 909,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 37,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 123,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2807,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 11241,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 44564,
+            "range": "± 338",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 5977,
+            "range": "± 55",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 22119,
+            "range": "± 269",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 90323,
+            "range": "± 868",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 6336,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 22880,
+            "range": "± 381",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 91827,
+            "range": "± 745",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 19640,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 77125,
+            "range": "± 615",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 322051,
+            "range": "± 5230",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1315162,
+            "range": "± 17670",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 12318,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 75917,
+            "range": "± 1407",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 333712,
+            "range": "± 1714",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1380367,
+            "range": "± 20098",
             "unit": "ns/iter"
           }
         ]
