@@ -29,7 +29,7 @@ does not run the browser suite at all, and the assertion wants a long run.
 
 Neither Miri nor any sanitizer reaches wasm, so this is the only memory signal the web target gets.
 
-### Finding: the assertion is unverified, and `check_wasm` cannot verify it (2026-09-09)
+### Finding: the assertion is compiled but unverified (2026-09-09)
 
 `web_linear_memory_settles_after_warm_up` in `shell/tests/wasm.rs` is landed as the ticket asks —
 `core::arch::wasm32::memory_size(0)` sampled after warm-up and again after a longer run, asserted
@@ -37,19 +37,23 @@ equal. It has never been executed. `mise run test_wasm` needs headless Firefox a
 build, and `CLAUDE.md` defers it to the merge tier, so the merge tier is the first place this
 assertion will run at all.
 
-`mise run check_wasm` is *not* a substitute, and the surprise is worth recording. The task builds
-the Trunk distribution and type-checks with `--lib`, and its own inline comment says so: it
-"type-checks no test target". Running it against this change passes without ever compiling the file
-the change is in. The strongest check available without a browser is therefore the test target
-itself, compiled for the wasm triple:
+`mise run check_wasm` does compile this file. Its clippy line runs `--all-targets`, which covers
+every member's test targets alongside their libraries; a `-v` run lists `shell/tests/wasm.rs` among
+the units compiled. The `--lib` sentence in that task's inline comment describes the historical gap
+`--all-targets` was adopted to close — "which is how the browser regression suite stopped compiling
+and stayed that way" — not what the task does today. An earlier draft of this finding read that
+comment as current behaviour and was wrong.
+
+So the change is compile-checked twice over: by `mise run check_wasm`, and by the narrower
 
 ```sh
 cargo clippy --package shell --target wasm32-unknown-unknown --tests --locked -- -D warnings
 ```
 
-That is what was run, and it is clean. It proves the API surface the test leans on — `Source::set`,
+Both are clean. Together they prove the API surface the test leans on — `Source::set`,
 `Source::execute`, `Grid::cell_index`, `Tick::new`, and the `memory_size` intrinsic's legacy
-const-generic call form — and nothing about the assertion's truth.
+const-generic call form — and nothing whatever about the assertion's truth. Compiling is not
+running, and no gate that runs locally runs this test: only the merge tier's browser suite does.
 
 **Why the equality was kept rather than softened.** The honest alternative is a ceiling, in the
 convention `01` established: `assert!(pages() <= settled + slack)`. It was not taken. A ceiling here
