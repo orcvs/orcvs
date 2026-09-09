@@ -9,7 +9,7 @@ use crate::grid::{Grid, Position};
 use crate::playback::InMemoryOutputAdapter;
 use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackState};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
-use crate::source::SourceCommander;
+use crate::source::{Source, SourceCommander};
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::native_midi::{MidirBackend, NativeMidiOutputAdapter};
@@ -73,19 +73,40 @@ pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
 
 impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Self {
+        Self::with_output_adapter(cols, rows, Self::default_output_adapter())
+    }
+
+    ///
+    /// A running Orcvs over `source`, such as a Source read back from
+    /// persistence, on the output the platform supplies.
+    ///
+    pub fn with_source(source: Source) -> Self {
+        Self::with_source_and_output_adapter(source, Self::default_output_adapter())
+    }
+
+    fn default_output_adapter() -> OrcvsOutputAdapter {
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         let adapter = NativeMidiOutputAdapter::new(MidirBackend);
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let adapter = InMemoryOutputAdapter::default();
-        Self::with_output_adapter(cols, rows, adapter)
+        adapter
     }
 }
 
 impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     pub fn with_output_adapter(cols: usize, rows: usize, adapter: A) -> Self {
-        let grid = Grid::new(cols, rows);
+        Self::with_source_and_output_adapter(Source::new(Grid::new(cols, rows)), adapter)
+    }
+
+    ///
+    /// A running Orcvs over `source`, taking the Grid the Source was built
+    /// from: a Source read back from persistence carries the shape it was
+    /// stored with, and the Cursor starts at that Grid's origin.
+    ///
+    pub fn with_source_and_output_adapter(source: Source, adapter: A) -> Self {
+        let grid = source.grid();
         let opts = Opts::new();
-        let source = SourceCommander::new(grid);
+        let source = SourceCommander::with_source(source);
         let playback = PlaybackEngine::new(source.clone(), adapter);
 
         Self {
@@ -96,6 +117,15 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
             playback,
             playback_state: PlaybackState::Stopped,
         }
+    }
+
+    ///
+    /// The Source root, for the storage a console saves the current revision
+    /// into.
+    ///
+    #[cfg(feature = "persistence")]
+    pub fn source(&self) -> &SourceCommander {
+        &self.source
     }
 
     pub fn observe_playback(&mut self) -> Vec<PlaybackDiagnostic> {

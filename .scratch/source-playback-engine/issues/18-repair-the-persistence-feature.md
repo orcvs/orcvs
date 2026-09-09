@@ -20,7 +20,7 @@ The type-by-type decisions are:
 
 - `Grid` persists its dimensions and receives a fresh runtime identity when restored; `Position` is not persisted independently.
 - `Source` uses a custom canonical representation. Its `ExpressionMap`, parsed atoms, glyphs, diagnostics, observations, pending edit, and tick result are derived or transient and deliberately excluded.
-- `App` and `Console` are runtime coordinators, so their cursor, commander, cancellation token, playback/output handles, options, and UI state are deliberately excluded.
+- `App` and `Console` are runtime coordinators, so their cursor, commander, cancellation token, playback/output handles, options, and UI state are deliberately excluded. They stay excluded now that the application saves and restores: `product-persistence/01` wires `eframe::App::save` and `Console::new` to the `Source` root alone, so the shipped storage call carries one Source revision and nothing of the `Console` around it. Storing state and excluding the coordinators are the same decision, not competing ones.
 - `Opts`, `Mode`, `GlyphString`, `Glyph`, `ExpressionMap`, `Range`, and `ExpressionRange` no longer advertise standalone persistence because none is a supported persistence root.
 
 CI now builds `console` with `persistence`; feature-gated tests round-trip a non-square edited Source and reject malformed Grid dimensions.
