@@ -1,5 +1,5 @@
 //!
-//! Whether this target has a native MIDI backend, and what a running Orcvs
+//! Whether this build has a native MIDI backend, and what a running Orcvs
 //! therefore uses for output.
 //!
 //! This module is the one place in Orcvs that asks the question. No other
@@ -10,19 +10,22 @@
 //! the browser included. Inside this file the condition is spelled on each
 //! `cfg` that selects between the two answers.
 //!
-//! One spelling survives outside Rust: `orcvs/Cargo.toml` names the same
-//! operating systems over the `midir` dependency, because a target-specific
-//! dependency table is the only way to tell Cargo which builds need the crate.
-//! That table is the subject of the issue that replaces it with a
-//! `native-midi` feature; until then it is the one restatement this module
-//! cannot absorb.
+//! The question has two halves, and both are spelled on the same `cfg`. The
+//! `native-midi` feature — declared in `orcvs/Cargo.toml`, on by default —
+//! says whether this build wants a native backend at all; the target condition
+//! says whether the target carries a MIDI service one could reach. `midir` is
+//! optional and lives in a target-specific dependency table, so a build that
+//! answers no to either half does not have the crate to call: turning the
+//! feature off removes it from the tree, and a WASM build never sees it
+//! whichever way the feature is set. The manifest and this file therefore state
+//! one condition between them rather than two conditions to keep in sync.
 //!
 //! Both answers are the same shape, which is what makes the seam a seam. A
-//! target with no native MIDI service still has a [`MidiBackend`] — one that
+//! build with no native MIDI backend still has a [`MidiBackend`] — one that
 //! offers no destination and refuses to connect — so a running Orcvs there is
 //! still a running Orcvs over a MIDI output adapter, and an adapter holding no
-//! connection accepts every submission and delivers nothing. Playing on such a
-//! target is silent rather than special-cased.
+//! connection accepts every submission and delivers nothing. Playing there is
+//! silent rather than special-cased.
 //!
 //! [`MidiBackend`]: crate::midi::MidiBackend
 
@@ -31,10 +34,10 @@ use crate::midi::MidiOutputAdapter;
 pub use backend::NativeMidiBackend;
 
 ///
-/// Whether [`NativeMidiBackend`] reaches a platform MIDI service on this
-/// target.
+/// Whether [`NativeMidiBackend`] reaches a platform MIDI service in this
+/// build.
 ///
-/// It is a fact about the build, not about the machine: a target that has a
+/// It is a fact about the build, not about the machine: a build that has a
 /// native backend may still have no device plugged in, which is an empty
 /// destination list rather than an unavailable backend. Callers that present
 /// device selection use this to decide whether the selection exists at all.
@@ -59,7 +62,10 @@ pub fn output_adapter() -> NativeMidiOutputAdapter {
     NativeMidiOutputAdapter::new(NativeMidiBackend)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(
+    feature = "native-midi",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 mod backend {
     use midir::{MidiOutput, MidiOutputConnection};
 
@@ -117,7 +123,10 @@ mod backend {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(all(
+    feature = "native-midi",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+)))]
 mod backend {
     pub use super::silent::SilentMidiBackend as NativeMidiBackend;
 
@@ -127,25 +136,30 @@ mod backend {
 ///
 /// The fallback backend, and the tests that hold it to what the seam promises.
 ///
-/// It is `backend` on a target with no platform MIDI service. It is also
-/// compiled under `cfg(test)` everywhere else, which is what makes its
-/// behaviour verifiable: gated on the target alone it would be absent from
-/// every test run CI executes — the native runs compile it out, and the browser
-/// suite runs only the shell's own integration test target — so a fallback that
-/// regressed to a panic or a wrong answer would type-check and ship. Compiled
-/// here it is exercised by the ordinary `cargo nextest run` pass on every
-/// target, and its role as `backend` is a re-export rather than a second
-/// implementation, so the code under test is the code that ships.
+/// It is `backend` wherever there is no native MIDI backend: a target with no
+/// platform MIDI service, or `native-midi` turned off. It is also compiled
+/// under `cfg(test)` everywhere else, which is what makes its behaviour
+/// verifiable: gated on the build alone it would run in one pass of the
+/// pull-request tier and in none of the default-featured runs, and before that
+/// pass existed it ran nowhere at all — the native runs compiled it out and the
+/// browser suite runs only the shell's own integration test target — so a
+/// fallback that regressed to a panic or a wrong answer would type-check and
+/// ship. Compiled here it is exercised by the ordinary `cargo nextest run` pass
+/// on every target, and its role as `backend` is a re-export rather than a
+/// second implementation, so the code under test is the code that ships.
 ///
 #[cfg(any(
     test,
-    not(any(target_os = "macos", target_os = "windows", target_os = "linux"))
+    not(all(
+        feature = "native-midi",
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
+    ))
 ))]
 mod silent {
     use crate::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
 
     ///
-    /// The backend a target with no platform MIDI service has.
+    /// The backend a build with no native MIDI backend has.
     ///
     /// It answers the empty destination list rather than an error, because
     /// having nowhere to send MIDI is not a failure to discover destinations.
@@ -164,7 +178,7 @@ mod silent {
             &mut self,
             _destination_id: &MidiDestinationId,
         ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Err(MidiError::new("this target has no native MIDI backend"))
+            Err(MidiError::new("this build has no native MIDI backend"))
         }
     }
 
@@ -191,7 +205,7 @@ mod silent {
                     .connect(&MidiDestinationId::new("invented"))
                     .err()
                     .map(|error| error.message),
-                Some("this target has no native MIDI backend".to_owned())
+                Some("this build has no native MIDI backend".to_owned())
             );
         }
 
@@ -210,5 +224,80 @@ mod silent {
             );
             assert!(adapter.safety_reset().is_ok());
         }
+    }
+}
+
+///
+/// Half of what turning `native-midi` off gives up, and the half a `const` can
+/// state: no target reaches a platform MIDI service.
+///
+/// It is not a fourth spelling of the condition. The target half can only ever
+/// add a no, so with the feature off there is nothing left for [`AVAILABLE`] to
+/// be true about, wherever the build is going. A `const` claim about the build
+/// belongs in the build rather than in a test run, so this holds in every
+/// feature-off compilation — the pull-request tier's `--no-default-features`
+/// pass, and the browser build, whose `orcvs` dependency asks for no native
+/// backend either.
+///
+#[cfg(not(feature = "native-midi"))]
+const _: () = assert!(
+    !AVAILABLE,
+    "with native-midi disabled no target has a native MIDI backend"
+);
+
+///
+/// The other half: a running Orcvs still has an output adapter, and it accepts
+/// everything and delivers nothing.
+///
+/// This one is behaviour rather than a constant, so it runs. The pass that runs
+/// it is the tier's `cargo nextest run --package orcvs --no-default-features` —
+/// a test compiled by no tier is what `.scratch/native-midi/issues/01` already
+/// had to repair once.
+///
+#[cfg(all(test, not(feature = "native-midi")))]
+mod feature_disabled_tests {
+    use super::output_adapter;
+    use crate::midi::MidiDestinationId;
+    use crate::playback::{OutputAdapter, OutputCommand};
+    use crate::source::{MidiChannel, Note, Velocity};
+
+    ///
+    /// What the sibling tests in `silent` cannot say: the adapter a running
+    /// Orcvs is handed is that backend, not merely one that could be built from
+    /// it. `silent::tests` constructs `MidiOutputAdapter::new(SilentMidiBackend)`
+    /// itself, so it holds the backend to its contract and says nothing about
+    /// which backend `output_adapter()` reaches for. Asserting only that submit
+    /// and safety reset return `Ok` here restated the sibling and left the
+    /// wiring untested: a feature-off `backend` re-exporting something that
+    /// forwarded commands and returned `Ok` passed both.
+    ///
+    /// So this asserts the pairing by its observable consequences — nowhere to
+    /// send, and no way to obtain a connection — before asserting that playing
+    /// anyway is accepted and silent.
+    ///
+    #[test]
+    fn a_running_orcvs_has_an_adapter_over_a_backend_with_nowhere_to_deliver() {
+        let mut adapter = output_adapter();
+
+        assert_eq!(adapter.destinations(), Ok(Vec::new()));
+        assert_eq!(
+            adapter
+                .select(&MidiDestinationId::new("invented"))
+                .err()
+                .map(|error| error.message),
+            Some("this build has no native MIDI backend".to_owned())
+        );
+        assert_eq!(adapter.selected_destination_id(), None);
+
+        assert!(
+            adapter
+                .submit(&[OutputCommand::NoteOn {
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(0x7f).unwrap(),
+                    note: Note::try_from(60).unwrap(),
+                }])
+                .is_ok()
+        );
+        assert!(adapter.safety_reset().is_ok());
     }
 }

@@ -163,10 +163,44 @@ assert_contains "$root_dir/mise.toml" '^"aqua:rhysd/actionlint"[[:space:]]*=[[:s
 assert_contains "$root_dir/mise.toml" '^"aqua:zizmorcore/zizmor"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_pull_request$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_merge$'
-# The contract and its own tests run in the pull-request tier: nothing else
-# executes them, so a gate that only a local run reaches is a gate that drifts.
+# The contract runs in the pull-request tier: nothing else executes it, so a gate
+# that only a local run reaches is a gate that drifts. It costs under a second
+# and it is what fails when someone edits a pinned line, so it is owed by every
+# pull request whatever that pull request touched.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/check-tooling-contract.sh$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/tests/check-tooling-contract.sh$'
+# Its fixture suite is not, and must not be. The suite copies a tree, breaks one
+# line and re-runs the contract, ninety times over: two minutes, and the tier
+# runs on both the Linux and macOS legs, so every pull request paid it twice —
+# including the ones that touched no tooling. It runs path-filtered instead, in
+# the workflow asserted below. Pinned as an absence as well as a presence,
+# because putting the line back is a one-word edit that no other check notices.
+assert_not_contains "$root_dir/mise.toml" '^bash scripts/tests/check-tooling-contract.sh$'
+assert_contains "$root_dir/.github/workflows/tooling.yml" '^      - run: bash scripts/tests/check-tooling-contract.sh$'
+# Path-filtering the suite is only sound while the filter names every file the
+# suite reads. The two lists are the same set stated twice — the `$repo_root`
+# paths the suite copies into a fixture, and the `paths:` entries that decide
+# whether it runs — so a file added to the suite and not to the workflow leaves
+# the gate blind to exactly the file it had just started reading. That is the
+# failure this contract exists to catch, one layer up, so it is derived here
+# rather than trusted: both sides are read out of the files and compared.
+#
+# Subset, not equality: the workflow also lists itself and the suite script,
+# neither of which the suite reads from `$repo_root`. What must not happen is a
+# read that no path covers.
+fixture_inputs="$(grep -oE '[$]repo_root/[a-zA-Z0-9./_-]+' "$root_dir/scripts/tests/check-tooling-contract.sh" | sed 's|[$]repo_root/||' | grep '[.]' | sort -u)"
+workflow_paths="$(grep -oE "^      - '[^']+'$" "$root_dir/.github/workflows/tooling.yml" | sed "s|^      - '||; s|'$||" | sort -u)"
+uncovered="$(comm -23 <(printf '%s
+' "$fixture_inputs") <(printf '%s
+' "$workflow_paths"))"
+if [ -n "$uncovered" ]; then
+  echo "expected .github/workflows/tooling.yml to path-filter every file the fixture suite reads; uncovered:" >&2
+  printf '%s
+' "$uncovered" >&2
+  exit 1
+fi
+# And the suite's own two scripts, which are inputs by being the code that runs.
+assert_contains "$root_dir/.github/workflows/tooling.yml" "^      - 'scripts/tests/check-tooling-contract.sh'$"
+assert_contains "$root_dir/.github/workflows/tooling.yml" "^      - '.github/workflows/tooling.yml'$"
 # Both linters run beside the contract script, on the same reasoning: they check
 # the repository's own configuration, they cost seconds, and they fail before the
 # tier spends twenty minutes compiling. Expect little from them — the workflows
@@ -198,6 +232,16 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo cli
 # `product-persistence/01`'s own acceptance criterion. Pinning both halves is
 # what stops the pair collapsing back into one configuration named twice.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings$'
+# `native-midi` is on by default, so every workspace compilation in this tier
+# builds `orcvs` with a native MIDI backend — the `--no-default-features` one
+# included, because `shell` names the feature for its native targets. These two
+# are the ones that build it without: the clippy pass crosses the feature off
+# against `persistence`, so the four feature cells are all compiled, and the
+# nextest pass runs the tests that state what turning the feature off gives up,
+# which are compiled only with it off. Losing either leaves a shipped feature
+# state that no tier reaches.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --package orcvs --no-default-features --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --tests --no-default-features --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --locked$'
@@ -213,6 +257,26 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^cargo den
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo deny --locked check$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo tree --workspace --all-features -e features --locked$'
+# The reason `native-midi` exists is a claim about the dependency tree, and a
+# printed tree is read by a human or by nobody. This pins the check that fails
+# instead: the tree `orcvs` resolves with the feature off, and the grep over it
+# that rejects `midir` and the ALSA and CoreMIDI crates beneath it. Pinned as
+# three lines because each carries part of the answer — the resolution, the
+# rejection, and the non-zero exit. The rejecting pattern is held by the
+# grep-backed assertion beneath, for the reason the Miri filter is: the
+# task-scoped check reads through awk, which rejects the escaped `^` the pattern
+# needs.
+#
+# The middle assertion names the variable because the resolution and the grep
+# are two lines and nothing else joins them. Anchored at `^if printf` alone it
+# passed against a half-finished rename: the pinned assignment still there,
+# unused, and the grep reading an unset name — an empty string, which matches
+# nothing, so `audit_deps` could no longer fail on a `midir` regression. It
+# stops before the `-E` pattern, which is the part awk cannot carry.
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^native_midi_tree="[$][(]cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked[)]"$'
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' "^if printf '%s.n' \"[\$]native_midi_tree\" [|] grep -E"
+assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^  exit 1$'
+assert_contains "$root_dir/mise.toml" "grep -E '\^\(midir\|alsa\|alsa-sys\|coremidi\|coremidi-sys\) '"
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked$'
@@ -589,3 +653,51 @@ for regressions_path in \
       ;;
   esac
 done
+
+# `midir` is the one dependency in this workspace that links a system audio
+# library — ALSA on Linux, CoreMIDI on macOS — and `native-midi` is what decides
+# whether a build has it. The feature is on by default, so every build that
+# exists today resolves as it did; what turning it off gives up is MIDI
+# delivery, and what it buys is a tree with no `midir` and no audio library in
+# it. Two conditions have to hold together for that, and each is pinned here.
+#
+# The feature has to be the only way in. `midir` declared without `optional`, or
+# declared in a table the feature does not gate, is a dependency that arrives
+# whatever the feature says — and the tree check in `audit_deps` is the only
+# other thing that would notice.
+midir_native_table='^[[]target[.].cfg[(]any[(]target_os = "macos", target_os = "windows", target_os = "linux"[)][)].[.]dependencies[]]$'
+assert_contains "$root_dir/orcvs/Cargo.toml" '^default = \["native-midi"\]$'
+assert_contains "$root_dir/orcvs/Cargo.toml" '^native-midi = \["dep:midir"\]$'
+# Bracket forms rather than backslash escapes in every table pattern here and
+# below: they reach the matcher through `awk -v`, which drops the backslash from
+# `\{` and `\[` and turns what is left of `\["native-midi"\]` into a character
+# class carrying an `e-m` range. That class matches the `f` of
+# `default-features = false`, so the escaped spelling of the console assertion at
+# the end of this file passed against a console that had stopped naming the
+# feature at all.
+assert_toml_table_contains "$root_dir/orcvs/Cargo.toml" "$midir_native_table" '^[[:space:]]*midir[[:space:]]*=[[:space:]]*[{][^}]*optional[[:space:]]*=[[:space:]]*true'
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*midir[[:space:]]*='
+# And the target table has to stay, because the feature alone does not say where
+# a MIDI service could exist. Without it a default-featured WASM build would ask
+# Cargo for `midir`, which is the one thing this arrangement must not change.
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[]target[.].cfg[(]target_arch = "wasm32"[)].[.]dependencies[]]$' '^[[:space:]]*midir[[:space:]]*='
+#
+# The console asks for the feature by name for its native targets rather than
+# leaning on `orcvs`'s default, so the shipped application keeps its MIDI
+# destination list even if that default changes, and the browser build keeps
+# asking for no native backend at all.
+#
+# Three assertions rather than two, because the declaration is not two halves:
+# Cargo unions a dependency's declarations and honours `default-features =
+# false` only if every one of them says it, so the native table has to say it
+# too. Pinning it in the plain table alone accepted a native declaration that
+# had dropped it — a console back on the borrowed default, which is the one
+# thing naming the feature exists to prevent, passing green.
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
+# The feature list is pinned by what it contains, not by how long it is. `shell`
+# already has a `persistence` feature that maps onto `orcvs/persistence`, so a
+# second entry beside `native-midi` is a manifest this contract should accept;
+# requiring the list to be exactly `["native-midi"]` rejected it with a message
+# that read as though the feature were missing.
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*[^-]features[[:space:]]*=[[:space:]]*[[]([^]]*,[[:space:]]*)?"native-midi"'

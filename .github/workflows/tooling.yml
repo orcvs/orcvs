@@ -1,0 +1,84 @@
+name: Tooling contract
+
+# `scripts/check-tooling-contract.sh` asserts that the repository's tooling still
+# says what it is supposed to say; this workflow runs the suite that proves those
+# assertions have teeth. The two are gated differently on purpose. The contract
+# itself is under a second and stays in `check_pull_request`, where it fails the
+# moment someone edits a pinned line. Its fixture suite copies a tree, breaks one
+# line, and runs the contract again, ninety times over — two minutes, and it ran
+# on both the Linux and macOS legs of every pull request, including the ones that
+# touched no tooling at all.
+#
+# What the suite can answer depends only on the files `make_fixture` copies into
+# a fixture, plus the two scripts themselves. A pull request that touches none of
+# them cannot change its verdict, so it does not run here.
+# `scripts/check-tooling-contract.sh` pins this list against the copies
+# themselves: a file added to `make_fixture` and not to the two blocks below
+# would leave the gate blind to exactly the file it had just started reading.
+#
+# Repeated under both triggers because Actions does not support YAML anchors.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mise.toml'
+      - 'Cargo.toml'
+      - 'lang/Cargo.toml'
+      - 'orcvs/Cargo.toml'
+      - 'shell/Cargo.toml'
+      - 'shell/Trunk.toml'
+      - 'shell/assets/sw.js'
+      - '.github/dependabot.yml'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/bench.yml'
+      - '.github/workflows/advisories.yml'
+      - '.github/workflows/miri.yml'
+      - '.github/workflows/tooling.yml'
+      - '.vscode/launch.json'
+      - 'scripts/check-tooling-contract.sh'
+      - 'scripts/tests/check-tooling-contract.sh'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mise.toml'
+      - 'Cargo.toml'
+      - 'lang/Cargo.toml'
+      - 'orcvs/Cargo.toml'
+      - 'shell/Cargo.toml'
+      - 'shell/Trunk.toml'
+      - 'shell/assets/sw.js'
+      - '.github/dependabot.yml'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/bench.yml'
+      - '.github/workflows/advisories.yml'
+      - '.github/workflows/miri.yml'
+      - '.github/workflows/tooling.yml'
+      - '.vscode/launch.json'
+      - 'scripts/check-tooling-contract.sh'
+      - 'scripts/tests/check-tooling-contract.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fixtures:
+    # The suite compiles nothing and needs no toolchain: it is bash, git, grep,
+    # awk and perl over copies of tracked configuration. Checking out and running
+    # it directly is the whole job, which is why no `mise-action` or Rust
+    # toolchain step appears here.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # `make_fixture` runs `git init` in each fixture, because the contract asks
+      # git whether the proptest regression files are ignored. Git is present on
+      # the runner image; the checkout above is what puts the tracked files it
+      # copies from within reach.
+      - run: bash scripts/tests/check-tooling-contract.sh

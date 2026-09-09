@@ -12,14 +12,36 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# A pristine fixture is the same tree every time — same tracked files, same
+# checker, same verdict — and building it meant a `git init`, a dozen copies and
+# a full contract run, ninety times over. That validating run was half the
+# suite's two minutes. It is done once now and the result copied, which takes the
+# suite to about thirty seconds.
+#
+# Only for the default checker. `test_invalid_fresh_fixture_is_rejected` drives
+# this function with `CHECKER_SOURCE` pointing at an invalid checker and depends
+# on the validating run *failing*; caching that call would seed every later
+# scenario from a poisoned template.
+template_dir=""
+
 make_fixture() {
+  if [ -z "${CHECKER_SOURCE:-}" ] && [ -n "$template_dir" ]; then
+    fixture_dir="$(mktemp -d)"
+    fixture_dirs+=("$fixture_dir")
+    cp -R "$template_dir/." "$fixture_dir/"
+    return 0
+  fi
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
-  mkdir -p "$fixture_dir/scripts" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  mkdir -p "$fixture_dir/scripts/tests" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   # The contract asks git whether the proptest regression files are ignored, so a
   # fixture has to be a work tree or that check cannot run against it at all.
   git -C "$fixture_dir" init --quiet
   cp "${CHECKER_SOURCE:-$repo_root/scripts/check-tooling-contract.sh}" "$fixture_dir/scripts/check-tooling-contract.sh"
+  # The contract reads this file too now: it derives the fixture suite's input
+  # set from the `$repo_root` paths below and holds `tooling.yml`'s path filter
+  # against it. A fixture without it has nothing for that assertion to read.
+  cp "$repo_root/scripts/tests/check-tooling-contract.sh" "$fixture_dir/scripts/tests/"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
   cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
   cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
@@ -29,12 +51,17 @@ make_fixture() {
   # stated over whichever workflow runs the task rather than over a file name,
   # so without the file here nothing in the fixture matches `run: mise run miri`
   # and every one of those rules is dead code in this suite.
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$fixture_dir/.github/workflows/"
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
     return 1
+  fi
+  if [ -z "${CHECKER_SOURCE:-}" ]; then
+    template_dir="$(mktemp -d)"
+    fixture_dirs+=("$template_dir")
+    cp -R "$fixture_dir/." "$template_dir/"
   fi
 }
 
@@ -588,8 +615,154 @@ test_spaced_key_merge_guard_is_rejected() {
   assert_rejected "a merge guard whose key is spelled with a detached colon"
 }
 
+test_non_optional_midir_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^midir = \{ version = "0.11", optional = true \}$/midir = "0.11"/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency that arrives whether native-midi is enabled or not"
+}
+
+test_shipped_midir_dependency_is_rejected() {
+  make_fixture
+  # The target table is what keeps `midir` out of a WASM build. Moved into the
+  # plain table it is optional and feature-gated still, and every other
+  # assertion about it holds, while a default-featured browser build now asks
+  # Cargo for a crate that links CoreMIDI.
+  perl -pi -e 's/^\[dependencies\]$/[dependencies]\nmidir = { version = "0.11", optional = true }/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency declared outside the native target table"
+}
+
+test_fixture_suite_back_in_the_pull_request_tier_is_rejected() {
+  make_fixture
+  # Putting the line back is a one-word edit and no other check notices it, so
+  # the contract holds the absence as well as the presence.
+  perl -pi -e 's/^(bash scripts\/check-tooling-contract\.sh)$/$1\nbash scripts\/tests\/check-tooling-contract.sh/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that runs the fixture suite on every change"
+}
+
+test_tooling_workflow_that_runs_nothing_is_rejected() {
+  make_fixture
+  # Taking the suite out of the tier is only sound because a workflow runs it.
+  perl -pi -e 's/^(      - run: bash scripts\/tests\/check-tooling-contract\.sh)$/#$1/' "$fixture_dir/.github/workflows/tooling.yml"
+  assert_rejected "a tooling workflow that no longer runs the fixture suite"
+}
+
+test_tooling_workflow_missing_a_fixture_input_is_rejected() {
+  make_fixture
+  # The path filter and the files the suite reads are the same set stated twice.
+  # Drop one and the gate goes blind to exactly the file it reads.
+  perl -pi -e "s|^      - 'mise\.toml'\n||" "$fixture_dir/.github/workflows/tooling.yml"
+  assert_rejected "a tooling workflow whose path filter misses a file the suite reads"
+}
+
+test_wasm_midir_dependency_is_rejected() {
+  make_fixture
+  # The target table is what keeps `midir` out of a browser build. Declared in
+  # the WASM table it is optional and feature-gated still, so every other
+  # assertion about it holds while a default-featured browser build asks Cargo
+  # for a crate that links a platform MIDI service.
+  perl -pi -e "s/^\[target\.'cfg\(target_arch = \"wasm32\"\)'\.dependencies\]\$/[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nmidir = { version = \"0.11\", optional = true }/" "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency declared in the WASM target table"
+}
+
+test_native_midi_gating_nothing_is_rejected() {
+  make_fixture
+  # A feature that no longer names `dep:midir` still exists, still defaults on,
+  # and gates nothing: `midir` would then be an optional dependency implied by
+  # its own bare name, back in every build that mentions it.
+  perl -pi -e 's/^native-midi = \["dep:midir"\]$/native-midi = []/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a native-midi feature that no longer gates the midir dependency"
+}
+
+test_native_midi_off_by_default_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^default = \["native-midi"\]$/default = []/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "an orcvs crate that no longer defaults native-midi on"
+}
+
+test_console_without_native_midi_is_rejected() {
+  make_fixture
+  perl -pi -e 's/, features = \["native-midi"\] \}$/ }/' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a console that asks for no native MIDI backend on its native targets"
+
+  # Asking for it by name is the point: with `orcvs` defaulting the feature on,
+  # a console that merely leaves the default alone still ships MIDI today and
+  # loses it silently the day that default changes.
+  make_fixture
+  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a console that leans on the orcvs default instead of naming the feature"
+}
+
+test_console_with_a_second_feature_is_accepted() {
+  make_fixture
+  # `shell` already has a `persistence` feature that maps onto
+  # `orcvs/persistence`, so a second entry beside `native-midi` is a manifest
+  # the contract has no reason to refuse. Pinning the list by its length refused
+  # it, and said the feature was missing while doing so.
+  perl -pi -e 's/features = \["native-midi"\] \}$/features = ["native-midi", "persistence"] }/' "$fixture_dir/shell/Cargo.toml"
+  assert_accepted "a console that names native-midi alongside another feature"
+}
+
+test_console_target_table_reborrowing_defaults_is_rejected() {
+  make_fixture
+  # Cargo unions a dependency's declarations, so `default-features = false` only
+  # takes effect if every one of them says it. Dropping it here alone puts
+  # `orcvs feature "default"` back in the console's native build while the plain
+  # table still reads as though defaults were off.
+  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false, features = \["native-midi"\] \}$/orcvs = { path = "..\/orcvs", version = "0.1.0", features = ["native-midi"] }/' "$fixture_dir/shell/Cargo.toml"
+  assert_rejected "a console whose native table borrows the orcvs default back"
+}
+
+test_pull_request_tier_without_the_disabled_feature_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that lints no build with native-midi disabled"
+
+  make_fixture
+  perl -pi -e 's/^(cargo nextest run --package orcvs --no-default-features --profile ci --locked)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that runs no tests with native-midi disabled"
+}
+
+test_audit_without_the_disabled_tree_check_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^(native_midi_tree=.*)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a dependency audit that never resolves the native-midi-disabled tree"
+
+  # The tree is only evidence if something reads it. A printed tree that nothing
+  # greps is the shape this check replaced.
+  make_fixture
+  perl -pi -e 's/^(if printf .*)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a dependency audit that resolves the tree and asserts nothing about it"
+
+  # And it is only evidence if the grep reads *that* tree. A half-finished
+  # rename leaves the pinned assignment in place and pipes something else —
+  # unset, so empty — into a grep that then matches nothing and never fails.
+  make_fixture
+  perl -pi -e 's/\$native_midi_tree"/\$native_midi_deps"/' "$fixture_dir/mise.toml"
+  assert_rejected "a dependency audit whose grep reads a tree it never resolved"
+
+  # And it only holds if matching is fatal. Without the exit the grep still
+  # prints the offending crate into a log nobody reads and `audit_deps` goes
+  # green with `midir` in the feature-off tree.
+  make_fixture
+  perl -pi -e 's/^(  exit 1)$/  : $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a dependency audit that finds a system audio library and passes anyway"
+}
+
 case "${1:-all}" in
   comments) test_commented_requirement_is_rejected ;;
+  non-optional-midir) test_non_optional_midir_is_rejected ;;
+  shipped-midir) test_shipped_midir_dependency_is_rejected ;;
+  suite-in-tier) test_fixture_suite_back_in_the_pull_request_tier_is_rejected ;;
+  tooling-workflow-idle) test_tooling_workflow_that_runs_nothing_is_rejected ;;
+  tooling-workflow-paths) test_tooling_workflow_missing_a_fixture_input_is_rejected ;;
+  wasm-midir) test_wasm_midir_dependency_is_rejected ;;
+  native-midi-gates-nothing) test_native_midi_gating_nothing_is_rejected ;;
+  native-midi-default) test_native_midi_off_by_default_is_rejected ;;
+  console-native-midi) test_console_without_native_midi_is_rejected ;;
+  console-second-feature) test_console_with_a_second_feature_is_accepted ;;
+  console-reborrowed-default) test_console_target_table_reborrowing_defaults_is_rejected ;;
+  disabled-feature-tier) test_pull_request_tier_without_the_disabled_feature_is_rejected ;;
+  disabled-feature-tree) test_audit_without_the_disabled_tree_check_is_rejected ;;
   unbenchmarked-orcvs) test_unbenchmarked_orcvs_is_rejected ;;
   lang-only-bench) test_lang_only_bench_task_is_rejected ;;
   missing-orcvs-criterion) test_missing_orcvs_criterion_is_rejected ;;
@@ -657,6 +830,19 @@ case "${1:-all}" in
   all)
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
+    test_non_optional_midir_is_rejected
+    test_shipped_midir_dependency_is_rejected
+    test_fixture_suite_back_in_the_pull_request_tier_is_rejected
+    test_tooling_workflow_that_runs_nothing_is_rejected
+    test_tooling_workflow_missing_a_fixture_input_is_rejected
+    test_wasm_midir_dependency_is_rejected
+    test_native_midi_gating_nothing_is_rejected
+    test_native_midi_off_by_default_is_rejected
+    test_console_without_native_midi_is_rejected
+    test_console_with_a_second_feature_is_accepted
+    test_console_target_table_reborrowing_defaults_is_rejected
+    test_pull_request_tier_without_the_disabled_feature_is_rejected
+    test_audit_without_the_disabled_tree_check_is_rejected
     test_unlocked_check_deny_is_rejected
     test_unbenchmarked_orcvs_is_rejected
     test_lang_only_bench_task_is_rejected

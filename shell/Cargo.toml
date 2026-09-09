@@ -37,7 +37,12 @@ default = ["persistence"]
 persistence = ["eframe/persistence", "orcvs/persistence"]
 
 [dependencies]
-orcvs = { path = "../orcvs", version = "0.1.0" }
+# Defaults off here and `native-midi` back on in the non-WASM table below, so
+# the shipped console's MIDI is the console's own declaration rather than a
+# borrowed default: `orcvs` could stop defaulting the feature on and the
+# application would still list and select destinations. The browser build asks
+# for no native backend at all, which is what it already got.
+orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 # Keep both Linux window backends explicit because disabling eframe defaults removes them.
 eframe = { version = "0.36.1", default-features = false, features = [
     "glow",
@@ -53,6 +58,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+orcvs = { path = "../orcvs", version = "0.1.0", default-features = false, features = ["native-midi"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
