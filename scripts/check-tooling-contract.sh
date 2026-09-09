@@ -190,16 +190,21 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo fmt
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --locked -- -D warnings$'
 # The three persistence tests live in a test-only module and depend on serde_json,
 # a dev-dependency absent from the normal graph, so no library build can reach
-# them. Only an all-targets build with the feature enabled compiles them, and that
-# ran behind the push guard: they were neither run nor type-checked before a merge.
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
+# them. Only an all-targets build compiles them, and that ran behind the push
+# guard: they were neither run nor type-checked before a merge. `shell` now
+# enables `persistence` by default and pulls `orcvs/persistence` with it, so the
+# plain lines below are that build; the `--no-default-features` line beside each
+# is what still compiles and runs the feature-off configuration, which is
+# `product-persistence/01`'s own acceptance criterion. Pinning both halves is
+# what stops the pair collapsing back into one configuration named twice.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --profile ci --locked$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --tests --features persistence --profile ci --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo nextest run --workspace --tests --no-default-features --profile ci --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --locked$'
-# A doctest on a `persistence`-gated item is compiled by no default-feature run,
-# so leaving this in the merge tier alone kept one persistence path in the
-# found-after-merge class the tier beside it had just left.
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --features persistence --locked$'
+# A doctest on a `persistence`-gated item is compiled by no feature-off run and a
+# doctest on an item the feature removes is compiled by no default run, so the
+# tier compiles the doctests under both.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --no-default-features --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_merge_native$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_wasm$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run test_wasm$'
@@ -218,11 +223,18 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAG
 # what keeps a break in them off main. The scope is the workspace rather than one
 # package: it was shell alone only while orcvs built an unguarded Tokio runtime in
 # a test, which no longer holds.
-assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --features persistence --locked -- -D warnings$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cd shell$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --features persistence --locked$'
+# Two builds, and they have to be two configurations. The default one is the
+# persisting application the browser actually loads; the `--no-default-features`
+# one is the only place the WASM build without the storage path is compiled.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --no-default-features --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --locked$'
-assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --features persistence --locked.$'
+# The browser suite runs the shipped configuration, which carries `persistence`
+# through shell's default features. Naming the feature here would pin a flag that
+# changes nothing; pinning the line without one is what catches a
+# `--no-default-features` browser run that no longer exercises storage.
+assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --locked.$'
 assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher.$'
 # The measurement is only compared when the workflow runs, so every path that can
 # move a number has to trigger it: the two benchmarked crates included.
@@ -284,6 +296,18 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 assert_contains "$root_dir/.github/workflows/bench.yml" '^          printf .\[%s\].n. "[$][(]printf'
 assert_not_contains "$root_dir/.github/workflows/bench.yml" '(^|[^[:alnum:]-])jq([^[:alnum:]-]|$)'
 assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
+# Persistence ships on, and every feature arm above is stated relative to that.
+# With `default = ["persistence"]` the plain workspace runs are the persistence
+# arm and `--no-default-features` is the feature-off arm. Flip this back to `[]`
+# and both arms become feature-off — nothing left in either tier would compile
+# the storage path — so the manifest and the tier lines are pinned together
+# rather than one being left free to invalidate the other.
+shell_features_table='^[[:space:]]*[[]features[]][[:space:]]*$'
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" "$shell_features_table" '^[[:space:]]*default[[:space:]]*=[[:space:]]*[[]"persistence"[]]$'
+# The feature has to stay a feature: inlining it would remove the build
+# `--no-default-features` proves, which is the criterion the default-on decision
+# was taken against rather than in place of.
+assert_toml_table_contains "$root_dir/shell/Cargo.toml" "$shell_features_table" '^[[:space:]]*persistence[[:space:]]*=[[:space:]]*[[].*"eframe/persistence".*"orcvs/persistence".*[]]$'
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
 assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
 assert_contains "$root_dir/shell/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-9]+';$"

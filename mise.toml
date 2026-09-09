@@ -22,6 +22,10 @@ node = "22.23.1"
 [tasks.run]
 alias = 'r'
 description = "run"
+# Bare `cargo run` takes shell's default features, and `persistence` is one of
+# them, so this launches the binary that saves and restores the Source revision.
+# That is the point of the default: the thing a developer runs is the thing that
+# ships. `cargo run --no-default-features` is the feature-off build.
 run = 'cargo run'
 
 [tasks.test]
@@ -104,12 +108,17 @@ node --test scripts/tests/roadmap.test.ts
 node scripts/roadmap.ts > /dev/null
 mise run audit_deps
 cargo fmt --all -- --check
+# Each pair below is default-features then `--no-default-features`. `shell`
+# enables `persistence` by default and pulls `orcvs/persistence` with it, so the
+# plain lines are the shipped configuration and the paired line is the only thing
+# that still compiles and runs the feature-off build. Naming `--features
+# persistence` here would name the default twice and test one configuration.
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
+cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
 cargo nextest run --workspace --profile ci --locked
-cargo nextest run --workspace --tests --features persistence --profile ci --locked
+cargo nextest run --workspace --tests --no-default-features --profile ci --locked
 cargo test --workspace --doc --locked
-cargo test --workspace --doc --features persistence --locked
+cargo test --workspace --doc --no-default-features --locked
 '''
 
 [tasks.check_merge]
@@ -141,6 +150,14 @@ cargo deny --locked check
 
 [tasks.test_persistence]
 description = "Test persistence features"
+# `persistence` is a default feature of `shell`, so every `--features
+# persistence` below names a feature the workspace runs would enable anyway. It
+# is kept explicit rather than trimmed: this task is what `orcvs`'s own
+# persistence is verified through — `orcvs` still declares `default = []` and the
+# `--package orcvs --lib` line has no other way to reach the feature — and the
+# task keeps its meaning if the shell default ever moves. What is merge-only here
+# is the case count: `check_pull_request` sets PROPTEST_CASES to 32 and this runs
+# proptest's 256-case default.
 run = '''
 cargo check --package orcvs --lib --features persistence --locked
 cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
@@ -155,15 +172,21 @@ run = '''
 # `--lib` type-checks no test target, which is how the browser regression suite
 # stopped compiling and stayed that way. `--all-targets` covers every member's
 # library exactly as `--lib` did and adds the test targets beside them.
-cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --features persistence --locked -- -D warnings
+cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings
 cd shell
+# The default build is the persisting one, so the second build is what proves the
+# WASM application still compiles with the storage path removed.
 env -u NO_COLOR trunk build --locked
-env -u NO_COLOR trunk build --features persistence --locked
+env -u NO_COLOR trunk build --no-default-features --locked
 '''
 
 [tasks.test_wasm]
 description = "Run browser regressions in headless Firefox"
-run = 'wasm-pack test --headless --firefox shell --test wasm --features persistence --locked'
+# No feature flag: the browser suite runs the configuration the browser ships,
+# and `persistence` is in it by default. Adding `--no-default-features` here
+# would spend a second headless Firefox run on a build `check_wasm` already
+# compiles.
+run = 'wasm-pack test --headless --firefox shell --test wasm --locked'
 
 [tasks.audit_deps]
 description = "Audit advisories, licenses, sources, and duplicate dependencies"
