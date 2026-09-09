@@ -2,6 +2,8 @@ name: Rust
 
 on:
   workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   pull_request:
@@ -58,13 +60,17 @@ jobs:
         run: mise run check_merge
 
   macos:
-    # Forty rather than the twenty every other job takes. This tier now compiles
-    # the workspace twice — default features and `--no-default-features` — since
+    # Deferred off pull requests: development happens on macOS, so a clean-runner
+    # check of it belongs at merge queue verification, pushes to `main`, and
+    # manual dispatch rather than on every push to a branch.
+    if: github.event_name != 'pull_request'
+    # Forty rather than the twenty every other job takes. This tier compiles the
+    # workspace twice — default features and `--no-default-features` — since
     # `shell` ships `persistence` on and the feature-off build is a separate
     # feature set, so it shares nothing with the default one. The caches here
-    # only ever save on `main` (`save-if` and `cache_save` below), so a pull
-    # request restores a cache that has never held the feature-off arm and pays
-    # for it in full, on the slowest runner of the three.
+    # only ever save on `main` (`save-if` and `cache_save` below), so a run
+    # restores whatever `main` last wrote and pays in full for whatever it does
+    # not hold, on the slowest runner of the three.
     timeout-minutes: 40
     runs-on: macos-latest
     steps:
@@ -103,3 +109,21 @@ jobs:
         env:
           ORCVS_MERGE_COMPONENT: wasm
         run: mise run check_merge
+
+  ci:
+    # Required on both PRs and merge groups, including when a dependency fails.
+    if: always()
+    needs: [full-gate, macos, wasm]
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require the checks for this event
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          LINUX_RESULT: ${{ needs.full-gate.result }}
+          MACOS_RESULT: ${{ needs.macos.result }}
+          WASM_RESULT: ${{ needs.wasm.result }}
+        run: bash scripts/check-ci-results.sh

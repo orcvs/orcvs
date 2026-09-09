@@ -10,20 +10,24 @@ Verification has two trigger tiers:
   workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
   and without the default features, and the native tests and doctests under both.
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
-  the application twice, once under each. Pull requests run the first on Linux and macOS and the
-  second on the WASM job.
+  the application twice, once under each. Pull requests run the first on Linux and the second on the
+  WASM job. macOS runs the native tier only during merge queue verification, pushes to `main`, and
+  manual dispatch.
 - `mise run check_merge` runs the browser regression suite, the rustdoc gates, and the persistence
   tier at proptest's full case count. CI distributes these gates across the existing Linux and WASM
-  jobs after a push to `main` or a manual dispatch.
+  jobs on `merge_group`, after a push to `main`, or on manual dispatch.
 
-`mise run check` runs both tiers locally. A failure in the merge tier makes `main` red and must be
-fixed before normal development continues. What the delayed tier holds is behaviour rather than
-compilation: a browser regression can still be found after merge, but a browser test that no longer
-compiles fails the pull request that wrote it. The same is true one feature over — the persistence
-tests live in a test-only module behind a dev-dependency, so no library build can reach them, and
-the pull-request tier reaches them by building all targets. The doctests follow the same rule: a
-doctest that one feature set compiles and the other does not is compiled by only one of them, so
-the tier runs `cargo test --doc` under both rather than only the shipped one.
+`mise run check` runs both tiers locally. The merge queue verifies the combined candidate before it
+reaches `main`, including browser behaviour and macOS coverage. Development happens on macOS, so its
+clean-runner verification is deferred until that point. Push runs retain full verification and warm
+the caches that pull-request and queue runs restore, and a failed push run still requires repair
+before normal development continues. What the queue defers is behaviour rather than compilation: a
+browser test that no longer compiles fails the pull request that wrote it. The same is true one
+feature over — the persistence tests live in a test-only module behind a dev-dependency, so no
+library build can reach them, and the pull-request tier reaches them by building all targets. The
+doctests follow the same rule: a doctest that one feature set compiles and the other does not is
+compiled by only one of them, so the tier runs `cargo test --doc` under both rather than only the
+shipped one.
 
 `persistence` is a default feature of `shell`, so "both feature sets" now means the default one and
 `--no-default-features`. The shipped binary saves the current Source revision and restores it on the
@@ -141,6 +145,20 @@ merge cannot cancel an earlier commit's run, and `cancel-in-progress` is confine
 The merge-tier steps are guarded on the event not being a pull request rather than on its being a
 push, so a manual dispatch — the obvious way to re-verify a commit — runs the merge tier instead of
 reporting green having run only the pull-request tier.
+
+The `ci` aggregate runs with `always()` and requires Linux and WASM success on every supported
+event. It requires macOS to be skipped on pull requests and successful on merge groups, pushes,
+and manual dispatches. Failure, cancellation, and unexpected skipping fail the aggregate.
+`scripts/tests/check-ci-results.sh` exercises every combination of these job results.
+
+To activate the queue, first land this workflow and confirm the `ci` check reports successfully.
+Then replace `main`'s required checks (`full-gate`, `macos`, `wasm`) with `ci` from GitHub Actions,
+and require a merge queue for `main` in a repository ruleset. Disable the old strict up-to-date
+requirement: the queue validates against the current base itself. Start with build concurrency 1,
+minimum and maximum merge group size 1, and a 30-minute status-check timeout. Keep the existing
+merge method and review requirements. These repository settings must follow the workflow rollout;
+enabling the queue first would leave it waiting for checks that do not report on `merge_group`.
+Until that activation, the extended checks still verify pushes after merge.
 
 Caches are written only from `main`. GitHub scopes a cache to the ref that saved it, so an entry
 written on `refs/pull/N/merge` is readable by that pull request and by nothing else, while the
