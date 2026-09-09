@@ -56,8 +56,30 @@ impl SourceRevision {
 
 impl SourceCommander {
     pub fn new(grid: Grid) -> Self {
-        let source = Arc::new(RwLock::new(Source::new(grid)));
-        Self { inner: source }
+        Self::with_source(Source::new(grid))
+    }
+
+    ///
+    /// Commands `source`: a Source built elsewhere, such as one read back from
+    /// persistence. The Grid is the one that Source was built from, so it is
+    /// the only Grid that mints an index addressing one of its Cells.
+    ///
+    pub fn with_source(source: Source) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(source)),
+        }
+    }
+
+    ///
+    /// Hands the current revision to `read` as the Source root persistence
+    /// stores.
+    ///
+    /// The Source stays behind the lock: it is the live state every reader of
+    /// this handle shares, not a value to hand out.
+    ///
+    #[cfg(feature = "persistence")]
+    pub fn read_source<R>(&self, read: impl FnOnce(&Source) -> R) -> R {
+        read(&read_recover(&self.inner))
     }
 
     ///

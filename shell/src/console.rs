@@ -2,6 +2,7 @@ use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
 
 use crate::grid_viewport::{GridViewport, grid_viewport};
 use crate::midi::MidiDeviceSelection;
+use crate::persistence::starting_source;
 use crate::style::{PALETTE, cell_visuals, sector_line, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
@@ -182,7 +183,9 @@ impl Console {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        let orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        // The stored Source revision when storage holds one, and the ordinary
+        // default Grid otherwise. Every derived view is rebuilt from it.
+        let orcvs = Orcvs::with_source(starting_source(cc.storage));
         let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
         midi.refresh_destinations();
         Self {
@@ -392,10 +395,16 @@ fn cell_line_width(_selected: bool, _cursor_visible: bool) -> f32 {
 }
 
 impl eframe::App for Console {
-    // Called by the framework to save state before shutdown.
-    // fn save(&mut self, storage: &mut dyn eframe::Storage) {
-    //     eframe::set_value(storage, eframe::APP_KEY, self);
-    // }
+    ///
+    /// Called by the framework to save state before shutdown, and at
+    /// intervals while running. The Source is the one persistence root, so
+    /// this stores the current revision and nothing of the Console around it.
+    ///
+    #[cfg(feature = "persistence")]
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        crate::persistence::store_source(storage, self.orcvs.source());
+    }
+
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
