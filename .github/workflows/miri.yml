@@ -1,0 +1,71 @@
+name: Miri
+
+# Deliberate, and a check nothing is required to pass. `verification-gaps/12`
+# decided the repository contract stops *requiring* Miri — it ships on nightly
+# only, `rust-toolchain.toml` pins stable, and naming a gate the toolchain cannot
+# run makes the contract unfollowable at the one place it matters most. What that
+# decision left owing is a path someone can take on purpose, and this workflow is
+# it: `mise run miri` in a job a human dispatches.
+#
+# `workflow_dispatch` is the whole trigger. A `pull_request:` or `push:` trigger
+# here would reverse that decision by another route, because an interpreter two
+# orders of magnitude slower than the native suite becomes something every change
+# pays for the moment it runs unasked. The workflow is not a required status
+# context and is not meant to become one.
+#
+# What it is for: the workspace holds exactly one `unsafe` block, the in-place
+# ASCII byte write in `Source::set_source`. The `undocumented_unsafe_blocks` and
+# `unsafe_op_in_unsafe_fn` denials already check that its invariant is written
+# down on every clippy run. Miri is what checks whether the invariant holds, and
+# the moment to spend it is when that byte write, or the Grid indexing that feeds
+# it, changes.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  source-model:
+    permissions:
+      contents: read
+    # Miri interprets rather than executes, at roughly two orders of magnitude
+    # the native cost, and `cargo miri setup` builds a MIR standard library
+    # before any of that begins. The 68 selected tests run in a quarter of a
+    # second natively, so the interpretation itself is minutes rather than hours
+    # — but the bound has to clear the std build and a cold dependency graph as
+    # well, which is why it is longer than any other job in this repository
+    # carries. It still exists for the same reason theirs do: unbounded, a hung
+    # step holds a runner for the six-hour limit.
+    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The pinned stable channel, exactly as the other workflows install it. The
+      # nightly Miri needs is installed by the task itself, so the pin in
+      # `rust-toolchain.toml` stays stable and this file does not become the place
+      # a second channel is declared.
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      # A cache saved on a pull request's ref can only ever be read back by that
+      # same pull request, so saving there fills the repository's shared quota
+      # with entries nobody reads and evicts the ones on `main` that every run
+      # restores from. Restoring is unaffected: a dispatch off a branch still
+      # reads `main`'s cache through the key prefix.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `orcvs` links ALSA through `midir`, so the crate has to *build* on Linux
+      # even though no test selected below asks Miri to call into it.
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      # The repository's own task, so the dispatched answer and the answer a
+      # developer gets locally are the same answer — the same channel, the same
+      # component, and the same test filter.
+      - run: mise run miri

@@ -347,6 +347,46 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
   assert_occurs_exactly "$workflow" '^    timeout-minutes: [0-9]+$' "$workflow_jobs"
 done
 
+# Miri is deliberate and non-gating, and both halves of that are pinned here.
+# `.scratch/verification-gaps/issues/12` decided the contract stops *requiring*
+# Miri — it ships on nightly only, `rust-toolchain.toml` pins stable, and naming
+# a gate the toolchain cannot run makes the contract unfollowable at the one
+# place it matters most. What that decision kept is Miri as the tool the unsafe
+# gate would prefer, run on purpose, so the task is that purpose written down and
+# its two lines are pinned rather than left to drift. The first is the channel
+# and component the task installs for itself: declaring them in
+# `rust-toolchain.toml` instead would make every other gate nightly's problem.
+assert_toml_task_contains "$root_dir/mise.toml" 'miri' '^rustup toolchain install nightly --component miri$'
+# The second is the run itself, scoped by test filter rather than by crate.
+# `orcvs` links ALSA through `midir` and builds a multi-threaded Tokio runtime,
+# and Miri can execute neither; it interprets what actually runs rather than what
+# the crate links, so the filter is the whole reason those never become a
+# problem. Widening it to the package would put them back, which is why the
+# selection is pinned and not merely the `cargo miri` prefix. The task-scoped
+# check reads through awk, which rejects an escaped `^` inside a pattern, so it
+# holds the shape and the grep-backed line beneath it holds the exact text.
+assert_toml_task_contains "$root_dir/mise.toml" 'miri' '^cargo [+]nightly miri nextest run --package orcvs -E .test[(]/.source::model::test::/[)].$'
+assert_contains "$root_dir/mise.toml" "^cargo [+]nightly miri nextest run --package orcvs -E 'test[(]/\^source::model::test::/[)]'\$"
+# No tier calls it. A `mise run miri` line inside another task is the shape that
+# turns the deliberate path back into a requirement without anyone deciding to,
+# and it would arrive on every pull request as an interpreter roughly two orders
+# of magnitude slower than the suite beside it.
+assert_not_contains "$root_dir/mise.toml" '^[[:space:]]*mise run miri$'
+# The same rule against the workflow that runs it, stated over whichever workflow
+# runs the task rather than over a file name — so a renamed or copied job cannot
+# step around it, and so the contract's own fixture, which carries only the
+# workflows it names, has no missing file to dereference. `workflow_dispatch` has
+# to be there, because a job with no trigger is not a path anyone can take;
+# `pull_request:` and `push:` must not be, because either one is the decision
+# above reversed by a different route.
+for workflow in "$root_dir"/.github/workflows/*.yml; do
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -Eq '^[[:space:]]*-?[[:space:]]*run: mise run miri$'; then
+    assert_contains "$workflow" '^  workflow_dispatch:$'
+    assert_not_contains "$workflow" '^[[:space:]]*(pull_request|push)[[:space:]]*:'
+    assert_not_contains "$workflow" '^on:.*(pull_request|push)'
+  fi
+done
+
 # Criterion covers both benchmarked paths: language execution in `lang`, and
 # populated Source rendering and editing in `orcvs`. It stays a plain versioned
 # dev-dependency of exactly those two crates, so no shipped target and no other

@@ -71,8 +71,13 @@ Then run only the gates whose inputs the change actually touched:
 - dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
   `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused
-  tests on every affected target and platform. Miri is the tool this gate would prefer, and it
-  ships on nightly only; run it deliberately under nightly rather than expecting it of a change.
+  tests on every affected target and platform. Miri is the tool this gate would prefer and it
+  ships on nightly only, so it is a path you take on purpose rather than a check a change owes:
+  `mise run miri` interprets the Source model tests locally, and the `Miri` workflow runs the same
+  task on manual dispatch. Neither is a required status context, and no tier calls the task. Reach
+  for it when the byte write in `Source::set_source`, or the Grid indexing that mints the index it
+  takes, changes — it installs a nightly toolchain and interprets at roughly a hundred times native
+  cost, which is why it is not on the list above.
 - public API: doctests, examples, rustdoc warnings, and human API review
 - concurrency: cancellation, shutdown, ownership, backpressure, ordering, and race-sensitive tests
 - parser/protocol boundary: boundary or property tests; fuzz when exposure warrants it
