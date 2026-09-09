@@ -30,7 +30,10 @@ impl Sequence {
     /// rather than an operand, runtime value, or Sequence member; an
     /// `Atom::Empty` is refused because it is the absence marker the
     /// Interpreter answers with when an Expression leaves no value, not an
-    /// Atom with a Source encoding.
+    /// Atom with a Source encoding; and a Function Atom is refused when its
+    /// declared kind says it answers an effect, because per ADR 0029 a Sequence
+    /// is the value that carries results and so admits only a Function that
+    /// answers one.
     pub fn new(atoms: impl IntoIterator<Item = Atom>) -> Result<Self, Error> {
         let atoms: Vec<Atom> = atoms.into_iter().collect();
 
@@ -84,10 +87,23 @@ impl Sequence {
     /// Exhaustive over `Atom` rather than admitting the remainder through a
     /// wildcard, so a new variant is classified here, by the compiler, instead
     /// of becoming a legal member by default.
+    ///
+    /// The Function arm is the one refusal that reads a declaration rather than
+    /// a variant, because ADR 0029 makes membership follow from whether a
+    /// Function answers a value: an enumerated check naming `*^` or `*!` would
+    /// be a second place to keep in step with the Function definitions and
+    /// would silently admit the next effect Function declared. A Directional
+    /// Bang Function is refused here, by its kind, while the Self-Banging
+    /// Function it emits is refused by the `Atom::Activation` arm above — the
+    /// two mechanisms ADR 0029 keeps apart, because the activation asymmetry
+    /// between them is why both forms exist.
     #[inline(always)]
     fn check_member(atom: Atom) -> Result<(), Error> {
         match atom {
             Atom::Activation(_) | Atom::Empty => Err(SequenceError::Member(atom.into()).into()),
+            Atom::Function(function) if !function.answers_value() => {
+                Err(SequenceError::Member(atom.into()).into())
+            }
             Atom::Bang | Atom::Char(_) | Atom::Function(_) | Atom::Note(_) | Atom::Number(_) => {
                 Ok(())
             }
@@ -212,7 +228,7 @@ mod test {
             note(0x7F),
             Atom::Bang,
             Atom::Char('z'),
-            Atom::Function(Function::RawPlay),
+            Atom::Function(Function::Add),
         ] {
             let sequence = Sequence::promote(atom).unwrap();
 
@@ -359,6 +375,40 @@ mod test {
                     matches!(&error, Error::Sequence(SequenceError::Member(found))
                         if found == activation.spelling()),
                     "{activation:?} gave {error:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_function_that_answers_an_effect_is_rejected_as_a_member_and_through_promotion() {
+        // Driven from `Function::ALL` rather than from a list of spellings, so
+        // ADR 0029's rule is exercised as it is written: an effect Function
+        // added later is refused by its declared kind, and a value Function
+        // added later is admitted, without an edit here or at the construction
+        // point.
+        for function in Function::ALL.iter().copied() {
+            let atom = Atom::Function(function);
+            let constructions = [
+                Sequence::promote(atom),
+                Sequence::new([atom]),
+                Sequence::new([Atom::Number(0), atom, Atom::Number(1)]),
+            ];
+
+            for result in constructions {
+                if function.answers_value() {
+                    assert!(
+                        result.is_ok(),
+                        "{function:?} answers a value and was refused: {result:?}"
+                    );
+                    continue;
+                }
+
+                let error = result.unwrap_err();
+                assert!(
+                    matches!(&error, Error::Sequence(SequenceError::Member(found))
+                        if *found == function.to_string()),
+                    "{function:?} gave {error:?}"
                 );
             }
         }

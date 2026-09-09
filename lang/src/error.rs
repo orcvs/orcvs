@@ -48,8 +48,9 @@ pub enum SequenceError {
     ExpectedSequence(String),
 
     /// An Atom with no place in a Sequence: a Self-Banging Function, which is
-    /// a root-only Source effect, or the absence marker, which has no Source
-    /// encoding of its own.
+    /// a root-only Source effect; the absence marker, which has no Source
+    /// encoding of its own; or a Function that answers an effect rather than a
+    /// value, which ADR 0029 refuses by its declared kind.
     #[error("{0:?} cannot be a Sequence member")]
     Member(String),
 
@@ -79,8 +80,13 @@ pub enum InterpretationError {
     #[error("Number {0:02X} cannot be converted to a Note")]
     NoteConversion(u8),
 
-    #[error("a terminal Function is valid only at the root of an Expression")]
-    NestedTerminalFunction,
+    /// ADR 0028 states that an instruction answers either a value or an
+    /// effect, so a Function answering an effect can stand only where nothing
+    /// consumes an answer. Terminal Output is the one effect kind built today
+    /// and this names the rule rather than that family, so the Source-writing
+    /// Functions of ADR 0004 raise it by their declared kind alone.
+    #[error("a Function that answers an effect is valid only at the root of an Expression")]
+    NestedEffectFunction,
 
     #[error("MIDI channel {0:02X} is outside the range 00–0F")]
     MidiChannel(u8),
