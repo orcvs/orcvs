@@ -3,10 +3,18 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Every assertion below pipes the comment-stripped file into a second grep, and
+# that second grep must read to end of input. `grep -q` does not: it exits on its
+# first match, the upstream grep dies of SIGPIPE, and `set -o pipefail` above
+# then reports 141 for a pipeline whose pattern *did* match. It is a race on how
+# much the upstream has managed to write, so it stays invisible on small files
+# and on macOS, and fires on Linux once a file is long enough — at 350 lines of
+# `bench.yml` it failed 160 of 200 identical assertions. Redirecting to
+# /dev/null instead of asking for `-q` costs nothing here and cannot race.
 assert_contains() {
   local file="$1"
   local pattern="$2"
-  if ! grep -Ev '^[[:space:]]*#' "$file" | grep -Eq "$pattern"; then
+  if ! grep -Ev '^[[:space:]]*#' "$file" | grep -E "$pattern" >/dev/null; then
     echo "expected $file to match: $pattern" >&2
     exit 1
   fi
@@ -27,7 +35,7 @@ assert_occurs_exactly() {
 assert_not_contains() {
   local file="$1"
   local pattern="$2"
-  if grep -Ev '^[[:space:]]*#' "$file" | grep -Eq "$pattern"; then
+  if grep -Ev '^[[:space:]]*#' "$file" | grep -E "$pattern" >/dev/null; then
     echo "expected $file not to match: $pattern" >&2
     exit 1
   fi
@@ -471,7 +479,7 @@ assert_not_contains "$root_dir/mise.toml" 'mise (run|r) miri([^[:alnum:]_-]|$)'
 # and `workflow_call` are the same hole. Requiring the set to be exactly
 # `workflow_dispatch` leaves none of them.
 for workflow in "$root_dir"/.github/workflows/*.yml; do
-  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -Eq '^[[:space:]]*-?[[:space:]]*run: mise (run|r) miri([^[:alnum:]_-]|$)'; then
+  if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E '^[[:space:]]*-?[[:space:]]*run: mise (run|r) miri([^[:alnum:]_-]|$)' >/dev/null; then
     assert_only_trigger "$workflow" 'workflow_dispatch'
   fi
 done

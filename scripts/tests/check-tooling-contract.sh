@@ -427,6 +427,28 @@ test_memory_series_assembled_with_jq_is_rejected() {
   assert_rejected "a memory series assembled with jq"
 }
 
+test_contract_assertions_read_their_whole_input() {
+  # The contract script runs under `set -o pipefail`, so an assertion that pipes
+  # into `grep -q` reports failure for a pattern that matched: `-q` exits on the
+  # first match, the upstream grep dies of SIGPIPE, and pipefail surfaces its 141
+  # as the pipeline's status. Whether that happens is a race on how much the
+  # upstream has written, which is why it hid on macOS and on small files and
+  # then failed 160 of 200 identical assertions against a 350-line `bench.yml` on
+  # Linux — every one of them red for a line that was present.
+  #
+  # A race cannot be caught by running the suite once, so this asserts the shape
+  # instead of the symptom: no assertion helper may pipe into a short-circuiting
+  # grep. `grep -c` and a plain `grep` redirected to /dev/null both read to end
+  # of input and are safe.
+  local offenders
+  offenders="$(grep -n '|[[:space:]]*grep -[A-Za-z]*q' "$repo_root/scripts/check-tooling-contract.sh" || true)"
+  if [ -n "$offenders" ]; then
+    echo "the contract script pipes into a short-circuiting grep -q, which races with pipefail:" >&2
+    printf '%s\n' "$offenders" >&2
+    return 1
+  fi
+}
+
 test_pull_request_tier_without_workflow_linting_is_rejected() {
   make_fixture
   perl -pi -e 's/^actionlint\n$//' "$fixture_dir/mise.toml"
@@ -591,6 +613,7 @@ case "${1:-all}" in
   miri-called-by-another-task) test_miri_called_by_another_task_is_rejected ;;
   memory-series-second-binary) test_memory_series_measured_by_a_second_binary_is_rejected ;;
   memory-series-jq) test_memory_series_assembled_with_jq_is_rejected ;;
+  contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
@@ -664,6 +687,7 @@ case "${1:-all}" in
     test_miri_called_by_another_task_is_rejected
     test_memory_series_measured_by_a_second_binary_is_rejected
     test_memory_series_assembled_with_jq_is_rejected
+    test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
