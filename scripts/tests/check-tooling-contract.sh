@@ -85,6 +85,12 @@ assert_accepted() {
   fi
 }
 
+test_missing_merge_queue_trigger_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^  merge_group:$/  merge_group_disabled:/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a workflow that cannot report required merge queue checks"
+}
+
 test_commented_requirement_is_rejected() {
   make_fixture
   perl -pi -e 's/^(RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked)$/# $1/' "$fixture_dir/mise.toml"
@@ -828,6 +834,8 @@ case "${1:-all}" in
   folded-merge-guard) test_folded_merge_guard_is_rejected ;;
   spaced-merge-guard) test_spaced_key_merge_guard_is_rejected ;;
   all)
+    bash "$repo_root/scripts/tests/check-ci-results.sh"
+    test_missing_merge_queue_trigger_is_rejected
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
     test_non_optional_midir_is_rejected

@@ -36,7 +36,9 @@ on:
       - '.github/workflows/miri.yml'
       - '.github/workflows/tooling.yml'
       - '.vscode/launch.json'
+      - 'scripts/check-ci-results.sh'
       - 'scripts/check-tooling-contract.sh'
+      - 'scripts/tests/check-ci-results.sh'
       - 'scripts/tests/check-tooling-contract.sh'
   pull_request:
     branches: [main]
@@ -55,7 +57,9 @@ on:
       - '.github/workflows/miri.yml'
       - '.github/workflows/tooling.yml'
       - '.vscode/launch.json'
+      - 'scripts/check-ci-results.sh'
       - 'scripts/check-tooling-contract.sh'
+      - 'scripts/tests/check-ci-results.sh'
       - 'scripts/tests/check-tooling-contract.sh'
 
 permissions:

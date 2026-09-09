@@ -420,25 +420,16 @@ assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_wasm
 # A cancelled run reports `cancelled` rather than `failure`, so nothing alerted.
 assert_contains "$root_dir/.github/workflows/test.yml" '^  group: [$][{][{] github[.]workflow [}][}]-[$][{][{] github[.]event[.]pull_request[.]number [|][|] github[.]sha [}][}]$'
 assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [\$][{][{] github[.]event_name == 'pull_request' [}][}]$"
-# Two steps are merge-only — the native and WASM `check_merge` runs — and
-# nothing else is. A third occurrence is a job that stopped running on pull
-# requests, which is how the WASM tier came to be skipped before a merge.
-# The guard tests "not a pull request" rather than "is a push" so that a manual
-# dispatch — the obvious way to re-verify a commit whose run was cancelled — runs
-# the merge tier instead of reporting three green jobs that ran only the
-# pull-request tier.
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 2
+# macOS and the two extended steps run at final verification. The aggregate
+# always runs, so failed, cancelled, or unexpectedly skipped jobs cannot pass.
+assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 3
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 4
+assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[full-gate, macos, wasm\]$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'
 assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
-# The count above reads the bare literal. GitHub accepts the same guard written
-# as an expression, and a block or folded scalar puts that expression on the line
-# after the key, where nothing anchored to `if:` can see it. Requiring the file's
-# total number of `if:` keys to equal the number spelled as the literal leaves no
-# spelling that GitHub accepts and this check misses: a substituted guard either
-# drops the literal count below two or lifts the total above it. YAML reads `if :`
-# as that same key, so the total counts the colon detached as well as fused: it is
-# the total, not the literal, that a third guard would otherwise slip past, and a
-# backstop blind to a spelling GitHub honours is not a backstop.
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 2
 # `@v1` is how a mutable tag is usually written, so matching a bare digit after
 # the `@` let the common spelling of the thing this forbids straight through.
 assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
