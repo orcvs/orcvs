@@ -1548,6 +1548,115 @@ mod property {
                 prop_assert_eq!(diagnostic.start() / cols, diagnostic.end() / cols);
             }
         }
+
+        ///
+        /// The Expression Spans of one revision are disjoint: no Cell belongs
+        /// to two of them, their start Cells ascend, none crosses a row edge,
+        /// and every one names Cells the Grid can answer for. Every Cell that
+        /// is not empty is left with a Glyph.
+        ///
+        /// Disjoint, not a partition. The unit property above proves cover as
+        /// well, because every Cell carries a Language Unit claim. Expression
+        /// Spans leave gaps by design, and the `Glyph::Char` fallback exists to
+        /// classify exactly those Cells no Span claimed, so there is no cover
+        /// law here to assert.
+        ///
+        /// The unit partition property above proves the same law one index
+        /// space down, and cannot stand in for this one. A Language Unit is
+        /// always two Cells and is always spelled; an Expression Span is
+        /// whatever the Parser claimed, which includes Cells that spell no unit
+        /// at all — `a_cell_that_produces_no_language_unit_is_still_its_own_span`
+        /// is one. ADR 0033 is what makes the difference worth a property:
+        /// `walk_row` no longer decides where an Expression stops, it resumes
+        /// at the Cell the Parser reports, so a Span is the Parser's answer
+        /// taken on trust and this is where the trust is checked.
+        ///
+        /// The Grid bounds are asserted on the raw Cell numbers rather than
+        /// through `positions()`, for the reason the Diagnostic arm above
+        /// gives: `Span::indices` drops every index the Grid cannot answer for,
+        /// so a Span running past the last Cell passes a Position sweep without
+        /// reporting anything.
+        ///
+        /// The Glyph arm is the other half of "every Cell is accounted for".
+        /// The Map gives a Cell an Expression claimed the Glyph of its parsed
+        /// Token, and `Glyph::Char` to every other non-empty Cell, so only an
+        /// empty Cell can be left unclassified. The converse is false and is
+        /// not asserted: an empty Cell inside an Expression's arity-determined
+        /// claim is an operand Cell and answers with that operand's Glyph.
+        ///
+        #[test]
+        fn expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for(
+            (cols, rows, source) in revision(),
+        ) {
+            let grid = Grid::new(cols, rows);
+            let map = LanguageMap::derive(grid, &source)
+                .expect("one printable ASCII Cell per Position");
+            let bytes = source.as_bytes();
+
+            // Which Expression claims each Cell, if any.
+            let mut claimed: Vec<Option<usize>> = vec![None; bytes.len()];
+            let mut previous_start: Option<usize> = None;
+            for (ordinal, expression) in map.expressions().enumerate() {
+                let span = expression.span();
+                let (start, end) = (span.start().get(), span.end().get());
+
+                // The raw Cell numbers below are compared against this Grid's
+                // count, and `Span::new` does not check that its `CellIndex`
+                // arguments were minted by its own Grid. The Diagnostic arm
+                // above pins the Grid down for the same reason.
+                prop_assert_eq!(span.grid, grid, "{:?}", source);
+                prop_assert!(start <= end, "{:?}", source);
+                // On the raw Cell numbers, so a Span past the end of the Grid
+                // is caught here rather than filtered away by `Span::indices`.
+                prop_assert!(
+                    end < grid.count(),
+                    "{:?} spanned Cell {} of a {}-Cell Grid",
+                    source,
+                    end,
+                    grid.count(),
+                );
+                // A row is the whole horizontal run there is, so a Span's first
+                // and last Cell are in the same one.
+                prop_assert_eq!(
+                    start / cols,
+                    end / cols,
+                    "{:?} spanned {}..={} across a row edge",
+                    source,
+                    start,
+                    end,
+                );
+                prop_assert!(
+                    previous_start < Some(start),
+                    "{:?} named an Expression Span starting at Cell {} out of order",
+                    source,
+                    start,
+                );
+                previous_start = Some(start);
+
+                // Every pair rather than only the neighbouring one: two Spans
+                // that are not adjacent in this order still may not overlap.
+                for (offset, claim) in claimed[start..=end].iter_mut().enumerate() {
+                    prop_assert!(
+                        claim.is_none(),
+                        "{:?} gave Cell {} to two Expressions",
+                        source,
+                        start + offset,
+                    );
+                    *claim = Some(ordinal);
+                }
+            }
+
+            for (position, byte) in grid.rows().flatten().zip(bytes.iter().copied()) {
+                if byte != SPACE_BYTE {
+                    prop_assert!(
+                        map.glyph_at(position).is_some(),
+                        "{:?} left the non-empty Cell {} unclassified",
+                        source,
+                        grid.index(position).get(),
+                    );
+                }
+            }
+        }
     }
 
     ///
