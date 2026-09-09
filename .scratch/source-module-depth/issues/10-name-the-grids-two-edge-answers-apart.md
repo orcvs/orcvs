@@ -45,6 +45,13 @@ silent clamp — the same Position back — which a mover cannot distinguish fro
 zero Cells. Whatever this ticket decides about names, `spatial-tick-planning/03` will otherwise add
 the horizontal answer under a third naming convention.
 
+That is an ordering preference, not a dependency, and it is deliberately not written as one.
+`spatial-tick-planning/03` does not list this ticket in its `Blocked by:` line and should not: `03`
+can be built against today's names and renamed afterwards. `scripts/roadmap.ts` derives the graph
+from `Blocked by:` alone, so the preference is invisible to the roadmap by design — whoever picks
+up `03` first should read this ticket, and the cost of ignoring it is a third naming convention to
+unpick later rather than blocked work.
+
 Deliberately not decided here, because the shape of the answer is the decision:
 
 - One family named for its purpose (`down` stays cursor movement) and the other for its relation

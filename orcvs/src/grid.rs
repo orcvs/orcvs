@@ -612,11 +612,23 @@ mod test {
 /// The generated value is the shape alone, and each case then sweeps every
 /// Position inside it. That split is the point rather than an economy: the
 /// glossary quantifies over *every* Position a Grid mints, so drawing one
-/// Position per case would leave the quantifier itself unchecked. What the
-/// sample buys is the shape — 4,096 dimension pairs, of which a pull request's
-/// 32 cases see 32 and the merge tier's 256 see 256 — and, for
-/// `offset_in_row`, the (shape, Position, offset) space those shapes open,
-/// which runs to some 10^8 triples and is out of an enumeration's reach.
+/// Position per case would leave the quantifier itself unchecked.
+///
+/// `.scratch/property-testing/spec.md` says to prefer an exhaustive loop where
+/// the domain is small enough for one, and 4,096 dimension pairs is small
+/// enough. The rule is about the domain a property covers, not the value it
+/// draws, and the sweep is what separates the two here: a case covers a whole
+/// shape's worth of Positions, so these properties range over the (shape,
+/// Position) space — some 4 x 10^6 pairs — and, for `offset_in_row`, the
+/// (shape, Position, offset) space those shapes open, which runs to some 10^8
+/// triples. Neither is within an enumeration's reach, which is what makes a
+/// sample the right instrument rather than a concession. What the sample is
+/// spent on is the shape, and the shapes the rule would worry about losing are
+/// the edge ones, which `dimensions` draws by weight rather than by luck:
+/// `generated_grids_include_the_one_column_and_one_row_cases` is what says so.
+/// A pull request draws 32 shapes and the merge tier 256 — draws rather than
+/// distinct pairs, since the weighted arms repeat the 1 x 1 Grid and the other
+/// edges on purpose.
 ///
 /// This replaces the effort's wiring seed, whose own comment said that proving
 /// the round trip for every minted Position belonged to
@@ -692,6 +704,12 @@ mod property {
     /// Position carrying this Grid's identity. Asking `position` for the same
     /// coordinates is what refuses it, and comparing the answer keeps the
     /// identity in the comparison.
+    ///
+    /// The two terms are not independent: `Position` derives `PartialEq` over
+    /// `grid_id`, so the equality already implies `owns`. The call stays
+    /// because acceptance line 5 of `property-testing/02` asks for `owns` in
+    /// those words and this is where every property states it; it is the
+    /// literal form of a claim the equality subsumes, not a second check.
     ///
     fn is_a_cell_of(grid: Grid, pos: Position) -> bool {
         grid.owns(pos) && grid.position(pos.x(), pos.y()) == Some(pos)
@@ -782,9 +800,11 @@ mod property {
                 let idx = grid.index(pos);
 
                 prop_assert_eq!(grid.position_at(idx), pos);
-                // The Source addresses Cells by this number, and it holds
-                // `count` of them.
-                prop_assert!(idx.get() < grid.count());
+                // The Source addresses Cells by this number, and the shape has
+                // `cols * rows` of them. Bounded by the draw rather than by
+                // `count`, so the Grid does not get to answer for its own
+                // size here.
+                prop_assert!(idx.get() < cols * rows);
                 // And the number names the same Cell coming the other way, so
                 // the two ways of obtaining an index cannot disagree.
                 prop_assert_eq!(grid.cell_index(idx.get()), Some(idx));
@@ -805,7 +825,12 @@ mod property {
         ) {
             let grid = Grid::new(cols, rows);
 
-            for i in 0..grid.count() {
+            // `cols * rows` rather than `count`, for the reason
+            // `every_position` gives: a sweep bounded by the Grid's own answer
+            // about its size covers whatever that answer says, so a `count`
+            // that under-reported by one would make this skip the last Cell
+            // rather than fail.
+            for i in 0..cols * rows {
                 let cell = grid.cell_index(i).expect("below the Cell count");
                 prop_assert_eq!(cell.get(), i);
 
@@ -824,16 +849,27 @@ mod property {
         /// `cell_index` already answered, so an implementation that minted an
         /// index past the last Cell would round-trip that index too.
         ///
+        /// The count is the drawn `cols * rows`, and `count` is checked
+        /// against it rather than used as the bound. `cell_index` is written
+        /// as `idx < self.count()`, so asking whether it agrees with
+        /// `i < grid.count()` is one expression compared with itself: it holds
+        /// whatever `count` returns, including `cols * rows + 1`. Naming the
+        /// Cell count from the shape is what makes this property state the law
+        /// its name claims.
+        ///
         #[test]
         fn an_index_exists_exactly_below_the_cell_count(
             (cols, rows) in dimensions(),
         ) {
             let grid = Grid::new(cols, rows);
+            let count = cols * rows;
 
-            for i in 0..grid.count() + PAST_THE_END {
+            prop_assert_eq!(grid.count(), count);
+
+            for i in 0..count + PAST_THE_END {
                 prop_assert_eq!(
                     grid.cell_index(i).is_some(),
-                    i < grid.count(),
+                    i < count,
                     "index {} of a {} x {} Grid",
                     i, cols, rows,
                 );
@@ -847,7 +883,7 @@ mod property {
         /// is drawn once": `rows` yields exactly `count` Positions, each index
         /// appearing once, in the order the Source stores its Cells.
         ///
-        /// Equality with `0..count` states all three at once — a repeat, an
+        /// Equality with `0..cols * rows` states all three at once — a repeat, an
         /// omission, or a swapped axis each make the sequence differ somewhere
         /// — and it states them for oblong shapes, where a transposed
         /// implementation is distinguishable at all.
@@ -866,14 +902,14 @@ mod property {
             }
 
             let positions: Vec<Position> = yielded.into_iter().flatten().collect();
-            prop_assert_eq!(positions.len(), grid.count());
+            prop_assert_eq!(positions.len(), cols * rows);
             for pos in &positions {
                 prop_assert!(is_a_cell_of(grid, *pos));
             }
 
             prop_assert_eq!(
                 positions.iter().map(|pos| grid.index(*pos).get()).collect::<Vec<usize>>(),
-                (0..grid.count()).collect::<Vec<usize>>()
+                (0..cols * rows).collect::<Vec<usize>>()
             );
         }
 
@@ -1068,7 +1104,7 @@ mod property {
         );
         assert!(
             oblong.get() > 0,
-            "no generated Grid had more columns than rows or the other way about",
+            "no generated Grid had both sides above one and unequal",
         );
     }
 }

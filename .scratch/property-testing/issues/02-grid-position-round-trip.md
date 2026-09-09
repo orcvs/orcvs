@@ -19,8 +19,7 @@ candidate coordinates, and check containment, the index round trip, and row cove
 - [x] `rows()` yields exactly `count()` Positions, each index appearing once.
 - [x] `offset_in_row(p, offset)` agrees with the column arithmetic at the right-hand edge: it
       answers `Some(CellIndex)` exactly while `p` plus the offset stays inside `p`'s own row. It
-      had no test at all, and two production sites call it — see the correction below, which
-      records why this line said three.
+      has no test today, and three production sites call it.
 - [x] `up`, `down`, `left`, and `right` always return a Position the Grid owns.
 - [x] Generated Grids include the one-column and one-row cases.
 
@@ -40,16 +39,26 @@ CONTEXT.md states that a Grid "has at least one column and one row". Generate fr
 
 ### What landed, 2026-09-09
 
-Eight tests in `orcvs/src/grid.rs`'s `mod property`, one per acceptance line plus the guard that
-says the generator reaches the shapes the lines are about. Nothing in `Grid` changed; this is a
-test-only ticket and every property passed as written.
+Eight tests in `orcvs/src/grid.rs`'s `mod property`: seven properties covering the nine acceptance
+lines — `owns` is folded into the others rather than stated alone, for the reason given below —
+plus the guard that says the generator reaches the shapes the lines are about. Nothing in `Grid`
+changed; this is a test-only ticket and every property passed as written.
 
 The generated value is the shape alone, and each case sweeps every Position inside it. That is the
 quantifier the glossary uses — "every Position the Grid mints" — and it is what the effort's wiring
 seed said issue 02 owed: sampling one Position per case leaves the quantifier itself unchecked. The
-sample buys the shape (4,096 dimension pairs, of which a pull request's 32 cases see 32) and, for
-`offset_in_row`, the (shape, Position, offset) space those shapes open, which is out of an
-enumeration's reach.
+sample buys the shape: a pull request draws 32 of the 4,096 dimension pairs and the merge tier 256,
+draws rather than distinct pairs, since the weighted generator repeats the edge shapes on purpose.
+
+That is also the answer to `spec.md`'s "an exhaustive loop proves those completely, and a random
+sample does not", which the deleted seed's own comment raised against exactly this design. The rule
+is about the domain a property covers rather than the value it draws, and the sweep separates the
+two: with a whole shape swept per case these properties range over the (shape, Position) space —
+some 4 x 10^6 pairs — and `an_offset_in_row_stays_inside_the_row_it_started_in` over the (shape,
+Position, offset) space, some 10^8 triples. Neither is enumerable. What a sample could still lose
+is an edge shape, and `dimensions` draws those by weight rather than by luck, which is what
+`generated_grids_include_the_one_column_and_one_row_cases` exists to say. The `mod property` doc
+comment now records this rather than presenting the sample as self-evidently the right instrument.
 
 What each property encodes:
 
@@ -66,10 +75,11 @@ What each property encodes:
 - `every_index_the_grid_answers_round_trips_through_its_position` — the other direction, for every
   `i` below `count`.
 - `an_index_exists_exactly_below_the_cell_count` — the half a round trip cannot see, since every
-  index a round trip walks is one `cell_index` already answered.
+  index a round trip walks is one `cell_index` already answered. The Cell count is the drawn
+  `cols * rows`, and `count` is checked against it rather than used as the bound.
 - `rows_yields_every_cell_of_the_grid_once` — `rows` yields `rows` rows of `cols` Positions,
-  `count` in total, each a Cell of the Grid, and their indices are exactly `0..count`. That one
-  equality states no repeat, no omission, and no swapped axis at once.
+  `cols * rows` in total, each a Cell of the Grid, and their indices are exactly `0..cols * rows`.
+  That one equality states no repeat, no omission, and no swapped axis at once.
 - `an_offset_in_row_stays_inside_the_row_it_started_in` — every offset from every Cell, one and two
   past the last the row admits, so each case states both the last acceptance and the first refusal
   of every row; the answered index names the Cell `offset` along the *same* row.
@@ -84,8 +94,11 @@ What each property encodes:
 `right` build a Position from its fields rather than asking `position` for one, so a clamp that ran
 one column past the last would mint a Position this Grid owns and cannot address, and `index` would
 then hand the Source a Cell in the next row. Every property therefore checks the stronger
-`is_a_cell_of` — owned *and* re-mintable at the same coordinates — at every path that produces a
-Position: `position`, `origin`, `position_at`, `rows`, `below`, and the four moves.
+`is_a_cell_of` — re-mintable at the same coordinates — at every path that produces a Position:
+`position`, `origin`, `position_at`, `rows`, `below`, and the four moves. The helper does call
+`owns`, so acceptance line 5 is stated in its own words, but the two terms are not independent
+checks: `Position` derives `PartialEq` over `grid_id`, so `position(x, y) == Some(pos)` already
+implies `owns(pos)`. The equality is the claim; the `owns` call is the line's literal form.
 
 ### `Grid::new(0, 0)` panics, and cannot be reached another way
 
@@ -162,8 +175,14 @@ on this branch.
 
 - `cargo fmt --all -- --check` — passed.
 - `cargo clippy --package orcvs --all-targets --locked -- -D warnings` — passed.
+- `cargo clippy --package shell --all-targets --locked -- -D warnings` — passed. `orcvs` means
+  `orcvs` and `shell`, and the first version of this report named only the `shell` test run.
 - `cargo nextest run --package orcvs --locked` — passed, 306 tests.
 - `cargo nextest run --package shell --locked` — passed, 35 tests.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed. This and the two
+  below are the pass CLAUDE.md asks for once, before opening a pull request.
+- `cargo nextest run --workspace --locked` — passed, 530 tests.
+- `cargo test --workspace --doc --locked` — passed.
 - `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` — passed,
   for the two `.scratch/` files this change touches.
 - The suite's cost was measured rather than assumed, because the merge tier runs it at 256 cases
@@ -177,3 +196,47 @@ is one `#[cfg(all(test, not(target_arch = "wasm32")))]` module, which no WASM bu
 
 Risks: none. No production code changed, so no public API, unsafe, dependency, feature, or
 performance risk. The one cost is test time, measured above.
+
+### Review pass, 2026-09-09
+
+Three reviewers ran against `main`: the repo's Standards and Spec axes, the built-in correctness
+review, and the CodeRabbit CLI. CodeRabbit returned nothing. Fourteen findings survived reading the
+code they cite; what changed:
+
+**Two properties were bounded by the Grid's own answer about its size.** The worst was
+`an_index_exists_exactly_below_the_cell_count`, which compared `cell_index(i).is_some()` against
+`i < grid.count()`. `cell_index` *is* `idx < self.count()`, so both sides were one expression
+compared with itself and the property could not fail for any `count`. Mutating `count` to
+`cols * rows + 1` and re-running confirmed it: the property passed. It now takes the Cell count
+from the drawn `cols * rows` and asserts `count` against it, and the same mutation fails it.
+`every_index_the_grid_answers_round_trips_through_its_position` swept `0..grid.count()`, so a
+`count` that under-reported by one made it skip the last Cell rather than fail — confirmed the same
+way, and fixed the same way. `rows_yields_every_cell_of_the_grid_once` and the
+`idx.get() < count` assertion in the forward round trip were moved to `cols * rows` for the reason
+`every_position` already gave and these three did not follow.
+
+This corrects the negative-testing record above in one place: the `cell_index` mutation it lists is
+genuinely caught, but a `count` mutation was not caught by anything that named it. Both directions
+are now caught by the property whose name claims them.
+
+**The effort spec's exhaustiveness rule was raised and is now answered** rather than left to the
+deleted seed's comment — see the paragraph added above, and the `mod property` doc comment.
+
+**Four documentation defects**, all in claims about the work rather than in the work: the summary
+line said "one per acceptance line" for nine lines and seven properties; the sample was described
+as buying 32 distinct dimension pairs when the weighted generator repeats edge shapes on purpose;
+`is_a_cell_of` was described as two independent checks when `Position`'s derived `PartialEq` over
+`grid_id` makes the equality subsume `owns`; and the coverage guard's failure message named half
+its own condition.
+
+**Acceptance line 7 is restored to what it originally asked.** Amending it in place mutated the
+record of what was commissioned; `docs/agents/issue-tracker.md` has corrections append under
+`## Comments`, which is where the "two call sites, not three" correction already lived.
+
+Three findings were not acted on. `test_grid_indices_cover_every_cell_exactly_once` and the
+`cell_index(8)/cell_index(100)` assertions in `mod test` are subsumed by the new properties, but
+deleting example tests is a different decision from deleting the seed property: the seed was a
+weaker property beside a stronger one in the same register, and `source-module-depth/10` explicitly
+requires `mod test` keep stating the `down`/`below` pairing. Threading `(grid, cols, rows)` through
+a `Shape` struct and splitting `PAST_THE_END` into three constants are readability preferences that
+would touch every property to settle a question no reviewer called a defect.
