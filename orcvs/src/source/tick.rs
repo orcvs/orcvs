@@ -10,6 +10,7 @@ use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
+use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
 use super::portal::{Portal, PortalError, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
@@ -826,7 +827,7 @@ mod observed {
 
 #[cfg(test)]
 mod test {
-    use super::{Effect, Interpretation, Portal, Tick, observed, resolve};
+    use super::{Effect, Encoding, Interpretation, Portal, Tick, observed, resolve};
 
     ///
     /// Builds one Source Snapshot from `rows`, padded to the Grid's width.
@@ -2629,7 +2630,7 @@ mod test {
         let destination = grid.position_at(grid.cell_index(idx).expect("inside the Grid"));
         Effect::Write(
             Portal::at(grid, destination)
-                .admit(content)
+                .admit(&Encoding::literal(content).expect("printable test content"))
                 .expect("the encoding fits its row"),
         )
     }
@@ -2814,7 +2815,7 @@ mod test {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
-    use super::{Effect, Portal, resolve};
+    use super::{Effect, Encoding, Portal, resolve};
     use crate::grid::Grid;
     use proptest::prelude::*;
 
@@ -2858,7 +2859,8 @@ mod property {
             let mut effects: Vec<Effect> = Vec::new();
             for (column, encoding) in requested {
                 let destination = grid.position(column, 1).expect("inside the Grid");
-                if let Ok(write) = Portal::at(grid, destination).admit(&encoding) {
+                let cells = Encoding::literal(&encoding).expect("printable test content");
+                if let Ok(write) = Portal::at(grid, destination).admit(&cells) {
                     effects.push(Effect::Write(write));
                     admitted.push((column, encoding));
                 }

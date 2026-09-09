@@ -9,9 +9,9 @@ use std::ops::ControlFlow::{self, Break, Continue};
 use lang::{Atom, Function, Interpretation, Tick, Value};
 
 use super::{
-    Computation, Configuration, Diagnostic, Effect, Grid, LanguageMap, Lookup, Portal, PortalError,
-    Position, Reserved, SCALAR_WIDTH, Schedule, SpanWrite, TickPlan, diagnose, interpret, resolve,
-    tick_inputs,
+    Computation, Configuration, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal,
+    PortalError, Position, RenderError, Rendered, Reserved, SCALAR_WIDTH, Schedule, SpanWrite,
+    TickPlan, diagnose, interpret, resolve, tick_inputs,
 };
 
 /// Executes an established order against the original Source Snapshot. The
@@ -56,9 +56,12 @@ pub(super) fn execute(
     #[cfg(not(test))]
     let _ = configuration;
 
+    // Source content rather than an answer, so it is stated here rather than
+    // rendered: a Bang occupies two Cells and clearing it writes two spaces.
+    let blank = Encoding::literal("  ").expect("a space is a printable Cell");
     for (anchor, _) in map.bangs() {
         let clear = Portal::at(grid, anchor)
-            .admit("  ")
+            .admit(&blank)
             .expect("parsed Bang fits its Grid");
         execution.write(clear);
     }
@@ -209,26 +212,24 @@ impl Execution<'_> {
         let node = &self.lookup.nodes()[index];
         // A successful nested answer survives every refusal to project it.
         self.states[index].result = Some(value.clone());
-        let encoding = match &value {
-            // CONTEXT.md keeps these two apart in kind and has them agree on
-            // effect: the Absence Marker is the absence of a value and the
-            // empty Sequence is a value holding no Atoms, and per ADR 0007
-            // neither plans a Cell write. Each is answered on its own arm
-            // because each is its own rule, and answering them here is also
-            // what lets `Portal::admit` assert that a write places at least one
-            // Cell.
-            Value::Atom(Atom::Empty) => return Continue(()),
-            Value::Sequence(sequence) if sequence.is_empty() => return Continue(()),
-            Value::Atom(atom) => atom.to_string(),
-            // ADR 0007: a non-empty Sequence encodes horizontally from the
-            // ordinary result Position through one Portal carrying the intact
-            // Sequence. It needs nothing of its own here, which is the point of
-            // encoding it and falling through — `Portal::admit` already refuses
-            // an encoding wider than its row entire, and `SpanWrite::cells`
-            // already fans one admitted write out Cell-wise, so the complete-fit
-            // rule and ADR 0020's Cell-wise conflict resolution are inherited
-            // rather than restated for a second width.
-            Value::Sequence(sequence) => sequence.to_string(),
+        // Whether this answer can be Cells at all is a question about the
+        // value, settled before any destination is asked: the two values that
+        // plan no write answer `Nothing`, and a rendering a Cell cannot hold
+        // refuses whole. A Sequence needs nothing of its own here, which is
+        // the point — `Portal::admit` refuses an encoding wider than its row
+        // entire and `SpanWrite::cells` fans one admitted write out Cell-wise,
+        // so ADR 0007's complete-fit rule and ADR 0020's Cell-wise conflict
+        // resolution are inherited rather than restated for a second width.
+        let encoding = match Encoding::render(&value) {
+            Ok(Rendered::Nothing) => return Continue(()),
+            Ok(Rendered::Cells(encoding)) => encoding,
+            Err(reason) => {
+                if !node.outputs.is_empty() {
+                    self.effects
+                        .push(Effect::Diagnose(diagnose(node, render_message(reason))));
+                }
+                return Continue(());
+            }
         };
         // ADR 0036: scheduling reserved one Cell pair for a computation whose
         // answer could not be a Sequence, so any other width from one would
@@ -255,7 +256,7 @@ impl Execution<'_> {
         &mut self,
         index: usize,
         value: &Value,
-        encoding: &str,
+        encoding: &Encoding,
         output: Result<Position, PortalError>,
     ) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
@@ -362,12 +363,22 @@ impl Execution<'_> {
     }
 }
 
-fn portal_message(reason: PortalError, encoding: &str) -> String {
+fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
+    let encoding = encoding.to_string();
     match reason {
         PortalError::BelowSource => format!("result {encoding:?} falls below the Source"),
         PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
-        PortalError::InvalidContent => {
-            format!("result {encoding:?} contains Cells outside printable ASCII")
+    }
+}
+
+/// A value that could not become Cells names what it rendered to, which is the
+/// same thing the destination refusals above name. The two are separate
+/// messages because they are separate questions: this one is true of the value
+/// wherever it was sent, and no destination was asked before it was refused.
+fn render_message(reason: RenderError) -> String {
+    match reason {
+        RenderError::Unrepresentable(rendering) => {
+            format!("result {rendering:?} contains Cells outside printable ASCII")
         }
     }
 }
