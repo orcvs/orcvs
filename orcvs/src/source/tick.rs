@@ -4,6 +4,8 @@
 //! before execution. Spatial writes remain character encodings until consumed;
 //! nested results are typed values. Only the final effects are published.
 
+mod execution;
+
 use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -116,7 +118,7 @@ struct FunctionContact {
     subtree: Range<usize>,
 }
 
-/// The Cell width scheduling reserves for one scalar result. `plan_configured`
+/// The Cell width scheduling reserves for one scalar result. Execution
 /// refuses any other width before it admits a write, which is the only reason
 /// `Lookup::at` cannot answer `None` for an admitted destination.
 const SCALAR_WIDTH: usize = 2;
@@ -294,235 +296,7 @@ pub(super) fn plan_configured(
             };
         }
     };
-    let mut working = bytes.to_vec();
-    let mut effects: Vec<_> = schedule
-        .diagnostics
-        .into_iter()
-        .map(Effect::Diagnose)
-        .collect();
-    for (anchor, _) in map.bangs() {
-        let clear = Portal::at(grid, anchor)
-            .admit("  ")
-            .expect("parsed Bang fits its Grid");
-        apply_write(&mut working, &clear);
-        effects.push(Effect::Write(clear));
-    }
-    let lookup = &schedule.lookup;
-    let nodes = lookup.nodes();
-    let mut results: Vec<Option<Value>> = vec![None; nodes.len()];
-    let mut syntax_blocked = vec![false; nodes.len()];
-    let mut activated = vec![false; nodes.len()];
-    let mut suppressed = vec![false; nodes.len()];
-    let mut executed = vec![false; nodes.len()];
-    let mut functions: Vec<_> = nodes.iter().map(|node| node.function).collect();
-    for index in schedule.order {
-        let node = &nodes[index];
-        // A root that answers an effect performs only once it is activated, so
-        // the gate asks the owner's declared kind. It asks whether that kind
-        // answers a value and not which effect it performs: the two questions
-        // coincide only while Terminal Output is the one effect declared, and
-        // ADR 0029 records that a Function declared with any other effect must
-        // reach the same gate by its definition alone.
-        if suppressed[index]
-            || (!nodes[node.owner].function.answers_value() && !activated[node.owner])
-        {
-            continue;
-        }
-        executed[index] = true;
-        if node.parent.is_some() && !node.function.answers_value() {
-            effects.push(Effect::Diagnose(diagnose(
-                node,
-                lang::InterpretationError::NestedEffectFunction.to_string(),
-            )));
-            continue;
-        }
-        let function = functions[index];
-        if !node.syntax_valid
-            && function == node.function
-            && node
-                .operands
-                .iter()
-                .all(|operand| working[operand.cells.clone()] == bytes[operand.cells.clone()])
-        {
-            // Unchanged initial syntax errors belong to the Source revision.
-            // Earlier writes can repair these inputs before their reserved turn.
-            syntax_blocked[index] = true;
-            continue;
-        }
-        if node.operands.iter().any(|operand| {
-            operand
-                .child
-                .is_some_and(|child| !suppressed[child] && syntax_blocked[child])
-        }) {
-            // A syntax-blocked child did not fail evaluation. Preserve its
-            // Source diagnostic without turning it into a repeated Tick error.
-            syntax_blocked[index] = true;
-            continue;
-        }
-        let signature = lang::Tokens::from(&function);
-        if signature.len() != node.operands.len() {
-            effects.push(Effect::Diagnose(diagnose(
-                node,
-                lang::ArgumentError::Arity {
-                    expected: signature.len(),
-                    found: node.operands.len(),
-                }
-                .to_string(),
-            )));
-            continue;
-        }
-        let operands: Result<Vec<Value>, String> = node
-            .operands
-            .iter()
-            .zip(signature)
-            .map(|(operand, token)| {
-                if let Some(child) = operand.child.filter(|child| !suppressed[*child]) {
-                    return results[child].clone().ok_or_else(|| {
-                        format!(
-                            "nested computation at column {}, row {} supplied no typed result",
-                            nodes[child].anchor.x(),
-                            nodes[child].anchor.y()
-                        )
-                    });
-                }
-                let spelling =
-                    std::str::from_utf8(&working[operand.cells.clone()]).expect("ASCII Source");
-                token
-                    .decode(spelling)
-                    .map(Value::from)
-                    .map_err(|error| error.to_string())
-            })
-            .collect();
-        let result = match operands {
-            Ok(operands) => interpret(function, &operands, tick_inputs(tick, node.anchor))
-                .map_err(|error| error.to_string()),
-            Err(error) => Err(error),
-        };
-        #[cfg(test)]
-        let result = configuration
-            .supplied
-            .get(&grid.index(node.anchor))
-            .map_or(result, |atom| Ok(Interpretation::Cell(*atom)));
-        match result {
-            Err(message) => effects.push(Effect::Diagnose(diagnose(node, message))),
-            Ok(Interpretation::Play(performance)) => effects.push(Effect::Play(performance)),
-            Ok(answer) => {
-                let value = match answer {
-                    Interpretation::Cell(atom) => Value::Atom(atom),
-                    Interpretation::Sequence(sequence) => Value::Sequence(sequence),
-                    Interpretation::Play(_) => unreachable!(),
-                };
-                results[index] = Some(value.clone());
-                let encoding = match &value {
-                    Value::Atom(Atom::Empty) => continue,
-                    Value::Atom(atom) => atom.to_string(),
-                    Value::Sequence(sequence) if sequence.is_empty() => continue,
-                    Value::Sequence(sequence) => {
-                        if !node.outputs.is_empty() {
-                            effects.push(Effect::Diagnose(diagnose(
-                                node,
-                                format!(
-                                    "Sequence result {:?} has no fixed scalar scheduling footprint",
-                                    sequence.to_string()
-                                ),
-                            )));
-                        }
-                        continue;
-                    }
-                };
-                // Scheduling reserves one scalar Cell pair per destination.
-                // A different width cannot safely use those dependency edges.
-                if encoding.len() != SCALAR_WIDTH {
-                    if !node.outputs.is_empty() {
-                        effects.push(Effect::Diagnose(diagnose(
-                            node,
-                            "result is not a scalar Cell pair",
-                        )));
-                    }
-                    continue;
-                }
-                for output in &node.outputs {
-                    let write =
-                        match output.and_then(|output| Portal::at(grid, output).admit(&encoding)) {
-                            Ok(write) => write,
-                            Err(reason) => {
-                                effects.push(Effect::Diagnose(diagnose(
-                                    node,
-                                    portal_message(reason, &encoding),
-                                )));
-                                continue;
-                            }
-                        };
-                    let output = output.expect("an admitted write has a destination");
-                    let relationships = lookup
-                        .at(output)
-                        .expect("an admitted Cell pair fits its row");
-                    if value == Value::Atom(Atom::Bang) {
-                        for owner in relationships.bang_roots() {
-                            activated[owner] = true;
-                        }
-                    }
-                    if let Value::Atom(Atom::Function(replacement)) = value
-                        && relationships.functions().any(|contact| {
-                            let target = &nodes[contact.index];
-                            contact.at_anchor
-                                && (replacement.answers_value() != target.function.answers_value()
-                                    || replacement.can_emit_bang()
-                                        != target.function.can_emit_bang())
-                        })
-                    {
-                        effects.push(Effect::Diagnose(diagnose(
-                            node,
-                            "Function replacement changes activation requirements or output kind",
-                        )));
-                        continue;
-                    }
-                    // A schedule defect must not panic under the Source lock
-                    // or publish any of this Tick's already accumulated effects.
-                    if relationships
-                        .functions()
-                        .any(|mut contact| contact.subtree.any(|descendant| executed[descendant]))
-                    {
-                        let mut diagnostics: Vec<_> = effects
-                            .into_iter()
-                            .filter_map(|effect| {
-                                if let Effect::Diagnose(diagnostic) = effect {
-                                    Some(diagnostic)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        diagnostics.push(diagnose(
-                            node,
-                            "spatial output reached an executed computation; Tick effects rejected",
-                        ));
-                        return TickPlan {
-                            writes: vec![],
-                            play_commands: vec![],
-                            diagnostics,
-                        };
-                    }
-                    for contact in relationships.functions() {
-                        let target = contact.index;
-                        if contact.at_anchor
-                            && !suppressed[target]
-                            && let Value::Atom(Atom::Function(replacement)) = value
-                        {
-                            functions[target] = replacement;
-                            continue;
-                        }
-                        for descendant in contact.subtree {
-                            suppressed[descendant] = true;
-                        }
-                    }
-                    apply_write(&mut working, &write);
-                    effects.push(Effect::Write(write));
-                }
-            }
-        }
-    }
-    resolve(effects)
+    execution::execute(grid, bytes, map, tick, configuration, schedule)
 }
 
 /// An inactive root can contribute no child Portal. Start from value roots,
@@ -731,22 +505,6 @@ fn schedule(
         order,
         diagnostics,
     })
-}
-
-fn apply_write(bytes: &mut [u8], write: &SpanWrite) {
-    for (cell, content) in write.cells() {
-        bytes[cell.get()] = content.as_char() as u8;
-    }
-}
-
-fn portal_message(reason: PortalError, encoding: &str) -> String {
-    match reason {
-        PortalError::BelowSource => format!("result {encoding:?} falls below the Source"),
-        PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
-        PortalError::InvalidContent => {
-            format!("result {encoding:?} contains Cells outside printable ASCII")
-        }
-    }
 }
 
 ///
@@ -1507,6 +1265,90 @@ mod test {
                 .any(|d| d.message == "same-Tick dependency cycle")
         );
     }
+
+    #[test]
+    fn a_late_spatial_write_rejects_the_tick_even_when_the_earlier_turn_failed() {
+        for target in [".+0101", "./0100", ".+01??"] {
+            let grid = Grid::new(16, 11);
+            let bytes = snapshot(
+                grid,
+                &[
+                    "", "!>007FC4", ".=0101", "./0100", target, ".+0203", "", ".+0304", "**", "",
+                    "",
+                ],
+            );
+            let map = LanguageMap::derive(grid, &bytes).unwrap();
+            let mut configuration = super::Configuration::default();
+            for (producer, destination) in [(32, 0), (48, 160), (64, 96), (80, 64), (112, 160)] {
+                configuration.destinations.insert(
+                    cell(grid, producer),
+                    vec![grid.position_at(cell(grid, destination))],
+                );
+            }
+            // A valid order delivers the writer before its target. Execute it
+            // once to prove that this fixture has writes and a Play Command
+            // which the defensive rejection below must discard.
+            let plan =
+                super::plan_configured(grid, bytes.as_bytes(), &map, Tick::ZERO, &configuration);
+            assert!(!plan.writes.is_empty());
+            assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+
+            let mut schedule = super::schedule(grid, &map, &configuration).unwrap();
+            // Supply a broken order at the execution seam: the scheduler must
+            // never produce this, but execution promises to reject it rather
+            // than panic or publish the effects already accumulated.
+            schedule.order = [32, 16, 48, 64, 80, 112]
+                .into_iter()
+                .map(|anchor| {
+                    schedule
+                        .lookup
+                        .nodes()
+                        .iter()
+                        .position(|node| grid.index(node.anchor) == cell(grid, anchor))
+                        .unwrap()
+                })
+                .collect();
+            observed::take();
+            let rejected = super::execution::execute(
+                grid,
+                bytes.as_bytes(),
+                &map,
+                Tick::ZERO,
+                &configuration,
+                schedule,
+            );
+            assert!(rejected.writes.is_empty());
+            assert!(rejected.play_commands.is_empty());
+            let mut expected = vec![(48, "cannot divide by zero")];
+            if target == "./0100" {
+                expected.push((64, "cannot divide by zero"));
+            }
+            expected.push((
+                80,
+                "spatial output reached an executed computation; Tick effects rejected",
+            ));
+            assert_eq!(
+                rejected
+                    .diagnostics
+                    .iter()
+                    .map(|diagnostic| {
+                        (
+                            grid.index(diagnostic.anchor()).get(),
+                            diagnostic.message.as_str(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                expected,
+            );
+            // Attempting a syntax-blocked Turn still prevents later writes
+            // reaching it, although that Turn never calls the Evaluator.
+            assert_eq!(
+                observed::take().len(),
+                if target == ".+01??" { 4 } else { 5 }
+            );
+        }
+    }
+
     #[test]
     fn original_anchor_function_replacement_retains_inputs() {
         let (plan, source) = configured_source(
