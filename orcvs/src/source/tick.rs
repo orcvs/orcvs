@@ -1972,7 +1972,7 @@ mod test {
 
     #[test]
     fn live_bang_in_half_typed_terminal_claim_diagnoses_without_activation() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &["    .=0101", "!>00", "    !>007FC4"],
             &[],
@@ -2588,7 +2588,7 @@ mod test {
     #[test]
     fn live_deep_and_top_level_replacement_suppress_descendant_portals() {
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(20, 3),
             &[".+02.x03.+0101", ".+0203", ""],
             &[(0, 40), (4, 44), (8, 48), (20, 4)],
@@ -2604,7 +2604,7 @@ mod test {
                 .is_some_and(|root| root.x() == 8 && root.y() == 0)
         }));
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+02.x0304", ".+0203", ""],
             &[(0, 32), (4, 36), (16, 0)],
@@ -2833,7 +2833,7 @@ mod test {
     #[test]
     fn a_value_replaces_nested_computation_and_preserves_next_tick_source() {
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".+02.x0304", ".+0203", "", ""],
             &[(0, 48), (4, 52), (16, 4)],
@@ -2853,7 +2853,7 @@ mod test {
     fn nested_computation_returns_and_projects_once() {
         let grid = Grid::new(16, 4);
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             grid,
             &[".+02.x0304", ".+0101", "", ""],
             &[(0, 48), (4, 18), (16, 52)],
@@ -2950,7 +2950,7 @@ mod test {
             (3, 2, false),
             (15, 1, false),
         ] {
-            let (plan, _) = configured_source(
+            let (plan, _) = carried_source(
                 grid,
                 &["", "", "    !>007FC4", "", "", ".=0101"],
                 &[(80, row * 16 + column)],
@@ -2993,7 +2993,7 @@ mod test {
         // The terminal directly below is cardinally aligned and must stay
         // silent anyway -- narrowing the contact test to the anchor Cell alone
         // would sound it.
-        let (plan, _) = configured_source(
+        let (plan, _) = carried_source(
             Grid::new(16, 6),
             &["", "", "   .=0101", "    !>007FC4", "", ".=0101"],
             &[(80, 2 * 16 + 4)],
@@ -3008,7 +3008,7 @@ mod test {
         // The destination contacts a nested Function rather than a literal.
         // It still belongs to an operand, so neither its inactive owner nor
         // the aligned terminal below it can perform.
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["    .=0101", "!>00.+0101C4", "    !>007FC5", ""],
             &[],
@@ -3027,7 +3027,7 @@ mod test {
         // anchor lands anywhere: on the `.+` at column 4, which is a nested
         // Function and so no root. Nothing is eligible, so the terminal that
         // owns that `.+` never performs and its row is left exactly as typed.
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["", "!>00.+0101C4", "", ".=0101"],
             &[(48, 4)],
