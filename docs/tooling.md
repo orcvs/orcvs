@@ -334,6 +334,25 @@ counterexample that CI can see and a developer cannot reproduce is worse than no
 the shrunk input travels with the repository and the next run replays it before generating anything
 new.
 
+What that pin does and does not do. It keeps git from hiding a counterexample, so one proptest
+writes surfaces as an untracked file rather than being silently swallowed. It does not assert the
+file exists, and existence is not assertable: a counterexample exists only for a property that has
+failed, so requiring these paths would fail every green checkout. Four of the five have never been
+committed, for exactly that reason. Nor can CI catch one generated locally and deleted before a
+commit — the file was never tracked, so there is no deletion to see, and the branch arrives looking
+exactly like one whose properties all passed. Committing a counterexample is a discipline this
+repository states, not a gate it enforces, and no check here should be read as enforcing it.
+
+Whether a counterexample earns its place depends on how hard its input is to rediscover, and that
+varies by an order of magnitude across these properties. The `language_map` rebuild property draws
+two 78-element vectors over the alphabet, a grid size and six booleans, and the `parser` properties
+draw generated Source to a depth of 128; a shrunk input there may be the only way anyone reproduces
+a CI failure, and `orcvs/proptest-regressions/source/language_map.txt` is the one counterexample
+this repository tracks. The two `tick` properties draw a `u8` and a pair of small column indices, a
+space every run re-covers within a handful of cases, so a seed from one records an input proptest
+would have found unaided. Keep the first kind. Discarding the second is a judgement rather than an
+oversight, and it is the judgement taken here.
+
 The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
 installed. That is a separate decision with its own cost, and it is not taken here.
 
