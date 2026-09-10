@@ -35,7 +35,7 @@ already exists.
 | Bang `**` | One-Tick Atom with deterministic activation and expiry | Substantially satisfied: activation, producer-before-consumer ordering, once-only execution, stale-display clearing, and parser-owned validity ship through the ADR 0032/0034 scheduler. East and west anchor coverage and direct delivery remain (`spatial-tick-planning/02`) |
 | Self-Banging Functions `^^`, `vv`, `<<`, `>>` | Root-only Source Functions with intrinsic Bang activation, one-Cell-per-Tick Portal writes, and collision-to-Bang behavior | All four spellings parse (`lang/src/atom.rs`, `lang/src/parser.rs`); movement and emission missing |
 | Sequence | Flat ordered, non-nesting Atom value; compatible Atomic Functions extend pervasively | Value and pervasive broadcasting ship (`lang/src/sequence.rs`, `lang/src/stack.rs`); unreachable from Source until `:-` or `:#` can spell one, and a Sequence result cannot reach Source (`sequence-values/06`) |
-| Comment | `##` through row end; lone `#` is incomplete or invalid | Shipped (`orcvs/src/source/language_map.rs`); `sequence-values/07` moves the rule from a byte pre-pass into the parse |
+| Comment | `\|\|` through row end; lone `\|` is incomplete or invalid | Shipped (`lang/src/parser.rs`); `sequence-values/07` respelled the introducer and moved the rule out of the byte pre-pass into the parse |
 
 Function and Character implementation variants and `Empty` sentinels are not automatically shipped
 language values. Bangs may inhabit Sequences: structural operations preserve, select, or replace

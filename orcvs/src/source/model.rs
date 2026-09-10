@@ -1812,12 +1812,12 @@ mod test {
     fn test_a_horizontally_adjacent_bang_does_not_activate_a_terminal_root() {
         // Pins the limitation `spatial-tick-planning/02` inherits. ADR 0006's
         // west and east anchors sit two Cells from the Bang, but a Raw Play's
-        // operands occupy those Cells, and `row_extents` splits Expression runs
-        // only on spaces and `##`. So the contiguous spellings form no root at
-        // all, and the space-separated ones put the Bang anchor three or more
-        // columns away from the root anchor. Every horizontal placement is
-        // inert; the day the partition Bang activation reads changes, this
-        // test says so.
+        // operands occupy those Cells, and the walk partitions a row by parse,
+        // so a Bang beside a Function is that Function's operand Source. The
+        // contiguous spellings form no root at all, and the space-separated
+        // ones put the Bang anchor three or more columns away from the root
+        // anchor. Every horizontal placement is inert; the day the partition
+        // Bang activation reads changes, this test says so.
         for expression in ["**!>007FC4", "!>007FC4**", "** !>007FC4", "!>007FC4 **"] {
             // The Grid is as wide as the spelling it holds. The geometry under
             // test is horizontal, so a spelling that outran the row would wrap

@@ -149,7 +149,7 @@ One Cell destination resolved during a Tick. It carries an ordinary Atom or inta
 _Avoid_: Port, address value, output coordinate
 
 **Comment**:
-Source text beginning with the two-Cell introducer `##` and continuing to the end of its row, excluded from Expressions and evaluation. One `#` alone is incomplete or invalid Source rather than a Comment.
+The Language Unit the Parser establishes at the two-Cell introducer `||`, claiming every remaining Cell of its row. It records a Token and no Atom, which excludes it from evaluation: it answers no value, performs no effect, and is never scheduled. `||` opens a Comment only where a new Expression could start; inside a Function's arity-determined claim it is an operand Cell that fails to bind and diagnoses. One `|` alone is incomplete or invalid Source rather than a Comment.
 _Avoid_: Comment Function, halted Expression
 
 **Tick**:

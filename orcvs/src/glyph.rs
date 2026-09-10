@@ -39,6 +39,7 @@ impl GlyphString {
 pub enum Glyph {
     Bang,
     Char,
+    Comment,
     Function,
     Highlight,
     Marker,
@@ -54,6 +55,7 @@ impl From<Token> for Glyph {
         match t {
             Token::Bang => G::Bang,
             Token::Activation => G::Char,
+            Token::Comment => G::Comment,
             Token::Function => G::Function,
             Token::Note => G::Note,
             Token::Number => G::Number,
@@ -67,6 +69,7 @@ impl fmt::Display for GlyphString {
         let s = self.s.clone().unwrap_or_else(|| match self.t {
             Glyph::Bang => "*".to_string(),
             Glyph::Char => "c".to_string(),
+            Glyph::Comment => "|".to_string(),
             Glyph::Function => "F".to_string(),
             Glyph::Highlight => ".".to_string(),
             Glyph::Marker => "+".to_string(),
@@ -137,6 +140,16 @@ mod test {
     #[test]
     fn a_lone_asterisk_remains_an_ordinary_character() {
         assert_eq!(Glyph::from(lang::Token::Char), Glyph::Char);
+    }
+
+    /// A Comment paints as itself rather than as ordinary text. ADR 0035 made
+    /// it a Language Unit the Parser establishes, so its Cells arrive here
+    /// with a Token of their own instead of falling through to the unclaimed
+    /// Cell backfill the way Comment text used to.
+    #[test]
+    fn a_comment_has_its_own_paint_classification() {
+        assert_eq!(Glyph::from(lang::Token::Comment), Glyph::Comment);
+        assert_ne!(Glyph::from(lang::Token::Comment), Glyph::Char);
     }
 
     #[test]

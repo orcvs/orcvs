@@ -7,6 +7,7 @@ The egui console uses the prototype-inspired palette declared in `style.rs`:
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
 - 8 × 8 sector seam: `rgba(55, 101, 86, 0.43)`
 - Ordinary Glyph: `#A5B7B2` (`rgb(165, 183, 178)`)
+- Comment: `#5E6E6B` (`rgb(94, 110, 107)`)
 - Function: `#68E0B8` (`rgb(104, 224, 184)`)
 - Bang and error: `#FF7F87` (`rgb(255, 127, 135)`)
 - Number: `#83A6D8` (`rgb(131, 166, 216)`)

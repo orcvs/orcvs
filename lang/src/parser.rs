@@ -117,10 +117,13 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        Ok(self
-            .expression
+        // Every record of an Expression that reported no error carries an
+        // Atom, with one exception: a Comment is a complete Language Unit
+        // that is not a value (ADR 0035), so it records a Token and nothing
+        // else. Strict parsing yields values, and has none to yield here.
+        self.expression
             .take_atoms()
-            .expect("strict parsing contains only values"))
+            .ok_or_else(|| SyntaxError::CommentIsNotAValue.into())
     }
 
     ///
@@ -189,6 +192,27 @@ impl<'a> Parser<'a> {
             }
             let start = self.source;
             let atom = match self.next_token(2) {
+                // A Comment claims every remaining Cell and records a Token
+                // with no Atom (ADR 0035). It is answered here rather than in
+                // the `(Token, Atom)` match below because there is no Atom to
+                // answer with: an Atom is a fixed-width value and a Comment
+                // carries a row of arbitrary text that is never decoded.
+                //
+                // This arm is reached only where a new Expression could start.
+                // An operand slot takes the branch above unless a Function
+                // spelling is next, and `||` is not one, so a `||` inside a
+                // Function's arity-determined claim is an operand Cell that
+                // fails to bind.
+                Some("||") => {
+                    let _ = self.next_token(self.source.len());
+                    self.expression.add_positioned(
+                        Token::Comment,
+                        None,
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
+                    continue;
+                }
                 Some("**") => Ok((Token::Bang, Atom::Bang)),
                 Some(t) => match crate::Activation::try_from(t) {
                     Ok(activation) => Ok((Token::Activation, Atom::Activation(activation))),
@@ -477,6 +501,97 @@ mod test {
             error,
             Error::Syntax(SyntaxError::UnexpectedTrailingContent(ref trailing))
                 if trailing == "Z"
+        ));
+    }
+
+    ///
+    /// A Comment is a Language Unit the Parser establishes: `||` claims every
+    /// remaining Cell of the Source it was handed, records a Token and no
+    /// Atom, and completes. ADR 0035.
+    ///
+    #[test]
+    fn a_comment_claims_the_rest_of_the_source_and_records_no_atom() {
+        let analysis = Parser::from(&mut "|| .+0102 anything at all".to_owned()).analyze();
+
+        assert!(analysis.is_complete());
+        assert_eq!(analysis.cells(), 0..25);
+        assert_eq!(
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.clone(), entry.token, entry.atom))
+                .collect::<Vec<_>>(),
+            vec![(0..25, Token::Comment, None)]
+        );
+        // Complete and yet answering with nothing: the one Language Unit that
+        // is not a value. An Expression yields Atoms only when every record
+        // it holds carries one, so a Comment withholds them without an error.
+        assert!(analysis.expression().atoms().is_none());
+        assert!(analysis.expression().entries().next().is_none());
+    }
+
+    ///
+    /// `||` opens a Comment only where an Expression could start. Inside a
+    /// Function's arity-determined claim it is an operand Cell that fails to
+    /// bind, which is ADR 0033's partition by parse read straight: a spelling
+    /// is recognized only in the position where a spelling is read.
+    ///
+    #[test]
+    fn a_comment_introducer_inside_an_operand_claim_is_a_refused_operand() {
+        let analysis = Parser::from(&mut ".+||02".to_owned()).analyze();
+
+        assert!(analysis.error.is_some());
+        assert_eq!(analysis.cells(), 0..6);
+        assert_eq!(
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, Token::Function, Some(Atom::Function(Function::Add))),
+                (2, Token::Number, None),
+                (4, Token::Number, Some(Atom::Number(2))),
+            ]
+        );
+    }
+
+    ///
+    /// One `|` alone is incomplete or invalid Source, exactly as one `#` was.
+    /// It costs the Cell it occupies and leaves the rest of the row readable,
+    /// which is ADR 0018's recovery rather than a rule of its own.
+    ///
+    #[test]
+    fn a_lone_vertical_rule_is_not_a_comment() {
+        let analysis = Parser::from(&mut "|.+0304".to_owned()).analyze();
+
+        assert!(analysis.error.is_some());
+        assert_eq!(analysis.cells(), 0..1);
+        assert_eq!(
+            analysis
+                .expression()
+                .positioned()
+                .map(|entry| (entry.cells.start, entry.token, entry.atom))
+                .collect::<Vec<_>>(),
+            vec![(0, Token::Function, None)]
+        );
+
+        let resumed = Parser::from(&mut ".+0304".to_owned()).analyze();
+        assert!(resumed.is_complete());
+    }
+
+    ///
+    /// Strict parsing yields values, and ADR 0035 makes a Comment a complete
+    /// Language Unit that is not one. It reports that rather than unwrapping
+    /// an Expression that holds no Atoms.
+    ///
+    #[test]
+    fn strict_parsing_refuses_a_comment() {
+        let error = try_parse(&mut "||whatever".to_owned()).unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::Syntax(SyntaxError::CommentIsNotAValue)
         ));
     }
 
@@ -1013,9 +1128,9 @@ mod test {
 /// The generators produce raw Source text rather than valid Expressions. One
 /// that only spelled Expressions the parser accepts would test itself and
 /// slowly become a second implementation of the grammar, so the space that
-/// ends a run, the incomplete `#`, and the `##` Comment introducer are drawn as
+/// ends a run, the incomplete `|`, and the `||` Comment introducer are drawn as
 /// text like everything else — and
-/// `generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer`
+/// `generated_source_covers_the_space_the_incomplete_rule_and_the_comment_introducer`
 /// pins that they are actually reached rather than merely reachable.
 ///
 /// The `Atom` round trip is `mod test`'s
@@ -1120,17 +1235,17 @@ mod property {
     /// Most of the weight is one arbitrary printable character, which is what
     /// keeps the whole range in reach. The rest are the pieces the language
     /// gives meaning to, so that a case is more often a near miss than noise:
-    /// the space and the `##` Comment introducer that end a run, the `#` that
-    /// is incomplete Source rather than a Comment, a Function spelling with no
-    /// operands after it, a standalone Atom, and an Operand Literal outside any
-    /// slot. They are concatenated in whatever order they are drawn, so the
-    /// result is raw text rather than a grammar.
+    /// the space that ends a run, the `||` Comment introducer that claims the
+    /// rest of it, the `|` that is incomplete Source rather than a Comment, a
+    /// Function spelling with no operands after it, a standalone Atom, and an
+    /// Operand Literal outside any slot. They are concatenated in whatever
+    /// order they are drawn, so the result is raw text rather than a grammar.
     fn fragment() -> BoxedStrategy<String> {
         prop_oneof![
             8 => proptest::char::range(' ', '~').prop_map(String::from),
             2 => Just(" ".to_owned()),
-            2 => Just("#".to_owned()),
-            2 => Just("##".to_owned()),
+            2 => Just("|".to_owned()),
+            2 => Just("||".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
             1 => select(standalone()).prop_map(|atom| atom.to_string()),
             2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
@@ -1267,13 +1382,30 @@ mod property {
 
             if analysis.is_complete() {
                 prop_assert!(analysis.error().is_none());
-                let atoms = expression
-                    .atoms()
-                    .expect("a complete analysis holds only complete entries");
-                // A complete Expression spells exactly the Cells it consumed.
-                // Anything after them is the next Expression's Source and is
-                // neither read nor held against this one.
-                prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end]);
+                // A complete analysis holds only complete entries, or is a
+                // Comment. ADR 0035 makes a Comment a complete Language Unit
+                // that is not a value: it records a Token and no Atom, so the
+                // Expression withholds its Atoms with nothing to report, and
+                // there is no Source to render back because its text is
+                // arbitrary and was never decoded.
+                match expression.atoms() {
+                    // A complete Expression spells exactly the Cells it
+                    // consumed. Anything after them is the next Expression's
+                    // Source and is neither read nor held against this one.
+                    Some(atoms) => {
+                        prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end])
+                    }
+                    None => {
+                        prop_assert_eq!(
+                            expression.tokens().collect::<Vec<_>>(),
+                            vec![Token::Comment],
+                            "{:?} completed with no Atoms and no Comment",
+                            spelled,
+                        );
+                        // And the claim is every Cell there was to read.
+                        prop_assert_eq!(analysis.cells(), 0..spelled.len(), "{:?}", spelled);
+                    }
+                }
             } else {
                 prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
@@ -1299,12 +1431,19 @@ mod property {
 
         ///
         /// The two contracts agree about exactly one thing: strict parsing
-        /// accepts the Source analysis reads whole and calls complete, and no
-        /// other. Analysis is the permissive path, so what separates them is
-        /// that it also answers for the rest — not that it reads a different
-        /// language. Reading whole is part of the agreement rather than a
-        /// consequence of it: analysis calls `.+0102Z` complete at six Cells,
-        /// and strict parsing refuses the `Z` it did not consume.
+        /// accepts the Source analysis reads whole, calls complete, and reads
+        /// as values, and no other. Analysis is the permissive path, so what
+        /// separates them is that it also answers for the rest — not that it
+        /// reads a different language. Reading whole is part of the agreement
+        /// rather than a consequence of it: analysis calls `.+0102Z` complete
+        /// at six Cells, and strict parsing refuses the `Z` it did not
+        /// consume.
+        ///
+        /// The values clause is the Comment, and it is the only Source the
+        /// two contracts read alike and answer differently. ADR 0035 makes a
+        /// Comment a complete Language Unit that is not a value, so `||x` is
+        /// read whole and called complete by analysis and still refused by
+        /// the path whose whole output is Atoms.
         ///
         #[test]
         fn strict_parsing_accepts_exactly_the_source_analysis_reads_whole(
@@ -1316,7 +1455,12 @@ mod property {
             let parsed = Parser::from(&mut strict).try_parse();
             let analysis = Parser::from(&mut permissive).analyze();
 
-            let complete = analysis.is_complete() && analysis.cells().end == source.len();
+            let comment = analysis
+                .expression()
+                .tokens()
+                .any(|token| token == Token::Comment);
+            let complete =
+                analysis.is_complete() && analysis.cells().end == source.len() && !comment;
             prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
 
             if let Ok(atoms) = parsed {
@@ -1349,8 +1493,8 @@ mod property {
 
     ///
     /// The generator reaches the three pieces of Source the language treats
-    /// specially — the space that ends a run, the `#` that is incomplete
-    /// Source rather than a Comment, and the `##` Comment introducer — and it
+    /// specially — the space that ends a run, the `|` that is incomplete
+    /// Source rather than a Comment, and the `||` Comment introducer — and it
     /// reaches Source strict parsing accepts.
     ///
     /// A property is only as good as what its generator produces, and none of
@@ -1361,14 +1505,16 @@ mod property {
     ///
     /// The case count is pinned rather than taken from `PROPTEST_CASES`,
     /// because this claim is about the generator rather than about the parser.
-    /// It does parse each draw — that is how the last of the four counts is
-    /// taken — so the fixed 256 cases are 256 parses that neither verification
-    /// tier can dial down. That is the cost of the claim rather than an
+    /// It does read each draw twice — analysis for the Comment count and
+    /// strict parsing for the last — so the fixed 256 cases are 512 reads
+    /// that neither verification tier can dial down. That is the cost of
+    /// counting what the parser established rather than what the text held,
+    /// and it is the cost of the claim rather than an
     /// oversight: a coverage guard that weakened with the tier would stop
     /// guarding exactly where the tier is cheapest.
     ///
     #[test]
-    fn generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer() {
+    fn generated_source_covers_the_space_the_incomplete_rule_and_the_comment_introducer() {
         let config = Config {
             cases: 256,
             source_file: Some(file!()),
@@ -1384,16 +1530,26 @@ mod property {
                 if source.contains(' ') {
                     space.set(space.get() + 1);
                 }
-                if source.contains("##") {
+                // An analysis that actually established a Comment, not a `||`
+                // anywhere in the text. `||` opens a Comment only where an
+                // Expression could start, so `.+01||` holds the introducer and
+                // reaches none of the Comment arm the guard exists to protect.
+                let mut permissive = source.clone();
+                if Parser::from(&mut permissive)
+                    .analyze()
+                    .expression()
+                    .tokens()
+                    .any(|token| token == Token::Comment)
+                {
                     comment.set(comment.get() + 1);
                 }
-                // A `#` with no `#` beside it: incomplete Source rather than
+                // A `|` with no `|` beside it: incomplete Source rather than
                 // the introducer, which is the distinction CONTEXT.md draws.
                 let bytes = source.as_bytes();
                 if bytes.iter().enumerate().any(|(index, byte)| {
-                    *byte == b'#'
-                        && bytes.get(index + 1) != Some(&b'#')
-                        && (index == 0 || bytes[index - 1] != b'#')
+                    *byte == b'|'
+                        && bytes.get(index + 1) != Some(&b'|')
+                        && (index == 0 || bytes[index - 1] != b'|')
                 }) {
                     incomplete.set(incomplete.get() + 1);
                 }
@@ -1415,11 +1571,11 @@ mod property {
         assert!(space.get() > 0, "no generated Source held a space");
         assert!(
             incomplete.get() > 0,
-            "no generated Source held an incomplete `#`",
+            "no generated Source held an incomplete `|`",
         );
         assert!(
             comment.get() > 0,
-            "no generated Source held the `##` Comment introducer",
+            "no generated Source analyzed as a Comment",
         );
         // And the accepting half of every property above has to be reached by
         // something, or those properties pass by never running.
