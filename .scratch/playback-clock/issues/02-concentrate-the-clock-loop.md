@@ -10,9 +10,10 @@ refactor with no behaviour to argue about.
 
 - [ ] `start` and `retune` no longer each carry a clock loop; they differ in the first
       deadline they supply and in whether they begin a run.
-- [ ] The deadline rule is computed in one place for both targets. The native clock no
+- [x] The deadline rule is computed in one place for both targets. The native clock no
       longer delegates it to `tokio::time::Interval`'s missed-tick machinery, so the
       only remaining per-target difference is how to wait until an instant.
+      Landed with `playback-clock/01`: holding one rule on both targets forced it.
 - [ ] Cancellation, the `ClockRunGuard`, the `Weak` upgrade, and Tick delivery are
       written once.
 - [ ] `start`'s immediate first Tick and `retune`'s anchoring to the last executed Tick
@@ -32,3 +33,14 @@ missed is that the thing worth sharing is the deadline rule, not the loop scaffo
 the scaffolding is only how the rule came to be written twice.
 
 The manual test adapter the first review proposed is out of scope; see the spec.
+
+One box arrived already ticked. Effort 01 could not make both targets hold one rule
+without abandoning `tokio::time::Interval`, so the shared `next_scheduled_at` and the
+`sleep_until` loops landed there. What remains here is the scaffolding: four loop
+bodies, four copies of cancellation, the `ClockRunGuard`, the `Weak` upgrade and Tick
+delivery.
+
+Concentrating those loops is also what would let one test cover both targets. Today
+nothing in the workspace compiles the browser loops, so the rule is shared by
+construction — both call `next_scheduled_at` — rather than by a test that would fail if
+they stopped. See the note on effort 01.

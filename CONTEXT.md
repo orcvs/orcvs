@@ -197,11 +197,11 @@ The module that owns Playback lifecycle and musical time and dispatches each Tic
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
 **Tick Grid**:
-The deadlines one Playback run's Ticks are due at: every whole multiple of the Tick period from the deadline that run began on. Per ADR 0036 the grid holds for the life of a run, so a stall costs the Ticks it covered and does not move the ones after them; retuning begins a new grid from the deadline the retuned run's first Tick is anchored to, without beginning a new run.
+The deadlines one Playback run's Ticks are due at: every whole multiple of the Tick period from the deadline that run began on. Per ADR 0037 the grid holds until the run ends or its tempo is retuned, so a stall costs the Ticks it covered and does not move the ones after them, and the run resumes at the first deadline still ahead of the instant its clock woke. Retuning begins a new grid without beginning a new run, running it from the deadline the last executed Tick was due at rather than from the moment the retune arrived or the moment that Tick was seen.
 _Avoid_: Schedule, timeline, beat clock
 
 **Overrun**:
-One Tick declined because it was observed a whole Tick period or more past the deadline it was due at. Per ADR 0036 it names that deadline, consumes no absolute Tick, and reports once per stall rather than once per deadline the stall covered: the deadlines a stopped clock never reached are skipped rather than delivered late so they can be declined in turn. An Overrun is a Playback diagnostic and carries no user-facing message.
+One Tick declined because it was observed a whole Tick period or more past the deadline it was due at. Per ADR 0037 it names that deadline, consumes no absolute Tick, and reports once per stall rather than once per deadline the stall covered: the deadlines a stopped clock never reached are skipped rather than delivered late so they can be declined in turn. An Overrun is a Playback diagnostic and carries no user-facing message.
 _Avoid_: Dropped frame, xrun, missed tick
 
 **Live Editing**:

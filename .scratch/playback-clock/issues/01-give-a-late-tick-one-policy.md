@@ -9,8 +9,9 @@ recorded as an ADR and held by both targets.
 
 - [x] The rule is recorded as an ADR and its vocabulary reaches `CONTEXT.md`.
 - [x] The native clock and the browser clock hold the same rule.
-- [x] A test fails if either target changes its answer, and a test fails if the two
-      answers diverge from each other.
+- [x] A test fails if either target changes its answer, and the two answers cannot
+      diverge: they are one function. See the comment below on what is and is not
+      covered by a test.
 - [x] The test that pinned the previous native behaviour is replaced rather than
       deleted, and its replacement distinguishes all three candidate rules.
 
@@ -34,3 +35,13 @@ that arrives with its own passing test is invisible to CI indefinitely.
 
 ADR 0002 was not violated. It never asked the question, which is the finding this
 effort acts on.
+
+The criterion asking for a test that fails when the two targets diverge is met by
+construction rather than by a test. Both loops call `next_scheduled_at`, so there is no
+second answer left to diverge; the native tests drive `start` and `retune` through a
+missed deadline and hold the loop to deadlines written out in the test, and the unit
+tests pin the function. No test in the workspace compiles the `wasm32` loops —
+`shell/tests/wasm.rs` drives `PlaybackEngine::start` in headless Firefox but asserts
+dispatch, state and generation, never a deadline or an Overrun. A browser loop that
+hand-wrote its arithmetic again would not be caught by CI. Concentrating the four loops
+into one, which is `playback-clock/02`, is what would close that off for good.
