@@ -139,12 +139,21 @@ including the empty Sequence, and the claim that the refusal precedes the formul
 and precedes the length comparison, since it is settled in `Stack::broadcast` before any element
 binds.
 
-Two Tick-by-Tick tests in `orcvs/src/source/tick.rs` prove the threading end to end.
+Three Tick-by-Tick tests in `orcvs/src/source/tick.rs` prove the threading end to end.
 `the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at` plans one Grid holding all
 three Functions at Tick 1 and Tick 4 and asserts the literal Cell writes; it was checked to fail
 when `tick_inputs` is severed to `Tick::ZERO`, which is what `tick-functions/01` asked this ticket
 to pin. `a_tick_function_with_no_cycle_diagnoses_and_writes_nothing` asserts both diagnostic
 messages reach the Tick Plan and that nothing is written.
+
+`a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs` pins the other half of what a pulse
+is for. The two tests above watch the Cells a pulse writes, and a Function that Banged into no
+activation edge would satisfy them both while the neighbouring terminal fell silent — so this one
+delivers each pulse's result to a Cell aligned with a play root and asserts the play command at a
+Tick it Bangs and its absence at a Tick it does not. It was checked to fail when either row's
+`can_emit_bang` is flipped to `false`, and the failure is the silent one: no play command and no
+diagnostic. That is what the declaration is for, and it is the reason `schedule` reads it at two
+sites rather than testing every root against every Bang.
 
 ### Left unpinned
 
