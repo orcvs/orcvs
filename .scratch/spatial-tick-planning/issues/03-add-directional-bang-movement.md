@@ -21,6 +21,9 @@ defines producer and emission order.
 - [ ] Movement tests only newly entered Cells, not overlap with the current Span.
 - [ ] Successful movement preflights one complete Portal bundle, then writes spaces over the old
       Span before writing the Function spelling at the shifted destination.
+- [ ] Stated destinations reach `computations` without a Terminal Output Function acquiring one:
+      ADR 0009's refusal is raised in shipped code and covered by a test of its own, not by the
+      `#[cfg(test)]` `carry` helper this work retires.
 - [ ] Blocked or out-of-Grid movement replaces the current Span with Bang.
 - [ ] Self-Banging Functions remain root-only Source effects, not operands, runtime values, or
       Sequence members.
@@ -29,3 +32,19 @@ defines producer and emission order.
 - [ ] A generated Self-Banging Function first receives a turn from the next Source Snapshot.
 - [ ] Complete root contact can activate; partial Language Unit contact diagnoses and activates nothing.
 - [ ] Tick-by-Tick Source Grid tests cover all four directions and row edges.
+
+## Comments
+
+2026-09-10: `test-only-seams/08` deleted the scheduler `Configuration`, and with it the only shipped
+raiser of ADR 0009's "a Terminal Output Function cannot have a Portal". The refusal now lives solely
+in the `#[cfg(test)]` `carry` helper, whose doc says it goes away with the tests that needed it —
+which is this ticket's work. So the change that first lets real input name a destination for a
+Terminal Output Function is the same change that removes the last check for it, which is why the
+acceptance line above is stated here rather than left to be noticed.
+
+What holds the rule in the meantime is the ordering of `computations`' `if` chain: the
+`performs_terminal_output()` arm comes first and hands back `vec![]`, so a Terminal Output Function
+never reaches the arm that resolves a destination. A stated-destination arm placed before that gate
+would admit the pairing silently. The gate itself is covered by one incidental test —
+`a_late_spatial_write_rejects_the_tick_even_when_the_earlier_turn_failed` is the only test that
+fails when its condition is replaced with `false`.
