@@ -29,18 +29,33 @@ are owed against a declared Range row even though only one had a test to delete.
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each retained test assembles the reservation it exercises rather than stating an answer
+- [x] Each retained test assembles the reservation it exercises rather than stating an answer
       through the production planning entry point.
-- [ ] The derivation test is deleted, and `sequence-values/05` carries an acceptance line requiring
+- [x] The derivation test is deleted, and `sequence-values/05` carries an acceptance line requiring
       ADR 0036's reservation derivation as a whole — the row-wide width, the widening, and the
       ordering each buys — to be proven against a declared Range row.
-- [ ] No test in the crate reads or writes the answer-substitution map after this ticket.
-- [ ] The crate builds and its tests pass in both the default and test configurations.
+- [x] No test in the crate reads or writes the answer-substitution map after this ticket.
+- [x] The crate builds and its tests pass in both the default and test configurations.
 
 ## Comments
 
 Split out of the architecture review of the Sequence branch, 2026-09-10. The two deleted tests are
 the ones the review counted as wins for building Range first; they are coverage of the seam, not of
 the scheduler.
+
+2026-09-10: Resolved by `a4b4826`. A Sequence answer is read twice — once by execution and once by
+scheduling, which is the only reason those computations reserved a whole row — so a fixture states
+the reservation as well as the answer. It states it where a declared Function will: between the
+reservations a `Lookup` derives and the order those reservations decide. Reaching that point split
+`schedule` into `computations` and `order_turns` and lifted its reverse pass into
+`derive_reservations`, all behaviour-neutral, so a stated child widens its ancestor through
+production rather than through a copy of it.
+
+One test deleted, not two. The second deletion this ticket first anticipated had nothing to delete:
+no test asserted that a Sequence-answering computation reserves through the end of its row.
+
+A fixture cannot state a reservation and a Function replacement in one Tick. A replacement is
+checked by re-deriving from the node, which disagrees with a stated width for every replacement
+including the target's own. `09` owns the reason.
