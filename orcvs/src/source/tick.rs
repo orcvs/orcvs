@@ -37,41 +37,11 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     outputs: Vec<Result<Position, PortalError>>,
-    /// A test-supplied answer replaces this computation's declared one, so it
-    /// replaces the width scheduling reserves for it too. Production reads the
-    /// Function's own declaration and nothing else, which is why the field is
-    /// absent rather than false there: a reservation that could be widened from
-    /// outside the table would not be the declared fact ADR 0036 rests on.
-    #[cfg(test)]
-    supplied_sequence: bool,
-}
-
-impl Computation {
-    #[cfg(test)]
-    fn supplies_sequence(&self) -> bool {
-        self.supplied_sequence
-    }
-
-    #[cfg(not(test))]
-    fn supplies_sequence(&self) -> bool {
-        false
-    }
 }
 
 #[derive(Default)]
 pub(super) struct Configuration {
     destinations: BTreeMap<CellIndex, Vec<Position>>,
-    /// The answer to deliver in place of the one the Function would compute.
-    ///
-    /// A whole [`Interpretation`] rather than an [`Atom`], because ADR 0036's
-    /// reservation is a fact about the answer's width and an Atom can only ever
-    /// state one of the two widths. Nothing spells a Sequence-answering Function
-    /// in Source until ADR 0007's Range and Concatenate are built, so this is
-    /// the seam a test states one through, and it is read twice: once while
-    /// scheduling, to reserve the Cells the answer can reach, and once during
-    /// execution, in place of the Interpreter's result.
-    #[cfg(test)]
-    supplied: BTreeMap<CellIndex, Interpretation>,
 }
 
 struct Schedule {
@@ -372,7 +342,7 @@ fn reserved_for(
                 .child
                 .is_some_and(|child| reserved[child] == Reserved::Row)
         });
-    if function.answers_sequence() || widened || node.supplies_sequence() {
+    if function.answers_sequence() || widened {
         Reserved::Row
     } else {
         Reserved::Pair
@@ -465,7 +435,6 @@ fn plan_with_destinations(
                 .iter()
                 .map(|(anchor, output)| (*anchor, vec![*output]))
                 .collect(),
-            ..Configuration::default()
         },
     )
 }
@@ -485,7 +454,7 @@ pub(super) fn plan_configured(
         Ok(schedule) => schedule,
         Err(diagnostics) => return unscheduled(diagnostics),
     };
-    execution::execute(grid, bytes, map, tick, configuration, schedule)
+    execution::execute(grid, bytes, map, tick, schedule)
 }
 
 ///
@@ -621,15 +590,6 @@ fn computations(
                     operands: vec![],
                     syntax_valid: true,
                     outputs,
-                    // Read here, beside the destinations the same Configuration
-                    // supplies, so a stated answer reaches the schedule that
-                    // has to reserve for it and not only the execution that
-                    // delivers it.
-                    #[cfg(test)]
-                    supplied_sequence: matches!(
-                        configuration.supplied.get(&grid.index(anchor)),
-                        Some(Interpretation::Sequence(_))
-                    ),
                 });
                 functions.insert(entry_index, index);
                 Some(index)
@@ -2202,14 +2162,8 @@ mod test {
                 })
                 .collect();
             observed::take();
-            let rejected = super::execution::execute(
-                grid,
-                bytes.as_bytes(),
-                &map,
-                Tick::ZERO,
-                &configuration,
-                schedule,
-            );
+            let rejected =
+                super::execution::execute(grid, bytes.as_bytes(), &map, Tick::ZERO, schedule);
             assert!(rejected.writes.is_empty());
             assert!(rejected.play_commands.is_empty());
             let mut expected = vec![(48, "cannot divide by zero")];

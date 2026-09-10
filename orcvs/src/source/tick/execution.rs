@@ -9,9 +9,9 @@ use std::ops::ControlFlow::{self, Break, Continue};
 use lang::{Atom, Function, Interpretation, Tick, Value};
 
 use super::{
-    Computation, Configuration, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal,
-    PortalError, Position, RenderError, Rendered, Reserved, SCALAR_WIDTH, Schedule, SpanWrite,
-    TickPlan, diagnose, interpret, resolve, tick_inputs,
+    Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal, PortalError,
+    Position, RenderError, Rendered, Reserved, SCALAR_WIDTH, Schedule, SpanWrite, TickPlan,
+    diagnose, interpret, resolve, tick_inputs,
 };
 
 /// Executes an established order against the original Source Snapshot. The
@@ -21,7 +21,6 @@ pub(super) fn execute(
     bytes: &[u8],
     map: &LanguageMap,
     tick: Tick,
-    configuration: &Configuration,
     schedule: Schedule,
 ) -> TickPlan {
     let Schedule {
@@ -29,7 +28,7 @@ pub(super) fn execute(
         order,
         diagnostics,
     } = schedule;
-    let mut execution = Execution::new(grid, bytes, map, tick, configuration, &lookup, diagnostics);
+    let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
     for index in order {
         if let Break(diagnostic) = execution.take_turn(index) {
             return execution.reject(diagnostic);
@@ -58,8 +57,6 @@ struct Execution<'a> {
     lookup: &'a Lookup,
     states: Vec<ComputationState>,
     effects: Vec<Effect>,
-    #[cfg(test)]
-    configuration: &'a Configuration,
 }
 
 impl<'a> Execution<'a> {
@@ -76,14 +73,9 @@ impl<'a> Execution<'a> {
         bytes: &'a [u8],
         map: &LanguageMap,
         tick: Tick,
-        configuration: &'a Configuration,
         lookup: &'a Lookup,
         diagnostics: Vec<Diagnostic>,
     ) -> Self {
-        // Configuration's supplied answers exist only for bounded replacement
-        // tests. Production used its destinations when it built the schedule.
-        #[cfg(not(test))]
-        let _ = configuration;
         let mut execution = Self {
             grid,
             original: bytes,
@@ -103,8 +95,6 @@ impl<'a> Execution<'a> {
                 })
                 .collect(),
             effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
-            #[cfg(test)]
-            configuration,
         };
         // Source content rather than an answer, so it is stated here rather than
         // rendered: a Bang occupies two Cells and clearing it writes two spaces.
@@ -182,12 +172,6 @@ impl<'a> Execution<'a> {
             interpret(function, &operands, tick_inputs(self.tick, node.anchor))
                 .map_err(|error| error.to_string())
         });
-        #[cfg(test)]
-        let result = self
-            .configuration
-            .supplied
-            .get(&self.grid.index(node.anchor))
-            .map_or(result, |answer| Ok(answer.clone()));
         match result {
             Err(message) => self.effects.push(Effect::Diagnose(diagnose(node, message))),
             Ok(Interpretation::Play(performance)) => self.effects.push(Effect::Play(performance)),
@@ -466,10 +450,12 @@ fn render_message(reason: RenderError) -> String {
 pub(super) mod stated {
     use lang::{Tick, Value};
 
-    use super::super::{computations, derive_reservations, order_turns, unscheduled};
+    use super::super::{
+        Configuration, computations, derive_reservations, order_turns, unscheduled,
+    };
     use super::{
-        Atom, Break, Configuration, Continue, ControlFlow, Diagnostic, Execution, Grid,
-        LanguageMap, Lookup, Reserved, Schedule, TickPlan, resolve,
+        Atom, Break, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap, Lookup,
+        Reserved, Schedule, TickPlan, resolve,
     };
     use crate::grid::CellIndex;
 
@@ -557,8 +543,7 @@ pub(super) mod stated {
             Ok(schedule) => schedule,
             Err(diagnostics) => return unscheduled(diagnostics),
         };
-        let mut execution =
-            Execution::new(grid, bytes, map, tick, configuration, &lookup, diagnostics);
+        let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
         let mut stated = vec![false; answers.len()];
         for index in order {
             let anchor = grid.index(lookup.nodes()[index].anchor);
