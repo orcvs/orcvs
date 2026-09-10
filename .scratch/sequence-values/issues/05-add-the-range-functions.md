@@ -22,7 +22,8 @@ operands, and neither converts implicitly.
       bounds.
 - [ ] `:#` rejects a Number bound above `7F` through the Note domain rather than through Range.
 - [ ] Both Functions parse and round-trip through their canonical two-Cell spellings, and `:#` is
-      recognised as a complete two-Cell Function distinct from the `##` Comment introducer.
+      recognised as a complete two-Cell Function. ADR 0035 spells the Comment introducer `||`, so
+      no Comment rule reaches into `:#`.
 - [ ] Range output takes the ordinary complete-fit Portal rule and never writes a partial Sequence.
 
 ## Comments

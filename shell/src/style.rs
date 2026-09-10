@@ -11,6 +11,7 @@ pub struct ConsolePalette {
     pub grid_line: Color32,
     pub sector_line: Color32,
     pub ordinary: Color32,
+    pub comment: Color32,
     pub function: Color32,
     pub bang: Color32,
     pub number: Color32,
@@ -36,6 +37,7 @@ pub const PALETTE: ConsolePalette = ConsolePalette {
     grid_line: Color32::from_rgba_unmultiplied_const(29, 55, 49, 72),
     sector_line: Color32::from_rgba_unmultiplied_const(55, 101, 86, 110),
     ordinary: Color32::from_rgb(165, 183, 178), // #A5B7B2
+    comment: Color32::from_rgb(122, 135, 132),  // #7A8784
     function: Color32::from_rgb(104, 224, 184), // #68E0B8
     bang: Color32::from_rgb(255, 127, 135),     // #FF7F87
     number: Color32::from_rgb(131, 166, 216),   // #83A6D8
@@ -70,6 +72,7 @@ pub(crate) fn cell_visuals(
 ) -> CellVisuals {
     let foreground = match glyph {
         Glyph::Bang => PALETTE.bang,
+        Glyph::Comment => PALETTE.comment,
         Glyph::Function => PALETTE.function,
         Glyph::Number => PALETTE.number,
         Glyph::Note => PALETTE.note,
@@ -160,15 +163,82 @@ mod tests {
         let note = cell_visuals(Glyph::Note, None, false, false);
         let ordinary = cell_visuals(Glyph::Char, None, false, false);
         let bang = cell_visuals(Glyph::Bang, None, false, false);
+        let comment = cell_visuals(Glyph::Comment, None, false, false);
 
         assert_eq!(function.foreground, PALETTE.function);
         assert_eq!(number.foreground, PALETTE.number);
         assert_eq!(note.foreground, PALETTE.note);
         assert_eq!(ordinary.foreground, PALETTE.ordinary);
         assert_eq!(bang.foreground, PALETTE.bang);
+        assert_eq!(comment.foreground, PALETTE.comment);
         assert_ne!(number.foreground, function.foreground);
         assert_ne!(number.foreground, note.foreground);
         assert_ne!(number.foreground, ordinary.foreground);
+        assert_ne!(comment.foreground, ordinary.foreground);
+    }
+
+    ///
+    /// A Comment is the row that says nothing, so it reads dimmer than the
+    /// ordinary Glyph rather than as another semantic colour beside it — and
+    /// it is still prose a person reads, so dimmer stops at legible.
+    ///
+    /// Both halves are stated as measurements because neither survives being
+    /// stated as a difference: `assert_ne!` against the ordinary Glyph passes
+    /// for a Comment brighter than it, and passes again for one all but
+    /// indistinguishable from the Cell it sits on. The floor is WCAG AA for
+    /// normal text, which is the threshold every other Glyph in this palette
+    /// already clears by some margin.
+    ///
+    #[test]
+    fn a_comment_reads_dimmer_than_ordinary_source_and_stays_legible() {
+        let comment = contrast(PALETTE.comment, PALETTE.source);
+        let ordinary = contrast(PALETTE.ordinary, PALETTE.source);
+
+        assert!(
+            comment >= 4.5,
+            "a Comment is read, not merely seen: {comment:.2}:1 against the Cell it sits on",
+        );
+        assert!(
+            comment < ordinary,
+            "a Comment reads dimmer than ordinary Source: {comment:.2}:1 against {ordinary:.2}:1",
+        );
+        // Every other Glyph a person reads clears the same floor, so the
+        // Comment is dimmest without being the one exception to legibility.
+        for (name, colour) in [
+            ("ordinary", PALETTE.ordinary),
+            ("function", PALETTE.function),
+            ("bang", PALETTE.bang),
+            ("number", PALETTE.number),
+            ("note", PALETTE.note),
+        ] {
+            let ratio = contrast(colour, PALETTE.source);
+            assert!(ratio >= 4.5, "{name} is {ratio:.2}:1");
+            assert!(
+                ratio > comment,
+                "{name} is {ratio:.2}:1, dimmer than a Comment"
+            );
+        }
+    }
+
+    /// The WCAG 2.1 contrast ratio between two opaque colours, which is what
+    /// "dimmer" and "legible" are measured with above rather than asserted as
+    /// a difference of two constants.
+    fn contrast(foreground: egui::Color32, background: egui::Color32) -> f32 {
+        let luminance = |colour: egui::Color32| {
+            let channel = |value: u8| {
+                let value = f32::from(value) / 255.0;
+                if value <= 0.03928 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(colour.r())
+                + 0.7152 * channel(colour.g())
+                + 0.0722 * channel(colour.b())
+        };
+        let (first, second) = (luminance(foreground), luminance(background));
+        (first.max(second) + 0.05) / (first.min(second) + 0.05)
     }
 
     #[test]

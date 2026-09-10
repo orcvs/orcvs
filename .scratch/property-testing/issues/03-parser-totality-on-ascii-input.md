@@ -18,7 +18,8 @@ the full printable ASCII range, not only valid Orcvs spellings.
 - [x] Recovery advances at the documented Cell and every diagnostic refers to the same Language Map
       revision as its Position or Span.
 - [x] Every `Atom` renders through `Display` and parses back to an equal `Atom`.
-- [x] The generator covers the space character, incomplete `#`, and the `##` Comment introducer.
+- [x] The generator covers the space character, incomplete `|`, and the `||` Comment introducer.
+      (ADR 0035 respelled the introducer; the item read `#` and `##` when it was ticked.)
 
 ## Comments
 

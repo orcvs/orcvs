@@ -10,7 +10,7 @@ implementation and this evidence agree; glossary presence alone does not make a 
 ## Language and Source
 
 - [ ] Canonical two-Cell syntax and generation cover every shipped Function, Bang, Number, Note,
-      and Comment; Number and Note identity is contextual and Comments begin with `##`.
+      and Comment; Number and Note identity is contextual and Comments begin with `||`.
 - [ ] Every successfully parsed evaluable Expression entry pairs one syntax expectation with one
       real outcome: a runtime value where the root Function answers a value, or an effect where it
       answers an effect, per ADR 0028. Incomplete and invalid Live Edits remain editable, diagnose

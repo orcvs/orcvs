@@ -39,6 +39,7 @@ impl GlyphString {
 pub enum Glyph {
     Bang,
     Char,
+    Comment,
     Function,
     Highlight,
     Marker,
@@ -54,6 +55,7 @@ impl From<Token> for Glyph {
         match t {
             Token::Bang => G::Bang,
             Token::Activation => G::Char,
+            Token::Comment => G::Comment,
             Token::Function => G::Function,
             Token::Note => G::Note,
             Token::Number => G::Number,
@@ -67,6 +69,15 @@ impl fmt::Display for GlyphString {
         let s = self.s.clone().unwrap_or_else(|| match self.t {
             Glyph::Bang => "*".to_string(),
             Glyph::Char => "c".to_string(),
+            // A Comment declares no spelling, so it hints at none. The
+            // fallbacks beside this one stand in for a Cell a signature says
+            // something belongs in — `h` for an unfilled Number slot, `n` for
+            // a Note. A Comment's claim is a Cell claim rather than an
+            // operand list (ADR 0035) and its text is never decoded, so an
+            // empty Cell it claims holds nothing and renders as nothing. Its
+            // Glyph still names the Cell for paint, which is the whole of
+            // what a Comment's classification is for.
+            Glyph::Comment => " ".to_string(),
             Glyph::Function => "F".to_string(),
             Glyph::Highlight => ".".to_string(),
             Glyph::Marker => "+".to_string(),
@@ -137,6 +148,32 @@ mod test {
     #[test]
     fn a_lone_asterisk_remains_an_ordinary_character() {
         assert_eq!(Glyph::from(lang::Token::Char), Glyph::Char);
+    }
+
+    /// A Comment paints as itself rather than as ordinary text. ADR 0035 made
+    /// it a Language Unit the Parser establishes, so its Cells arrive here
+    /// with a Token of their own instead of falling through to the unclaimed
+    /// Cell backfill the way Comment text used to.
+    #[test]
+    fn a_comment_has_its_own_paint_classification() {
+        assert_eq!(Glyph::from(lang::Token::Comment), Glyph::Comment);
+        assert_ne!(Glyph::from(lang::Token::Comment), Glyph::Char);
+    }
+
+    /// A Comment claims a whole row, empty Cells and all, so its Glyph reaches
+    /// Cells with no content. It classifies them for paint and stands in for
+    /// nothing: the placeholder an operand Glyph draws says what a signature
+    /// declares belongs there, and a Comment declares nothing.
+    #[test]
+    fn a_comment_hints_at_no_spelling_in_a_cell_it_claims_and_leaves_empty() {
+        assert_eq!(GlyphString::new(None, Glyph::Comment).to_string(), " ");
+        assert_eq!(
+            GlyphString::new(Some("x".to_string()), Glyph::Comment).to_string(),
+            "x"
+        );
+        // The contrast that makes it a decision: an unfilled operand slot does
+        // stand in for the spelling its signature names.
+        assert_eq!(GlyphString::new(None, Glyph::Number).to_string(), "h");
     }
 
     #[test]

@@ -30,6 +30,11 @@ type Record = PositionedEntry;
 pub enum Token {
     Activation,
     Bang,
+    /// The rest of the Source, claimed by the `||` introducer and never
+    /// decoded — a Grid row, wherever one supplied the Source. A Comment
+    /// records this and no Atom (ADR 0035), which is what lets it carry text:
+    /// an Atom is a fixed-width value and cannot hold a row.
+    Comment,
     Function,
     Note,
     Number,
@@ -125,6 +130,14 @@ impl Token {
         }
     }
 
+    /// The Cells this Token's spelling occupies where a slot declares it.
+    ///
+    /// This is an operand width: `take_token` reads exactly this many Cells
+    /// for the operand a signature names, and every rendered Atom spells
+    /// exactly this many back. `Token::Comment` names no operand — no
+    /// signature declares one and a Comment never binds — so what it answers
+    /// here is the width of its `||` introducer rather than the extent of its
+    /// claim, which is the rest of the Source and is not a Token width at all.
     pub fn len(&self) -> usize {
         match self {
             Token::Char => DEFAULT_CHAR_TOKEN_LEN,

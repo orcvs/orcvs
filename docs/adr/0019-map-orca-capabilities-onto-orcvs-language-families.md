@@ -35,7 +35,7 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Generator | `G` | Compose Source Read and Source Write | reserved `@<` then `@>`; operands deferred | ADR 0017 |
 | Konkat | `K` | Replace hidden-variable lookup with Source Read from visible Source | `@<` reserved; operands deferred | ADRs 0003 and 0017 |
 | Variable | `V` | Omit the hidden named table; persistent language state remains in Source | — | ADRs 0003 and 0017 |
-| Comment | `#` | Retain | `#` | Existing language contract |
+| Comment | `#` | Retain | `\|\|` | Existing language contract and ADR 0035 |
 | Raw MIDI note | `:` | Retain without an implicit lifetime | `!>` | ADR 0016 |
 | Timed MIDI note | optional Orca `:` lifetime | Make a distinct fixed-arity Function | `!~` | ADR 0016 |
 | Monophonic MIDI note | `%` | Retain with one owned voice per MIDI channel | `!%` | ADRs 0008 and 0016 |

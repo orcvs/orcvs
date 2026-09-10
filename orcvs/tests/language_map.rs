@@ -15,28 +15,68 @@ fn truncated_operand_owns_the_available_row_tail() {
     assert!(expressions[0].root().is_none());
 }
 
+/// A Comment introducer inside a Function's arity-determined claim is an
+/// operand Cell of that Function, not a Comment. ADR 0035 makes `||` a
+/// spelling like any other, and ADR 0033 reads a spelling only in the position
+/// where a spelling is read, so the Add's second operand is `||`, it fails to
+/// bind, and the row holds no Comment at all.
 #[test]
-fn operand_claims_stop_before_comments() {
+fn an_operand_claim_reaches_over_a_comment_introducer() {
     let grid = Grid::new(8, 1);
-    let map = LanguageMap::derive(grid, ".+01##xx").unwrap();
-    assert_eq!(map.expressions().count(), 1);
-    assert_eq!(
-        map.expressions().next().unwrap().span().positions().count(),
-        4
+    let map = LanguageMap::derive(grid, ".+01||xx").unwrap();
+
+    assert!(
+        !map.units()
+            .any(|unit| unit.kind() == LanguageUnitKind::Comment)
     );
-    for column in 4..8 {
+    let first = map.expressions().next().unwrap();
+    assert_eq!(first.span().positions().count(), 6);
+    assert!(first.root().is_none());
+    // The introducer's Cells are the operand's, so they carry its Glyph.
+    for column in 4..6 {
         assert_eq!(
             map.glyph_at(grid.position(column, 0).unwrap()),
-            Some(Glyph::Char)
+            Some(Glyph::Number)
         );
     }
 }
 
+/// A Comment where an Expression could start claims every Cell after it, and
+/// the Function before it keeps the claim its arity declares.
 #[test]
-fn a_comment_truncated_root_stays_inert_while_an_unrelated_root_executes() {
+fn a_comment_claims_the_row_after_the_expression_that_precedes_it() {
+    let grid = Grid::new(10, 1);
+    let map = LanguageMap::derive(grid, ".+0102||xx").unwrap();
+
+    let expressions = map.expressions().collect::<Vec<_>>();
+    assert_eq!(expressions.len(), 2);
+    assert_eq!(expressions[0].span().positions().count(), 6);
+    assert!(expressions[0].root().is_some());
+    assert_eq!(expressions[1].span().positions().count(), 4);
+    assert!(expressions[1].root().is_none());
+    assert_eq!(
+        map.units()
+            .filter(|unit| unit.kind() == LanguageUnitKind::Comment)
+            .map(|unit| unit.anchor().x())
+            .collect::<Vec<_>>(),
+        vec![6]
+    );
+    assert_eq!(map.diagnostics().count(), 0);
+    for column in 6..10 {
+        assert_eq!(
+            map.glyph_at(grid.position(column, 0).unwrap()),
+            Some(Glyph::Comment)
+        );
+    }
+}
+
+/// A root whose operand slot holds a Comment introducer stays inert, and an
+/// unrelated root on another row still executes and still writes.
+#[test]
+fn a_root_refused_by_a_comment_introducer_stays_inert_while_an_unrelated_root_executes() {
     let grid = Grid::new(12, 3);
     let mut source = Source::new(grid);
-    for (row, text) in [(0, "      .+0102"), (1, ".+01##xx")] {
+    for (row, text) in [(0, "      .+0102"), (1, ".+01||xx")] {
         for (column, byte) in text.bytes().enumerate() {
             source
                 .set(
@@ -47,10 +87,23 @@ fn a_comment_truncated_root_stays_inert_while_an_unrelated_root_executes() {
         }
     }
     let plan = source.execute(lang::Tick::ZERO);
+    assert!(source.language_map().expressions().any(|expression| {
+        expression
+            .span()
+            .positions()
+            .next()
+            .is_some_and(|position| position.x() == 0 && position.y() == 1)
+            && expression.root().is_none()
+    }));
+    // The refusal is the row's own and it names the operand that caused it:
+    // an Expression that reports never becomes a computation, so it is the
+    // Map that holds the diagnostic, and the `||` is what failed to bind.
     assert!(
-        plan.diagnostics.iter().any(
-            |diagnostic| diagnostic.message == "Expression operand crosses the Source boundary"
-        )
+        source
+            .language_map()
+            .diagnostics()
+            .any(|diagnostic| diagnostic.anchor().y() == 1
+                && diagnostic.message == "expected a number, found \"||\"")
     );
     assert_eq!(
         source.get(grid.cell_index(18).unwrap()).as_deref(),
@@ -296,4 +349,31 @@ fn glyph_at_refuses_a_position_minted_by_another_grid() {
     let foreign = Grid::new(4, 1).position(0, 0).expect("inside the Grid");
 
     map.glyph_at(foreign);
+}
+
+#[test]
+#[should_panic(expected = "ExpressionEntry belongs to another LanguageMap")]
+fn an_edit_refuses_old_expression_entries_even_from_an_unchanged_row() {
+    let grid = Grid::new(4, 2);
+    let mut source = Source::new(grid);
+    source.set(grid.cell_index(4).unwrap(), "*").unwrap();
+    source.set(grid.cell_index(5).unwrap(), "*").unwrap();
+    let previous = source.language_map().clone();
+    let expression = previous.expressions().next().unwrap();
+
+    source.set(grid.cell_index(0).unwrap(), "X").unwrap();
+
+    source.language_map().expression_units(expression);
+}
+
+#[test]
+fn diagnostics_keep_expression_reports_before_lexical_reports_across_rows() {
+    let grid = Grid::new(4, 2);
+    let map = LanguageMap::derive(grid, "X   Z   ").unwrap();
+    assert_eq!(
+        map.diagnostics()
+            .map(|diagnostic| (diagnostic.anchor().x(), diagnostic.anchor().y()))
+            .collect::<Vec<_>>(),
+        vec![(0, 0), (0, 1), (0, 0), (0, 1)]
+    );
 }

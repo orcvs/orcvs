@@ -69,21 +69,49 @@ enum StoredSource {
 }
 
 ///
-/// What a start found: the Source to open on, and what the console still owes
-/// a viewer because of it.
-///
-/// A refusal leaves two obligations that end at different moments. The value
-/// is moved aside by the first save, which would otherwise write over the key
-/// it sits under, and is gone from here once it has been. The notice outlives
-/// that move: a viewer who has not looked yet has not been told, and a Grid
-/// that silently is not theirs is the failure this seam exists to avoid.
+/// The Source to open and the persistence state for the session that follows.
 ///
 pub(crate) struct Start {
     pub(crate) source: Source,
     #[cfg(feature = "persistence")]
-    pub(crate) refused: Option<String>,
-    #[cfg(feature = "persistence")]
-    pub(crate) notice: bool,
+    pub(crate) persistence: Persistence,
+}
+
+///
+/// Owns refusal recovery across saves and notice dismissal. The running Orcvs
+/// owns the Source and supplies its current revision at each save.
+///
+/// A refusal leaves two independent obligations: preserve its payload before
+/// overwriting the stored revision, and show its notice until dismissed.
+/// Saving ends only the first; dismissal ends only the second.
+///
+#[cfg(feature = "persistence")]
+pub(crate) struct Persistence {
+    refused: Option<String>,
+    notice: bool,
+}
+
+#[cfg(feature = "persistence")]
+impl Persistence {
+    /// Preserves a refused payload once, then stores the current Source.
+    pub(crate) fn save(
+        &mut self,
+        storage: &mut dyn eframe::Storage,
+        source: &orcvs::source::SourceCommander,
+    ) {
+        if let Some(refused) = self.refused.take() {
+            storage.set_string(REFUSED_KEY, refused);
+        }
+        source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
+    }
+
+    pub(crate) fn notice_visible(&self) -> bool {
+        self.notice
+    }
+
+    pub(crate) fn dismiss_notice(&mut self) {
+        self.notice = false;
+    }
 }
 
 ///
@@ -121,32 +149,29 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
     match stored_source(storage) {
         StoredSource::Restored(source) => Start {
             source,
-            refused: None,
-            notice: false,
+            persistence: Persistence {
+                refused: None,
+                notice: false,
+            },
         },
         StoredSource::Absent => Start {
             source: default_source(),
-            refused: None,
-            notice: false,
+            persistence: Persistence {
+                refused: None,
+                notice: false,
+            },
         },
         StoredSource::Refused(stored) => {
             report_refusal();
             Start {
                 source: default_source(),
-                refused: Some(stored),
-                notice: true,
+                persistence: Persistence {
+                    refused: Some(stored),
+                    notice: true,
+                },
             }
         }
     }
-}
-
-///
-/// Moves a refused value aside, before the save that follows writes over the
-/// key it sits under.
-///
-#[cfg(feature = "persistence")]
-pub(crate) fn preserve_refused(storage: &mut dyn eframe::Storage, refused: String) {
-    storage.set_string(REFUSED_KEY, refused);
 }
 
 ///
@@ -168,18 +193,6 @@ fn report_refusal() {
         REFUSED,
         REFUSED_KEY
     );
-}
-
-///
-/// Stores the current Source revision, replacing the revision stored before
-/// it.
-///
-#[cfg(feature = "persistence")]
-pub(crate) fn store_source(
-    storage: &mut dyn eframe::Storage,
-    source: &orcvs::source::SourceCommander,
-) {
-    source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
 }
 
 ///
@@ -248,6 +261,22 @@ pub(crate) fn edited_source() -> orcvs::source::SourceCommander {
     source
 }
 
+///
+/// Stores `source` the way a session with nothing to recover stores it.
+///
+/// A test that only needs a stored revision says that. Reaching `save`
+/// through `starting_source` would start a session over the storage the test
+/// is about to overwrite, and read a refusal out of it on the way past.
+///
+#[cfg(all(test, feature = "persistence"))]
+pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::SourceCommander) {
+    Persistence {
+        refused: None,
+        notice: false,
+    }
+    .save(storage, source);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{assert_default_grid, starting_source};
@@ -266,8 +295,8 @@ mod stored_source_tests {
     use orcvs::source::SourceCommander;
 
     use super::{
-        InMemoryStorage, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
-        starting_source, store_source, stored_source,
+        InMemoryStorage, REFUSED_KEY, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
+        starting_source, store, stored_source,
     };
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
@@ -275,13 +304,79 @@ mod stored_source_tests {
     }
 
     #[test]
+    fn saving_and_dismissing_end_independent_recovery_obligations() {
+        for dismiss_before_save in [false, true] {
+            let mut storage = InMemoryStorage::default();
+            let refused = "not a stored Source";
+            eframe::Storage::set_string(&mut storage, SOURCE_KEY, refused.to_owned());
+            let start = starting_source(Some(&storage));
+            assert_default_grid(&start.source);
+            let mut persistence = start.persistence;
+            assert!(persistence.notice_visible());
+
+            if dismiss_before_save {
+                persistence.dismiss_notice();
+                assert!(!persistence.notice_visible());
+            }
+
+            let current = edited_source();
+            persistence.save(&mut storage, &current);
+            assert_eq!(persistence.notice_visible(), !dismiss_before_save);
+            assert_eq!(
+                eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
+                Some(refused)
+            );
+            assert_eq!(
+                starting_source(Some(&storage)).source.snapshot(),
+                current.snapshot()
+            );
+
+            // Dismissal is idempotent and must not undo preservation or
+            // prevent subsequent saves from writing the latest revision.
+            persistence.dismiss_notice();
+            persistence.dismiss_notice();
+            let cell = current.grid().cell_index(0).expect("inside the Grid");
+            current.set(cell, " ").expect("a valid empty Cell");
+            persistence.save(&mut storage, &current);
+            assert!(!persistence.notice_visible());
+            assert_eq!(
+                eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
+                Some(refused),
+                "a later save must not displace the refused value"
+            );
+            assert_eq!(
+                starting_source(Some(&storage)).source.snapshot(),
+                current.snapshot()
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_or_restored_start_has_no_notice_and_preserves_existing_recovery() {
+        let mut restored = InMemoryStorage::default();
+        store(&mut restored, &edited_source());
+        for mut storage in [InMemoryStorage::default(), restored] {
+            eframe::Storage::set_string(&mut storage, REFUSED_KEY, "previous refusal".to_owned());
+            let mut persistence = starting_source(Some(&storage)).persistence;
+            assert!(!persistence.notice_visible());
+            persistence.dismiss_notice();
+            persistence.save(&mut storage, &edited_source());
+            assert!(!persistence.notice_visible());
+            assert_eq!(
+                eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
+                Some("previous refusal")
+            );
+        }
+    }
+
+    #[test]
     fn the_saved_revision_restores_its_cells_and_rebuilds_its_derived_views() {
         let saved = edited_source();
         let mut storage = InMemoryStorage::default();
 
-        store_source(&mut storage, &saved);
+        store(&mut storage, &saved);
 
-        // The save call stores the revision under eframe's own key, which is
+        // The save call stores the revision under the Source key, which is
         // where the next start looks for it.
         assert!(stored(&storage).is_some());
 
@@ -317,7 +412,7 @@ mod stored_source_tests {
     #[test]
     fn a_malformed_value_is_refused_whole_and_starts_the_default_grid() {
         let mut written = InMemoryStorage::default();
-        store_source(&mut written, &edited_source());
+        store(&mut written, &edited_source());
         let encoded = stored(&written).expect("the save call stored the revision");
         assert!(
             encoded.contains("cols:6"),

@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
@@ -43,14 +42,7 @@ impl LanguageMapId {
 pub struct LanguageMap {
     id: LanguageMapId,
     grid: Grid,
-    /// Established once by `build` and never changed afterwards. An
-    /// `ExpressionEntry` records where its own units sit here as a range, so
-    /// anything that reordered or resized this would silently re-point every
-    /// Expression in the Map.
-    units: Vec<LanguageUnit>,
-    expressions: Vec<ExpressionEntry>,
-    glyphs: Vec<Option<Glyph>>,
-    lexical_diagnostics: Vec<Diagnostic>,
+    rows: Vec<DerivedRow>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -61,6 +53,12 @@ pub enum LanguageUnitKind {
     Function(Function),
     Bang,
     Activation(Activation),
+    /// The `||` introducer and every Cell of the row after it. ADR 0035 makes
+    /// a Comment a Language Unit the Parser establishes, so it has a Span and
+    /// an anchor like the rest — and, unlike the rest, no value: it records a
+    /// Token and no Atom, so it is never an operand, never a Function, and
+    /// never scheduled.
+    Comment,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -134,10 +132,10 @@ pub struct ExpressionEntry {
     root: Option<Position>,
     function_candidate: Option<(Position, Function)>,
     span: Span,
-    /// Where this Expression's Language Units sit in its Map's partition,
+    /// Where this Expression's Language Units sit in its row's partition,
     /// established when the Expression was built.
     ///
-    /// A range into the partition rather than the units themselves: the Map
+    /// A range into the row rather than the units themselves: the row
     /// owns them, an Expression is one contiguous run of them, and a Map
     /// outlives every question asked of the Expressions it holds.
     units: std::ops::Range<usize>,
@@ -179,29 +177,11 @@ impl LanguageMap {
         .then(|| Self::build(grid, source.as_bytes()))
     }
 
+    /// Rebuilds written rows and carries every other row's complete derivation.
     ///
-    /// Rebuilds the Map, parsing only the rows whose Cells changed.
-    ///
-    /// The row is the unit of work because the row is already the unit of
-    /// meaning: `walk_row` reads exactly one row's Cells and carries nothing
-    /// across the boundary, and an Expression Span is a run inside one row. A
-    /// row's Language Units, Expressions, Glyphs and lexical diagnostics are
-    /// therefore functions of that row's bytes alone, and a row nobody wrote
-    /// to answers this revision exactly as it answered the last one.
-    ///
-    /// Everything such a row contributed is carried over rather than parsed
-    /// again, which is the whole point: parsing is most of what building a Map
-    /// costs, and walking is the small remainder. One field stands in the way.
-    /// An `ExpressionEntry` locates its units as a range into the Map's
-    /// partition rather than into the Grid, so a dirty row that now holds a
-    /// different number of units moves every later Expression's range. Each
-    /// carried entry is re-pointed by its offset inside its own row, which
-    /// needs no arithmetic across rows and cannot go negative.
-    ///
-    /// The Map's identity is new either way. An `ExpressionEntry` from the
-    /// previous revision addresses the previous partition, and carrying one
-    /// forward does not make it answerable there.
-    ///
+    /// Unit ranges are local to each row, so a changed row cannot relocate
+    /// another row's Expressions. Carried Expressions receive this revision's
+    /// identity even when their Source did not change.
     pub(super) fn rebuild(
         previous: &Self,
         grid: Grid,
@@ -217,123 +197,42 @@ impl LanguageMap {
             previous.grid, grid,
             "a LanguageMap is rebuilt on the Grid that built it"
         );
-
-        let cols = grid.cols();
-        let row_count = bytes.len() / cols;
-
-        // Everything the previous Map holds is in row-major order, so one pass
-        // over each collection names the run belonging to each row.
-        let previous_units = row_runs(row_count, previous.units.len(), |index| {
-            grid.index(previous.units[index].anchor).get() / cols
-        });
-        let previous_expressions = row_runs(row_count, previous.expressions.len(), |index| {
-            previous.expressions[index].span.start().get() / cols
-        });
-        let previous_diagnostics =
-            row_runs(row_count, previous.lexical_diagnostics.len(), |index| {
-                previous.lexical_diagnostics[index].start() / cols
-            });
-
-        // The partition is assembled first and in full, because
-        // `record_expression` searches it for the units of the Span it is
-        // given.
-        let mut units = Vec::with_capacity(previous.units.len());
-        let mut walks = Vec::with_capacity(row_count);
-        let mut row_units = Vec::with_capacity(row_count);
-        for row in 0..row_count {
-            let start = units.len();
-            if dirty.contains(&row) {
-                let mut walk = RowWalk::default();
-                walk_row(
-                    grid,
-                    row * cols,
-                    &bytes[row * cols..(row + 1) * cols],
-                    &mut walk,
-                );
-                units.extend_from_slice(&walk.units);
-                walks.push(Some(walk));
-            } else {
-                units.extend_from_slice(&previous.units[previous_units[row].clone()]);
-                walks.push(None);
-            }
-            row_units.push(start..units.len());
-        }
-
-        let mut map = Self {
-            id: LanguageMapId::new(),
-            grid,
-            units,
-            expressions: Vec::with_capacity(previous.expressions.len()),
-            glyphs: vec![None; bytes.len()],
-            lexical_diagnostics: Vec::with_capacity(previous.lexical_diagnostics.len()),
-        };
-
-        for (row, walk) in walks.into_iter().enumerate() {
-            let cells = row * cols..(row + 1) * cols;
-            match walk {
-                Some(walk) => {
-                    map.lexical_diagnostics.extend(walk.diagnostics);
-                    for parse in walk.parses {
-                        map.record_expression(grid, parse);
-                    }
-                    for index in cells {
-                        if bytes[index] != SPACE_BYTE && map.glyphs[index].is_none() {
-                            map.glyphs[index] = Some(Glyph::Char);
-                        }
-                    }
+        let id = LanguageMapId::new();
+        let rows = bytes
+            .chunks_exact(grid.cols())
+            .enumerate()
+            .map(|(row, bytes)| {
+                if dirty.contains(&row) {
+                    DerivedRow::derive(id, grid, row * grid.cols(), bytes)
+                } else {
+                    previous.rows[row].for_revision(id)
                 }
-                None => {
-                    map.lexical_diagnostics.extend_from_slice(
-                        &previous.lexical_diagnostics[previous_diagnostics[row].clone()],
-                    );
-                    map.glyphs[cells.clone()].copy_from_slice(&previous.glyphs[cells]);
-                    let carried = row_units[row].start;
-                    let held = previous_units[row].start;
-                    for entry in &previous.expressions[previous_expressions[row].clone()] {
-                        let offset = entry.units.start - held;
-                        let length = entry.units.len();
-                        map.expressions.push(ExpressionEntry {
-                            map_id: map.id,
-                            units: carried + offset..carried + offset + length,
-                            ..entry.clone()
-                        });
-                    }
-                }
-            }
-        }
-
-        map
+            })
+            .collect();
+        Self { id, grid, rows }
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
-        let walk = walk_source(grid, bytes);
-        let mut map = Self {
-            id: LanguageMapId::new(),
-            grid,
-            units: walk.units,
-            expressions: Vec::new(),
-            glyphs: vec![None; bytes.len()],
-            lexical_diagnostics: walk.diagnostics,
-        };
-
-        for parse in walk.parses {
-            map.record_expression(grid, parse);
-        }
-        for (idx, byte) in bytes.iter().copied().enumerate() {
-            if byte != SPACE_BYTE && map.glyphs[idx].is_none() {
-                map.glyphs[idx] = Some(Glyph::Char);
-            }
-        }
-
-        map
+        assert_eq!(
+            bytes.len(),
+            grid.count(),
+            "LanguageMap Source length must match its Grid"
+        );
+        let id = LanguageMapId::new();
+        let rows = bytes
+            .chunks_exact(grid.cols())
+            .enumerate()
+            .map(|(row, bytes)| DerivedRow::derive(id, grid, row * grid.cols(), bytes))
+            .collect();
+        Self { id, grid, rows }
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
-        self.expressions.iter()
+        self.rows.iter().flat_map(|row| row.expressions.iter())
     }
 
     pub fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
-        self.units.iter()
+        self.rows.iter().flat_map(|row| row.units.iter())
     }
 
     /// Bang values from complete standalone Expressions, paired with their
@@ -360,24 +259,30 @@ impl LanguageMap {
 
     /// Every parser and unmatched-character diagnostic in this revision.
     pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.expressions
-            .iter()
+        self.expressions()
             .filter_map(|expression| expression.diagnostic.as_ref())
-            .chain(self.lexical_diagnostics.iter())
+            .chain(self.lexical_diagnostics())
     }
 
     #[cfg(test)]
     pub(super) fn expression_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.expressions
-            .iter()
+        self.expressions()
             .filter_map(|expression| expression.diagnostic.as_ref())
+    }
+
+    fn lexical_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.rows
+            .iter()
+            .flat_map(|row| row.lexical_diagnostics.iter())
     }
 
     /// The semantic Glyph for the Cell at `position`, when the revision gives
     /// that Cell a language classification.
     pub fn glyph_at(&self, position: Position) -> Option<Glyph> {
-        self.glyphs
-            .get(self.grid.index(position).get())
+        let index = self.grid.index(position).get();
+        self.rows[index / self.grid.cols()]
+            .glyphs
+            .get(index % self.grid.cols())
             .copied()
             .flatten()
     }
@@ -397,60 +302,109 @@ impl LanguageMap {
             self.id == expression.map_id,
             "ExpressionEntry belongs to another LanguageMap"
         );
-        &self.units[expression.units.clone()]
+        let row = expression.span.start().get() / self.grid.cols();
+        &self.rows[row].units[expression.units.clone()]
+    }
+}
+
+/// A row's complete semantic derivation. Unit ranges never leave this row.
+#[derive(Clone, Default)]
+struct DerivedRow {
+    units: Vec<LanguageUnit>,
+    expressions: Vec<ExpressionEntry>,
+    /// Empty for a row the walk read no Source in; otherwise indexed by
+    /// column. Such a row must not add allocation blocks as the Grid grows
+    /// taller, which is what `derive`'s early return is for.
+    glyphs: Vec<Option<Glyph>>,
+    lexical_diagnostics: Vec<Diagnostic>,
+}
+
+impl DerivedRow {
+    fn for_revision(&self, id: LanguageMapId) -> Self {
+        let mut row = self.clone();
+        for expression in &mut row.expressions {
+            expression.map_id = id;
+        }
+        row
     }
 
-    ///
-    /// Records the Expression one parse established.
-    ///
-    /// The Span came from the analysis, so nothing here re-reads the Source to
-    /// find out where the Expression ends or what it holds. There is no
-    /// trailing content to restore either: an Expression claims exactly the
-    /// Cells the Parser read, and whatever follows them is the next
-    /// Expression's, which is the partition ADR 0033 records.
-    ///
-    fn record_expression(&mut self, grid: Grid, parse: Parse) {
-        let Parse { span, analysis } = parse;
-        let start = span.start();
-        let end = span.end();
-        // Where this Span's units sit in the partition, searched for once here
-        // and then recorded on the Expression, so nothing asks again.
-        let units = units_range(&self.units, grid, span);
-        // A later Expression owns its occupied Cells over any operand-slot
-        // hints emitted by an earlier Expression.
-        self.glyphs[start.get()..=end.get()].fill(None);
-
-        let executable = analysis.is_complete();
-        let diagnostic = analysis
-            .error()
-            .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
-        let expression = analysis.into_expression();
-        let function_candidate = match expression.entries().next() {
-            Some((Token::Function, Atom::Function(function))) => {
-                Some((grid.position_at(start), function))
-            }
-            _ => None,
+    /// Parser claims, Glyphs and diagnostics are finalized here for both full
+    /// construction and incremental replacement. Source positions remain Grid
+    /// indices; only Glyph indexing and unit ranges are local to the row.
+    fn derive(id: LanguageMapId, grid: Grid, row_start: usize, bytes: &[u8]) -> Self {
+        let mut walk = RowWalk::default();
+        walk_row(grid, row_start, bytes, &mut walk);
+        debug_assert!(
+            walk.units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
+            "Language Units are partitioned in ascending anchor order"
+        );
+        if walk.parses.is_empty() {
+            // Nothing was read, so there is nothing to carry. Units and
+            // diagnostics are established per parse inside `name_units`, so a
+            // row with no parse has neither and this discards nothing — a
+            // premise stated here because the return would otherwise drop
+            // whatever a future `walk_row` established outside that loop.
+            debug_assert!(
+                walk.units.is_empty() && walk.diagnostics.is_empty(),
+                "a row the walk read no Source in establishes no unit and no diagnostic"
+            );
+            return Self::default();
+        }
+        let mut row = Self {
+            units: walk.units,
+            expressions: Vec::with_capacity(walk.parses.len()),
+            glyphs: vec![None; bytes.len()],
+            lexical_diagnostics: walk.diagnostics,
         };
-        let root = executable
-            .then_some(function_candidate)
-            .flatten()
-            .map(|(anchor, _)| anchor);
-        let atoms = executable.then(|| expression.atoms()).flatten();
-        for entry in expression.positioned() {
-            for cell in entry.cells.clone() {
-                self.glyphs[cell] = Some(Glyph::from(entry.token));
+        for parse in walk.parses {
+            let Parse { span, analysis } = parse;
+            let start = span.start();
+            let end = span.end();
+            // Where this Span's units sit in the partition, searched for once here
+            // and then recorded on the Expression, so nothing asks again.
+            let units = units_range(&row.units, grid, span);
+            // A later Expression owns its occupied Cells over any operand-slot
+            // hints emitted by an earlier Expression.
+            row.glyphs[start.get() - row_start..=end.get() - row_start].fill(None);
+
+            let executable = analysis.is_complete();
+            let diagnostic = analysis
+                .error()
+                .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
+            let expression = analysis.into_expression();
+            let function_candidate = match expression.entries().next() {
+                Some((Token::Function, Atom::Function(function))) => {
+                    Some((grid.position_at(start), function))
+                }
+                _ => None,
+            };
+            let root = executable
+                .then_some(function_candidate)
+                .flatten()
+                .map(|(anchor, _)| anchor);
+            let atoms = executable.then(|| expression.atoms()).flatten();
+            for entry in expression.positioned() {
+                for cell in entry.cells.clone() {
+                    row.glyphs[cell - row_start] = Some(Glyph::from(entry.token));
+                }
+            }
+            row.expressions.push(ExpressionEntry {
+                map_id: id,
+                expression,
+                atoms,
+                diagnostic,
+                root,
+                function_candidate,
+                span,
+                units,
+            });
+        }
+        for (column, byte) in bytes.iter().copied().enumerate() {
+            if byte != SPACE_BYTE && row.glyphs[column].is_none() {
+                row.glyphs[column] = Some(Glyph::Char);
             }
         }
-        self.expressions.push(ExpressionEntry {
-            map_id: self.id,
-            expression,
-            atoms,
-            diagnostic,
-            root,
-            function_candidate,
-            span,
-            units,
-        });
+        row
     }
 }
 
@@ -490,29 +444,11 @@ struct RowWalk {
 }
 
 ///
-/// Where the Source of `row` ends: the first `##`, or the row's own edge.
-///
-/// This is the one place the Comment rule is stated. Nothing at or after the
-/// introducer is Source, so the Parser is never shown it and no Language Unit
-/// and no Expression can be spelled across it. The row edge needs no rule of
-/// its own — it is where the slice the walk was handed stops.
-///
-/// The first `##` in the row is always the one the walk means. No Language
-/// Unit spelling holds a `#`, so nothing the walk reads can begin before the
-/// introducer and end after it.
-///
-fn source_end(row: &[u8]) -> usize {
-    row.windows(2)
-        .position(|pair| pair == b"##")
-        .unwrap_or(row.len())
-}
-
-///
 /// Walks one row left to right, appending everything it establishes to `walk`.
 ///
 /// `row` holds exactly the Cells of one row and `row_start` is the Cell index
 /// of its first column, so no byte of another row is reachable from here: an
-/// Expression cannot straddle the row edge, a `##` cannot be spelled across
+/// Expression cannot straddle the row edge, a `||` cannot be spelled across
 /// one, and a Language Unit ends where the slice does. The row edge needs no
 /// rule of its own for the same reason — a two-Cell spelling that would cross
 /// it simply is not there to read.
@@ -524,18 +460,28 @@ fn source_end(row: &[u8]) -> usize {
 /// named, and one inside an Expression's arity-determined claim is an operand
 /// Cell that fails to bind, because a space no longer terminates anything.
 ///
+/// The whole row goes to the Parser. ADR 0035 moved the Comment into the
+/// parse, so there is no pre-pass left that decides where a row's Source
+/// stops: the `||` introducer is a spelling the Parser recognizes where a
+/// spelling is read, and the Comment it opens claims every Cell after it. The
+/// unaligned `##` scan this replaced could cut a row in the middle of a
+/// Function, because an Expression may begin at any column and a two-Cell
+/// spelling holding a `#` could present one to an overlapping byte pair.
+///
 fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
     let cell = |idx: usize| {
         grid.cell_index(idx)
             .expect("a row's Cells lie inside the Grid that owns the row")
     };
-    let source = &row[..source_end(row)];
-    let text = std::str::from_utf8(source).expect("Source Cells contain ASCII");
+    let text = std::str::from_utf8(row).expect("Source Cells contain ASCII");
 
     let mut idx = row_start;
-    let end_of_source = row_start + source.len();
-    while idx < end_of_source {
-        if source[idx - row_start] == SPACE_BYTE {
+    // The row edge, and the only boundary left. The Comment moved into the
+    // parse (ADR 0035), so nothing before the walk decides where a row's
+    // Source stops.
+    let row_end = row_start + row.len();
+    while idx < row_end {
+        if row[idx - row_start] == SPACE_BYTE {
             // An empty Cell between Expressions is not Source, so it is not
             // diagnosed and starts nothing. This is the whole of what a space
             // does now.
@@ -545,7 +491,7 @@ fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
 
         let analysis = Parser::at(&text[idx - row_start..], idx).analyze();
         let cells = analysis.cells();
-        name_units(grid, row_start, source, &analysis, walk);
+        name_units(grid, row_start, row, &analysis, walk);
         walk.parses.push(Parse {
             span: Span::new(grid, cell(cells.start), cell(cells.end - 1)),
             analysis,
@@ -574,11 +520,21 @@ fn name_units(
         let end = grid
             .cell_index(entry.cells.end - 1)
             .expect("parsed Cell inside Grid");
-        let kind = match entry.atom {
-            Some(Atom::Function(function)) => Some(LanguageUnitKind::Function(function)),
-            Some(Atom::Bang) => Some(LanguageUnitKind::Bang),
-            Some(Atom::Activation(activation)) => Some(LanguageUnitKind::Activation(activation)),
-            Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_)) => {
+        // The Token is asked first, because the kind of a unit is a syntactic
+        // fact and the Token is where syntax lives. Only the Comment arm needs
+        // it: every other unit's Token and Atom agree, so the Atom arms below
+        // say exactly what they said before. A Comment is the one unit that
+        // records no Atom, and matching on the Atom alone would drop it into
+        // the diagnose branch and report every Cell of it as an unmatched
+        // character.
+        let kind = match (entry.token, entry.atom) {
+            (Token::Comment, _) => Some(LanguageUnitKind::Comment),
+            (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
+            (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
+            (_, Some(Atom::Activation(activation))) => {
+                Some(LanguageUnitKind::Activation(activation))
+            }
+            (_, Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_))) => {
                 Some(LanguageUnitKind::OperandLiteral)
             }
             _ => None,
@@ -604,53 +560,6 @@ fn name_units(
     }
 }
 
-///
-/// The run of `len` row-major items belonging to each of `rows` rows.
-///
-/// `row_of` answers which row an item sits in. Items ascend by row, so one
-/// pass names every run; a row holding nothing gets an empty one.
-///
-fn row_runs(rows: usize, len: usize, row_of: impl Fn(usize) -> usize) -> Vec<Range<usize>> {
-    let mut runs = Vec::with_capacity(rows);
-    let mut start = 0;
-    for row in 0..rows {
-        let mut end = start;
-        while end < len && row_of(end) == row {
-            end += 1;
-        }
-        runs.push(start..end);
-        start = end;
-    }
-    runs
-}
-
-///
-/// Walks a whole Source revision, row by row, in row-major order.
-///
-fn walk_source(grid: Grid, bytes: &[u8]) -> RowWalk {
-    assert_eq!(
-        bytes.len(),
-        grid.count(),
-        "LanguageMap Source length must match its Grid"
-    );
-
-    let cols = grid.cols();
-    let mut walk = RowWalk::default();
-    for (row_number, row) in bytes.chunks_exact(cols).enumerate() {
-        walk_row(grid, row_number * cols, row, &mut walk);
-    }
-
-    // Rows are walked top to bottom and each row's column only ever advances,
-    // so anchors ascend strictly and an Expression Span names a contiguous
-    // run of this partition. Nothing downstream may reorder it.
-    debug_assert!(
-        walk.units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
-        "Language Units are partitioned in ascending anchor order"
-    );
-
-    walk
-}
-
 fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
     Diagnostic::for_range(
         grid,
@@ -662,7 +571,7 @@ fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
 
 /// Where the Language Units of `span` sit in `units`.
 ///
-/// `walk_source` establishes its units in ascending anchor order, so an
+/// `walk_row` establishes its units in ascending anchor order, so an
 /// Expression Span names a contiguous run of them and both ends are found by
 /// search rather than by testing every unit against every Span. The returned
 /// bounds are positions in `units`, a different index space from the Cell
@@ -679,7 +588,7 @@ mod tests {
 
     use lang::{Activation, Atom};
 
-    use super::{LanguageMap, LanguageUnitKind, Span, walk_source};
+    use super::{LanguageMap, LanguageUnitKind, Span};
 
     #[test]
     fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
@@ -793,10 +702,9 @@ mod tests {
     /// The Expression Spans of a whole Source revision, in row-major order.
     ///
     fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
-        walk_source(grid, bytes)
-            .parses
-            .into_iter()
-            .map(|parse| parse.span)
+        LanguageMap::build(grid, bytes)
+            .expressions()
+            .map(|expression| expression.span())
             .collect()
     }
 
@@ -977,27 +885,70 @@ mod tests {
         );
     }
 
+    ///
+    /// A Comment forms a Language Unit like every other spelling, and the one
+    /// that is not two Cells: `||` claims itself and every Cell after it in
+    /// its row. ADR 0035 moved the rule out of the byte pre-pass and into the
+    /// parse, so a Comment now has a Span, an anchor and a kind rather than
+    /// being text the walk removed before the Parser saw it.
+    ///
+    /// It answers with no value and reports nothing. Both follow from its
+    /// shape: it records a Token and no Atom, so the Expression withholds its
+    /// Atoms, and nothing about it was refused, so there is no diagnostic.
+    ///
     #[test]
-    fn comments_and_live_edit_fragments_do_not_form_language_units() {
-        let comment = LanguageMap::build(Grid::new(8, 1), b"**##**00");
-        let fragment = LanguageMap::build(Grid::new(8, 1), b".+# **  ");
+    fn a_comment_forms_one_row_length_language_unit_that_is_not_a_value() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b"**||**00");
 
-        assert_eq!(unit_spellings(&comment), vec![(0, vec![0, 1])]);
         assert_eq!(
-            comment
-                .expressions()
-                .next()
-                .unwrap()
-                .span()
-                .positions()
-                .count(),
-            2
+            unit_spellings(&map),
+            vec![(0, vec![0, 1]), (2, vec![2, 3, 4, 5, 6, 7])]
         );
-        assert_eq!(comment.diagnostics().count(), 0);
-        assert_eq!(unit_spellings(&fragment), vec![(0, vec![0, 1])]);
+        assert_eq!(
+            map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
+            vec![LanguageUnitKind::Bang, LanguageUnitKind::Comment]
+        );
+        assert_eq!(map.diagnostics().count(), 0);
+        // The Bang answers; the Comment is complete and answers with nothing.
+        assert_eq!(
+            map.expressions()
+                .map(|expression| expression.atoms().is_some())
+                .collect::<Vec<_>>(),
+            vec![true, false]
+        );
+        // And it is never a root, so no Turn is ever reserved for it.
         assert!(
-            fragment
-                .diagnostics()
+            map.expressions()
+                .all(|expression| expression.root().is_none())
+        );
+        // The whole claim renders as a Comment, spaces and all.
+        for column in 2..8 {
+            assert_eq!(
+                map.glyph_at(grid.position(column, 0).unwrap()),
+                Some(Glyph::Comment)
+            );
+        }
+    }
+
+    ///
+    /// A live-edit fragment still forms no unit and still diagnoses. One `|`
+    /// alone is incomplete or invalid Source, exactly as one `#` was, and `#`
+    /// is now an ordinary unmatched character with no reading of its own.
+    ///
+    #[test]
+    fn live_edit_fragments_do_not_form_language_units() {
+        let rule = LanguageMap::build(Grid::new(8, 1), b".+| **  ");
+        let hash = LanguageMap::build(Grid::new(8, 1), b".+# **  ");
+
+        assert_eq!(unit_spellings(&rule), vec![(0, vec![0, 1])]);
+        assert!(
+            rule.diagnostics()
+                .any(|diagnostic| diagnostic.message.contains("|"))
+        );
+        assert_eq!(unit_spellings(&hash), vec![(0, vec![0, 1])]);
+        assert!(
+            hash.diagnostics()
                 .any(|diagnostic| diagnostic.message.contains("#"))
         );
     }
@@ -1194,7 +1145,7 @@ mod tests {
 ///
 /// A Language Map is derived from whatever the Grid holds when it is read, so
 /// Live Editing puts every revision between two keystrokes through this path:
-/// half-typed Functions, operands with one Cell written, a `#` that is not yet
+/// half-typed Functions, operands with one Cell written, a `|` that is not yet
 /// a Comment. Deriving one has to answer for all of them rather than panic,
 /// and the answer has to keep the rules `CONTEXT.md` states — a row is
 /// partitioned left to right into non-overlapping complete Language Units, an
@@ -1203,8 +1154,8 @@ mod tests {
 ///
 /// The Source is generated as raw text rather than as Expressions. What makes
 /// this path worth a property is exactly the input a grammar-shaped generator
-/// would never produce, so the space that ends a run, the `#` that is
-/// incomplete Source, and the `##` Comment introducer are drawn as characters
+/// would never produce, so the space that ends a run, the `|` that is
+/// incomplete Source, and the `||` Comment introducer are drawn as characters
 /// like everything else.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
@@ -1212,7 +1163,7 @@ mod tests {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod property {
-    use super::{LanguageMap, Parser, SPACE_BYTE};
+    use super::{LanguageMap, LanguageUnitKind, Parser, SPACE_BYTE};
     use crate::grid::Grid;
     use lang::{Activation, Atom, Function, Note, Token};
     use proptest::prelude::*;
@@ -1292,12 +1243,12 @@ mod property {
     /// Most of the weight is one arbitrary printable character, which is what
     /// keeps the whole range a Cell can hold in reach. The rest are the pieces
     /// the walk gives meaning to, so that a row is more often a near miss than
-    /// noise: the space and the `##` introducer that end a run, the `#` that is
-    /// incomplete Source rather than a Comment, a Function spelling, a
-    /// standalone Atom, an Operand Literal, and — as the minority branch — a
-    /// whole Function with its operands. They are concatenated in whatever
-    /// order they are drawn and then cut to the Grid, so what reaches the walk
-    /// is raw text rather than a grammar.
+    /// noise: the space that ends a run, the `||` introducer that claims the
+    /// rest of a row, the `|` that is incomplete Source rather than a Comment,
+    /// a Function spelling, a standalone Atom, an Operand Literal, and — as
+    /// the minority branch — a whole Function with its operands. They are
+    /// concatenated in whatever order they are drawn and then cut to the Grid,
+    /// so what reaches the walk is raw text rather than a grammar.
     ///
     /// `lang::parser`'s `mod property` has a fragment generator of the same
     /// shape, and the two are deliberately separate: `orcvs` depends on `lang`,
@@ -1310,8 +1261,8 @@ mod property {
         prop_oneof![
             8 => proptest::char::range(' ', '~').prop_map(String::from),
             2 => Just(" ".to_owned()),
-            2 => Just("#".to_owned()),
-            2 => Just("##".to_owned()),
+            2 => Just("|".to_owned()),
+            2 => Just("||".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
             1 => select(standalone_spellings()),
             2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
@@ -1322,7 +1273,7 @@ mod property {
 
     /// Exactly `cells` printable ASCII characters: the fragments drawn, cut to
     /// the Grid's Cell count and padded with the empty Cell. Cutting is what
-    /// makes a fragment's own shape unreliable, which is the point — a `##`
+    /// makes a fragment's own shape unreliable, which is the point — a `||`
     /// severed by the row edge is Source a Live Edit reaches.
     fn source_text(cells: usize) -> BoxedStrategy<String> {
         prop::collection::vec(fragment(), 1..=cells)
@@ -1349,16 +1300,21 @@ mod property {
         ///
         /// Deriving a Language Map from any Source answers, and answers with
         /// the partition `CONTEXT.md` describes: each row left to right into
-        /// non-overlapping two-Cell units, with an unmatched character
-        /// diagnosed on its own Cell and the walk resuming one Cell later.
+        /// non-overlapping units of two Cells unless Comment, with an
+        /// unmatched character diagnosed on its own Cell and the walk resuming
+        /// one Cell later.
         ///
-        /// The Comment introducer is the one place the walk stops early, and
-        /// this reads it back with a plain search for `##` rather than by
-        /// re-walking the row. That is an independent statement of the rule
-        /// rather than a copy of the implementation: it holds only because no
-        /// Language Unit spelling contains a `#`, so no unit can step over the
-        /// introducer and the first `##` in a row is always the one the walk
-        /// meets.
+        /// A Comment is the one unit that is not two Cells. ADR 0035 makes it
+        /// a Language Unit the Parser establishes, spelled `||` and claiming
+        /// every remaining Cell of its row, so its Span runs to the last
+        /// column and everything under it — empty Cells included — belongs to
+        /// it. This reads that unit back from the Map rather than searching
+        /// the row for `||`, which is the point of the move: the search this
+        /// replaced stepped over overlapping byte pairs rather than in
+        /// two-Cell units, so it agreed with the defect it was meant to catch.
+        /// Where a row's Comment begins is now the Parser's answer, and what
+        /// is asserted here is the shape of the claim rather than where it
+        /// starts.
         ///
         #[test]
         fn deriving_a_language_map_partitions_every_row_at_the_cell_recovery_resumes_from(
@@ -1369,13 +1325,26 @@ mod property {
                 .expect("one printable ASCII Cell per Position");
             let bytes = source.as_bytes();
 
-            // Which Language Unit claims each Cell, if any.
+            // Which Language Unit claims each Cell, if any, and the column
+            // each row's Comment begins at.
             let mut claimed: Vec<Option<usize>> = vec![None; bytes.len()];
+            let mut comment_start: Vec<Option<usize>> = vec![None; rows];
             let mut previous_anchor: Option<usize> = None;
             for (ordinal, unit) in map.units().enumerate() {
                 let span = unit.span();
 
-                prop_assert_eq!(span.end().get(), span.start().get() + 1);
+                if unit.kind() == LanguageUnitKind::Comment {
+                    // The claim is the rest of the row, so the Span ends at
+                    // the last column of the row it began in. A row holds at
+                    // most one, because the first one claims what a second
+                    // would have been spelled from.
+                    let row = span.start().get() / cols;
+                    prop_assert_eq!(span.end().get(), row * cols + cols - 1, "{:?}", source);
+                    prop_assert!(comment_start[row].is_none(), "{:?}", source);
+                    comment_start[row] = Some(span.start().get() - row * cols);
+                } else {
+                    prop_assert_eq!(span.end().get(), span.start().get() + 1);
+                }
                 prop_assert_eq!(unit.anchor(), grid.position_at(span.start()));
                 prop_assert_eq!(unit.anchor().y(), grid.position_at(span.end()).y());
                 prop_assert!(previous_anchor < Some(span.start().get()), "{:?}", source);
@@ -1394,30 +1363,48 @@ mod property {
 
             // How many times each Cell was diagnosed as an unmatched character.
             let mut diagnosed = vec![0usize; bytes.len()];
-            for diagnostic in &map.lexical_diagnostics {
+            for diagnostic in map.lexical_diagnostics() {
                 prop_assert_eq!(diagnostic.start(), diagnostic.end());
                 diagnosed[diagnostic.start()] += 1;
             }
 
-            for row in 0..rows {
+            for (row, start) in comment_start.iter().copied().enumerate() {
                 let row_start = row * cols;
                 let row_bytes = &bytes[row_start..row_start + cols];
-                let comment = row_bytes
-                    .windows(2)
-                    .position(|pair| pair == b"##")
-                    .unwrap_or(cols);
+                let comment = start.unwrap_or(cols);
 
                 for (column, byte) in row_bytes.iter().copied().enumerate() {
                     let idx = row_start + column;
                     let claims = usize::from(claimed[idx].is_some()) + diagnosed[idx];
 
-                    if column >= comment || byte == SPACE_BYTE {
-                        // A Comment is not Source and an empty Cell spells
-                        // nothing, so neither is named or diagnosed.
+                    if column >= comment {
+                        // Every Cell from the introducer on belongs to the one
+                        // Comment, empty Cells included: the claim is the rest
+                        // of the row rather than whatever Source it holds, and
+                        // its text is never read, so nothing under it is
+                        // diagnosed.
+                        prop_assert_eq!(
+                            claims,
+                            1,
+                            "{:?} named Cell {} of a Comment {} times",
+                            source,
+                            idx,
+                            claims,
+                        );
+                        prop_assert_eq!(
+                            claimed[idx],
+                            claimed[row_start + comment],
+                            "{:?} gave Cell {} to a second Comment",
+                            source,
+                            idx,
+                        );
+                    } else if byte == SPACE_BYTE {
+                        // An empty Cell between Expressions spells nothing, so
+                        // it is neither named nor diagnosed.
                         prop_assert_eq!(
                             claims,
                             0,
-                            "{:?} named Cell {} of a Comment or an empty Cell",
+                            "{:?} named Cell {} of an empty Cell",
                             source,
                             idx,
                         );
@@ -1491,18 +1478,32 @@ mod property {
 
                 // A value never stands in for Source that was not read: an
                 // Expression answers with Atoms exactly when it has nothing to
-                // report, and a root is only ever the anchor of one that does.
+                // report and is not a Comment, and a root is only ever the
+                // anchor of one that does.
+                //
+                // A Comment is a complete Language Unit that is not a value.
+                // That sentence is the whole of ADR 0035's design and it is
+                // this property's premise rather than a case skipped past: a
+                // Comment reports no diagnostic, because nothing about it was
+                // refused; it answers with no Atoms, because it records a
+                // Token and none; and there is nothing to render back, because
+                // its text is arbitrary and was never decoded. It is the one
+                // Expression for which "nothing to report" and "answers with a
+                // value" come apart.
+                let comment = expression
+                    .positioned()
+                    .any(|entry| entry.token == Token::Comment);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic.is_none(),
+                    expression.diagnostic.is_none() && !comment,
                     "{:?}",
                     source,
                 );
                 // And the Atoms answer for the very Cells they were read
-                // from. `standalone_run` builds an Expression straight from
-                // the partition's unit kinds without going through the Parser,
-                // so this is the one check that its Atoms spell the Source
-                // they claim rather than merely being present.
+                // from. A standalone Atom is one whole Expression the walk
+                // reads without operands, so this is the one check that an
+                // Expression's Atoms spell the Source they claim rather than
+                // merely being present.
                 if let Some(atoms) = expression.atoms() {
                     let rendered: String = atoms.iter().map(|atom| atom.to_string()).collect();
                     prop_assert_eq!(
@@ -1581,8 +1582,9 @@ mod property {
         /// The Map gives a Cell an Expression claimed the Glyph of its parsed
         /// Token, and `Glyph::Char` to every other non-empty Cell, so only an
         /// empty Cell can be left unclassified. The converse is false and is
-        /// not asserted: an empty Cell inside an Expression's arity-determined
-        /// claim is an operand Cell and answers with that operand's Glyph.
+        /// not asserted: an empty Cell inside an Expression's claim answers
+        /// with that claim's Glyph, whether it is an operand Cell of an
+        /// arity-determined claim or a Cell of a Comment's.
         ///
         #[test]
         fn expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for(
@@ -1661,9 +1663,9 @@ mod property {
 
     ///
     /// The generated revisions reach the Source that makes the properties above
-    /// worth stating: an empty Cell, a `#` that is incomplete Source, a `##`
-    /// Comment introducer, a character no Language Unit spelling matches, and
-    /// an Expression complete enough to answer with Atoms.
+    /// worth stating: an empty Cell, a `|` that is incomplete Source, a
+    /// Comment the walk established, a character no Language Unit spelling
+    /// matches, and an Expression complete enough to answer with Atoms.
     ///
     /// Neither property can tell Source it never saw from Source it saw and
     /// handled, and the partition property's Comment rule in particular is a
@@ -1675,8 +1677,8 @@ mod property {
     /// The case count is pinned rather than taken from `PROPTEST_CASES`,
     /// because this claim is about the generator rather than about the
     /// derivation. It does derive a Language Map from each draw — that is how
-    /// the last two of the five counts are taken — so the fixed 256 cases are
-    /// 256 derivations that neither verification tier can dial down. That is
+    /// the last three of the five counts are taken — so the fixed 256 cases
+    /// are 256 derivations that neither verification tier can dial down. That is
     /// the cost of the claim rather than an oversight: a coverage guard that
     /// weakened with the tier would stop guarding exactly where the tier is
     /// cheapest.
@@ -1703,25 +1705,32 @@ mod property {
                 if bytes.contains(&SPACE_BYTE) {
                     empty.set(empty.get() + 1);
                 }
-                if bytes
-                    .chunks_exact(cols)
-                    .any(|row| row.windows(2).any(|pair| pair == b"##"))
+                // A Comment the walk established, not a `||` somewhere in the
+                // text. Searching the rows for the introducer would be the
+                // unaligned overlapping-pair scan ADR 0035 deleted, and it
+                // over-counts for the same reason it was unsound: `.|` beside
+                // a `|`, and a `||` inside a Function's arity-determined
+                // claim, both hold the pair and establish no Comment. The Map
+                // is already in hand, so it answers.
+                if map
+                    .units()
+                    .any(|unit| unit.kind() == LanguageUnitKind::Comment)
                 {
                     comment.set(comment.get() + 1);
                 }
-                // A `#` with no `#` beside it in its own row: incomplete Source
+                // A `|` with no `|` beside it in its own row: incomplete Source
                 // rather than the introducer, which is the distinction
                 // CONTEXT.md draws.
                 if bytes.chunks_exact(cols).any(|row| {
                     row.iter().enumerate().any(|(column, byte)| {
-                        *byte == b'#'
-                            && row.get(column + 1) != Some(&b'#')
-                            && (column == 0 || row[column - 1] != b'#')
+                        *byte == b'|'
+                            && row.get(column + 1) != Some(&b'|')
+                            && (column == 0 || row[column - 1] != b'|')
                     })
                 }) {
                     incomplete.set(incomplete.get() + 1);
                 }
-                if !map.lexical_diagnostics.is_empty() {
+                if map.lexical_diagnostics().next().is_some() {
                     unmatched.set(unmatched.get() + 1);
                 }
                 // A Function among the Atoms rather than merely an Expression
@@ -1744,11 +1753,11 @@ mod property {
         assert!(empty.get() > 0, "no generated revision held an empty Cell");
         assert!(
             incomplete.get() > 0,
-            "no generated revision held an incomplete `#`",
+            "no generated revision held an incomplete `|`",
         );
         assert!(
             comment.get() > 0,
-            "no generated revision held the `##` Comment introducer",
+            "no generated revision established a Comment",
         );
         assert!(
             unmatched.get() > 0,
@@ -1774,8 +1783,10 @@ mod rebuild_property {
     use std::collections::BTreeSet;
 
     /// The Cells a Source is built from: Function spellings, operands, Bang,
-    /// the comment that ends a row, and the space that separates runs.
-    const ALPHABET: &[u8] = b".+=x><0123456789ABCDEF*# ";
+    /// the `|` a Comment is introduced with, and the space that separates
+    /// runs. A pair of them opens a Comment that claims the rest of its row,
+    /// and one alone is incomplete Source, so both readings are reachable.
+    const ALPHABET: &[u8] = b".+=x><0123456789ABCDEF*| ";
 
     ///
     /// Everything a Map holds except its identity, in a form two Maps can be
@@ -1785,7 +1796,7 @@ mod rebuild_property {
     /// and says so, exactly as a built one does. Everything else has to agree
     /// Cell for Cell, unit for unit, and diagnostic for diagnostic.
     ///
-    /// One lexical diagnostic, as its Cells and its message.
+    /// One diagnostic, as its Cells and its message, in reported order.
     type ReportedDiagnostic = (usize, usize, String);
 
     /// One Expression, as its Span, its diagnostic, and the units its range
@@ -1802,10 +1813,13 @@ mod rebuild_property {
 
     fn contents(map: &LanguageMap) -> Contents {
         (
-            map.units.clone(),
-            map.glyphs.clone(),
-            map.lexical_diagnostics
-                .iter()
+            map.units().cloned().collect(),
+            (0..map.grid.count())
+                .map(|index| {
+                    map.glyph_at(map.grid.position_at(map.grid.cell_index(index).unwrap()))
+                })
+                .collect(),
+            map.diagnostics()
                 .map(|diagnostic| {
                     (
                         diagnostic.start(),
@@ -1814,8 +1828,7 @@ mod rebuild_property {
                     )
                 })
                 .collect(),
-            map.expressions
-                .iter()
+            map.expressions()
                 .map(|entry| {
                     (
                         entry.span.start().get(),
@@ -1841,8 +1854,8 @@ mod rebuild_property {
         /// The written rows are the only ones whose Cells change, which is the
         /// contract `rebuild` is given. Rows are written with fresh content
         /// rather than mutated, so a row can gain or lose Language Units and
-        /// move every later Expression's range in the partition — the case the
-        /// carried ranges exist to survive.
+        /// leave later rows' Expressions in place — the case incremental
+        /// derivation must preserve.
         ///
         #[test]
         fn a_rebuilt_map_equals_the_map_a_full_build_would_have_made(

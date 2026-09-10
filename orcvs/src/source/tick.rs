@@ -424,12 +424,17 @@ fn schedule(
             .zip(lang::Tokens::from(&node.function))
             .any(|(operand, token)| operand.child.is_none() && operand.cells.len() < token.len())
         {
-            let boundary = if node.span.end().get() % grid.cols() == grid.cols() - 1 {
-                "Expression layout crosses the row edge"
-            } else {
-                "Expression operand crosses the Source boundary"
-            };
-            diagnostics.push(diagnose(node, boundary));
+            // The row edge is the only boundary a truncated operand can meet.
+            // An operand is short of its Token width only where `take_token`
+            // ran out of Source, and that path claims what is left of the
+            // Source it was handed, so the Expression ends at the last Cell of
+            // its row. The second message this chose between —
+            // "Expression operand crosses the Source boundary" — named the cut
+            // the `##` pre-pass made mid-row, and ADR 0035 deleted the pre-pass
+            // rather than the boundary it invented: a Comment is a Language
+            // Unit an Expression's claim reaches over, not a place the Source
+            // stops.
+            diagnostics.push(diagnose(node, "Expression layout crosses the row edge"));
         }
     }
     let lookup = Lookup::new(grid, nodes);
@@ -755,6 +760,114 @@ mod test {
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(&source.snapshot()[32..34], "05");
         assert!(plan.play_commands.is_empty());
+    }
+
+    ///
+    /// The aligned successors of the `:#` case that motivated ADR 0035.
+    ///
+    /// `.|` is the one spelling whose second Cell is a `|`, so it is the one
+    /// that could present a `||` to a scan stepping over overlapping byte
+    /// pairs rather than in two-Cell units. The Parser reads in units, so a
+    /// `|` beside an Absolute Difference is that Function's first operand and
+    /// fails to bind, and the row holds no Comment at all.
+    ///
+    /// A row of `.|` and a real introducer is the other half: the Function
+    /// keeps the claim its arity declares, and the `||` after it opens a
+    /// Comment that claims what is left. Both rows run a Tick, because what
+    /// changed is which Cells the walk hands the Parser and the answer has to
+    /// hold through execution rather than only through derivation.
+    ///
+    #[test]
+    fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
+        // `.|` at Cells 0 and 1 with a `|` at Cell 2: the pair at Cells 1 and
+        // 2 spells `||` and means nothing, because nothing reads it.
+        let (plan, source) = configured_source(Grid::new(8, 2), &[".||102", ""], &[], &[]);
+
+        assert!(plan.writes.is_empty());
+        assert!(
+            !source
+                .language_map()
+                .units()
+                .any(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+        );
+        let refused = source.language_map().expressions().next().unwrap();
+        assert_eq!(refused.span().positions().count(), 6);
+        assert!(refused.root().is_none());
+
+        // The same Function beside a real introducer. The Absolute Difference
+        // of 01 and 02 answers 01 and writes it below; the Comment claims the
+        // rest of the row and answers nothing.
+        let (plan, source) = configured_source(Grid::new(8, 2), &[".|0102||", ""], &[], &[]);
+
+        assert_eq!(&source.snapshot()[8..10], "01");
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            source
+                .language_map()
+                .units()
+                .filter(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+                .map(|unit| unit.anchor().x())
+                .collect::<Vec<_>>(),
+            vec![6]
+        );
+        for column in 6..8 {
+            assert_eq!(
+                source
+                    .language_map()
+                    .glyph_at(source.grid().position(column, 0).unwrap()),
+                Some(crate::glyph::Glyph::Comment)
+            );
+        }
+    }
+
+    ///
+    /// The `##` collision that broke the pre-pass holds no Comment.
+    ///
+    /// This is the shape of the row that motivated ADR 0035: `:#` at Cells 3
+    /// and 4 with a `#` at Cell 5 presented `##` at Cells 4 and 5, and the
+    /// walk cut the row at Cell 4, in the middle of what a Function would
+    /// have been. One keystroke of a Live Edit reached it.
+    ///
+    /// ADR 0035 moved the Comment off `#` as well as into the parse, so `#`
+    /// spells nothing at all now and the collision class is gone. What this
+    /// pins is that no Comment forms and the row is read one Cell at a time.
+    /// It does not pin the Note Range reading: `:#` is not in the Function
+    /// table until `sequence-values/05` lands, so `:` `#` `#` are three
+    /// characters the table does not hold, each refused its own Cell by ADR
+    /// 0018's recovery. When `:#` becomes a Function the diagnostics below
+    /// change to one refused Function, and no Comment still forms — which is
+    /// this test's claim either way.
+    ///
+    #[test]
+    fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
+        let (plan, source) = configured_source(Grid::new(8, 2), &["** :##", ""], &[], &[]);
+
+        assert!(
+            !source
+                .language_map()
+                .units()
+                .any(|unit| unit.kind() == crate::source::LanguageUnitKind::Comment)
+        );
+        assert_eq!(
+            source
+                .language_map()
+                .diagnostics()
+                .filter(|diagnostic| diagnostic.message.starts_with("invalid Language Unit"))
+                .map(|diagnostic| diagnostic.start())
+                .collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
+        // The Bang before them is a whole Expression and still fires, which
+        // clears its own two Cells and writes nothing else. Nothing the row
+        // holds after it is Source anything reads, so nothing else can.
+        assert_eq!(&source.snapshot()[..2], "  ");
+        assert_eq!(
+            plan.writes
+                .iter()
+                .map(|write| write.cell.get())
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
     }
 
     #[test]

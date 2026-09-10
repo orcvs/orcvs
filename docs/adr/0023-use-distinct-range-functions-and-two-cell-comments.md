@@ -1,3 +1,5 @@
 # Use distinct Range Functions and two-Cell Comments
 
+Status: partially superseded by [ADR 0035](0035-spell-the-comment-as-a-parser-unit.md) on the Comment. The introducer is spelled `||` and a Comment is a Language Unit the Parser establishes rather than text removed ahead of the walk; one `|` alone is incomplete or invalid Source, exactly as one `#` was. The Range Function decisions remain in force, and `:#` is now the only spelling that holds a `#`.
+
 Orcvs assigns `:-` to Number Range and `:#` to Note Range, giving each Function one fixed operand and result signature rather than selecting numeric or musical behavior from its operands. To make `:#` an unambiguous two-Cell Function and keep reserved Source forms aligned with the language's two-Cell recognition model, Comments begin with `##`; one `#` alone is incomplete or invalid Source. Type-preserving structural Sequence Functions remain generic because they do not reinterpret their Atoms, while ADR 0021's explicit conversion Functions remain the sole type-directed exception and always produce their named target type.

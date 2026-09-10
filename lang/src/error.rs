@@ -144,6 +144,13 @@ pub enum SyntaxError {
 
     #[error("unexpected trailing content {0:?}")]
     UnexpectedTrailingContent(String),
+
+    /// A Comment where a value was required. ADR 0035 makes a Comment a
+    /// complete Language Unit that is not a value: it records a Token and no
+    /// Atom, so permissive analysis completes and strict parsing, which
+    /// yields Atoms, has nothing to yield.
+    #[error("a Comment is a Language Unit rather than a value")]
+    CommentIsNotAValue,
 }
 
 #[derive(Error, Debug)]
