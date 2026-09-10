@@ -492,12 +492,19 @@ pub(super) mod stated {
                 "one computation is stated one answer: two are stated here for the same anchor"
             );
         }
-        for (index, (anchor, _)) in reservations.iter().enumerate() {
+        for (index, (anchor, reserved)) in reservations.iter().enumerate() {
             assert!(
                 !reservations[..index]
                     .iter()
                     .any(|(stated, _)| stated == anchor),
                 "one computation is stated one reservation: two are stated here for the same anchor"
+            );
+            assert!(
+                *reserved == Reserved::Row,
+                "a stated reservation is a width production would not derive: \
+                 `Reserved::Pair` is what `derive_reservations` answers for every \
+                 computation that states nothing, so stating one says nothing and \
+                 is overwritten by the pass that reads it"
             );
         }
         // A replacement's width is derived from what it declares and compared
@@ -560,6 +567,12 @@ pub(super) mod stated {
                 return execution.reject(diagnostic);
             }
         }
+        // Reached only where an order existed and ran to its end. The two
+        // returns above skip it for reasons the fixture can see in the plan it
+        // gets back: a rejection stops the order where it found the defect, and
+        // a cycle admits no order at all and publishes diagnostics and nothing
+        // else. Neither can be mistaken for a Tick in which a stated answer was
+        // quietly not delivered, which is the one thing this guard is for.
         assert!(
             stated.iter().all(|stated| *stated),
             "every stated answer reached the Turn of the computation it names"
@@ -568,17 +581,15 @@ pub(super) mod stated {
     }
 
     ///
-    /// What scheduling reserved for the computation anchored at `anchor`, as a
-    /// place a fixture can state into.
+    /// The computation anchored at `anchor`, as the index everything else here
+    /// addresses it by, or `None` where no computation is anchored there.
     ///
-    /// ADR 0036 derives a reservation from what a Function declares its answer
-    /// to be, and no built Function declares a Sequence one — ADR 0007's Range
-    /// and Concatenate are unbuilt — so the width a Sequence-answering row
-    /// reserves is the second thing a test has to state alongside the answer
-    /// itself. It is stated as the reservation, not as an answer the schedule
-    /// reads back: what a computation answers is a fact of the Tick, and what
-    /// it reserves is a fact of the schedule, and the seam that let one imply
-    /// the other is what these tickets are removing.
+    /// Both halves of a fixture name a computation by the Cell its Function is
+    /// anchored at, because that is the coordinate a fixture author can read
+    /// off the Source rows they wrote. Every use is an existence check first:
+    /// an anchor naming no computation is the fixture error this answers
+    /// `None` for, and the callers turn into a panic naming which half — the
+    /// answer or the reservation — named it.
     ///
     fn anchored(lookup: &Lookup, grid: Grid, anchor: CellIndex) -> Option<usize> {
         lookup

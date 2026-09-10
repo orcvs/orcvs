@@ -301,11 +301,17 @@ impl Lookup {
 /// before its own turn comes, which is what lets a pervasive Function widen
 /// over an operand that reserves a row.
 ///
-/// A reservation already settled as [`Reserved::Row`] is left where it stands.
-/// [`reserved_for`] only ever widens a `Pair` into a `Row` and never the other
-/// way, so deriving a settled `Row` again could only answer `Row`: skipping it
-/// is the same answer, and it is what lets the pass run over reservations that
-/// were decided before it rather than only over an untouched vector.
+/// A reservation already settled as [`Reserved::Row`] is left where it stands,
+/// and the guard that leaves it there is load-bearing rather than a shortcut.
+/// [`reserved_for`] is a pure function of the Function table and the children's
+/// settled reservations: it has no memory of what the slot already held, so for
+/// a `Row` no declaration produced — one a test states, because no built
+/// Function declares a Sequence answer — it answers `Pair` and narrows the
+/// statement away. Skipping such a node is what lets this pass run over
+/// reservations decided before it rather than only over an untouched vector,
+/// which is the whole reason it is a function and not a loop inside
+/// [`Lookup::new`]. Production never reaches that case: `Lookup::new` hands an
+/// all-`Pair` vector, so every index is derived exactly once.
 ///
 fn derive_reservations(nodes: &[Computation], reserved: &mut [Reserved]) {
     for index in (0..nodes.len()).rev() {
@@ -1062,14 +1068,25 @@ mod test {
         // fixture states is one computation's reservation, and every other
         // reservation in the Grid still has to be the one production derives
         // beside it. The nested `.-` at column 2 reserves a row here, so the
-        // pervasive `.+` that owns it reserves one too — and its own six-Atom
-        // answer is admitted rather than refused as a result that is not the
-        // Cell pair the schedule reserved.
+        // pervasive `.+` that owns it reserves one too — and its own answer of
+        // three Atoms across six Cells is admitted rather than refused as a
+        // result that is not the Cell pair the schedule reserved.
         //
         // ADR 0036's rule that a Sequence-answering child widens its ancestor
         // is not what this proves, because the child's width is stated rather
         // than declared. That is owed by `sequence-values/05` against a Range
         // row, and this test can go when it lands.
+        //
+        // The premise the width above rests on, pinned so it cannot go quiet:
+        // the root reserves a Row only by widening over its child. Were Add to
+        // declare a Sequence answer of its own, the six Cells below would still
+        // be written and this test would pass while exercising nothing.
+        assert!(
+            !lang::Function::Add.answers_sequence()
+                && lang::Function::Add.widens_over_a_sequence_operand(),
+            "the root's reservation can only have been derived from its child",
+        );
+
         let grid = Grid::new(16, 2);
         let (plan, source) = stated_source(
             grid,
@@ -1158,6 +1175,27 @@ mod test {
             &[(0, 16)],
             &[(2, super::Reserved::Row)],
             &[],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a stated reservation is a width production would not derive")]
+    fn a_stated_pair_reservation_is_a_fixture_error() {
+        // The one fixture mistake the seam could answer silently. Stating a
+        // reservation is how a fixture says what production cannot derive yet,
+        // and `Reserved::Pair` is the width production derives for everything:
+        // `derive_reservations` re-derives every node still holding one, so a
+        // stated Pair is overwritten by the very pass that reads it. Here the
+        // pervasive `.+` at Cell 16 would widen over the row-reserving `.-` at
+        // Cell 18 and answer Row again, leaving a test that states the parent
+        // does not widen asserting the opposite of what it says and passing.
+        let grid = Grid::new(16, 2);
+        stated_source(
+            grid,
+            &["                ", ".+.-000003"],
+            &[(16, 0)],
+            &[(18, super::Reserved::Row), (16, super::Reserved::Pair)],
+            &[(16, Value::Sequence(sequence(&[0x0A, 0x0B, 0x0C])))],
         );
     }
 
