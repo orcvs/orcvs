@@ -19,3 +19,7 @@ When this ticket lands nothing populates the destination map.
 ## Comments
 
 Split out of the architecture review of the Sequence branch, 2026-09-10.
+
+Carry this batch's share of `10` rather than repeating it: these tests change route here, and the
+state record `10` introduces is what they read once they have. Changing them twice is the cost of
+sequencing the two apart.

@@ -7,14 +7,14 @@ including the discard that silences the unused-parameter lint in the shipped bui
 only what it uses.
 
 **Blocked by:** 03 — Delete the answer-substitution fork; 05, 06, 07 — the three destination
-migration batches.
+migration batches; 10 — Say what a Tick evaluated.
 
 **Status:** ready-for-agent
 
 - [ ] The configuration record and every entry point taking one are gone.
 - [ ] Scheduling and execution take no parameter that the shipped build discards.
-- [ ] The Tick scheduler and executor contain no `cfg` attribute that changes what the shipped
-      module computes.
+- [ ] The Tick scheduler and executor contain no `cfg` attribute on any field, signature,
+      parameter, or statement of a shipped function. Test modules are unaffected.
 - [ ] The crate builds and its tests pass, and the workspace clippy and test gates are clean.
 - [ ] `docs/agents/` or `CLAUDE.md` records the standing rule: no shipped module compiles
       differently under test, and a test that needs an input production cannot produce constructs
