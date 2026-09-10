@@ -213,13 +213,8 @@ impl Lookup {
                 subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[index]);
             }
         }
-        // The same preorder is what makes one reverse pass enough here: every
-        // operand child sits at a higher index than the Function that owns it,
-        // so a node's children are already answered when its own turn comes.
         let mut reserved = vec![Reserved::Pair; nodes.len()];
-        for index in (0..nodes.len()).rev() {
-            reserved[index] = reserved_for(&nodes, &reserved, index, nodes[index].function);
-        }
+        derive_reservations(&nodes, &mut reserved);
         Self {
             grid,
             nodes,
@@ -324,6 +319,29 @@ impl Lookup {
             lookup: self,
             output,
             cells: start..start + width,
+        }
+    }
+}
+
+///
+/// What every computation reserves, per ADR 0036, derived in one reverse pass.
+///
+/// Preorder puts every operand child at a higher index than the Function that
+/// owns it, so one pass backwards is enough: a node's children are answered
+/// before its own turn comes, which is what lets a pervasive Function widen
+/// over an operand that reserves a row.
+///
+/// A reservation already settled as [`Reserved::Row`] is left where it stands.
+/// [`reserved_for`] only ever widens a `Pair` into a `Row` and never the other
+/// way, so deriving a settled `Row` again could only answer `Row`: skipping it
+/// is the same answer, and it is what lets the pass run over reservations that
+/// were decided before it rather than only over an untouched vector.
+///
+fn derive_reservations(nodes: &[Computation], reserved: &mut [Reserved]) {
+    for index in (0..nodes.len()).rev() {
+        if reserved[index] == Reserved::Pair {
+            let derived = reserved_for(nodes, reserved, index, nodes[index].function);
+            reserved[index] = derived;
         }
     }
 }
@@ -527,6 +545,24 @@ fn schedule(
     map: &LanguageMap,
     configuration: &Configuration,
 ) -> Result<Schedule, Vec<Diagnostic>> {
+    let (nodes, diagnostics) = computations(grid, map, configuration);
+    order_turns(Lookup::new(grid, nodes), diagnostics)
+}
+
+///
+/// The computations one Source revision holds, in Parser preorder, and the
+/// diagnostics its layout owes before any of them is ordered.
+///
+/// This is everything a schedule knows before a [`Lookup`] indexes it: which
+/// Cells each computation claims, which Portal destinations it resolved, and
+/// which Expressions the row edge cut short. What each computation reserves,
+/// and therefore what is ordered after what, is the [`Lookup`]'s to derive.
+///
+fn computations(
+    grid: Grid,
+    map: &LanguageMap,
+    configuration: &Configuration,
+) -> (Vec<Computation>, Vec<Diagnostic>) {
     let mut nodes: Vec<Computation> = Vec::new();
     let mut diagnostics = Vec::new();
     for expression in map.expressions() {
@@ -629,7 +665,19 @@ fn schedule(
             diagnostics.push(diagnose(node, "Expression layout crosses the row edge"));
         }
     }
-    let lookup = Lookup::new(grid, nodes);
+    (nodes, diagnostics)
+}
+
+///
+/// One Tick's execution order, from the reservations a [`Lookup`] has already
+/// derived: every dependency edge ADR 0036's reservations name, resolved into
+/// the order the Turns are taken in, or the cycle that admits no order at all.
+///
+fn order_turns(
+    lookup: Lookup,
+    mut diagnostics: Vec<Diagnostic>,
+) -> Result<Schedule, Vec<Diagnostic>> {
+    let grid = lookup.grid;
     let nodes = lookup.nodes();
     let active = potentially_active(&lookup);
     let mut edges = BTreeSet::new();
@@ -833,7 +881,7 @@ mod observed {
 
 #[cfg(test)]
 mod test {
-    use super::{Effect, Encoding, Interpretation, Portal, Tick, Value, observed, resolve};
+    use super::{Effect, Encoding, Portal, Tick, Value, observed, resolve};
 
     ///
     /// Builds one Source Snapshot from `rows`, padded to the Grid's width.
@@ -843,42 +891,14 @@ mod test {
         rows.iter().map(|row| format!("{row:width$}")).collect()
     }
 
+    ///
+    /// Runs one Tick against `rows` with the Portal destinations `outputs`
+    /// states, and commits its plan.
+    ///
     fn configured_source(
         grid: Grid,
         rows: &[&str],
         outputs: &[(usize, usize)],
-        supplied: &[(usize, lang::Function)],
-    ) -> (TickPlan, crate::source::Source) {
-        configured_source_answers(
-            grid,
-            rows,
-            outputs,
-            &supplied
-                .iter()
-                .map(|(anchor, function)| {
-                    (
-                        *anchor,
-                        Interpretation::Cell(lang::Atom::Function(*function)),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    ///
-    /// Supplies a whole answer where the Interpreter would have computed one.
-    ///
-    /// The seam a Sequence result is stated through until ADR 0007's Range and
-    /// Concatenate can spell one in Source. A supplied Sequence replaces the
-    /// answer its Function declares, so scheduling reserves for it exactly as
-    /// it will for a Range: these tests drive the production reservation rather
-    /// than a test-only path around it.
-    ///
-    fn configured_source_answers(
-        grid: Grid,
-        rows: &[&str],
-        outputs: &[(usize, usize)],
-        supplied: &[(usize, Interpretation)],
     ) -> (TickPlan, crate::source::Source) {
         let mut source = crate::source::Source::new(grid);
         for (index, byte) in snapshot(grid, rows).bytes().enumerate() {
@@ -886,6 +906,15 @@ mod test {
                 .set(cell(grid, index), &char::from(byte).to_string())
                 .unwrap();
         }
+        let plan = source.execute_configured(Tick::ZERO, &destinations(grid, outputs));
+        (plan, source)
+    }
+
+    ///
+    /// The fixed Portal destinations a fixture states, as the Configuration
+    /// the planning entry point takes.
+    ///
+    fn destinations(grid: Grid, outputs: &[(usize, usize)]) -> super::Configuration {
         let mut configuration = super::Configuration::default();
         for (anchor, output) in outputs {
             configuration
@@ -894,13 +923,7 @@ mod test {
                 .or_default()
                 .push(grid.position_at(cell(grid, *output)));
         }
-        configuration.supplied.extend(
-            supplied
-                .iter()
-                .map(|(anchor, answer)| (cell(grid, *anchor), answer.clone())),
-        );
-        let plan = source.execute_configured(Tick::ZERO, &configuration);
-        (plan, source)
+        configuration
     }
 
     ///
@@ -921,6 +944,7 @@ mod test {
         grid: Grid,
         rows: &[&str],
         outputs: &[(usize, usize)],
+        reservations: &[(usize, super::Reserved)],
         answers: &[(usize, Value)],
     ) -> (TickPlan, crate::source::Source) {
         let mut source = crate::source::Source::new(grid);
@@ -929,14 +953,10 @@ mod test {
                 .set(cell(grid, index), &char::from(byte).to_string())
                 .unwrap();
         }
-        let mut configuration = super::Configuration::default();
-        for (anchor, output) in outputs {
-            configuration
-                .destinations
-                .entry(cell(grid, *anchor))
-                .or_default()
-                .push(grid.position_at(cell(grid, *output)));
-        }
+        let reservations: Vec<_> = reservations
+            .iter()
+            .map(|(anchor, reserved)| (cell(grid, *anchor), *reserved))
+            .collect();
         let answers: Vec<_> = answers
             .iter()
             .map(|(anchor, value)| (cell(grid, *anchor), value.clone()))
@@ -947,7 +967,8 @@ mod test {
             bytes.as_bytes(),
             &source.shared_language_map(),
             Tick::ZERO,
-            &configuration,
+            &destinations(grid, outputs),
+            &reservations,
             &answers,
         );
         source.commit_tick(&plan);
@@ -969,11 +990,55 @@ mod test {
             grid,
             rows,
             outputs,
+            &[],
             &replacements
                 .iter()
                 .map(|(anchor, function)| (*anchor, Value::Atom(lang::Atom::Function(*function))))
                 .collect::<Vec<_>>(),
         )
+    }
+
+    ///
+    /// One Tick in which the computations at `answers` are the Sequence-
+    /// answering rows ADR 0007's Range and Concatenate will spell: each
+    /// reserves the Cells ADR 0036 gives such a row — its destination through
+    /// the end of that row — and each answers the Numbers stated for it.
+    ///
+    /// The two facts are stated together here, in one place, because a
+    /// declared Range row states both together too: what it answers is a fact
+    /// of the Tick and what it reserves is a fact of the schedule, and no
+    /// fixture below derives either from the other. That derivation is the one
+    /// thing these tests cannot prove while no Function declares a Sequence
+    /// answer, which is why the test that asserted it is owed by
+    /// `sequence-values/05` rather than stated here.
+    ///
+    fn sequence_source(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        answers: &[(usize, &[u8])],
+    ) -> (TickPlan, crate::source::Source) {
+        stated_source(
+            grid,
+            rows,
+            outputs,
+            &answers
+                .iter()
+                .map(|(anchor, _)| (*anchor, super::Reserved::Row))
+                .collect::<Vec<_>>(),
+            &answers
+                .iter()
+                .map(|(anchor, values)| (*anchor, Value::Sequence(sequence(values))))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    ///
+    /// One Sequence of Numbers, or the empty Sequence for no Numbers at all.
+    ///
+    fn sequence(values: &[u8]) -> lang::Sequence {
+        lang::Sequence::new(values.iter().copied().map(lang::Atom::Number))
+            .expect("a Number is a Sequence member")
     }
 
     #[test]
@@ -993,6 +1058,7 @@ mod test {
             grid,
             &rows,
             &[(0, 16)],
+            &[],
             &[(0, Value::Atom(lang::Atom::Number(1)))],
         );
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
@@ -1008,6 +1074,7 @@ mod test {
             grid,
             &rows,
             &[(0, 16)],
+            &[],
             &[(4, Value::Atom(lang::Atom::Number(1)))],
         );
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
@@ -1030,6 +1097,111 @@ mod test {
     }
 
     #[test]
+    fn a_stated_reservation_leaves_every_derived_reservation_consistent_with_it() {
+        // The seam's own regression, not ADR 0036's widening rule: what a
+        // fixture states is one computation's reservation, and every other
+        // reservation in the Grid still has to be the one production derives
+        // beside it. The nested `.-` at column 2 reserves a row here, so the
+        // pervasive `.+` that owns it reserves one too — and its own six-Atom
+        // answer is admitted rather than refused as a result that is not the
+        // Cell pair the schedule reserved.
+        //
+        // ADR 0036's rule that a Sequence-answering child widens its ancestor
+        // is not what this proves, because the child's width is stated rather
+        // than declared. That is owed by `sequence-values/05` against a Range
+        // row, and this test can go when it lands.
+        let grid = Grid::new(16, 2);
+        let (plan, source) = stated_source(
+            grid,
+            &["                ", ".+.-000003"],
+            &[(16, 0)],
+            &[(18, super::Reserved::Row)],
+            &[(16, Value::Sequence(sequence(&[0x0A, 0x0B, 0x0C])))],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 6);
+        assert_eq!(source.snapshot(), snapshot(grid, &["0A0B0C", ".+.-000003"]));
+    }
+
+    #[test]
+    #[should_panic(expected = "a stated answer names a computation the schedule contains")]
+    fn a_cyclic_source_does_not_excuse_a_fixture_error() {
+        // A Source that admits no order publishes diagnostics and nothing
+        // else, which is indistinguishable from what a mistyped fixture makes
+        // happen — so a fixture error checked after ordering would be the one
+        // check a cycle switches off. The Addition writes over its own operand
+        // and the answer names an operand Cell: both are wrong, and the one
+        // the fixture author can fix is the one reported.
+        let grid = Grid::new(16, 2);
+        stated_source(
+            grid,
+            &[".+0102", ""],
+            &[(0, 2)],
+            &[],
+            &[(4, Value::Atom(lang::Atom::Number(1)))],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "two are stated here for the same anchor")]
+    fn two_answers_at_one_anchor_are_a_fixture_error() {
+        // The second answer could only ever be dropped: one computation takes
+        // one Turn. Reported as the duplicate it is rather than as the Turn
+        // that appeared not to reach it.
+        let grid = Grid::new(16, 2);
+        stated_source(
+            grid,
+            &[".+0203", ""],
+            &[(0, 16)],
+            &[],
+            &[
+                (0, Value::Atom(lang::Atom::Number(1))),
+                (0, Value::Atom(lang::Atom::Number(2))),
+            ],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a stated answer belongs to a computation that answers a value")]
+    fn a_stated_answer_at_a_terminal_output_root_is_a_fixture_error() {
+        // A root Terminal Output Function is the one Function a Turn lets
+        // answer no value at all, and what it answers is a Play Command. A
+        // fixture stating a value there would have this seam plan a write no
+        // Turn of that computation can produce.
+        //
+        // The Equality above it answers the Bang that activates it, because an
+        // unactivated Terminal Output root takes no Turn at all and would be
+        // refused a Cell before reaching the arm under test.
+        let grid = Grid::new(16, 3);
+        stated_source(
+            grid,
+            &[".=0101", "", "!>007FC4"],
+            &[(0, 16)],
+            &[],
+            &[(32, Value::Atom(lang::Atom::Number(1)))],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a stated reservation names a computation the schedule contains")]
+    fn a_stated_reservation_at_no_computations_anchor_is_a_fixture_error() {
+        // The same fixture error as below, for the other half of what a
+        // Sequence-answering row states. A reservation stated at a Cell no
+        // computation is anchored at would leave the schedule deriving every
+        // width itself, and a Sequence answer would then be refused for a
+        // reason that has nothing to do with what the test is asking.
+        let grid = Grid::new(16, 2);
+        stated_source(
+            grid,
+            &[".+0203", ""],
+            &[(0, 16)],
+            &[(2, super::Reserved::Row)],
+            &[],
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "a stated answer names a computation the schedule contains")]
     fn a_stated_answer_at_no_computations_anchor_is_a_fixture_error() {
         // Cell 2 holds the Addition's first operand rather than a Function
@@ -1042,6 +1214,7 @@ mod test {
             grid,
             &[".+0203", ""],
             &[(0, 16)],
+            &[],
             &[(2, Value::Atom(lang::Atom::Number(1)))],
         );
     }
@@ -1054,7 +1227,7 @@ mod test {
         let denominator = ".+".repeat(32) + &"01".repeat(33);
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
-        let (plan, source) = configured_source(Grid::new(width, 2), &[&text, ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(width, 2), &[&text, ""], &[]);
         // 66 / 33 = 2. Reversing the siblings instead produces zero.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
@@ -1065,7 +1238,7 @@ mod test {
     fn live_unchanged_nested_syntax_errors_do_not_repeat_as_tick_failures() {
         let grid = Grid::new(20, 2);
         let rows = [".+01.x02.+03??", ""];
-        let (plan, mut source) = configured_source(grid, &rows, &[], &[]);
+        let (plan, mut source) = configured_source(grid, &rows, &[]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(
             !source
@@ -1097,7 +1270,6 @@ mod test {
             Grid::new(20, 3),
             &[".+01.x02.+03??", ".+0004", ""],
             &[(0, 40), (20, 12)],
-            &[],
         );
         assert!(
             repaired.diagnostics.is_empty(),
@@ -1118,6 +1290,7 @@ mod test {
             grid,
             &rows,
             &[(0, 31)],
+            &[],
             &[(0, Value::Atom(lang::Atom::Char('7')))],
         );
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
@@ -1138,7 +1311,6 @@ mod test {
             Grid::new(16, 3),
             &["!>007F.^3C", ".+0203", ""],
             &[(6, 8), (16, 32)],
-            &[],
         );
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(&source.snapshot()[32..34], "05");
@@ -1164,7 +1336,7 @@ mod test {
     fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         // `.|` at Cells 0 and 1 with a `|` at Cell 2: the pair at Cells 1 and
         // 2 spells `||` and means nothing, because nothing reads it.
-        let (plan, source) = configured_source(Grid::new(8, 2), &[".||102", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(8, 2), &[".||102", ""], &[]);
 
         assert!(plan.writes.is_empty());
         assert!(
@@ -1180,7 +1352,7 @@ mod test {
         // The same Function beside a real introducer. The Absolute Difference
         // of 01 and 02 answers 01 and writes it below; the Comment claims the
         // rest of the row and answers nothing.
-        let (plan, source) = configured_source(Grid::new(8, 2), &[".|0102||", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(8, 2), &[".|0102||", ""], &[]);
 
         assert_eq!(&source.snapshot()[8..10], "01");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1223,7 +1395,7 @@ mod test {
     ///
     #[test]
     fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
-        let (plan, source) = configured_source(Grid::new(8, 2), &["** :##", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(8, 2), &["** :##", ""], &[]);
 
         assert!(
             !source
@@ -1255,7 +1427,7 @@ mod test {
 
     #[test]
     fn live_claims_and_glyphs_survive_source_edits_and_publication() {
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+01 02", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+01 02", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(
             source
@@ -1275,7 +1447,7 @@ mod test {
                 .glyph_at(source.grid().position(4, 0).unwrap()),
             Some(crate::glyph::Glyph::Number)
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
         assert_eq!(&source.snapshot()[16..24], "03    07");
         assert!(plan.diagnostics.is_empty());
         assert_eq!(
@@ -1287,16 +1459,15 @@ mod test {
                 .count(),
             2
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102Z", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102Z", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "03");
         assert!(plan.diagnostics.is_empty());
         assert!(source.language_map().diagnostics().any(|d| d.start() == 6));
-        let (plan, source) = configured_source(Grid::new(16, 2), &["***", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &["***", ""], &[]);
         assert_eq!(&source.snapshot()[..3], "  *");
         assert_eq!(plan.writes.len(), 2);
         assert!(source.language_map().diagnostics().any(|d| d.start() == 2));
-        let (plan, source) =
-            configured_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "**");
         assert!(plan.play_commands.is_empty());
         assert!(plan.diagnostics.is_empty());
@@ -1311,7 +1482,7 @@ mod test {
         );
         // Pin the current display of plausible standalone data. These rejected
         // Function candidates have Function glyphs, no units and no execution.
-        let (plan, source) = configured_source(Grid::new(16, 2), &["C4 EA 01", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &["C4 EA 01", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(source.language_map().units().count(), 0);
         for column in [0, 1, 3, 4, 6, 7] {
@@ -1329,7 +1500,6 @@ mod test {
         let (plan, source) = configured_source(
             Grid::new(16, 3),
             &["    .=0101", "!>00", "    !>007FC4"],
-            &[],
             &[],
         );
         assert!(plan.play_commands.is_empty());
@@ -1365,30 +1535,18 @@ mod test {
         }));
     }
 
-    ///
-    /// One Sequence answer of Numbers, stated for the `supplied` seam.
-    ///
-    fn numbers(values: &[u8]) -> Interpretation {
-        Interpretation::Sequence(
-            lang::Sequence::new(values.iter().copied().map(lang::Atom::Number))
-                .expect("a Number is a Sequence member"),
-        )
-    }
-
     #[test]
     fn live_a_sequence_result_reaches_its_destination_cells() {
         // ADR 0007's ordinary Sequence result, reached through a Tick rather
-        // than through the Portal on its own: the schedule reserves Cells for
-        // it, execution encodes it, and the Source Grid the next Tick reads
-        // carries all six Cells. Three Atoms rather than one is what separates
-        // this from the scalar case it now shares a path with.
+        // than through the Portal on its own: the schedule holds the row this
+        // fixture reserves, execution encodes the answer, and the Source Grid
+        // the next Tick reads carries all six Cells. Three Atoms rather than
+        // one is what separates this from the scalar case it now shares a path
+        // with — including ADR 0036's width guard, which refuses any answer
+        // that is not a Cell pair from a computation reserving one.
         let grid = Grid::new(16, 2);
-        let (plan, source) = configured_source_answers(
-            grid,
-            &[".+0102", ""],
-            &[],
-            &[(0, numbers(&[0x0A, 0x0B, 0x0C]))],
-        );
+        let (plan, source) =
+            sequence_source(grid, &[".+0102", ""], &[], &[(0, &[0x0A, 0x0B, 0x0C])]);
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
@@ -1410,12 +1568,7 @@ mod test {
         // are the test below.
         let grid = Grid::new(16, 3);
         let rows = [".+0102", "", ""];
-        let (plan, source) = configured_source_answers(
-            grid,
-            &rows,
-            &[(0, 28)],
-            &[(0, numbers(&[0x0A, 0x0B, 0x0C]))],
-        );
+        let (plan, source) = sequence_source(grid, &rows, &[(0, 28)], &[(0, &[0x0A, 0x0B, 0x0C])]);
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
@@ -1439,8 +1592,7 @@ mod test {
         // leaving the Grid and not about being near its edge.
         let grid = Grid::new(16, 2);
         let below = ["", ".+0102"];
-        let (plan, source) =
-            configured_source_answers(grid, &below, &[], &[(16, numbers(&[0x0A, 0x0B]))]);
+        let (plan, source) = sequence_source(grid, &below, &[], &[(16, &[0x0A, 0x0B])]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(source.snapshot(), snapshot(grid, &below));
         assert!(
@@ -1452,8 +1604,7 @@ mod test {
         );
 
         let rows = [".+0102", ""];
-        let (plan, source) =
-            configured_source_answers(grid, &rows, &[(0, 30)], &[(0, numbers(&[0x0A, 0x0B]))]);
+        let (plan, source) = sequence_source(grid, &rows, &[(0, 30)], &[(0, &[0x0A, 0x0B])]);
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
         assert!(
@@ -1464,8 +1615,7 @@ mod test {
             plan.diagnostics
         );
 
-        let (plan, source) =
-            configured_source_answers(grid, &rows, &[(0, 30)], &[(0, numbers(&[0x0A]))]);
+        let (plan, source) = sequence_source(grid, &rows, &[(0, 30)], &[(0, &[0x0A])]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(plan.writes.len(), 2);
         assert_eq!(
@@ -1483,14 +1633,11 @@ mod test {
         // Cells it overlaps and the earlier producer's first four Cells stand,
         // which a rule resolving whole writes would have replaced together.
         let grid = Grid::new(16, 2);
-        let (plan, source) = configured_source_answers(
+        let (plan, source) = sequence_source(
             grid,
             &[".+0000.+0000", ""],
             &[(0, 16), (6, 20)],
-            &[
-                (0, numbers(&[0x0A, 0x0B, 0x0C])),
-                (6, numbers(&[0x0D, 0x0E])),
-            ],
+            &[(0, &[0x0A, 0x0B, 0x0C]), (6, &[0x0D, 0x0E])],
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1513,12 +1660,7 @@ mod test {
         // that a write places at least one Cell.
         let grid = Grid::new(16, 2);
         let rows = [".+0102", ""];
-        let (plan, source) = configured_source_answers(
-            grid,
-            &rows,
-            &[],
-            &[(0, Interpretation::Sequence(lang::Sequence::empty()))],
-        );
+        let (plan, source) = sequence_source(grid, &rows, &[], &[(0, &[])]);
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1538,11 +1680,11 @@ mod test {
         // Expression it covers is suppressed rather than executed against a
         // spelling that is no longer there.
         let grid = Grid::new(16, 2);
-        let (plan, source) = configured_source_answers(
+        let (plan, source) = sequence_source(
             grid,
             &["        .+0102", ".+0000"],
             &[(16, 0)],
-            &[(16, numbers(&[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]))],
+            &[(16, &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F])],
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1551,48 +1693,6 @@ mod test {
             source.snapshot(),
             snapshot(grid, &["0A0B0C0D0E0F02", ".+0000"]),
             "the covered Expression neither executed nor kept its spelling",
-        );
-    }
-
-    #[test]
-    fn live_a_nested_sequence_answer_widens_the_reservation_of_the_root_above_it() {
-        // ADR 0036's Consequences: a Function that answers a Sequence widens
-        // the reservation of every pervasive ancestor between it and its root.
-        // The Sequence is answered by the nested `.-` at column 2 of row 1, and
-        // the root `.+` that owns it declares no Sequence answer of its own —
-        // it reserves the whole of the destination row only because the
-        // production table says it widens over an operand that is one. That is
-        // the propagation every other Sequence test here short-circuits by
-        // stating its answer at the root itself.
-        //
-        // The ordering is again the evidence, for the reason the test above
-        // gives: the root writes upward into row 0, and the Expression at
-        // column 10 there is inside the widened reservation, so it is ordered
-        // after the root and suppressed rather than executed against a spelling
-        // the write has replaced. A scalar reservation would name no edge to
-        // it, and the root's twelve-Cell answer would then be refused as a
-        // result that is not a scalar Cell pair.
-        assert!(
-            !lang::Function::Add.answers_sequence()
-                && lang::Function::Add.widens_over_a_sequence_operand(),
-            "the root's reservation can only have been derived from its child",
-        );
-
-        let grid = Grid::new(16, 2);
-        let (plan, source) = configured_source_answers(
-            grid,
-            &["          .+0102", ".+.-000003"],
-            &[(16, 0)],
-            &[(18, numbers(&[0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]))],
-        );
-
-        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(plan.writes.len(), 12);
-        assert_eq!(
-            source.snapshot(),
-            snapshot(grid, &["0A0B0C0D0E0F0102", ".+.-000003"]),
-            "the root answered its child's Sequence widened by `03`, and the \
-             Expression it covered neither executed nor kept its spelling",
         );
     }
 
@@ -1606,11 +1706,11 @@ mod test {
         // `03` into row 1. Suppressing everything the reservation names would
         // leave that Cell pair empty.
         let grid = Grid::new(16, 2);
-        let (plan, source) = configured_source_answers(
+        let (plan, source) = sequence_source(
             grid,
             &["        .+0102", ".+0000"],
             &[(16, 0)],
-            &[(16, numbers(&[0x0A, 0x0B]))],
+            &[(16, &[0x0A, 0x0B])],
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1638,11 +1738,11 @@ mod test {
         // the Grid, which is the outcome ADR 0036's rejected alternative names
         // — a cycle manufactured between computations that never touch.
         let grid = Grid::new(16, 2);
-        let (plan, source) = configured_source_answers(
+        let (plan, source) = sequence_source(
             grid,
             &["        .+0102", ""],
             &[(8, 0)],
-            &[(8, numbers(&[0x0A, 0x0B]))],
+            &[(8, &[0x0A, 0x0B])],
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1662,11 +1762,11 @@ mod test {
         // test above; this is what happens when it does not.
         let grid = Grid::new(16, 2);
         let rows = ["        .+0102", ""];
-        let (plan, source) = configured_source_answers(
+        let (plan, source) = sequence_source(
             grid,
             &rows,
             &[(8, 0)],
-            &[(8, numbers(&[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]))],
+            &[(8, &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F])],
         );
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
@@ -1700,10 +1800,10 @@ mod test {
             let left = u16::from_str_radix(std::str::from_utf8(&expected[2..4]).unwrap(), 16).unwrap();
             let right = u16::from_str_radix(std::str::from_utf8(&expected[4..6]).unwrap(), 16).unwrap();
             expected[48..50].copy_from_slice(format!("{:02X}", (left + right) % 256).as_bytes());
-            let (plan, source) = configured_source(grid, &rows, &outputs, &[]);
+            let (plan, source) = configured_source(grid, &rows, &outputs);
             proptest::prop_assert_eq!(source.snapshot().into_bytes(), expected);
             proptest::prop_assert!(plan.diagnostics.is_empty());
-            let (repeated, _) = configured_source(grid, &rows, &outputs, &[]);
+            let (repeated, _) = configured_source(grid, &rows, &outputs);
             proptest::prop_assert_eq!(plan, repeated);
             let full = LanguageMap::derive(grid, &source.snapshot()).unwrap();
             proptest::prop_assert_eq!(source.language_map().units().collect::<Vec<_>>(), full.units().collect::<Vec<_>>());
@@ -1717,7 +1817,7 @@ mod test {
             let grid = Grid::new(16, 2);
             let producer = format!(".+00{value:02X}");
             let rows = [producer.as_str(), ""];
-            let (plan, source) = configured_source(grid, &rows, &[(0, 31)], &[]);
+            let (plan, source) = configured_source(grid, &rows, &[(0, 31)]);
             proptest::prop_assert!(plan.writes.is_empty());
             proptest::prop_assert_eq!(source.snapshot(), snapshot(grid, &rows));
             proptest::prop_assert!(plan.diagnostics.iter().any(|d| d.message.contains("crosses the row edge")));
@@ -1729,7 +1829,6 @@ mod test {
             Grid::new(16, 5),
             &[".+0101", ".+0001", ".+0001", "", ""],
             &[(0, 64), (16, 34), (32, 3)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..6], ".+0021");
         assert_eq!(&source.snapshot()[64..66], "21");
@@ -1742,7 +1841,6 @@ mod test {
             Grid::new(16, 4),
             &[".+0101", ".+0101", ".+0102", ""],
             &[(0, 48), (16, 3), (32, 3)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..6], ".+0031");
         assert_eq!(&source.snapshot()[48..50], "31");
@@ -1752,7 +1850,6 @@ mod test {
             Grid::new(16, 3),
             &[".+0101", ".+0203", ""],
             &[(0, 32), (16, 2), (16, 3)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..6], ".+0051");
         assert_eq!(&source.snapshot()[32..34], "51");
@@ -1766,7 +1863,6 @@ mod test {
             Grid::new(16, 4),
             &[".vE4", ".+E901", ".+E401", ""],
             &[(0, 48), (16, 2), (32, 2)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..4], ".vE5");
         assert_eq!(&source.snapshot()[48..50], "4C");
@@ -1775,7 +1871,6 @@ mod test {
             Grid::new(16, 3),
             &[".vE4", ".+E901", ""],
             &[(0, 32), (16, 2)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..4], ".vEA");
         assert_eq!(&source.snapshot()[32..34], "  ");
@@ -1790,7 +1885,6 @@ mod test {
             Grid::new(16, 3),
             &[".+0000", ".+E901", ""],
             &[(0, 32), (16, 2)],
-            &[],
         );
         assert_eq!(&source.snapshot()[32..34], "EA");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1802,13 +1896,11 @@ mod test {
             Grid::new(16, 3),
             &[".+0001", ".^48", ""],
             &[(0, 32), (16, 2)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..6], ".+C501");
         assert_eq!(&source.snapshot()[32..34], "C6");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) =
-            configured_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -1826,7 +1918,6 @@ mod test {
             Grid::new(16, 4),
             &["./.x030400", ".+0001", "", ""],
             &[(0, 48), (2, 18), (16, 52)],
-            &[],
         );
         assert_eq!(&source.snapshot()[18..20], "0C");
         assert_eq!(&source.snapshot()[48..50], "  ");
@@ -1836,12 +1927,8 @@ mod test {
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
-        let (plan, source) = configured_source(
-            Grid::new(16, 2),
-            &[".+02.x0304", ""],
-            &[(0, 16), (4, 31)],
-            &[],
-        );
+        let (plan, source) =
+            configured_source(Grid::new(16, 2), &[".+02.x0304", ""], &[(0, 16), (4, 31)]);
         assert_eq!(&source.snapshot()[16..18], "0E");
         assert_eq!(&source.snapshot()[31..], " ");
         assert!(
@@ -1857,7 +1944,6 @@ mod test {
             Grid::new(16, 4),
             &[".+0001", ".+0203", "./0100", ""],
             &[(0, 48), (16, 2), (32, 2)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..6], ".+0501");
         assert_eq!(&source.snapshot()[48..50], "06");
@@ -1866,8 +1952,7 @@ mod test {
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
-        let (plan, source) =
-            configured_source(Grid::new(16, 2), &[".+02./0100", ""], &[(0, 16)], &[]);
+        let (plan, source) = configured_source(Grid::new(16, 2), &[".+02./0100", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -1879,7 +1964,6 @@ mod test {
             Grid::new(16, 3),
             &[".+02.x0304", "./0100", ""],
             &[(0, 32), (16, 4)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert_eq!(&source.snapshot()[32..34], "0E");
@@ -1897,7 +1981,6 @@ mod test {
             Grid::new(16, 3),
             &["!>007F.^80", "", ""],
             &[(0, 16), (6, 20)],
-            &[],
         );
         assert!(plan.writes.is_empty());
         assert!(plan.play_commands.is_empty());
@@ -1909,7 +1992,6 @@ mod test {
             Grid::new(16, 4),
             &["!>007FC4", "", ".=0101", ""],
             &[(0, 34), (32, 16)],
-            &[],
         );
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert_eq!(plan.diagnostics.len(), 1);
@@ -1923,7 +2005,6 @@ mod test {
             Grid::new(20, 3),
             &[".+02.x03.+0101", ".+0203", ""],
             &[(0, 40), (4, 44), (8, 48), (20, 4)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..14], ".+020503.+0101");
         assert_eq!(&source.snapshot()[40..42], "07");
@@ -1940,7 +2021,6 @@ mod test {
             Grid::new(16, 3),
             &[".+02.x0304", ".+0203", ""],
             &[(0, 32), (4, 36), (16, 0)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..10], "0502.x0304");
         assert_eq!(&source.snapshot()[32..38], "      ");
@@ -2055,7 +2135,6 @@ mod test {
                 Grid::new(16, 5),
                 &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
                 &outputs,
-                &[],
             );
             assert!(plan.writes.is_empty());
             assert!(plan.play_commands.is_empty());
@@ -2071,7 +2150,6 @@ mod test {
             Grid::new(16, 3),
             &[".+02.x0304", ".+0001", ""],
             &[(0, 18), (4, 18), (16, 6)],
-            &[],
         );
         assert!(plan.writes.is_empty());
         assert!(
@@ -2184,7 +2262,6 @@ mod test {
             Grid::new(16, 4),
             &[".+02.x0304", ".+0203", "", ""],
             &[(0, 48), (4, 52), (16, 4)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..10], ".+02050304");
         assert_eq!(&source.snapshot()[48..50], "07");
@@ -2205,7 +2282,6 @@ mod test {
             grid,
             &[".+02.x0304", ".+0101", "", ""],
             &[(0, 48), (4, 18), (16, 52)],
-            &[],
         );
         assert_eq!(&source.snapshot()[18..20], "0C");
         assert_eq!(&source.snapshot()[48..50], "0E");
@@ -2229,7 +2305,6 @@ mod test {
             Grid::new(16, 4),
             &[".+0101", ".+0203", ".+0101", ""],
             &[(0, 56), (16, 2), (32, 3)],
-            &[],
         );
         assert_eq!(&source.snapshot()[..6], ".+0021");
         assert_eq!(&source.snapshot()[56..58], "21");
@@ -2304,7 +2379,6 @@ mod test {
                 grid,
                 &["", "", "    !>007FC4", "", "", ".=0101"],
                 &[(80, row * 16 + column)],
-                &[],
             );
             let expected = if performs {
                 vec![raw(0, 0x7F, 60)]
@@ -2348,7 +2422,6 @@ mod test {
             Grid::new(16, 6),
             &["", "", "   .=0101", "    !>007FC4", "", ".=0101"],
             &[(80, 2 * 16 + 4)],
-            &[],
         );
         assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -2363,7 +2436,6 @@ mod test {
         let (plan, source) = configured_source(
             Grid::new(16, 4),
             &["    .=0101", "!>00.+0101C4", "    !>007FC5", ""],
-            &[],
             &[],
         );
         assert!(plan.play_commands.is_empty());
@@ -2384,7 +2456,6 @@ mod test {
             Grid::new(16, 4),
             &["", "!>00.+0101C4", "", ".=0101"],
             &[(48, 4)],
-            &[],
         );
         assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -2438,14 +2509,13 @@ mod test {
     #[test]
     fn outputs_beside_and_over_standalone_source_are_admitted() {
         // These exact Sources used to trip the obsolete join guard.
-        let (plan, source) =
-            configured_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[], &[]);
+        let (plan, source) = configured_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[8..14], "**0102");
         assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
         assert!(plan.diagnostics.is_empty());
         assert_eq!(source.language_map().bangs().count(), 1);
         let (plan, source) =
-            configured_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[], &[]);
+            configured_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[10..16], "  01**");
         assert_eq!(planned(&plan), vec![(14, '*'), (15, '*')]);
         assert!(plan.diagnostics.is_empty());
@@ -2489,7 +2559,6 @@ mod test {
             Grid::new(16, 3),
             &[".+0102 .+0304", "0102", ""],
             &[(0, 20), (7, 21)],
-            &[],
         );
         assert_eq!(planned(&plan), vec![(20, '0'), (21, '0'), (22, '7')]);
         assert_eq!(&source.snapshot()[16..23], "0102007");
@@ -2549,7 +2618,6 @@ mod test {
             Grid::new(16, 4),
             &["  .+", "!>007FC4", "", ".=0101"],
             &[(48, 32)],
-            &[],
         );
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert_eq!(&source.snapshot()[16..24], "!>007FC4");
@@ -2822,7 +2890,6 @@ mod test {
             Grid::new(16, 3),
             &[".+0102", ".+0304", ".+0506"],
             &[(0, 26), (16, 26), (32, 31)],
-            &[],
         );
         assert_eq!(planned(&plan), vec![(26, '0'), (27, '7')]);
         assert_eq!(&source.snapshot()[26..28], "07");

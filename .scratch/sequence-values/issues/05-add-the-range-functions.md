@@ -25,6 +25,12 @@ operands, and neither converts implicitly.
       recognised as a complete two-Cell Function. ADR 0035 spells the Comment introducer `||`, so
       no Comment rule reaches into `:#`.
 - [ ] Range output takes the ordinary complete-fit Portal rule and never writes a partial Sequence.
+- [ ] ADR 0036's reservation derivation is exercised end to end from a declaration: a Range row
+      reserves the Cells from its destination through the end of that row, a pervasive parent
+      widens over a Range child, a parent that is not pervasive does not, and the Turns inside each
+      reservation are ordered after the computation that reserved them. Until this lands the
+      derivation pass has no test at all — every `Reserved::Row` in the crate is stated by a
+      fixture, so the pass can only ever answer `Reserved::Pair` from what Functions declare.
 
 ## Comments
 
@@ -37,6 +43,21 @@ signature and a mistyped bound diagnoses instead of silently selecting the other
 Both Range Functions are owned here, together. Do not open a second issue for `:#` — one Function
 per issue would give the two halves of one decision two owners and two chances to disagree about
 what a mistyped bound does.
+
+The reservation acceptance line is owed by `test-only-seams/02`, which deleted
+`live_a_nested_sequence_answer_widens_the_reservation_of_the_root_above_it`. That test asserted the
+widening against a Sequence answer stated through a `cfg(test)` seam, so with the seam gone it
+asserted a width the fixture had already stated.
+
+The loss is wider than that one test. With nothing stating a Sequence answer through the scheduler,
+and no Function declaring one, every input to the derivation pass says `Reserved::Pair`: the pass
+runs on every Tick and cannot answer anything else, and the fixtures that need a row-wide
+reservation state it directly. Declaring a Sequence answer here is what gives that pass its first
+real input, which is why this line owes the derivation rather than only the widening.
+
+These Range fixtures do not inherit the stated-reservation seam. A declared `:-` row derives its
+own width, so a test written here spells the Function in Source and states nothing — the seam of
+`test-only-seams/02` exists precisely because that is not possible yet.
 
 The mixed-bounds acceptance line is the one carried over from issue 03 rather than dropped.
 `orcvs-language-migration/04` settled that the same two Source characters take exactly one type

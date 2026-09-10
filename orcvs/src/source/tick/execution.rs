@@ -436,6 +436,26 @@ fn render_message(reason: RenderError) -> String {
 /// is constructed here, one call below [`execute`], so that the shipped Turn
 /// stays one thing in every build: the Interpreter's answer, delivered.
 ///
+/// A reservation is stated the same way and for the same reason: ADR 0036
+/// derives one from what a Function declares its answer to be, and no built
+/// Function declares a Sequence answer, so the width a Sequence-answering row
+/// reserves is stated beside the answer rather than derived from it. Two
+/// consequences of stating it are worth knowing, and both are refused loudly
+/// rather than discovered:
+///
+/// - A stated width is not a declared one, so `Lookup::reserved_with` — which
+///   re-derives a width for a hypothetical replacement Function — cannot agree
+///   with it at the computation whose width was stated. Stating a reservation
+///   and stating a Function replacement in one Tick is therefore refused here.
+///   `test-only-seams/09` owns the underlying modelling problem: the stored
+///   width and the re-derived one are two homes for one fact.
+/// - A width the fixture states is the input to every width production derives
+///   around it, so the pass `Lookup::new` ran is run again over the stated
+///   ones. Nothing about that pass is proven by these tests: no Function
+///   declares a Sequence answer, so every `Reserved::Row` in the crate is a
+///   stated one, and `sequence-values/05` owes the derivation against a
+///   declared Range row.
+///
 /// Only the Turn loop is reimplemented, because substituting one Turn is the
 /// one thing this does differently. The starting state, the Bang cleanup it
 /// performs, the schedule, the rejection path, the resolution, and the Turn
@@ -446,10 +466,10 @@ fn render_message(reason: RenderError) -> String {
 pub(super) mod stated {
     use lang::{Tick, Value};
 
-    use super::super::{schedule, unscheduled};
+    use super::super::{computations, derive_reservations, order_turns, unscheduled};
     use super::{
-        Break, Configuration, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap,
-        Schedule, TickPlan, resolve,
+        Atom, Break, Configuration, Continue, ControlFlow, Diagnostic, Execution, Grid,
+        LanguageMap, Lookup, Reserved, Schedule, TickPlan, resolve,
     };
     use crate::grid::CellIndex;
 
@@ -463,31 +483,80 @@ pub(super) mod stated {
         map: &LanguageMap,
         tick: Tick,
         configuration: &Configuration,
+        reservations: &[(CellIndex, Reserved)],
         answers: &[(CellIndex, Value)],
     ) -> TickPlan {
+        let (nodes, layout) = computations(grid, map, configuration);
+        let mut lookup = Lookup::new(grid, nodes);
+        // Every fixture error the schedule can be asked about is asked here,
+        // before an order exists. A Source with a cycle answers `Err` from
+        // `order_turns` and a plan carrying nothing but diagnostics, which is
+        // indistinguishable from the little a mistyped fixture makes happen —
+        // so a guard that ran after ordering would be the one guard a cyclic
+        // fixture switches off.
+        for (anchor, _) in answers {
+            assert!(
+                anchored(&lookup, grid, *anchor).is_some(),
+                "a stated answer names a computation the schedule contains"
+            );
+        }
+        for (index, (anchor, _)) in answers.iter().enumerate() {
+            assert!(
+                !answers[..index].iter().any(|(stated, _)| stated == anchor),
+                "one computation is stated one answer: two are stated here for the same anchor"
+            );
+        }
+        for (index, (anchor, _)) in reservations.iter().enumerate() {
+            assert!(
+                !reservations[..index]
+                    .iter()
+                    .any(|(stated, _)| stated == anchor),
+                "one computation is stated one reservation: two are stated here for the same anchor"
+            );
+        }
+        // A replacement's width is derived from what it declares and compared
+        // against what its target reserves, and a stated reservation is a width
+        // nothing declares. `Lookup::reserved_with` would answer for the
+        // replacement and disagree with the stated width for every replacement
+        // there is, including the target's own Function, which production
+        // admits. Refusing the combination keeps that from being discovered as
+        // a wrong answer inside a test.
+        assert!(
+            reservations.is_empty()
+                || !answers
+                    .iter()
+                    .any(|(_, value)| matches!(value, Value::Atom(Atom::Function(_)))),
+            "a stated reservation and a stated Function replacement cannot be combined: \
+             a replacement is checked against a declared width and this one is stated"
+        );
+        // Stated between the reservations a Lookup derives and the order those
+        // reservations decide, because a reservation is read by both halves of
+        // a schedule and only one of them is execution. Ordering, admission,
+        // suppression and rejection are all read out of it downstream, so
+        // stating it after `order_turns` would leave every edge derived from
+        // the width the fixture is replacing.
+        for (anchor, reserved) in reservations {
+            let index = anchored(&lookup, grid, *anchor)
+                .expect("a stated reservation names a computation the schedule contains");
+            lookup.reserved[index] = *reserved;
+        }
+        // What a stated reservation leaves for production to derive: an
+        // ancestor that widens over a row-reserving operand widens over a
+        // stated one exactly as it will over a declared Range, because this is
+        // the pass `Lookup::new` ran, run again over the widths now settled.
+        // Without it a stated child would leave its pervasive ancestor holding
+        // the `Reserved::Pair` derived before the fixture spoke, and the
+        // ancestor's own wide answer would be refused for a width the schedule
+        // never reserved.
+        derive_reservations(&lookup.nodes, &mut lookup.reserved);
         let Schedule {
             lookup,
             order,
             diagnostics,
-        } = match schedule(grid, map, configuration) {
+        } = match order_turns(lookup, layout) {
             Ok(schedule) => schedule,
             Err(diagnostics) => return unscheduled(diagnostics),
         };
-        // An answer whose anchor names no scheduled computation would otherwise
-        // leave every Turn to the Interpreter and say nothing about it, which a
-        // test asserting that little happened cannot tell from success. The
-        // schedule holds every computation it will run, so the mistyped index —
-        // and the fixture whose layout a later parse shifts out from under it —
-        // is caught before the first Turn rather than inferred from the plan.
-        for (anchor, _) in answers {
-            assert!(
-                lookup
-                    .nodes()
-                    .iter()
-                    .any(|node| grid.index(node.anchor) == *anchor),
-                "a stated answer names a computation the schedule contains"
-            );
-        }
         let mut execution =
             Execution::new(grid, bytes, map, tick, configuration, &lookup, diagnostics);
         let mut stated = vec![false; answers.len()];
@@ -513,6 +582,26 @@ pub(super) mod stated {
         resolve(execution.effects)
     }
 
+    ///
+    /// What scheduling reserved for the computation anchored at `anchor`, as a
+    /// place a fixture can state into.
+    ///
+    /// ADR 0036 derives a reservation from what a Function declares its answer
+    /// to be, and no built Function declares a Sequence one — ADR 0007's Range
+    /// and Concatenate are unbuilt — so the width a Sequence-answering row
+    /// reserves is the second thing a test has to state alongside the answer
+    /// itself. It is stated as the reservation, not as an answer the schedule
+    /// reads back: what a computation answers is a fact of the Tick, and what
+    /// it reserves is a fact of the schedule, and the seam that let one imply
+    /// the other is what these tickets are removing.
+    ///
+    fn anchored(lookup: &Lookup, grid: Grid, anchor: CellIndex) -> Option<usize> {
+        lookup
+            .nodes()
+            .iter()
+            .position(|node| grid.index(node.anchor) == anchor)
+    }
+
     impl Execution<'_> {
         ///
         /// Delivers `value` as this computation's answer, in place of the
@@ -531,6 +620,16 @@ pub(super) mod stated {
             if self.opens_turn(index).is_none() {
                 return Continue(());
             }
+            // The one arm of the Turn that decides an answer's kind rather than
+            // its content, and the only one left standing here: a Function
+            // answering an effect answers a Play Command, and the root is the
+            // one place `opens_turn` lets such a Function stand — it diagnoses
+            // every other. Delivering a value there would plan a write from a
+            // computation production can only ever hear a Performance from.
+            assert!(
+                self.states[index].function.answers_value(),
+                "a stated answer belongs to a computation that answers a value"
+            );
             self.deliver_value(index, value)
         }
     }
