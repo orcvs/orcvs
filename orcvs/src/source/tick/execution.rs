@@ -70,9 +70,9 @@ impl ComputationState {
     /// what happened, which is what a console or a diagnostic view will ask
     /// for and what the tests of this module ask for today.
     ///
-    /// Allowed rather than expected: the lint is inapplicable in one of the
-    /// two builds and satisfied in the other, so an expectation would be
-    /// unfulfilled wherever the tests that read this compile.
+    /// Allowed rather than expected: the method is dead in the library build
+    /// and live in the test build, so an expectation would go unfulfilled in
+    /// the second and fail the gate that compiles both.
     #[allow(dead_code, reason = "an output the shipped callers discard")]
     pub(in crate::source) fn interpreted(&self) -> Option<TickInputs> {
         self.interpreted
