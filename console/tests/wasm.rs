@@ -5,8 +5,13 @@ use gloo_timers::future::TimeoutFuture;
 use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
-use orcvs::playback::{InMemoryOutputAdapter, OutputCommand, PlaybackEngine, PlaybackState};
+use orcvs::playback::{
+    InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand, PlaybackEngine,
+    PlaybackState,
+};
 use orcvs::source::{Source, SourceCommander, Tick};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -171,13 +176,74 @@ extern "C" {
     fn stall_until(deadline: f64);
 }
 
+///
+/// An output adapter whose every submission costs a fixed slice of the browser
+/// thread, so an executed Tick can be made to cost more than its own period.
+///
+/// The stall is synchronous on purpose: a Tick that yielded while it worked
+/// would let the clock's own timer run and would prove nothing about the loop.
+///
+#[derive(Clone)]
+struct StallingOutputAdapter {
+    submissions: Arc<AtomicUsize>,
+    cost_millis: f64,
+}
+
+impl OutputAdapter for StallingOutputAdapter {
+    fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        self.submissions.fetch_add(1, Ordering::Relaxed);
+        stall_until(clock_now() + self.cost_millis);
+        Ok(())
+    }
+
+    fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+        Ok(())
+    }
+}
+
+#[wasm_bindgen_test(async)]
+async fn web_clock_yields_to_the_event_loop_between_ticks() {
+    let submissions = Arc::new(AtomicUsize::new(0));
+    let engine = PlaybackEngine::new(
+        SourceCommander::new(Grid::new(1, 1)),
+        StallingOutputAdapter {
+            submissions: Arc::clone(&submissions),
+            cost_millis: 115.0,
+        },
+    );
+    // A Tick costs more than its period, so `observed_at` — sampled before the
+    // Tick executes — leaves every deadline after the first already elapsed by
+    // the time the clock reaches it. The clock must wait on those deadlines
+    // anyway: that wait is its only yield back to the browser event loop, and
+    // a loop that skipped it runs Tick after Tick with nothing rendering, no
+    // input dispatched, and no turn in which `stop` could be pressed. The
+    // period and the cost are far enough apart to be read through browser
+    // jitter and close enough that several Ticks fit before `is_overrun`
+    // declines one and re-anchors the grid ahead of the clock, ending the
+    // burst; the whole burst lands inside this one timer.
+    engine.start(Duration::from_millis(100)).unwrap();
+    TimeoutFuture::new(0).await;
+    engine.stop();
+    let submissions = submissions.load(Ordering::Relaxed);
+    assert!(
+        submissions <= 2,
+        "the clock spent {submissions} Ticks without releasing the browser thread"
+    );
+}
+
 #[wasm_bindgen_test(async)]
 async fn web_start_executes_its_first_tick_before_a_browser_timer() {
     let adapter = InMemoryOutputAdapter::default();
     let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
-    engine.start(Duration::from_millis(1)).unwrap();
-    // spawn_local runs in a microtask. A zero-delay timer in the clock would
-    // put its first Tick behind this timer, too late at the shortest period.
+    // The period is long enough that only the first Tick can fall inside this
+    // test, so the count answers where that Tick landed and nothing else. It
+    // is the one-millisecond end of `Bpm` that makes the answer matter — a
+    // Tick deferred behind a timer is declined there — but reproducing that
+    // period here would race the clock's own timer against the test's.
+    engine.start(Duration::from_secs(10)).unwrap();
+    // spawn_local runs in a microtask, so the clock reaches its first deadline
+    // before this timer, which was registered first, can fire. A zero-delay
+    // timer in the clock would put that Tick behind this one instead.
     TimeoutFuture::new(0).await;
     engine.stop();
     assert_eq!(adapter.command_lists().len(), 1);

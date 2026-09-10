@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::future::Future;
+use std::future::{self, Future};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -1105,11 +1105,15 @@ async fn sleep_until(deadline: ClockInstant) {
 #[cfg(target_arch = "wasm32")]
 async fn sleep_until(deadline: ClockInstant) {
     let delay = deadline.saturating_duration_since(ClockInstant::now());
-    // An elapsed deadline needs no wait. Even a zero browser timer would defer
-    // the immediate first Tick and can cost its entire one-millisecond period.
-    if !delay.is_zero() {
-        gloo_timers::future::TimeoutFuture::new(wasm_timeout_millis(delay)).await;
-    }
+    // A deadline already behind the clock still waits, on a timer of zero.
+    // This is the browser clock's only yield back to the event loop, so
+    // skipping it for an elapsed deadline would let a Tick costing more than
+    // its period run the loop again and again without the page ever getting a
+    // turn: nothing rendered, no input dispatched, and no moment in which the
+    // Space that calls `stop` could be delivered. The immediate first Tick,
+    // which is what a browser timer would cost a whole period at the short end
+    // of `Bpm`, is spared this wait by `run_clock` and not by this function.
+    gloo_timers::future::TimeoutFuture::new(wasm_timeout_millis(delay)).await;
 }
 
 /// Start begins its grid when the task runs; retune carries the deadline
@@ -1126,8 +1130,24 @@ async fn run_clock<A: OutputAdapter>(
     let mut scheduled_at = first_tick_at
         .map(|deadline| deadline.saturating_duration_since(epoch))
         .unwrap_or(Duration::ZERO);
+    // A first deadline already reached is executed on arrival rather than
+    // waited for: `start` is due at its own epoch, and `retune` anchored on a
+    // Tick already behind it. On the browser even a zero timer costs a
+    // `setTimeout` hop of one to four milliseconds, which is enough for
+    // `is_overrun` to decline that Tick at the one-millisecond end of `Bpm`.
+    //
+    // Only the first. Every deadline after it waits whether or not it has
+    // elapsed, because that wait is the browser clock's only yield back to the
+    // event loop.
+    let mut due_on_arrival = scheduled_at.is_zero();
     loop {
-        if !wait_for_tick_or_cancellation(sleep_until(epoch + scheduled_at), &cancellation).await {
+        let reached = if due_on_arrival {
+            due_on_arrival = false;
+            wait_for_tick_or_cancellation(future::ready(()), &cancellation).await
+        } else {
+            wait_for_tick_or_cancellation(sleep_until(epoch + scheduled_at), &cancellation).await
+        };
+        if !reached {
             guard.finish();
             break;
         }

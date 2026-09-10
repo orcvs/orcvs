@@ -154,3 +154,64 @@ cover the changed `orcvs` crate and its dependent `shell` crate. No performance
 improvement is claimed. The change's risks are lifecycle concurrency and platform
 waiting, covered by existing native tests and the browser tests; the browser
 anchoring assertion allows 150 ms of dispatch jitter.
+
+## Review — 2026-09-11
+
+Three reviewers ran against `68e5eba`. CodeRabbit returned no findings; the
+standards/spec pass and the built-in review converged independently on one
+defect, and each reported it from its own side.
+
+The elapsed-deadline correction was applied to every iteration, not only to the
+first Tick the Comments above argued it for. Since `observed_at` is sampled
+before the Tick executes, a Tick costing more than its period leaves the next
+deadline already behind the clock, so the browser wait was skipped again and
+again and the loop ran Tick after Tick without returning to the event loop. The
+burst ends at the first Overrun — a declined Tick is cheap and re-anchors the
+grid ahead of the clock — so this froze the page for `period / (cost - period)`
+Ticks rather than forever, but every one of those Ticks was a frame not drawn
+and an input not dispatched. Both browser loops on `main` awaited their timer
+unconditionally, which is what the deleted zero-delay test pinned.
+
+The shortcut now belongs to `run_clock`, which spares the run's first deadline
+only, and `sleep_until` waits on every deadline it is given. `retune`'s anchored
+first deadline is usually ahead of its epoch and waits like any other.
+
+`shell/tests/wasm.rs` gained `web_clock_yields_to_the_event_loop_between_ticks`,
+which drives a 100 ms grid through an adapter that spends 115 ms of the browser
+thread per submission and asserts the page gets a turn. It reported 6 Ticks
+against the consolidated loop before the fix and 1 after.
+
+`web_start_executes_its_first_tick_before_a_browser_timer` was decided by about
+a millisecond, racing the clock's `setTimeout(1)` against the test's own
+`setTimeout(0)`. The ordering held — gloo registers the test's timer before the
+`spawn_local` microtask registers the clock's — but a ten-second period draws
+the same distinction with no race and no reliance on that ordering.
+
+ADR 0037 still said no test in the workspace compiled the browser loops, which
+this effort made false in both halves. Its shared-rule paragraph now names the
+one loop and the browser tests, and says they are merge-tier only.
+
+Rejected: the rationale comments deleted from `retune` (they survive verbatim on
+`begin_run` and `first_retuned_tick_at`, where the reasoning is computed); the
+placement and prose of this report (`## Resolution` after `## Comments` is the
+form every resolved issue under `.scratch/verification-gaps/` takes); the
+`tokio::select!` branch order against an already-cancelled token (`execute_tick`
+declines on `!playing` or a stale generation); and the `ClockSpawner` indirection,
+the `Option<ClockInstant>` first deadline and doc-comment length, none of which
+carry a failure.
+
+### Commands
+
+- `cargo fmt --all -- --check` — passed.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
+- `cargo nextest run --workspace --locked` — passed: 631 tests.
+- `cargo nextest run --workspace --tests --no-default-features --locked` — passed:
+  617 tests, the arm that proves `persistence` still compiles out.
+- `cargo test --workspace --doc --locked` — passed: 13 doctests.
+- `mise run check_wasm` — passed.
+- `wasm-pack test --headless --firefox shell --test wasm --locked` — 11 passed
+  with the new test red at 6 Ticks, then 12 passed. Run to answer the
+  browser-waiting question the fix turns on, not to stand in for a merge gate.
+
+`mise run check`, `mise run check_merge`, `mise run bench` and the 256-case
+proptest stay deferred to CI.
