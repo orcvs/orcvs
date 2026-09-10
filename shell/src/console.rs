@@ -149,13 +149,8 @@ pub struct Console {
     source_view: SourceView,
     diagnostics_open: bool,
     tempo_edit: TempoEdit,
-    /// A stored value that could not be read back, held until the first save
-    /// moves it aside; `Console::new` is handed Storage it can only read.
     #[cfg(feature = "persistence")]
-    refused: Option<String>,
-    /// Whether the viewer still has to be told their Source did not restore.
-    #[cfg(feature = "persistence")]
-    refused_notice: bool,
+    persistence: crate::persistence::Persistence,
 }
 
 impl Console {
@@ -193,8 +188,6 @@ impl Console {
         // The stored Source revision when storage holds one, and the ordinary
         // default Grid otherwise. Every derived view is rebuilt from it.
         let start = starting_source(cc.storage);
-        #[cfg(feature = "persistence")]
-        let (refused, refused_notice) = (start.refused, start.notice);
         let orcvs = Orcvs::with_source(start.source);
         let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
         midi.refresh_destinations();
@@ -206,9 +199,7 @@ impl Console {
             diagnostics_open: false,
             tempo_edit: TempoEdit::default(),
             #[cfg(feature = "persistence")]
-            refused,
-            #[cfg(feature = "persistence")]
-            refused_notice,
+            persistence: start.persistence,
         }
     }
 }
@@ -416,13 +407,7 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        // Once, and before the write below reaches the same key. `take` is what
-        // keeps a later save from displacing the preserved value with a
-        // readable one.
-        if let Some(refused) = self.refused.take() {
-            crate::persistence::preserve_refused(storage, refused);
-        }
-        crate::persistence::store_source(storage, self.orcvs.source());
+        self.persistence.save(storage, self.orcvs.source());
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -490,7 +475,7 @@ impl eframe::App for Console {
                 // them, and it stays until they dismiss it. `report` reaches a
                 // developer console; this is the channel a viewer reads.
                 #[cfg(feature = "persistence")]
-                if self.refused_notice {
+                if self.persistence.notice_visible() {
                     ui.add_space(16.0);
                     ui.colored_label(
                         ui.visuals().error_fg_color,
@@ -501,7 +486,7 @@ impl eframe::App for Console {
                         ),
                     );
                     if ui.button("Dismiss").clicked() {
-                        self.refused_notice = false;
+                        self.persistence.dismiss_notice();
                     }
                 }
                 ui.menu_button("Tempo", |ui| {
@@ -561,9 +546,7 @@ impl eframe::App for Console {
                     diagnostics_open: _,
                     tempo_edit: _,
                     #[cfg(feature = "persistence")]
-                        refused: _,
-                    #[cfg(feature = "persistence")]
-                        refused_notice: _,
+                        persistence: _,
                 } = self;
                 cell_size =
                     show_source_scene(ui, orcvs, &frame, font_family, source_view).cell_size;
@@ -1083,7 +1066,7 @@ mod tests {
 ///
 /// The console's own end of the storage seam: the two lines that wire the
 /// running Console to `shell::persistence`. Every other persistence test drives
-/// `starting_source`/`store_source` directly and would still pass with the
+/// the persistence interface directly and would still pass with the
 /// Console unwired, so these construct a real `Console` and call the real
 /// `eframe::App::save`.
 ///
@@ -1094,7 +1077,7 @@ mod storage_tests {
 
     use super::Console;
     use crate::persistence::{
-        InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source, store_source,
+        InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source,
     };
 
     ///
@@ -1103,7 +1086,9 @@ mod storage_tests {
     ///
     fn storage_holding_a_refused_value() -> (InMemoryStorage, String) {
         let mut written = InMemoryStorage::default();
-        store_source(&mut written, &edited_source());
+        starting_source(None)
+            .persistence
+            .save(&mut written, &edited_source());
         let refused = eframe::Storage::get_string(&written, SOURCE_KEY)
             .expect("the save call stored the revision")
             .replace("cols:6", "cols:7");
@@ -1151,67 +1136,11 @@ mod storage_tests {
         );
     }
 
-    ///
-    /// The preserved copy stays the refused value. A later save must not
-    /// displace it with the readable one the console has since written.
-    ///
-    #[test]
-    fn a_later_save_does_not_overwrite_the_preserved_value() {
-        let (mut storage, refused) = storage_holding_a_refused_value();
-
-        let mut console = console_over(&storage);
-        console.save(&mut storage);
-        console.save(&mut storage);
-
-        assert_eq!(
-            eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
-            Some(refused.as_str())
-        );
-    }
-
-    ///
-    /// A viewer looking at a Grid that is not theirs is told so, and stays told
-    /// after the save that moves the refused value aside. `report` reaches a
-    /// developer console; this notice is the channel a viewer reads.
-    ///
-    #[test]
-    fn a_refused_start_raises_a_notice_that_outlives_the_save() {
-        let (mut storage, _) = storage_holding_a_refused_value();
-
-        let mut console = console_over(&storage);
-        assert!(
-            console.refused_notice,
-            "a refused start told the viewer nothing"
-        );
-
-        console.save(&mut storage);
-
-        assert!(
-            console.refused_notice,
-            "the notice went with the value the save moved aside"
-        );
-        assert!(console.refused.is_none(), "the value was not moved aside");
-    }
-
-    ///
-    /// A start with nothing wrong raises nothing. A notice a viewer sees on an
-    /// ordinary start is a notice they learn to ignore.
-    ///
-    #[test]
-    fn an_absent_or_restored_start_raises_no_notice() {
-        let mut restored = InMemoryStorage::default();
-        store_source(&mut restored, &edited_source());
-
-        for storage in [InMemoryStorage::default(), restored] {
-            assert!(!console_over(&storage).refused_notice);
-        }
-    }
-
     #[test]
     fn a_console_starts_the_revision_its_creation_storage_holds() {
         let saved = edited_source();
         let mut storage = InMemoryStorage::default();
-        store_source(&mut storage, &saved);
+        starting_source(None).persistence.save(&mut storage, &saved);
 
         let console = console_over(&storage);
 
@@ -1226,7 +1155,9 @@ mod storage_tests {
     #[test]
     fn the_console_save_call_stores_the_current_revision() {
         let mut restored_from = InMemoryStorage::default();
-        store_source(&mut restored_from, &edited_source());
+        starting_source(None)
+            .persistence
+            .save(&mut restored_from, &edited_source());
         let mut console = console_over(&restored_from);
         let mut storage = InMemoryStorage::default();
 
