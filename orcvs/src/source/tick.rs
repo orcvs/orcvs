@@ -465,15 +465,21 @@ pub(super) fn plan_configured(
 ) -> TickPlan {
     let schedule = match schedule(grid, map, configuration) {
         Ok(schedule) => schedule,
-        Err(diagnostics) => {
-            return TickPlan {
-                writes: vec![],
-                play_commands: vec![],
-                diagnostics,
-            };
-        }
+        Err(diagnostics) => return unscheduled(diagnostics),
     };
     execution::execute(grid, bytes, map, tick, configuration, schedule)
+}
+
+///
+/// The Tick Plan of a Tick no order could be established for: its diagnostics
+/// are published and nothing else is, because nothing ran.
+///
+fn unscheduled(diagnostics: Vec<Diagnostic>) -> TickPlan {
+    TickPlan {
+        writes: vec![],
+        play_commands: vec![],
+        diagnostics,
+    }
 }
 
 /// An inactive root can contribute no child Portal. Start from value roots,
@@ -827,7 +833,7 @@ mod observed {
 
 #[cfg(test)]
 mod test {
-    use super::{Effect, Encoding, Interpretation, Portal, Tick, observed, resolve};
+    use super::{Effect, Encoding, Interpretation, Portal, Tick, Value, observed, resolve};
 
     ///
     /// Builds one Source Snapshot from `rows`, padded to the Grid's width.
@@ -843,30 +849,18 @@ mod test {
         outputs: &[(usize, usize)],
         supplied: &[(usize, lang::Function)],
     ) -> (TickPlan, crate::source::Source) {
-        configured_source_atoms(
-            grid,
-            rows,
-            outputs,
-            &supplied
-                .iter()
-                .map(|(anchor, function)| (*anchor, lang::Atom::Function(*function)))
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    fn configured_source_atoms(
-        grid: Grid,
-        rows: &[&str],
-        outputs: &[(usize, usize)],
-        supplied: &[(usize, lang::Atom)],
-    ) -> (TickPlan, crate::source::Source) {
         configured_source_answers(
             grid,
             rows,
             outputs,
             &supplied
                 .iter()
-                .map(|(anchor, atom)| (*anchor, Interpretation::Cell(*atom)))
+                .map(|(anchor, function)| {
+                    (
+                        *anchor,
+                        Interpretation::Cell(lang::Atom::Function(*function)),
+                    )
+                })
                 .collect::<Vec<_>>(),
         )
     }
@@ -907,6 +901,149 @@ mod test {
         );
         let plan = source.execute_configured(Tick::ZERO, &configuration);
         (plan, source)
+    }
+
+    ///
+    /// Runs one Tick in which the computations at `answers` state the value
+    /// they answer rather than computing one, and commits its plan.
+    ///
+    /// ADR 0034 defers the Source operation that produces Function values, and
+    /// no Function answers a bare Cell either, so a test that needs one of
+    /// those constructs it. Where it is constructed is the whole point: the
+    /// value is delivered by `stated::plan_with_answers`, one call below the
+    /// planning entry point, so the Source, its destinations, the schedule and
+    /// every other computation's Turn are the production ones and nothing in
+    /// the shipped module compiles differently to admit the answer. The plan is
+    /// committed through `Source::commit_tick`, which is the commit a Tick gets
+    /// however it was planned, rather than through edits that imitate it.
+    ///
+    fn stated_source(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        answers: &[(usize, Value)],
+    ) -> (TickPlan, crate::source::Source) {
+        let mut source = crate::source::Source::new(grid);
+        for (index, byte) in snapshot(grid, rows).bytes().enumerate() {
+            source
+                .set(cell(grid, index), &char::from(byte).to_string())
+                .unwrap();
+        }
+        let mut configuration = super::Configuration::default();
+        for (anchor, output) in outputs {
+            configuration
+                .destinations
+                .entry(cell(grid, *anchor))
+                .or_default()
+                .push(grid.position_at(cell(grid, *output)));
+        }
+        let answers: Vec<_> = answers
+            .iter()
+            .map(|(anchor, value)| (cell(grid, *anchor), value.clone()))
+            .collect();
+        let bytes = source.snapshot();
+        let plan = super::execution::stated::plan_with_answers(
+            grid,
+            bytes.as_bytes(),
+            &source.shared_language_map(),
+            Tick::ZERO,
+            &configuration,
+            &answers,
+        );
+        source.commit_tick(&plan);
+        (plan, source)
+    }
+
+    ///
+    /// One Tick in which the computations at `replacements` answer a Function
+    /// value, which nothing spells in Source until ADR 0034's deferred
+    /// Function-producing operation exists.
+    ///
+    fn replaced_source(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        replacements: &[(usize, lang::Function)],
+    ) -> (TickPlan, crate::source::Source) {
+        stated_source(
+            grid,
+            rows,
+            outputs,
+            &replacements
+                .iter()
+                .map(|(anchor, function)| (*anchor, Value::Atom(lang::Atom::Function(*function))))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn a_stated_answer_faces_every_refusal_the_turn_it_replaces_faces() {
+        // What a computation answers is the only thing a stated answer states.
+        // Whether it answers at all is the Turn's to decide, and a Turn its own
+        // prologue refuses has no answer to deliver, stated or interpreted. A
+        // seam that delivered past those refusals would let these tests assert
+        // outcomes production cannot produce, which is the one way stating an
+        // answer here could be worse than the `cfg` fork it replaces.
+
+        // An Addition whose second operand is Source it cannot read: the Turn
+        // is syntax-blocked, which settles it without a Tick diagnostic.
+        let grid = Grid::new(16, 2);
+        let rows = [".+02", ""];
+        let (plan, source) = stated_source(
+            grid,
+            &rows,
+            &[(0, 16)],
+            &[(0, Value::Atom(lang::Atom::Number(1)))],
+        );
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+
+        // A Terminal Output Function standing inside an Expression: its Turn
+        // records the refusal ADR 0028 states, and the Addition above it is
+        // left with no typed result to consume.
+        let rows = [".+01!>007FC4", ""];
+        let (plan, source) = stated_source(
+            grid,
+            &rows,
+            &[(0, 16)],
+            &[(4, Value::Atom(lang::Atom::Number(1)))],
+        );
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics.iter().any(|d| d
+                .message
+                .contains("valid only at the root of an Expression")),
+            "{:?}",
+            plan.diagnostics
+        );
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("supplied no typed result")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a stated answer names a computation the schedule contains")]
+    fn a_stated_answer_at_no_computations_anchor_is_a_fixture_error() {
+        // Cell 2 holds the Addition's first operand rather than a Function
+        // anchor, so nothing in the schedule would ever state this answer.
+        // Falling through to an ordinary Tick would leave a test asking
+        // whether little happened and being told that it did, which is what
+        // this refuses to do quietly.
+        let grid = Grid::new(16, 2);
+        stated_source(
+            grid,
+            &[".+0203", ""],
+            &[(0, 16)],
+            &[(2, Value::Atom(lang::Atom::Number(1)))],
+        );
     }
 
     #[test]
@@ -974,8 +1111,15 @@ mod test {
     fn live_non_pair_scalar_projection_is_rejected_at_the_row_edge() {
         let grid = Grid::new(16, 2);
         let rows = [".+0203", ""];
-        let (plan, source) =
-            configured_source_atoms(grid, &rows, &[(0, 31)], &[(0, lang::Atom::Char('7'))]);
+        // A single Cell at the last Cell of a row: the Portal admits it and the
+        // schedule never reserved it, which is the pair of facts this rejection
+        // is about. No Function answers a bare Char, so the answer is stated.
+        let (plan, source) = stated_source(
+            grid,
+            &rows,
+            &[(0, 31)],
+            &[(0, Value::Atom(lang::Atom::Char('7')))],
+        );
         assert_eq!(source.snapshot(), snapshot(grid, &rows));
         assert!(plan.writes.is_empty());
         assert!(plan.play_commands.is_empty());
@@ -1207,7 +1351,7 @@ mod test {
 
     #[test]
     fn live_function_replacement_cannot_change_activation_or_output_kind() {
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".+0204", ".+0000", ""],
             &[(0, 32), (16, 0)],
@@ -1815,7 +1959,7 @@ mod test {
 
     #[test]
     fn live_function_replacement_keeps_nesting_and_reinterprets_only_literals() {
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 4),
             &[".+02.x0304", ".+0000", ".+0001", ""],
             &[(0, 48), (4, 34), (16, 0), (32, 52)],
@@ -1825,7 +1969,7 @@ mod test {
         assert_eq!(&source.snapshot()[48..50], "18");
         assert_eq!(&source.snapshot()[52..54], "0D");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".vC4", ".+0000", ""],
             &[(0, 32), (16, 0)],
@@ -1838,7 +1982,7 @@ mod test {
                 .iter()
                 .any(|d| d.message == "Number C4 cannot be converted to a Note")
         );
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".v.^3C", ".+0000", ""],
             &[(0, 32), (16, 0)],
@@ -1851,7 +1995,7 @@ mod test {
 
     #[test]
     fn live_replacement_checks_retained_arity_and_never_runs_new_anchors() {
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".+0204", ".+0000", ""],
             &[(0, 32), (16, 0)],
@@ -1877,7 +2021,7 @@ mod test {
         );
         assert!(source.language_map().diagnostics().any(|d| d.start() == 4));
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".+0101", ".+0000", ""],
             &[(0, 32), (16, 1)],
@@ -1885,7 +2029,12 @@ mod test {
         );
         assert_eq!(&source.snapshot()[..6], "..x101");
         assert_eq!(&source.snapshot()[32..34], "  ");
-        assert_eq!(observed::take().len(), 1);
+        // No Turn is taken at the `.x` the replacement spelled at column 1, and
+        // none at the `.+` it covered: the original anchor's computation is
+        // suppressed and the new one was never scheduled. The producer that
+        // states the replacement answers without interpreting anything, so the
+        // Interpreter is not called at all this Tick.
+        assert_eq!(observed::take().len(), 0);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(
             source
@@ -2017,7 +2166,7 @@ mod test {
 
     #[test]
     fn original_anchor_function_replacement_retains_inputs() {
-        let (plan, source) = configured_source(
+        let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".+0204", ".+0000", ""],
             &[(0, 32), (16, 0)],

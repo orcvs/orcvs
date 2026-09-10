@@ -29,42 +29,7 @@ pub(super) fn execute(
         order,
         diagnostics,
     } = schedule;
-    let mut execution = Execution {
-        grid,
-        original: bytes,
-        working: bytes.to_vec(),
-        tick,
-        lookup: &lookup,
-        states: lookup
-            .nodes()
-            .iter()
-            .map(|node| ComputationState {
-                function: node.function,
-                result: None,
-                syntax_blocked: false,
-                activated: false,
-                suppressed: false,
-                attempted: false,
-            })
-            .collect(),
-        effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
-        #[cfg(test)]
-        configuration,
-    };
-    // Configuration's supplied answers exist only for bounded replacement
-    // tests. Production used its destinations when it built the schedule.
-    #[cfg(not(test))]
-    let _ = configuration;
-
-    // Source content rather than an answer, so it is stated here rather than
-    // rendered: a Bang occupies two Cells and clearing it writes two spaces.
-    let blank = Encoding::literal("  ").expect("a space is a printable Cell");
-    for (anchor, _) in map.bangs() {
-        let clear = Portal::at(grid, anchor)
-            .admit(&blank)
-            .expect("parsed Bang fits its Grid");
-        execution.write(clear);
-    }
+    let mut execution = Execution::new(grid, bytes, map, tick, configuration, &lookup, diagnostics);
     for index in order {
         if let Break(diagnostic) = execution.take_turn(index) {
             return execution.reject(diagnostic);
@@ -97,11 +62,74 @@ struct Execution<'a> {
     configuration: &'a Configuration,
 }
 
-impl Execution<'_> {
-    /// A normal failure settles this Turn and records its diagnostic. A violated
-    /// execution order breaks the Tick, discarding writes and Play Commands
-    /// while retaining diagnostics.
-    fn take_turn(&mut self, index: usize) -> ControlFlow<Diagnostic> {
+impl<'a> Execution<'a> {
+    ///
+    /// The state one Tick starts from, before any computation takes a Turn.
+    ///
+    /// Every computation begins untouched, the schedule's own diagnostics are
+    /// already recorded, and the previous revision's Bang display is cleared:
+    /// the clearing is part of starting a Tick rather than part of taking a
+    /// Turn, which is why it happens here and not in the loop that follows.
+    ///
+    fn new(
+        grid: Grid,
+        bytes: &'a [u8],
+        map: &LanguageMap,
+        tick: Tick,
+        configuration: &'a Configuration,
+        lookup: &'a Lookup,
+        diagnostics: Vec<Diagnostic>,
+    ) -> Self {
+        // Configuration's supplied answers exist only for bounded replacement
+        // tests. Production used its destinations when it built the schedule.
+        #[cfg(not(test))]
+        let _ = configuration;
+        let mut execution = Self {
+            grid,
+            original: bytes,
+            working: bytes.to_vec(),
+            tick,
+            lookup,
+            states: lookup
+                .nodes()
+                .iter()
+                .map(|node| ComputationState {
+                    function: node.function,
+                    result: None,
+                    syntax_blocked: false,
+                    activated: false,
+                    suppressed: false,
+                    attempted: false,
+                })
+                .collect(),
+            effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
+            #[cfg(test)]
+            configuration,
+        };
+        // Source content rather than an answer, so it is stated here rather than
+        // rendered: a Bang occupies two Cells and clearing it writes two spaces.
+        let blank = Encoding::literal("  ").expect("a space is a printable Cell");
+        for (anchor, _) in map.bangs() {
+            let clear = Portal::at(grid, anchor)
+                .admit(&blank)
+                .expect("parsed Bang fits its Grid");
+            execution.write(clear);
+        }
+        execution
+    }
+
+    ///
+    /// The refusals a Turn faces before it can have an answer at all, and the
+    /// signature the Turn proceeds with when it faces none.
+    ///
+    /// A Turn nothing here settles is one whose answer decides the rest: which
+    /// is why this stops at the signature, one step before the operands are
+    /// resolved. Every arm settles the Turn rather than breaking the Tick, so
+    /// it answers an `Option` and not a `ControlFlow` — the ordering defect
+    /// that breaks a Tick is discovered by delivering an answer, never by a
+    /// computation's own prologue.
+    ///
+    fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
         let nodes = self.lookup.nodes();
         let node = &nodes[index];
         // Activation belongs to the original owner's declared kind. It is
@@ -109,7 +137,7 @@ impl Execution<'_> {
         if self.states[index].suppressed
             || (!nodes[node.owner].function.answers_value() && !self.states[node.owner].activated)
         {
-            return Continue(());
+            return None;
         }
         // Taking a Turn precedes syntax and evaluation checks. A later writer
         // must not reach a computation even when its attempted Turn failed.
@@ -119,12 +147,12 @@ impl Execution<'_> {
                 node,
                 lang::InterpretationError::NestedEffectFunction.to_string(),
             )));
-            return Continue(());
+            return None;
         }
         let function = self.states[index].function;
         if self.syntax_blocks(node, function) {
             self.states[index].syntax_blocked = true;
-            return Continue(());
+            return None;
         }
         let signature = lang::Tokens::from(&function);
         if signature.len() != node.operands.len() {
@@ -136,8 +164,20 @@ impl Execution<'_> {
                 }
                 .to_string(),
             )));
-            return Continue(());
+            return None;
         }
+        Some(signature)
+    }
+
+    /// A normal failure settles this Turn and records its diagnostic. A violated
+    /// execution order breaks the Tick, discarding writes and Play Commands
+    /// while retaining diagnostics.
+    fn take_turn(&mut self, index: usize) -> ControlFlow<Diagnostic> {
+        let Some(signature) = self.opens_turn(index) else {
+            return Continue(());
+        };
+        let node = &self.lookup.nodes()[index];
+        let function = self.states[index].function;
         let result = self.operands(node, signature).and_then(|operands| {
             interpret(function, &operands, tick_inputs(self.tick, node.anchor))
                 .map_err(|error| error.to_string())
@@ -379,6 +419,119 @@ fn render_message(reason: RenderError) -> String {
     match reason {
         RenderError::Unrepresentable(rendering) => {
             format!("result {rendering:?} contains Cells outside printable ASCII")
+        }
+    }
+}
+
+///
+/// One Tick whose named producers answer a value a test states rather than one
+/// the Interpreter computes.
+///
+/// ADR 0034 defers the Source operation that produces Function values, so no
+/// Function spelling answers one; and every Atom a Function does answer encodes
+/// as the Cell pair a scalar result reserves. The rules those two absences
+/// leave unreachable — replacement at an original anchor, and ADR 0036's
+/// refusal of a result that is not the Cell pair the schedule reserved — are
+/// therefore reached only from a value a test constructs. That value
+/// is constructed here, one call below [`execute`], so that the shipped Turn
+/// stays one thing in every build: the Interpreter's answer, delivered.
+///
+/// Only the Turn loop is reimplemented, because substituting one Turn is the
+/// one thing this does differently. The starting state, the Bang cleanup it
+/// performs, the schedule, the rejection path, the resolution, and the Turn
+/// every other computation takes are all the production ones, reached through
+/// the same [`Execution::new`] that [`execute`] reaches them through.
+///
+#[cfg(test)]
+pub(super) mod stated {
+    use lang::{Tick, Value};
+
+    use super::super::{schedule, unscheduled};
+    use super::{
+        Break, Configuration, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap,
+        Schedule, TickPlan, resolve,
+    };
+    use crate::grid::CellIndex;
+
+    ///
+    /// Plans one Tick, delivering the value stated for a computation's anchor
+    /// in place of the answer that computation would have interpreted.
+    ///
+    pub(in crate::source::tick) fn plan_with_answers(
+        grid: Grid,
+        bytes: &[u8],
+        map: &LanguageMap,
+        tick: Tick,
+        configuration: &Configuration,
+        answers: &[(CellIndex, Value)],
+    ) -> TickPlan {
+        let Schedule {
+            lookup,
+            order,
+            diagnostics,
+        } = match schedule(grid, map, configuration) {
+            Ok(schedule) => schedule,
+            Err(diagnostics) => return unscheduled(diagnostics),
+        };
+        // An answer whose anchor names no scheduled computation would otherwise
+        // leave every Turn to the Interpreter and say nothing about it, which a
+        // test asserting that little happened cannot tell from success. The
+        // schedule holds every computation it will run, so the mistyped index —
+        // and the fixture whose layout a later parse shifts out from under it —
+        // is caught before the first Turn rather than inferred from the plan.
+        for (anchor, _) in answers {
+            assert!(
+                lookup
+                    .nodes()
+                    .iter()
+                    .any(|node| grid.index(node.anchor) == *anchor),
+                "a stated answer names a computation the schedule contains"
+            );
+        }
+        let mut execution =
+            Execution::new(grid, bytes, map, tick, configuration, &lookup, diagnostics);
+        let mut stated = vec![false; answers.len()];
+        for index in order {
+            let anchor = grid.index(lookup.nodes()[index].anchor);
+            let turn = match answers.iter().position(|(stated, _)| *stated == anchor) {
+                Some(position) => {
+                    stated[position] = true;
+                    execution.state_answer(index, answers[position].1.clone())
+                }
+                None => execution.take_turn(index),
+            };
+            if let Break(diagnostic) = turn {
+                // The order stops where a rejection found it, so the answers
+                // after that Turn are unstated for a reason the fixture chose.
+                return execution.reject(diagnostic);
+            }
+        }
+        assert!(
+            stated.iter().all(|stated| *stated),
+            "every stated answer reached the Turn of the computation it names"
+        );
+        resolve(execution.effects)
+    }
+
+    impl Execution<'_> {
+        ///
+        /// Delivers `value` as this computation's answer, in place of the
+        /// operands it would have resolved and the interpretation it would have
+        /// answered from them.
+        ///
+        /// It replaces those two and nothing else. Every refusal
+        /// [`Execution::opens_turn`] applies still applies, through the same
+        /// call [`Execution::take_turn`] makes: a stated answer says what this
+        /// computation answers, never whether it answers at all. A Turn that
+        /// prologue settles — suppressed, inactive, nested and effectful,
+        /// syntax-blocked, or refused for its arity — is settled here too, and
+        /// the stated answer is never delivered.
+        ///
+        fn state_answer(&mut self, index: usize, value: Value) -> ControlFlow<Diagnostic> {
+            if self.opens_turn(index).is_none() {
+                return Continue(());
+            }
+            self.deliver_value(index, value)
         }
     }
 }
