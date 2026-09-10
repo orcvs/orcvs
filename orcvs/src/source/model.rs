@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 use super::language_map::{LanguageMap, Span};
 use super::tick;
+use super::tick::execution::ComputationState;
 use super::{CellContent, SourceError};
 
 pub const SPACE: &str = " ";
@@ -310,7 +311,9 @@ impl Source {
     /// commands carry the operands those scheduled evaluations observed.
     /// `tick` is the absolute musical Tick supplied by the Playback Engine.
     pub fn execute(&mut self, tick: Tick) -> TickPlan {
-        let plan = self.plan_tick(tick);
+        // What each computation's Turn did is discarded here: a Playback
+        // Engine applies a Tick Plan and asks nothing about how it was reached.
+        let (plan, _) = self.plan_tick(tick);
         self.commit_tick(&plan);
         plan
     }
@@ -320,8 +323,8 @@ impl Source {
         &mut self,
         tick: Tick,
         configuration: &super::tick::Configuration,
-    ) -> TickPlan {
-        let plan = super::tick::plan_configured(
+    ) -> (TickPlan, Vec<ComputationState>) {
+        let (plan, states) = super::tick::plan_configured(
             self.grid,
             self.inner.as_bytes(),
             &self.language_map,
@@ -329,7 +332,7 @@ impl Source {
             configuration,
         );
         self.commit_tick(&plan);
-        plan
+        (plan, states)
     }
 
     ///
@@ -344,8 +347,8 @@ impl Source {
         &mut self,
         tick: Tick,
         destinations: &std::collections::BTreeMap<CellIndex, Vec<crate::grid::Position>>,
-    ) -> TickPlan {
-        let plan = super::tick::plan_carrying(
+    ) -> (TickPlan, Vec<ComputationState>) {
+        let (plan, states) = super::tick::plan_carrying(
             self.grid,
             self.inner.as_bytes(),
             &self.language_map,
@@ -353,10 +356,10 @@ impl Source {
             destinations,
         );
         self.commit_tick(&plan);
-        plan
+        (plan, states)
     }
 
-    fn plan_tick(&self, tick: Tick) -> TickPlan {
+    fn plan_tick(&self, tick: Tick) -> (TickPlan, Vec<ComputationState>) {
         tick::plan(self.grid, self.inner.as_bytes(), &self.language_map, tick)
     }
 
