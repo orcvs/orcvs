@@ -25,6 +25,10 @@ and semantics changes as active language design, not public-API breakage.
 - Prefer safe Rust. Keep each unsafe scope minimal and state its safety invariants.
 - Propagate or handle fallible results intentionally; use assertions for proven invariants.
 - Keep lint suppressions narrow and explain why the lint is inapplicable.
+- Keep test-only inputs out of shipped code: no shipped function takes a parameter, or reaches a
+  branch, that only a test populates. When a test needs an input production cannot construct, it
+  builds that input itself — below the shipped entry point, in a test-only item beside the shipped
+  one, never through a seam cut into shipped code.
 - Add dependencies, features, or build-time execution only with a recorded rationale.
 - Support claims about performance with a reproducible benchmark or profile.
 - Exercise explicit feature combinations; do not assume every feature composes.
