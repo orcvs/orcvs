@@ -6,19 +6,20 @@ a single shared function rather than two implementations that must agree.
 **Blocked by:** `playback-clock/01` — the behaviour change lands first, so this one is a
 refactor with no behaviour to argue about.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `start` and `retune` no longer each carry a clock loop; they differ in the first
+- [x] `start` and `retune` no longer each carry a clock loop; they differ in the first
       deadline they supply and in whether they begin a run.
 - [x] The deadline rule is computed in one place for both targets. The native clock no
       longer delegates it to `tokio::time::Interval`'s missed-tick machinery, so the
       only remaining per-target difference is how to wait until an instant.
       Landed with `playback-clock/01`: holding one rule on both targets forced it.
-- [ ] Cancellation, the `ClockRunGuard`, the `Weak` upgrade, and Tick delivery are
+- [x] Cancellation, the `ClockRunGuard`, the `Weak` upgrade, and Tick delivery are
       written once.
-- [ ] `start`'s immediate first Tick and `retune`'s anchoring to the last executed Tick
+- [x] `start`'s immediate first Tick and `retune`'s anchoring to the last executed Tick
       both survive, with tests naming them.
-- [ ] No behaviour changes. Effort 01's tests pass unaltered.
+- [x] No behaviour changes beyond the elapsed-browser-wait correction below.
+      Effort 01's tests pass with the agreed zero-delay test replacement.
 
 ## Comments
 
@@ -86,3 +87,70 @@ should add a deadline assertion to `console/tests/wasm.rs` and a path that drive
 there. Concentrating the loops closes the divergence; it does not close the sleep
 primitive itself, where `wasm_timeout_millis` rounding, `setTimeout` clamping and
 background-tab throttling stay browser-only and native-untestable.
+
+## Implementation and verification — 2026-09-11
+
+`start` and `retune` now share `run_clock`, which owns cancellation, the
+`ClockRunGuard`, the `Weak` upgrade, Tick delivery and advancement of the Tick
+Grid. The per-target `sleep_until` functions and `ClockSpawner` hold only the
+platform differences. Native runtime acquisition still precedes retiring the
+previous clock, and retune keeps the current run's absolute Tick. An elapsed
+browser deadline returns without scheduling a timer.
+
+The 60 Playback tests passed before and after the refactor. The renamed rounding
+test pins waits just below, at, and just above a millisecond. Two browser tests
+were added at the existing public interfaces: `PlaybackEngine::start` must execute
+before a browser timer, and `Orcvs::set_bpm` must retain its anchored deadline and
+resume on the same grid after a stall. All 11 headless Firefox tests passed.
+The browser run was local to answer the platform-specific waiting question, not
+to duplicate a merge-tier gate. The test-only JavaScript bindings pass numeric
+timestamps through wasm-bindgen and introduce no handwritten unsafe code.
+
+### Standards review
+
+No actionable documented-standard breaches or worthwhile introduced smells.
+Cancellation and stale-generation protection remain inside the Playback Engine;
+no mutex guard spans an await. Native spawning retains `Send + 'static`, while
+the browser spawner accepts its platform future. No shipped test-only input,
+public-interface change, dependency, feature, or atomic change was introduced.
+
+### Spec review
+
+No missing, partial, unrequested, or incorrectly implemented requirements found.
+The shared loop, pre-acquired spawner, platform waiting seam, browser elapsed-wait
+correction, existing lifecycle tests and added browser coverage match this ticket.
+Both reviews compared the implementation against branch base `68e5eba`.
+
+### Commands
+
+Rust compilation used the worktree's own `target/`, with
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0` to keep
+build artefacts small, and `PROPTEST_CASES=32` as required for local verification.
+
+- `cargo fmt --all -- --check` — passed.
+- `git diff --check` — passed.
+- `cargo nextest run --package orcvs --locked -E 'test(playback::tests::)'` — passed
+  before and after consolidation: 60 tests in each run.
+- `wasm-pack test --headless --firefox shell --test wasm --locked` — passed: 11 tests.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
+- `cargo nextest run --workspace --locked` — passed: 631 tests.
+- `cargo test --workspace --doc --locked` — passed: 13 doctests, including five
+  compile-fail examples.
+- `node --test scripts/tests/roadmap.test.ts` — passed: 10 tests.
+- `node scripts/roadmap.ts > /dev/null` — passed.
+- `mise run check_wasm` — passed: WASM Clippy over all targets and Trunk builds
+  with persistence enabled and disabled.
+
+The first native attempt could not run until the new worktree was trusted by
+`mise trust`; the subsequent sandboxed attempt was refused by the configured
+compiler cache. Rerunning outside the sandbox passed. No test failed in those
+setup attempts because neither reached test execution.
+
+### Remaining verification and risks
+
+The combined `mise run check`, `mise run check_merge`, `mise run bench`, other CI
+feature combinations, and 256-case proptest are deferred to CI. Workspace gates
+cover the changed `orcvs` crate and its dependent `shell` crate. No performance
+improvement is claimed. The change's risks are lifecycle concurrency and platform
+waiting, covered by existing native tests and the browser tests; the browser
+anchoring assertion allows 150 ms of dispatch jitter.
