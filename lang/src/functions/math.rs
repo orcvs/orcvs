@@ -67,7 +67,7 @@ pub fn divide(ctx: &mut Context) -> Result<Value, Error> {
 #[inline(always)]
 pub fn equality(ctx: &mut Context) -> Result<Value, Error> {
     ctx.stack
-        .predicate(|Equality { left, right }: Equality| Ok(left == right))
+        .predicate(|Equality { left, right }: Equality| left == right)
 }
 
 /// Maximum: `.> left right`.

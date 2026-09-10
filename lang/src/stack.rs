@@ -176,15 +176,8 @@ impl Broadcast {
     /// `None` is exactly the scalar shape, so a caller that binds one element
     /// can refuse a widened one without an impossible branch to describe.
     ///
-    /// Read only by [`Stack::extract`], and so unread outside tests for the
-    /// reason given there.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the scalar seam it serves has no declaring Function since ADR 0030"
-        )
-    )]
+    /// Read only by [`Stack::extract`], which ADR 0036's Delay and Euclidean
+    /// reach on every evaluation.
     #[inline(always)]
     fn first_sequence(&self) -> Option<&Sequence> {
         self.operands.iter().find_map(|operand| match operand {
@@ -421,21 +414,13 @@ impl Stack {
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
     ///
-    /// No Function declares itself scalar since ADR 0030 reversed the two that
-    /// did, and ADR 0012's Increment and Interpolation — the exception stated
-    /// on its own terms — are unbuilt, so this has no evaluation caller today.
-    /// It stays for the reason the `Scalar` pervasion stays: deleting the seam
-    /// would make the exception impossible to declare, and the declaration
-    /// table is where an exception is supposed to be stated. It is also what
-    /// `declaration_agreement` checks every Function's bind through, so the
-    /// suppression is scoped to builds where the tests are absent.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the exception ADR 0012 states has no built Function yet: this is the seam it will bind through"
-        )
-    )]
+    /// Two Functions declare themselves scalar and bind here: ADR 0036's Delay
+    /// `~*` and Euclidean `~%`, which refuse a Sequence operand because a
+    /// widened pulse has nothing to answer where an element does not Bang.
+    /// ADR 0012's Increment and Interpolation are the exception stated on its
+    /// own terms and are unbuilt; they arrive at this same seam by declaring
+    /// their pervasion, not by adding a check of their own. It is also what
+    /// `declaration_agreement` checks every Function's bind through.
     #[inline(always)]
     pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;
@@ -533,19 +518,11 @@ impl Stack {
     /// precisely because it has no Source encoding. An operation of no pairs is
     /// vacuously true, which is what makes an empty Sequence operand answer one
     /// Bang rather than nothing.
-    ///
-    /// The element answer is fallible for the reason [`Stack::apply`]'s is: an
-    /// element can be outside the domain its Function accepts without being
-    /// outside the domain its declaration states. Equality has no such element
-    /// and answers `Ok` always; ADR 0012's Delay and Euclidean are the reason
-    /// the seam is fallible at all, because a zero rate, a zero modulus, or a
-    /// zero step count is a fault about one element rather than about the
-    /// shape the operands make.
     #[inline(always)]
     pub(crate) fn predicate<O, F>(&mut self, pair: F) -> Result<Value, Error>
     where
         O: Operands,
-        F: Fn(O) -> Result<bool, Error>,
+        F: Fn(O) -> bool,
     {
         let broadcast = self.checked::<O>()?;
         let mut all = true;
@@ -554,16 +531,8 @@ impl Stack {
         // bind is where a declared domain is checked: stopping at the first
         // unequal pair would make whether a later element diagnoses depend on
         // which earlier pair happened to disagree.
-        //
-        // A diagnostic is the exception, and it is the same exception
-        // `Stack::apply` already makes: an element that faults is not a settled
-        // answer but the answer, so the first faulting element in signature
-        // order diagnoses the complete operation and the elements after it are
-        // neither bound nor asked. The property above is about the `false` that
-        // settles the Bang, which must not shorten the walk, and not about the
-        // fault that replaces it.
         for index in 0..broadcast.width() {
-            all &= pair(broadcast.bind(index)?)?;
+            all &= pair(broadcast.bind(index)?);
         }
 
         Ok(if all { Atom::Bang } else { Atom::Empty }.into())
@@ -808,7 +777,7 @@ mod test {
     /// Equality, per pair, as `math::equality` states it: the one Function that
     /// answers once about every pair rather than once per pair.
     fn all_equal(stack: &mut Stack) -> Result<Value, Error> {
-        stack.predicate(|operands::Equality { left, right }: operands::Equality| Ok(left == right))
+        stack.predicate(|operands::Equality { left, right }: operands::Equality| left == right)
     }
 
     /// `.^`, per element, as `numeric_conversion::to_note` states it.
@@ -1382,14 +1351,13 @@ mod test {
 
     #[test]
     fn a_sequence_operand_is_refused_exactly_where_a_function_declares_it_does_not_pervade() {
-        // The pervasion arm of `broadcast` has no Function to reach it today:
-        // ADR 0030 flipped the last two rows that declared `Scalar`, and ADR
-        // 0012's Increment and Interpolation are unbuilt. Stating the rule over
-        // the table rather than over two named Functions is what keeps it a
-        // witness anyway — the first row to declare `Scalar` is covered by
+        // ADR 0036's Delay and Euclidean are what reach the pervasion arm of
+        // `broadcast` today, and ADR 0012's Increment and Interpolation are
+        // still unbuilt. The rule is stated over the table rather than over the
+        // two Functions that reach it, so a row that changes its answer — in
+        // either direction, as Delay and Euclidean just did — is covered by
         // being declared, which is the discipline `declaration_agreement`
-        // already applies to the bind, and it is the coverage the two named
-        // tests provided before their Functions stopped being Scalar.
+        // already applies to the bind.
         //
         // `broadcast` settles arity and shape and nothing else, so a Number
         // stands at every position regardless of the Token declared there.

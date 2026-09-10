@@ -13,15 +13,19 @@ use crate::{
 // Numbers, and the Tick is shared by the whole operation because an Expression
 // is evaluated at one Tick.
 //
-// Two of the three answer a pulse rather than a Number, so they go through
-// `Stack::predicate` and not `Stack::apply`. ADR 0012 has each broadcast
-// element apply the formula independently at the same Tick, which `predicate`
-// does — it binds and asks every element — but the answer is one whole value
-// because the alternative does not exist: an element that does not Bang has
-// nothing to put at its position, the only Atom meaning nothing is the absence
-// marker, and `Sequence::new` refuses that as a member because it has no Source
-// encoding. This is the reasoning `Stack::predicate` and the Absence Marker
-// already record for Equality, reaching its second and third Functions.
+// Two of the three answer a pulse rather than a Number, and ADR 0036 declares
+// those two Scalar: they refuse a Sequence operand rather than widening. A
+// widened pulse would need one answer per element, an element that does not
+// Bang has only the absence marker to offer, and `Sequence::new` refuses that
+// as a member because it has no Source encoding. What is left is a reduction
+// over the elements, and every reduction fixes a meaning for two rhythms
+// layered on one Cell that could not later be changed without breaking Source,
+// so the operand is refused instead — a refusal ADR 0036 can relax once the
+// Sequence Functions make one spellable. The refusal comes from the declaration
+// alone: `Stack::broadcast` raises `ExpectedAtom` for a Sequence at any operand
+// of a Function that does not pervade, so neither body checks for one. They
+// bind through `Stack::extract`, the scalar seam; Clock answers a Number and
+// broadcasts through `Stack::apply` like every other Atomic Function.
 //
 // Every formula is evaluated in `u64`. The Tick is already one, and the two
 // operands are Numbers whose product is a cycle length rather than a value the
@@ -67,13 +71,29 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
     Ok((u64::from(rate), u64::from(modulus)))
 }
 
+///
+/// The Atom a pulse answers with, which is a Bang or nothing at all.
+///
+/// Both pulse Functions answer the same pair, so the pair is named once: the
+/// absence marker is what the Interpreter already reads as "no result write",
+/// and answering a Number for the silent Tick would put a Cell meaning "no" in
+/// the Source for the next Tick to read as an operand. It is also the Atom
+/// `Sequence::new` refuses, which is why ADR 0036 has these two refuse a
+/// Sequence operand rather than answer one.
+///
+#[inline(always)]
+fn pulse(banged: bool) -> Value {
+    if banged { Atom::Bang } else { Atom::Empty }.into()
+}
+
 /// Clock: `~. rate modulus`.
 ///
 /// The step a cycle of `rate * modulus` Ticks is at, as a Number: `rate` Ticks
 /// to a step and `modulus` steps to the cycle, so the answer counts `00`,
 /// `01`, … up to `modulus - 1` and begins again. It is the one Function of the
-/// three that answers a value, so it broadcasts through `Stack::apply` and a
-/// Sequence operand answers a Sequence of steps.
+/// three that answers a Number, so it is the one ADR 0036 leaves pervasive: it
+/// broadcasts through `Stack::apply` and a Sequence operand answers a Sequence
+/// of steps, because every element has a step to contribute.
 #[inline(always)]
 pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
@@ -110,23 +130,24 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
 /// therefore a Bang once per `rate` Ticks and not one every Tick, which is what
 /// makes the two operands a rate and a step count rather than two names for the
 /// same period.
+///
+/// It answers a pulse, so ADR 0036 keeps it scalar: a Sequence at either
+/// operand is refused by the declaration before this body runs, and the one
+/// pair `Stack::extract` binds is the whole operation.
 #[inline(always)]
 pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
+    let Delay { rate, modulus } = ctx.stack.extract::<Delay>()?;
+    let (rate, modulus) = cycle_factors(Function::Delay, rate, modulus)?;
 
-    ctx.stack.predicate(move |Delay { rate, modulus }: Delay| {
-        let (rate, modulus) = cycle_factors(Function::Delay, rate, modulus)?;
-
-        // The product is the cycle length, not a Number: two bytes multiply to
-        // at most 0xFE01, and `~* 10 20` is a cycle of 512 Ticks that a byte
-        // multiply would fold to zero and then divide by.
-        //
-        // ADR 0012 writes this as `Tick % (rate * modulus) == 0`, and
-        // `is_multiple_of` is that test rather than a different one: the two
-        // differ only at a zero divisor, which `cycle_factors` has already
-        // refused.
-        Ok(tick.is_multiple_of(rate * modulus))
-    })
+    // The product is the cycle length, not a Number: two bytes multiply to at
+    // most 0xFE01, and `~* 10 20` is a cycle of 512 Ticks that a byte multiply
+    // would fold to zero and then divide by.
+    //
+    // ADR 0012 writes this as `Tick % (rate * modulus) == 0`, and
+    // `is_multiple_of` is that test rather than a different one: the two differ
+    // only at a zero divisor, which `cycle_factors` has already refused.
+    Ok(pulse(tick.is_multiple_of(rate * modulus)))
 }
 
 /// Euclidean: `~% hits steps`.
@@ -143,36 +164,38 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 /// modulo `steps` anyway. ADR 0012 asks for the reduction and says only that
 /// the counter must not overflow; what the counter itself does at its end is
 /// decided by [`crate::Tick::next`], which saturates rather than wraps.
+///
+/// It answers a pulse, so ADR 0036 keeps it scalar for the reason Delay is:
+/// a Sequence at either operand is refused by the declaration, and the one pair
+/// `Stack::extract` binds is the whole operation.
 #[inline(always)]
 pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
+    let Euclidean { hits, steps } = ctx.stack.extract::<Euclidean>()?;
 
-    ctx.stack
-        .predicate(move |Euclidean { hits, steps }: Euclidean| {
-            // Zero steps is answered before hits are compared to steps, which
-            // is what ADR 0012 requires and not an accident of the order the
-            // two checks are written in: `~% 00 00` is a cycle with no
-            // positions rather than a cycle with no onsets, so it diagnoses
-            // instead of falling to the zero-hits rule below.
-            if steps == 0 {
-                return Err(zero_cycle(Function::Euclidean, "step count"));
-            }
+    // Zero steps is answered before hits are compared to steps, which is what
+    // ADR 0012 requires and not an accident of the order the two checks are
+    // written in: `~% 00 00` is a cycle with no positions rather than a cycle
+    // with no onsets, so it diagnoses instead of falling to the zero-hits rule
+    // below.
+    if steps == 0 {
+        return Err(zero_cycle(Function::Euclidean, "step count"));
+    }
 
-            if hits > steps {
-                return Err(InterpretationError::EuclideanOverfull { hits, steps }.into());
-            }
+    if hits > steps {
+        return Err(InterpretationError::EuclideanOverfull { hits, steps }.into());
+    }
 
-            let hits = u64::from(hits);
-            let steps = u64::from(steps);
-            let tick_in_cycle = tick % steps;
-            let phase = (tick_in_cycle + steps - 1) % steps;
+    let hits = u64::from(hits);
+    let steps = u64::from(steps);
+    let tick_in_cycle = tick % steps;
+    let phase = (tick_in_cycle + steps - 1) % steps;
 
-            // Zero hits falls out of this rather than being special-cased:
-            // `0 + 0 >= steps` is false for every positive `steps`. So does a
-            // full cycle, where `hits == steps` makes the remainder zero and
-            // the comparison an equality that always holds.
-            Ok((hits * phase) % steps + hits >= steps)
-        })
+    // Zero hits falls out of this rather than being special-cased: `0 + 0 >=
+    // steps` is false for every positive `steps`. So does a full cycle, where
+    // `hits == steps` makes the remainder zero and the comparison an equality
+    // that always holds.
+    Ok(pulse((hits * phase) % steps + hits >= steps))
 }
 
 #[cfg(test)]
@@ -611,8 +634,9 @@ mod test {
 
     #[test]
     fn a_clock_broadcasts_one_step_per_element() {
-        // Clock answers a value, so it extends element-wise like any other
-        // Atomic Function: a scalar operand repeats and equal lengths pair.
+        // Clock answers a Number, so ADR 0036 leaves it pervasive and it
+        // extends element-wise like any other Atomic Function: a scalar operand
+        // repeats and equal lengths pair.
         assert_eq!(
             evaluate(Function::Clock, 7, Atom::Number(0x02), numbers([2, 4, 8])).unwrap(),
             Interpretation::Sequence(numbers([1, 3, 3])),
@@ -622,55 +646,125 @@ mod test {
             evaluate(Function::Clock, 7, numbers([1, 2, 4]), numbers([4, 4, 4])).unwrap(),
             Interpretation::Sequence(numbers([3, 3, 1])),
         );
+
+        // An empty Sequence operand is a width of no elements rather than a
+        // scalar, so the answer is the empty Sequence: Clock is the one of the
+        // three that has an answer of that shape to give.
+        for (left, right) in [
+            (
+                Value::from(Atom::Number(0x02)),
+                Value::from(Sequence::empty()),
+            ),
+            (Sequence::empty().into(), Atom::Number(0x02).into()),
+            (Sequence::empty().into(), Sequence::empty().into()),
+        ] {
+            assert_eq!(
+                evaluate(Function::Clock, 7, left.clone(), right.clone()).unwrap(),
+                Interpretation::Sequence(Sequence::empty()),
+                "~. {left:?} {right:?}"
+            );
+        }
     }
 
     #[test]
-    fn a_pulse_broadcasts_to_find_its_elements_and_still_answers_one_atom() {
-        // ADR 0012 has each broadcast element apply the formula independently
-        // at the same Tick, and ADR 0011's rule for a whole-value answer is
-        // what shapes the result: an element that does not Bang has nothing to
-        // put at its position, so the answer is one Bang or the Absence Marker
-        // about all of them rather than a Sequence with a hole in it.
+    fn a_clock_element_fault_diagnoses_the_complete_operation() {
+        // The all-or-nothing rule on the one Function of the three that can
+        // still meet it. A zero modulus at the last element refuses the whole
+        // answer rather than leaving a Sequence of the steps that did count,
+        // and the fault is raised at whichever element holds it.
+        for (left, right, message) in [
+            (
+                Value::from(Atom::Number(0x02)),
+                Value::from(numbers([4, 8, 0])),
+                "~. cannot count a cycle with a zero modulus",
+            ),
+            (
+                numbers([1, 0]).into(),
+                Atom::Number(0x04).into(),
+                "~. cannot count a cycle with a zero rate",
+            ),
+        ] {
+            let error = evaluate(Function::Clock, 7, left, right).unwrap_err();
+            assert_eq!(error.to_string(), message);
+        }
+    }
+
+    #[test]
+    fn a_clock_diagnoses_two_non_scalar_operands_of_different_lengths() {
+        // Ordinary ADR 0007 shape rules, including an empty Sequence against a
+        // non-empty one: a shape fault is settled before any element is read,
+        // so it precedes every diagnostic the formula could raise. Only Clock
+        // can reach this now — the other two refuse the first Sequence they see
+        // and never compare two lengths.
+        for (left, right, lengths) in [
+            (
+                Value::from(numbers([1, 2])),
+                Value::from(numbers([1, 2, 3])),
+                (2, 3),
+            ),
+            (Sequence::empty().into(), numbers([1, 2]).into(), (0, 2)),
+            (numbers([1, 2]).into(), Sequence::empty().into(), (2, 0)),
+        ] {
+            assert!(
+                matches!(
+                    evaluate(Function::Clock, 5, left.clone(), right.clone()),
+                    Err(Error::Sequence(SequenceError::IncompatibleLengths { left: l, right: r }))
+                        if (l, r) == lengths
+                ),
+                "~. {left:?} {right:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pulse_refuses_a_sequence_at_either_operand_position() {
+        // ADR 0036. A widened pulse would need one answer per element and an
+        // element that does not Bang has only the Absence Marker to offer,
+        // which ADR 0025 refuses as a Sequence member; every reduction to one
+        // answer fixes a meaning for layered rhythms that could not be changed
+        // later without breaking Source, so the operand is refused instead.
         //
-        // Tick 12 is a multiple of 4 and 6 and not of 8, so the three cases
-        // below separate "every element" from "some element".
-        assert_eq!(
-            evaluate(Function::Delay, 12, Atom::Number(0x02), numbers([2, 3])).unwrap(),
-            Interpretation::Cell(Atom::Bang),
-        );
-
-        assert_eq!(
-            evaluate(Function::Delay, 12, Atom::Number(0x02), numbers([2, 3, 4])).unwrap(),
-            Interpretation::Cell(Atom::Empty),
-        );
-
-        // Euclidean the same way, at Tick 14: it is the third step of a cycle
-        // of four, where `03 04` Bangs and `01 04` does not, so one element is
-        // enough to settle the answer.
-        assert_eq!(
-            evaluate(Function::Euclidean, 14, numbers([3, 4]), Atom::Number(0x04)).unwrap(),
-            Interpretation::Cell(Atom::Bang),
-        );
-
-        assert_eq!(
-            evaluate(Function::Euclidean, 14, numbers([3, 1]), Atom::Number(0x04)).unwrap(),
-            Interpretation::Cell(Atom::Empty),
-        );
-
-        // An operation of no elements is vacuously true, exactly as Equality's
-        // is: the empty Sequence is a width of no elements, not a scalar.
-        assert_eq!(
-            evaluate(Function::Delay, 5, Atom::Number(0x02), Sequence::empty()).unwrap(),
-            Interpretation::Cell(Atom::Bang),
-        );
+        // The refusal is the declaration's, not a check in either body, so it
+        // is claimed at both operand positions of both Functions — including
+        // the empty Sequence, which a body checking for members to walk would
+        // let through as an operation of nothing.
+        for function in [Function::Delay, Function::Euclidean] {
+            for (left, right, found) in [
+                (
+                    Value::from(numbers([2, 3])),
+                    Value::from(Atom::Number(0x04)),
+                    "0203",
+                ),
+                (Atom::Number(0x04).into(), numbers([2, 3]).into(), "0203"),
+                (numbers([2, 3]).into(), numbers([4, 8]).into(), "0203"),
+                (Sequence::empty().into(), Atom::Number(0x04).into(), ""),
+                (Atom::Number(0x04).into(), Sequence::empty().into(), ""),
+            ] {
+                assert!(
+                    matches!(
+                        evaluate(function, 12, left.clone(), right.clone()),
+                        Err(Error::Sequence(SequenceError::ExpectedAtom(ref rendered)))
+                            if rendered == found
+                    ),
+                    "{function:?}({left:?}, {right:?})"
+                );
+            }
+        }
     }
 
     #[test]
-    fn an_element_fault_diagnoses_the_complete_operation() {
-        // The all-or-nothing rule reaching a fallible predicate. A zero step
-        // count at the last element refuses the whole answer rather than
-        // letting the elements that did answer settle a Bang, which is the
-        // failure a body that ignored its own diagnostic would produce.
+    fn a_pulse_refuses_a_sequence_before_it_reads_the_numbers_inside_it() {
+        // The refusal is settled in `Stack::broadcast`, which runs before any
+        // element binds, so a Sequence carrying operands the formula would also
+        // refuse is answered as the shape fault it is. A body that walked the
+        // members first would report the zero and leave the Source believing a
+        // Sequence operand is admissible once its members are fixed.
+        let error = evaluate(Function::Delay, 0, numbers([1, 0]), Atom::Number(0x04)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            r#"expected an Atom, found the Sequence "0100""#
+        );
+
         let error = evaluate(
             Function::Euclidean,
             0,
@@ -680,40 +774,16 @@ mod test {
         .unwrap_err();
         assert_eq!(
             error.to_string(),
-            "~% cannot count a cycle with a zero step count"
+            r#"expected an Atom, found the Sequence "040800""#
         );
 
-        let error = evaluate(Function::Delay, 0, numbers([1, 0]), Atom::Number(0x04)).unwrap_err();
+        // And two Sequences of different lengths, which is the other shape
+        // fault: the pervasion answer precedes the length comparison, so the
+        // first Sequence in signature order is the one the Source is shown.
+        let error = evaluate(Function::Delay, 0, numbers([1, 2]), numbers([1, 2, 3])).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "~* cannot count a cycle with a zero rate"
+            r#"expected an Atom, found the Sequence "0102""#
         );
-    }
-
-    #[test]
-    fn two_non_scalar_operands_of_different_lengths_diagnose() {
-        // Ordinary ADR 0007 shape rules, including an empty Sequence against a
-        // non-empty one: a shape fault is settled before any element is read,
-        // so it precedes every diagnostic the formulas above could raise.
-        for function in [Function::Clock, Function::Delay, Function::Euclidean] {
-            for (left, right, lengths) in [
-                (
-                    Value::from(numbers([1, 2])),
-                    Value::from(numbers([1, 2, 3])),
-                    (2, 3),
-                ),
-                (Sequence::empty().into(), numbers([1, 2]).into(), (0, 2)),
-                (numbers([1, 2]).into(), Sequence::empty().into(), (2, 0)),
-            ] {
-                assert!(
-                    matches!(
-                        evaluate(function, 5, left.clone(), right.clone()),
-                        Err(Error::Sequence(SequenceError::IncompatibleLengths { left: l, right: r }))
-                            if (l, r) == lengths
-                    ),
-                    "{function:?}({left:?}, {right:?})"
-                );
-            }
-        }
     }
 }

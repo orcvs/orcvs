@@ -322,23 +322,23 @@ macro_rules! function_kind {
 /// hold. An exception that arrived by omission would therefore be silent, so
 /// this is declared beside every other property of a Function rather than
 /// inferred from a family prefix or assumed from a signature: two Functions of
-/// the same family and the same signature can differ in it.
+/// the same family and the same signature can differ in it. ADR 0036 is that
+/// case built — Clock `~.` and Delay `~*` share the Tick family and share a
+/// signature of two Numbers, and one broadcasts while the other refuses.
 #[derive(Clone, Copy)]
 enum Pervasion {
     Pervasive,
-    /// No row declares this today. ADR 0030 removed the last two that did —
-    /// the Terminal Output Functions were declared scalar from an
-    /// implementation brief rather than from a decision — and ADR 0012's
-    /// Increment and Interpolation, which are the rows that state the exception
-    /// on their own terms, are unbuilt. Deleting the answer would leave the
-    /// column with one value and make the exception impossible to declare,
-    /// which is the opposite of what declaring it beside the signature is for.
-    /// `expect` rather than `allow`, so the first Function to declare it turns
-    /// this attribute into the error that deletes it.
-    #[expect(
-        dead_code,
-        reason = "the exception ADR 0012 states has no built Function yet: this is the answer it will declare"
-    )]
+    /// Declared by ADR 0036's Delay `~*` and Euclidean `~%`. Each answers a
+    /// pulse, so a widened operation would need one answer per element and an
+    /// element that does not Bang has only the Absence Marker to offer, which
+    /// ADR 0025 refuses as a Sequence member; reducing the elements to one
+    /// answer instead would fix a meaning for layered rhythms that could not
+    /// later be changed without breaking Source, so the operand is refused.
+    ///
+    /// ADR 0012's Increment and Interpolation are the other exception this
+    /// column exists for — they state it on their own terms and are unbuilt —
+    /// and each arrives by declaring this rather than by a check written beside
+    /// its body.
     Scalar,
 }
 
@@ -653,8 +653,8 @@ macro_rules! define_functions {
             /// operation, so broadcasting is something a Function declares
             /// rather than something the shape of its operands decides for it:
             /// a Sequence reaching a Scalar Function is refused with the same
-            /// diagnostic whether that Function is Terminal or, like Increment,
-            /// an ordinary value Function that ADR 0012 keeps scalar.
+            /// diagnostic whether that Function is Terminal or, like Delay, an
+            /// ordinary value Function that ADR 0036 keeps scalar.
             #[inline(always)]
             pub const fn is_pervasive(self) -> bool {
                 matches!(self.pervasion(), Pervasion::Pervasive)
@@ -824,10 +824,10 @@ define_functions! {
     ControlChange => ("!c", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Pervasive, Elementwise, false, [value: Number]),
     ConvertToNumber => (".v", Value, Pervasive, Elementwise, false, [value: Note]),
-    Delay => ("~*", Value, Pervasive, Atom, true, [rate: Number, modulus: Number]),
+    Delay => ("~*", Value, Scalar, Atom, true, [rate: Number, modulus: Number]),
     Divide => ("./", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Equality => (".=", Value, Pervasive, Atom, true, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Pervasive, Atom, true, [hits: Number, steps: Number]),
+    Euclidean => ("~%", Value, Scalar, Atom, true, [hits: Number, steps: Number]),
     Maximum => (".>", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
@@ -1232,10 +1232,13 @@ mod test {
         // the other family the same way: the Terminal Output Functions extend
         // as well, so pervasion is not a property of answering a value either,
         // and a `!`-spelled row is no more predictable from its spelling than a
-        // `.`-spelled one. It is declared per Function instead, and this match
-        // is exhaustive over `Function` with no wildcard: a Function added
-        // later has to be classified here as well as in the table, so neither
-        // an omission nor a copied row can make it broadcast by accident.
+        // `.`-spelled one. Nor is it a property of a signature: ADR 0036 keeps
+        // Delay and Euclidean scalar while Clock, which shares Delay's family
+        // and its two Number operands, broadcasts. It is declared per Function
+        // instead, and this match is exhaustive over `Function` with no
+        // wildcard: a Function added later has to be classified here as well as
+        // in the table, so neither an omission nor a copied row can make it
+        // broadcast by accident.
         for function in Function::ALL.iter().copied() {
             let expected = match function {
                 Function::AbsoluteDifference
@@ -1244,10 +1247,8 @@ mod test {
                 | Function::ControlChange
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
-                | Function::Delay
                 | Function::Divide
                 | Function::Equality
-                | Function::Euclidean
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
@@ -1257,6 +1258,7 @@ mod test {
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => true,
+                Function::Delay | Function::Euclidean => false,
             };
 
             assert_eq!(function.is_pervasive(), expected, "{function:?}");
@@ -1291,13 +1293,15 @@ mod test {
         // it says how wide an answer is, not how wide a write is.
         for function in Function::ALL.iter().copied() {
             let (sequence, widens) = match function {
-                // ADR 0012's two pulses answer the same way Equality does and
-                // for the same reason: an element that does not Bang has only
-                // the Absence Marker to contribute, which ADR 0025 refuses as
-                // a Sequence member, so the elements reduce to one Atom. Each
-                // is `Pervasive` — it broadcasts to find its elements — and
-                // none of the three widens over what it finds.
-                Function::Delay | Function::Equality | Function::Euclidean => (false, false),
+                Function::Equality => (false, false),
+                // ADR 0036's two pulses answer one Atom as well, and now for a
+                // different reason than Equality's. Equality broadcasts to
+                // find its comparison pairs and reduces them; these refuse a
+                // Sequence operand outright, so there is no width to reduce
+                // from. They are what the assertion below is about — an answer
+                // that does not widen, declared beside the pervasion that
+                // cannot widen.
+                Function::Delay | Function::Euclidean => (false, false),
                 Function::AbsoluteDifference
                 | Function::Add
                 | Function::Clock

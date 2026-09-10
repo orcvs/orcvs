@@ -15,7 +15,8 @@ Number operands.
 - [x] Euclidean follows ADR 0012's formula and phase exactly.
 - [x] Euclidean handles zero hits, full hits, zero steps, and hits greater than steps.
 - [x] Note operands diagnose in Clock, Delay, and Euclidean tests rather than converting implicitly.
-- [x] Sequence operands follow the ordinary broadcasting rules once available.
+- [x] Sequence operands: Clock follows the ordinary broadcasting rules; Delay and Euclidean
+      refuse a Sequence at either operand position under ADR 0036, which holds the decision.
 - [x] Tick-by-Tick tests use explicit Source Grids and diagnostics.
 - [x] `CONTEXT.md` gains a glossary entry for the Clock Function `~.`, the Delay Function `~*`, and
       the Euclidean Function `~%`, naming each spelling, its operands, and its `_Avoid_` terms.
@@ -28,8 +29,8 @@ Three rows in `define_functions!` and one new module, `lang/src/functions/tick.r
 
 ```
 Clock     => ("~.", Value, Pervasive, false, [rate: Number, modulus: Number]),
-Delay     => ("~*", Value, Pervasive, true,  [rate: Number, modulus: Number]),
-Euclidean => ("~%", Value, Pervasive, true,  [hits: Number, steps: Number]),
+Delay     => ("~*", Value, Scalar,    true,  [rate: Number, modulus: Number]),
+Euclidean => ("~%", Value, Scalar,    true,  [hits: Number, steps: Number]),
 ```
 
 and nothing else was needed to make them Source: the spelling table drives `Function::try_from`,
@@ -47,31 +48,30 @@ if the proof ever broke, and a panic is not available under the Source write gua
 differing only at a zero divisor, which validation has already refused. Euclidean reduces the Tick
 before the phase offset, exactly as written.
 
-### The `predicate` seam, and why it is where Delay and Euclidean went
+### The scalar seam, and why Delay and Euclidean went there
 
 Delay and Euclidean each answer a pulse or nothing. `Atom::Empty` is refused as a Sequence member
 by `Sequence::new` because it has no Source encoding, so an element-wise map has nothing to write
-at a position where an element did not Bang — the reasoning `Stack::predicate` and the Absence
-Marker glossary entry already record for Equality. Both therefore go through `Stack::predicate`,
-which binds and asks every broadcast element independently at the same Tick, which is what ADR 0012
-requires of a broadcast element, and answers one whole-value `Bang` or `Empty` about all of them.
-Clock answers a Number and uses `Stack::apply` like every other Atomic Function.
+at a position where an element did not Bang. That leaves a reduction of the elements to one answer,
+and ADR 0036 refuses the operand instead of choosing one: AND is the intersection of the rhythms,
+which is not what layering two of them on one Cell should mean; OR is the likelier reading and is
+not settled either, because nothing in Source can spell the operand and there is nothing to listen
+to. A refusal can be relaxed later without breaking Source that anyone wrote, and neither reduction
+can. Both Functions are therefore declared `Scalar` in `define_functions!` and bind through
+`Stack::extract`, the scalar seam; `Stack::broadcast` raises `ExpectedAtom` from the declaration
+alone, so neither body checks for a Sequence. Clock answers a Number, every element has a step to
+contribute, and it stays `Pervasive` on `Stack::apply` like every other Atomic Function.
 
-`Stack::predicate` was `F: Fn(O) -> bool` and is now `F: Fn(O) -> Result<bool, Error>`;
-`math::equality` became `Ok(left == right)` and is the one caller that can never fail. The
-interesting part was the ordering property the old body carries: *every element is still bound once
-the answer is settled*, because a bind is where a declared domain is checked, and stopping at the
-first `false` would make whether a later element diagnoses depend on which earlier element
-disagreed. That property is about the boolean, and it is unchanged. A diagnostic is deliberately
-not held to it: the first faulting element in signature order diagnoses the complete operation and
-the elements after it are neither bound nor asked. That is not a new rule — it is exactly what
-`Stack::apply` already does, and holding a fault to the boolean's rule would mean deciding which of
-two faults wins, which is a choice with no reader-visible justification. The doc comment on
-`predicate` now says both halves.
+An earlier revision of this ticket sent both through `Stack::predicate` — Equality's whole-value
+seam — and made it `F: Fn(O) -> Result<bool, Error>` so Euclidean's validation could diagnose
+through it. That is superseded. `Stack::predicate` is `F: Fn(O) -> bool` again and `math::equality`
+is `left == right` again, with Equality its only caller, because ADR 0011's whole-value answer is a
+statement about what a comparison asks — "are these equal" is a question about the whole set — and
+not a rule for every Function that answers a Bang.
 
-No alternative seam was seriously in play. A third method beside `apply` and `predicate` would have
-had the same body as `predicate` with a different name, and a Function body that mapped a Sequence
-itself would be a second broadcast mechanism free to disagree with the first.
+Declaring the two `Scalar` also retires the `#[expect(dead_code, …)]` on `Pervasion::Scalar`,
+`Stack::extract`, and `Broadcast::first_sequence`: the exception ADR 0012 states now has built
+Functions declaring it, which is what `expect` rather than `allow` was there to force.
 
 ### Diagnostics
 
@@ -104,9 +104,10 @@ rather than a pattern with no onsets; that ordering has a test of its own.
 `Context::inputs` no longer carries `#[expect(dead_code, …)]` — reading the Tick made it an error,
 which is what `expect` was there to do — and its doc comment now says the seam has consumers and
 that the anchor is still waiting for ADR 0013's Random. `lang/src/tick.rs`'s module doc no longer
-says "None of them exists yet". `Pervasion::Scalar` and `Stack::extract`'s suppressions are
-untouched: Increment and Interpolation are still unbuilt, and they are the exception those seams
-exist to let the table state.
+says "None of them exists yet". `Pervasion::Scalar`, `Stack::extract`, and
+`Broadcast::first_sequence` have lost theirs as well: ADR 0036 makes Delay and Euclidean the built
+Functions those seams were waiting for, so `expect` turned each attribute into the error that
+deleted it. Increment and Interpolation remain unbuilt and will declare the same answer.
 
 `equality_is_the_only_function_that_can_emit_bang` became
 `exactly_the_pulse_answering_functions_declare_that_they_can_emit_bang`, over
@@ -117,7 +118,7 @@ the table.
 
 ### What is pinned
 
-Nineteen tests in `lang/src/functions/tick.rs`. Each Function is claimed twice over, because the two
+Twenty tests in `lang/src/functions/tick.rs`. Each Function is claimed twice over, because the two
 kinds of test answer different questions. Clock and Delay are enumerated over every rate and modulus
 from `01` to `08` across 256 Ticks against ADR 0012's expression retyped, which pins operand order
 and the width the arithmetic is done in and cannot pin the shape of the expression, since a retyped
@@ -130,8 +131,13 @@ patterns (`X..X..X.` and six others) over three whole cycles, which is what pins
 rather than only the first cycle. Then the byte-wrap cases
 (`~* 10 20` behaving as 512 and `~* 10 11` as 272, with every multiple of the wrapped 16 asserted
 silent); zero hits, full hits, `(00, 00)`, hits greater than steps; Note operands at all six operand
-positions; and the broadcasting rules including a whole-value answer, a vacuous empty Sequence, an
-element fault diagnosing the complete operation, and incompatible non-scalar lengths.
+positions; and the Sequence rules, which now differ by Function. Clock carries the broadcasting
+half — a scalar operand repeating, equal lengths pairing, the empty Sequence answering the empty
+Sequence, an element fault diagnosing the complete operation, and incompatible non-scalar lengths.
+Delay and Euclidean carry the refusal: `ExpectedAtom` at each operand position of each Function,
+including the empty Sequence, and the claim that the refusal precedes the formula's own diagnostics
+and precedes the length comparison, since it is settled in `Stack::broadcast` before any element
+binds.
 
 Two Tick-by-Tick tests in `orcvs/src/source/tick.rs` prove the threading end to end.
 `the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at` plans one Grid holding all
@@ -151,8 +157,9 @@ write and says so, rather than answering `00`. No property test was added: the f
 enough to enumerate exhaustively over the ranges that matter, which is a stronger claim than a
 sampled one.
 
-`Stack::predicate`'s whole-value answer for Delay and Euclidean imports ADR 0011's Equality rule
-into ADR 0012, which states nothing about it. `CONTEXT.md`'s Atomic Function and Absence Marker
-entries now record it as the rule for every pulse-answering Function rather than as Equality's, but
-no ADR says so normatively. That is a language-design decision for the repository owner and is
-deliberately left open here.
+What a Sequence operand means for a pulse Function is no longer open here: ADR 0036 decides it, and
+`CONTEXT.md`'s Atomic Function, Absence Marker, Delay, and Euclidean entries record the refusal
+rather than a whole-value answer. What that ADR defers is the reduction — AND or OR — and it defers
+it to the ticket that makes a Sequence operand spellable, which is `sequence-values/03` for the
+structural Sequence Functions and `sequence-values/05` for the Range Functions. Until one of those
+lands, a Sequence at these operands is reachable only through `Interpreter::execute_function`.
