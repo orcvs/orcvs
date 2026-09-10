@@ -533,11 +533,19 @@ impl Stack {
     /// precisely because it has no Source encoding. An operation of no pairs is
     /// vacuously true, which is what makes an empty Sequence operand answer one
     /// Bang rather than nothing.
+    ///
+    /// The element answer is fallible for the reason [`Stack::apply`]'s is: an
+    /// element can be outside the domain its Function accepts without being
+    /// outside the domain its declaration states. Equality has no such element
+    /// and answers `Ok` always; ADR 0012's Delay and Euclidean are the reason
+    /// the seam is fallible at all, because a zero rate, a zero modulus, or a
+    /// zero step count is a fault about one element rather than about the
+    /// shape the operands make.
     #[inline(always)]
     pub(crate) fn predicate<O, F>(&mut self, pair: F) -> Result<Value, Error>
     where
         O: Operands,
-        F: Fn(O) -> bool,
+        F: Fn(O) -> Result<bool, Error>,
     {
         let broadcast = self.checked::<O>()?;
         let mut all = true;
@@ -546,8 +554,16 @@ impl Stack {
         // bind is where a declared domain is checked: stopping at the first
         // unequal pair would make whether a later element diagnoses depend on
         // which earlier pair happened to disagree.
+        //
+        // A diagnostic is the exception, and it is the same exception
+        // `Stack::apply` already makes: an element that faults is not a settled
+        // answer but the answer, so the first faulting element in signature
+        // order diagnoses the complete operation and the elements after it are
+        // neither bound nor asked. The property above is about the `false` that
+        // settles the Bang, which must not shorten the walk, and not about the
+        // fault that replaces it.
         for index in 0..broadcast.width() {
-            all &= pair(broadcast.bind(index)?);
+            all &= pair(broadcast.bind(index)?)?;
         }
 
         Ok(if all { Atom::Bang } else { Atom::Empty }.into())
@@ -792,7 +808,7 @@ mod test {
     /// Equality, per pair, as `math::equality` states it: the one Function that
     /// answers once about every pair rather than once per pair.
     fn all_equal(stack: &mut Stack) -> Result<Value, Error> {
-        stack.predicate(|operands::Equality { left, right }: operands::Equality| left == right)
+        stack.predicate(|operands::Equality { left, right }: operands::Equality| Ok(left == right))
     }
 
     /// `.^`, per element, as `numeric_conversion::to_note` states it.

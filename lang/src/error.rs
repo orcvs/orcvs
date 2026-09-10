@@ -80,6 +80,40 @@ pub enum InterpretationError {
     #[error("Number {0:02X} cannot be converted to a Note")]
     NoteConversion(u8),
 
+    /// A Tick-reading Function handed a zero where its cycle needs a length.
+    ///
+    /// ADR 0012 measures Clock's and Delay's cycle as `rate * modulus` and
+    /// Euclidean's as `steps`, and none of the three has a cycle at all once a
+    /// factor is zero: there is no step to be at, no period to be on, and no
+    /// position for an onset to fall in. Each therefore diagnoses rather than
+    /// inventing a cycle, exactly as [`InterpretationError::DivisionByZero`]
+    /// and [`InterpretationError::ModuloByZero`] refuse to invent a quotient.
+    ///
+    /// One variant carries all three faults because they are one fault under
+    /// three role names, and the Source is told which Function it wrote and
+    /// which of its operands held the zero — the same thing Division and
+    /// Modulo achieve by being separate variants for a family of two, and the
+    /// same shape [`InterpretationError::MidiDataByte`] uses for the roles
+    /// that share the MIDI data-byte domain. `function` is the declared
+    /// [`crate::Function`] rather than a spelling written down here, so the
+    /// diagnostic renders the Cells the Source actually holds.
+    #[error("{function} cannot count a cycle with a zero {operand}")]
+    ZeroCycle {
+        function: crate::Function,
+        operand: &'static str,
+    },
+
+    /// Euclidean asked to place more onsets than its cycle has positions.
+    ///
+    /// ADR 0012 validates zero steps first and this second, so `(00, 00)` is a
+    /// cycle of no length rather than a pattern of no hits. Both operands are
+    /// named because either one is the Cell pair the Source would edit. The
+    /// Function is named in the message rather than carried in a field, unlike
+    /// [`InterpretationError::ZeroCycle`] above: only one Function can raise
+    /// this, so there is nothing for a field to distinguish.
+    #[error("Euclidean cannot fit {hits:02X} hits into {steps:02X} steps")]
+    EuclideanOverfull { hits: u8, steps: u8 },
+
     /// ADR 0028 states that an instruction answers either a value or an
     /// effect, so a Function answering an effect can stand only where nothing
     /// consumes an answer. Terminal Output is the one effect kind built today

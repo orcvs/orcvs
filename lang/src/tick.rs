@@ -7,8 +7,12 @@
 //! identical Source Snapshot interpreted at an identical Tick produce an
 //! identical Tick Plan.
 //!
-//! Clock, Delay, and Euclidean read the Tick; Random also reads the anchor.
-//! None of them exists yet — they are the consumers this seam is built for.
+//! Clock, Delay, and Euclidean read the Tick, and each of the three is built:
+//! `functions::tick` is where the seam is consumed, so severing the threading
+//! from the Playback Engine to `Interpreter::execute` now changes what a Source
+//! answers rather than nothing at all. The anchor is still read by nothing —
+//! ADR 0013's Random is the Function it is here for — and it travels with the
+//! Tick so that Function inherits the threading rather than rebuilding it.
 //!
 //! Nothing here derives `Default`. There is no Tick a Playback run has not
 //! reached and no Cell an evaluation is not anchored at, so a caller that

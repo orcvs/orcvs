@@ -1,5 +1,6 @@
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
+pub(crate) mod tick;
 use crate::{Error, Performance, PlayCommand, atom::operands, interpreter::Context};
 
 // Both Functions here are declared Pervasive in `define_functions!`, so each

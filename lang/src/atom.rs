@@ -820,11 +820,14 @@ macro_rules! define_functions {
 define_functions! {
     AbsoluteDifference => (".|", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Add => (".+", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Clock => ("~.", Value, Pervasive, Elementwise, false, [rate: Number, modulus: Number]),
     ControlChange => ("!c", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Pervasive, Elementwise, false, [value: Number]),
     ConvertToNumber => (".v", Value, Pervasive, Elementwise, false, [value: Note]),
+    Delay => ("~*", Value, Pervasive, Atom, true, [rate: Number, modulus: Number]),
     Divide => ("./", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Equality => (".=", Value, Pervasive, Atom, true, [left: Number, right: Number]),
+    Euclidean => ("~%", Value, Pervasive, Atom, true, [hits: Number, steps: Number]),
     Maximum => (".>", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
@@ -934,14 +937,23 @@ mod test {
     }
 
     #[test]
-    fn equality_is_the_only_function_that_can_emit_bang() {
+    fn exactly_the_pulse_answering_functions_declare_that_they_can_emit_bang() {
+        // Three Functions answer a Bang rather than a value: ADR 0011's
+        // Equality and ADR 0012's Delay and Euclidean. Tick scheduling trusts
+        // the declaration to decide which roots can supply activation, so the
+        // list is stated whole — a fourth Function that began answering Bang
+        // without declaring it would build no activation edge, and the
+        // neighbouring terminal root would fall silent with no diagnostic
+        // anywhere. `only_a_function_that_declares_it_ever_answers_with_bang`
+        // is the other half, checking each declaration against what the
+        // Interpreter actually answers.
         assert_eq!(
             Function::ALL
                 .iter()
                 .copied()
                 .filter(|function| function.can_emit_bang())
                 .collect::<Vec<_>>(),
-            vec![Function::Equality]
+            vec![Function::Delay, Function::Equality, Function::Euclidean]
         );
     }
 
@@ -1176,10 +1188,13 @@ mod test {
             let expected = match function {
                 Function::AbsoluteDifference
                 | Function::Add
+                | Function::Clock
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
+                | Function::Delay
                 | Function::Divide
                 | Function::Equality
+                | Function::Euclidean
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
@@ -1225,11 +1240,14 @@ mod test {
             let expected = match function {
                 Function::AbsoluteDifference
                 | Function::Add
+                | Function::Clock
                 | Function::ControlChange
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
+                | Function::Delay
                 | Function::Divide
                 | Function::Equality
+                | Function::Euclidean
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
@@ -1273,9 +1291,16 @@ mod test {
         // it says how wide an answer is, not how wide a write is.
         for function in Function::ALL.iter().copied() {
             let (sequence, widens) = match function {
-                Function::Equality => (false, false),
+                // ADR 0012's two pulses answer the same way Equality does and
+                // for the same reason: an element that does not Bang has only
+                // the Absence Marker to contribute, which ADR 0025 refuses as
+                // a Sequence member, so the elements reduce to one Atom. Each
+                // is `Pervasive` — it broadcasts to find its elements — and
+                // none of the three widens over what it finds.
+                Function::Delay | Function::Equality | Function::Euclidean => (false, false),
                 Function::AbsoluteDifference
                 | Function::Add
+                | Function::Clock
                 | Function::ControlChange
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
