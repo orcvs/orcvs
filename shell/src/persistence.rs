@@ -261,6 +261,22 @@ pub(crate) fn edited_source() -> orcvs::source::SourceCommander {
     source
 }
 
+///
+/// Stores `source` the way a session with nothing to recover stores it.
+///
+/// A test that only needs a stored revision says that. Reaching `save`
+/// through `starting_source` would start a session over the storage the test
+/// is about to overwrite, and read a refusal out of it on the way past.
+///
+#[cfg(all(test, feature = "persistence"))]
+pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::SourceCommander) {
+    Persistence {
+        refused: None,
+        notice: false,
+    }
+    .save(storage, source);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{assert_default_grid, starting_source};
@@ -280,7 +296,7 @@ mod stored_source_tests {
 
     use super::{
         InMemoryStorage, REFUSED_KEY, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
-        starting_source, stored_source,
+        starting_source, store, stored_source,
     };
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
@@ -338,9 +354,7 @@ mod stored_source_tests {
     #[test]
     fn an_absent_or_restored_start_has_no_notice_and_preserves_existing_recovery() {
         let mut restored = InMemoryStorage::default();
-        starting_source(None)
-            .persistence
-            .save(&mut restored, &edited_source());
+        store(&mut restored, &edited_source());
         for mut storage in [InMemoryStorage::default(), restored] {
             eframe::Storage::set_string(&mut storage, REFUSED_KEY, "previous refusal".to_owned());
             let mut persistence = starting_source(Some(&storage)).persistence;
@@ -360,7 +374,7 @@ mod stored_source_tests {
         let saved = edited_source();
         let mut storage = InMemoryStorage::default();
 
-        starting_source(None).persistence.save(&mut storage, &saved);
+        store(&mut storage, &saved);
 
         // The save call stores the revision under the Source key, which is
         // where the next start looks for it.
@@ -398,9 +412,7 @@ mod stored_source_tests {
     #[test]
     fn a_malformed_value_is_refused_whole_and_starts_the_default_grid() {
         let mut written = InMemoryStorage::default();
-        starting_source(None)
-            .persistence
-            .save(&mut written, &edited_source());
+        store(&mut written, &edited_source());
         let encoded = stored(&written).expect("the save call stored the revision");
         assert!(
             encoded.contains("cols:6"),

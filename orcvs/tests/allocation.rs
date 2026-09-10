@@ -416,6 +416,13 @@ fn a_language_map_rebuild_is_bounded_independently_of_grid_size() {
     // a walk slot per row, which is 136 bytes per row and one byte per Cell.
     // A rebuild that produces a whole Map cannot be smaller than the Map.
     //
+    // 2026-09-10: ADR 0035's branch replaced that set of collections. A Map
+    // now holds one `DerivedRow` per row; `row_runs` and the flat carried
+    // partition are gone, and `glyphs` is per-row rather than one
+    // `vec![None; bytes.len()]`. A row the walk read no Source in allocates
+    // nothing at all, so the equality asserted below still holds. The
+    // collections named above no longer exist; the bound does.
+    //
     // Measured on the calling thread.
     let mut measured = Vec::new();
 
@@ -500,6 +507,13 @@ fn a_language_map_rebuild_grows_with_the_expressions_it_carries_and_no_faster() 
     // does not have. Making the carry cheap, by sharing the parsed Expressions
     // an unchanged row contributes instead of cloning them, would drive both
     // numbers down and must still pass.
+    //
+    // 2026-09-10: the carry is now `DerivedRow::for_revision`, which clones
+    // the row and re-stamps each Expression with the new Map identity, so
+    // `..entry.clone()` names a mechanism that is gone. The finding itself is
+    // unchanged and if anything sharper: a carried row clones its Glyphs and
+    // its diagnostics as well as its Expressions. The bound below is what was
+    // re-measured, and it still holds.
     //
     // Measured on the calling thread.
     let mut measured = Vec::new();

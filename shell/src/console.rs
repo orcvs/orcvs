@@ -1077,7 +1077,7 @@ mod storage_tests {
 
     use super::Console;
     use crate::persistence::{
-        InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source,
+        InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source, store,
     };
 
     ///
@@ -1086,9 +1086,7 @@ mod storage_tests {
     ///
     fn storage_holding_a_refused_value() -> (InMemoryStorage, String) {
         let mut written = InMemoryStorage::default();
-        starting_source(None)
-            .persistence
-            .save(&mut written, &edited_source());
+        store(&mut written, &edited_source());
         let refused = eframe::Storage::get_string(&written, SOURCE_KEY)
             .expect("the save call stored the revision")
             .replace("cols:6", "cols:7");
@@ -1136,11 +1134,50 @@ mod storage_tests {
         );
     }
 
+    ///
+    /// A viewer looking at a Grid that is not theirs is told so by the running
+    /// Console, and stays told after the save that moves the refused value
+    /// aside. `persistence.rs` proves the obligations end independently; this
+    /// proves the Console is wired to them at all, which is the one thing an
+    /// interface-level test cannot see.
+    ///
+    #[test]
+    fn a_refused_start_raises_a_console_notice_that_outlives_the_save() {
+        let (mut storage, _) = storage_holding_a_refused_value();
+
+        let mut console = console_over(&storage);
+        assert!(
+            console.persistence.notice_visible(),
+            "a refused start told the viewer nothing"
+        );
+
+        console.save(&mut storage);
+
+        assert!(
+            console.persistence.notice_visible(),
+            "the notice went with the value the save moved aside"
+        );
+    }
+
+    ///
+    /// A start with nothing wrong raises nothing. A notice a viewer sees on an
+    /// ordinary start is a notice they learn to ignore.
+    ///
+    #[test]
+    fn an_absent_or_restored_start_raises_no_console_notice() {
+        let mut restored = InMemoryStorage::default();
+        store(&mut restored, &edited_source());
+
+        for storage in [InMemoryStorage::default(), restored] {
+            assert!(!console_over(&storage).persistence.notice_visible());
+        }
+    }
+
     #[test]
     fn a_console_starts_the_revision_its_creation_storage_holds() {
         let saved = edited_source();
         let mut storage = InMemoryStorage::default();
-        starting_source(None).persistence.save(&mut storage, &saved);
+        store(&mut storage, &saved);
 
         let console = console_over(&storage);
 
@@ -1155,9 +1192,7 @@ mod storage_tests {
     #[test]
     fn the_console_save_call_stores_the_current_revision() {
         let mut restored_from = InMemoryStorage::default();
-        starting_source(None)
-            .persistence
-            .save(&mut restored_from, &edited_source());
+        store(&mut restored_from, &edited_source());
         let mut console = console_over(&restored_from);
         let mut storage = InMemoryStorage::default();
 

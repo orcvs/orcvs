@@ -121,9 +121,24 @@ impl<'a> Parser<'a> {
         // Atom, with one exception: a Comment is a complete Language Unit
         // that is not a value (ADR 0035), so it records a Token and nothing
         // else. Strict parsing yields values, and has none to yield here.
-        self.expression
-            .take_atoms()
-            .ok_or_else(|| SyntaxError::CommentIsNotAValue.into())
+        //
+        // The Comment is asked for rather than read off the absent Atoms.
+        // Absent Atoms mean only that some record carries none, and naming
+        // the Comment as the reason is a premise about every other record
+        // rather than an observation of this one: a Token that ever went
+        // atomless without also reporting an error would be answered here as
+        // a Comment the Source does not hold.
+        let comment = self
+            .expression
+            .tokens()
+            .any(|token| token == Token::Comment);
+        self.expression.take_atoms().ok_or_else(|| {
+            debug_assert!(
+                comment,
+                "an Expression that reported no error holds only Atoms, or a Comment"
+            );
+            SyntaxError::CommentIsNotAValue.into()
+        })
     }
 
     ///

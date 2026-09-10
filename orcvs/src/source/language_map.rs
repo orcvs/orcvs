@@ -312,8 +312,9 @@ impl LanguageMap {
 struct DerivedRow {
     units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
-    /// Empty for an entirely blank row; otherwise indexed by column. Empty
-    /// rows must not add allocation blocks as the Grid grows taller.
+    /// Empty for a row the walk read no Source in; otherwise indexed by
+    /// column. Such a row must not add allocation blocks as the Grid grows
+    /// taller, which is what `derive`'s early return is for.
     glyphs: Vec<Option<Glyph>>,
     lexical_diagnostics: Vec<Diagnostic>,
 }
@@ -338,6 +339,15 @@ impl DerivedRow {
             "Language Units are partitioned in ascending anchor order"
         );
         if walk.parses.is_empty() {
+            // Nothing was read, so there is nothing to carry. Units and
+            // diagnostics are established per parse inside `name_units`, so a
+            // row with no parse has neither and this discards nothing — a
+            // premise stated here because the return would otherwise drop
+            // whatever a future `walk_row` established outside that loop.
+            debug_assert!(
+                walk.units.is_empty() && walk.diagnostics.is_empty(),
+                "a row the walk read no Source in establishes no unit and no diagnostic"
+            );
             return Self::default();
         }
         let mut row = Self {
