@@ -999,7 +999,7 @@ mod test {
     ///
     /// The plan-only half of the carried route, for the tests that state
     /// their destinations through a fixture rather than calling
-    /// [`plan_carrying`] themselves.
+    /// [`super::plan_carrying`] themselves.
     ///
     fn carried_source(
         grid: Grid,
@@ -2247,7 +2247,7 @@ mod test {
     }
 
     #[test]
-    fn live_competing_writers_follow_position_and_emissions_follow_configuration() {
+    fn live_competing_writers_follow_position_and_emissions_follow_their_destinations() {
         let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".+0101", ".+0101", ".+0102", ""],
@@ -2385,7 +2385,7 @@ mod test {
     }
 
     #[test]
-    fn live_inactive_ownership_and_terminal_portal_configuration_are_independent() {
+    fn live_inactive_ownership_and_a_refused_terminal_portal_are_independent() {
         let (plan, interpreted, source) = carried_tick(
             Grid::new(16, 3),
             &["!>007F.^80", "", ""],

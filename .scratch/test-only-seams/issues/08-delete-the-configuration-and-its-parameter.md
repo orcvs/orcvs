@@ -13,7 +13,7 @@ and `10` resolved.
 **Blocked by:** 03 — Delete the answer-substitution fork; 05, 06, 07 — the three destination
 migration batches; 10 — Say what a Tick evaluated.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The configuration record and every entry point taking one are gone.
 - [x] Scheduling and execution take no parameter that the shipped build discards.
@@ -43,7 +43,7 @@ carrying a `cfg`, which it forbids. They are ruled test-only items, exempt. That
 `cfg` attribute on a *shipped* function's field, signature, parameter or statement, and there are
 now zero of those: every remaining `cfg` in `tick.rs` and `tick/execution.rs` sits on a whole
 test-only item — `REFUSED_PORTAL`, `carry`, `schedule_carrying`, `plan_carrying`, `mod test`,
-`mod stated` — or inside `mod test`.
+`mod property`, `mod stated` — or inside `mod test`.
 
 The rule the fifth acceptance line asks for is recorded in `AGENTS.md` in sharpened wording, not
 the line's own. "No shipped module compiles differently under test" is absolute, and this very
@@ -68,7 +68,7 @@ destination in Source, is unbuilt — but the refusal living entirely in `#[cfg(
 naming rather than leaving to be discovered.
 
 The coverage check. Nothing that survives covers `carry`'s `diagnostics.splice(0..0, refusals)`:
-`live_inactive_ownership_and_terminal_portal_configuration_are_independent` drives the carried
+`live_inactive_ownership_and_a_refused_terminal_portal_are_independent` drives the carried
 refusal but earns one diagnostic, so it cannot witness an order. So
 `a_refused_portal_is_diagnosed_before_the_row_edge_layout_it_shares_a_tick_with` was rewritten as a
 carried-route-only test rather than deleted. Mutating the splice to an `extend` fails it.
@@ -79,3 +79,9 @@ carried-route-only test rather than deleted. Mutating the splice to an `extend` 
 
 `configured_tick`'s reasoning for the plan-only/state-reading helper split moved onto
 `carried_tick`; `stated_tick` and `replaced_tick` now defer to `carried_tick`.
+
+Two test names still spelled the deleted type. `live_competing_writers_..._follow_configuration`
+and `live_inactive_ownership_and_terminal_portal_configuration_are_independent` are renamed to
+`..._emissions_follow_their_destinations` and
+`live_inactive_ownership_and_a_refused_terminal_portal_are_independent`: with `Configuration` gone
+the word named nothing the crate still holds.
