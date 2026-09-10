@@ -318,29 +318,11 @@ impl Source {
         plan
     }
 
-    #[cfg(test)]
-    pub(super) fn execute_configured(
-        &mut self,
-        tick: Tick,
-        configuration: &super::tick::Configuration,
-    ) -> (TickPlan, Vec<ComputationState>) {
-        let (plan, states) = super::tick::plan_configured(
-            self.grid,
-            self.inner.as_bytes(),
-            &self.language_map,
-            tick,
-            configuration,
-        );
-        self.commit_tick(&plan);
-        (plan, states)
-    }
-
     ///
     /// Runs one Tick against a schedule carrying `destinations`, rather than
-    /// against a planning path that read them from a Configuration.
-    ///
-    /// The route [`Source::execute_configured`] becomes once every destination
-    /// test states its destinations this way.
+    /// against the ordinary result positions its computations resolve for
+    /// themselves, and reports the execution states [`Source::execute`]
+    /// discards.
     ///
     #[cfg(test)]
     pub(super) fn execute_carrying(

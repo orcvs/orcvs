@@ -542,7 +542,7 @@ pub(super) mod stated {
     use lang::{Tick, Value};
 
     use super::super::{
-        Configuration, Reserved, carry, computations, derive_reservations, order_turns, unscheduled,
+        Reserved, carry, computations, derive_reservations, order_turns, unscheduled,
     };
     use super::{
         Atom, Break, ComputationState, Continue, ControlFlow, Diagnostic, Execution, Grid,
@@ -564,7 +564,7 @@ pub(super) mod stated {
         reservations: &[(CellIndex, Reserved)],
         answers: &[(CellIndex, Value)],
     ) -> (TickPlan, Vec<ComputationState>) {
-        let (mut nodes, mut diagnostics) = computations(grid, map, &Configuration::default());
+        let (mut nodes, mut diagnostics) = computations(grid, map);
         carry(grid, &mut nodes, &mut diagnostics, destinations);
         let mut lookup = Lookup::new(grid, nodes);
         // Every fixture error the schedule can be asked about is asked here,

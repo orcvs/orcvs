@@ -46,11 +46,6 @@ struct Computation {
     reserved: Reserved,
 }
 
-#[derive(Default)]
-pub(super) struct Configuration {
-    destinations: BTreeMap<CellIndex, Vec<Position>>,
-}
-
 struct Schedule {
     lookup: Lookup,
     order: Vec<usize>,
@@ -533,17 +528,26 @@ pub(super) fn plan(
     map: &LanguageMap,
     tick: Tick,
 ) -> (TickPlan, Vec<execution::ComputationState>) {
-    plan_configured(grid, bytes, map, tick, &Configuration::default())
+    match schedule(grid, map) {
+        Ok(schedule) => execution::execute(grid, bytes, map, tick, schedule),
+        Err(diagnostics) => unscheduled(diagnostics),
+    }
 }
+
+/// ADR 0009's refusal. Only [`carry`] raises it, because only a carried
+/// schedule can name a destination for a Terminal Output Function: the
+/// destinations [`computations`] resolves are the ordinary result positions
+/// roots resolve for themselves, and a Terminal Output Function resolves none.
+#[cfg(test)]
+const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
 
 ///
 /// Gives each computation the Portal destinations `destinations` names for it,
 /// in place of the ordinary result position it resolved for itself.
 ///
-/// This is what [`Configuration::destinations`] does, done to the computations
-/// once [`computations`] has stated them rather than while it is stating them,
-/// so that a schedule can carry chosen destinations without the planning path
-/// taking a parameter or a map lookup of its own.
+/// Done to the computations once [`computations`] has stated them rather than
+/// while it is stating them, so that a schedule can carry chosen destinations
+/// without the planning path taking a parameter or a map lookup of its own.
 ///
 /// A test needs this because no production Tick can state such a destination
 /// yet: every Function that writes somewhere other than below its own root
@@ -579,31 +583,16 @@ fn carry(
             })
             .collect();
     }
-    // [`computations`] refuses a Terminal Output Function's Portal where it
-    // resolves destinations, which is before the walk that raises the layout
-    // diagnostics it owes. It has exactly those two things to say, so under the
-    // empty Configuration a carried schedule states it can only have said the
-    // second, and these refusals belong in front of what is already here.
-    //
-    // Stated as an assertion because the caller's empty Configuration is what
-    // makes prepending right and this signature cannot see it. Every caller
-    // states an empty one today; one that passed a Configuration still holding
-    // destinations would put carried refusals in front of configured ones and
-    // reorder the diagnostics against the route this is proven equal to.
-    assert!(
-        !diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message == REFUSED_PORTAL),
-        "a carried schedule states every destination: this one reached \
-         `computations` with a Portal to refuse, so the refusals raised here \
-         cannot be ordered in front of the ones already raised there"
-    );
+    // [`computations`] raises no refusal of its own — it resolves a Terminal
+    // Output Function no destination to refuse — so everything it handed here
+    // is a layout diagnostic from the walk that follows its resolution, and
+    // these refusals belong in front of it.
     diagnostics.splice(0..0, refusals);
 }
 
 ///
 /// The schedule for `map` with `destinations` carried on its computations,
-/// rather than read from a Configuration while they were stated.
+/// rather than resolved for them while they were stated.
 ///
 #[cfg(test)]
 fn schedule_carrying(
@@ -611,7 +600,7 @@ fn schedule_carrying(
     map: &LanguageMap,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> Result<Schedule, Vec<Diagnostic>> {
-    let (mut nodes, mut diagnostics) = computations(grid, map, &Configuration::default());
+    let (mut nodes, mut diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, &mut diagnostics, destinations);
     order_turns(Lookup::new(grid, nodes), diagnostics)
 }
@@ -619,8 +608,8 @@ fn schedule_carrying(
 ///
 /// Plans one Tick against a schedule carrying `destinations`.
 ///
-/// The route [`plan_configured`] becomes once no test states a destination
-/// through a Configuration.
+/// [`plan`] for a Tick whose destinations a test states, rather than the
+/// ordinary result positions its roots resolve for themselves.
 ///
 #[cfg(test)]
 pub(super) fn plan_carrying(
@@ -638,24 +627,6 @@ pub(super) fn plan_carrying(
 
 fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
     Diagnostic::for_expression(node.anchor, node.span, message.into())
-}
-
-/// ADR 0009's refusal, spelled once because two places raise it: the
-/// destinations [`computations`] resolves, and the ones a schedule carries.
-const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
-
-pub(super) fn plan_configured(
-    grid: Grid,
-    bytes: &[u8],
-    map: &LanguageMap,
-    tick: Tick,
-    configuration: &Configuration,
-) -> (TickPlan, Vec<execution::ComputationState>) {
-    let schedule = match schedule(grid, map, configuration) {
-        Ok(schedule) => schedule,
-        Err(diagnostics) => return unscheduled(diagnostics),
-    };
-    execution::execute(grid, bytes, map, tick, schedule)
 }
 
 ///
@@ -717,12 +688,8 @@ fn potentially_active(lookup: &Lookup) -> Vec<bool> {
     active
 }
 
-fn schedule(
-    grid: Grid,
-    map: &LanguageMap,
-    configuration: &Configuration,
-) -> Result<Schedule, Vec<Diagnostic>> {
-    let (nodes, diagnostics) = computations(grid, map, configuration);
+fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
+    let (nodes, diagnostics) = computations(grid, map);
     order_turns(Lookup::new(grid, nodes), diagnostics)
 }
 
@@ -737,11 +704,7 @@ fn schedule(
 /// declaration does widen, and therefore what is ordered after what, is the
 /// [`Lookup`]'s to settle.
 ///
-fn computations(
-    grid: Grid,
-    map: &LanguageMap,
-    configuration: &Configuration,
-) -> (Vec<Computation>, Vec<Diagnostic>) {
+fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnostic>) {
     let mut nodes: Vec<Computation> = Vec::new();
     let mut diagnostics = Vec::new();
     for expression in map.expressions() {
@@ -760,32 +723,15 @@ fn computations(
                         .expect("parsed Function inside Grid"),
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
-                let configured = configuration.destinations.get(&grid.index(anchor));
                 // The one gate that means Terminal Output rather than
                 // "answers an effect": a Terminal Output Function has no Cell
                 // destination at all, while ADR 0004 gives a Source-writing
                 // Function a validated write bundle and ADR 0009 lets it
                 // resolve multiple Portals. Asking the wide question here
-                // would diagnose the Halt, Directional Bang, and Jump
-                // Functions for a Portal they are entitled to and hand each of
-                // them no destination.
+                // would deny the Halt, Directional Bang, and Jump Functions a
+                // Portal they are entitled to.
                 let outputs = if function.performs_terminal_output() {
-                    if configured.is_some() {
-                        diagnostics.push(Diagnostic::for_expression(
-                            anchor,
-                            expression.span(),
-                            REFUSED_PORTAL.to_owned(),
-                        ));
-                    }
                     vec![]
-                } else if let Some(outputs) = configured {
-                    outputs
-                        .iter()
-                        .map(|output| {
-                            grid.assert_owns(*output);
-                            Ok(*output)
-                        })
-                        .collect()
                 } else if parent.is_none() {
                     vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())]
                 } else {
@@ -1030,37 +976,6 @@ mod test {
     }
 
     ///
-    /// Runs one Tick against `rows` with the Portal destinations `outputs`
-    /// states, and commits its plan.
-    ///
-    fn configured_source(
-        grid: Grid,
-        rows: &[&str],
-        outputs: &[(usize, usize)],
-    ) -> (TickPlan, crate::source::Source) {
-        let (plan, _, source) = configured_tick(grid, rows, outputs);
-        (plan, source)
-    }
-
-    ///
-    /// [`configured_source`], with the inputs the Interpreter received for
-    /// each computation it ran for.
-    ///
-    /// Two helpers rather than one because the two questions are asked by
-    /// different tests: most of this module asks only what a Tick planned, and
-    /// binding a fact they never read would cost every one of them a line.
-    ///
-    fn configured_tick(
-        grid: Grid,
-        rows: &[&str],
-        outputs: &[(usize, usize)],
-    ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
-        let mut source = seeded_source(grid, rows);
-        let (plan, states) = source.execute_configured(Tick::ZERO, &destinations(grid, outputs));
-        (plan, interpreted(&states), source)
-    }
-
-    ///
     /// One Source built from `rows`, its Cells set one at a time as an editor
     /// sets them.
     ///
@@ -1079,12 +994,12 @@ mod test {
     }
 
     ///
-    /// The twin of [`configured_source`], carrying its destinations on the
-    /// schedule rather than handing them to the planning path.
+    /// Runs one Tick against `rows` with the Portal destinations `outputs`
+    /// states carried on its schedule, and commits its plan.
     ///
-    /// The route every destination test moves to. It takes the arguments its
-    /// configured twin takes, so migrating a test is a change of helper and
-    /// nothing else.
+    /// The plan-only half of the carried route, for the tests that state
+    /// their destinations through a fixture rather than calling
+    /// [`plan_carrying`] themselves.
     ///
     fn carried_source(
         grid: Grid,
@@ -1097,8 +1012,11 @@ mod test {
 
     ///
     /// [`carried_source`], with the inputs the Interpreter received for each
-    /// computation it ran for. The twin of [`configured_tick`], and split from
-    /// [`carried_source`] for the same reason.
+    /// computation it ran for.
+    ///
+    /// Two helpers rather than one because the two questions are asked by
+    /// different tests: most of this module asks only what a Tick planned, and
+    /// binding a fact they never read would cost every one of them a line.
     ///
     fn carried_tick(
         grid: Grid,
@@ -1129,11 +1047,9 @@ mod test {
     ///
     /// The entries are grouped in the order the schedule holds its
     /// computations, which is the order they were parsed rather than the order
-    /// their Turns were taken. Two tests compare that order: the one naming
-    /// three roots no dependency orders against each other, and the one
-    /// holding the carried route to the configured one, whose two sides are
-    /// parse-ordered alike and so agree about which computations ran rather
-    /// than about when. Neither reads it as evidence of Turn order.
+    /// their Turns were taken. One test compares that order — the one naming
+    /// three roots no dependency orders against each other — and reads it as
+    /// which computations ran rather than as evidence of Turn order.
     ///
     fn interpreted(states: &[ComputationState]) -> Vec<lang::TickInputs> {
         let mut calls = Vec::new();
@@ -1147,8 +1063,8 @@ mod test {
 
     ///
     /// The fixed Portal destinations a fixture states, in the terms a carried
-    /// schedule takes them: the anchors themselves, with no Configuration
-    /// around them.
+    /// schedule takes them: one destination list per anchor, keyed by the
+    /// anchor's own Cell.
     ///
     fn carried_destinations(
         grid: Grid,
@@ -1164,165 +1080,28 @@ mod test {
         carried
     }
 
-    /// One Source a destination test states: the Grid it is stated on, its
-    /// rows, and the anchor-to-destination pairs stated for it.
-    type Fixture = (Grid, &'static [&'static str], &'static [(usize, usize)]);
-
-    #[test]
-    fn a_carried_destination_schedules_the_tick_a_configured_one_would_have() {
-        // Nothing migrates until the two ways of stating a destination agree,
-        // so this holds them to the same Turn order, the same diagnostics, the
-        // same Tick Plan and the same committed Source.
-        //
-        // The first three fixtures are ones existing tests already rest on: a
-        // Terminal Output Function handed a Portal it cannot have, a Bang whose
-        // delivery the destination decides, and nested producers whose
-        // destinations order their Turns. The fourth is here for the order the
-        // diagnostics arrive in: it earns a refused Portal and a row-edge
-        // layout diagnostic at once, and `carry` raises the first after
-        // `computations` has already raised the second. The fifth is the one
-        // shape ADR 0009 allows that the other four leave unstated: one
-        // producer resolving more than one Portal, which is the whole of what
-        // `carry` reads out of the `Vec` it is handed per anchor.
-        let fixtures: [Fixture; 5] = [
-            (
-                Grid::new(16, 3),
-                &["!>007F.^80", "", ""],
-                &[(0, 16), (6, 20)],
-            ),
-            (
-                Grid::new(16, 4),
-                &["!>007FC4", "", ".=0101", ""],
-                &[(0, 34), (32, 16)],
-            ),
-            (
-                Grid::new(20, 3),
-                &[".+02.x03.+0101", ".+0203", ""],
-                &[(0, 40), (4, 44), (8, 48), (20, 4)],
-            ),
-            (
-                Grid::new(16, 4),
-                &["!>007FC4", "", "", "            .+01"],
-                &[(0, 16)],
-            ),
-            (Grid::new(16, 3), &[".+0203", "", ""], &[(0, 16), (0, 20)]),
-        ];
-        for (grid, rows, outputs) in fixtures {
-            let bytes = snapshot(grid, rows);
-            let map = LanguageMap::build(grid, bytes.as_bytes());
-
-            let configured = super::schedule(grid, &map, &destinations(grid, outputs))
-                .expect("an acyclic schedule");
-            let carried =
-                super::schedule_carrying(grid, &map, &carried_destinations(grid, outputs))
-                    .expect("an acyclic schedule");
-            // Two routes that scheduled nothing agree about nothing. An anchor
-            // no Function occupies is ignored by the stating path and by the
-            // carrying one alike, so a fixture whose Cells drifted would
-            // satisfy every equality below while proving none of them.
-            assert!(
-                !configured.order.is_empty(),
-                "no computations scheduled for {rows:?}"
-            );
-            assert_eq!(carried.order, configured.order, "order for {rows:?}");
-            assert_eq!(
-                carried.diagnostics, configured.diagnostics,
-                "diagnostics for {rows:?}"
-            );
-
-            let (configured, configured_evaluations, configured_source) =
-                configured_tick(grid, rows, outputs);
-            let (carried, carried_evaluations, carried_source) = carried_tick(grid, rows, outputs);
-            assert_eq!(carried, configured, "Tick Plan for {rows:?}");
-            assert_eq!(
-                carried_source.snapshot(),
-                configured_source.snapshot(),
-                "Source for {rows:?}"
-            );
-            // Which computations the Interpreter ran for and how many times,
-            // not when: both sides are grouped in parse order, so the Turn
-            // order the header claims is the `order` equality above and not
-            // this one.
-            assert_eq!(
-                carried_evaluations, configured_evaluations,
-                "evaluations for {rows:?}"
-            );
-        }
-    }
-
-    /// The fourth fixture above earns both diagnostics; this states the order
-    /// they arrive in, so that `carry` placing its refusals in front of the
-    /// layout diagnostics is a covered fact rather than an assumed one.
-    ///
-    /// Both routes are driven, because only one of them reaches `carry`: the
-    /// configured route resolves its refusal inside `computations` and would
-    /// keep this order however `carry` spliced. Asserting the pair here is
-    /// what pins the splice by name rather than through a fixture of the
-    /// equivalence test above, which an edit to that fixture could quietly
-    /// take away.
+    /// `carry` splices its refusals in front of the diagnostics it was handed,
+    /// and this states the order that produces. The fixture earns both a
+    /// refused Portal, which only `carry` raises, and a row-edge layout
+    /// diagnostic, which `computations` raised before `carry` ran — so the
+    /// refusal arriving first is the splice and nothing else.
     #[test]
     fn a_refused_portal_is_diagnosed_before_the_row_edge_layout_it_shares_a_tick_with() {
         let grid = Grid::new(16, 4);
         let rows = ["!>007FC4", "", "", "            .+01"];
-        let ordered = vec![
-            "a Terminal Output Function cannot have a Portal",
-            "Expression layout crosses the row edge",
-        ];
 
-        for (route, plan) in [
-            ("configured", configured_source(grid, &rows, &[(0, 16)]).0),
-            ("carried", carried_source(grid, &rows, &[(0, 16)]).0),
-        ] {
-            assert_eq!(
-                plan.diagnostics
-                    .iter()
-                    .map(|diagnostic| diagnostic.message.as_str())
-                    .collect::<Vec<_>>(),
-                ordered,
-                "diagnostics for the {route} route"
-            );
-        }
-    }
+        let (plan, _) = carried_source(grid, &rows, &[(0, 16)]);
 
-    #[test]
-    #[should_panic(expected = "a carried schedule states every destination")]
-    fn carrying_destinations_onto_a_configured_refusal_is_refused() {
-        // The half-migrated shape tickets 05-07 could reach: destinations
-        // still in the Configuration `computations` reads, and more of them
-        // carried afterwards. `computations` has then already refused a Portal
-        // and `carry` would splice its own refusals in front, ordering the
-        // diagnostics against the route the equivalence test above proves it
-        // equal to. Refused where the assumption lives rather than discovered
-        // as a mismatched vector in whichever test migrates last.
-        let grid = Grid::new(16, 2);
-        let bytes = snapshot(grid, &["!>007FC4", ""]);
-        let map = LanguageMap::build(grid, bytes.as_bytes());
-
-        let (mut nodes, mut diagnostics) =
-            super::computations(grid, &map, &destinations(grid, &[(0, 16)]));
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-
-        super::carry(
-            grid,
-            &mut nodes,
-            &mut diagnostics,
-            &carried_destinations(grid, &[(0, 16)]),
+        assert_eq!(
+            plan.diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "a Terminal Output Function cannot have a Portal",
+                "Expression layout crosses the row edge",
+            ]
         );
-    }
-
-    ///
-    /// The fixed Portal destinations a fixture states, as the Configuration
-    /// the planning entry point takes.
-    ///
-    /// The same destinations [`carried_destinations`] states, wrapped. Folded
-    /// once rather than twice so that the equivalence test above compares two
-    /// routes over one set of destinations by construction, rather than over
-    /// two folds that happen to agree.
-    ///
-    fn destinations(grid: Grid, outputs: &[(usize, usize)]) -> super::Configuration {
-        super::Configuration {
-            destinations: carried_destinations(grid, outputs),
-        }
     }
 
     ///
@@ -1352,7 +1131,7 @@ mod test {
 
     ///
     /// [`stated_source`], with the inputs the Interpreter received for each
-    /// computation it ran for. Split from it for the reason [`configured_tick`]
+    /// computation it ran for. Split from it for the reason [`carried_tick`]
     /// gives.
     ///
     fn stated_tick(
@@ -1402,7 +1181,7 @@ mod test {
 
     ///
     /// [`replaced_source`], with the inputs the Interpreter received for each
-    /// computation it ran for. Split from it for the reason [`configured_tick`]
+    /// computation it ran for. Split from it for the reason [`carried_tick`]
     /// gives.
     ///
     fn replaced_tick(
@@ -1586,11 +1365,7 @@ mod test {
                 .set(cell(grid, index), &char::from(byte).to_string())
                 .unwrap();
         }
-        let (nodes, _) = super::computations(
-            grid,
-            &source.shared_language_map(),
-            &super::Configuration::default(),
-        );
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let mut lookup = super::Lookup::new(grid, nodes);
 
         // Parser preorder: the owning `.+` at column 0, then the `.-` nested
@@ -3137,8 +2912,8 @@ mod test {
 
     #[test]
     fn a_destination_at_the_row_edge_costs_one_expression_its_turn_not_the_tick() {
-        // A complete destination must fit even when the configured Portal
-        // is at the final Cell, independently of other computations.
+        // A complete destination must fit even when the stated Portal is at
+        // the final Cell, independently of other computations.
         let grid = Grid::new(16, 4);
         let bytes = snapshot(grid, &[".+0102", "", ".+0304", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
