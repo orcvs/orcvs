@@ -1,6 +1,6 @@
 use crate::{
     Atom, Error, Function, InterpretationError, Performance, Sequence, Stack, TickInputs, Value,
-    functions::{self, math, numeric_conversion},
+    functions::{self, math, numeric_conversion, tick},
 };
 
 pub struct Interpreter {}
@@ -47,18 +47,12 @@ pub struct Context {
     pub stack: Stack,
     /// The explicit inputs ADR 0012 supplies alongside the Source Snapshot.
     ///
-    /// `dead_code` reads an unread field as one to delete, and here that
-    /// conclusion is wrong rather than merely early: this field is the input
-    /// side of the seam, and its value is already chosen by the Playback
-    /// Engine and threaded through every caller. Deleting it would delete the
-    /// threading, not an unused field. Clock, Delay, and Euclidean read the
-    /// Tick and Random also reads the anchor. `expect` rather than `allow`, so
-    /// the first Function to read the field turns this attribute into the
-    /// error that deletes it.
-    #[expect(
-        dead_code,
-        reason = "an unread input is not an unused one: this is the seam its consumers read"
-    )]
+    /// The seam has consumers now: Clock, Delay, and Euclidean each read the
+    /// Tick from here, which is what makes an absolute Tick an input to
+    /// interpretation rather than something a Function goes looking for. The
+    /// anchor is still read by nothing — ADR 0013's Random is the Function it
+    /// is there for — but it travels in the same struct, so it arrives the day
+    /// that Function is declared rather than needing the threading rebuilt.
     pub inputs: TickInputs,
 }
 
@@ -143,10 +137,13 @@ impl Interpreter {
                 Atom::Function(fun) => match fun {
                     Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
                     Function::Add => math::add(&mut ctx)?,
+                    Function::Clock => tick::clock(&mut ctx)?,
                     Function::ConvertToNote => numeric_conversion::to_note(&mut ctx)?,
                     Function::ConvertToNumber => numeric_conversion::to_number(&mut ctx)?,
+                    Function::Delay => tick::delay(&mut ctx)?,
                     Function::Divide => math::divide(&mut ctx)?,
                     Function::Equality => math::equality(&mut ctx)?,
+                    Function::Euclidean => tick::euclidean(&mut ctx)?,
                     Function::Maximum => math::maximum(&mut ctx)?,
                     Function::Minimum => math::minimum(&mut ctx)?,
                     Function::Modulo => math::modulo(&mut ctx)?,

@@ -2446,6 +2446,133 @@ mod test {
     }
 
     #[test]
+    fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
+        // The read `tick-functions/01` left unpinned, now that it has a
+        // consumer to pin it through: the Tick threaded from the Playback
+        // Engine now changes what a Source Snapshot writes, so severing it
+        // fails here rather than only in the seam test above, which watches
+        // the inputs rather than the answers.
+        //
+        // One Grid, three roots, two Ticks. Each root's result lands in the
+        // Cell pair directly south of its anchor, so the expected writes are
+        // literal Cell indices and characters rather than anything the code
+        // under test could satisfy by agreeing with itself.
+        let grid = Grid::new(24, 2);
+        let bytes = snapshot(grid, &["~.0304 ~*0202 ~%0304", ""]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+
+        // Tick 1. The Clock is still in its first step of three, so it writes
+        // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
+        // it; the Euclidean's `X.XX` over four steps has no onset at step 1. A
+        // Function that answered the Absence Marker plans no Cell write, so
+        // only the Clock's pair is planned.
+        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::new(1));
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(planned(&plan), vec![(24, '0'), (25, '0')]);
+
+        // Tick 4. The Clock has counted one whole step of three; the Delay is
+        // on a multiple of its cycle; and step 0 of `X.XX` is an onset. A
+        // hardcoded first Tick would write `00` here and a hardcoded Tick of
+        // its own would move all three at once, so the pair of assertions is
+        // what makes this about the Tick rather than about the formulas.
+        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::new(4));
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            planned(&plan),
+            vec![
+                (24, '0'),
+                (25, '1'),
+                (31, '*'),
+                (32, '*'),
+                (38, '*'),
+                (39, '*')
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tick_function_with_no_cycle_diagnoses_and_writes_nothing() {
+        // ADR 0012 refuses a cycle with a zero factor rather than inventing
+        // one, and the diagnostic has to reach the Source through the ordinary
+        // Tick Plan: it names the Function's spelling and the operand role, so
+        // the console can say which of the two Cell pairs to edit.
+        let grid = Grid::new(16, 2);
+        let bytes = snapshot(grid, &["~*0300 ~%0400", ""]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+
+        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::new(3));
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(
+            plan.diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                "~* cannot count a cycle with a zero modulus".to_string(),
+                "~% cannot count a cycle with a zero step count".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
+        // Delay and Euclidean declare `can_emit_bang`, and that declaration is
+        // what `schedule` reads at `tick.rs:319` and `:462` to decide which
+        // roots can supply activation. Nothing else asserts the edge is built:
+        // the tests above watch the two Cells a pulse writes, which a Function
+        // that Banged into no activation edge would still satisfy while the
+        // neighbouring terminal fell silent with no diagnostic anywhere.
+        //
+        // So the assertion is the play, not the write, and it is made at two
+        // Ticks per Function. A hardcoded edge would fire the terminal at both
+        // and a missing one at neither, so the pair is what makes this about
+        // the pulse rather than about scheduling in general.
+        for (spelling, banging, silent) in [("~*0202", 4, 1), ("~%0304", 4, 1)] {
+            let grid = Grid::new(16, 6);
+            let bytes = snapshot(grid, &["", "!>007FC4", "", "", "", spelling]);
+            let map = LanguageMap::build(grid, bytes.as_bytes());
+            let destinations = [(
+                grid.index(grid.position(0, 5).unwrap()),
+                grid.position(0, 2).unwrap(),
+            )]
+            .into_iter()
+            .collect();
+
+            let plan = super::plan_with_destinations(
+                grid,
+                bytes.as_bytes(),
+                &map,
+                Tick::new(banging),
+                &destinations,
+            );
+
+            assert_eq!(
+                plan.play_commands,
+                vec![raw(0, 0x7F, 60)],
+                "{spelling} at Tick {banging}, diagnostics: {:?}",
+                plan.diagnostics
+            );
+
+            let plan = super::plan_with_destinations(
+                grid,
+                bytes.as_bytes(),
+                &map,
+                Tick::new(silent),
+                &destinations,
+            );
+
+            assert!(
+                plan.play_commands.is_empty(),
+                "{spelling} at Tick {silent} played {:?}",
+                plan.play_commands
+            );
+        }
+    }
+
+    #[test]
     fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
         let grid = Grid::new(16, 5);
         let rows = ["", "", "!>007FD4", "      .^3C", ".=0101"];
