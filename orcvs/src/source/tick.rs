@@ -531,28 +531,6 @@ pub(super) fn plan(grid: Grid, bytes: &[u8], map: &LanguageMap, tick: Tick) -> T
     plan_configured(grid, bytes, map, tick, &Configuration::default())
 }
 
-#[cfg(test)]
-fn plan_with_destinations(
-    grid: Grid,
-    bytes: &[u8],
-    map: &LanguageMap,
-    tick: Tick,
-    destinations: &BTreeMap<CellIndex, Position>,
-) -> TickPlan {
-    plan_configured(
-        grid,
-        bytes,
-        map,
-        tick,
-        &Configuration {
-            destinations: destinations
-                .iter()
-                .map(|(anchor, output)| (*anchor, vec![*output]))
-                .collect(),
-        },
-    )
-}
-
 ///
 /// Gives each computation the Portal destinations `destinations` names for it,
 /// in place of the ordinary result position it resolved for itself.
@@ -603,10 +581,9 @@ fn carry(
     // second, and these refusals belong in front of what is already here.
     //
     // Stated as an assertion because the caller's empty Configuration is what
-    // makes prepending right and this signature cannot see it. Tickets 05-07
-    // migrate `stated::plan_with_answers` by calling this beside a
-    // Configuration that may still hold destinations of its own; a partial
-    // migration would put carried refusals in front of configured ones and
+    // makes prepending right and this signature cannot see it. Every caller
+    // states an empty one today; one that passed a Configuration still holding
+    // destinations would put carried refusals in front of configured ones and
     // reorder the diagnostics against the route this is proven equal to.
     assert!(
         !diagnostics
@@ -1343,7 +1320,7 @@ mod test {
             bytes.as_bytes(),
             &source.shared_language_map(),
             Tick::ZERO,
-            &destinations(grid, outputs),
+            &carried_destinations(grid, outputs),
             &reservations,
             &answers,
         );
@@ -2916,13 +2893,12 @@ mod test {
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let destinations = [(
             grid.index(grid.position(0, 5).unwrap()),
-            grid.position(0, 2).unwrap(),
+            vec![grid.position(0, 2).unwrap()],
         )]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         // North of the Bang, then south. The root at row 4 is two rows from
         // the Bang and never performs.
@@ -3104,13 +3080,12 @@ mod test {
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let destinations = [(
             grid.cell_index(0).unwrap(),
-            grid.position(15, 1).expect("inside the Grid"),
+            vec![grid.position(15, 1).expect("inside the Grid")],
         )]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(
             planned(&plan),
@@ -3327,12 +3302,12 @@ mod test {
             let map = LanguageMap::build(grid, bytes.as_bytes());
             let destinations = [(
                 grid.index(grid.position(0, 5).unwrap()),
-                grid.position(0, 2).unwrap(),
+                vec![grid.position(0, 2).unwrap()],
             )]
             .into_iter()
             .collect();
 
-            let plan = super::plan_with_destinations(
+            let plan = super::plan_carrying(
                 grid,
                 bytes.as_bytes(),
                 &map,
@@ -3347,7 +3322,7 @@ mod test {
                 plan.diagnostics
             );
 
-            let plan = super::plan_with_destinations(
+            let plan = super::plan_carrying(
                 grid,
                 bytes.as_bytes(),
                 &map,
@@ -3375,18 +3350,17 @@ mod test {
         let destinations = [
             (
                 grid.index(grid.position(6, 3).unwrap()),
-                grid.position(6, 2).unwrap(),
+                vec![grid.position(6, 2).unwrap()],
             ),
             (
                 grid.index(grid.position(0, 4).unwrap()),
-                grid.position(0, 3).unwrap(),
+                vec![grid.position(0, 3).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
@@ -3408,18 +3382,17 @@ mod test {
         let destinations = [
             (
                 grid.index(grid.position(0, 1).unwrap()),
-                grid.position(0, 2).unwrap(),
+                vec![grid.position(0, 2).unwrap()],
             ),
             (
                 grid.index(grid.position(0, 5).unwrap()),
-                grid.position(0, 4).unwrap(),
+                vec![grid.position(0, 4).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
@@ -3437,18 +3410,17 @@ mod test {
         let destinations = [
             (
                 grid.index(grid.position(0, 0).unwrap()),
-                grid.position(0, 4).unwrap(),
+                vec![grid.position(0, 4).unwrap()],
             ),
             (
                 grid.index(grid.position(0, 1).unwrap()),
-                grid.position(0, 6).unwrap(),
+                vec![grid.position(0, 6).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -3479,12 +3451,12 @@ mod test {
         let conflict_map = LanguageMap::build(conflict_grid, conflict_bytes.as_bytes());
         let shared = conflict_grid.position(10, 1).unwrap();
         let conflict_destinations = [
-            (conflict_grid.cell_index(0).unwrap(), shared),
-            (conflict_grid.cell_index(16).unwrap(), shared),
+            (conflict_grid.cell_index(0).unwrap(), vec![shared]),
+            (conflict_grid.cell_index(16).unwrap(), vec![shared]),
         ]
         .into_iter()
         .collect();
-        let conflict = super::plan_with_destinations(
+        let conflict = super::plan_carrying(
             conflict_grid,
             conflict_bytes.as_bytes(),
             &conflict_map,
@@ -3501,16 +3473,16 @@ mod test {
         let cycle_destinations = [
             (
                 cycle_grid.cell_index(0).unwrap(),
-                cycle_grid.position(2, 1).unwrap(),
+                vec![cycle_grid.position(2, 1).unwrap()],
             ),
             (
                 cycle_grid.cell_index(16).unwrap(),
-                cycle_grid.position(2, 0).unwrap(),
+                vec![cycle_grid.position(2, 0).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
-        let cycle = super::plan_with_destinations(
+        let cycle = super::plan_carrying(
             cycle_grid,
             cycle_bytes.as_bytes(),
             &cycle_map,

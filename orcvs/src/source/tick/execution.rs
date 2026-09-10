@@ -474,13 +474,14 @@ pub(super) mod stated {
     use lang::{Tick, Value};
 
     use super::super::{
-        Configuration, Reserved, computations, derive_reservations, order_turns, unscheduled,
+        Configuration, Reserved, carry, computations, derive_reservations, order_turns, unscheduled,
     };
     use super::{
         Atom, Break, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap, Lookup,
-        Schedule, TickPlan, resolve,
+        Position, Schedule, TickPlan, resolve,
     };
     use crate::grid::CellIndex;
+    use std::collections::BTreeMap;
 
     ///
     /// Plans one Tick, delivering the value stated for a computation's anchor
@@ -491,11 +492,12 @@ pub(super) mod stated {
         bytes: &[u8],
         map: &LanguageMap,
         tick: Tick,
-        configuration: &Configuration,
+        destinations: &BTreeMap<CellIndex, Vec<Position>>,
         reservations: &[(CellIndex, Reserved)],
         answers: &[(CellIndex, Value)],
     ) -> TickPlan {
-        let (nodes, layout) = computations(grid, map, configuration);
+        let (mut nodes, mut layout) = computations(grid, map, &Configuration::default());
+        carry(grid, &mut nodes, &mut layout, destinations);
         let mut lookup = Lookup::new(grid, nodes);
         // Every fixture error the schedule can be asked about is asked here,
         // before an order exists. A Source with a cycle answers `Err` from
