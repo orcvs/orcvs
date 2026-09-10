@@ -44,3 +44,45 @@ Concentrating those loops is also what would let one test cover both targets. To
 nothing in the workspace compiles the browser loops, so the rule is shared by
 construction — both call `next_scheduled_at` — rather than by a test that would fail if
 they stopped. See the note on effort 01.
+
+Three corrections from the review of effort 01, which found two deadline defects and
+fixed both by hand where this effort would have made one of them unwritable.
+
+The loop shapes are not a decision to preserve. Browser `start` is execute-then-sleep
+and the other three loops are sleep-then-execute, and nothing in ADR 0037, `CONTEXT.md`
+or any comment says why. `28e22e5` hand-ported the native `time::interval_at` loop,
+whose first `tick()` returns immediately, and reproduced that by moving the sleep to the
+bottom; `bcc95c7` then wrote browser `retune` in the native shape, because its first
+deadline is a period away rather than zero. The shape follows mechanically from whether
+the first deadline is `ZERO`, so the browser already holds both. It is the same
+unrecorded transcription artefact ADR 0037 was written about. What is real underneath it
+is one platform fact: `tokio::time::sleep_until` on an elapsed deadline is `Ready` on
+first poll, while `TimeoutFuture::new(0)` costs a `setTimeout` hop of one to four
+milliseconds — enough for `is_overrun` to decline the first Tick of a browser run at the
+one-millisecond end of `Bpm`. State the wait as "a deadline already reached costs no
+wait" and both targets hold the sleep-then-execute shape with no semantic change. That
+narrows the always-schedule-a-timer rule `0ab1a4c` introduced, so
+`zero_wasm_delay_still_schedules_a_browser_timer` has to be replaced by one pinning
+sub-millisecond rounding. The criterion above that asks for effort 01's tests to pass
+unaltered has that one exception.
+
+The seam is two free functions and a spawner value, not a trait. A `sleep_until` per
+target, mirroring how `ClockInstant` is already one alias per target, plus a spawner
+obtained before the lock is taken — native `retune` proves the runtime present before it
+cancels the previous clock and bumps the generation, and a spawn that failed after that
+would leave a playing engine with no clock. `Send` is not a constraint: both loops
+already live in `impl<A: OutputAdapter + Send + 'static>`, and a shared `async fn` takes
+its auto-traits per instantiation, so the native one satisfies `tokio::spawn` and the
+browser one does not have to.
+
+The note above about nothing compiling the browser loops is stale, and it understates
+the real gap. `check_wasm` runs `cargo clippy --workspace --all-targets --target
+wasm32-unknown-unknown` on every pull request, so both loops type-check, and
+`shell/tests/wasm.rs` drives `PlaybackEngine::start` in headless Firefox in the merge
+tier. What is missing is narrower and worse: no test on any target asserts a browser
+deadline, and browser `retune` — where effort 01's second defect lived — is executed by
+nothing at all, because it is `pub(crate)` and `wasm.rs` never calls it. This effort
+should add a deadline assertion to `shell/tests/wasm.rs` and a path that drives `retune`
+there. Concentrating the loops closes the divergence; it does not close the sleep
+primitive itself, where `wasm_timeout_millis` rounding, `setTimeout` clamping and
+background-tab throttling stay browser-only and native-untestable.
