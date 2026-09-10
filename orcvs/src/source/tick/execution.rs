@@ -6,23 +6,29 @@
 
 use std::ops::ControlFlow::{self, Break, Continue};
 
-use lang::{Atom, Function, Interpretation, Tick, Value};
+use lang::{Atom, Function, Interpretation, Interpreter, Tick, TickInputs, Value};
 
 use super::{
     Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal, PortalError,
-    Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan, diagnose, interpret, resolve,
-    tick_inputs,
+    Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan, diagnose, resolve, tick_inputs,
 };
 
-/// Executes an established order against the original Source Snapshot. The
-/// caller supplies no mutable state and receives only the publishable Tick Plan.
+///
+/// Executes an established order against the original Source Snapshot.
+///
+/// The caller supplies no mutable state and receives two things: the
+/// publishable Tick Plan, and what each computation's Turn actually did. They
+/// are different facts, which is why the second is not folded into the first —
+/// a Tick Plan says what to apply, and a rejected Tick applies nothing however
+/// much of it ran.
+///
 pub(super) fn execute(
     grid: Grid,
     bytes: &[u8],
     map: &LanguageMap,
     tick: Tick,
     schedule: Schedule,
-) -> TickPlan {
+) -> (TickPlan, Vec<ComputationState>) {
     let Schedule {
         lookup,
         order,
@@ -34,19 +40,71 @@ pub(super) fn execute(
             return execution.reject(diagnostic);
         }
     }
-    resolve(execution.effects)
+    (resolve(execution.effects), execution.states)
 }
 
 /// These facts are independent: an attempted Turn can be syntax-blocked, and
 /// a successful typed result can coexist with a rejected spatial delivery.
 /// Keeping them together does not turn them into an exclusive lifecycle enum.
-struct ComputationState {
+pub(in crate::source) struct ComputationState {
     function: Function,
     result: Option<Value>,
     syntax_blocked: bool,
     activated: bool,
     suppressed: bool,
     attempted: bool,
+    /// The explicit inputs the Interpreter was handed for this computation, or
+    /// `None` where it was never called for it. A Turn that was suppressed,
+    /// refused by its own prologue, or stopped by operands it could not
+    /// resolve reaches no Interpreter and keeps `None`.
+    ///
+    /// One slot for however many calls, because every call for a computation
+    /// is handed the same inputs: [`tick_inputs`] reads the Tick and the
+    /// node's anchor, and neither moves within a Tick. What a second call
+    /// changes is therefore the count beside this and nothing here.
+    interpreted: Option<TickInputs>,
+    /// How many times the Interpreter ran for this computation.
+    ///
+    /// A Turn is taken once, so a Tick that behaves leaves this `0` or `1` and
+    /// `interpreted` alone would say everything. It is counted anyway because
+    /// the one thing `interpreted` cannot say is "twice": a second call
+    /// overwrites the slot with equal inputs, and a computation that ran twice
+    /// writes the same value twice, so the Source cannot tell either. Without
+    /// this field a double projection has no witness anywhere.
+    interpretations: usize,
+}
+
+impl ComputationState {
+    ///
+    /// The inputs the Interpreter received for this computation, or `None`
+    /// where it never ran for it.
+    ///
+    /// The one thing a caller outside this module reads off a state. Nothing
+    /// publishes it yet: a Tick Plan carries what to apply, and this carries
+    /// what happened, which is what a console or a diagnostic view will ask
+    /// for and what the tests of this module ask for today.
+    ///
+    /// Allowed rather than expected: the method is dead in the library build
+    /// and live in the test build, so an expectation would go unfulfilled in
+    /// the second and fail the gate that compiles both.
+    #[allow(dead_code, reason = "an output the shipped callers discard")]
+    pub(in crate::source) fn interpreted(&self) -> Option<TickInputs> {
+        self.interpreted
+    }
+
+    ///
+    /// How many times the Interpreter ran for this computation.
+    ///
+    /// Read beside [`ComputationState::interpreted`] rather than in place of
+    /// it: the pair is the record of one call per unit, which is what a caller
+    /// counting Interpreter calls needs and what `interpreted` alone cannot
+    /// give it.
+    ///
+    /// Allowed for the reason [`ComputationState::interpreted`] is.
+    #[allow(dead_code, reason = "an output the shipped callers discard")]
+    pub(in crate::source) fn interpretations(&self) -> usize {
+        self.interpretations
+    }
 }
 
 struct Execution<'a> {
@@ -92,6 +150,8 @@ impl<'a> Execution<'a> {
                     activated: false,
                     suppressed: false,
                     attempted: false,
+                    interpreted: None,
+                    interpretations: 0,
                 })
                 .collect(),
             effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
@@ -173,8 +233,14 @@ impl<'a> Execution<'a> {
         };
         let node = &self.lookup.nodes()[index];
         let function = self.states[index].function;
+        let inputs = tick_inputs(self.tick, node.anchor);
         let result = self.operands(node, signature).and_then(|operands| {
-            interpret(function, &operands, tick_inputs(self.tick, node.anchor))
+            // Recorded beside the call rather than before it: a Turn whose
+            // operands would not resolve is one the Interpreter never ran for,
+            // and the record says which of the two happened.
+            self.states[index].interpreted = Some(inputs);
+            self.states[index].interpretations += 1;
+            Interpreter::execute_function(function, &operands, inputs)
                 .map_err(|error| error.to_string())
         });
         match result {
@@ -400,13 +466,15 @@ impl<'a> Execution<'a> {
         self.effects.push(Effect::Write(write));
     }
 
-    fn reject(mut self, diagnostic: Diagnostic) -> TickPlan {
+    fn reject(mut self, diagnostic: Diagnostic) -> (TickPlan, Vec<ComputationState>) {
         // An ordering defect discards all writes, including Bang cleanup, and
-        // independent Play Commands, but keeps ordered diagnostics.
+        // independent Play Commands, but keeps ordered diagnostics. The states
+        // survive it: what ran is still what ran, and a rejected Tick is the
+        // one case an empty plan cannot be told apart from a quiet one.
         self.effects
             .retain(|effect| matches!(effect, Effect::Diagnose(_)));
         self.effects.push(Effect::Diagnose(diagnostic));
-        resolve(self.effects)
+        (resolve(self.effects), self.states)
     }
 }
 
@@ -474,13 +542,14 @@ pub(super) mod stated {
     use lang::{Tick, Value};
 
     use super::super::{
-        Configuration, Reserved, computations, derive_reservations, order_turns, unscheduled,
+        Configuration, Reserved, carry, computations, derive_reservations, order_turns, unscheduled,
     };
     use super::{
-        Atom, Break, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap, Lookup,
-        Schedule, TickPlan, resolve,
+        Atom, Break, ComputationState, Continue, ControlFlow, Diagnostic, Execution, Grid,
+        LanguageMap, Lookup, Position, Schedule, TickPlan, resolve,
     };
     use crate::grid::CellIndex;
+    use std::collections::BTreeMap;
 
     ///
     /// Plans one Tick, delivering the value stated for a computation's anchor
@@ -491,11 +560,12 @@ pub(super) mod stated {
         bytes: &[u8],
         map: &LanguageMap,
         tick: Tick,
-        configuration: &Configuration,
+        destinations: &BTreeMap<CellIndex, Vec<Position>>,
         reservations: &[(CellIndex, Reserved)],
         answers: &[(CellIndex, Value)],
-    ) -> TickPlan {
-        let (nodes, layout) = computations(grid, map, configuration);
+    ) -> (TickPlan, Vec<ComputationState>) {
+        let (mut nodes, mut diagnostics) = computations(grid, map, &Configuration::default());
+        carry(grid, &mut nodes, &mut diagnostics, destinations);
         let mut lookup = Lookup::new(grid, nodes);
         // Every fixture error the schedule can be asked about is asked here,
         // before an order exists. A Source with a cycle answers `Err` from
@@ -569,7 +639,7 @@ pub(super) mod stated {
             lookup,
             order,
             diagnostics,
-        } = match order_turns(lookup, layout) {
+        } = match order_turns(lookup, diagnostics) {
             Ok(schedule) => schedule,
             Err(diagnostics) => return unscheduled(diagnostics),
         };
@@ -610,7 +680,7 @@ pub(super) mod stated {
             stated.iter().all(|stated| *stated),
             "every stated answer reached the Turn of the computation it names"
         );
-        resolve(execution.effects)
+        (resolve(execution.effects), execution.states)
     }
 
     ///

@@ -4,9 +4,9 @@
 //! before execution. Spatial writes remain character encodings until consumed;
 //! nested results are typed values. Only the final effects are published.
 
-mod execution;
+pub(super) mod execution;
 
-use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs, Value};
+use lang::{Anchor, Atom, Function, Tick, TickInputs};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
@@ -527,30 +527,13 @@ impl PortalRelationships<'_> {
     }
 }
 
-pub(super) fn plan(grid: Grid, bytes: &[u8], map: &LanguageMap, tick: Tick) -> TickPlan {
-    plan_configured(grid, bytes, map, tick, &Configuration::default())
-}
-
-#[cfg(test)]
-fn plan_with_destinations(
+pub(super) fn plan(
     grid: Grid,
     bytes: &[u8],
     map: &LanguageMap,
     tick: Tick,
-    destinations: &BTreeMap<CellIndex, Position>,
-) -> TickPlan {
-    plan_configured(
-        grid,
-        bytes,
-        map,
-        tick,
-        &Configuration {
-            destinations: destinations
-                .iter()
-                .map(|(anchor, output)| (*anchor, vec![*output]))
-                .collect(),
-        },
-    )
+) -> (TickPlan, Vec<execution::ComputationState>) {
+    plan_configured(grid, bytes, map, tick, &Configuration::default())
 }
 
 ///
@@ -603,10 +586,9 @@ fn carry(
     // second, and these refusals belong in front of what is already here.
     //
     // Stated as an assertion because the caller's empty Configuration is what
-    // makes prepending right and this signature cannot see it. Tickets 05-07
-    // migrate `stated::plan_with_answers` by calling this beside a
-    // Configuration that may still hold destinations of its own; a partial
-    // migration would put carried refusals in front of configured ones and
+    // makes prepending right and this signature cannot see it. Every caller
+    // states an empty one today; one that passed a Configuration still holding
+    // destinations would put carried refusals in front of configured ones and
     // reorder the diagnostics against the route this is proven equal to.
     assert!(
         !diagnostics
@@ -647,7 +629,7 @@ pub(super) fn plan_carrying(
     map: &LanguageMap,
     tick: Tick,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
-) -> TickPlan {
+) -> (TickPlan, Vec<execution::ComputationState>) {
     match schedule_carrying(grid, map, destinations) {
         Ok(schedule) => execution::execute(grid, bytes, map, tick, schedule),
         Err(diagnostics) => unscheduled(diagnostics),
@@ -668,7 +650,7 @@ pub(super) fn plan_configured(
     map: &LanguageMap,
     tick: Tick,
     configuration: &Configuration,
-) -> TickPlan {
+) -> (TickPlan, Vec<execution::ComputationState>) {
     let schedule = match schedule(grid, map, configuration) {
         Ok(schedule) => schedule,
         Err(diagnostics) => return unscheduled(diagnostics),
@@ -680,12 +662,19 @@ pub(super) fn plan_configured(
 /// The Tick Plan of a Tick no order could be established for: its diagnostics
 /// are published and nothing else is, because nothing ran.
 ///
-fn unscheduled(diagnostics: Vec<Diagnostic>) -> TickPlan {
-    TickPlan {
-        writes: vec![],
-        play_commands: vec![],
-        diagnostics,
-    }
+/// No computation took a Turn, so there is no execution state to report either:
+/// a Tick that never started is the one case where the empty plan and the empty
+/// states say the same thing.
+///
+fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::ComputationState>) {
+    (
+        TickPlan {
+            writes: vec![],
+            play_commands: vec![],
+            diagnostics,
+        },
+        vec![],
+    )
 }
 
 /// An inactive root can contribute no child Portal. Start from value roots,
@@ -1026,50 +1015,11 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
     TickInputs::new(tick, Anchor::new(root.x(), root.y()))
 }
 
-/// Calls the existing Evaluator once with resolved typed operands. The
-/// test-only observation records exactly-once execution and Tick/anchor inputs.
-fn interpret(
-    function: Function,
-    operands: &[Value],
-    inputs: TickInputs,
-) -> Result<Interpretation, lang::Error> {
-    #[cfg(test)]
-    observed::record(inputs);
-    Interpreter::execute_function(function, operands, inputs)
-}
-
-///
-/// What the Interpreter was actually handed during this test.
-///
-/// A test-only seam, per thread and so per test: `cargo nextest` gives each
-/// test its own process and `cargo test` its own thread, so no two tests can
-/// see each other's Ticks. `take` both reads and clears, which is what lets a
-/// test state the inputs of exactly the Tick it drove rather than of
-/// everything its thread has ever interpreted.
-///
-#[cfg(test)]
-mod observed {
-    use lang::TickInputs;
-    use std::cell::RefCell;
-
-    thread_local! {
-        static INTERPRETED: RefCell<Vec<TickInputs>> = const { RefCell::new(Vec::new()) };
-    }
-
-    /// Records one evaluation's explicit inputs, in the order it was evaluated.
-    pub(super) fn record(inputs: TickInputs) {
-        INTERPRETED.with_borrow_mut(|interpreted| interpreted.push(inputs));
-    }
-
-    /// Every recorded input since the last `take`, clearing the record.
-    pub(super) fn take() -> Vec<TickInputs> {
-        INTERPRETED.with_borrow_mut(std::mem::take)
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use super::{Effect, Encoding, Portal, Tick, Value, observed, resolve};
+    use lang::Value;
+
+    use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
 
     ///
     /// Builds one Source Snapshot from `rows`, padded to the Grid's width.
@@ -1088,9 +1038,26 @@ mod test {
         rows: &[&str],
         outputs: &[(usize, usize)],
     ) -> (TickPlan, crate::source::Source) {
-        let mut source = seeded_source(grid, rows);
-        let plan = source.execute_configured(Tick::ZERO, &destinations(grid, outputs));
+        let (plan, _, source) = configured_tick(grid, rows, outputs);
         (plan, source)
+    }
+
+    ///
+    /// [`configured_source`], with the inputs the Interpreter received for
+    /// each computation it ran for.
+    ///
+    /// Two helpers rather than one because the two questions are asked by
+    /// different tests: most of this module asks only what a Tick planned, and
+    /// binding a fact they never read would cost every one of them a line.
+    ///
+    fn configured_tick(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+    ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
+        let mut source = seeded_source(grid, rows);
+        let (plan, states) = source.execute_configured(Tick::ZERO, &destinations(grid, outputs));
+        (plan, interpreted(&states), source)
     }
 
     ///
@@ -1124,9 +1091,58 @@ mod test {
         rows: &[&str],
         outputs: &[(usize, usize)],
     ) -> (TickPlan, crate::source::Source) {
-        let mut source = seeded_source(grid, rows);
-        let plan = source.execute_carrying(Tick::ZERO, &carried_destinations(grid, outputs));
+        let (plan, _, source) = carried_tick(grid, rows, outputs);
         (plan, source)
+    }
+
+    ///
+    /// [`carried_source`], with the inputs the Interpreter received for each
+    /// computation it ran for. The twin of [`configured_tick`], and split from
+    /// [`carried_source`] for the same reason.
+    ///
+    fn carried_tick(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+    ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
+        let mut source = seeded_source(grid, rows);
+        let (plan, states) =
+            source.execute_carrying(Tick::ZERO, &carried_destinations(grid, outputs));
+        (plan, interpreted(&states), source)
+    }
+
+    ///
+    /// The explicit inputs the Interpreter received during one Tick, one entry
+    /// per call rather than per computation.
+    ///
+    /// The three questions this module asks of an execution — how many
+    /// computations were interpreted, which inputs each of them received, and
+    /// how many times each of them ran — read off the Tick's own output rather
+    /// than off a record kept beside the thread it ran on.
+    ///
+    /// Per call and not per computation because the third question is the one
+    /// with no other witness: a computation that runs twice is handed the same
+    /// inputs both times and writes the same value both times, so neither the
+    /// state's own slot nor the Source can tell it from one that ran once. A
+    /// state repeated [`ComputationState::interpretations`] times restores the
+    /// multiplicity that the retired thread-local record carried for free.
+    ///
+    /// The entries are grouped in the order the schedule holds its
+    /// computations, which is the order they were parsed rather than the order
+    /// their Turns were taken. Two tests compare that order: the one naming
+    /// three roots no dependency orders against each other, and the one
+    /// holding the carried route to the configured one, whose two sides are
+    /// parse-ordered alike and so agree about which computations ran rather
+    /// than about when. Neither reads it as evidence of Turn order.
+    ///
+    fn interpreted(states: &[ComputationState]) -> Vec<lang::TickInputs> {
+        let mut calls = Vec::new();
+        for state in states {
+            if let Some(inputs) = state.interpreted() {
+                calls.extend(std::iter::repeat_n(inputs, state.interpretations()));
+            }
+        }
+        calls
     }
 
     ///
@@ -1214,17 +1230,19 @@ mod test {
                 "diagnostics for {rows:?}"
             );
 
-            observed::take();
-            let (configured, configured_source) = configured_source(grid, rows, outputs);
-            let configured_evaluations = observed::take();
-            let (carried, carried_source) = carried_source(grid, rows, outputs);
-            let carried_evaluations = observed::take();
+            let (configured, configured_evaluations, configured_source) =
+                configured_tick(grid, rows, outputs);
+            let (carried, carried_evaluations, carried_source) = carried_tick(grid, rows, outputs);
             assert_eq!(carried, configured, "Tick Plan for {rows:?}");
             assert_eq!(
                 carried_source.snapshot(),
                 configured_source.snapshot(),
                 "Source for {rows:?}"
             );
+            // Which computations the Interpreter ran for and how many times,
+            // not when: both sides are grouped in parse order, so the Turn
+            // order the header claims is the `order` equality above and not
+            // this one.
             assert_eq!(
                 carried_evaluations, configured_evaluations,
                 "evaluations for {rows:?}"
@@ -1328,6 +1346,22 @@ mod test {
         reservations: &[(usize, super::Reserved)],
         answers: &[(usize, Value)],
     ) -> (TickPlan, crate::source::Source) {
+        let (plan, _, source) = stated_tick(grid, rows, outputs, reservations, answers);
+        (plan, source)
+    }
+
+    ///
+    /// [`stated_source`], with the inputs the Interpreter received for each
+    /// computation it ran for. Split from it for the reason [`configured_tick`]
+    /// gives.
+    ///
+    fn stated_tick(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        reservations: &[(usize, super::Reserved)],
+        answers: &[(usize, Value)],
+    ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
         let mut source = seeded_source(grid, rows);
         let reservations: Vec<_> = reservations
             .iter()
@@ -1338,17 +1372,17 @@ mod test {
             .map(|(anchor, value)| (cell(grid, *anchor), value.clone()))
             .collect();
         let bytes = source.snapshot();
-        let plan = super::execution::stated::plan_with_answers(
+        let (plan, states) = super::execution::stated::plan_with_answers(
             grid,
             bytes.as_bytes(),
             &source.shared_language_map(),
             Tick::ZERO,
-            &destinations(grid, outputs),
+            &carried_destinations(grid, outputs),
             &reservations,
             &answers,
         );
         source.commit_tick(&plan);
-        (plan, source)
+        (plan, interpreted(&states), source)
     }
 
     ///
@@ -1362,7 +1396,22 @@ mod test {
         outputs: &[(usize, usize)],
         replacements: &[(usize, lang::Function)],
     ) -> (TickPlan, crate::source::Source) {
-        stated_source(
+        let (plan, _, source) = replaced_tick(grid, rows, outputs, replacements);
+        (plan, source)
+    }
+
+    ///
+    /// [`replaced_source`], with the inputs the Interpreter received for each
+    /// computation it ran for. Split from it for the reason [`configured_tick`]
+    /// gives.
+    ///
+    fn replaced_tick(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        replacements: &[(usize, lang::Function)],
+    ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
+        stated_tick(
             grid,
             rows,
             outputs,
@@ -1702,7 +1751,7 @@ mod test {
         let denominator = ".+".repeat(32) + &"01".repeat(33);
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
-        let (plan, source) = configured_source(Grid::new(width, 2), &[&text, ""], &[]);
+        let (plan, source) = carried_source(Grid::new(width, 2), &[&text, ""], &[]);
         // 66 / 33 = 2. Reversing the siblings instead produces zero.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
@@ -1713,7 +1762,7 @@ mod test {
     fn live_unchanged_nested_syntax_errors_do_not_repeat_as_tick_failures() {
         let grid = Grid::new(20, 2);
         let rows = [".+01.x02.+03??", ""];
-        let (plan, mut source) = configured_source(grid, &rows, &[]);
+        let (plan, mut source) = carried_source(grid, &rows, &[]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(
             !source
@@ -1741,7 +1790,7 @@ mod test {
         assert_eq!(&source.snapshot()[20..22], "0F");
 
         // A writer can also repair the bad leaf before its reserved turn.
-        let (repaired, source) = configured_source(
+        let (repaired, source) = carried_source(
             Grid::new(20, 3),
             &[".+01.x02.+03??", ".+0004", ""],
             &[(0, 40), (20, 12)],
@@ -1811,7 +1860,7 @@ mod test {
     fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         // `.|` at Cells 0 and 1 with a `|` at Cell 2: the pair at Cells 1 and
         // 2 spells `||` and means nothing, because nothing reads it.
-        let (plan, source) = configured_source(Grid::new(8, 2), &[".||102", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 2), &[".||102", ""], &[]);
 
         assert!(plan.writes.is_empty());
         assert!(
@@ -1827,7 +1876,7 @@ mod test {
         // The same Function beside a real introducer. The Absolute Difference
         // of 01 and 02 answers 01 and writes it below; the Comment claims the
         // rest of the row and answers nothing.
-        let (plan, source) = configured_source(Grid::new(8, 2), &[".|0102||", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 2), &[".|0102||", ""], &[]);
 
         assert_eq!(&source.snapshot()[8..10], "01");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1870,7 +1919,7 @@ mod test {
     ///
     #[test]
     fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
-        let (plan, source) = configured_source(Grid::new(8, 2), &["** :##", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 2), &["** :##", ""], &[]);
 
         assert!(
             !source
@@ -1902,7 +1951,7 @@ mod test {
 
     #[test]
     fn live_claims_and_glyphs_survive_source_edits_and_publication() {
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+01 02", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+01 02", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(
             source
@@ -1922,7 +1971,7 @@ mod test {
                 .glyph_at(source.grid().position(4, 0).unwrap()),
             Some(crate::glyph::Glyph::Number)
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
         assert_eq!(&source.snapshot()[16..24], "03    07");
         assert!(plan.diagnostics.is_empty());
         assert_eq!(
@@ -1934,15 +1983,15 @@ mod test {
                 .count(),
             2
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102Z", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102Z", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "03");
         assert!(plan.diagnostics.is_empty());
         assert!(source.language_map().diagnostics().any(|d| d.start() == 6));
-        let (plan, source) = configured_source(Grid::new(16, 2), &["***", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &["***", ""], &[]);
         assert_eq!(&source.snapshot()[..3], "  *");
         assert_eq!(plan.writes.len(), 2);
         assert!(source.language_map().diagnostics().any(|d| d.start() == 2));
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "**");
         assert!(plan.play_commands.is_empty());
         assert!(plan.diagnostics.is_empty());
@@ -1957,7 +2006,7 @@ mod test {
         );
         // Pin the current display of plausible standalone data. These rejected
         // Function candidates have Function glyphs, no units and no execution.
-        let (plan, source) = configured_source(Grid::new(16, 2), &["C4 EA 01", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &["C4 EA 01", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(source.language_map().units().count(), 0);
         for column in [0, 1, 3, 4, 6, 7] {
@@ -1972,7 +2021,7 @@ mod test {
 
     #[test]
     fn live_bang_in_half_typed_terminal_claim_diagnoses_without_activation() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &["    .=0101", "!>00", "    !>007FC4"],
             &[],
@@ -2387,10 +2436,10 @@ mod test {
             let left = u16::from_str_radix(std::str::from_utf8(&expected[2..4]).unwrap(), 16).unwrap();
             let right = u16::from_str_radix(std::str::from_utf8(&expected[4..6]).unwrap(), 16).unwrap();
             expected[48..50].copy_from_slice(format!("{:02X}", (left + right) % 256).as_bytes());
-            let (plan, source) = configured_source(grid, &rows, &outputs);
+            let (plan, source) = carried_source(grid, &rows, &outputs);
             proptest::prop_assert_eq!(source.snapshot().into_bytes(), expected);
             proptest::prop_assert!(plan.diagnostics.is_empty());
-            let (repeated, _) = configured_source(grid, &rows, &outputs);
+            let (repeated, _) = carried_source(grid, &rows, &outputs);
             proptest::prop_assert_eq!(plan, repeated);
             let full = LanguageMap::derive(grid, &source.snapshot()).unwrap();
             proptest::prop_assert_eq!(source.language_map().units().collect::<Vec<_>>(), full.units().collect::<Vec<_>>());
@@ -2404,7 +2453,7 @@ mod test {
             let grid = Grid::new(16, 2);
             let producer = format!(".+00{value:02X}");
             let rows = [producer.as_str(), ""];
-            let (plan, source) = configured_source(grid, &rows, &[(0, 31)]);
+            let (plan, source) = carried_source(grid, &rows, &[(0, 31)]);
             proptest::prop_assert!(plan.writes.is_empty());
             proptest::prop_assert_eq!(source.snapshot(), snapshot(grid, &rows));
             proptest::prop_assert!(plan.diagnostics.iter().any(|d| d.message.contains("crosses the row edge")));
@@ -2424,7 +2473,7 @@ mod test {
 
     #[test]
     fn live_competing_writers_follow_position_and_emissions_follow_configuration() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".+0101", ".+0101", ".+0102", ""],
             &[(0, 48), (16, 3), (32, 3)],
@@ -2432,21 +2481,20 @@ mod test {
         assert_eq!(&source.snapshot()[..6], ".+0031");
         assert_eq!(&source.snapshot()[48..50], "31");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        observed::take();
-        let (plan, source) = configured_source(
+        let (plan, interpreted, source) = carried_tick(
             Grid::new(16, 3),
             &[".+0101", ".+0203", ""],
             &[(0, 32), (16, 2), (16, 3)],
         );
         assert_eq!(&source.snapshot()[..6], ".+0051");
         assert_eq!(&source.snapshot()[32..34], "51");
-        assert_eq!(observed::take().len(), 2);
+        assert_eq!(interpreted.len(), 2);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     }
 
     #[test]
     fn live_pending_note_decodes_only_after_all_writers_settle() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".vE4", ".+E901", ".+E401", ""],
             &[(0, 48), (16, 2), (32, 2)],
@@ -2454,7 +2502,7 @@ mod test {
         assert_eq!(&source.snapshot()[..4], ".vE5");
         assert_eq!(&source.snapshot()[48..50], "4C");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".vE4", ".+E901", ""],
             &[(0, 32), (16, 2)],
@@ -2468,7 +2516,7 @@ mod test {
             "{:?}",
             plan.diagnostics
         );
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0000", ".+E901", ""],
             &[(0, 32), (16, 2)],
@@ -2479,7 +2527,7 @@ mod test {
 
     #[test]
     fn live_spatial_note_is_an_encoding_and_nested_note_stays_typed() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0001", ".^48", ""],
             &[(0, 32), (16, 2)],
@@ -2487,7 +2535,7 @@ mod test {
         assert_eq!(&source.snapshot()[..6], ".+C501");
         assert_eq!(&source.snapshot()[32..34], "C6");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -2563,15 +2611,14 @@ mod test {
 
     #[test]
     fn live_inactive_ownership_and_terminal_portal_configuration_are_independent() {
-        observed::take();
-        let (plan, source) = carried_source(
+        let (plan, interpreted, source) = carried_tick(
             Grid::new(16, 3),
             &["!>007F.^80", "", ""],
             &[(0, 16), (6, 20)],
         );
         assert!(plan.writes.is_empty());
         assert!(plan.play_commands.is_empty());
-        assert_eq!(observed::take().len(), 0);
+        assert_eq!(interpreted.len(), 0);
         assert_eq!(plan.diagnostics.len(), 1);
         assert!(plan.diagnostics[0].message.contains("cannot have a Portal"));
         assert_eq!(&source.snapshot()[16..32], "                ");
@@ -2587,8 +2634,7 @@ mod test {
 
     #[test]
     fn live_deep_and_top_level_replacement_suppress_descendant_portals() {
-        observed::take();
-        let (plan, source) = configured_source(
+        let (plan, interpreted, source) = carried_tick(
             Grid::new(20, 3),
             &[".+02.x03.+0101", ".+0203", ""],
             &[(0, 40), (4, 44), (8, 48), (20, 4)],
@@ -2596,22 +2642,21 @@ mod test {
         assert_eq!(&source.snapshot()[..14], ".+020503.+0101");
         assert_eq!(&source.snapshot()[40..42], "07");
         assert_eq!(&source.snapshot()[44..50], "      ");
-        assert_eq!(observed::take().len(), 2);
+        assert_eq!(interpreted.len(), 2);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(source.language_map().expressions().any(|entry| {
             entry
                 .root()
                 .is_some_and(|root| root.x() == 8 && root.y() == 0)
         }));
-        observed::take();
-        let (plan, source) = configured_source(
+        let (plan, interpreted, source) = carried_tick(
             Grid::new(16, 3),
             &[".+02.x0304", ".+0203", ""],
             &[(0, 32), (4, 36), (16, 0)],
         );
         assert_eq!(&source.snapshot()[..10], "0502.x0304");
         assert_eq!(&source.snapshot()[32..38], "      ");
-        assert_eq!(observed::take().len(), 1);
+        assert_eq!(interpreted.len(), 1);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
             source
@@ -2687,8 +2732,7 @@ mod test {
             3
         );
         assert!(source.language_map().diagnostics().any(|d| d.start() == 4));
-        observed::take();
-        let (plan, source) = replaced_source(
+        let (plan, interpreted, source) = replaced_tick(
             Grid::new(16, 3),
             &[".+0101", ".+0000", ""],
             &[(0, 32), (16, 1)],
@@ -2701,7 +2745,7 @@ mod test {
         // suppressed and the new one was never scheduled. The producer that
         // states the replacement answers without interpreting anything, so the
         // Interpreter is not called at all this Tick.
-        assert_eq!(observed::take().len(), 0);
+        assert_eq!(interpreted.len(), 0);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(
             source
@@ -2717,15 +2761,14 @@ mod test {
             vec![(0, 18), (16, 2), (32, 48)],
             vec![(0, 2), (16, 64), (32, 48)],
         ] {
-            observed::take();
-            let (plan, source) = carried_source(
+            let (plan, interpreted, source) = carried_tick(
                 Grid::new(16, 5),
                 &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
                 &outputs,
             );
             assert!(plan.writes.is_empty());
             assert!(plan.play_commands.is_empty());
-            assert_eq!(observed::take().len(), 0);
+            assert_eq!(interpreted.len(), 0);
             assert_eq!(&source.snapshot()[48..50], "  ");
             assert!(
                 plan.diagnostics
@@ -2763,7 +2806,8 @@ mod test {
             // A valid order delivers the writer before its target. Execute it
             // once to prove that this fixture has writes and a Play Command
             // which the defensive rejection below must discard.
-            let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &carried);
+            let (plan, _) =
+                super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &carried);
             assert!(!plan.writes.is_empty());
             assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
 
@@ -2782,8 +2826,7 @@ mod test {
                         .unwrap()
                 })
                 .collect();
-            observed::take();
-            let rejected =
+            let (rejected, states) =
                 super::execution::execute(grid, bytes.as_bytes(), &map, Tick::ZERO, schedule);
             assert!(rejected.writes.is_empty());
             assert!(rejected.play_commands.is_empty());
@@ -2811,7 +2854,7 @@ mod test {
             // Attempting a syntax-blocked Turn still prevents later writes
             // reaching it, although that Turn never calls the Evaluator.
             assert_eq!(
-                observed::take().len(),
+                interpreted(&states).len(),
                 if target == ".+01??" { 4 } else { 5 }
             );
         }
@@ -2832,8 +2875,7 @@ mod test {
 
     #[test]
     fn a_value_replaces_nested_computation_and_preserves_next_tick_source() {
-        observed::take();
-        let (plan, source) = configured_source(
+        let (plan, interpreted, source) = carried_tick(
             Grid::new(16, 4),
             &[".+02.x0304", ".+0203", "", ""],
             &[(0, 48), (4, 52), (16, 4)],
@@ -2842,7 +2884,7 @@ mod test {
         assert_eq!(&source.snapshot()[48..50], "07");
         assert_eq!(&source.snapshot()[52..54], "  ");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(observed::take().len(), 2);
+        assert_eq!(interpreted.len(), 2);
         let next = source.language_map();
         assert_eq!(next.expressions().next().unwrap().span().end().get(), 5);
         assert!(next.diagnostics().any(|diagnostic| diagnostic.start() == 6));
@@ -2852,8 +2894,7 @@ mod test {
     #[test]
     fn nested_computation_returns_and_projects_once() {
         let grid = Grid::new(16, 4);
-        observed::take();
-        let (plan, source) = configured_source(
+        let (plan, interpreted, source) = carried_tick(
             grid,
             &[".+02.x0304", ".+0101", "", ""],
             &[(0, 48), (4, 18), (16, 52)],
@@ -2863,9 +2904,8 @@ mod test {
         assert_eq!(&source.snapshot()[52..54], "0D");
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let calls = observed::take();
         assert_eq!(
-            calls
+            interpreted
                 .iter()
                 .filter(|inputs| **inputs
                     == super::tick_inputs(Tick::ZERO, grid.position(4, 0).unwrap()))
@@ -2916,13 +2956,13 @@ mod test {
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let destinations = [(
             grid.index(grid.position(0, 5).unwrap()),
-            grid.position(0, 2).unwrap(),
+            vec![grid.position(0, 2).unwrap()],
         )]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         // North of the Bang, then south. The root at row 4 is two rows from
         // the Bang and never performs.
@@ -2950,7 +2990,7 @@ mod test {
             (3, 2, false),
             (15, 1, false),
         ] {
-            let (plan, _) = configured_source(
+            let (plan, _) = carried_source(
                 grid,
                 &["", "", "    !>007FC4", "", "", ".=0101"],
                 &[(80, row * 16 + column)],
@@ -2993,7 +3033,7 @@ mod test {
         // The terminal directly below is cardinally aligned and must stay
         // silent anyway -- narrowing the contact test to the anchor Cell alone
         // would sound it.
-        let (plan, _) = configured_source(
+        let (plan, _) = carried_source(
             Grid::new(16, 6),
             &["", "", "   .=0101", "    !>007FC4", "", ".=0101"],
             &[(80, 2 * 16 + 4)],
@@ -3008,7 +3048,7 @@ mod test {
         // The destination contacts a nested Function rather than a literal.
         // It still belongs to an operand, so neither its inactive owner nor
         // the aligned terminal below it can perform.
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["    .=0101", "!>00.+0101C4", "    !>007FC5", ""],
             &[],
@@ -3027,7 +3067,7 @@ mod test {
         // anchor lands anywhere: on the `.+` at column 4, which is a nested
         // Function and so no root. Nothing is eligible, so the terminal that
         // owns that `.+` never performs and its row is left exactly as typed.
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["", "!>00.+0101C4", "", ".=0101"],
             &[(48, 4)],
@@ -3049,7 +3089,7 @@ mod test {
         let bytes = snapshot(grid, &["    .=0101", "  .+0102", "    !>007FC4", "", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![]);
         assert_eq!(planned(&plan), vec![(20, '*'), (21, '*')]);
@@ -3069,7 +3109,7 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "**", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
 
         assert_eq!(planned(&plan), vec![(16, '*'), (17, '*')]);
         assert_eq!(
@@ -3084,13 +3124,12 @@ mod test {
     #[test]
     fn outputs_beside_and_over_standalone_source_are_admitted() {
         // These exact Sources used to trip the obsolete join guard.
-        let (plan, source) = configured_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[8..14], "**0102");
         assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
         assert!(plan.diagnostics.is_empty());
         assert_eq!(source.language_map().bangs().count(), 1);
-        let (plan, source) =
-            configured_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[10..16], "  01**");
         assert_eq!(planned(&plan), vec![(14, '*'), (15, '*')]);
         assert!(plan.diagnostics.is_empty());
@@ -3105,13 +3144,13 @@ mod test {
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let destinations = [(
             grid.cell_index(0).unwrap(),
-            grid.position(15, 1).expect("inside the Grid"),
+            vec![grid.position(15, 1).expect("inside the Grid")],
         )]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(
             planned(&plan),
@@ -3130,7 +3169,7 @@ mod test {
 
     #[test]
     fn overlapping_outputs_beside_standalone_source_both_contribute_cells() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0102 .+0304", "0102", ""],
             &[(0, 20), (7, 21)],
@@ -3153,7 +3192,7 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", ".+0102Z", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         // The Bang the Equality writes, and the Addition's own `03` below it.
@@ -3175,7 +3214,7 @@ mod test {
         let bytes = snapshot(grid, &[".=0101", "", "!>007FC4", "            .+01"]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -3211,16 +3250,21 @@ mod test {
         // satisfied by the code under test, and they are asymmetric so a
         // transposed column and row is visible. The Tick is not `Tick::ZERO`,
         // so a hardcoded first Tick is visible too.
+        //
+        // This test retires when a Function reads an anchor. The Tick half is
+        // already asserted through results by the test below, which watches
+        // what three Tick Functions write rather than what they were handed;
+        // no built Function reads its anchor yet, so the anchor half has no
+        // result to be visible in and is read off the execution states here
+        // instead. When one does, this asserts through that Function's answer
+        // and stops reading states at all.
         let grid = Grid::new(20, 3);
         let bytes = snapshot(grid, &[".+0102 .+0304", "          .-0504", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
         let tick = Tick::new(11);
 
-        // whatever an earlier Tick on this thread interpreted is not part of
-        // this one
-        let _ = observed::take();
-        let _ = super::plan(grid, bytes.as_bytes(), &map, tick);
-        let interpreted = observed::take();
+        let (_, states) = super::plan(grid, bytes.as_bytes(), &map, tick);
+        let interpreted = interpreted(&states);
 
         assert_eq!(interpreted.len(), 3, "each of the three roots is evaluated");
         assert!(
@@ -3233,7 +3277,7 @@ mod test {
                 .map(|inputs| (inputs.anchor().column(), inputs.anchor().row()))
                 .collect::<Vec<_>>(),
             vec![(0, 0), (7, 0), (10, 1)],
-            "each root is told its own anchor, in scheduled order"
+            "each root is told its own anchor"
         );
     }
 
@@ -3258,7 +3302,7 @@ mod test {
         // it; the Euclidean's `X.XX` over four steps has no onset at step 1. A
         // Function that answered the Absence Marker plans no Cell write, so
         // only the Clock's pair is planned.
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::new(1));
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::new(1));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(planned(&plan), vec![(24, '0'), (25, '0')]);
@@ -3268,7 +3312,7 @@ mod test {
         // hardcoded first Tick would write `00` here and a hardcoded Tick of
         // its own would move all three at once, so the pair of assertions is
         // what makes this about the Tick rather than about the formulas.
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::new(4));
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::new(4));
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
@@ -3294,7 +3338,7 @@ mod test {
         let bytes = snapshot(grid, &["~*0300 ~%0400", ""]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::new(3));
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::new(3));
 
         assert!(plan.writes.is_empty(), "{:?}", plan.writes);
         assert_eq!(
@@ -3328,12 +3372,12 @@ mod test {
             let map = LanguageMap::build(grid, bytes.as_bytes());
             let destinations = [(
                 grid.index(grid.position(0, 5).unwrap()),
-                grid.position(0, 2).unwrap(),
+                vec![grid.position(0, 2).unwrap()],
             )]
             .into_iter()
             .collect();
 
-            let plan = super::plan_with_destinations(
+            let (plan, _) = super::plan_carrying(
                 grid,
                 bytes.as_bytes(),
                 &map,
@@ -3348,7 +3392,7 @@ mod test {
                 plan.diagnostics
             );
 
-            let plan = super::plan_with_destinations(
+            let (plan, _) = super::plan_carrying(
                 grid,
                 bytes.as_bytes(),
                 &map,
@@ -3376,18 +3420,18 @@ mod test {
         let destinations = [
             (
                 grid.index(grid.position(6, 3).unwrap()),
-                grid.position(6, 2).unwrap(),
+                vec![grid.position(6, 2).unwrap()],
             ),
             (
                 grid.index(grid.position(0, 4).unwrap()),
-                grid.position(0, 3).unwrap(),
+                vec![grid.position(0, 3).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
@@ -3409,18 +3453,18 @@ mod test {
         let destinations = [
             (
                 grid.index(grid.position(0, 1).unwrap()),
-                grid.position(0, 2).unwrap(),
+                vec![grid.position(0, 2).unwrap()],
             ),
             (
                 grid.index(grid.position(0, 5).unwrap()),
-                grid.position(0, 4).unwrap(),
+                vec![grid.position(0, 4).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(plan.diagnostics.is_empty());
@@ -3438,18 +3482,18 @@ mod test {
         let destinations = [
             (
                 grid.index(grid.position(0, 0).unwrap()),
-                grid.position(0, 4).unwrap(),
+                vec![grid.position(0, 4).unwrap()],
             ),
             (
                 grid.index(grid.position(0, 1).unwrap()),
-                grid.position(0, 6).unwrap(),
+                vec![grid.position(0, 6).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
 
-        let plan =
-            super::plan_with_destinations(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
 
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
         assert!(
@@ -3461,7 +3505,7 @@ mod test {
 
     #[test]
     fn competing_writers_preserve_an_independent_rejected_destination_diagnostic() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0102", ".+0304", ".+0506"],
             &[(0, 26), (16, 26), (32, 31)],
@@ -3480,12 +3524,12 @@ mod test {
         let conflict_map = LanguageMap::build(conflict_grid, conflict_bytes.as_bytes());
         let shared = conflict_grid.position(10, 1).unwrap();
         let conflict_destinations = [
-            (conflict_grid.cell_index(0).unwrap(), shared),
-            (conflict_grid.cell_index(16).unwrap(), shared),
+            (conflict_grid.cell_index(0).unwrap(), vec![shared]),
+            (conflict_grid.cell_index(16).unwrap(), vec![shared]),
         ]
         .into_iter()
         .collect();
-        let conflict = super::plan_with_destinations(
+        let (conflict, _) = super::plan_carrying(
             conflict_grid,
             conflict_bytes.as_bytes(),
             &conflict_map,
@@ -3502,16 +3546,16 @@ mod test {
         let cycle_destinations = [
             (
                 cycle_grid.cell_index(0).unwrap(),
-                cycle_grid.position(2, 1).unwrap(),
+                vec![cycle_grid.position(2, 1).unwrap()],
             ),
             (
                 cycle_grid.cell_index(16).unwrap(),
-                cycle_grid.position(2, 0).unwrap(),
+                vec![cycle_grid.position(2, 0).unwrap()],
             ),
         ]
         .into_iter()
         .collect();
-        let cycle = super::plan_with_destinations(
+        let (cycle, _) = super::plan_carrying(
             cycle_grid,
             cycle_bytes.as_bytes(),
             &cycle_map,
@@ -3596,7 +3640,7 @@ mod test {
         let bytes = snapshot(grid, &["", ".+0102"]);
         let map = LanguageMap::build(grid, bytes.as_bytes());
 
-        let plan = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let (plan, _) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
 
         assert!(plan.writes.is_empty());
         assert_eq!(
