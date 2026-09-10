@@ -37,6 +37,13 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     outputs: Vec<Result<Position, PortalError>>,
+    /// How wide this computation's result may be, per ADR 0036, and the one
+    /// home that fact has. A computation is built reserving the Cell pair
+    /// every result reserves unless a declaration widens it, and
+    /// [`derive_reservations`] — which [`Lookup::new`] runs once over every
+    /// computation, because a Function's reservation reads its operand
+    /// children's — settles which of them it is.
+    reserved: Reserved,
 }
 
 #[derive(Default)]
@@ -96,9 +103,6 @@ struct Lookup {
     literals: Claims,
     operands: Claims,
     subtree_ends: Vec<usize>,
-    /// One entry per node, in the same order, computed once because a node's
-    /// reservation reads its children's.
-    reserved: Vec<Reserved>,
 }
 
 /// How many Cells scheduling reserves for one computation's result, per
@@ -120,6 +124,72 @@ enum Reserved {
     /// the row it begins in, so the rest of the row is the smallest reservation
     /// that can name every Cell such a write might reach.
     Row,
+}
+
+impl Reserved {
+    /// The Cells this reservation covers from `output` along its row, or
+    /// `None` where a scalar pair cannot fit before the row edge — a Cell pair
+    /// whose second Cell is in the next row is not a Span at all.
+    ///
+    /// This is ADR 0036's width rule itself rather than a reading of it, which
+    /// is why the callers ask for the Cells instead of matching on the variant
+    /// and measuring them again.
+    fn cells_from(self, grid: Grid, output: Position) -> Option<Range<usize>> {
+        let start = grid.index(output).get();
+        match self {
+            Self::Pair => {
+                grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
+                Some(start..start + SCALAR_WIDTH)
+            }
+            // The row's remaining Cells, measured from the destination's own
+            // column so the count stops at the row edge rather than running on
+            // into the next row's Cells.
+            Self::Row => Some(start..start + (grid.cols() - output.x())),
+        }
+    }
+
+    /// Whether a result `width` Cells wide is one this reservation covers.
+    ///
+    /// A narrower answer is refused alongside a wider one where the
+    /// reservation is a Cell pair: the reservation is what the row fit was
+    /// decided against, and a single Cell at the last Cell of a row is a write
+    /// the Portal admits and the schedule never reserved.
+    fn admits_width(self, width: usize) -> bool {
+        match self {
+            Self::Pair => width == SCALAR_WIDTH,
+            Self::Row => true,
+        }
+    }
+
+    /// Whether an admitted write can leave Cells of this reservation
+    /// untouched, rather than covering it exactly.
+    ///
+    /// A Cell pair is exactly the write it orders, so the reservation covering
+    /// a computation and the write reaching it are one fact. A row reservation
+    /// runs to the row's end and the answer may stop columns short of it, so
+    /// the two are separate facts and only the admitted write settles the
+    /// second.
+    fn admits_a_narrower_write(self) -> bool {
+        match self {
+            Self::Pair => false,
+            Self::Row => true,
+        }
+    }
+
+    /// Whether a computation reserving this can answer a Sequence, which is
+    /// the question an owning Function asks of an operand child before it
+    /// decides whether it widens over one.
+    ///
+    /// It coincides with [`Reserved::admits_a_narrower_write`] because a row
+    /// is the only reservation wider than one Atom. They are separate
+    /// questions: this one is about what an answer can be, and that one about
+    /// what a write must cover.
+    fn may_be_a_sequence(self) -> bool {
+        match self {
+            Self::Pair => false,
+            Self::Row => true,
+        }
+    }
 }
 
 /// Relationships of one fixed Portal destination, and of the Cells following it
@@ -149,7 +219,7 @@ struct FunctionContact {
 const SCALAR_WIDTH: usize = 2;
 
 impl Lookup {
-    fn new(grid: Grid, nodes: Vec<Computation>) -> Self {
+    fn new(grid: Grid, mut nodes: Vec<Computation>) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
@@ -183,17 +253,29 @@ impl Lookup {
                 subtree_ends[parent] = subtree_ends[parent].max(subtree_ends[index]);
             }
         }
-        let mut reserved = vec![Reserved::Pair; nodes.len()];
-        derive_reservations(&nodes, &mut reserved);
-        Self {
+        derive_reservations(&mut nodes);
+        let lookup = Self {
             grid,
             nodes,
             functions: Claims::new(functions),
             literals: Claims::new(literals),
             operands: Claims::new(operands),
-            reserved,
             subtree_ends,
-        }
+        };
+        // The agreement the two questions below depend on: what a computation
+        // reserves is what its own declared Function re-derives, so
+        // [`Lookup::would_reserve`] asks about a replacement rather than
+        // answering a settled fact a second way. Asserting it here makes every
+        // Source any test in this crate builds a case, and the pass above the
+        // only thing that has to hold it.
+        debug_assert!(
+            (0..lookup.nodes.len()).all(|index| {
+                lookup.would_reserve(index, lookup.nodes[index].function)
+                    == lookup.nodes[index].reserved
+            }),
+            "a computation reserves a width its own declaration does not derive"
+        );
+        lookup
     }
 
     fn nodes(&self) -> &[Computation] {
@@ -213,11 +295,12 @@ impl Lookup {
 
     /// What scheduling reserved for `index`'s result, per ADR 0036.
     fn reserved(&self, index: usize) -> Reserved {
-        self.reserved[index]
+        self.nodes[index].reserved
     }
 
     /// What scheduling would have reserved for `index` had its Function been
-    /// `function`.
+    /// `function`, which is a question about a Function that is not there
+    /// rather than a second way to read [`Lookup::reserved`].
     ///
     /// A spatial write can replace a Function at its original anchor after the
     /// schedule is fixed, and a replacement that answers a wider result than
@@ -225,8 +308,13 @@ impl Lookup {
     /// is the question `deliver_output` asks before it admits such a
     /// replacement; it reads its children's settled reservations, which the
     /// same guard keeps stable.
-    fn reserved_with(&self, index: usize, function: Function) -> Reserved {
-        reserved_for(&self.nodes, &self.reserved, index, function)
+    ///
+    /// Asked with the computation's own Function it answers what that
+    /// computation already reserves. `Lookup::new` asserts exactly that, which
+    /// is what keeps the hypothesis honest about the settled fact it is a
+    /// hypothesis against.
+    fn would_reserve(&self, index: usize, function: Function) -> Reserved {
+        reserved_for(&self.nodes, index, function)
     }
 
     /// A fixed destination has relationships only if the Cells reserved for
@@ -239,17 +327,7 @@ impl Lookup {
     /// statement about a scalar result specifically: a Cell pair whose second
     /// Cell is in the next row is not a Span at all.
     fn reserved_at(&self, index: usize, output: Position) -> Option<PortalRelationships<'_>> {
-        let start = self.grid.index(output).get();
-        let cells = match self.reserved(index) {
-            Reserved::Pair => {
-                self.grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
-                start..start + SCALAR_WIDTH
-            }
-            // The row's remaining Cells, measured from the destination's own
-            // column so the count stops at the row edge rather than running on
-            // into the next row's Cells.
-            Reserved::Row => start..start + (self.grid.cols() - output.x()),
-        };
+        let cells = self.reserved(index).cells_from(self.grid, output)?;
         Some(PortalRelationships {
             lookup: self,
             output,
@@ -304,28 +382,31 @@ impl Lookup {
 /// A reservation already settled as [`Reserved::Row`] is left where it stands,
 /// and the guard that leaves it there is load-bearing rather than a shortcut.
 /// [`reserved_for`] is a pure function of the Function table and the children's
-/// settled reservations: it has no memory of what the slot already held, so for
-/// a `Row` no declaration produced — one a test states, because no built
+/// settled reservations: it has no memory of what the computation already held,
+/// so for a `Row` no declaration produced — one a test states, because no built
 /// Function declares a Sequence answer — it answers `Pair` and narrows the
-/// statement away. Skipping such a node is what lets this pass run over
-/// reservations decided before it rather than only over an untouched vector,
-/// which is the whole reason it is a function and not a loop inside
-/// [`Lookup::new`]. Production never reaches that case: `Lookup::new` hands an
-/// all-`Pair` vector, so every index is derived exactly once.
+/// statement away. Skipping such a computation is what lets this pass run over
+/// reservations decided before it rather than only over freshly built
+/// computations, which is the whole reason it is a function and not a loop
+/// inside [`Lookup::new`]. Production never reaches that case: every
+/// computation is built reserving a `Pair`, so every one of them is derived
+/// exactly once.
 ///
 /// The guard is what makes this a derivation forward from all-`Pair` rather
-/// than a re-derivation. A slot already holding [`Reserved::Row`] is never
-/// revisited, so running this again after a computation's Function changed
-/// would answer that slot's pre-change width without complaint. Nothing does
-/// that today, and `test-only-seams/09` is where it would first become
-/// possible: giving the reserved width one home means deriving it from a
-/// Function that a replacement can have replaced.
+/// than a re-derivation. A computation already holding [`Reserved::Row`] is
+/// never revisited, so running this again after its Function changed would
+/// answer the pre-change width without complaint. Giving the reserved width one
+/// home did not make that reachable: this pass reads the parsed Function on the
+/// computation, and a replacement changes only the running Function on its
+/// execution state, so no width derived here is ever derived from a Function a
+/// replacement has replaced. The one caller that runs the pass a second time is
+/// `stated::plan_with_answers`, and it does so to widen ancestors over a width
+/// the fixture stated rather than to re-derive a changed declaration.
 ///
-fn derive_reservations(nodes: &[Computation], reserved: &mut [Reserved]) {
+fn derive_reservations(nodes: &mut [Computation]) {
     for index in (0..nodes.len()).rev() {
-        if reserved[index] == Reserved::Pair {
-            let derived = reserved_for(nodes, reserved, index, nodes[index].function);
-            reserved[index] = derived;
+        if nodes[index].reserved == Reserved::Pair {
+            nodes[index].reserved = reserved_for(nodes, index, nodes[index].function);
         }
     }
 }
@@ -343,18 +424,13 @@ fn derive_reservations(nodes: &[Computation], reserved: &mut [Reserved]) {
 ///
 /// The nodes are read rather than the [`Lookup`] because this also runs while
 /// that `Lookup` is being built.
-fn reserved_for(
-    nodes: &[Computation],
-    reserved: &[Reserved],
-    index: usize,
-    function: Function,
-) -> Reserved {
+fn reserved_for(nodes: &[Computation], index: usize, function: Function) -> Reserved {
     let node = &nodes[index];
     let widened = function.widens_over_a_sequence_operand()
         && node.operands.iter().any(|operand| {
             operand
                 .child
-                .is_some_and(|child| reserved[child] == Reserved::Row)
+                .is_some_and(|child| nodes[child].reserved.may_be_a_sequence())
         });
     if function.answers_sequence() || widened {
         Reserved::Row
@@ -643,8 +719,10 @@ fn schedule(
 ///
 /// This is everything a schedule knows before a [`Lookup`] indexes it: which
 /// Cells each computation claims, which Portal destinations it resolved, and
-/// which Expressions the row edge cut short. What each computation reserves,
-/// and therefore what is ordered after what, is the [`Lookup`]'s to derive.
+/// which Expressions the row edge cut short. Every computation here reserves
+/// the Cell pair ADR 0036 gives a result nothing widens; which of them a
+/// declaration does widen, and therefore what is ordered after what, is the
+/// [`Lookup`]'s to settle.
 ///
 fn computations(
     grid: Grid,
@@ -709,6 +787,13 @@ fn computations(
                     operands: vec![],
                     syntax_valid: true,
                     outputs,
+                    // ADR 0036 reserves a Cell pair for every result no
+                    // declaration widens, so this is the reservation itself
+                    // and not a placeholder. Which computations a declaration
+                    // does widen is the pass in `Lookup::new` to settle,
+                    // because it reads reservations this loop has not built
+                    // yet.
+                    reserved: Reserved::Pair,
                 });
                 functions.insert(entry_index, index);
                 Some(index)
@@ -796,9 +881,9 @@ fn order_turns(
             // reached the producer is left to the admitted write: execution
             // asks `written_over` over the Cells actually covered, and ADR
             // 0034's executed-computation guard is waiting for them there.
-            let reserves_row = lookup.reserved(index) == Reserved::Row;
+            let may_stop_short = lookup.reserved(index).admits_a_narrower_write();
             let mut order_after = |consumer: usize| {
-                if !(reserves_row && consumer == index) {
+                if !(may_stop_short && consumer == index) {
                     edges.insert((index, consumer));
                 }
             };
@@ -1403,6 +1488,73 @@ mod test {
     }
 
     #[test]
+    fn a_reservation_agrees_with_the_width_its_own_declaration_derives() {
+        // The agreement `Lookup::would_reserve` is a hypothesis against: asked
+        // with the Function a computation actually declares, it answers the
+        // width that computation reserves. `Lookup::new` asserts it over every
+        // Source any test in this crate builds; this states it as the fact it
+        // is, and states the one width it is false of.
+        //
+        // A stated width is that one. It is not a declared one, so re-deriving
+        // it narrows it away — which is why `plan_with_answers` refuses to
+        // combine a stated reservation with a stated Function replacement. The
+        // ancestor widened over it is what gives this test its teeth: without
+        // it every reservation in the crate is a Cell pair and an agreement
+        // between two answers of `Pair` proves nothing. The pervasive `.+`
+        // reserves a Row derived from its stated child, and `would_reserve`
+        // has to answer `Row` for it.
+        let grid = Grid::new(16, 2);
+        let mut source = crate::source::Source::new(grid);
+        for (index, byte) in snapshot(grid, &["                ", ".+.-000003"])
+            .bytes()
+            .enumerate()
+        {
+            source
+                .set(cell(grid, index), &char::from(byte).to_string())
+                .unwrap();
+        }
+        let (nodes, _) = super::computations(
+            grid,
+            &source.shared_language_map(),
+            &super::Configuration::default(),
+        );
+        let mut lookup = super::Lookup::new(grid, nodes);
+
+        // Parser preorder: the owning `.+` at column 0, then the `.-` nested
+        // in its first operand.
+        assert_eq!(lookup.nodes().len(), 2);
+        let (root, child) = (0, 1);
+        assert_eq!(lookup.nodes()[child].parent, Some(root));
+        for index in [root, child] {
+            assert_eq!(
+                lookup.would_reserve(index, lookup.nodes()[index].function),
+                lookup.reserved(index),
+                "computation {index} reserves a width its own declaration does not derive"
+            );
+            assert_eq!(lookup.reserved(index), super::Reserved::Pair);
+        }
+
+        lookup.nodes[child].reserved = super::Reserved::Row;
+        super::derive_reservations(&mut lookup.nodes);
+
+        assert_eq!(
+            lookup.reserved(root),
+            super::Reserved::Row,
+            "a pervasive Function widens over an operand that reserves a row"
+        );
+        assert_eq!(
+            lookup.would_reserve(root, lookup.nodes()[root].function),
+            lookup.reserved(root),
+            "the widened reservation is the one the root's own declaration derives"
+        );
+        assert_eq!(
+            lookup.would_reserve(child, lookup.nodes()[child].function),
+            super::Reserved::Pair,
+            "a stated width is not a declared one, and re-deriving it narrows it away"
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "a stated answer names a computation the schedule contains")]
     fn a_cyclic_source_does_not_excuse_a_fixture_error() {
         // A Source that admits no order publishes diagnostics and nothing
@@ -1832,6 +1984,85 @@ mod test {
             d.message
                 .contains("activation requirements, output kind, or result width")
         }));
+    }
+
+    #[test]
+    fn live_the_second_replacement_at_one_anchor_replaces_the_first() {
+        // The guard reads the Function the computation is running, and the
+        // only Tick that can tell that from the Function the Parser found is
+        // one in which two replacements reach a single anchor. Both are
+        // admitted here, so the Turn taken at column 0 is the second one's:
+        // Multiplication, not the Subtraction that replaced the parsed
+        // Addition before it.
+        //
+        // Reading the parsed Function answered this the same way, and no
+        // fixture can make the two disagree: this guard admits no replacement
+        // that changes any of the three facts it compares, so the running
+        // Function agrees with the parsed one on all three for as long as the
+        // guard is the only thing that changes it. That agreement is an
+        // invariant about the guard itself, held nowhere and by nothing else,
+        // and reading the running Function is what stops it being load-bearing.
+        let grid = Grid::new(16, 3);
+        let (plan, source) = replaced_source(
+            grid,
+            &[".+0503", ".x0405", ".-0607"],
+            &[(0, 40), (16, 0), (32, 0)],
+            &[
+                (16, lang::Function::Subtract),
+                (32, lang::Function::Multiply),
+            ],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            &source.snapshot()[..2],
+            ".x",
+            "the later producer wins the Cells both replacements wrote"
+        );
+        assert_eq!(
+            &source.snapshot()[40..42],
+            "0F",
+            "the Turn ran the second replacement, not the first and not the parsed Function"
+        );
+    }
+
+    #[test]
+    fn live_a_second_replacement_at_one_anchor_faces_the_same_refusal() {
+        // The same anchor, reached twice, where the second replacement changes
+        // the output kind: it is refused, its write is refused whole, and the
+        // first replacement stands as the Function the Turn runs. The refusal
+        // is stated against the Subtraction already in place rather than
+        // against the parsed Addition; the two answer alike, which is the
+        // invariant the test above records.
+        let grid = Grid::new(16, 3);
+        let (plan, source) = replaced_source(
+            grid,
+            &[".+0503", ".x0405", ".-0607"],
+            &[(0, 40), (16, 0), (32, 0)],
+            &[
+                (16, lang::Function::Subtract),
+                (32, lang::Function::RawPlay),
+            ],
+        );
+
+        assert!(
+            plan.diagnostics.iter().any(|d| {
+                d.message
+                    .contains("activation requirements, output kind, or result width")
+            }),
+            "{:?}",
+            plan.diagnostics
+        );
+        assert_eq!(
+            &source.snapshot()[..2],
+            ".-",
+            "the refused replacement wrote no Cell, so the admitted one stands"
+        );
+        assert_eq!(
+            &source.snapshot()[40..42],
+            "02",
+            "the Turn ran the replacement that was admitted"
+        );
     }
 
     #[test]
