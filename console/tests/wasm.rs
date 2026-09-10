@@ -160,6 +160,102 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
     engine.stop();
 }
 
+// A browser timer would let the clock run during a stall. A synchronous wait
+// deliberately holds the browser thread so the real clock must skip deadlines.
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = "
+export function clock_now() { return performance.now(); }
+export function stall_until(deadline) { while (performance.now() < deadline) {} }
+")]
+extern "C" {
+    fn clock_now() -> f64;
+    fn stall_until(deadline: f64);
+}
+
+#[wasm_bindgen_test(async)]
+async fn web_start_executes_its_first_tick_before_a_browser_timer() {
+    let adapter = InMemoryOutputAdapter::default();
+    let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
+    engine.start(Duration::from_millis(1)).unwrap();
+    // spawn_local runs in a microtask. A zero-delay timer in the clock would
+    // put its first Tick behind this timer, too late at the shortest period.
+    TimeoutFuture::new(0).await;
+    engine.stop();
+    assert_eq!(adapter.command_lists().len(), 1);
+}
+
+#[wasm_bindgen_test(async)]
+async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
+    use orcvs::app::{InputEvent, InputKey};
+    use orcvs::opts::Bpm;
+    use orcvs::playback::PlaybackDiagnostic;
+
+    let adapter = InMemoryOutputAdapter::default();
+    let mut app = Orcvs::with_output_adapter(1, 1, adapter.clone());
+    app.set_bpm(Bpm::new(1).unwrap()); // 15 seconds: only the immediate Tick runs.
+    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    TimeoutFuture::new(0).await;
+    assert_eq!(adapter.command_lists().len(), 1);
+    let started = clock_now();
+
+    stall_until(started + 500.0);
+    app.set_bpm(Bpm::new(15).unwrap()); // One second, anchored on that first Tick.
+    TimeoutFuture::new(0).await; // Let the retuned clock establish its wait.
+    assert_eq!(
+        adapter.command_lists().len(),
+        1,
+        "retune does not begin a run"
+    );
+
+    stall_until(started + 3_500.0);
+    TimeoutFuture::new(0).await;
+    let first = app.observe_playback();
+    assert_eq!(
+        adapter.command_lists().len(),
+        1,
+        "a stalled Tick is declined"
+    );
+    let [
+        PlaybackDiagnostic::Overrun {
+            scheduled_at: first_due,
+            ..
+        },
+    ] = first.as_slice()
+    else {
+        panic!("one stall must report one missed deadline: {first:?}");
+    };
+    // The clock starts about 500ms after Tick zero. Its first deadline must
+    // still be at 1000ms, not 1000ms after retuning. Allow browser dispatch
+    // jitter, but keep the two candidate grids 500ms apart.
+    assert!(
+        (Duration::from_millis(350)..Duration::from_millis(650)).contains(first_due),
+        "retune moved the first deadline: {first_due:?}"
+    );
+
+    stall_until(started + 5_500.0);
+    TimeoutFuture::new(0).await;
+    let second = app.observe_playback();
+    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    let [
+        PlaybackDiagnostic::Overrun {
+            scheduled_at: second_due,
+            ..
+        },
+    ] = second.as_slice()
+    else {
+        panic!("the second stall must name one deadline: {second:?}");
+    };
+    assert_eq!(
+        *second_due - *first_due,
+        Duration::from_secs(3),
+        "the clock must resume at Tick zero + 4s, not replay 2s or rebase to 4.5s"
+    );
+    assert_eq!(
+        adapter.command_lists().len(),
+        1,
+        "neither stall spends a Tick"
+    );
+}
+
 #[wasm_bindgen_test(async)]
 async fn web_playback_evaluates_dot_family_arithmetic() {
     let source = SourceCommander::new(Grid::new(10, 2));
