@@ -262,12 +262,30 @@ impl Lookup {
             operands: Claims::new(operands),
             subtree_ends,
         };
-        // The agreement the two questions below depend on: what a computation
-        // reserves is what its own declared Function re-derives, so
-        // [`Lookup::would_reserve`] asks about a replacement rather than
-        // answering a settled fact a second way. Asserting it here makes every
-        // Source any test in this crate builds a case, and the pass above the
-        // only thing that has to hold it.
+        // The agreement [`Lookup::would_reserve`] is a hypothesis against:
+        // what a computation reserves is what its own declared Function
+        // re-derives, so asking about a replacement is a different question
+        // rather than a settled fact answered a second way.
+        //
+        // It is not a cross-check between two derivations, and reading it as
+        // one would overstate it. Both sides call the same [`reserved_for`]
+        // over the same children, and the pass above settled every node: each
+        // computation is built holding `Reserved::Pair`, so
+        // [`derive_reservations`] skips none of them, and its reverse loop
+        // settles every child before the parent that reads it and never
+        // revisits one. Re-deriving here therefore reads the inputs that pass
+        // read and answers what it answered.
+        //
+        // What it does prove is that those conditions still hold, which is why
+        // it is kept: that the nodes are still ordered parent-before-child — a
+        // child stored ahead of its parent would leave the parent holding a
+        // width derived from a `Reserved::Pair` the child had not settled yet
+        // — and that no skip added to the pass leaves a computation underived.
+        // Both are cheap to hold in debug builds and silent everywhere else.
+        //
+        // It also pins an ordering `stated::plan_with_answers` depends on: the
+        // `Reserved::Row` that fixture states is a width no declaration
+        // derives, so it can only be written after this has run.
         debug_assert!(
             (0..lookup.nodes.len()).all(|index| {
                 lookup.would_reserve(index, lookup.nodes[index].function)
@@ -310,9 +328,15 @@ impl Lookup {
     /// same guard keeps stable.
     ///
     /// Asked with the computation's own Function it answers what that
-    /// computation already reserves. `Lookup::new` asserts exactly that, which
-    /// is what keeps the hypothesis honest about the settled fact it is a
-    /// hypothesis against.
+    /// computation already reserves — for every computation
+    /// [`derive_reservations`] settled, which is every one production builds,
+    /// and what `Lookup::new` asserts. A width a test states rather than
+    /// derives is the exception, and the only one: `stated::plan_with_answers`
+    /// writes a `Reserved::Row` no declaration produces, and this answers
+    /// `Reserved::Pair` for that computation ever after. That fixture refuses
+    /// to combine a stated width with a stated Function replacement for
+    /// exactly that reason, so no replacement is checked against a width this
+    /// disagrees with.
     fn would_reserve(&self, index: usize, function: Function) -> Reserved {
         reserved_for(&self.nodes, index, function)
     }
@@ -2307,6 +2331,39 @@ mod test {
             }),
             "{:?}",
             plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn live_a_row_reservation_names_no_computation_of_the_next_row() {
+        // ADR 0036 reserves the rest of the destination's row, and "the rest"
+        // is counted from the destination's own column: a destination at
+        // column 8 of a sixteen-column Grid reserves eight Cells, not sixteen.
+        // Counting the row's full width instead reserves eight Cells of the
+        // row below as well, and a reservation names dependency edges over
+        // every Cell it covers — so the surplus would order Turns against
+        // computations no write from this destination can ever reach.
+        //
+        // Both producers point at column 8 of row 0 and neither one's spelling
+        // lies inside the other's reservation, so nothing orders them against
+        // each other and they take their Turns in anchor order. The Sequence
+        // is anchored last, takes the later Turn, and wins the two Cells the
+        // two writes contest. A reservation running on into row 1 would cover
+        // the Addition's spelling and its literals, order that Addition after
+        // the Sequence, and hand those two Cells to it instead.
+        let grid = Grid::new(16, 3);
+        let (plan, source) = sequence_source(
+            grid,
+            &["", ".+0102", ".+0000"],
+            &[(16, 8), (32, 8)],
+            &[(32, &[0x0A, 0x0B])],
+        );
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &["        0A0B", ".+0102", ".+0000"]),
+            "the Sequence took the later Turn and won the Cells it contests",
         );
     }
 

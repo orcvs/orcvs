@@ -120,26 +120,31 @@ impl<'a> Execution<'a> {
     /// computation's own prologue.
     ///
     fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
-        let nodes = self.lookup.nodes();
-        let node = &nodes[index];
-        // Activation belongs to the original owner's declared kind. It is
+        let node = &self.lookup.nodes()[index];
+        // Activation belongs to the owner's kind, and the kind that decides it
+        // is the one the owner is running: the Function the Parser found until
+        // an earlier replacement in this same Tick changed it. It is
         // independent of whether this computation will produce a typed answer.
         if self.states[index].suppressed
-            || (!nodes[node.owner].function.answers_value() && !self.states[node.owner].activated)
+            || (!self.states[node.owner].function.answers_value()
+                && !self.states[node.owner].activated)
         {
             return None;
         }
         // Taking a Turn precedes syntax and evaluation checks. A later writer
         // must not reach a computation even when its attempted Turn failed.
         self.states[index].attempted = true;
-        if node.parent.is_some() && !node.function.answers_value() {
+        // The Function this Turn will run, asked for here rather than below
+        // because the nesting rule is about the answer this computation is
+        // going to produce, which is the running Function's to declare.
+        let function = self.states[index].function;
+        if node.parent.is_some() && !function.answers_value() {
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
                 lang::InterpretationError::NestedEffectFunction.to_string(),
             )));
             return None;
         }
-        let function = self.states[index].function;
         if self.syntax_blocks(node, function) {
             self.states[index].syntax_blocked = true;
             return None;
@@ -318,10 +323,20 @@ impl<'a> Execution<'a> {
                 // replacement replaces. It is the Function the Parser found
                 // until an earlier replacement in this same Tick changed it,
                 // and a second replacement reaching one anchor is what tells
-                // the two apart. Reading the parsed one answered the same
-                // question only because this guard admits nothing that changes
-                // the three facts it compares — an invariant about itself that
-                // it should not have to know.
+                // the two apart. Every Function this file asks a computation
+                // about is the running one, for the same reason;
+                // `syntax_blocks` names the parsed Function, but there it is
+                // the other half of a comparison rather than the Function in
+                // force.
+                //
+                // No test pins the choice, and none can be written. Terms one
+                // and two are the two facts this guard refuses to let a
+                // replacement change, so the first admitted replacement leaves
+                // the parsed and the running Function agreeing on both, and
+                // term three reads neither one. Reverting this line to
+                // `self.lookup.nodes()[contact.index].function` passes the
+                // whole suite. The running Function is read because it is the
+                // one being replaced, not because a fixture can say so.
                 let target = self.states[contact.index].function;
                 contact.at_anchor
                     && (replacement.answers_value() != target.answers_value()

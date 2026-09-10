@@ -39,8 +39,9 @@ arrives.
       agreement between the two is proven by a test over every computation rather than assumed.
 - [x] The replacement guard reads the Function the computation is running, not the one the Parser
       found, and a test covers two replacements reaching one anchor within a Tick.
-- [x] No behaviour changes for a Tick that does not hit the two-replacement case; that case's
-      change is stated as a fixed defect and covered.
+- [x] No behaviour changes in any Tick, the two-replacement case included; what the guard relied
+      on there was an invariant about its own refusals, and reading the running Function removes
+      the reliance rather than fixing a defect.
 - [x] The four call sites that ask a reservation a question each ask it as a question, rather than
       matching on the variant and restating ADR 0036's rule locally.
 
@@ -91,10 +92,21 @@ with the Function it replaced on all three, and the parsed Function and the runn
 disagree at that check — before a second replacement or after one. Reverting the guard to read the
 parsed Function passes all 357 tests, including both new ones above. What the guard relied on was
 an invariant about its own refusals, held nowhere and written down nowhere; reading the running
-Function is what removes the reliance. The fourth acceptance box has no fixed defect to state, so
-this records that instead.
+Function is what removes the reliance. The fourth acceptance box states that, rather than a fixed
+defect.
 
-Eight mutation checks ran. Seven broke a named test: the widening term in `reserved_for`, each of
-the four reservation questions, the `Lookup::new` assertion, and the rule that a replacement
-overwrites an earlier replacement. The eighth is the parsed-Function revert above, which broke
-nothing — which is the evidence for the paragraph before this one.
+Eight mutation checks ran when this landed. Seven broke a named test: the widening term in
+`reserved_for`, the `Lookup::new` assertion, the rule that a replacement overwrites an earlier
+replacement, three of the four reservation questions outright — `admits_width`,
+`admits_a_narrower_write` and `may_be_a_sequence` — and `cells_from` on its `Pair` arm. The eighth
+is the parsed-Function revert above, which broke nothing, and that is the evidence for the
+paragraph before this one.
+
+A ninth was found in review, and the claim above that *each* of the four questions was covered was
+wrong: `cells_from`'s `Row` arm survived. Widening its range to `start + grid.cols()` — which runs
+into the following row, exactly what that line's comment says it prevents — passed all 357 tests.
+The arm is reached off column zero, three tests asking it at columns 4, 12 and 14, but none placed
+a computation in the next row's leading Cells beneath such a destination, so the surplus Cells
+named no dependency edge and the mutant went unnoticed.
+`live_a_row_reservation_names_no_computation_of_the_next_row` now covers it and is the only test
+that fails under that mutant.
