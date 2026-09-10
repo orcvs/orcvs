@@ -29,7 +29,22 @@ use crate::{
 // a byte multiply would fold to zero.
 
 ///
-/// The two factors of a cycle length, refused where either is zero.
+/// The diagnostic a cycle factor of zero raises, built in one place.
+///
+/// All three Functions refuse one fault under three role names, so the fault is
+/// constructed once rather than once per site: a second construction beside
+/// Euclidean's own validation is a second wording waiting to drift from this
+/// one, and a Source told two different things about one mistake has to work
+/// out that they are the same mistake.
+///
+#[inline(always)]
+fn zero_cycle(function: Function, role: &'static str) -> Error {
+    InterpretationError::ZeroCycle { function, role }.into()
+}
+
+///
+/// The two factors of a cycle length, widened, and refused where either is
+/// zero.
 ///
 /// Clock and Delay both measure their cycle as `rate * modulus`, so both refuse
 /// the same two zeroes, and refusing them in one place is what keeps the two
@@ -40,21 +55,13 @@ use crate::{
 /// wrote two zeroes is told about the earlier Cell pair.
 ///
 #[inline(always)]
-fn cycle(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64), Error> {
+fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64), Error> {
     if rate == 0 {
-        return Err(InterpretationError::ZeroCycle {
-            function,
-            operand: "rate",
-        }
-        .into());
+        return Err(zero_cycle(function, "rate"));
     }
 
     if modulus == 0 {
-        return Err(InterpretationError::ZeroCycle {
-            function,
-            operand: "modulus",
-        }
-        .into());
+        return Err(zero_cycle(function, "modulus"));
     }
 
     Ok((u64::from(rate), u64::from(modulus)))
@@ -72,17 +79,26 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
 
     ctx.stack.apply(move |Clock { rate, modulus }: Clock| {
-        let (rate, modulus) = cycle(Function::Clock, rate, modulus)?;
+        let (rate, modulus) = cycle_factors(Function::Clock, rate, modulus)?;
         let step = (tick / rate) % modulus;
 
         // A remainder of `modulus` is below it and `modulus` came out of a
-        // Number, so narrowing the step back into one is total. It is written
-        // as a conversion with a named fallback rather than an unwrap because
-        // this runs inside a Tick under the Source write guard ADR 0028 rules a
-        // panic out of, exactly as `Stack::convert` does for the state its own
-        // bound rules out. The fallback is the first step of every cycle, and
-        // it is unreachable.
-        Ok(Atom::Number(u8::try_from(step).unwrap_or(0)))
+        // Number, so narrowing the step back into one is total. What the
+        // conversion does if that ever stops being true is still a decision,
+        // and the three candidates do not cost the same. A panic states the
+        // invariant and is ruled out: this runs inside a Tick under the Source
+        // write guard ADR 0028 forbids panicking under. A fallback Number is
+        // the worst of the three rather than the cautious one — `00` is the
+        // first step of every cycle, so a broken proof would write a step no
+        // reader could tell from a counted one. So the impossible state
+        // diagnoses, which is the trade `Stack::convert` makes when it falls
+        // back to the absence marker: that fallback is chosen *because* it is
+        // not numeric, so what an impossible state costs is a diagnostic
+        // rather than Playback.
+        let step =
+            u8::try_from(step).map_err(|_| InterpretationError::ClockStepOutOfRange { step })?;
+
+        Ok(Atom::Number(step))
     })
 }
 
@@ -99,7 +115,7 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
 
     ctx.stack.predicate(move |Delay { rate, modulus }: Delay| {
-        let (rate, modulus) = cycle(Function::Delay, rate, modulus)?;
+        let (rate, modulus) = cycle_factors(Function::Delay, rate, modulus)?;
 
         // The product is the cycle length, not a Number: two bytes multiply to
         // at most 0xFE01, and `~* 10 20` is a cycle of 512 Ticks that a byte
@@ -107,7 +123,8 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
         //
         // ADR 0012 writes this as `Tick % (rate * modulus) == 0`, and
         // `is_multiple_of` is that test rather than a different one: the two
-        // differ only at a zero divisor, which `cycle` has already refused.
+        // differ only at a zero divisor, which `cycle_factors` has already
+        // refused.
         Ok(tick.is_multiple_of(rate * modulus))
     })
 }
@@ -121,9 +138,11 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 ///
 /// The absolute Tick is reduced into the cycle *before* the phase offset is
 /// added. That is not a rearrangement for tidiness: `(hits * (t + steps - 1))`
-/// over an absolute Tick would overflow a counter that ADR 0012 saturates
-/// rather than wraps, and reducing first is exactly equivalent because every
-/// term after it is taken modulo `steps` anyway.
+/// over an absolute Tick would overflow the counter the Tick was read from, and
+/// reducing first is exactly equivalent because every term after it is taken
+/// modulo `steps` anyway. ADR 0012 asks for the reduction and says only that
+/// the counter must not overflow; what the counter itself does at its end is
+/// decided by [`crate::Tick::next`], which saturates rather than wraps.
 #[inline(always)]
 pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
     let tick = ctx.inputs.tick().get();
@@ -136,11 +155,7 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
             // positions rather than a cycle with no onsets, so it diagnoses
             // instead of falling to the zero-hits rule below.
             if steps == 0 {
-                return Err(InterpretationError::ZeroCycle {
-                    function: Function::Euclidean,
-                    operand: "step count",
-                }
-                .into());
+                return Err(zero_cycle(Function::Euclidean, "step count"));
             }
 
             if hits > steps {
@@ -212,8 +227,13 @@ mod test {
         // The formula is small enough to enumerate against rather than sample:
         // every rate and modulus from `01` to `08` over four cycles of the
         // widest of them, which is enough Ticks for every pair to wrap at least
-        // twice. A reference written here rather than reused from the body is
-        // what makes this a claim about ADR 0012 instead of a restatement.
+        // twice. The reference here is ADR 0012's expression retyped, so what
+        // the sweep pins is operand order and the width the arithmetic is done
+        // in — a rate read as a modulus fails at every asymmetric pair — and
+        // not the shape of the expression itself, which a retyped reference
+        // agrees with by construction.
+        // `clock_counts_the_literal_step_sequence_its_operands_name` is the
+        // independent half, written from what the operands mean.
         for rate in 1..=8u8 {
             for modulus in 1..=8u8 {
                 for tick in 0..256u64 {
@@ -226,6 +246,80 @@ mod test {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn clock_counts_the_literal_step_sequence_its_operands_name() {
+        // Hand-written step sequences, one entry per Tick of one cycle, read
+        // from what the operands mean rather than from the expression the body
+        // evaluates: `rate` Ticks to a step and `modulus` steps to the cycle
+        // make `~. 02 04` the sequence `00 00 01 01 02 02 03 03` and nothing
+        // else. A body that divided by the modulus, or wrapped at the rate,
+        // would have to land on that same sequence to pass here, which is what
+        // the enumeration above cannot ask because it computes its reference
+        // the way the body does.
+        //
+        // Each sequence is walked three times over, which separates a cycle
+        // that begins again from a counter that keeps counting.
+        for (rate, modulus, steps) in [
+            (
+                0x02u8,
+                0x04u8,
+                &[0x00u8, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03][..],
+            ),
+            (0x01, 0x03, &[0x00, 0x01, 0x02]),
+            (0x03, 0x02, &[0x00, 0x00, 0x00, 0x01, 0x01, 0x01]),
+            (0x02, 0x03, &[0x00, 0x00, 0x01, 0x01, 0x02, 0x02]),
+            (0x04, 0x01, &[0x00, 0x00, 0x00, 0x00]),
+        ] {
+            assert_eq!(
+                steps.len(),
+                usize::from(rate) * usize::from(modulus),
+                "~. {rate:02X} {modulus:02X} names a cycle of {} Ticks",
+                usize::from(rate) * usize::from(modulus)
+            );
+
+            for (tick, expected) in steps.iter().cycle().take(steps.len() * 3).enumerate() {
+                assert_eq!(
+                    answer(Function::Clock, tick as u64, rate, modulus).unwrap(),
+                    Atom::Number(*expected),
+                    "~. {rate:02X} {modulus:02X} at Tick {tick}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn clock_counts_a_cycle_of_more_ticks_than_a_byte_holds() {
+        // `~. 80 03` is 128 Ticks to a step and three steps to the cycle: 384
+        // Ticks, which no byte holds. Writing the whole sequence out would be
+        // 384 entries saying one thing, so what is written instead is the Tick
+        // each step ends and the Tick the next begins — the only places a
+        // sequence of steps can be wrong — for three cycles.
+        //
+        // Every boundary after the first is beyond `FF`, so a Tick narrowed
+        // before the division would answer about Tick `00` where this asks
+        // about Tick 512, and a cycle length folded into a byte would put a
+        // boundary at 128 where this says there is none.
+        for (tick, step) in [
+            (0u64, 0x00u8),
+            (127, 0x00),
+            (128, 0x01),
+            (255, 0x01),
+            (256, 0x02),
+            (383, 0x02),
+            (384, 0x00),
+            (511, 0x00),
+            (512, 0x01),
+            (767, 0x02),
+            (768, 0x00),
+        ] {
+            assert_eq!(
+                answer(Function::Clock, tick, 0x80, 0x03).unwrap(),
+                Atom::Number(step),
+                "~. 80 03 at Tick {tick}"
+            );
         }
     }
 
@@ -274,7 +368,11 @@ mod test {
         // as a Playback run starts rather than one cycle into it. The sweep
         // states the whole rule — Bang exactly on a multiple of the cycle — and
         // Tick `0` is the case a reference computed as "some Ticks have passed"
-        // would get wrong.
+        // would get wrong. Like Clock's sweep it reaches every pair rather than
+        // every claim: the cycle it compares against is the product the body
+        // takes, so it pins operand order and the width of the multiply and
+        // leaves the shape to
+        // `delay_bangs_on_the_literal_ticks_its_operands_name`.
         for rate in 1..=8u8 {
             for modulus in 1..=8u8 {
                 for tick in 0..256u64 {
@@ -286,6 +384,37 @@ mod test {
                         "~* {rate:02X} {modulus:02X} at Tick {tick}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn delay_bangs_on_the_literal_ticks_its_operands_name() {
+        // The Ticks written out rather than a multiple recomputed: `~* 03 02`
+        // is a cycle of six Ticks, so it Bangs at `0`, `6`, `12`, `18` and
+        // nowhere between, and every Tick up to the last of those is asked so
+        // that "nowhere between" is checked rather than assumed. The sweep
+        // above compares against the same product the body multiplies, so this
+        // is where the cycle length itself is claimed.
+        //
+        // The last pair is 384 Ticks long, which is the case a byte product
+        // would fold: `40 * 06` wraps to `80`, and a Delay counting that would
+        // Bang three times inside every cycle written here.
+        for (rate, modulus, bangs) in [
+            (0x03u8, 0x02u8, &[0u64, 6, 12, 18][..]),
+            (0x01, 0x04, &[0, 4, 8, 12, 16]),
+            (0x05, 0x01, &[0, 5, 10, 15, 20]),
+            (0x02, 0x03, &[0, 6, 12, 18]),
+            (0x40, 0x06, &[0, 384, 768]),
+        ] {
+            let last = *bangs.last().unwrap();
+
+            for tick in 0..=last {
+                assert_eq!(
+                    banged(Function::Delay, tick, rate, modulus),
+                    bangs.contains(&tick),
+                    "~* {rate:02X} {modulus:02X} at Tick {tick}"
+                );
             }
         }
     }
@@ -454,10 +583,7 @@ mod test {
         // More onsets than positions is the second check, and it names both
         // operands because either Cell pair is the one to edit.
         let error = answer(Function::Euclidean, 3, 0x05, 0x04).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Euclidean cannot fit 05 hits into 04 steps"
-        );
+        assert_eq!(error.to_string(), "~% cannot fit 05 hits into 04 steps");
     }
 
     #[test]

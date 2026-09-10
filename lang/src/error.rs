@@ -94,14 +94,34 @@ pub enum InterpretationError {
     /// which of its operands held the zero — the same thing Division and
     /// Modulo achieve by being separate variants for a family of two, and the
     /// same shape [`InterpretationError::MidiDataByte`] uses for the roles
-    /// that share the MIDI data-byte domain. `function` is the declared
-    /// [`crate::Function`] rather than a spelling written down here, so the
-    /// diagnostic renders the Cells the Source actually holds.
-    #[error("{function} cannot count a cycle with a zero {operand}")]
+    /// that share the MIDI data-byte domain, down to the field name.
+    /// `function` is the declared [`crate::Function`] rather than a spelling
+    /// written down here, so the diagnostic renders the Cells the Source
+    /// actually holds.
+    #[error("{function} cannot count a cycle with a zero {role}")]
     ZeroCycle {
         function: crate::Function,
-        operand: &'static str,
+        role: &'static str,
     },
+
+    /// Clock computed a step its Number answer cannot hold.
+    ///
+    /// Unreachable while ADR 0012's formula stands: the step is
+    /// `(Tick / rate) % modulus`, a remainder of a modulus that arrived as a
+    /// Number, so it is below `FF` however far the Tick has counted. The
+    /// variant exists for what the alternatives to it would cost. A panic
+    /// states the invariant and is ruled out, because the narrowing runs
+    /// inside a Tick under the Source write guard ADR 0028 forbids panicking
+    /// under. A fallback Number is worse still: `00` is the first step
+    /// of every cycle, so a formula that stopped being total would write a
+    /// legal-looking step and leave no trace of having done it. Diagnosing is
+    /// the remaining option, and it is the trade `Stack::convert` already
+    /// makes — its fallback is the absence marker *because* the absence marker
+    /// is not numeric, so an impossible state costs a type diagnostic rather
+    /// than Playback. Here it costs the Expression its Cell write and names
+    /// the step that could not be answered.
+    #[error("{} cannot answer the step {step} as a Number", crate::Function::Clock)]
+    ClockStepOutOfRange { step: u64 },
 
     /// Euclidean asked to place more onsets than its cycle has positions.
     ///
@@ -110,8 +130,15 @@ pub enum InterpretationError {
     /// named because either one is the Cell pair the Source would edit. The
     /// Function is named in the message rather than carried in a field, unlike
     /// [`InterpretationError::ZeroCycle`] above: only one Function can raise
-    /// this, so there is nothing for a field to distinguish.
-    #[error("Euclidean cannot fit {hits:02X} hits into {steps:02X} steps")]
+    /// this, so there is nothing for a field to distinguish. It is still
+    /// rendered from the declaration rather than spelled out in prose, because
+    /// a Source shown `~% cannot count a cycle with a zero step count` beside
+    /// `Euclidean cannot fit ...` has been told about two Functions where it
+    /// wrote one: the spelling is what its Cells hold.
+    #[error(
+        "{} cannot fit {hits:02X} hits into {steps:02X} steps",
+        crate::Function::Euclidean
+    )]
     EuclideanOverfull { hits: u8, steps: u8 },
 
     /// ADR 0028 states that an instruction answers either a value or an
