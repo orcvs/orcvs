@@ -571,8 +571,18 @@ pub(super) mod stated {
         // returns above skip it for reasons the fixture can see in the plan it
         // gets back: a rejection stops the order where it found the defect, and
         // a cycle admits no order at all and publishes diagnostics and nothing
-        // else. Neither can be mistaken for a Tick in which a stated answer was
-        // quietly not delivered, which is the one thing this guard is for.
+        // else. Neither can be mistaken for a stated answer whose computation
+        // the order never reached, which is the one thing this guard is for.
+        //
+        // Reaching the Turn is all it claims, and all it can claim: the flag
+        // is set before `state_answer` runs, and a Turn `opens_turn` refuses
+        // is settled with the answer undelivered. That is the seam behaving as
+        // `state_answer` documents rather than a hole in the guard — a stated
+        // answer says what a computation answers, never whether it answers at
+        // all — so a fixture whose computation is suppressed for a reason it
+        // did not intend is a fixture that asserts a quiet Tick and is told it
+        // got one. What this refuses is the narrower thing it names: an answer
+        // stated for a Turn the order never took.
         assert!(
             stated.iter().all(|stated| *stated),
             "every stated answer reached the Turn of the computation it names"
