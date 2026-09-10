@@ -204,7 +204,10 @@ impl<'a> Parser<'a> {
                 // Function's arity-determined claim is an operand Cell that
                 // fails to bind.
                 Some("||") => {
-                    let _ = self.next_token(self.source.len());
+                    // The claim is the rest of the Source, stated as the
+                    // remainder rather than read off it. `consumed()` derives
+                    // from what is left, so emptying it is the claim.
+                    self.source = "";
                     self.expression.add_positioned(
                         Token::Comment,
                         None,
@@ -1534,8 +1537,7 @@ mod property {
                 // anywhere in the text. `||` opens a Comment only where an
                 // Expression could start, so `.+01||` holds the introducer and
                 // reaches none of the Comment arm the guard exists to protect.
-                let mut permissive = source.clone();
-                if Parser::from(&mut permissive)
+                if Parser::at(&source, 0)
                     .analyze()
                     .expression()
                     .tokens()

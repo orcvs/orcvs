@@ -1,5 +1,7 @@
 # Spell the Comment as a Parser unit
 
+Status: accepted. Supersedes the Comment clause of [ADR 0023](0023-use-distinct-range-functions-and-two-cell-comments.md) and the Comment paragraph of [ADR 0033](0033-partition-a-row-by-parse.md); corrects the Comment row of [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md). Every other decision in all three stands.
+
 A Comment is a Language Unit the Parser establishes. It is spelled `||` and claims every remaining Cell of its row. This supersedes the Comment clause of [ADR 0023](0023-use-distinct-range-functions-and-two-cell-comments.md), which spelled it `##`, and replaces the Comment paragraph of [ADR 0033](0033-partition-a-row-by-parse.md), which held the rule as a byte pre-pass run ahead of the walk. One `|` alone is incomplete or invalid Source, exactly as one `#` was.
 
 **The spelling moves off `#` because `#` belongs to the Note domain.** ADR 0023 gave `#` two jobs at once: `:#` names Note Range, and `##` opened a Comment. `#` is the notation the musical domain reaches for first, and holding it for the one construct that has no musical meaning spends the language's most idiomatic pitch character on its least musical unit. Freeing it leaves `:#` unambiguous and leaves `#` available as a sigil for a pitch family should one be declared.

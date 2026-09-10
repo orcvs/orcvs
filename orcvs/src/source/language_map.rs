@@ -528,8 +528,11 @@ fn walk_row(grid: Grid, row_start: usize, row: &[u8], walk: &mut RowWalk) {
     let text = std::str::from_utf8(row).expect("Source Cells contain ASCII");
 
     let mut idx = row_start;
-    let end_of_source = row_start + row.len();
-    while idx < end_of_source {
+    // The row edge, and the only boundary left. The Comment moved into the
+    // parse (ADR 0035), so nothing before the walk decides where a row's
+    // Source stops.
+    let row_end = row_start + row.len();
+    while idx < row_end {
         if row[idx - row_start] == SPACE_BYTE {
             // An empty Cell between Expressions is not Source, so it is not
             // diagnosed and starts nothing. This is the whole of what a space
@@ -569,34 +572,24 @@ fn name_units(
         let end = grid
             .cell_index(entry.cells.end - 1)
             .expect("parsed Cell inside Grid");
-        // Keyed off the Token rather than the Atom, because the kind of a
-        // unit is a syntactic fact and the Token is where syntax lives. Every
-        // other unit's Token and Atom agree, so this says what the Atom said;
-        // a Comment is the one that records no Atom, and reading the Atom
-        // would drop it into the diagnose branch below and report every Cell
-        // of it as an unmatched character.
-        let kind = match entry.token {
-            Token::Comment => Some(LanguageUnitKind::Comment),
-            Token::Function => match entry.atom {
-                Some(Atom::Function(function)) => Some(LanguageUnitKind::Function(function)),
-                _ => None,
-            },
-            Token::Bang => match entry.atom {
-                Some(Atom::Bang) => Some(LanguageUnitKind::Bang),
-                _ => None,
-            },
-            Token::Activation => match entry.atom {
-                Some(Atom::Activation(activation)) => {
-                    Some(LanguageUnitKind::Activation(activation))
-                }
-                _ => None,
-            },
-            Token::Number | Token::Note | Token::Char => match entry.atom {
-                Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_)) => {
-                    Some(LanguageUnitKind::OperandLiteral)
-                }
-                _ => None,
-            },
+        // The Token is asked first, because the kind of a unit is a syntactic
+        // fact and the Token is where syntax lives. Only the Comment arm needs
+        // it: every other unit's Token and Atom agree, so the Atom arms below
+        // say exactly what they said before. A Comment is the one unit that
+        // records no Atom, and matching on the Atom alone would drop it into
+        // the diagnose branch and report every Cell of it as an unmatched
+        // character.
+        let kind = match (entry.token, entry.atom) {
+            (Token::Comment, _) => Some(LanguageUnitKind::Comment),
+            (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
+            (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
+            (_, Some(Atom::Activation(activation))) => {
+                Some(LanguageUnitKind::Activation(activation))
+            }
+            (_, Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_))) => {
+                Some(LanguageUnitKind::OperandLiteral)
+            }
+            _ => None,
         };
         if let Some(kind) = kind {
             walk.units.push(LanguageUnit {

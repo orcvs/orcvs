@@ -89,7 +89,7 @@ What each property encodes:
 - `generated_grids_include_the_one_column_and_one_row_cases` — the coverage guard, driving
   `TestRunner` directly at a pinned 256 cases so the draws can be counted across them, in the same
   shape and for the same reason as `lang::parser`'s
-  `generated_source_covers_the_space_the_incomplete_hash_and_the_comment_introducer`.
+  `generated_source_covers_the_space_the_incomplete_rule_and_the_comment_introducer`.
 
 `owns` has no property of its own. It is the wrong claim to state alone: `up`, `down`, `left` and
 `right` build a Position from its fields rather than asking `position` for one, so a clamp that ran

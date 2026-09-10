@@ -685,6 +685,59 @@ mod test {
         );
     }
 
+    ///
+    /// A Comment claims every remaining Cell of its row, empty Cells
+    /// included, so those Cells now carry a Glyph where before they carried
+    /// none. The Glyph decides the colour and nothing else: a Comment hints
+    /// at no spelling, so a Cell it claims renders the character the Source
+    /// holds, and an empty one renders empty.
+    ///
+    /// This is the distinction the `s: None` fallback draws. An empty operand
+    /// Cell renders `h` or `n` because a signature says what belongs there,
+    /// which `test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty`
+    /// pins from the other side. A Comment declares nothing, so a placeholder
+    /// there would be a character the user never typed.
+    ///
+    #[tokio::test]
+    async fn test_a_comment_renders_its_own_text_and_leaves_its_empty_cells_empty() {
+        trace();
+
+        let mut app = Orcvs::new(10, 1);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.src("||hi there");
+
+        // Every Cell of the row belongs to the one Comment, so every Cell
+        // carries its Glyph, the space between the two words included.
+        let frame = app.render_frame();
+        assert!(
+            frame.rows()[0]
+                .iter()
+                .all(|cell| cell.glyph() == Glyph::Comment)
+        );
+        // And each renders what the Source holds there, no more.
+        assert_eq!(
+            (0..10)
+                .map(|x| rendered(&app, at(x, 0)).to_string())
+                .collect::<String>(),
+            "||hi there",
+        );
+
+        // The same row with a tail the text does not reach. A second Grid
+        // places its own Positions, so the Cells are named through it.
+        let mut app = Orcvs::new(10, 1);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.src("||hi");
+
+        assert_eq!(
+            (0..10)
+                .map(|x| rendered(&app, at(x, 0)).to_string())
+                .collect::<String>(),
+            "||hi      ",
+        );
+    }
+
     #[tokio::test]
     async fn test_empty_cells_between_markers_remain_spaces() {
         let mut app = Orcvs::new(24, 16);

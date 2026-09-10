@@ -424,12 +424,17 @@ fn schedule(
             .zip(lang::Tokens::from(&node.function))
             .any(|(operand, token)| operand.child.is_none() && operand.cells.len() < token.len())
         {
-            let boundary = if node.span.end().get() % grid.cols() == grid.cols() - 1 {
-                "Expression layout crosses the row edge"
-            } else {
-                "Expression operand crosses the Source boundary"
-            };
-            diagnostics.push(diagnose(node, boundary));
+            // The row edge is the only boundary a truncated operand can meet.
+            // An operand is short of its Token width only where `take_token`
+            // ran out of Source, and that path claims what is left of the
+            // Source it was handed, so the Expression ends at the last Cell of
+            // its row. The second message this chose between —
+            // "Expression operand crosses the Source boundary" — named the cut
+            // the `##` pre-pass made mid-row, and ADR 0035 deleted the pre-pass
+            // rather than the boundary it invented: a Comment is a Language
+            // Unit an Expression's claim reaches over, not a place the Source
+            // stops.
+            diagnostics.push(diagnose(node, "Expression layout crosses the row edge"));
         }
     }
     let lookup = Lookup::new(grid, nodes);

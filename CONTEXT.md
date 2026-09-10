@@ -25,7 +25,7 @@ One position in the Source, containing exactly one printable single-byte ASCII c
 _Avoid_: Character slot, text position
 
 **Language Unit**:
-One semantic value or operation recognized in a Source revision, such as a Function or Atom. A Language Unit has one anchor Position and a Span of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit.
+One semantic value or operation recognized in a Source revision, such as a Function or Atom. A Language Unit has one anchor Position and a Span of one or more character Cells. Incomplete or invalid Source text does not form a Language Unit. A Comment is the one Language Unit that is neither a value nor an operation: it records a Token and no Atom, so it is established like any other and evaluated like none.
 _Avoid_: Logical Cell, token Cell, glyph
 
 **Span**:
@@ -57,7 +57,7 @@ The complete Source at the beginning of a Tick, including the accumulated output
 _Avoid_: Program state, runtime state
 
 **Expression**:
-A contiguous horizontal group of Cells established by parsing one Function and its operands, or one standalone Bang or Self-Banging Function. Operand Cells may be empty or invalid; nested Functions extend the containing Expression, which never crosses a row edge or Comment.
+A contiguous horizontal group of Cells established by parsing one Function and its operands, one standalone Bang or Self-Banging Function, or one Comment. Operand Cells may be empty or invalid; nested Functions extend the containing Expression, which never crosses a row edge. A Comment is the one Expression whose extent comes from its claim on the rest of its row rather than from an arity; an arity-determined claim reaches straight over a `||` inside it, which is then an operand Cell that fails to bind.
 _Avoid_: Formula, statement
 
 **Evaluator**:
@@ -229,7 +229,7 @@ The one Cell the console is editing: a Position, plus the blink state that draws
 _Avoid_: Caret, pointer, insertion point
 
 **Glyph**:
-The classification that decides how a Cell is painted: Function, Note, Number, Bang or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
+The classification that decides how a Cell is painted: Function, Note, Number, Bang, Comment or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. Comment reaches every Cell of a Comment's claim, empty Cells included, and paints them without standing anything in: an empty operand Cell shows the spelling its signature declares, and a Comment declares none. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
 _Avoid_: Style, token, syntax highlight
 
 **Marker**:
