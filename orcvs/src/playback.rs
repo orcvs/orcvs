@@ -136,18 +136,45 @@ impl TickTiming {
     }
 }
 
-#[cfg(any(test, target_arch = "wasm32"))]
+///
+/// The Tick the clock waits for after executing or declining the one scheduled
+/// at `scheduled_at` and observed at `observed_at`.
+///
+/// ADR 0036 makes a late Tick lose its turn and holds the grid: every Tick of a
+/// run is due at a whole multiple of `tick_period` from the deadline that run
+/// began on, and a deadline the clock could not reach in time is skipped rather
+/// than replayed or rescheduled from where the clock woke up. The ordinary case
+/// is one period on from the deadline just handled; the missed case subtracts
+/// how far into the current period the clock woke, so the answer lands back on
+/// the grid instead of carrying the delay forward into every Tick after it.
+///
+/// Both native and browser clocks use this rule explicitly. Tokio's interval
+/// `Skip` policy only applies when lateness exceeds five milliseconds, which
+/// would replay deadlines at the supported one-to-five-millisecond periods.
+///
+/// A zero period cannot be divided into, and reaches here only if a caller
+/// admitted one: `start` and `retune` both refuse `ZeroTickPeriod` before any
+/// clock is spawned, so the guard answers the ordinary case rather than
+/// choosing a policy for a run that cannot exist.
+///
 fn next_scheduled_at(
     scheduled_at: Duration,
     observed_at: Duration,
     tick_period: Duration,
 ) -> Duration {
     let next = scheduled_at.saturating_add(tick_period);
-    if next <= observed_at {
-        observed_at.saturating_add(tick_period)
-    } else {
-        next
+    if next > observed_at || tick_period.is_zero() {
+        return next;
     }
+    let into_period = observed_at
+        .saturating_sub(scheduled_at)
+        .as_nanos()
+        .checked_rem(tick_period.as_nanos())
+        .unwrap_or(0);
+    let phase = Duration::from_nanos(u64::try_from(into_period).unwrap_or(u64::MAX));
+    observed_at
+        .saturating_add(tick_period)
+        .saturating_sub(phase)
 }
 
 #[cfg(any(test, target_arch = "wasm32"))]
@@ -959,8 +986,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             let mut guard = ClockRunGuard::new(weak.clone(), generation);
             let epoch = time::Instant::now();
             let first_tick_delay = first_tick_at.saturating_duration_since(ClockInstant::now());
-            let mut interval = time::interval_at(epoch + first_tick_delay, tick_period);
-            interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
+            let mut scheduled_at = first_tick_delay;
 
             loop {
                 tokio::select! {
@@ -968,8 +994,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                         guard.finish();
                         break;
                     },
-                    scheduled = interval.tick() => {
-                        let scheduled_at = scheduled.duration_since(epoch);
+                    () = time::sleep_until(epoch + scheduled_at) => {
                         let observed_at = time::Instant::now().duration_since(epoch);
                         let Some(inner) = weak.upgrade() else { break };
                         lock_recover(&inner).execute_tick(generation, TickTiming {
@@ -977,6 +1002,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                             observed_at,
                             period: tick_period,
                         });
+                        scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
                     }
                 }
             }
@@ -1076,8 +1102,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
         runtime.spawn(async move {
             let mut guard = ClockRunGuard::new(weak.clone(), generation);
             let epoch = time::Instant::now();
-            let mut interval = time::interval_at(epoch, tick_period);
-            interval.set_missed_tick_behavior(time::MissedTickBehavior::Burst);
+            let mut scheduled_at = Duration::ZERO;
 
             loop {
                 tokio::select! {
@@ -1085,8 +1110,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                         guard.finish();
                         break;
                     },
-                    scheduled = interval.tick() => {
-                        let scheduled_at = scheduled.duration_since(epoch);
+                    () = time::sleep_until(epoch + scheduled_at) => {
                         let observed_at = time::Instant::now().duration_since(epoch);
                         let Some(inner) = weak.upgrade() else { break };
                         lock_recover(&inner).execute_tick(generation, TickTiming {
@@ -1094,6 +1118,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                             observed_at,
                             period: tick_period,
                         });
+                        scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
                     }
                 }
             }
@@ -1498,16 +1523,146 @@ mod tests {
         }
     }
 
+    ///
+    /// The stall is a whole number of periods plus half of one, so each of the
+    /// three policies a clock could hold answers differently: replaying the
+    /// backlog would name `2s`, restarting the period from where the clock woke
+    /// would name `3.5s`, and ADR 0036's rule names the next Tick still on the
+    /// grid. A whole-second stall cannot tell the last two apart, which is why
+    /// the case this replaces held for a fortnight while the two targets
+    /// disagreed.
+    ///
     #[test]
-    fn resumed_wasm_clock_discards_tick_debt_before_scheduling_again() {
+    fn a_missed_deadline_does_not_move_the_grid() {
         assert_eq!(
             super::next_scheduled_at(
                 Duration::from_secs(1),
-                Duration::from_secs(60),
+                Duration::from_millis(3_500),
                 Duration::from_secs(1),
             ),
-            Duration::from_secs(61)
+            Duration::from_secs(4)
         );
+    }
+
+    ///
+    /// A Tick observed within its own period is not late, so the deadline after
+    /// it is one period on from the deadline it was due at rather than one
+    /// period on from when it was seen.
+    ///
+    #[test]
+    fn an_unmissed_deadline_schedules_one_period_past_the_deadline() {
+        assert_eq!(
+            super::next_scheduled_at(
+                Duration::from_secs(1),
+                Duration::from_millis(1_900),
+                Duration::from_secs(1),
+            ),
+            Duration::from_secs(2)
+        );
+    }
+
+    ///
+    /// A deadline reached exactly one period late is missed rather than met:
+    /// the Tick due at it is the one `is_overrun` declines, and the grid it
+    /// resumes on holds.
+    ///
+    #[test]
+    fn a_deadline_reached_one_whole_period_late_is_missed() {
+        assert_eq!(
+            super::next_scheduled_at(
+                Duration::from_secs(1),
+                Duration::from_secs(2),
+                Duration::from_secs(1),
+            ),
+            Duration::from_secs(3)
+        );
+    }
+
+    ///
+    /// A run whose period is zero is refused by `start` and `retune` before a
+    /// clock exists, so this states what the arithmetic does rather than a
+    /// policy for a run: it answers without dividing by the period.
+    ///
+    #[test]
+    fn a_zero_period_answers_without_dividing_by_it() {
+        assert_eq!(
+            super::next_scheduled_at(
+                Duration::from_secs(1),
+                Duration::from_secs(9),
+                Duration::ZERO
+            ),
+            Duration::from_secs(1)
+        );
+    }
+
+    // Exercise the actual native loops against the shared browser deadline
+    // rule, including periods at or below Tokio's missed-tick threshold.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn assert_browser_deadline_matches_native_clock(retune: bool) {
+        for period_ms in [1, 2, 3, 4, 5, 1_000] {
+            let period = Duration::from_millis(period_ms);
+            let adapter = InMemoryOutputAdapter::default();
+            let engine =
+                PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
+            engine.start(period).unwrap();
+            tokio::task::yield_now().await;
+            assert_eq!(adapter.command_lists().len(), 1);
+            if retune {
+                engine.retune(period).unwrap();
+                tokio::task::yield_now().await;
+            }
+
+            let observed = Duration::from_millis(match period_ms {
+                1 => 4,
+                1_000 => 3_500,
+                _ => period_ms * 2,
+            });
+            time::advance(observed).await;
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(
+                engine.diagnostics(),
+                vec![PlaybackDiagnostic::Overrun {
+                    scheduled_at: period,
+                    observed_at: observed,
+                }],
+                "one stall is one Overrun: period={period:?}, retune={retune}"
+            );
+            assert_eq!(adapter.command_lists().len(), 1, "no backlog executes");
+
+            let resumed = super::next_scheduled_at(period, observed, period);
+            let remaining = resumed - observed;
+            if remaining > Duration::from_millis(1) {
+                time::advance(remaining - Duration::from_millis(1)).await;
+                tokio::task::yield_now().await;
+                assert_eq!(adapter.command_lists().len(), 1, "wait for the grid");
+            }
+            time::advance(Duration::from_millis(1)).await;
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(
+                adapter.command_lists().len(),
+                2,
+                "resume on the browser grid"
+            );
+            assert_eq!(engine.diagnostics().len(), 1);
+            engine.stop();
+            tokio::task::yield_now().await;
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(start_paused = true)]
+    async fn the_browser_deadline_matches_the_native_start_clock() {
+        assert_browser_deadline_matches_native_clock(false).await;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(start_paused = true)]
+    async fn the_browser_deadline_matches_the_native_retuned_clock() {
+        assert_browser_deadline_matches_native_clock(true).await;
     }
 
     #[test]
@@ -2645,8 +2800,22 @@ mod tests {
         );
     }
 
+    ///
+    /// A stall costs the Ticks it covered and nothing after them.
+    ///
+    /// Three deadlines pass while the clock is away, and ADR 0036 gives all
+    /// three the same answer: one Tick is declined with one diagnostic naming
+    /// the deadline it was due at, the two the clock never reached are not
+    /// manufactured to be declined in turn, and the run resumes on the grid it
+    /// began on rather than on a grid rebased onto the moment it woke. The
+    /// stall runs half a period past a whole one so that all three candidate
+    /// rules answer differently: replaying the backlog delivers three Ticks
+    /// here, rebasing the grid puts the next one at `4.5s`, and this rule puts
+    /// it at `4s`. The clock is paused rather than slept against, so the stall
+    /// costs the suite nothing.
+    ///
     #[tokio::test(start_paused = true)]
-    async fn playback_clock_reports_each_overrun_and_resumes_without_wall_clock_sleep() {
+    async fn a_late_tick_loses_its_turn_and_the_run_resumes_on_the_grid() {
         let source = SourceCommander::new(Grid::new(10, 9));
         write(&source, 20, "!>007FC4");
         write(&source, 0, ".=0101");
@@ -2655,13 +2824,42 @@ mod tests {
         engine.start(Duration::from_secs(1)).unwrap();
 
         tokio::task::yield_now().await;
-        time::advance(Duration::from_secs(3)).await;
+        assert_eq!(
+            adapter.command_lists().len(),
+            1,
+            "the first Tick is immediate"
+        );
+
+        time::advance(Duration::from_millis(3_500)).await;
         for _ in 0..4 {
             tokio::task::yield_now().await;
         }
 
-        assert_eq!(adapter.command_lists().len(), 2);
-        assert_eq!(engine.observe().diagnostics.len(), 2);
+        assert_eq!(
+            adapter.command_lists().len(),
+            1,
+            "the deadlines at 1s, 2s and 3s deliver nothing"
+        );
+        assert_eq!(
+            engine.diagnostics(),
+            vec![PlaybackDiagnostic::Overrun {
+                scheduled_at: Duration::from_secs(1),
+                observed_at: Duration::from_millis(3_500),
+            }],
+            "one stall is one Overrun, named for the deadline it missed"
+        );
+
+        time::advance(Duration::from_millis(500)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            adapter.command_lists().len(),
+            2,
+            "4s is on the grid the run began on, so the Tick due there runs"
+        );
+        assert_eq!(engine.observe().diagnostics.len(), 1);
 
         engine.stop();
         tokio::task::yield_now().await;

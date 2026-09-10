@@ -196,6 +196,14 @@ _Avoid_: Player, sequencer
 The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands exactly as supplied. It does not parse Source or interpret musical intent; when a Timed or Monophonic Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. One schedule holds both, keyed per channel and note for Timed Play and per channel alone for Monophonic Play, each claim carrying a generation token, so a stop retired by a replacement or by an explicit stop cannot cut a later note short. Beginning a run, stopping, disconnecting, and changing destination each clear the schedule. The schedule records only what an output adapter accepted, so a refused submission leaves it standing and the stop is delivered again at the next executed Tick. Stopping Playback, disconnecting an output adapter, changing destination, and tearing down after a refused delivery each trigger the same safety action, which returns every one of the sixteen MIDI channels to silence and to its defaults: All Notes Off, then Reset All Controllers, then an explicit centred Pitch Bend, in that order and channel by channel. Notes alone are not enough, because a Control Change can latch state and a Pitch Bend can deflect the wheel, and neither ends when the Source that wrote it stops running. A channel whose message the destination refuses does not end the action: the first refusal is the failure reported and every remaining channel is still attempted. Nothing is sent to release the individual notes the Playback Engine knows it started; All Notes Off is what silences them, and stopping, disconnecting, and changing destination discard the schedule rather than replay it.
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
+**Tick Grid**:
+The deadlines one Playback run's Ticks are due at: every whole multiple of the Tick period from the deadline that run began on. Per ADR 0036 the grid holds for the life of a run, so a stall costs the Ticks it covered and does not move the ones after them; retuning begins a new grid from the deadline the retuned run's first Tick is anchored to, without beginning a new run.
+_Avoid_: Schedule, timeline, beat clock
+
+**Overrun**:
+One Tick declined because it was observed a whole Tick period or more past the deadline it was due at. Per ADR 0036 it names that deadline, consumes no absolute Tick, and reports once per stall rather than once per deadline the stall covered: the deadlines a stopped clock never reached are skipped rather than delivered late so they can be declined in turn. An Overrun is a Playback diagnostic and carries no user-facing message.
+_Avoid_: Dropped frame, xrun, missed tick
+
 **Live Editing**:
 Changing the Source while Playback continues. An edit affects the next Tick whose Source snapshot has not yet been taken.
 _Avoid_: Hot reload, live coding
