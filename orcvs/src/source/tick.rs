@@ -1782,7 +1782,7 @@ mod test {
 
     #[test]
     fn live_inactive_nested_portal_cannot_create_a_cycle() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &["!>007F.^3C", ".+0203", ""],
             &[(6, 8), (16, 32)],
@@ -2412,7 +2412,7 @@ mod test {
     }
     #[test]
     fn live_cross_boundary_chain_uses_lower_producers() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 5),
             &[".+0101", ".+0001", ".+0001", "", ""],
             &[(0, 64), (16, 34), (32, 3)],
@@ -2501,7 +2501,7 @@ mod test {
 
     #[test]
     fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_typed_answer() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["./.x030400", ".+0001", "", ""],
             &[(0, 48), (2, 18), (16, 52)],
@@ -2515,7 +2515,7 @@ mod test {
                 .any(|d| d.message == "cannot divide by zero")
         );
         let (plan, source) =
-            configured_source(Grid::new(16, 2), &[".+02.x0304", ""], &[(0, 16), (4, 31)]);
+            carried_source(Grid::new(16, 2), &[".+02.x0304", ""], &[(0, 16), (4, 31)]);
         assert_eq!(&source.snapshot()[16..18], "0E");
         assert_eq!(&source.snapshot()[31..], " ");
         assert!(
@@ -2527,7 +2527,7 @@ mod test {
 
     #[test]
     fn live_failed_suppliers_preserve_spatial_data_but_not_nested_answers() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".+0001", ".+0203", "./0100", ""],
             &[(0, 48), (16, 2), (32, 2)],
@@ -2539,7 +2539,7 @@ mod test {
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+02./0100", ""], &[(0, 16)]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+02./0100", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -2547,7 +2547,7 @@ mod test {
                 .any(|d| d.message.contains("supplied no typed result"))
         );
         // A failed structural writer leaves the original computation connected.
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+02.x0304", "./0100", ""],
             &[(0, 32), (16, 4)],
@@ -2564,7 +2564,7 @@ mod test {
     #[test]
     fn live_inactive_ownership_and_terminal_portal_configuration_are_independent() {
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &["!>007F.^80", "", ""],
             &[(0, 16), (6, 20)],
@@ -2575,7 +2575,7 @@ mod test {
         assert_eq!(plan.diagnostics.len(), 1);
         assert!(plan.diagnostics[0].message.contains("cannot have a Portal"));
         assert_eq!(&source.snapshot()[16..32], "                ");
-        let (plan, _) = configured_source(
+        let (plan, _) = carried_source(
             Grid::new(16, 4),
             &["!>007FC4", "", ".=0101", ""],
             &[(0, 34), (32, 16)],
@@ -2718,7 +2718,7 @@ mod test {
             vec![(0, 2), (16, 64), (32, 48)],
         ] {
             observed::take();
-            let (plan, source) = configured_source(
+            let (plan, source) = carried_source(
                 Grid::new(16, 5),
                 &[".+0001", ".+0001", ".=0101", "", "!>007FC4"],
                 &outputs,
@@ -2733,7 +2733,7 @@ mod test {
                     .any(|d| d.message == "same-Tick dependency cycle")
             );
         }
-        let (plan, _) = configured_source(
+        let (plan, _) = carried_source(
             Grid::new(16, 3),
             &[".+02.x0304", ".+0001", ""],
             &[(0, 18), (4, 18), (16, 6)],
@@ -2758,22 +2758,16 @@ mod test {
                 ],
             );
             let map = LanguageMap::derive(grid, &bytes).unwrap();
-            let mut configuration = super::Configuration::default();
-            for (producer, destination) in [(32, 0), (48, 160), (64, 96), (80, 64), (112, 160)] {
-                configuration.destinations.insert(
-                    cell(grid, producer),
-                    vec![grid.position_at(cell(grid, destination))],
-                );
-            }
+            let carried =
+                carried_destinations(grid, &[(32, 0), (48, 160), (64, 96), (80, 64), (112, 160)]);
             // A valid order delivers the writer before its target. Execute it
             // once to prove that this fixture has writes and a Play Command
             // which the defensive rejection below must discard.
-            let plan =
-                super::plan_configured(grid, bytes.as_bytes(), &map, Tick::ZERO, &configuration);
+            let plan = super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &carried);
             assert!(!plan.writes.is_empty());
             assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
 
-            let mut schedule = super::schedule(grid, &map, &configuration).unwrap();
+            let mut schedule = super::schedule_carrying(grid, &map, &carried).unwrap();
             // Supply a broken order at the execution seam: the scheduler must
             // never produce this, but execution promises to reject it rather
             // than panic or publish the effects already accumulated.
@@ -2882,7 +2876,7 @@ mod test {
 
     #[test]
     fn partial_writers_settle_before_consumption() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".+0101", ".+0203", ".+0101", ""],
             &[(0, 56), (16, 2), (32, 3)],
@@ -3195,7 +3189,7 @@ mod test {
 
     #[test]
     fn an_activated_consumer_uses_surviving_cells_after_supplier_failure() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["  .+", "!>007FC4", "", ".=0101"],
             &[(48, 32)],
