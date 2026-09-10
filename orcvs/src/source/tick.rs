@@ -1702,7 +1702,7 @@ mod test {
         let denominator = ".+".repeat(32) + &"01".repeat(33);
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
-        let (plan, source) = configured_source(Grid::new(width, 2), &[&text, ""], &[]);
+        let (plan, source) = carried_source(Grid::new(width, 2), &[&text, ""], &[]);
         // 66 / 33 = 2. Reversing the siblings instead produces zero.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
@@ -1713,7 +1713,7 @@ mod test {
     fn live_unchanged_nested_syntax_errors_do_not_repeat_as_tick_failures() {
         let grid = Grid::new(20, 2);
         let rows = [".+01.x02.+03??", ""];
-        let (plan, mut source) = configured_source(grid, &rows, &[]);
+        let (plan, mut source) = carried_source(grid, &rows, &[]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(
             !source
@@ -1741,7 +1741,7 @@ mod test {
         assert_eq!(&source.snapshot()[20..22], "0F");
 
         // A writer can also repair the bad leaf before its reserved turn.
-        let (repaired, source) = configured_source(
+        let (repaired, source) = carried_source(
             Grid::new(20, 3),
             &[".+01.x02.+03??", ".+0004", ""],
             &[(0, 40), (20, 12)],
@@ -1811,7 +1811,7 @@ mod test {
     fn an_absolute_difference_beside_a_vertical_rule_is_read_in_two_cell_units() {
         // `.|` at Cells 0 and 1 with a `|` at Cell 2: the pair at Cells 1 and
         // 2 spells `||` and means nothing, because nothing reads it.
-        let (plan, source) = configured_source(Grid::new(8, 2), &[".||102", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 2), &[".||102", ""], &[]);
 
         assert!(plan.writes.is_empty());
         assert!(
@@ -1827,7 +1827,7 @@ mod test {
         // The same Function beside a real introducer. The Absolute Difference
         // of 01 and 02 answers 01 and writes it below; the Comment claims the
         // rest of the row and answers nothing.
-        let (plan, source) = configured_source(Grid::new(8, 2), &[".|0102||", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 2), &[".|0102||", ""], &[]);
 
         assert_eq!(&source.snapshot()[8..10], "01");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
@@ -1870,7 +1870,7 @@ mod test {
     ///
     #[test]
     fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
-        let (plan, source) = configured_source(Grid::new(8, 2), &["** :##", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 2), &["** :##", ""], &[]);
 
         assert!(
             !source
@@ -1902,7 +1902,7 @@ mod test {
 
     #[test]
     fn live_claims_and_glyphs_survive_source_edits_and_publication() {
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+01 02", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+01 02", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(
             source
@@ -1922,7 +1922,7 @@ mod test {
                 .glyph_at(source.grid().position(4, 0).unwrap()),
             Some(crate::glyph::Glyph::Number)
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
         assert_eq!(&source.snapshot()[16..24], "03    07");
         assert!(plan.diagnostics.is_empty());
         assert_eq!(
@@ -1934,15 +1934,15 @@ mod test {
                 .count(),
             2
         );
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+0102Z", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102Z", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "03");
         assert!(plan.diagnostics.is_empty());
         assert!(source.language_map().diagnostics().any(|d| d.start() == 6));
-        let (plan, source) = configured_source(Grid::new(16, 2), &["***", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &["***", ""], &[]);
         assert_eq!(&source.snapshot()[..3], "  *");
         assert_eq!(plan.writes.len(), 2);
         assert!(source.language_map().diagnostics().any(|d| d.start() == 2));
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".=0101 !>007FC4", ""], &[]);
         assert_eq!(&source.snapshot()[16..18], "**");
         assert!(plan.play_commands.is_empty());
         assert!(plan.diagnostics.is_empty());
@@ -1957,7 +1957,7 @@ mod test {
         );
         // Pin the current display of plausible standalone data. These rejected
         // Function candidates have Function glyphs, no units and no execution.
-        let (plan, source) = configured_source(Grid::new(16, 2), &["C4 EA 01", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &["C4 EA 01", ""], &[]);
         assert!(plan.writes.is_empty());
         assert_eq!(source.language_map().units().count(), 0);
         for column in [0, 1, 3, 4, 6, 7] {
@@ -2387,10 +2387,10 @@ mod test {
             let left = u16::from_str_radix(std::str::from_utf8(&expected[2..4]).unwrap(), 16).unwrap();
             let right = u16::from_str_radix(std::str::from_utf8(&expected[4..6]).unwrap(), 16).unwrap();
             expected[48..50].copy_from_slice(format!("{:02X}", (left + right) % 256).as_bytes());
-            let (plan, source) = configured_source(grid, &rows, &outputs);
+            let (plan, source) = carried_source(grid, &rows, &outputs);
             proptest::prop_assert_eq!(source.snapshot().into_bytes(), expected);
             proptest::prop_assert!(plan.diagnostics.is_empty());
-            let (repeated, _) = configured_source(grid, &rows, &outputs);
+            let (repeated, _) = carried_source(grid, &rows, &outputs);
             proptest::prop_assert_eq!(plan, repeated);
             let full = LanguageMap::derive(grid, &source.snapshot()).unwrap();
             proptest::prop_assert_eq!(source.language_map().units().collect::<Vec<_>>(), full.units().collect::<Vec<_>>());
@@ -2404,7 +2404,7 @@ mod test {
             let grid = Grid::new(16, 2);
             let producer = format!(".+00{value:02X}");
             let rows = [producer.as_str(), ""];
-            let (plan, source) = configured_source(grid, &rows, &[(0, 31)]);
+            let (plan, source) = carried_source(grid, &rows, &[(0, 31)]);
             proptest::prop_assert!(plan.writes.is_empty());
             proptest::prop_assert_eq!(source.snapshot(), snapshot(grid, &rows));
             proptest::prop_assert!(plan.diagnostics.iter().any(|d| d.message.contains("crosses the row edge")));
@@ -2424,7 +2424,7 @@ mod test {
 
     #[test]
     fn live_competing_writers_follow_position_and_emissions_follow_configuration() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".+0101", ".+0101", ".+0102", ""],
             &[(0, 48), (16, 3), (32, 3)],
@@ -2433,7 +2433,7 @@ mod test {
         assert_eq!(&source.snapshot()[48..50], "31");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         observed::take();
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0101", ".+0203", ""],
             &[(0, 32), (16, 2), (16, 3)],
@@ -2446,7 +2446,7 @@ mod test {
 
     #[test]
     fn live_pending_note_decodes_only_after_all_writers_settle() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 4),
             &[".vE4", ".+E901", ".+E401", ""],
             &[(0, 48), (16, 2), (32, 2)],
@@ -2454,7 +2454,7 @@ mod test {
         assert_eq!(&source.snapshot()[..4], ".vE5");
         assert_eq!(&source.snapshot()[48..50], "4C");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".vE4", ".+E901", ""],
             &[(0, 32), (16, 2)],
@@ -2468,7 +2468,7 @@ mod test {
             "{:?}",
             plan.diagnostics
         );
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0000", ".+E901", ""],
             &[(0, 32), (16, 2)],
@@ -2479,7 +2479,7 @@ mod test {
 
     #[test]
     fn live_spatial_note_is_an_encoding_and_nested_note_stays_typed() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0001", ".^48", ""],
             &[(0, 32), (16, 2)],
@@ -2487,7 +2487,7 @@ mod test {
         assert_eq!(&source.snapshot()[..6], ".+C501");
         assert_eq!(&source.snapshot()[32..34], "C6");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        let (plan, source) = configured_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)]);
+        let (plan, source) = carried_source(Grid::new(16, 2), &[".+.^4801", ""], &[(0, 16)]);
         assert_eq!(&source.snapshot()[16..18], "  ");
         assert!(
             plan.diagnostics
@@ -3084,13 +3084,12 @@ mod test {
     #[test]
     fn outputs_beside_and_over_standalone_source_are_admitted() {
         // These exact Sources used to trip the obsolete join guard.
-        let (plan, source) = configured_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(8, 3), &[".=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[8..14], "**0102");
         assert_eq!(planned(&plan), vec![(8, '*'), (9, '*')]);
         assert!(plan.diagnostics.is_empty());
         assert_eq!(source.language_map().bangs().count(), 1);
-        let (plan, source) =
-            configured_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[]);
+        let (plan, source) = carried_source(Grid::new(10, 3), &["    .=0101", "  0102", ""], &[]);
         assert_eq!(&source.snapshot()[10..16], "  01**");
         assert_eq!(planned(&plan), vec![(14, '*'), (15, '*')]);
         assert!(plan.diagnostics.is_empty());
@@ -3130,7 +3129,7 @@ mod test {
 
     #[test]
     fn overlapping_outputs_beside_standalone_source_both_contribute_cells() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0102 .+0304", "0102", ""],
             &[(0, 20), (7, 21)],
@@ -3461,7 +3460,7 @@ mod test {
 
     #[test]
     fn competing_writers_preserve_an_independent_rejected_destination_diagnostic() {
-        let (plan, source) = configured_source(
+        let (plan, source) = carried_source(
             Grid::new(16, 3),
             &[".+0102", ".+0304", ".+0506"],
             &[(0, 26), (16, 26), (32, 31)],
