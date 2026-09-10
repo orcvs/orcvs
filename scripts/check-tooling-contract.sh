@@ -665,6 +665,13 @@ fi
 # property, so the `proptest-regressions` files are source and are never ignored.
 # Asking git rather than reading `.gitignore` catches a broad glob or a nested
 # ignore file that a substring match would miss.
+# This pins non-ignoredness and nothing else. It is deliberately not an existence
+# check: a counterexample exists only for a property that has failed, so requiring
+# these paths would fail every green checkout, and four of the five name files
+# that have never been committed. A counterexample generated locally and deleted
+# before a commit is invisible here and to CI alike — it was never tracked, so
+# there is no deletion to find. docs/tooling.md states the discipline this cannot
+# enforce, and which counterexamples are worth keeping.
 # check-ignore answers 0 for ignored and 1 for not ignored, but 128 for its own
 # failures. Collapsing 128 into "not ignored" would make this check pass silently
 # wherever git cannot answer, so only 1 is accepted as the clean result.

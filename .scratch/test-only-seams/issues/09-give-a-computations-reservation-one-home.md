@@ -31,17 +31,18 @@ arrives.
 
 **Blocked by:** 03 — Delete the answer-substitution fork.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A computation's reserved width has one home, and reading it is a read rather than an index
+- [x] A computation's reserved width has one home, and reading it is a read rather than an index
       into a structure held in parallel with the computations.
-- [ ] The hypothetical re-derivation is named so it cannot be read as the settled fact, and the
+- [x] The hypothetical re-derivation is named so it cannot be read as the settled fact, and the
       agreement between the two is proven by a test over every computation rather than assumed.
-- [ ] The replacement guard reads the Function the computation is running, not the one the Parser
+- [x] The replacement guard reads the Function the computation is running, not the one the Parser
       found, and a test covers two replacements reaching one anchor within a Tick.
-- [ ] No behaviour changes for a Tick that does not hit the two-replacement case; that case's
-      change is stated as a fixed defect and covered.
-- [ ] The four call sites that ask a reservation a question each ask it as a question, rather than
+- [x] No behaviour changes in any Tick, the two-replacement case included; what the guard relied
+      on there was an invariant about its own refusals, and reading the running Function removes
+      the reliance rather than fixing a defect.
+- [x] The four call sites that ask a reservation a question each ask it as a question, rather than
       matching on the variant and restating ADR 0036's rule locally.
 
 ## Comments
@@ -54,3 +55,58 @@ nothing enforcing that they agree.
 
 The second half is a live defect held back only by an unbuilt capability, so it is worth fixing
 before ADR 0034's deferred Function-producing operation makes it reachable, not after.
+
+2026-09-10: Resolved by `9fb8a7b`. No behaviour changes, in any Tick.
+
+A computation now carries its own reservation. The `Lookup` no longer holds a `Vec<Reserved>`
+beside the computations, so no index can pair a width with the wrong computation.
+`derive_reservations` takes `&mut [Computation]` and writes that one field, and `Lookup::reserved`
+reads it. A computation is built reserving `Reserved::Pair`, which is what ADR 0036 gives a result
+no declaration widens, so the field holds a reservation from the moment it exists.
+
+`Lookup::reserved_with` is now `Lookup::would_reserve`. `Lookup::new` ends with a `debug_assert`
+that every computation's settled width is the width its own declared Function re-derives, so every
+Source any test in this crate builds is a case for it.
+`a_reservation_agrees_with_the_width_its_own_declaration_derives` states the same fact as a test.
+It states a `Reserved::Row` for the nested `.-` and re-derives, so the pervasive `.+` above it
+reserves a row and `would_reserve` has to answer `Row` — without that the agreement compares two
+answers of `Pair` and proves nothing. It also states the one width the agreement is false of: a
+stated width is not a declared one, and re-deriving it narrows it away.
+
+The replacement guard reads `states[..].function`. Two tests cover two replacements reaching one
+anchor inside one Tick: `live_the_second_replacement_at_one_anchor_replaces_the_first`, where both
+are admitted and the Turn runs the second, and
+`live_a_second_replacement_at_one_anchor_faces_the_same_refusal`, where the second changes the
+output kind and is refused whole while the first stands.
+
+Four call sites now ask the reservation a question rather than matching on the variant:
+`Reserved::cells_from`, `Reserved::admits_width`, `Reserved::admits_a_narrower_write` and
+`Reserved::may_be_a_sequence`. No production code outside `impl Reserved` matches on the variant.
+`derive_reservations` still compares against `Reserved::Pair`, which asks whether a width is still
+the undecided default rather than restating ADR 0036's rule.
+
+**The second half was not a live defect.** The ticket said a replacement that changes activation,
+output kind or reserved width could be admitted where it should be refused. It could not. The
+guard refuses any replacement that changes those three facts, so every admitted replacement agrees
+with the Function it replaced on all three, and the parsed Function and the running one cannot
+disagree at that check — before a second replacement or after one. Reverting the guard to read the
+parsed Function passes all 357 tests, including both new ones above. What the guard relied on was
+an invariant about its own refusals, held nowhere and written down nowhere; reading the running
+Function is what removes the reliance. The fourth acceptance box states that, rather than a fixed
+defect.
+
+Eight mutation checks ran when this landed. Seven broke a named test: the widening term in
+`reserved_for`, the `Lookup::new` assertion, the rule that a replacement overwrites an earlier
+replacement, three of the four reservation questions outright — `admits_width`,
+`admits_a_narrower_write` and `may_be_a_sequence` — and `cells_from` on its `Pair` arm. The eighth
+is the parsed-Function revert above, which broke nothing, and that is the evidence for the
+paragraph before this one.
+
+A ninth was found in review, and the claim above that *each* of the four questions was covered was
+wrong: `cells_from`'s `Row` arm survived. Widening its range to `start + grid.cols()` — which runs
+into the following row, exactly what that line's comment says it prevents — passed all 357 tests.
+The arm is reached off column zero, three tests asking it at columns 4, 12 and 14, but none placed
+a computation in the next row's leading Cells beneath such a destination, so the surplus Cells
+named no dependency edge and the mutant went unnoticed.
+`live_a_row_reservation_names_no_computation_of_the_next_row` now covers it and is the only test
+that fails under that mutant.

@@ -10,8 +10,8 @@ use lang::{Atom, Function, Interpretation, Tick, Value};
 
 use super::{
     Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal, PortalError,
-    Position, RenderError, Rendered, Reserved, SCALAR_WIDTH, Schedule, SpanWrite, TickPlan,
-    diagnose, interpret, resolve, tick_inputs,
+    Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan, diagnose, interpret, resolve,
+    tick_inputs,
 };
 
 /// Executes an established order against the original Source Snapshot. The
@@ -120,26 +120,31 @@ impl<'a> Execution<'a> {
     /// computation's own prologue.
     ///
     fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
-        let nodes = self.lookup.nodes();
-        let node = &nodes[index];
-        // Activation belongs to the original owner's declared kind. It is
+        let node = &self.lookup.nodes()[index];
+        // Activation belongs to the owner's kind, and the kind that decides it
+        // is the one the owner is running: the Function the Parser found until
+        // an earlier replacement in this same Tick changed it. It is
         // independent of whether this computation will produce a typed answer.
         if self.states[index].suppressed
-            || (!nodes[node.owner].function.answers_value() && !self.states[node.owner].activated)
+            || (!self.states[node.owner].function.answers_value()
+                && !self.states[node.owner].activated)
         {
             return None;
         }
         // Taking a Turn precedes syntax and evaluation checks. A later writer
         // must not reach a computation even when its attempted Turn failed.
         self.states[index].attempted = true;
-        if node.parent.is_some() && !node.function.answers_value() {
+        // The Function this Turn will run, asked for here rather than below
+        // because the nesting rule is about the answer this computation is
+        // going to produce, which is the running Function's to declare.
+        let function = self.states[index].function;
+        if node.parent.is_some() && !function.answers_value() {
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
                 lang::InterpretationError::NestedEffectFunction.to_string(),
             )));
             return None;
         }
-        let function = self.states[index].function;
         if self.syntax_blocks(node, function) {
             self.states[index].syntax_blocked = true;
             return None;
@@ -257,11 +262,8 @@ impl<'a> Execution<'a> {
         };
         // ADR 0036: scheduling reserved one Cell pair for a computation whose
         // answer could not be a Sequence, so any other width from one would
-        // write Cells no dependency edge names. A narrower answer is refused
-        // alongside a wider one: the reservation is what the row fit was
-        // decided against, and a single Cell at the last Cell of a row is a
-        // write the Portal admits and the schedule never reserved.
-        if self.lookup.reserved(index) == Reserved::Pair && encoding.len() != SCALAR_WIDTH {
+        // write Cells no dependency edge names.
+        if !self.lookup.reserved(index).admits_width(encoding.len()) {
             if !node.outputs.is_empty() {
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
@@ -317,17 +319,38 @@ impl<'a> Execution<'a> {
         }
         if let Value::Atom(Atom::Function(replacement)) = value
             && relationships.functions().any(|contact| {
-                let target = &self.lookup.nodes()[contact.index];
+                // The Function this computation is running, which is the one a
+                // replacement replaces. It is the Function the Parser found
+                // until an earlier replacement in this same Tick changed it,
+                // and a second replacement reaching one anchor is what tells
+                // the two apart. Every Function this file asks a computation
+                // about is the running one, for the same reason;
+                // `syntax_blocks` names the parsed Function, but there it is
+                // the other half of a comparison rather than the Function in
+                // force.
+                //
+                // No test pins the choice, and none can be written. Terms one
+                // and two are the two facts this guard refuses to let a
+                // replacement change, so the first admitted replacement leaves
+                // the parsed and the running Function agreeing on both, and
+                // term three reads neither one. Reverting this line to
+                // `self.lookup.nodes()[contact.index].function` passes the
+                // whole suite. The running Function is read because it is the
+                // one being replaced, not because a fixture can say so.
+                let target = self.states[contact.index].function;
                 contact.at_anchor
-                    && (replacement.answers_value() != target.function.answers_value()
-                        || replacement.can_emit_bang() != target.function.can_emit_bang()
+                    && (replacement.answers_value() != target.answers_value()
+                        || replacement.can_emit_bang() != target.can_emit_bang()
                         // ADR 0036: a schedule reserves Cells from the Function
                         // it found at each anchor, so a replacement that would
                         // widen or narrow that reservation is refused with the
-                        // ones that change activation or output kind. The
-                        // reservations it reads are its children's, which this
-                        // same guard keeps as the schedule settled them.
-                        || self.lookup.reserved_with(contact.index, *replacement)
+                        // ones that change activation or output kind. What it
+                        // is compared against stays the settled reservation:
+                        // the Turns were ordered from that one, and this same
+                        // guard is what keeps every admitted replacement inside
+                        // it. The widths it reads are its children's, settled
+                        // the same way.
+                        || self.lookup.would_reserve(contact.index, *replacement)
                             != self.lookup.reserved(contact.index))
             })
         {
@@ -427,7 +450,7 @@ fn render_message(reason: RenderError) -> String {
 /// consequences of stating it are worth knowing, and both are refused loudly
 /// rather than discovered:
 ///
-/// - A stated width is not a declared one, so `Lookup::reserved_with` — which
+/// - A stated width is not a declared one, so `Lookup::would_reserve` — which
 ///   re-derives a width for a hypothetical replacement Function — cannot agree
 ///   with it at the computation whose width was stated. Stating a reservation
 ///   and stating a Function replacement in one Tick is therefore refused here.
@@ -451,11 +474,11 @@ pub(super) mod stated {
     use lang::{Tick, Value};
 
     use super::super::{
-        Configuration, computations, derive_reservations, order_turns, unscheduled,
+        Configuration, Reserved, computations, derive_reservations, order_turns, unscheduled,
     };
     use super::{
         Atom, Break, Continue, ControlFlow, Diagnostic, Execution, Grid, LanguageMap, Lookup,
-        Reserved, Schedule, TickPlan, resolve,
+        Schedule, TickPlan, resolve,
     };
     use crate::grid::CellIndex;
 
@@ -509,7 +532,7 @@ pub(super) mod stated {
         }
         // A replacement's width is derived from what it declares and compared
         // against what its target reserves, and a stated reservation is a width
-        // nothing declares. `Lookup::reserved_with` would answer for the
+        // nothing declares. `Lookup::would_reserve` would answer for the
         // replacement and disagree with the stated width for every replacement
         // there is, including the target's own Function, which production
         // admits. Refusing the combination keeps that from being discovered as
@@ -531,7 +554,7 @@ pub(super) mod stated {
         for (anchor, reserved) in reservations {
             let index = anchored(&lookup, grid, *anchor)
                 .expect("a stated reservation names a computation the schedule contains");
-            lookup.reserved[index] = *reserved;
+            lookup.nodes[index].reserved = *reserved;
         }
         // What a stated reservation leaves for production to derive: an
         // ancestor that widens over a row-reserving operand widens over a
@@ -541,7 +564,7 @@ pub(super) mod stated {
         // the `Reserved::Pair` derived before the fixture spoke, and the
         // ancestor's own wide answer would be refused for a width the schedule
         // never reserved.
-        derive_reservations(&lookup.nodes, &mut lookup.reserved);
+        derive_reservations(&mut lookup.nodes);
         let Schedule {
             lookup,
             order,
