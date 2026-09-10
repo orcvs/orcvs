@@ -31,7 +31,7 @@ commit as the fork.
 Split out of the architecture review of the Sequence branch, 2026-09-10. The destination half of
 the same struct is `04` through `08`; this ticket leaves it standing.
 
-2026-09-10: Resolved by `57f705c`. A deletion rather than a migration, because `01` and `02` had
+2026-09-10: Resolved by `131a747`. A deletion rather than a migration, because `01` and `02` had
 already removed every reader. 76 lines out, 17 in. The reservation predicate is
 `answers_sequence() || widened` in every build, and the executor delivers what the Interpreter
 answered.

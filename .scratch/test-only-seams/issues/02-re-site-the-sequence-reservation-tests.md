@@ -45,7 +45,7 @@ Split out of the architecture review of the Sequence branch, 2026-09-10. The two
 the ones the review counted as wins for building Range first; they are coverage of the seam, not of
 the scheduler.
 
-2026-09-10: Resolved by `a4b4826`. A Sequence answer is read twice — once by execution and once by
+2026-09-10: Resolved by `e4b6270`. A Sequence answer is read twice — once by execution and once by
 scheduling, which is the only reason those computations reserved a whole row — so a fixture states
 the reservation as well as the answer. It states it where a declared Function will: between the
 reservations a `Lookup` derives and the order those reservations decide. Reaching that point split

@@ -332,6 +332,30 @@ impl Source {
         plan
     }
 
+    ///
+    /// Runs one Tick against a schedule carrying `destinations`, rather than
+    /// against a planning path that read them from a Configuration.
+    ///
+    /// The route [`Source::execute_configured`] becomes once every destination
+    /// test states its destinations this way.
+    ///
+    #[cfg(test)]
+    pub(super) fn execute_carrying(
+        &mut self,
+        tick: Tick,
+        destinations: &std::collections::BTreeMap<CellIndex, Vec<crate::grid::Position>>,
+    ) -> TickPlan {
+        let plan = super::tick::plan_carrying(
+            self.grid,
+            self.inner.as_bytes(),
+            &self.language_map,
+            tick,
+            destinations,
+        );
+        self.commit_tick(&plan);
+        plan
+    }
+
     fn plan_tick(&self, tick: Tick) -> TickPlan {
         tick::plan(self.grid, self.inner.as_bytes(), &self.language_map, tick)
     }

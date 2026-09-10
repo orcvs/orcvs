@@ -28,7 +28,7 @@ Split out of the architecture review of the Sequence branch, 2026-09-10. The sea
 was introduced in the same commit as ADR 0034 and the sentence in that ADR which licenses it, so
 the ADR is provenance rather than authorisation. See `03` for the amendment.
 
-2026-09-10: Resolved by `213ae14`. The five tests state their answer through a test module one
+2026-09-10: Resolved by `2f6ac3c`. The five tests state their answer through a test module one
 call below the planning entry point, so the Source, the schedule and every other computation's
 Turn stay production. Two behaviour-neutral extractions made that possible: `Execution::new` took
 the construction and the Bang-clearing pre-pass out of `execute`, and `opens_turn` took the Turn
