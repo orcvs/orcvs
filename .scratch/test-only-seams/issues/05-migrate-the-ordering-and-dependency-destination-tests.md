@@ -84,6 +84,11 @@ caller in one step, across all three batches at once. That is one route swap and
 whichever ticket takes the Sequence tests, or to `08`. Until it happens, the first acceptance line
 is ticked for the tests that could move one at a time and not for these.
 
+2026-09-10: it happened on the `06` branch. `d39e30d` swapped the parameter for the carried
+destinations `04` built, moving all three fixtures and their call sites in the one step this
+paragraph said it would take. The deviation is closed and the first acceptance line is ticked
+without it.
+
 `10`'s share for this batch is not incidental and was not taken. Three migrated tests read the
 `observed` thread-local — the two cycle and inactive-owner tests assert that nothing was
 interpreted, and the late-spatial-write test asserts how many Turns reached the Interpreter. The

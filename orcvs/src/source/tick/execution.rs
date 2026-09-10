@@ -57,7 +57,21 @@ pub(in crate::source) struct ComputationState {
     /// `None` where it was never called for it. A Turn that was suppressed,
     /// refused by its own prologue, or stopped by operands it could not
     /// resolve reaches no Interpreter and keeps `None`.
+    ///
+    /// One slot for however many calls, because every call for a computation
+    /// is handed the same inputs: [`tick_inputs`] reads the Tick and the
+    /// node's anchor, and neither moves within a Tick. What a second call
+    /// changes is therefore the count beside this and nothing here.
     interpreted: Option<TickInputs>,
+    /// How many times the Interpreter ran for this computation.
+    ///
+    /// A Turn is taken once, so a Tick that behaves leaves this `0` or `1` and
+    /// `interpreted` alone would say everything. It is counted anyway because
+    /// the one thing `interpreted` cannot say is "twice": a second call
+    /// overwrites the slot with equal inputs, and a computation that ran twice
+    /// writes the same value twice, so the Source cannot tell either. Without
+    /// this field a double projection has no witness anywhere.
+    interpretations: usize,
 }
 
 impl ComputationState {
@@ -76,6 +90,20 @@ impl ComputationState {
     #[allow(dead_code, reason = "an output the shipped callers discard")]
     pub(in crate::source) fn interpreted(&self) -> Option<TickInputs> {
         self.interpreted
+    }
+
+    ///
+    /// How many times the Interpreter ran for this computation.
+    ///
+    /// Read beside [`ComputationState::interpreted`] rather than in place of
+    /// it: the pair is the record of one call per unit, which is what a caller
+    /// counting Interpreter calls needs and what `interpreted` alone cannot
+    /// give it.
+    ///
+    /// Allowed for the reason [`ComputationState::interpreted`] is.
+    #[allow(dead_code, reason = "an output the shipped callers discard")]
+    pub(in crate::source) fn interpretations(&self) -> usize {
+        self.interpretations
     }
 }
 
@@ -123,6 +151,7 @@ impl<'a> Execution<'a> {
                     suppressed: false,
                     attempted: false,
                     interpreted: None,
+                    interpretations: 0,
                 })
                 .collect(),
             effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
@@ -210,6 +239,7 @@ impl<'a> Execution<'a> {
             // operands would not resolve is one the Interpreter never ran for,
             // and the record says which of the two happened.
             self.states[index].interpreted = Some(inputs);
+            self.states[index].interpretations += 1;
             Interpreter::execute_function(function, &operands, inputs)
                 .map_err(|error| error.to_string())
         });
@@ -534,8 +564,8 @@ pub(super) mod stated {
         reservations: &[(CellIndex, Reserved)],
         answers: &[(CellIndex, Value)],
     ) -> (TickPlan, Vec<ComputationState>) {
-        let (mut nodes, mut layout) = computations(grid, map, &Configuration::default());
-        carry(grid, &mut nodes, &mut layout, destinations);
+        let (mut nodes, mut diagnostics) = computations(grid, map, &Configuration::default());
+        carry(grid, &mut nodes, &mut diagnostics, destinations);
         let mut lookup = Lookup::new(grid, nodes);
         // Every fixture error the schedule can be asked about is asked here,
         // before an order exists. A Source with a cycle answers `Err` from
@@ -609,7 +639,7 @@ pub(super) mod stated {
             lookup,
             order,
             diagnostics,
-        } = match order_turns(lookup, layout) {
+        } = match order_turns(lookup, diagnostics) {
             Ok(schedule) => schedule,
             Err(diagnostics) => return unscheduled(diagnostics),
         };

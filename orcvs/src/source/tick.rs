@@ -1113,23 +1113,36 @@ mod test {
 
     ///
     /// The explicit inputs the Interpreter received during one Tick, one entry
-    /// per computation it ran for.
+    /// per call rather than per computation.
     ///
-    /// The two questions this module asks of an execution — how many
-    /// computations were interpreted, and which inputs each of them received —
-    /// read off the Tick's own output rather than off a record kept beside the
-    /// thread it ran on.
+    /// The three questions this module asks of an execution — how many
+    /// computations were interpreted, which inputs each of them received, and
+    /// how many times each of them ran — read off the Tick's own output rather
+    /// than off a record kept beside the thread it ran on.
     ///
-    /// The entries are in the order the schedule holds its computations, which
-    /// is the order they were parsed rather than the order their Turns were
-    /// taken. Only one test reads that order, and it names three roots no
-    /// dependency orders against each other.
+    /// Per call and not per computation because the third question is the one
+    /// with no other witness: a computation that runs twice is handed the same
+    /// inputs both times and writes the same value both times, so neither the
+    /// state's own slot nor the Source can tell it from one that ran once. A
+    /// state repeated [`ComputationState::interpretations`] times restores the
+    /// multiplicity that the retired thread-local record carried for free.
+    ///
+    /// The entries are grouped in the order the schedule holds its
+    /// computations, which is the order they were parsed rather than the order
+    /// their Turns were taken. Two tests compare that order: the one naming
+    /// three roots no dependency orders against each other, and the one
+    /// holding the carried route to the configured one, whose two sides are
+    /// parse-ordered alike and so agree about which computations ran rather
+    /// than about when. Neither reads it as evidence of Turn order.
     ///
     fn interpreted(states: &[ComputationState]) -> Vec<lang::TickInputs> {
-        states
-            .iter()
-            .filter_map(ComputationState::interpreted)
-            .collect()
+        let mut calls = Vec::new();
+        for state in states {
+            if let Some(inputs) = state.interpreted() {
+                calls.extend(std::iter::repeat_n(inputs, state.interpretations()));
+            }
+        }
+        calls
     }
 
     ///
@@ -1226,6 +1239,10 @@ mod test {
                 configured_source.snapshot(),
                 "Source for {rows:?}"
             );
+            // Which computations the Interpreter ran for and how many times,
+            // not when: both sides are grouped in parse order, so the Turn
+            // order the header claims is the `order` equality above and not
+            // this one.
             assert_eq!(
                 carried_evaluations, configured_evaluations,
                 "evaluations for {rows:?}"

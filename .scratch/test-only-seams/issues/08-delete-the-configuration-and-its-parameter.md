@@ -1,10 +1,14 @@
 # 08 — Delete the scheduler configuration and the parameter that carries it
 
-**What to build:** The contract half. With no caller populating either map, delete the
-configuration record, the configured planning and execution entry points, the test-only Source
-execution helper, and the parameter threaded through scheduling and execution to carry it —
-including the discard that silences the unused-parameter lint in the shipped build. Execution takes
-only what it uses.
+**What to build:** The contract half. Delete the configuration record, the configured planning and
+execution entry points, the test-only Source execution helper, and the parameter threaded through
+scheduling and execution to carry it — including the discard that silences the unused-parameter
+lint in the shipped build. Execution takes only what it uses.
+
+Three tests still populate the destination map, and they are this ticket's to remove: their subject
+is the configured route itself, so they go with it rather than migrating to the carried one. `07`
+names them under "What `08` still owns". Every other caller had moved by the time `05`, `06`, `07`
+and `10` resolved.
 
 **Blocked by:** 03 — Delete the answer-substitution fork; 05, 06, 07 — the three destination
 migration batches; 10 — Say what a Tick evaluated.
