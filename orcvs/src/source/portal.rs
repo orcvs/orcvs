@@ -20,6 +20,7 @@
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::CellContent;
+use super::encoding::Encoding;
 use super::language_map::Span;
 
 ///
@@ -49,11 +50,15 @@ pub(super) struct Portal {
 ///
 /// Why a Portal refused a whole destination.
 ///
-/// Destination resolution, encoding validity, and row fit
-/// are different questions, and they answer into one type because every
-/// producer treats them identically: ADR 0004 admits no partial write, so
-/// any refusal costs the whole write and yields a diagnostic instead. A
-/// producer distinguishes them only to say which it was.
+/// Both are questions about the destination, and they answer into one type
+/// because every producer treats them identically: ADR 0004 admits no partial
+/// write, so any refusal costs the whole write and yields a diagnostic
+/// instead. A producer distinguishes them only to say which it was.
+///
+/// Whether the content can be Cells at all is not among them. That is true of
+/// a value wherever it lands and is settled by [`Encoding`] before a
+/// destination is asked, which is why this type no longer carries a content
+/// refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PortalError {
     /// There is no row below the producer's root, so no ordinary result
@@ -61,8 +66,6 @@ pub(super) enum PortalError {
     BelowSource,
     /// The encoding is wider than the destination row's remaining Cells.
     CrossesRowEdge,
-    /// The encoding contains bytes outside printable ASCII.
-    InvalidContent,
 }
 
 impl Portal {
@@ -109,20 +112,17 @@ impl Portal {
     /// keeps. A refused encoding leaves nothing behind to emit half of: there
     /// is no value describing part of a write.
     ///
-    /// `encoding` must contain one or more printable ASCII Cells. Invalid
-    /// content refuses the whole write through [`PortalError`]. The write
-    /// retains validated CellContent values through resolution and commit.
+    /// An [`Encoding`] places at least one printable Cell by construction, so
+    /// the only question left here is how far along the row those Cells reach.
+    /// The write retains validated CellContent values through resolution and
+    /// commit.
     ///
-    /// An empty Sequence encodes to the empty string and plans no writes at
-    /// all, so it never reaches a Portal; that is a rule about results, and it
-    /// belongs where results are read.
+    /// A value that plans no write renders to [`super::encoding::Rendered::Nothing`]
+    /// and never reaches a Portal; that is a rule about results, and it belongs
+    /// where results are read.
     ///
-    pub(super) fn admit(&self, encoding: &str) -> Result<SpanWrite, PortalError> {
-        assert!(!encoding.is_empty(), "a write places at least one Cell");
-        let content: Vec<CellContent> = encoding
-            .bytes()
-            .map(|byte| CellContent::new(byte).ok_or(PortalError::InvalidContent))
-            .collect::<Result<_, _>>()?;
+    pub(super) fn admit(&self, encoding: &Encoding) -> Result<SpanWrite, PortalError> {
+        let content: Vec<CellContent> = encoding.content();
         let width = content.len();
         let last = self
             .grid
@@ -168,19 +168,16 @@ impl SpanWrite {
 
 #[cfg(test)]
 mod test {
-    use super::{Portal, PortalError};
+    use super::{Encoding, Portal, PortalError};
     use crate::grid::{CellIndex, Grid};
 
     #[test]
-    fn nonprintable_encodings_are_refused_without_a_partial_write() {
+    fn every_printable_cell_reaches_its_destination() {
+        // What a Portal is left holding once content validity belongs to
+        // `Encoding`: the Cells arrive as given, and the refusal that used to
+        // sit here is tested where the rule now lives.
         let grid = Grid::new(4, 2);
         let portal = Portal::at(grid, grid.position(0, 0).unwrap());
-        for encoding in ["A\0", "A\x1f", "A\x7f", "Aé"] {
-            assert_eq!(
-                portal.admit(encoding).err(),
-                Some(PortalError::InvalidContent)
-            );
-        }
         assert_eq!(
             placed(&portal, " ~"),
             vec![(cell(grid, 0), ' '), (cell(grid, 1), '~')]
@@ -196,13 +193,21 @@ mod test {
     }
 
     ///
+    /// What `portal` answers for `encoding`, stated as Source text so a test
+    /// says what it means. Content validity belongs to [`Encoding`], so every
+    /// refusal reaching here is one about the destination.
+    ///
+    fn admitted(portal: &Portal, encoding: &str) -> Result<super::SpanWrite, PortalError> {
+        portal.admit(&Encoding::literal(encoding).expect("printable test content"))
+    }
+
+    ///
     /// Where `portal` places `encoding`, Cell by Cell. A Portal has no
     /// destination to read back on its own: what it resolved is observable
     /// only as the write it admits, which is the same thing a producer sees.
     ///
     fn placed(portal: &Portal, encoding: &str) -> Vec<(CellIndex, char)> {
-        portal
-            .admit(encoding)
+        admitted(portal, encoding)
             .expect("the encoding fits its row")
             .cells()
             .map(|(cell, content)| (cell, content.as_char()))
@@ -254,7 +259,10 @@ mod test {
         let near_edge = grid.position(2, 1).expect("inside the Grid");
         let portal = Portal::at(grid, near_edge);
 
-        assert_eq!(portal.admit("ABC").err(), Some(PortalError::CrossesRowEdge));
+        assert_eq!(
+            admitted(&portal, "ABC").err(),
+            Some(PortalError::CrossesRowEdge)
+        );
         assert_eq!(
             placed(&portal, "AB"),
             vec![(cell(grid, 6), 'A'), (cell(grid, 7), 'B')]
@@ -296,11 +304,11 @@ mod test {
         let portal = Portal::ordinary_result(grid, root).expect("a row below the root");
 
         assert_eq!(
-            portal.admit("0A0B0C0D0E").err(),
+            admitted(&portal, "0A0B0C0D0E").err(),
             Some(PortalError::CrossesRowEdge)
         );
         assert_eq!(
-            portal.admit("0A0B0C0D").map(|write| write.cells().count()),
+            admitted(&portal, "0A0B0C0D").map(|write| write.cells().count()),
             Ok(8)
         );
     }

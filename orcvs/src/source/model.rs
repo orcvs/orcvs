@@ -396,7 +396,7 @@ impl fmt::Display for Source {
 #[cfg(test)]
 mod test {
 
-    use lang::{Atom, Function, Interpretation, Sequence};
+    use lang::{Atom, Function, Interpretation, Sequence, Value};
     use std::ops::{Deref, DerefMut};
 
     use crate::{
@@ -405,6 +405,7 @@ mod test {
         source::{
             BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
             PlayCommand, Source, SourceError, Tick, TickPlan, Velocity,
+            encoding::{Encoding, Rendered},
             portal::Portal,
             tick::{Effect, resolve},
         },
@@ -692,14 +693,18 @@ mod test {
     /// which are the same ones a Tick uses. Commit remains Source's.
     ///
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
-        let encoding = match result {
-            Interpretation::Cell(Atom::Empty) => return resolve(Vec::new()),
-            Interpretation::Cell(atom) => atom.to_string(),
-            Interpretation::Sequence(sequence) if sequence.is_empty() => {
-                return resolve(Vec::new());
-            }
-            Interpretation::Sequence(sequence) => sequence.to_string(),
+        let value = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
+            Interpretation::Cell(atom) => Value::from(atom),
+            Interpretation::Sequence(sequence) => Value::from(sequence),
+        };
+        // The rule for what an answer becomes in Cells is production's, called
+        // here rather than restated: these tests state an answer because no
+        // parseable Function answers with a Sequence yet, and what they
+        // exercise is the commit, not a second encoding.
+        let rendered = Encoding::render(&value).expect("these answers are stated as Source Cells");
+        let Rendered::Cells(encoding) = rendered else {
+            return resolve(Vec::new());
         };
         let write = Portal::ordinary_result(grid, root)
             .and_then(|portal| portal.admit(&encoding))

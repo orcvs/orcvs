@@ -26,6 +26,18 @@ pub struct PositionedEntry {
 
 type Record = PositionedEntry;
 
+/// What stands at one entry of an Expression, in the two places a `Token` is
+/// read.
+///
+/// The Parser labels every entry it produces with one, so a `Token` is what the
+/// Source shows at a Position. `define_functions!` also mints one per declared
+/// operand through `operand_token!`, so a `Token` is equally what a signature
+/// requires at that position. The two readings coincide for the literal
+/// operands — a Number position holds two hexadecimal Cells and an entry
+/// holding them is labelled `Number` — and they come apart at both ends.
+/// `Activation`, `Bang`, `Comment`, and `Function` are labels the Parser
+/// applies to Cells no signature declares, and `Atom` and `Sequence` below are
+/// declarations no Cells spell.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
     Activation,
@@ -39,6 +51,14 @@ pub enum Token {
     Note,
     Number,
     Char,
+    /// An operand a Function declares over every Atom rather than over one
+    /// type: the replacement of ADR 0007's Replace, which "may have a
+    /// different Atom type" from the member it displaces.
+    Atom,
+    /// An operand a Function consumes as one whole Sequence rather than
+    /// extending across element by element: the Sequence operand of ADR 0007's
+    /// Reverse, Select, and Replace.
+    Sequence,
 }
 
 impl Expression {
@@ -121,12 +141,57 @@ impl Default for Expression {
 
 impl Token {
     /// Decodes one literal encoding using the receiving operand's signature.
+    ///
+    /// Exhaustive rather than closed with a wildcard, so a `Token` added later
+    /// states whether it has a literal reading here instead of inheriting a
+    /// refusal by default.
     pub fn decode(self, spelling: &str) -> Result<Atom, crate::Error> {
         match self {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
             Self::Char => crate::atom::to_atom_char(spelling),
-            _ => Err(crate::SyntaxError::ExpectedToken.into()),
+            // A generic Atom operand has no literal reading, and the refusal is
+            // the decision rather than a gap left for later. CONTEXT.md defines
+            // an Operand Literal as two Cells "interpreted as an Atom according
+            // to the typed operand position of the Function that consumes
+            // them", and a position declared over every Atom supplies no type
+            // for them to be interpreted against: `07` would have to read as a
+            // Number here and as something else there with nothing in the
+            // declaration to say which. Choosing one would mint exactly the
+            // intrinsic type that entry denies. No width would serve the choice
+            // in any case — `Atom::Char` spells in one Cell and every other Atom
+            // in two, so `len` below could answer for no decode ranging over all
+            // of them, and the Parser's `atom.to_string().len() == token.len()`
+            // property would be the first thing to break.
+            //
+            // No Function declares this operand today, so the refusal also has
+            // no caller. Whether Replace's replacement earns a spelling rule of
+            // its own is issue 03's decision, made against its own tests; until
+            // then the only thing that can stand at the position is a nested
+            // Function's typed answer, exactly as for a Sequence below.
+            Self::Atom => Err(crate::SyntaxError::ExpectedToken.into()),
+            // A Sequence has no literal spelling at all, and this refusal is
+            // settled rather than deferred. ADR 0007 encodes a Sequence result
+            // into Source as ordinary Atoms "without a privileged
+            // literal-Sequence interpretation", so nothing reads Cells back as
+            // one: a Sequence "exists only between Functions", and a Sequence
+            // operand can only ever be a nested Function's answer. A reading
+            // invented here would be the privileged interpretation that ADR
+            // rules out.
+            Self::Sequence => Err(crate::SyntaxError::ExpectedToken.into()),
+            // The Parser fills these three positions structurally rather than by
+            // decoding a literal against a signature: it reads two Cells,
+            // recognises `**`, an Activation spelling, or a Function spelling,
+            // and labels the entry with what it found. Nothing asks them to
+            // decode, and the refusal they have always answered with is
+            // unchanged.
+            Self::Activation | Self::Bang | Self::Function => {
+                Err(crate::SyntaxError::ExpectedToken.into())
+            }
+            // A Comment records no Atom at all (ADR 0035): its claim is the
+            // rest of the Source, a Grid row rather than a fixed-width value,
+            // and nothing asks it to decode one.
+            Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
         }
     }
 
@@ -138,10 +203,36 @@ impl Token {
     /// signature declares one and a Comment never binds — so what it answers
     /// here is the width of its `||` introducer rather than the extent of its
     /// claim, which is the rest of the Source and is not a Token width at all.
+    ///
+    /// Exhaustive for the same reason [`Token::decode`] is: a width is a
+    /// decision each `Token` makes, not one it inherits.
     pub fn len(&self) -> usize {
         match self {
             Token::Char => DEFAULT_CHAR_TOKEN_LEN,
-            _ => DEFAULT_TOKEN_LEN,
+            // Two Cells is what an operand position occupies whatever fills it.
+            // Every Atom spelling but `Atom::Char` is two Cells wide, and a
+            // nested Function — the only other thing that can stand at an
+            // operand position — is exactly two by the compile-time assertion
+            // `define_functions!` holds every spelling to. That settles both new
+            // declarations. `Atom` and `Sequence` refuse their literal decode
+            // above, so this width fixes only how far a refused operand advances
+            // and how wide the Span its diagnostic covers is, and two Cells is
+            // the operand width every existing signature already reserves.
+            //
+            // Zero is the tempting reading for `Sequence` — a value that is
+            // never spelled occupies no Source — and it is wrong twice. The
+            // Cells are occupied, by the nested Function that is the only thing
+            // able to fill the position; and `Token::is_empty` is `len() == 0`,
+            // so a zero-width operand would claim an operand position that holds
+            // nothing and hand the Parser a slot it advances no Cells past.
+            Token::Activation
+            | Token::Bang
+            | Token::Comment
+            | Token::Function
+            | Token::Note
+            | Token::Number
+            | Token::Atom
+            | Token::Sequence => DEFAULT_TOKEN_LEN,
         }
     }
 

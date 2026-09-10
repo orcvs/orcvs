@@ -1,5 +1,6 @@
 mod cell;
 pub use cell::CellContent;
+mod encoding;
 pub mod error;
 mod language_map;
 pub use language_map::{ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};

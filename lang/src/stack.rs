@@ -620,13 +620,67 @@ impl Stack {
 ///
 /// The one place the signature is read, so the scalar path and every element
 /// of a broadcast are held to the same rule.
+///
+/// Every `Token` is named rather than swept up by a wildcard, for the reason
+/// [`Sequence`]'s membership check gives about `Atom`: a variant added later is
+/// then classified here, by the compiler, instead of inheriting an answer by
+/// default.
 #[inline(always)]
 fn check_token(expected: Token, atom: Atom) -> Result<(), Error> {
     match (expected, atom) {
         (Token::Number, Atom::Number(_)) | (Token::Note, Atom::Note(_)) => Ok(()),
         (Token::Number, atom) => Err(TypeError::Number(atom.into()).into()),
         (Token::Note, atom) => Err(TypeError::Note(atom.into()).into()),
-        _ => unreachable!("scalar and terminal signatures contain only typed operands"),
+        // A generic Atom operand declares no type, and this is the type check,
+        // so there is nothing here for an Atom to fail against. Accepting all
+        // of them is the decision and not an omission: every Atom with no place
+        // at an operand position is refused by a rule stated somewhere else,
+        // and restating any of those rules here is what ADR 0025 forbids.
+        //
+        // The operand this variant exists for is Replace's replacement, and ADR
+        // 0007 makes it a prospective member of the Sequence Replace returns.
+        // The Absence Marker, the Self-Banging Function, and a Function that
+        // answers an effect are therefore refused by `Sequence::new` — the one
+        // construction point ADR 0025 puts membership at — with the one
+        // diagnostic every other member gets, rather than by a second check
+        // here that could come to disagree with it. An effect Function is
+        // refused earlier still, by the Interpreter's nesting guard, which ADR
+        // 0028 states over every operand position rather than over this one.
+        (Token::Atom, _) => Ok(()),
+        // No Atom satisfies a Sequence operand, and the refusal is total by
+        // type rather than by a list of variants: ADR 0007 forbids nesting and
+        // `Atom` carries no Sequence-bearing variant, so there is no Atom this
+        // could accept. It does not promote, for the reason `TryFrom<Value> for
+        // Sequence` gives — promotion is a Function's decision, and ADR 0007
+        // has Concatenate promote where Select does not — so a seam that merely
+        // requires a Sequence diagnoses instead of quietly widening one.
+        //
+        // Both ways [`Stack::checked`] reaches here are answered by that. A
+        // `Value::Atom` at a Sequence position is an Atom where a Sequence was
+        // required, which is what the diagnostic says. A `Value::Sequence`
+        // reaches here member by member only because `checked` walks a Sequence
+        // operand as the broadcast it is for a typed operand, and that walk is
+        // the wrong question for an operand consumed whole: a Function that
+        // transforms a Sequence does not extend across it, so it cannot pop
+        // through this seam at all, and issue 03 gives it the whole-`Value` pop
+        // `TryFrom<Value> for Sequence` already exists for. Refusing rather than
+        // accepting is what makes routing such a Function through here a
+        // diagnostic instead of a silent element-wise reading of the Sequence it
+        // was supposed to receive intact.
+        (Token::Sequence, atom) => Err(SequenceError::ExpectedSequence(atom.into()).into()),
+        // The five `Token`s the Parser mints as labels and `operand_token!`
+        // never mints as a declaration. This function reads signatures and
+        // nothing else, and a signature is `&[operand_token!($operand)]`, so the
+        // set of `Token`s that can arrive here is exactly the set that macro's
+        // arms produce: `Number` and `Note` today, and `Atom` or `Sequence` the
+        // day a row declares one. Adding an arm for one of these four is the
+        // only edit that reaches this, and `declaration_agreement` sweeps every
+        // declared operand of every Function through a witness table that panics
+        // on a `Token` it holds none for — so that edit fails a test before it
+        // can reach a Tick.
+        (Token::Activation | Token::Bang | Token::Char | Token::Comment | Token::Function, _) => {
+            unreachable!("no operand type declares a Token the Parser mints only as a label")
+        }
     }
 }
 
@@ -667,15 +721,37 @@ impl TryFrom<Atom> for NumericValue {
 #[cfg(test)]
 mod test {
     use crate::{
-        ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
-        InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
-        SequenceError, Stack, TypeError, Value, Velocity,
+        Activation, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error,
+        Function, InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand,
+        Sequence, SequenceError, Stack, Token, TypeError, Value, Velocity,
         atom::operands,
-        stack::{MAX_OPERANDS, NumericValue},
+        stack::{MAX_OPERANDS, NumericValue, check_token},
     };
+    use arrayvec::ArrayVec;
 
     fn empty_stack() -> Stack {
         Stack::new(16)
+    }
+
+    /// One Atom of every variant, so a check that claims to answer for all of
+    /// them is swept rather than sampled.
+    ///
+    /// The Activations and the Functions come from their own `ALL`, which are
+    /// the two lists the crate already keeps honest, so a fifth Activation or a
+    /// newly declared Function is covered the day it exists rather than the day
+    /// someone remembers this list.
+    fn every_atom() -> Vec<Atom> {
+        let mut atoms = vec![
+            Atom::Bang,
+            Atom::Char('z'),
+            Atom::Empty,
+            Atom::Number(0),
+            note(60),
+        ];
+
+        atoms.extend(Activation::ALL.iter().copied().map(Atom::Activation));
+        atoms.extend(Function::ALL.iter().copied().map(Atom::Function));
+        atoms
     }
 
     fn sequence() -> Sequence {
@@ -865,6 +941,90 @@ mod test {
             MAX_OPERANDS, widest,
             "a declared operand list outgrows the buffer a broadcast pops it into"
         );
+    }
+
+    #[test]
+    fn a_wider_operand_type_leaves_the_operand_list_inline() {
+        // The other half of the shape guarantee the test above makes about
+        // capacity. A `Value` carries a Sequence, and a Sequence owns a heap
+        // buffer of its own, so what has to be shown is that widening the
+        // element type did not move the list of them to the heap: the operand
+        // list and each element's Atoms are still `ArrayVec`s of exactly
+        // `MAX_OPERANDS`, sized by the widest declared signature.
+        //
+        // The annotations are the assertion, and they are the whole of it for
+        // inline storage: a field or a return type that became a `Vec` fails to
+        // compile here, which is the only check that can see the difference. A
+        // `size_of` comparison cannot — every `ArrayVec<T, N>` holds `N` slots
+        // by construction, so one would pass for any capacity, including a
+        // wrong one, and could never fail for the reason it named. The runtime
+        // lines are left to say what the types do not, that the capacity is the
+        // derived one rather than any inline capacity at all.
+        let mut stack = empty_stack();
+        push_all(
+            &mut stack,
+            [Value::from(Atom::Number(1)), sequence().into()],
+        );
+
+        let broadcast = stack.broadcast(Function::Subtract).unwrap();
+        let operands: &ArrayVec<Value, MAX_OPERANDS> = &broadcast.operands;
+        let element: ArrayVec<Atom, MAX_OPERANDS> = broadcast.element(0);
+
+        assert_eq!(operands.capacity(), MAX_OPERANDS);
+        assert_eq!(element.capacity(), MAX_OPERANDS);
+    }
+
+    #[test]
+    fn a_generic_atom_operand_accepts_every_atom_and_leaves_membership_where_it_is_decided() {
+        // A generic Atom operand declares no type, so the type check has nothing
+        // to refuse — including the Atoms that have no place in a Sequence.
+        // Accepting them here is not a hole: the second half of this test is the
+        // refusal ADR 0025 puts at `Sequence::new` and nowhere else, which is
+        // what Replace's replacement meets on its way into the Sequence Replace
+        // returns. A refusal restated here would be the second place that ADR
+        // exists to prevent.
+        for atom in every_atom() {
+            assert!(
+                check_token(Token::Atom, atom).is_ok(),
+                "{atom:?} was refused by a declaration that names no type",
+            );
+        }
+
+        for refused in [
+            Atom::Empty,
+            Atom::Activation(Activation::North),
+            Atom::Function(Function::RawPlay),
+        ] {
+            assert!(
+                matches!(
+                    Sequence::promote(refused),
+                    Err(Error::Sequence(SequenceError::Member(_)))
+                ),
+                "{refused:?} became a Sequence member",
+            );
+        }
+    }
+
+    #[test]
+    fn a_sequence_operand_is_satisfied_by_no_atom() {
+        // ADR 0007 forbids nesting and `Atom` carries no Sequence-bearing
+        // variant, so the refusal is over the whole type rather than over a list
+        // of variants. It does not promote either: an Atom standing at a
+        // Sequence position diagnoses rather than widening into a singleton,
+        // because ADR 0007 makes promotion Concatenate's decision and not
+        // Select's, and this seam belongs to neither.
+        for atom in every_atom() {
+            let rendering = atom.to_string();
+
+            assert!(
+                matches!(
+                    check_token(Token::Sequence, atom),
+                    Err(Error::Sequence(SequenceError::ExpectedSequence(found)))
+                        if found == rendering
+                ),
+                "{atom:?} satisfied an operand position no Atom can satisfy",
+            );
+        }
     }
 
     #[test]
