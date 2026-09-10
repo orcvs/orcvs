@@ -350,3 +350,30 @@ fn glyph_at_refuses_a_position_minted_by_another_grid() {
 
     map.glyph_at(foreign);
 }
+
+#[test]
+#[should_panic(expected = "ExpressionEntry belongs to another LanguageMap")]
+fn an_edit_refuses_old_expression_entries_even_from_an_unchanged_row() {
+    let grid = Grid::new(4, 2);
+    let mut source = Source::new(grid);
+    source.set(grid.cell_index(4).unwrap(), "*").unwrap();
+    source.set(grid.cell_index(5).unwrap(), "*").unwrap();
+    let previous = source.language_map().clone();
+    let expression = previous.expressions().next().unwrap();
+
+    source.set(grid.cell_index(0).unwrap(), "X").unwrap();
+
+    source.language_map().expression_units(expression);
+}
+
+#[test]
+fn diagnostics_keep_expression_reports_before_lexical_reports_across_rows() {
+    let grid = Grid::new(4, 2);
+    let map = LanguageMap::derive(grid, "X   Z   ").unwrap();
+    assert_eq!(
+        map.diagnostics()
+            .map(|diagnostic| (diagnostic.anchor().x(), diagnostic.anchor().y()))
+            .collect::<Vec<_>>(),
+        vec![(0, 0), (0, 1), (0, 0), (0, 1)]
+    );
+}

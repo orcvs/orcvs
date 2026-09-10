@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
@@ -43,14 +42,7 @@ impl LanguageMapId {
 pub struct LanguageMap {
     id: LanguageMapId,
     grid: Grid,
-    /// Established once by `build` and never changed afterwards. An
-    /// `ExpressionEntry` records where its own units sit here as a range, so
-    /// anything that reordered or resized this would silently re-point every
-    /// Expression in the Map.
-    units: Vec<LanguageUnit>,
-    expressions: Vec<ExpressionEntry>,
-    glyphs: Vec<Option<Glyph>>,
-    lexical_diagnostics: Vec<Diagnostic>,
+    rows: Vec<DerivedRow>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -140,10 +132,10 @@ pub struct ExpressionEntry {
     root: Option<Position>,
     function_candidate: Option<(Position, Function)>,
     span: Span,
-    /// Where this Expression's Language Units sit in its Map's partition,
+    /// Where this Expression's Language Units sit in its row's partition,
     /// established when the Expression was built.
     ///
-    /// A range into the partition rather than the units themselves: the Map
+    /// A range into the row rather than the units themselves: the row
     /// owns them, an Expression is one contiguous run of them, and a Map
     /// outlives every question asked of the Expressions it holds.
     units: std::ops::Range<usize>,
@@ -185,29 +177,11 @@ impl LanguageMap {
         .then(|| Self::build(grid, source.as_bytes()))
     }
 
+    /// Rebuilds written rows and carries every other row's complete derivation.
     ///
-    /// Rebuilds the Map, parsing only the rows whose Cells changed.
-    ///
-    /// The row is the unit of work because the row is already the unit of
-    /// meaning: `walk_row` reads exactly one row's Cells and carries nothing
-    /// across the boundary, and an Expression Span is a run inside one row. A
-    /// row's Language Units, Expressions, Glyphs and lexical diagnostics are
-    /// therefore functions of that row's bytes alone, and a row nobody wrote
-    /// to answers this revision exactly as it answered the last one.
-    ///
-    /// Everything such a row contributed is carried over rather than parsed
-    /// again, which is the whole point: parsing is most of what building a Map
-    /// costs, and walking is the small remainder. One field stands in the way.
-    /// An `ExpressionEntry` locates its units as a range into the Map's
-    /// partition rather than into the Grid, so a dirty row that now holds a
-    /// different number of units moves every later Expression's range. Each
-    /// carried entry is re-pointed by its offset inside its own row, which
-    /// needs no arithmetic across rows and cannot go negative.
-    ///
-    /// The Map's identity is new either way. An `ExpressionEntry` from the
-    /// previous revision addresses the previous partition, and carrying one
-    /// forward does not make it answerable there.
-    ///
+    /// Unit ranges are local to each row, so a changed row cannot relocate
+    /// another row's Expressions. Carried Expressions receive this revision's
+    /// identity even when their Source did not change.
     pub(super) fn rebuild(
         previous: &Self,
         grid: Grid,
@@ -223,123 +197,42 @@ impl LanguageMap {
             previous.grid, grid,
             "a LanguageMap is rebuilt on the Grid that built it"
         );
-
-        let cols = grid.cols();
-        let row_count = bytes.len() / cols;
-
-        // Everything the previous Map holds is in row-major order, so one pass
-        // over each collection names the run belonging to each row.
-        let previous_units = row_runs(row_count, previous.units.len(), |index| {
-            grid.index(previous.units[index].anchor).get() / cols
-        });
-        let previous_expressions = row_runs(row_count, previous.expressions.len(), |index| {
-            previous.expressions[index].span.start().get() / cols
-        });
-        let previous_diagnostics =
-            row_runs(row_count, previous.lexical_diagnostics.len(), |index| {
-                previous.lexical_diagnostics[index].start() / cols
-            });
-
-        // The partition is assembled first and in full, because
-        // `record_expression` searches it for the units of the Span it is
-        // given.
-        let mut units = Vec::with_capacity(previous.units.len());
-        let mut walks = Vec::with_capacity(row_count);
-        let mut row_units = Vec::with_capacity(row_count);
-        for row in 0..row_count {
-            let start = units.len();
-            if dirty.contains(&row) {
-                let mut walk = RowWalk::default();
-                walk_row(
-                    grid,
-                    row * cols,
-                    &bytes[row * cols..(row + 1) * cols],
-                    &mut walk,
-                );
-                units.extend_from_slice(&walk.units);
-                walks.push(Some(walk));
-            } else {
-                units.extend_from_slice(&previous.units[previous_units[row].clone()]);
-                walks.push(None);
-            }
-            row_units.push(start..units.len());
-        }
-
-        let mut map = Self {
-            id: LanguageMapId::new(),
-            grid,
-            units,
-            expressions: Vec::with_capacity(previous.expressions.len()),
-            glyphs: vec![None; bytes.len()],
-            lexical_diagnostics: Vec::with_capacity(previous.lexical_diagnostics.len()),
-        };
-
-        for (row, walk) in walks.into_iter().enumerate() {
-            let cells = row * cols..(row + 1) * cols;
-            match walk {
-                Some(walk) => {
-                    map.lexical_diagnostics.extend(walk.diagnostics);
-                    for parse in walk.parses {
-                        map.record_expression(grid, parse);
-                    }
-                    for index in cells {
-                        if bytes[index] != SPACE_BYTE && map.glyphs[index].is_none() {
-                            map.glyphs[index] = Some(Glyph::Char);
-                        }
-                    }
+        let id = LanguageMapId::new();
+        let rows = bytes
+            .chunks_exact(grid.cols())
+            .enumerate()
+            .map(|(row, bytes)| {
+                if dirty.contains(&row) {
+                    DerivedRow::derive(id, grid, row * grid.cols(), bytes)
+                } else {
+                    previous.rows[row].for_revision(id)
                 }
-                None => {
-                    map.lexical_diagnostics.extend_from_slice(
-                        &previous.lexical_diagnostics[previous_diagnostics[row].clone()],
-                    );
-                    map.glyphs[cells.clone()].copy_from_slice(&previous.glyphs[cells]);
-                    let carried = row_units[row].start;
-                    let held = previous_units[row].start;
-                    for entry in &previous.expressions[previous_expressions[row].clone()] {
-                        let offset = entry.units.start - held;
-                        let length = entry.units.len();
-                        map.expressions.push(ExpressionEntry {
-                            map_id: map.id,
-                            units: carried + offset..carried + offset + length,
-                            ..entry.clone()
-                        });
-                    }
-                }
-            }
-        }
-
-        map
+            })
+            .collect();
+        Self { id, grid, rows }
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
-        let walk = walk_source(grid, bytes);
-        let mut map = Self {
-            id: LanguageMapId::new(),
-            grid,
-            units: walk.units,
-            expressions: Vec::new(),
-            glyphs: vec![None; bytes.len()],
-            lexical_diagnostics: walk.diagnostics,
-        };
-
-        for parse in walk.parses {
-            map.record_expression(grid, parse);
-        }
-        for (idx, byte) in bytes.iter().copied().enumerate() {
-            if byte != SPACE_BYTE && map.glyphs[idx].is_none() {
-                map.glyphs[idx] = Some(Glyph::Char);
-            }
-        }
-
-        map
+        assert_eq!(
+            bytes.len(),
+            grid.count(),
+            "LanguageMap Source length must match its Grid"
+        );
+        let id = LanguageMapId::new();
+        let rows = bytes
+            .chunks_exact(grid.cols())
+            .enumerate()
+            .map(|(row, bytes)| DerivedRow::derive(id, grid, row * grid.cols(), bytes))
+            .collect();
+        Self { id, grid, rows }
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
-        self.expressions.iter()
+        self.rows.iter().flat_map(|row| row.expressions.iter())
     }
 
     pub fn units(&self) -> impl Iterator<Item = &LanguageUnit> {
-        self.units.iter()
+        self.rows.iter().flat_map(|row| row.units.iter())
     }
 
     /// Bang values from complete standalone Expressions, paired with their
@@ -366,24 +259,30 @@ impl LanguageMap {
 
     /// Every parser and unmatched-character diagnostic in this revision.
     pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.expressions
-            .iter()
+        self.expressions()
             .filter_map(|expression| expression.diagnostic.as_ref())
-            .chain(self.lexical_diagnostics.iter())
+            .chain(self.lexical_diagnostics())
     }
 
     #[cfg(test)]
     pub(super) fn expression_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.expressions
-            .iter()
+        self.expressions()
             .filter_map(|expression| expression.diagnostic.as_ref())
+    }
+
+    fn lexical_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.rows
+            .iter()
+            .flat_map(|row| row.lexical_diagnostics.iter())
     }
 
     /// The semantic Glyph for the Cell at `position`, when the revision gives
     /// that Cell a language classification.
     pub fn glyph_at(&self, position: Position) -> Option<Glyph> {
-        self.glyphs
-            .get(self.grid.index(position).get())
+        let index = self.grid.index(position).get();
+        self.rows[index / self.grid.cols()]
+            .glyphs
+            .get(index % self.grid.cols())
             .copied()
             .flatten()
     }
@@ -403,60 +302,99 @@ impl LanguageMap {
             self.id == expression.map_id,
             "ExpressionEntry belongs to another LanguageMap"
         );
-        &self.units[expression.units.clone()]
+        let row = expression.span.start().get() / self.grid.cols();
+        &self.rows[row].units[expression.units.clone()]
+    }
+}
+
+/// A row's complete semantic derivation. Unit ranges never leave this row.
+#[derive(Clone, Default)]
+struct DerivedRow {
+    units: Vec<LanguageUnit>,
+    expressions: Vec<ExpressionEntry>,
+    /// Empty for an entirely blank row; otherwise indexed by column. Empty
+    /// rows must not add allocation blocks as the Grid grows taller.
+    glyphs: Vec<Option<Glyph>>,
+    lexical_diagnostics: Vec<Diagnostic>,
+}
+
+impl DerivedRow {
+    fn for_revision(&self, id: LanguageMapId) -> Self {
+        let mut row = self.clone();
+        for expression in &mut row.expressions {
+            expression.map_id = id;
+        }
+        row
     }
 
-    ///
-    /// Records the Expression one parse established.
-    ///
-    /// The Span came from the analysis, so nothing here re-reads the Source to
-    /// find out where the Expression ends or what it holds. There is no
-    /// trailing content to restore either: an Expression claims exactly the
-    /// Cells the Parser read, and whatever follows them is the next
-    /// Expression's, which is the partition ADR 0033 records.
-    ///
-    fn record_expression(&mut self, grid: Grid, parse: Parse) {
-        let Parse { span, analysis } = parse;
-        let start = span.start();
-        let end = span.end();
-        // Where this Span's units sit in the partition, searched for once here
-        // and then recorded on the Expression, so nothing asks again.
-        let units = units_range(&self.units, grid, span);
-        // A later Expression owns its occupied Cells over any operand-slot
-        // hints emitted by an earlier Expression.
-        self.glyphs[start.get()..=end.get()].fill(None);
-
-        let executable = analysis.is_complete();
-        let diagnostic = analysis
-            .error()
-            .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
-        let expression = analysis.into_expression();
-        let function_candidate = match expression.entries().next() {
-            Some((Token::Function, Atom::Function(function))) => {
-                Some((grid.position_at(start), function))
-            }
-            _ => None,
+    /// Parser claims, Glyphs and diagnostics are finalized here for both full
+    /// construction and incremental replacement. Source positions remain Grid
+    /// indices; only Glyph indexing and unit ranges are local to the row.
+    fn derive(id: LanguageMapId, grid: Grid, row_start: usize, bytes: &[u8]) -> Self {
+        let mut walk = RowWalk::default();
+        walk_row(grid, row_start, bytes, &mut walk);
+        debug_assert!(
+            walk.units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
+            "Language Units are partitioned in ascending anchor order"
+        );
+        if walk.parses.is_empty() {
+            return Self::default();
+        }
+        let mut row = Self {
+            units: walk.units,
+            expressions: Vec::with_capacity(walk.parses.len()),
+            glyphs: vec![None; bytes.len()],
+            lexical_diagnostics: walk.diagnostics,
         };
-        let root = executable
-            .then_some(function_candidate)
-            .flatten()
-            .map(|(anchor, _)| anchor);
-        let atoms = executable.then(|| expression.atoms()).flatten();
-        for entry in expression.positioned() {
-            for cell in entry.cells.clone() {
-                self.glyphs[cell] = Some(Glyph::from(entry.token));
+        for parse in walk.parses {
+            let Parse { span, analysis } = parse;
+            let start = span.start();
+            let end = span.end();
+            // Where this Span's units sit in the partition, searched for once here
+            // and then recorded on the Expression, so nothing asks again.
+            let units = units_range(&row.units, grid, span);
+            // A later Expression owns its occupied Cells over any operand-slot
+            // hints emitted by an earlier Expression.
+            row.glyphs[start.get() - row_start..=end.get() - row_start].fill(None);
+
+            let executable = analysis.is_complete();
+            let diagnostic = analysis
+                .error()
+                .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
+            let expression = analysis.into_expression();
+            let function_candidate = match expression.entries().next() {
+                Some((Token::Function, Atom::Function(function))) => {
+                    Some((grid.position_at(start), function))
+                }
+                _ => None,
+            };
+            let root = executable
+                .then_some(function_candidate)
+                .flatten()
+                .map(|(anchor, _)| anchor);
+            let atoms = executable.then(|| expression.atoms()).flatten();
+            for entry in expression.positioned() {
+                for cell in entry.cells.clone() {
+                    row.glyphs[cell - row_start] = Some(Glyph::from(entry.token));
+                }
+            }
+            row.expressions.push(ExpressionEntry {
+                map_id: id,
+                expression,
+                atoms,
+                diagnostic,
+                root,
+                function_candidate,
+                span,
+                units,
+            });
+        }
+        for (column, byte) in bytes.iter().copied().enumerate() {
+            if byte != SPACE_BYTE && row.glyphs[column].is_none() {
+                row.glyphs[column] = Some(Glyph::Char);
             }
         }
-        self.expressions.push(ExpressionEntry {
-            map_id: self.id,
-            expression,
-            atoms,
-            diagnostic,
-            root,
-            function_candidate,
-            span,
-            units,
-        });
+        row
     }
 }
 
@@ -612,53 +550,6 @@ fn name_units(
     }
 }
 
-///
-/// The run of `len` row-major items belonging to each of `rows` rows.
-///
-/// `row_of` answers which row an item sits in. Items ascend by row, so one
-/// pass names every run; a row holding nothing gets an empty one.
-///
-fn row_runs(rows: usize, len: usize, row_of: impl Fn(usize) -> usize) -> Vec<Range<usize>> {
-    let mut runs = Vec::with_capacity(rows);
-    let mut start = 0;
-    for row in 0..rows {
-        let mut end = start;
-        while end < len && row_of(end) == row {
-            end += 1;
-        }
-        runs.push(start..end);
-        start = end;
-    }
-    runs
-}
-
-///
-/// Walks a whole Source revision, row by row, in row-major order.
-///
-fn walk_source(grid: Grid, bytes: &[u8]) -> RowWalk {
-    assert_eq!(
-        bytes.len(),
-        grid.count(),
-        "LanguageMap Source length must match its Grid"
-    );
-
-    let cols = grid.cols();
-    let mut walk = RowWalk::default();
-    for (row_number, row) in bytes.chunks_exact(cols).enumerate() {
-        walk_row(grid, row_number * cols, row, &mut walk);
-    }
-
-    // Rows are walked top to bottom and each row's column only ever advances,
-    // so anchors ascend strictly and an Expression Span names a contiguous
-    // run of this partition. Nothing downstream may reorder it.
-    debug_assert!(
-        walk.units.is_sorted_by_key(|unit| grid.index(unit.anchor)),
-        "Language Units are partitioned in ascending anchor order"
-    );
-
-    walk
-}
-
 fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
     Diagnostic::for_range(
         grid,
@@ -670,7 +561,7 @@ fn invalid_unit_diagnostic(grid: Grid, idx: CellIndex, byte: u8) -> Diagnostic {
 
 /// Where the Language Units of `span` sit in `units`.
 ///
-/// `walk_source` establishes its units in ascending anchor order, so an
+/// `walk_row` establishes its units in ascending anchor order, so an
 /// Expression Span names a contiguous run of them and both ends are found by
 /// search rather than by testing every unit against every Span. The returned
 /// bounds are positions in `units`, a different index space from the Cell
@@ -687,7 +578,7 @@ mod tests {
 
     use lang::{Activation, Atom};
 
-    use super::{LanguageMap, LanguageUnitKind, Span, walk_source};
+    use super::{LanguageMap, LanguageUnitKind, Span};
 
     #[test]
     fn invalid_operand_bang_spellings_are_not_parsed_bang_values() {
@@ -801,10 +692,9 @@ mod tests {
     /// The Expression Spans of a whole Source revision, in row-major order.
     ///
     fn expression_spans(grid: Grid, bytes: &[u8]) -> Vec<Span> {
-        walk_source(grid, bytes)
-            .parses
-            .into_iter()
-            .map(|parse| parse.span)
+        LanguageMap::build(grid, bytes)
+            .expressions()
+            .map(|expression| expression.span())
             .collect()
     }
 
@@ -1463,7 +1353,7 @@ mod property {
 
             // How many times each Cell was diagnosed as an unmatched character.
             let mut diagnosed = vec![0usize; bytes.len()];
-            for diagnostic in &map.lexical_diagnostics {
+            for diagnostic in map.lexical_diagnostics() {
                 prop_assert_eq!(diagnostic.start(), diagnostic.end());
                 diagnosed[diagnostic.start()] += 1;
             }
@@ -1830,7 +1720,7 @@ mod property {
                 }) {
                     incomplete.set(incomplete.get() + 1);
                 }
-                if !map.lexical_diagnostics.is_empty() {
+                if map.lexical_diagnostics().next().is_some() {
                     unmatched.set(unmatched.get() + 1);
                 }
                 // A Function among the Atoms rather than merely an Expression
@@ -1896,7 +1786,7 @@ mod rebuild_property {
     /// and says so, exactly as a built one does. Everything else has to agree
     /// Cell for Cell, unit for unit, and diagnostic for diagnostic.
     ///
-    /// One lexical diagnostic, as its Cells and its message.
+    /// One diagnostic, as its Cells and its message, in reported order.
     type ReportedDiagnostic = (usize, usize, String);
 
     /// One Expression, as its Span, its diagnostic, and the units its range
@@ -1913,10 +1803,13 @@ mod rebuild_property {
 
     fn contents(map: &LanguageMap) -> Contents {
         (
-            map.units.clone(),
-            map.glyphs.clone(),
-            map.lexical_diagnostics
-                .iter()
+            map.units().cloned().collect(),
+            (0..map.grid.count())
+                .map(|index| {
+                    map.glyph_at(map.grid.position_at(map.grid.cell_index(index).unwrap()))
+                })
+                .collect(),
+            map.diagnostics()
                 .map(|diagnostic| {
                     (
                         diagnostic.start(),
@@ -1925,8 +1818,7 @@ mod rebuild_property {
                     )
                 })
                 .collect(),
-            map.expressions
-                .iter()
+            map.expressions()
                 .map(|entry| {
                     (
                         entry.span.start().get(),
@@ -1952,8 +1844,8 @@ mod rebuild_property {
         /// The written rows are the only ones whose Cells change, which is the
         /// contract `rebuild` is given. Rows are written with fresh content
         /// rather than mutated, so a row can gain or lose Language Units and
-        /// move every later Expression's range in the partition — the case the
-        /// carried ranges exist to survive.
+        /// leave later rows' Expressions in place — the case incremental
+        /// derivation must preserve.
         ///
         #[test]
         fn a_rebuilt_map_equals_the_map_a_full_build_would_have_made(
