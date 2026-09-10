@@ -12,8 +12,7 @@ an implementer may move the line between `05`, `06` and `07` as long as each lan
 
 **Status:** resolved
 
-- [x] Every test in this batch drives execution through the constructed schedule, except the
-      sequence fixtures named below, which no test can move one at a time.
+- [x] Every test in this batch drives execution through the constructed schedule.
 - [x] Every behaviour the batch asserted before it moved is still asserted after.
 - [x] The crate builds and its tests pass; the configured route still exists for the batches that
       have not moved.
@@ -67,19 +66,23 @@ helper only because it is the one that seeds a Source. Two of the thirty-seven b
 routes on purpose and stay until `08` deletes the configured one.
 
 Separately, `plan_with_destinations` has nine call sites across seven tests — the Bang activation
-and Pulse tests, the row-edge destination test, and
-`competing_writers_publish_but_dependency_cycles_abort_before_output`, which holds two of them.
-That route is retired by whichever batch takes the last of the seven, not by any one of them, so a
-ticket that migrates only some of its callers should expect the route to remain. The competing
-writers test was left whole because its two halves belong to two different batches.
+tests, the row-edge destination test, and two tests holding two sites each:
+`a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs` and
+`competing_writers_publish_but_dependency_cycles_abort_before_output`. Five and two twice is the
+nine; a ticket counting tests rather than sites will be two short of retiring the route. That route
+is retired by whichever batch takes the last of the seven, not by any one of them, so a ticket that
+migrates only some of its callers should expect the route to remain. The competing writers test was
+left whole because its two halves belong to two different batches.
 
+One deviation from the first acceptance line, taken deliberately.
 `execution::stated::plan_with_answers` still takes a `Configuration`, as `04` left it, so the
 `stated_source`, `replaced_source` and `sequence_source` fixtures are all still configured. Some of
-what they cover is this batch's subject — a Sequence reservation ordering what its write reaches,
-and a reservation covering its own producer. They did not move, because they cannot move one at a
+what they cover is this batch's subject — a Sequence Reservation ordering what its write reaches,
+and a Reservation covering its own Producer. They did not move, because they cannot move one at a
 time: their destinations are stated inside the helper, so swapping its parameter migrates every
 caller in one step, across all three batches at once. That is one route swap and it belongs to
-whichever ticket takes the sequence tests, or to `08`.
+whichever ticket takes the Sequence tests, or to `08`. Until it happens, the first acceptance line
+is ticked for the tests that could move one at a time and not for these.
 
 `10`'s share for this batch is not incidental and was not taken. Three migrated tests read the
 `observed` thread-local — the two cycle and inactive-owner tests assert that nothing was
