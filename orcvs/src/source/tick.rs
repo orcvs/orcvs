@@ -445,6 +445,95 @@ fn plan_with_destinations(
     )
 }
 
+///
+/// Gives each computation the Portal destinations `destinations` names for it,
+/// in place of the ordinary result position it resolved for itself.
+///
+/// This is what [`Configuration::destinations`] does, done to the computations
+/// once [`computations`] has stated them rather than while it is stating them,
+/// so that a schedule can carry chosen destinations without the planning path
+/// taking a parameter or a map lookup of its own.
+///
+/// A test needs this because no production Tick can state such a destination
+/// yet: every Function that writes somewhere other than below its own root
+/// belongs to ADR 0004's Source Function family, which is unbuilt. When that
+/// family arrives it states its destinations in Source, through
+/// [`computations`], and this goes away with the tests that needed it.
+///
+#[cfg(test)]
+fn carry(
+    grid: Grid,
+    nodes: &mut [Computation],
+    diagnostics: &mut Vec<Diagnostic>,
+    destinations: &BTreeMap<CellIndex, Vec<Position>>,
+) {
+    let mut refusals = Vec::new();
+    for node in nodes.iter_mut() {
+        let Some(outputs) = destinations.get(&grid.index(node.anchor)) else {
+            continue;
+        };
+        // The gate [`computations`] applies, applied to the same question: a
+        // Terminal Output Function has no Cell destination at all, so naming
+        // one for it is the error rather than the destination. It resolved no
+        // destination while it was stated, and keeps none here.
+        if node.function.performs_terminal_output() {
+            refusals.push(diagnose(
+                node,
+                "a Terminal Output Function cannot have a Portal",
+            ));
+            continue;
+        }
+        node.outputs = outputs
+            .iter()
+            .map(|output| {
+                grid.assert_owns(*output);
+                Ok(*output)
+            })
+            .collect();
+    }
+    // [`computations`] refuses a Terminal Output Function's Portal where it
+    // resolves destinations, which is before the walk that raises the layout
+    // diagnostics it owes. It has exactly those two things to say, so under the
+    // empty Configuration a carried schedule states it can only have said the
+    // second, and these refusals belong in front of what is already here.
+    diagnostics.splice(0..0, refusals);
+}
+
+///
+/// The schedule for `map` with `destinations` carried on its computations,
+/// rather than read from a Configuration while they were stated.
+///
+#[cfg(test)]
+fn schedule_carrying(
+    grid: Grid,
+    map: &LanguageMap,
+    destinations: &BTreeMap<CellIndex, Vec<Position>>,
+) -> Result<Schedule, Vec<Diagnostic>> {
+    let (mut nodes, mut diagnostics) = computations(grid, map, &Configuration::default());
+    carry(grid, &mut nodes, &mut diagnostics, destinations);
+    order_turns(Lookup::new(grid, nodes), diagnostics)
+}
+
+///
+/// Plans one Tick against a schedule carrying `destinations`.
+///
+/// The route [`plan_configured`] becomes once no test states a destination
+/// through a Configuration.
+///
+#[cfg(test)]
+pub(super) fn plan_carrying(
+    grid: Grid,
+    bytes: &[u8],
+    map: &LanguageMap,
+    tick: Tick,
+    destinations: &BTreeMap<CellIndex, Vec<Position>>,
+) -> TickPlan {
+    match schedule_carrying(grid, map, destinations) {
+        Ok(schedule) => execution::execute(grid, bytes, map, tick, schedule),
+        Err(diagnostics) => unscheduled(diagnostics),
+    }
+}
+
 fn diagnose(node: &Computation, message: impl Into<String>) -> Diagnostic {
     Diagnostic::for_expression(node.anchor, node.span, message.into())
 }
@@ -866,14 +955,165 @@ mod test {
         rows: &[&str],
         outputs: &[(usize, usize)],
     ) -> (TickPlan, crate::source::Source) {
+        let mut source = seeded_source(grid, rows);
+        let plan = source.execute_configured(Tick::ZERO, &destinations(grid, outputs));
+        (plan, source)
+    }
+
+    ///
+    /// One Source built from `rows`, its Cells set one at a time as an editor
+    /// sets them.
+    ///
+    /// Shared by both destination routes, so that comparing them compares two
+    /// routes and never two ways of building a Source.
+    ///
+    fn seeded_source(grid: Grid, rows: &[&str]) -> crate::source::Source {
         let mut source = crate::source::Source::new(grid);
         for (index, byte) in snapshot(grid, rows).bytes().enumerate() {
             source
                 .set(cell(grid, index), &char::from(byte).to_string())
                 .unwrap();
         }
-        let plan = source.execute_configured(Tick::ZERO, &destinations(grid, outputs));
+        source
+    }
+
+    ///
+    /// The twin of [`configured_source`], carrying its destinations on the
+    /// schedule rather than handing them to the planning path.
+    ///
+    /// The route every destination test moves to. It takes the arguments its
+    /// configured twin takes, so migrating a test is a change of helper and
+    /// nothing else.
+    ///
+    fn carried_source(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+    ) -> (TickPlan, crate::source::Source) {
+        let mut source = seeded_source(grid, rows);
+        let plan = source.execute_carrying(Tick::ZERO, &carried_destinations(grid, outputs));
         (plan, source)
+    }
+
+    ///
+    /// The fixed Portal destinations a fixture states, in the terms a carried
+    /// schedule takes them: the anchors themselves, with no Configuration
+    /// around them.
+    ///
+    fn carried_destinations(
+        grid: Grid,
+        outputs: &[(usize, usize)],
+    ) -> std::collections::BTreeMap<CellIndex, Vec<crate::grid::Position>> {
+        let mut carried: std::collections::BTreeMap<_, Vec<_>> = std::collections::BTreeMap::new();
+        for (anchor, output) in outputs {
+            carried
+                .entry(cell(grid, *anchor))
+                .or_default()
+                .push(grid.position_at(cell(grid, *output)));
+        }
+        carried
+    }
+
+    /// One Source a destination test states: the Grid it is stated on, its
+    /// rows, and the anchor-to-destination pairs stated for it.
+    type Fixture = (Grid, &'static [&'static str], &'static [(usize, usize)]);
+
+    #[test]
+    fn a_carried_destination_schedules_the_tick_a_configured_one_would_have() {
+        // Nothing migrates until the two ways of stating a destination agree,
+        // so this holds them to the same Turn order, the same diagnostics, the
+        // same Tick Plan and the same committed Source.
+        //
+        // The first three fixtures are ones existing tests already rest on: a
+        // Terminal Output Function handed a Portal it cannot have, a Bang whose
+        // delivery the destination decides, and nested producers whose
+        // destinations order their Turns. The fourth is here for the order the
+        // diagnostics arrive in: it earns a refused Portal and a row-edge
+        // layout diagnostic at once, and `carry` raises the first after
+        // `computations` has already raised the second.
+        let fixtures: [Fixture; 4] = [
+            (
+                Grid::new(16, 3),
+                &["!>007F.^80", "", ""],
+                &[(0, 16), (6, 20)],
+            ),
+            (
+                Grid::new(16, 4),
+                &["!>007FC4", "", ".=0101", ""],
+                &[(0, 34), (32, 16)],
+            ),
+            (
+                Grid::new(20, 3),
+                &[".+02.x03.+0101", ".+0203", ""],
+                &[(0, 40), (4, 44), (8, 48), (20, 4)],
+            ),
+            (
+                Grid::new(16, 4),
+                &["!>007FC4", "", "", "            .+01"],
+                &[(0, 16)],
+            ),
+        ];
+        for (grid, rows, outputs) in fixtures {
+            let bytes = snapshot(grid, rows);
+            let map = LanguageMap::build(grid, bytes.as_bytes());
+
+            let configured = super::schedule(grid, &map, &destinations(grid, outputs))
+                .expect("an acyclic schedule");
+            let carried =
+                super::schedule_carrying(grid, &map, &carried_destinations(grid, outputs))
+                    .expect("an acyclic schedule");
+            // Two routes that scheduled nothing agree about nothing. An anchor
+            // no Function occupies is ignored by the stating path and by the
+            // carrying one alike, so a fixture whose Cells drifted would
+            // satisfy every equality below while proving none of them.
+            assert!(
+                !configured.order.is_empty(),
+                "no computations scheduled for {rows:?}"
+            );
+            assert_eq!(carried.order, configured.order, "order for {rows:?}");
+            assert_eq!(
+                carried.diagnostics, configured.diagnostics,
+                "diagnostics for {rows:?}"
+            );
+
+            observed::take();
+            let (configured, configured_source) = configured_source(grid, rows, outputs);
+            let configured_evaluations = observed::take();
+            let (carried, carried_source) = carried_source(grid, rows, outputs);
+            let carried_evaluations = observed::take();
+            assert_eq!(carried, configured, "Tick Plan for {rows:?}");
+            assert_eq!(
+                carried_source.snapshot(),
+                configured_source.snapshot(),
+                "Source for {rows:?}"
+            );
+            assert_eq!(
+                carried_evaluations, configured_evaluations,
+                "evaluations for {rows:?}"
+            );
+        }
+    }
+
+    /// The fourth fixture above earns both diagnostics; this states the order
+    /// they arrive in, so that `carry` placing its refusals in front of the
+    /// layout diagnostics is a covered fact rather than an assumed one.
+    #[test]
+    fn a_refused_portal_is_diagnosed_before_the_row_edge_layout_it_shares_a_tick_with() {
+        let grid = Grid::new(16, 4);
+        let rows = ["!>007FC4", "", "", "            .+01"];
+
+        let (plan, _) = configured_source(grid, &rows, &[(0, 16)]);
+
+        assert_eq!(
+            plan.diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "a Terminal Output Function cannot have a Portal",
+                "Expression layout crosses the row edge",
+            ]
+        );
     }
 
     ///
