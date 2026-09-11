@@ -1,12 +1,12 @@
 #![cfg(target_arch = "wasm32")]
 
+use console::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use gloo_timers::future::TimeoutFuture;
 use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
 use orcvs::playback::{InMemoryOutputAdapter, OutputCommand, PlaybackEngine, PlaybackState};
 use orcvs::source::{Source, SourceCommander, Tick};
-use shell::web_startup::{MISSING_CANVAS_MESSAGE, canvas_or_report};
 use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -258,7 +258,7 @@ mod developer_console {
 /// The browser end of the Playback failure report.
 ///
 /// `Console::ui` hands the Playback diagnostics it drains to
-/// `shell::diagnostics::report_playback_failures` on every non-desktop target,
+/// `console::diagnostics::report_playback_failures` on every non-desktop target,
 /// and in the browser that report is the whole of what a Playback failure
 /// produces: the desktop's MIDI panel is compiled out there, so nothing else
 /// shows it. This holds the browser's half of "a Playback failure is
@@ -276,8 +276,8 @@ mod developer_console {
 /// cover.
 ///
 mod playback_failure {
+    use console::diagnostics::report_playback_failures;
     use orcvs::playback::PlaybackDiagnostic;
-    use shell::diagnostics::report_playback_failures;
     use std::time::Duration;
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -318,7 +318,7 @@ mod playback_failure {
 ///
 /// The browser end of the storage seam.
 ///
-/// `shell/src/persistence.rs` reports a refused revision on two channels
+/// `console/src/persistence.rs` reports a refused revision on two channels
 /// because the two targets read different ones: the native binary installs a
 /// `tracing` subscriber, and the browser build installs `eframe::WebLogger`,
 /// which reads `log` and knows nothing of `tracing`. Every other persistence
@@ -328,10 +328,10 @@ mod playback_failure {
 ///
 #[cfg(feature = "persistence")]
 mod refused_revision {
+    use console::console::Console;
     use eframe::App as _;
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
     use orcvs::source::Source;
-    use shell::console::Console;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::developer_console::records_from;
@@ -344,7 +344,7 @@ mod refused_revision {
 
     impl eframe::Storage for MalformedStorage {
         fn get_string(&self, key: &str) -> Option<String> {
-            (key == shell::persistence::SOURCE_KEY).then(|| "not a stored Source".to_owned())
+            (key == console::persistence::SOURCE_KEY).then(|| "not a stored Source".to_owned())
         }
 
         fn set_string(&mut self, _key: &str, _value: String) {}
@@ -365,13 +365,13 @@ mod refused_revision {
 
     impl eframe::Storage for RecordingStorage {
         fn get_string(&self, key: &str) -> Option<String> {
-            (key == shell::persistence::SOURCE_KEY)
+            (key == console::persistence::SOURCE_KEY)
                 .then_some(self.stored.clone())
                 .flatten()
         }
 
         fn set_string(&mut self, key: &str, value: String) {
-            if key == shell::persistence::SOURCE_KEY {
+            if key == console::persistence::SOURCE_KEY {
                 self.stored = Some(value);
             }
         }
@@ -403,7 +403,7 @@ mod refused_revision {
         // Grid, which is the revision its next save stores.
         let mut saved = RecordingStorage::default();
         console.save(&mut saved);
-        let started: Source = eframe::get_value(&saved, shell::persistence::SOURCE_KEY)
+        let started: Source = eframe::get_value(&saved, console::persistence::SOURCE_KEY)
             .expect("the console saved a revision");
         assert_eq!(
             started.grid().count(),

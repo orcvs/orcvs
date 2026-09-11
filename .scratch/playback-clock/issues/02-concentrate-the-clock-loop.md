@@ -78,11 +78,11 @@ browser one does not have to.
 The note above about nothing compiling the browser loops is stale, and it understates
 the real gap. `check_wasm` runs `cargo clippy --workspace --all-targets --target
 wasm32-unknown-unknown` on every pull request, so both loops type-check, and
-`shell/tests/wasm.rs` drives `PlaybackEngine::start` in headless Firefox in the merge
+`console/tests/wasm.rs` drives `PlaybackEngine::start` in headless Firefox in the merge
 tier. What is missing is narrower and worse: no test on any target asserts a browser
 deadline, and browser `retune` — where effort 01's second defect lived — is executed by
 nothing at all, because it is `pub(crate)` and `wasm.rs` never calls it. This effort
-should add a deadline assertion to `shell/tests/wasm.rs` and a path that drives `retune`
+should add a deadline assertion to `console/tests/wasm.rs` and a path that drives `retune`
 there. Concentrating the loops closes the divergence; it does not close the sleep
 primitive itself, where `wasm_timeout_millis` rounding, `setTimeout` clamping and
 background-tab throttling stay browser-only and native-untestable.

@@ -53,7 +53,7 @@ implementation and this evidence agree; glossary presence alone does not make a 
 - [ ] Native and WASM persistence store Grid and character Source as authority, reject malformed
       state, rebuild derived state, and restore through the save–restart–reload paths the candidate
       ships. No such path existed when this line was written; `product-persistence/01` added it and
-      made `persistence` a default feature of `shell`, so the candidate binary is the persisting one
+      made `persistence` a default feature of `console`, so the candidate binary is the persisting one
       and the deferral branch of this line is closed. What is left is the proof, which
       `v1-release/02` owns.
 - [ ] Four candidate-bound captures—native/WASM × wide/tall—record SHA, platform, viewport,

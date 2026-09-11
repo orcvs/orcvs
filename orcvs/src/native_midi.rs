@@ -142,7 +142,7 @@ mod backend {
 /// verifiable: gated on the build alone it would run in one pass of the
 /// pull-request tier and in none of the default-featured runs, and before that
 /// pass existed it ran nowhere at all — the native runs compiled it out and the
-/// browser suite runs only the shell's own integration test target — so a
+/// browser suite runs only the console's own integration test target — so a
 /// fallback that regressed to a panic or a wrong answer would type-check and
 /// ship. Compiled here it is exercised by the ordinary `cargo nextest run` pass
 /// on every target, and its role as `backend` is a re-export rather than a

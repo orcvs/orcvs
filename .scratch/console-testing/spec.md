@@ -4,11 +4,11 @@
 
 ## Why
 
-`shell` has twenty real tests and not one of them constructs an `egui::Context`. Everything from `Console::update` down is unexercised: the Scene, the Cell button grid, the Cursor overlay, the menu bar, the MIDI and Tempo menus.
+`console` has twenty real tests and not one of them constructs an `egui::Context`. Everything from `Console::update` down is unexercised: the Scene, the Cell button grid, the Cursor overlay, the menu bar, the MIDI and Tempo menus.
 
 The input path is the sharpest case. `translate_event` is tested in isolation and `Orcvs::event_handler` is tested in isolation, and nothing asserts that the two halves meet. A change that dropped every translated event on the floor would pass the full gate.
 
-The palette is the second case. `restyle-egui-console/02` pins twenty-two tokens to exact hex values and names `shell/src/theme.md` as the decided record. The six tests in `shell/src/style.rs` assert only relationships — that Bang is soft red, that Numbers are distinct from Functions, that sector strength attenuates alpha. No test asserts a value, so the record and the code can drift apart silently.
+The palette is the second case. `restyle-egui-console/02` pins twenty-two tokens to exact hex values and names `console/src/theme.md` as the decided record. The six tests in `console/src/style.rs` assert only relationships — that Bang is soft red, that Numbers are distinct from Functions, that sector strength attenuates alpha. No test asserts a value, so the record and the code can drift apart silently.
 
 ## Rules
 

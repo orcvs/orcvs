@@ -3,7 +3,7 @@
 **What to build:** Implement the four structural Sequence Functions — Reverse `:<`, Concatenate
 `:&`, Select `:?`, and Replace `:=` — with the exact contracts in ADR 0007.
 
-**Blocked by:** 06 — Project a Sequence result into Source.
+**Blocked by:** 06 — Project a Sequence result into Source; grid-boundedness/01 — Decide whether the Grid's edge is a language concept.
 
 **Status:** ready-for-agent
 

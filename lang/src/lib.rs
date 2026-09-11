@@ -317,7 +317,7 @@ mod test {
         // changed shape, and `execute` is the measurement to take again. That
         // is only worth being told where the figures mean something, which is
         // what the `target_pointer_width` gate above says — `wasm32` builds the
-        // library and runs its regressions in the `shell` crate, so today the
+        // library and runs its regressions in the `console` crate, so today the
         // gate excludes nothing that runs.
         assert_eq!(size_of::<Performance>(), 24);
         assert_eq!(size_of::<Interpretation>(), 32);

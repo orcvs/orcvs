@@ -941,7 +941,7 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
     /// Connects this engine's output to `destination_id`.
     ///
     /// Both ways a destination is chosen — this engine's own method and the
-    /// selection handle the shell holds — arrive here, so what a change of
+    /// selection handle the console holds — arrive here, so what a change of
     /// destination owes is stated once rather than twice.
     ///
     fn select_destination(
@@ -992,7 +992,7 @@ impl<B: crate::midi::MidiBackend> PlaybackEngine<crate::midi::MidiOutputAdapter<
 
 impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     ///
-    /// Records a start failure as a diagnostic so the shell can surface it, and
+    /// Records a start failure as a diagnostic so the console can surface it, and
     /// hands the error back for the caller to return. Every `start` failure path
     /// goes through here; a caller that only returns the error leaves the user
     /// with silence.

@@ -73,12 +73,12 @@ mod tests {
     use super::MidiDeviceSelection;
 
     ///
-    /// What the console does, with nothing target-specific in it. The shell
+    /// What the console does, with nothing target-specific in it. The console
     /// takes a default running Orcvs and asks it for a selection over whatever
     /// backend `orcvs` decided this target has; it never names the operating
     /// systems that carry one. Naming `NativeMidiBackend` is the whole
     /// assertion — it compiles on a target with no native backend exactly as
-    /// it does on one with a native backend, so the shell has no flag to keep
+    /// it does on one with a native backend, so the console has no flag to keep
     /// in sync. What follows states the selection a console opens with, which
     /// no device has been chosen for yet and so asks the backend nothing.
     ///

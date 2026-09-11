@@ -1,9 +1,9 @@
-var cacheName = 'orcvs-pwa-v2';
+var cacheName = 'orcvs-pwa-v3';
 var filesToCache = [
   './',
   './index.html',
-  './shell.js',
-  './shell_bg.wasm',
+  './console.js',
+  './console_bg.wasm',
 ];
 
 /* Start the service worker and cache all of the app's content */
@@ -44,8 +44,8 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   if (
     e.request.mode === 'navigate' ||
-    e.request.url.endsWith('/shell.js') ||
-    e.request.url.endsWith('/shell_bg.wasm')
+    e.request.url.endsWith('/console.js') ||
+    e.request.url.endsWith('/console_bg.wasm')
   ) {
     e.respondWith(
       caches.open(cacheName).then(function (cache) {

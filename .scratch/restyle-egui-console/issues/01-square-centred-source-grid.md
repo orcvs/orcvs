@@ -17,7 +17,7 @@
 
 ### Resolved on `01-square-centred-source-grid`, 2026-09-04
 
-**The geometry is a seam of its own.** `shell/src/grid_viewport.rs` answers, for
+**The geometry is a seam of its own.** `console/src/grid_viewport.rs` answers, for
 an available area and a Grid dimension, the square Cell size and the centred
 viewport rectangle: `grid_viewport(available, columns, rows)`. One Cell size
 serves both axes, so no console shape can stretch one axis past the other, and

@@ -225,7 +225,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo cli
 # The three persistence tests live in a test-only module and depend on serde_json,
 # a dev-dependency absent from the normal graph, so no library build can reach
 # them. Only an all-targets build compiles them, and that ran behind the push
-# guard: they were neither run nor type-checked before a merge. `shell` now
+# guard: they were neither run nor type-checked before a merge. `console` now
 # enables `persistence` by default and pulls `orcvs/persistence` with it, so the
 # plain lines below are that build; the `--no-default-features` line beside each
 # is what still compiles and runs the feature-off configuration, which is
@@ -234,8 +234,8 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo cli
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings$'
 # `native-midi` is on by default, so every workspace compilation in this tier
 # builds `orcvs` with a native MIDI backend — the `--no-default-features` one
-# included, because `shell` names the feature for its native targets. These two
-# are the ones that build it without: the clippy pass crosses the feature off
+# included, because `console` names the feature for its native targets. These
+# two are the ones that build it without: the clippy pass crosses the feature off
 # against `persistence`, so the four feature cells are all compiled, and the
 # nextest pass runs the tests that state what turning the feature off gives up,
 # which are compiled only with it off. Losing either leaves a shipped feature
@@ -285,20 +285,20 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAG
 # `--lib` type-checks no test target, so the browser regressions compiled only
 # under `wasm-pack test` in the merge tier. Compiling the test targets here is
 # what keeps a break in them off main. The scope is the workspace rather than one
-# package: it was shell alone only while orcvs built an unguarded Tokio runtime in
-# a test, which no longer holds.
+# package: it was console alone only while orcvs built an unguarded Tokio
+# runtime in a test, which no longer holds.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cargo clippy --workspace --all-targets --target wasm32-unknown-unknown --locked -- -D warnings$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cd shell$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^cd console$'
 # Two builds, and they have to be two configurations. The default one is the
 # persisting application the browser actually loads; the `--no-default-features`
 # one is the only place the WASM build without the storage path is compiled.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --no-default-features --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_wasm' '^env -u NO_COLOR trunk build --locked$'
 # The browser suite runs the shipped configuration, which carries `persistence`
-# through shell's default features. Naming the feature here would pin a flag that
-# changes nothing; pinning the line without one is what catches a
+# through the console's default features. Naming the feature here would pin a
+# flag that changes nothing; pinning the line without one is what catches a
 # `--no-default-features` browser run that no longer exercises storage.
-assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox shell --test wasm --locked.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack test --headless --firefox console --test wasm --locked.$'
 # Both bench tasks are pinned whole, flags included. The criterion budget is not a
 # tuning detail that may drift: the gate reading these numbers alerts at 150% and
 # fails at 300% across two different hosted runners, so it cannot resolve better
@@ -403,44 +403,44 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 # the one thing this must not become.
 assert_contains "$root_dir/.github/workflows/bench.yml" '^          printf .\[%s\].n. "[$][(]printf'
 assert_not_contains "$root_dir/.github/workflows/bench.yml" '(^|[^[:alnum:]-])jq([^[:alnum:]-]|$)'
-assert_contains "$root_dir/shell/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
+assert_contains "$root_dir/console/Trunk.toml" '^filehash[[:space:]]*=[[:space:]]*false$'
 # Persistence ships on, and every feature arm above is stated relative to that.
 # With `default = ["persistence"]` the plain workspace runs are the persistence
 # arm and `--no-default-features` is the feature-off arm. Flip this back to `[]`
 # and both arms become feature-off — nothing left in either tier would compile
 # the storage path — so the manifest and the tier lines are pinned together
 # rather than one being left free to invalidate the other.
-shell_features_table='^[[:space:]]*[[]features[]][[:space:]]*$'
-assert_toml_table_contains "$root_dir/shell/Cargo.toml" "$shell_features_table" '^[[:space:]]*default[[:space:]]*=[[:space:]]*[[]"persistence"[]]$'
+console_features_table='^[[:space:]]*[[]features[]][[:space:]]*$'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*default[[:space:]]*=[[:space:]]*[[]"persistence"[]]$'
 # The feature has to stay a feature: inlining it would remove the build
 # `--no-default-features` proves, which is the criterion the default-on decision
 # was taken against rather than in place of.
-assert_toml_table_contains "$root_dir/shell/Cargo.toml" "$shell_features_table" '^[[:space:]]*persistence[[:space:]]*=[[:space:]]*[[].*"eframe/persistence".*"orcvs/persistence".*[]]$'
-assert_contains "$root_dir/shell/assets/sw.js" "'./shell.js'"
-assert_contains "$root_dir/shell/assets/sw.js" "'./shell_bg.wasm'"
-assert_contains "$root_dir/shell/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-9]+';$"
-assert_contains "$root_dir/shell/assets/sw.js" "self[.]addEventListener[(]'activate'"
-assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]keys[(][)]'
-assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]delete[(]name[)]'
-assert_contains "$root_dir/shell/assets/sw.js" "name === 'orcvs-pwa'"
-assert_contains "$root_dir/shell/assets/sw.js" "name === 'egui-template-pwa'"
-assert_contains "$root_dir/shell/assets/sw.js" "name[.]startsWith[(]'orcvs-pwa-'[)]"
-assert_contains "$root_dir/shell/assets/sw.js" 'return isOrcvsCache && name !== cacheName;'
-assert_contains "$root_dir/shell/assets/sw.js" 'caches[.]open[(]cacheName[)]'
-assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]match[(]e[.]request[)]'
-assert_not_contains "$root_dir/shell/assets/sw.js" 'caches[.]match[(]e[.]request[)]'
-assert_contains "$root_dir/shell/assets/sw.js" 'self[.]skipWaiting[(][)]'
-assert_contains "$root_dir/shell/assets/sw.js" 'self[.]clients[.]claim[(][)]'
-assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]mode === 'navigate'"
-assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]"
-assert_contains "$root_dir/shell/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]"
-assert_contains "$root_dir/shell/assets/sw.js" "fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]"
-assert_contains "$root_dir/shell/assets/sw.js" 'response[.]ok'
-assert_contains "$root_dir/shell/assets/sw.js" 'cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch'
-assert_contains "$root_dir/shell/assets/sw.js" 'response[[:space:]]*[|][|][[:space:]]*Response[.]error[(][)]'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*persistence[[:space:]]*=[[:space:]]*[[].*"eframe/persistence".*"orcvs/persistence".*[]]$'
+assert_contains "$root_dir/console/assets/sw.js" "'./console.js'"
+assert_contains "$root_dir/console/assets/sw.js" "'./console_bg.wasm'"
+assert_contains "$root_dir/console/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-9]+';$"
+assert_contains "$root_dir/console/assets/sw.js" "self[.]addEventListener[(]'activate'"
+assert_contains "$root_dir/console/assets/sw.js" 'caches[.]keys[(][)]'
+assert_contains "$root_dir/console/assets/sw.js" 'caches[.]delete[(]name[)]'
+assert_contains "$root_dir/console/assets/sw.js" "name === 'orcvs-pwa'"
+assert_contains "$root_dir/console/assets/sw.js" "name === 'egui-template-pwa'"
+assert_contains "$root_dir/console/assets/sw.js" "name[.]startsWith[(]'orcvs-pwa-'[)]"
+assert_contains "$root_dir/console/assets/sw.js" 'return isOrcvsCache && name !== cacheName;'
+assert_contains "$root_dir/console/assets/sw.js" 'caches[.]open[(]cacheName[)]'
+assert_contains "$root_dir/console/assets/sw.js" 'cache[.]match[(]e[.]request[)]'
+assert_not_contains "$root_dir/console/assets/sw.js" 'caches[.]match[(]e[.]request[)]'
+assert_contains "$root_dir/console/assets/sw.js" 'self[.]skipWaiting[(][)]'
+assert_contains "$root_dir/console/assets/sw.js" 'self[.]clients[.]claim[(][)]'
+assert_contains "$root_dir/console/assets/sw.js" "e[.]request[.]mode === 'navigate'"
+assert_contains "$root_dir/console/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/console[.]js'[)]"
+assert_contains "$root_dir/console/assets/sw.js" "e[.]request[.]url[.]endsWith[(]'/console_bg[.]wasm'[)]"
+assert_contains "$root_dir/console/assets/sw.js" "fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]"
+assert_contains "$root_dir/console/assets/sw.js" 'response[.]ok'
+assert_contains "$root_dir/console/assets/sw.js" 'cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch'
+assert_contains "$root_dir/console/assets/sw.js" 'response[[:space:]]*[|][|][[:space:]]*Response[.]error[(][)]'
 assert_contains "$root_dir/.vscode/launch.json" '"--package=orcvs",'
-assert_contains "$root_dir/.vscode/launch.json" '"--package=shell"'
-assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=console'
+assert_contains "$root_dir/.vscode/launch.json" '"--package=console"'
+assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=shell'
 assert_not_contains "$root_dir/.vscode/launch.json" '(package|bin)=(vtha|parser_benchmark)'
 # Every version this repository pins is bumped by something that watches the file
 # it lives in. `rust-toolchain.toml` was watched by nothing, which is why the
@@ -616,12 +616,12 @@ assert_contains "$root_dir/orcvs/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]
 assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_not_contains "$root_dir/Cargo.toml" '^[[:space:]]*criterion[[:space:]]*='
-assert_not_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
+assert_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
 assert_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
 assert_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
 assert_not_contains "$root_dir/Cargo.toml" '^\[profile\.ci\]$'
 assert_contains "$root_dir/Cargo.toml" '^tokio[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
-for manifest in "$root_dir/orcvs/Cargo.toml" "$root_dir/shell/Cargo.toml"; do
+for manifest in "$root_dir/orcvs/Cargo.toml" "$root_dir/console/Cargo.toml"; do
   assert_not_contains "$manifest" '^tokio[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
   assert_not_contains "$manifest" '^[[:space:]]*(dependencies[.])?tokio[.]version[[:space:]]*='
   assert_not_contains "$manifest" '^[[:space:]]*dependencies[.]tokio[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
@@ -641,7 +641,7 @@ assert_toml_table_contains "$root_dir/orcvs/Cargo.toml" "$proptest_native_dev_ta
 assert_contains "$root_dir/Cargo.toml" '^proptest[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
-assert_not_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
+assert_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*proptest([.]workspace)?[[:space:]]*='
 # The plain `[dev-dependencies]` table is the one that also compiles for WASM, so
 # it needs its own guard: the shipped-dependency assertions above deliberately do
 # not match a `dev-` table, and without this a move from the target table into the
@@ -735,11 +735,11 @@ assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[]target[.].cfg[(
 # too. Pinning it in the plain table alone accepted a native declaration that
 # had dropped it — a console back on the borrowed default, which is the one
 # thing naming the feature exists to prevent, passing green.
-assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
-assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
-# The feature list is pinned by what it contains, not by how long it is. `shell`
-# already has a `persistence` feature that maps onto `orcvs/persistence`, so a
-# second entry beside `native-midi` is a manifest this contract should accept;
-# requiring the list to be exactly `["native-midi"]` rejected it with a message
-# that read as though the feature were missing.
-assert_toml_table_contains "$root_dir/shell/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*[^-]features[[:space:]]*=[[:space:]]*[[]([^]]*,[[:space:]]*)?"native-midi"'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
+# The feature list is pinned by what it contains, not by how long it is.
+# `console` already has a `persistence` feature that maps onto
+# `orcvs/persistence`, so a second entry beside `native-midi` is a manifest this
+# contract should accept; requiring the list to be exactly `["native-midi"]`
+# rejected it with a message that read as though the feature were missing.
+assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*[^-]features[[:space:]]*=[[:space:]]*[[]([^]]*,[[:space:]]*)?"native-midi"'

@@ -6,7 +6,7 @@ with distinct signatures, per ADR 0007 and ADR 0023. Each fixes its own operand 
 and returns an inclusive chromatic Sequence of Notes. Neither selects its behaviour from its
 operands, and neither converts implicitly.
 
-**Blocked by:** 06 — Project a Sequence result into Source; 07 — Make the Comment a Parser unit.
+**Blocked by:** 06 — Project a Sequence result into Source; 07 — Make the Comment a Parser unit; grid-boundedness/01 — Decide whether the Grid's edge is a language concept.
 
 **Status:** ready-for-agent
 

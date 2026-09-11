@@ -1065,7 +1065,7 @@ mod tests {
 
 ///
 /// The console's own end of the storage seam: the two lines that wire the
-/// running Console to `shell::persistence`. Every other persistence test drives
+/// running Console to `console::persistence`. Every other persistence test drives
 /// the persistence interface directly and would still pass with the
 /// Console unwired, so these construct a real `Console` and call the real
 /// `eframe::App::save`.

@@ -365,7 +365,7 @@ fn writing_one_cell_allocates_nothing_that_grows_with_the_revision() {
     // here untouched. What breaks the equality is a retention whose cost
     // *grows* with the revision count, and even then an amortised-doubling
     // growth reallocates on roughly one round in five. The wasm counterpart in
-    // `shell/tests/wasm.rs` is the assertion that watches retention itself,
+    // `console/tests/wasm.rs` is the assertion that watches retention itself,
     // because linear memory cannot shrink; on native there is no equivalent
     // and this file does not claim one.
     //

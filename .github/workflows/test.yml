@@ -66,7 +66,7 @@ jobs:
     if: github.event_name != 'pull_request'
     # Forty rather than the twenty every other job takes. This tier compiles the
     # workspace twice — default features and `--no-default-features` — since
-    # `shell` ships `persistence` on and the feature-off build is a separate
+    # `console` ships `persistence` on and the feature-off build is a separate
     # feature set, so it shares nothing with the default one. The caches here
     # only ever save on `main` (`save-if` and `cache_save` below), so a run
     # restores whatever `main` last wrote and pays in full for whatever it does
