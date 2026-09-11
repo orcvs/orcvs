@@ -115,7 +115,7 @@ impl ComputationState {
     /// The inputs the Interpreter received for this computation, or `None`
     /// where it never ran for it.
     ///
-    /// The one thing a caller outside this module reads off a state. Nothing
+    /// One of the facts a caller outside this module reads off a state. Nothing
     /// publishes it yet: a Tick Plan carries what to apply, and this carries
     /// what happened, which is what a console or a diagnostic view will ask
     /// for and what the tests of this module ask for today.
@@ -826,10 +826,13 @@ fn render_message(reason: RenderError) -> String {
 ///   declared Range row.
 ///
 /// Only the Turn loop is reimplemented, because substituting one Turn is the
-/// one thing this does differently. The starting state, the Bang cleanup it
-/// performs, the schedule, the rejection path, the resolution, and the Turn
-/// every other computation takes are all the production ones, reached through
-/// the same [`Execution::new`] that [`execute`] reaches them through.
+/// one thing this does differently. It records each Turn's ordinal exactly as
+/// the production loop does, and a rejected Tick through this loop is held to
+/// that by a test of its own, so the two cannot drift apart unnoticed. The
+/// starting state, the Bang cleanup it performs, the schedule, the rejection
+/// path, the resolution, and the Turn every other computation takes are all
+/// the production ones, reached through the same [`Execution::new`] that
+/// [`execute`] reaches them through.
 ///
 #[cfg(test)]
 pub(super) mod stated {
