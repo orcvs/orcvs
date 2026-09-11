@@ -91,6 +91,7 @@ Assert against the Render Frame, which is this effort's stated rule, and claim s
 **Every surveyed painter-path implementation culls**, including a hex editor at far smaller per-Cell
 cost than this console. The one project that culls nothing draws on the GPU in a single call, and
 culls strictly on the one screen where it does use the painter per Cell.
+
 ---
 
 Resolved. `GridViewport::visible_positions` answers a column range and a row range, and the Cell
@@ -127,7 +128,7 @@ the Cells outside the range would be the version the issue warns about.
 
 **The finding: the row-locality of the run is not observable in a Render Frame, and was not
 observable before this change either.** Hoisting `let mut run` out of the row loop — so a run
-survives into the row below — passes all 69 tests, this issue's new ones included. The reason is
+survives into the row below — passes all 76 tests, this issue's new ones included. The reason is
 arithmetic rather than a gap in the fixtures. A leaked run widens to
 `Rect::from_min_max(covered.min, rect.max)` where `covered.min` is in row *N* at the run's own start
 column and `rect.max` is in row *N+1* at the **first drawn** column. The first drawn column is the
@@ -162,3 +163,55 @@ added to shipped code for a test, and no counter was added for one either.
 
 `RenderFrame::derive` is untouched, `source_dimensions` still walks `frame.rows()` for the column
 count, and nothing under `orcvs/` was changed.
+
+---
+
+Reviewed. Three independent reviews ran against `main`, their findings were verified against the
+code, and the fixes are below. Two tests were added and the console suite is 78.
+
+**The margin's stated rationale was backwards, and the correction is substantive rather than
+editorial.** Three comments said "a Cell's left and top sector seams are drawn by the Cell one past
+them". A Cell draws the seams on its *own* left and top edges (`console/src/console.rs:729-740`), so
+it is a Cell's *right and bottom* seams that belong to the Cell one past it. The conclusion — one
+more Cell on the far side — was right, but the reason as written argued for a margin on the near
+side, where none is needed.
+
+Correcting it exposed the larger claim. **The margin reaches no painted Shape strictly inside the
+clip.** A margin Cell's left edge *is* the right boundary of what is shown, never inside it, so the
+seam it would draw is on screen only where the clip's edge falls exactly on that Cell boundary; the
+feathering is sub-pixel. Removing the margin outright — `first..last + 1` — changes no painted
+output and fails only `the_visible_range_is_the_shown_positions_and_one_cell_more_each_way`, which
+is a range assertion. So the acceptance line about trailing seams is satisfied by the margin
+existing, not by a seam a test can catch it rescuing, and the acceptance text's own version of the
+rationale carries the same inversion. The margin is kept: the boundary-aligned case and the
+sub-pixel spill are real, and the clip is what the surplus is handed to.
+
+**`a_zoomed_console_paints_every_sector_seam_inside_the_clip` is the seam criterion, finally
+asserted.** The pre-existing seam test runs on a default `SourceView` — the fit, every Position
+drawn — so nothing pinned seams under culling. The new test asserts, from the Render Frame at a zoom
+that culls on all four sides, that every seam strictly inside the clip is painted. It sweeps two
+pans, because which seams land strictly inside is a property of the pan: at one pan the nearest seam
+sat six columns from the edge and a column-side error went unseen. It bites on every cull that drops
+a shown Cell — two shown columns on the near side, one on the far, the same for rows, and columns
+culled to nothing. It is provably blind to a cull short by exactly one, which removes only the
+margin, for the reason above.
+
+**A clip sharing one edge with the Grid was ranging over Positions it shows nothing of.**
+`Rect::intersect` answers a zero-area rectangle where two rectangles touch, and `Rect::contains` is
+inclusive, so both corners landed inside the Grid and `cell_at` accepted them: a Grid at x in
+[10, 810] with a clip whose left edge sat at x = 810 answered `columns: 30..32`, building the Shapes
+for 64 entirely off-screen Positions. `visible_positions` now refuses an intersection with no area —
+the same question the tests' `overlaps` helper asks of a single Cell, asked of the whole Grid — and
+`a_clip_that_only_touches_the_grid_ranges_over_nothing` covers all four edges. This also subsumes
+the inverted rectangle that `intersect` answers when the two do not meet.
+
+**The draw loop indexes its slices rather than defaulting them.** `get(..).unwrap_or_default()`
+turned a broken invariant into a row that silently went unpainted: in a release build, where
+`source_dimensions`' rectangularity check is compiled out, a ragged Frame would have dropped a whole
+row that the pre-culling loop drew in full. Both ranges are clamped to the dimensions read from the
+same Frame, so the invariant is proven and indexing is what states it.
+
+Also corrected: `show_source`'s doc still claimed every Cell is painted; `VisiblePositions`' doc
+claimed to hold only the Positions the console shows, which the margin contradicts; and
+`render-frame-derivation/spec.md` struck the Source clone from its list on local benchmark figures
+without the caveat issue 01 attaches to them.

@@ -566,9 +566,11 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 ///
 /// Draws the Source Grid and answers the one question a click asks of it.
 ///
-/// The whole Grid is one allocated rectangle and every Cell is painted, so no
-/// Cell is a widget and the cost of a Render Frame is shapes rather than
-/// interaction rects and widget ids.
+/// The whole Grid is one allocated rectangle and no Cell is a widget, so the
+/// cost of a Render Frame is shapes rather than interaction rects and widget
+/// ids. Only the Positions the viewport covers are painted —
+/// `GridViewport::visible_positions` is this loop's one source of them — so
+/// that cost follows the viewport rather than the Source.
 ///
 /// A background is painted only where it differs from the Source fill the panel
 /// is already filled with, and consecutive Cells in a row that want the same
@@ -637,10 +639,13 @@ fn show_source(
     // console shows a tenth of costs a tenth of the Cell iteration and a tenth
     // of the Shapes, whatever the Grid's size.
     //
-    // The ranges reach one Cell past what is visible, which is what keeps the
-    // trailing sector seams at the right and bottom edges — a Cell's seams are
-    // drawn by the Cell one past them — and the clip rectangle above discards
-    // the surplus. See `GridViewport::visible_positions`.
+    // The ranges reach one Cell past what is visible. A Cell draws its own left
+    // and top seams, so the seam at a Cell's right or bottom edge belongs to
+    // the Cell one past it, and a border feathers a physical pixel outside the
+    // rectangle it strokes. Both land on the clip's boundary, which is what the
+    // clip rectangle above discards. See `GridViewport::visible_positions` for
+    // why that makes the margin a boundary case rather than a seam that would
+    // otherwise go missing.
     let visible = grid.visible_positions(clip, columns, rows);
     let cells = visible.count();
     // A background is the exception and a border is the rule, so only the
@@ -651,7 +656,13 @@ fn show_source(
     let mut seams = Vec::new();
     let mut cursor_strokes = Vec::new();
 
-    for row in frame.rows().get(visible.rows.clone()).unwrap_or_default() {
+    // Indexed rather than `get(..).unwrap_or_default()`. Both ranges are
+    // clamped to the `columns` and `rows` that `source_dimensions` just read
+    // from this same Render Frame, so neither slice can be out of bounds while
+    // a Frame is the rectangle it is asserted to be. Answering an empty slice
+    // instead would turn a broken invariant into a row that silently goes
+    // unpainted; indexing keeps it loud.
+    for row in &frame.rows()[visible.rows.clone()] {
         // The run of consecutive Cells in this row that share one background:
         // the colour, and the rectangle it covers so far. A Cell wanting a
         // different colour ends it, and so does a Cell wanting none.
@@ -662,7 +673,7 @@ fn show_source(
         // row and skipped the Cells outside the range would carry a run in from
         // off-screen instead, and the flush below would no longer be the end of
         // what was drawn.
-        for cell in row.get(visible.columns.clone()).unwrap_or_default() {
+        for cell in &row[visible.columns.clone()] {
             let position = cell.position();
             let rect = grid.cell_rect(position.x(), position.y());
             let visuals = cell_visuals(
@@ -2672,6 +2683,106 @@ mod tests {
         assert!(
             filled_last_drawn > 0,
             "no drawn row ends with a run still open"
+        );
+    }
+
+    ///
+    /// Every sector seam the Render Frame asks for inside a culled viewport is
+    /// painted, so culling cannot drop a seam a viewer can see.
+    ///
+    /// This is the acceptance criterion about seams at the edges of the visible
+    /// range, asserted from the Render Frame at a zoom that culls on all four
+    /// sides. `sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor`
+    /// runs on a default `SourceView` — the fit, with every Position drawn — so
+    /// it says nothing about a range-limited row.
+    ///
+    /// Only seams lying *strictly* inside the clip are asserted. A segment on
+    /// the clip's own edge is what the clip is entitled to discard, and it is
+    /// the only thing the one-Cell margin reaches: a margin Cell's left edge is
+    /// the right boundary of what is shown, never inside it. So this test pins
+    /// the criterion, and the margin is the separate, deliberate over-draw its
+    /// own comment describes.
+    ///
+    /// Two pans rather than one, because which seams land strictly inside the
+    /// clip is a property of the pan. The Marker spacing is 8 and a Cell is 50
+    /// points at this zoom, so one pan is chosen to put a seam column
+    /// immediately inside the first drawn column and the other to put one on
+    /// the last: between them a cull that is short by a Cell on any of the four
+    /// sides drops a seam this asserts. At a single pan the nearest seam can
+    /// sit six columns from the edge and a column-side error goes unseen.
+    ///
+    #[test]
+    fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+
+        let mut asserted = 0;
+        for translation in [Vec2::new(-760.0, -520.0), Vec2::new(-820.0, -520.0)] {
+            let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let mut view = SourceView::default();
+
+            let frame = orcvs.render_frame();
+            pinned_at(&mut view, translation, MAX_ZOOM);
+            let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let painted: Vec<_> = shapes
+                .iter()
+                .filter_map(|shape| match shape {
+                    Shape::LineSegment { points, .. } => Some(*points),
+                    _ => None,
+                })
+                .collect();
+
+            assert!(
+                visible.columns.start > 0
+                    && visible.columns.end < DEFAULT_COL_COUNT
+                    && visible.rows.start > 0
+                    && visible.rows.end < DEFAULT_ROW_COUNT,
+                "the pan {translation:?} culled nothing on one side, so no seam is near a culled edge: {visible:?}"
+            );
+
+            for cell in frame.rows().iter().flatten() {
+                let position = cell.position();
+                let rect = viewport.cell_rect(position.x(), position.y());
+
+                for (strength, ends) in [
+                    (
+                        cell.sector_left_strength(),
+                        [rect.left_top(), rect.left_bottom()],
+                    ),
+                    (
+                        cell.sector_top_strength(),
+                        [rect.left_top(), rect.right_top()],
+                    ),
+                ] {
+                    if strength.is_none() || cell.selected() {
+                        continue;
+                    }
+                    let span = Rect::from_two_pos(ends[0], ends[1]);
+                    let inside = span.min.x > screen.min.x
+                        && span.max.x < screen.max.x
+                        && span.min.y > screen.min.y
+                        && span.max.y < screen.max.y;
+                    if !inside {
+                        continue;
+                    }
+
+                    assert!(
+                        painted.iter().any(|points| {
+                            (points[0] - ends[0]).length() < 1e-3
+                                && (points[1] - ends[1]).length() < 1e-3
+                        }),
+                        "the seam at {position:?} is inside the clip at pan \
+                         {translation:?} and was not painted"
+                    );
+                    asserted += 1;
+                }
+            }
+        }
+
+        assert!(
+            asserted > 0,
+            "no seam lies strictly inside the clip, so this asserted nothing"
         );
     }
 
