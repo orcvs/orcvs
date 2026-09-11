@@ -6,13 +6,13 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `RenderFrame` stores `grid: Grid` and answers it.
-- [ ] `source_dimensions`, its `expect` and its `debug_assert` are deleted.
-- [ ] Its three callers ask the Grid instead: `show_source:587`, `show_source_scene:820`, and the test at `console.rs:1687`. The test module's import of it at `console.rs:1131` goes with the function.
-- [ ] `RenderFrame::rows()` still answers `&[Vec<RenderCell>]` and is not flattened. Two `Orcvs` doctests and dozens of assertions index it as `rows()[i][j]`; that is the right shape for a type whose consumer iterates in row order.
-- [ ] No change to what is painted.
+- [x] `RenderFrame` stores `grid: Grid` and answers it.
+- [x] `source_dimensions`, its `expect` and its `debug_assert` are deleted.
+- [x] Its three callers ask the Grid instead: `show_source:587`, `show_source_scene:820`, and the test at `console.rs:1687`. The test module's import of it at `console.rs:1131` goes with the function.
+- [x] `RenderFrame::rows()` still answers `&[Vec<RenderCell>]` and is not flattened. Two `Orcvs` doctests and dozens of assertions index it as `rows()[i][j]`; that is the right shape for a type whose consumer iterates in row order.
+- [x] No change to what is painted.
 
 ## Verification
 
