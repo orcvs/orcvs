@@ -77,7 +77,7 @@ A Function whose result may depend on Cells outside its explicit operands or may
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
-A transient pulse Atom returned by a Function, whose output activates aligned neighboring roots during the same Tick. Its `**` spelling is a visual representation of that output, not an executable Function or a new activation on the following Tick. Manually entering `**` is a no-op. A `**` spelling rejected in a typed operand remains invalid syntax and cannot activate another root.
+A transient pulse Atom returned by a Function, whose output activates aligned neighboring roots during the same Tick. Alignment is measured from the result's own two-Cell Span: a horizontally aligned root anchors two columns away with its Span touching the result's, and a vertically aligned root shares the result's anchor column one row north or south. Its `**` spelling is a visual representation of that output, not an executable Function or a new activation on the following Tick. Manually entering `**` is a no-op. A `**` spelling rejected in a typed operand remains invalid syntax and cannot activate another root.
 _Avoid_: Boolean, trigger flag
 
 **Directional Bang Function**:

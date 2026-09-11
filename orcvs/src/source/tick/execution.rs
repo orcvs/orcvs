@@ -6,7 +6,7 @@
 
 use std::ops::ControlFlow::{self, Break, Continue};
 
-use lang::{Atom, Function, Interpretation, Interpreter, Tick, TickInputs, Value};
+use lang::{Atom, Function, Interpretation, Interpreter, SourceEffect, Tick, TickInputs, Value};
 
 use super::{
     Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal, PortalError,
@@ -107,11 +107,43 @@ impl ComputationState {
     }
 }
 
+///
+/// What a blocked Self-Banging move ran into.
+///
+/// ADR 0006 gives a refused move three outcomes beyond the `**` every refusal
+/// displays, and they are three rather than two because a Language Unit can be
+/// met completely or across its edge: "Complete aligned root contact also
+/// directly delivers Bang activation ... Partial Language Unit contact
+/// diagnoses and delivers nothing. Complete non-root contact adds no collision
+/// diagnostic."
+enum Contact {
+    /// One complete Expression root covers every newly entered Cell, which is
+    /// the alignment ADR 0006 activates on. A vertical move meets the root's
+    /// whole Span; a horizontal one meets the single Cell it enters, which is
+    /// the Cell of the root anchored two columns away.
+    Root(usize),
+    /// A Language Unit is met across its edge. The move is blocked and nothing
+    /// is delivered, and the misalignment is diagnosed because it is the one
+    /// outcome a Source author cannot read off the `**` alone.
+    Partial,
+    /// Nothing more to say: either one complete Language Unit that is no root
+    /// stands there, or the Cells hold characters the Parser established no
+    /// unit from. The two are one outcome and are not told apart, because
+    /// ADR 0006 asks for a diagnostic in neither.
+    Silent,
+}
+
 struct Execution<'a> {
     grid: Grid,
     original: &'a [u8],
     working: Vec<u8>,
     tick: Tick,
+    /// The Language Units of the Source Snapshot, retained for the one question
+    /// the [`Lookup`] cannot answer: what a Self-Banging Function's move ran
+    /// into. A `Lookup` indexes Expressions, so a Comment and a standalone Bang
+    /// are absent from it, and ADR 0006 classifies contact against every
+    /// Language Unit rather than against the computations alone.
+    map: &'a LanguageMap,
     lookup: &'a Lookup,
     states: Vec<ComputationState>,
     effects: Vec<Effect>,
@@ -129,7 +161,7 @@ impl<'a> Execution<'a> {
     fn new(
         grid: Grid,
         bytes: &'a [u8],
-        map: &LanguageMap,
+        map: &'a LanguageMap,
         tick: Tick,
         lookup: &'a Lookup,
         diagnostics: Vec<Diagnostic>,
@@ -139,6 +171,7 @@ impl<'a> Execution<'a> {
             original: bytes,
             working: bytes.to_vec(),
             tick,
+            map,
             lookup,
             states: lookup
                 .nodes()
@@ -181,12 +214,15 @@ impl<'a> Execution<'a> {
     ///
     fn opens_turn(&mut self, index: usize) -> Option<lang::Tokens> {
         let node = &self.lookup.nodes()[index];
-        // Activation belongs to the owner's kind, and the kind that decides it
-        // is the one the owner is running: the Function the Parser found until
-        // an earlier replacement in this same Tick changed it. It is
-        // independent of whether this computation will produce a typed answer.
+        // Activation is the owner's to declare, and the declaration that
+        // decides it is the one the owner is running: the Function the Parser
+        // found until an earlier replacement in this same Tick changed it. It
+        // is independent of whether this computation will produce a typed
+        // answer — a Self-Banging Function answers none and takes its Turn
+        // anyway, which is why this asks the activation source rather than
+        // `answers_value`.
         if self.states[index].suppressed
-            || (!self.states[node.owner].function.answers_value()
+            || (!self.states[node.owner].function.is_intrinsically_active()
                 && !self.states[node.owner].activated)
         {
             return None;
@@ -249,6 +285,9 @@ impl<'a> Execution<'a> {
             Ok(Interpretation::Cell(atom)) => return self.deliver_value(index, Value::Atom(atom)),
             Ok(Interpretation::Sequence(sequence)) => {
                 return self.deliver_value(index, Value::Sequence(sequence));
+            }
+            Ok(Interpretation::Source(effect)) => {
+                return self.deliver_source_effect(index, effect);
             }
         }
         Continue(())
@@ -406,6 +445,8 @@ impl<'a> Execution<'a> {
                 let target = self.states[contact.index].function;
                 contact.at_anchor
                     && (replacement.answers_value() != target.answers_value()
+                        || replacement.is_intrinsically_active()
+                            != target.is_intrinsically_active()
                         || replacement.can_emit_bang() != target.can_emit_bang()
                         // ADR 0036: a schedule reserves Cells from the Function
                         // it found at each anchor, so a replacement that would
@@ -457,6 +498,167 @@ impl<'a> Execution<'a> {
         Continue(())
     }
 
+    ///
+    /// ADR 0004's one validated effect bundle for a Source-writing Function.
+    ///
+    /// Every Function answering one is a Self-Banging Function today, so the
+    /// bundle is ADR 0006's move: "An empty destination plans one validated
+    /// Portal bundle: spaces over the current Span, followed by its own
+    /// spelling at the shifted destination. A blocked or out-of-Grid move
+    /// instead replaces its current Span with `**`."
+    ///
+    /// It is not [`Execution::deliver_value`] with a different destination.
+    /// That path delivers one encoding through every Portal a computation
+    /// resolved; this one writes different Cells at each of its two, and what
+    /// it writes at the second decides what it writes at the first. The rules
+    /// they do share — the executed-computation rejection and one write
+    /// admitted whole or not at all — are asked here over the Cells this bundle
+    /// covers.
+    ///
+    /// The producer's own Span is excepted from the contact rule, because this
+    /// bundle covers it by design: clearing the Cells it stands in is the first
+    /// half of moving out of them. `order_turns` excepts the same producer from
+    /// the self-edge that would otherwise reject every Tick one of these takes
+    /// a Turn in.
+    ///
+    /// The displacement is the Interpreter's answer and the destination
+    /// `computations` reserved is the same declaration read before the Turn.
+    /// Resolving it again here is what makes this the answer being delivered
+    /// rather than the schedule replaying itself, and it is the relationship
+    /// ADR 0036 already gives a reservation and the write it orders.
+    ///
+    fn deliver_source_effect(
+        &mut self,
+        index: usize,
+        effect: SourceEffect,
+    ) -> ControlFlow<Diagnostic> {
+        let node = &self.lookup.nodes()[index];
+        let anchor = node.anchor;
+        let spelling = Encoding::literal(effect.spelling)
+            .expect("a Function spelling is printable ASCII Cells");
+        // The Cells this Function stands in. Every Function spelling is two
+        // ASCII Cells by compile-time assertion, and a Self-Banging Function
+        // writes its own spelling, so the Span it leaves and the Span it writes
+        // are the same width and one length serves both.
+        let start = self.grid.index(anchor).get();
+        let own = start..start + spelling.len();
+
+        // ADR 0006 tests "only Cells newly entered by a one-Cell move", which
+        // is the whole destination for a vertical move and one Cell of it for a
+        // horizontal one. The asymmetry is not carved into the write: per
+        // ADR 0004 the clear covers the complete old Span and ADR 0020's
+        // later-write-wins settles the Cell the two share.
+        let admitted =
+            Portal::displaced(self.grid, anchor, effect.columns, effect.rows).and_then(|portal| {
+                portal
+                    .admit(&spelling)
+                    .map(|write| (portal.destination(), write))
+            });
+        let entered: Vec<usize> = match &admitted {
+            Ok((_, write)) => write
+                .cells()
+                .map(|(cell, _)| cell.get())
+                .filter(|cell| !own.contains(cell))
+                .collect(),
+            Err(_) => vec![],
+        };
+        let empty = entered.iter().all(|cell| self.working[*cell] == b' ');
+
+        match admitted {
+            Ok((destination, write)) if empty => {
+                let relationships = self.lookup.written_over(destination, spelling.len());
+                if relationships.functions().any(|contact| {
+                    contact
+                        .subtree
+                        .filter(|descendant| *descendant != index)
+                        .any(|descendant| self.states[descendant].attempted)
+                }) {
+                    return Break(diagnose(
+                        node,
+                        "spatial output reached an executed computation; Tick effects rejected",
+                    ));
+                }
+                // Nothing is suppressed here, and the absence is the rule
+                // rather than an omission: a move is admitted only where the
+                // Cells it enters are empty, so no Language Unit stands in them
+                // to have been scheduled. A literal operand covering them is
+                // untouched for the reason ADR 0034 gives every spatial write —
+                // the receiving operand decodes what is in Source when it
+                // consumes it, and the edge above is what makes it read this
+                // producer's Cells rather than the ones it replaced.
+                let cleared = Encoding::literal(&" ".repeat(spelling.len()))
+                    .expect("a space is a printable Cell");
+                let clear = Portal::at(self.grid, anchor)
+                    .admit(&cleared)
+                    .expect("a Function standing in the Source fits its own Span");
+                self.write(clear);
+                self.write(write);
+            }
+            // Refused: out of the Grid, past the row edge, or blocked by Cells
+            // that are not empty. ADR 0004 admits no partial write, so the
+            // whole destination is gone in every case.
+            _ => {
+                // Source content rather than an answer: this Bang is the
+                // display ADR 0006 gives a refused move, so it is stated here
+                // the way the Bang cleanup in `Execution::new` is, and it
+                // reaches no Portal of a value.
+                let bang =
+                    Encoding::literal("**").expect("the Bang spelling is printable ASCII Cells");
+                let display = Portal::at(self.grid, anchor)
+                    .admit(&bang)
+                    .expect("a Function standing in the Source fits its own Span");
+                self.write(display);
+                match self.contact(&entered) {
+                    // ADR 0006: "Complete aligned root contact also directly
+                    // delivers Bang activation." The schedule ordered this
+                    // producer ahead of every root its Portal could reach, so
+                    // the contacted root's Turn is still ahead of it.
+                    Contact::Root(root) => self.states[root].activated = true,
+                    Contact::Partial => self.effects.push(Effect::Diagnose(diagnose(
+                        node,
+                        format!("{} contacts part of a Language Unit", effect.spelling),
+                    ))),
+                    Contact::Silent => {}
+                }
+            }
+        }
+        Continue(())
+    }
+
+    ///
+    /// What the Cells a blocked move would have entered hold, classified the
+    /// way ADR 0006 classifies contact.
+    ///
+    /// It is asked of the Language Map and not of the [`Lookup`] because a
+    /// Language Unit is not always a computation: a Comment and a standalone
+    /// Bang each occupy Cells and neither is scheduled. The Map is the Source
+    /// Snapshot's, which is where every other geometric question in this file
+    /// is settled; whether those Cells are still occupied is a question about
+    /// working Source and is answered before this one is asked.
+    ///
+    fn contact(&self, entered: &[usize]) -> Contact {
+        let mut touched = false;
+        for unit in self.map.units() {
+            let covered = unit.span().start().get()..=unit.span().end().get();
+            if !entered.iter().any(|cell| covered.contains(cell)) {
+                continue;
+            }
+            if !entered.iter().all(|cell| covered.contains(cell)) {
+                touched = true;
+                continue;
+            }
+            return match self.lookup.root_at(unit.anchor()) {
+                Some(root) => Contact::Root(root),
+                None => Contact::Silent,
+            };
+        }
+        if touched {
+            Contact::Partial
+        } else {
+            Contact::Silent
+        }
+    }
+
     /// Applying a write and recording its Effect are one operation, including
     /// the cleanup of prior Bang display before any Turn is attempted.
     fn write(&mut self, write: SpanWrite) {
@@ -482,6 +684,7 @@ fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
     let encoding = encoding.to_string();
     match reason {
         PortalError::BelowSource => format!("result {encoding:?} falls below the Source"),
+        PortalError::OutsideGrid => format!("result {encoding:?} falls outside the Grid"),
         PortalError::CrossesRowEdge => format!("result {encoding:?} crosses the row edge"),
     }
 }

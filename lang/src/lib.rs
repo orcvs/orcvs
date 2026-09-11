@@ -9,8 +9,8 @@ mod stack;
 mod tick;
 
 pub use atom::{
-    Activation, Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, Function, Length,
-    MidiChannel, Note, Velocity, to_atom_note, to_atom_num,
+    Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
+    Velocity, to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
@@ -167,6 +167,38 @@ impl<'a> IntoIterator for &'a Performance {
     fn into_iter(self) -> Self::IntoIter {
         self.commands().iter()
     }
+}
+
+/// One Source-writing effect a Function performs, stated relative to the
+/// producer's own anchor.
+///
+/// ADR 0004 gives a Source-writing Function a validated Portal bundle and
+/// ADR 0009 keeps destination resolution in `orcvs`. This type is the seam
+/// between the two: `lang` answers what to write and how far from the producer
+/// to write it, and `orcvs` turns that into Positions, refuses a destination
+/// the Grid does not hold, and orders the writes. It is the Source-writing
+/// counterpart of [`Performance`], which crosses the same seam for the
+/// Terminal Output family.
+///
+/// The displacement is a whole-Cell offset and not a named direction. ADR 0006
+/// already states the geometry in coordinates, and a Portal is an output
+/// property every Function has, with the ordinary result position one row south
+/// as the default one. A Function carrying this declines that default.
+///
+/// Every producer today is a Self-Banging Function, so the effect means "clear
+/// my own Span, then write `spelling` at that Span displaced by this offset".
+/// Stage 2 of `spatial-tick-planning/03` adds the Directional Bang Functions,
+/// which emit without clearing, and issue 04's Jump relays a spelling read from
+/// Source rather than a fixed one. Each widens this type when it arrives with a
+/// caller to shape it, rather than being guessed at now.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SourceEffect {
+    /// Cells to displace horizontally, positive to the east.
+    pub columns: i16,
+    /// Rows to displace vertically, positive to the south.
+    pub rows: i16,
+    /// The characters written at the displaced Span.
+    pub spelling: &'static str,
 }
 
 #[inline(always)]

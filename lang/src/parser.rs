@@ -232,11 +232,8 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 Some("**") => Ok((Token::Bang, Atom::Bang)),
-                Some(t) => match crate::Activation::try_from(t) {
-                    Ok(activation) => Ok((Token::Activation, Atom::Activation(activation))),
-                    Err(_) => Function::try_from(t)
-                        .map(|function| (Token::Function, Atom::Function(function))),
-                },
+                Some(t) => Function::try_from(t)
+                    .map(|function| (Token::Function, Atom::Function(function))),
                 None => Err(SyntaxError::ExpectedFunction.into()),
             };
             match atom {
@@ -926,20 +923,21 @@ mod test {
     }
 
     #[test]
-    fn bang_and_activations_parse_as_complete_language_units() {
+    fn bang_and_self_banging_functions_parse_as_complete_language_units() {
         assert_eq!(
             try_parse(&mut "**".to_owned()).unwrap().as_slice(),
             &[Atom::Bang]
         );
-        for (source, direction) in [
-            ("^^", crate::Activation::North),
-            ("vv", crate::Activation::South),
-            ("<<", crate::Activation::West),
-            (">>", crate::Activation::East),
+        for (source, function) in [
+            ("^^", Function::SelfBangingNorth),
+            ("vv", Function::SelfBangingSouth),
+            ("<<", Function::SelfBangingWest),
+            (">>", Function::SelfBangingEast),
         ] {
             assert_eq!(
                 try_parse(&mut source.to_owned()).unwrap().as_slice(),
-                &[Atom::Activation(direction)]
+                &[Atom::Function(function)],
+                "{source} did not parse as one whole Language Unit"
             );
         }
     }
@@ -1080,9 +1078,13 @@ mod test {
     fn every_atom_the_parser_yields_round_trips_through_display_in_the_position_that_types_it() {
         // A standalone Language Unit is a whole Expression, so it renders and
         // parses back with no Function to type it.
-        for atom in std::iter::once(Atom::Bang)
-            .chain(crate::Activation::ALL.iter().copied().map(Atom::Activation))
-        {
+        for atom in std::iter::once(Atom::Bang).chain(
+            Function::ALL
+                .iter()
+                .copied()
+                .filter(|function| function.signature().is_empty())
+                .map(Atom::Function),
+        ) {
             let mut source = atom.to_string();
             assert_eq!(try_parse(&mut source).unwrap().as_slice(), &[atom]);
         }
@@ -1203,12 +1205,22 @@ mod property {
         (spelled, wrappers + 2 * depth + 1)
     }
 
-    /// The Atoms that are a whole Language Unit on their own: the Bang and
-    /// every Activation, read from `Activation::ALL` so a fifth one is drawn
-    /// the day it is declared.
+    /// The Atoms that are a whole Language Unit on their own: the Bang, and
+    /// every Function that declares no operand.
+    ///
+    /// The Function half is derived from `Function::ALL` and the declared
+    /// signature rather than listed here, so a zero-operand Function added to
+    /// the table is drawn the day it is declared. That is the guarantee the
+    /// hand-written `Activation::ALL` used to buy by being written out once.
     fn standalone() -> Vec<Atom> {
         std::iter::once(Atom::Bang)
-            .chain(crate::Activation::ALL.iter().copied().map(Atom::Activation))
+            .chain(
+                Function::ALL
+                    .iter()
+                    .copied()
+                    .filter(|function| function.signature().is_empty())
+                    .map(Atom::Function),
+            )
             .collect()
     }
 
@@ -1305,7 +1317,6 @@ mod property {
                 | (Token::Number, Atom::Number(_))
                 | (Token::Note, Atom::Note(_))
                 | (Token::Bang, Atom::Bang)
-                | (Token::Activation, Atom::Activation(_))
                 | (Token::Char, Atom::Char(_))
         )
     }

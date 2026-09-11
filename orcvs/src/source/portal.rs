@@ -50,9 +50,9 @@ pub(super) struct Portal {
 ///
 /// Why a Portal refused a whole destination.
 ///
-/// Both are questions about the destination, and they answer into one type
-/// because every producer treats them identically: ADR 0004 admits no partial
-/// write, so any refusal costs the whole write and yields a diagnostic
+/// All three are questions about the destination, and they answer into one
+/// type because every producer treats them identically: ADR 0004 admits no
+/// partial write, so any refusal costs the whole write and yields a diagnostic
 /// instead. A producer distinguishes them only to say which it was.
 ///
 /// Whether the content can be Cells at all is not among them. That is true of
@@ -64,6 +64,12 @@ pub(super) enum PortalError {
     /// There is no row below the producer's root, so no ordinary result
     /// destination exists at all.
     BelowSource,
+    /// The declared displacement lands outside the Grid, so the destination
+    /// this Function asked for does not exist. It is [`PortalError::BelowSource`]
+    /// generalised: that one is this refusal for the one displacement every
+    /// Function used to take, and it is kept apart because its diagnostic names
+    /// the row below rather than a displacement the Source never wrote.
+    OutsideGrid,
     /// The encoding is wider than the destination row's remaining Cells.
     CrossesRowEdge,
 }
@@ -82,6 +88,30 @@ impl Portal {
         grid.below(root)
             .map(|destination| Self::at(grid, destination))
             .ok_or(PortalError::BelowSource)
+    }
+
+    ///
+    /// The Portal `columns` Cells east and `rows` Cells south of `root`.
+    ///
+    /// The destination a Function declaring its own Portal offset resolves,
+    /// where [`Portal::ordinary_result`] is the destination every other
+    /// Function takes. ADR 0006 states this geometry in coordinates — north
+    /// `(x, y-1)`, west `(x-2, y)` — and ADR 0009 keeps the resolution here,
+    /// so the language crate answers a displacement and never a Position.
+    ///
+    /// A displacement leaving the Grid resolves no Portal, for the reason
+    /// `ordinary_result` resolves none below the last row: the caller
+    /// diagnoses at the root and plans nothing.
+    ///
+    pub(super) fn displaced(
+        grid: Grid,
+        root: Position,
+        columns: i16,
+        rows: i16,
+    ) -> Result<Self, PortalError> {
+        grid.displaced(root, columns, rows)
+            .map(|destination| Self::at(grid, destination))
+            .ok_or(PortalError::OutsideGrid)
     }
 
     ///
@@ -230,6 +260,60 @@ mod test {
         assert_eq!(
             placed(&portal, "03"),
             vec![(cell(grid, 13), '0'), (cell(grid, 14), '3')]
+        );
+    }
+
+    #[test]
+    fn a_declared_displacement_resolves_the_cell_it_names_in_both_axes() {
+        // ADR 0006's geometry, stated as the Cells it reaches. The producer
+        // sits at column 3 of row 1 in a Grid ten wide, so each of the four
+        // displacements lands on a different index and a transposed or
+        // sign-flipped offset lands on none of them.
+        let grid = Grid::new(10, 3);
+        let root = grid.position(3, 1).expect("inside the Grid");
+
+        for (columns, rows, first) in [(0, -1, 3), (0, 1, 23), (-1, 0, 12), (1, 0, 14)] {
+            let portal = Portal::displaced(grid, root, columns, rows).expect("inside the Grid");
+            assert_eq!(
+                placed(&portal, "><"),
+                vec![(cell(grid, first), '>'), (cell(grid, first + 1), '<')],
+                "({columns}, {rows})",
+            );
+        }
+    }
+
+    #[test]
+    fn a_displacement_off_the_grid_resolves_no_portal_at_all() {
+        // The refusal `ordinary_result` gives the last row, generalised to
+        // every edge a declared offset can reach. Each of these is outside the
+        // Grid in one coordinate, and none of them is clamped to the edge Cell
+        // beside it: a destination that does not exist is what ADR 0009 wants
+        // reported.
+        let grid = Grid::new(4, 2);
+        let corner = grid.position(0, 0).expect("inside the Grid");
+
+        for (columns, rows) in [(0, -1), (-1, 0), (4, 0), (0, 2)] {
+            assert_eq!(
+                Portal::displaced(grid, corner, columns, rows).err(),
+                Some(PortalError::OutsideGrid),
+                "({columns}, {rows})",
+            );
+        }
+    }
+
+    #[test]
+    fn a_displacement_inside_the_grid_is_still_refused_past_its_row_edge() {
+        // The two refusals are separate questions and this is the Cell that
+        // proves it: displacing east from the last column pair of row 0 names
+        // a Position the Grid holds, and the two-Cell encoding placed there
+        // runs into row 1. Resolution succeeds and admission does not.
+        let grid = Grid::new(4, 2);
+        let root = grid.position(2, 0).expect("inside the Grid");
+        let portal = Portal::displaced(grid, root, 1, 0).expect("inside the Grid");
+
+        assert_eq!(
+            admitted(&portal, "><").err(),
+            Some(PortalError::CrossesRowEdge)
         );
     }
 

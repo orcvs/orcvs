@@ -193,55 +193,12 @@ impl From<u8> for Length {
 // #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
-    Activation(Activation),
     Bang,
     Char(char),
     Empty,
     Function(Function),
     Note(Note),
     Number(u8),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Activation {
-    North,
-    South,
-    West,
-    East,
-}
-
-impl Activation {
-    /// Every Activation, in the order the variants are declared.
-    ///
-    /// `Function::ALL` is generated from the Function table, and the sweeps
-    /// that read it stay honest when a Function is added. The Activations are
-    /// a hand-written enum, so this is the same guarantee written out once:
-    /// a test that reads it covers a fifth Activation the day one is declared,
-    /// rather than passing while never testing it.
-    pub const ALL: &'static [Self] = &[Self::North, Self::South, Self::West, Self::East];
-
-    pub fn spelling(self) -> &'static str {
-        match self {
-            Self::North => "^^",
-            Self::South => "vv",
-            Self::West => "<<",
-            Self::East => ">>",
-        }
-    }
-}
-
-impl TryFrom<&str> for Activation {
-    type Error = ();
-
-    fn try_from(spelling: &str) -> Result<Self, Self::Error> {
-        match spelling {
-            "^^" => Ok(Self::North),
-            "vv" => Ok(Self::South),
-            "<<" => Ok(Self::West),
-            ">>" => Ok(Self::East),
-            _ => Err(()),
-        }
-    }
 }
 
 /// What a Function contributes to the Expression that contains it.
@@ -278,6 +235,16 @@ impl FunctionKind {
     const fn performs_terminal_output(self) -> bool {
         matches!(self, Self::Effect(EffectKind::TerminalOutput))
     }
+
+    /// The Cells this Function writes back into the Source, relative to its own
+    /// anchor, or `None` for a Function that writes none.
+    #[inline(always)]
+    const fn source_write(self) -> Option<(i16, i16)> {
+        match self {
+            Self::Effect(EffectKind::SourceWrite { columns, rows }) => Some((columns, rows)),
+            _ => None,
+        }
+    }
 }
 
 /// Which effect a Function that answers an effect performs.
@@ -294,6 +261,22 @@ enum EffectKind {
     /// The `!` family of ADR 0016: a Play Command delivered to the Playback
     /// Engine, with nothing written back into the Source.
     TerminalOutput,
+    /// ADR 0004's Source-writing effect: Cells written back into the Source
+    /// through one validated Portal bundle, with no Play Command and no value.
+    ///
+    /// The displacement rides inside the variant because that is what this type
+    /// is for — the effect a Function performs, not merely that it performs one.
+    /// It is a whole-Cell offset rather than a named direction: ADR 0006 states
+    /// this geometry in coordinates already, north `(x, y-1)` and west
+    /// `(x-2, y)`, and a Portal is an output property every Function has, with
+    /// `Portal::ordinary_result` one row south as the default. These Functions
+    /// decline the default and say by how much.
+    SourceWrite {
+        /// Cells to displace horizontally, positive to the east.
+        columns: i16,
+        /// Rows to displace vertically, positive to the south.
+        rows: i16,
+    },
 }
 
 /// The kind column of the canonical definitions, mapped to the declaration it
@@ -311,6 +294,64 @@ macro_rules! function_kind {
     (TerminalOutput) => {
         FunctionKind::Effect(EffectKind::TerminalOutput)
     };
+    // One arm per Self-Banging Function rather than one `SourceWrite` arm
+    // taking arguments: the kind column of the table is a single identifier,
+    // and this macro is already "the one place a new effect is related to the
+    // value-or-effect rule". Declaring the displacement here keeps the table to
+    // one column per property and gives the four offsets one home.
+    (SelfBangNorth) => {
+        FunctionKind::Effect(EffectKind::SourceWrite {
+            columns: 0,
+            rows: -1,
+        })
+    };
+    (SelfBangSouth) => {
+        FunctionKind::Effect(EffectKind::SourceWrite {
+            columns: 0,
+            rows: 1,
+        })
+    };
+    (SelfBangWest) => {
+        FunctionKind::Effect(EffectKind::SourceWrite {
+            columns: -1,
+            rows: 0,
+        })
+    };
+    (SelfBangEast) => {
+        FunctionKind::Effect(EffectKind::SourceWrite {
+            columns: 1,
+            rows: 0,
+        })
+    };
+}
+
+/// Where a root Function's activation comes from.
+///
+/// ADR 0006 states the rule and its one exception together: "An ordinary root
+/// Expression is inert until Bang activation. A Self-Banging Function is the
+/// explicit exception in activation source: at its own Source-order turn it
+/// intrinsically receives Bang activation without creating a Source-resident
+/// `**`." That asymmetry is a property of the Function and of nothing else, so
+/// it is declared beside every other property rather than derived from one of
+/// them. ADR 0029 calls it "the whole reason both forms exist": `^^` and `*^`
+/// write the same spelling to the same geometry and differ here.
+///
+/// It was read off [`FunctionKind`] until the Self-Banging Functions were
+/// declared, because a value Function was exactly a Function that took its Turn
+/// without a Bang. `^^` answers an effect and takes its Turn anyway, so the two
+/// questions came apart and this is the one Tick scheduling means.
+///
+/// Only a root is asked. A nested Function takes its Turn from the root that
+/// owns it, per ADR 0006's "Activation recursively includes nested Functions",
+/// so what a nested Function declares here is never read.
+#[derive(Clone, Copy)]
+enum ActivationSource {
+    /// The root takes a Turn at its own Source-order turn with nothing
+    /// delivered to it. Every Function that answers a value declares this,
+    /// and so does every Self-Banging Function.
+    Intrinsic,
+    /// The root is inert until a Bang reaches it, which is the ordinary rule.
+    Bang,
 }
 
 /// Whether a Function extends across a Sequence operand or requires a scalar
@@ -566,7 +607,7 @@ macro_rules! unary_operands {
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -590,6 +631,12 @@ macro_rules! define_functions {
             const fn kind(self) -> FunctionKind {
                 match self {
                     $(Self::$variant => function_kind!($kind),)+
+                }
+            }
+
+            const fn activation_source(self) -> ActivationSource {
+                match self {
+                    $(Self::$variant => ActivationSource::$activation,)+
                 }
             }
 
@@ -619,6 +666,20 @@ macro_rules! define_functions {
                 self.kind().answers_value()
             }
 
+            /// Whether this Function, standing at an Expression root, takes a
+            /// Turn without a Bang delivered to it.
+            ///
+            /// This is the question Tick scheduling's activation seed asks, and
+            /// the only one that decides it. It is not
+            /// [`Function::answers_value`]: those two selected the same rows
+            /// until the Self-Banging Functions were declared, and a caller
+            /// that kept asking the value question would leave `^^` inert
+            /// forever.
+            #[inline(always)]
+            pub const fn is_intrinsically_active(self) -> bool {
+                matches!(self.activation_source(), ActivationSource::Intrinsic)
+            }
+
             /// Whether this Function performs the Terminal Output effect of
             /// ADR 0016: a Play Command delivered to the Playback Engine, with
             /// nothing written back into the Source.
@@ -635,6 +696,16 @@ macro_rules! define_functions {
             #[inline(always)]
             pub const fn performs_terminal_output(self) -> bool {
                 self.kind().performs_terminal_output()
+            }
+
+            /// The Cells this Function writes back into the Source, relative
+            /// to its own anchor, or `None` for a Function that writes none.
+            ///
+            /// `orcvs` resolves the offset against the Grid, because ADR 0009
+            /// keeps destination resolution there and this crate holds no Grid.
+            #[inline(always)]
+            pub const fn source_write(self) -> Option<(i16, i16)> {
+                self.kind().source_write()
             }
 
             /// Whether this Function can return Bang, even when the current
@@ -738,6 +809,14 @@ macro_rules! define_functions {
                     const FUNCTION: Function = Function::$variant;
 
                     #[inline(always)]
+                    // A row declaring no operand expands to a struct with no
+                    // field, so nothing reads or advances the iterator and both
+                    // lints fire on a binding the other rows need. The narrow
+                    // suppression is on the generated body, where the arity is
+                    // a property of the row rather than of this code; a written
+                    // `from_operands` that ignored its operands would still be
+                    // caught, because no row writes one.
+                    #[allow(unused_mut, unused_variables)]
                     fn from_operands(operands: Extracted<'_>) -> Result<Self, Error> {
                         let mut operands = operands.atoms().iter().copied();
 
@@ -818,25 +897,29 @@ macro_rules! define_functions {
 }
 
 define_functions! {
-    AbsoluteDifference => (".|", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Add => (".+", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Clock => ("~.", Value, Pervasive, Elementwise, false, [rate: Number, modulus: Number]),
-    ControlChange => ("!c", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Pervasive, Elementwise, false, [value: Number]),
-    ConvertToNumber => (".v", Value, Pervasive, Elementwise, false, [value: Note]),
-    Delay => ("~*", Value, Scalar, Atom, true, [rate: Number, modulus: Number]),
-    Divide => ("./", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Equality => (".=", Value, Pervasive, Atom, true, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Scalar, Atom, true, [hits: Number, steps: Number]),
-    Maximum => (".>", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Minimum => (".<", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    Modulo => (".%", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
-    Multiply => (".x", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    PitchBend => ("!b", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    RawPlay => ("!>", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
-    Subtract => (".-", Value, Pervasive, Elementwise, false, [left: Number, right: Number]),
-    TimedPlay => ("!~", TerminalOutput, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    AbsoluteDifference => (".|", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Add => (".+", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Clock => ("~.", Value, Intrinsic, Pervasive, Elementwise, false, [rate: Number, modulus: Number]),
+    ControlChange => ("!c", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", Value, Intrinsic, Pervasive, Elementwise, false, [value: Number]),
+    ConvertToNumber => (".v", Value, Intrinsic, Pervasive, Elementwise, false, [value: Note]),
+    Delay => ("~*", Value, Intrinsic, Scalar, Atom, true, [rate: Number, modulus: Number]),
+    Divide => ("./", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Equality => (".=", Value, Intrinsic, Pervasive, Atom, true, [left: Number, right: Number]),
+    Euclidean => ("~%", Value, Intrinsic, Scalar, Atom, true, [hits: Number, steps: Number]),
+    Maximum => (".>", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Minimum => (".<", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    Modulo => (".%", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
+    Multiply => (".x", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    PitchBend => ("!b", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    RawPlay => ("!>", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    SelfBangingEast => (">>", SelfBangEast, Intrinsic, Scalar, Atom, false, []),
+    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Scalar, Atom, false, []),
+    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Scalar, Atom, false, []),
+    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Scalar, Atom, false, []),
+    Subtract => (".-", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    TimedPlay => ("!~", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
 #[inline(always)]
@@ -885,7 +968,6 @@ impl fmt::Display for Function {
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Atom::Activation(activation) => f.write_str(activation.spelling()),
             Atom::Bang => write!(f, "**"),
             // Numbers are hexadecimal: rendered results are written back into the
             // Source and re-parsed as two Cells, so they must round trip as hex
@@ -904,36 +986,43 @@ impl fmt::Display for Atom {
 #[cfg(test)]
 mod test {
     use super::{
-        Activation, Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length,
-        MidiChannel, Note, Velocity, to_atom_num,
+        Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
+        Velocity, to_atom_num,
     };
 
     #[test]
-    fn every_activation_variant_is_named_in_all() {
-        // The match is the guard: a fifth Activation stops this compiling,
-        // which is what a hand-written `ALL` needs in place of the generation
-        // that keeps `Function::ALL` honest. The membership check is the other
-        // half — a variant declared but left out of `ALL` fails here rather
-        // than going untested wherever `ALL` is swept.
-        for activation in [
-            Activation::North,
-            Activation::South,
-            Activation::West,
-            Activation::East,
-        ] {
-            let spelling = match activation {
-                Activation::North => "^^",
-                Activation::South => "vv",
-                Activation::West => "<<",
-                Activation::East => ">>",
+    fn every_self_banging_function_declares_the_displacement_its_spelling_names() {
+        // The four displacements live in `function_kind!`, so this is the test
+        // that keeps that macro in step with the spellings. It is exhaustive
+        // over the Source-writing rows rather than a list of four, so a fifth
+        // Self-Banging Function is drawn the day it is declared, the way
+        // `Function::ALL` keeps every other sweep honest.
+        let mut seen = 0;
+        for function in Function::ALL.iter().copied() {
+            let Some(displacement) = function.source_write() else {
+                continue;
             };
-            assert_eq!(activation.spelling(), spelling);
+            seen += 1;
+            let expected = match function.spelling() {
+                "^^" => (0, -1),
+                "vv" => (0, 1),
+                "<<" => (-1, 0),
+                ">>" => (1, 0),
+                other => panic!("{other} declares a Source write with no stated displacement"),
+            };
+            assert_eq!(
+                displacement, expected,
+                "{function:?} displaces by something its spelling does not name",
+            );
             assert!(
-                Activation::ALL.contains(&activation),
-                "{activation:?} is not named in Activation::ALL",
+                function.signature().is_empty(),
+                "{function:?} declares an operand a Self-Banging Function does not take",
             );
         }
-        assert_eq!(Activation::ALL.len(), 4);
+        assert_eq!(
+            seen, 4,
+            "the Source-writing rows are no longer the four expected"
+        );
     }
 
     #[test]
@@ -1185,7 +1274,25 @@ mod test {
         // the table, and a copied row that answers the wrong kind fails here
         // rather than standing where an operand belongs.
         for function in Function::ALL.iter().copied() {
-            let expected = match function {
+            // Two questions, asked separately, because they stopped being
+            // complements. Until the Self-Banging Functions were declared,
+            // Terminal Output was the one effect kind, so "answers no value"
+            // and "performs Terminal Output" selected the same rows and this
+            // test could assert one as the negation of the other. The version
+            // that did so named the day it would fail: "the day a Source-writing
+            // effect Function of ADR 0004 is declared, this assertion fails and
+            // names the Function whose callers must each choose again which
+            // question they mean." It failed on `SelfBangingEast`. The rows
+            // below are now the witness that a caller asking the narrow
+            // question where it means the wide one is wrong today, and not
+            // merely wrong in principle.
+            //
+            // Three questions now, for the same reason: the activation source
+            // came apart from the value question on the same four rows. A root
+            // that answers a value takes its Turn with nothing delivered to it,
+            // and so does a Self-Banging Function that answers an effect, so
+            // the third column is not the first one read again.
+            let (answers_value, terminal_output, intrinsically_active) = match function {
                 Function::AbsoluteDifference
                 | Function::Add
                 | Function::Clock
@@ -1199,26 +1306,30 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
-                | Function::Subtract => true,
+                | Function::Subtract => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend
                 | Function::RawPlay
-                | Function::TimedPlay => false,
+                | Function::TimedPlay => (false, true, false),
+                // An effect that is not Terminal Output, taken without a Bang.
+                // These four rows are the whole reason the three predicates are
+                // asked separately.
+                Function::SelfBangingEast
+                | Function::SelfBangingNorth
+                | Function::SelfBangingSouth
+                | Function::SelfBangingWest => (false, false, true),
             };
 
-            assert_eq!(function.answers_value(), expected, "{function:?}");
-
-            // Terminal Output is the one effect kind declared today, so the
-            // two classifications are exact complements. That coincidence is
-            // why the narrow question needs a predicate of its own rather than
-            // a negation of the wide one: the day a Source-writing effect
-            // Function of ADR 0004 is declared, this assertion fails and names
-            // the Function whose callers must each choose again which question
-            // they mean.
+            assert_eq!(function.answers_value(), answers_value, "{function:?}");
             assert_eq!(
                 function.performs_terminal_output(),
-                !expected,
+                terminal_output,
+                "{function:?}"
+            );
+            assert_eq!(
+                function.is_intrinsically_active(),
+                intrinsically_active,
                 "{function:?}"
             );
         }
@@ -1258,6 +1369,15 @@ mod test {
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => true,
+                // The Self-Banging Functions declare no operand, so there is no
+                // operand for pervasion to widen over. They are `Scalar` for
+                // the reason ADR 0036's two pulses are not: those refuse a
+                // Sequence they could have been handed, while these are never
+                // handed anything.
+                Function::SelfBangingEast
+                | Function::SelfBangingNorth
+                | Function::SelfBangingSouth
+                | Function::SelfBangingWest => false,
                 Function::Delay | Function::Euclidean => false,
             };
 
@@ -1302,6 +1422,14 @@ mod test {
                 // that does not widen, declared beside the pervasion that
                 // cannot widen.
                 Function::Delay | Function::Euclidean => (false, false),
+                // A Source-writing Function answers an effect, so it answers no
+                // Sequence and widens over nothing. It declares the column all
+                // the same, because the column says how wide an answer is and
+                // scheduling reads it before any Function has evaluated.
+                Function::SelfBangingEast
+                | Function::SelfBangingNorth
+                | Function::SelfBangingSouth
+                | Function::SelfBangingWest => (false, false),
                 Function::AbsoluteDifference
                 | Function::Add
                 | Function::Clock
@@ -1341,12 +1469,12 @@ mod test {
     }
 
     #[test]
-    fn bang_and_activation_display_with_their_complete_spellings() {
+    fn bang_and_the_self_banging_functions_display_with_their_complete_spellings() {
         assert_eq!(Atom::Bang.to_string(), "**");
-        assert_eq!(Atom::Activation(Activation::North).to_string(), "^^");
-        assert_eq!(Atom::Activation(Activation::South).to_string(), "vv");
-        assert_eq!(Atom::Activation(Activation::West).to_string(), "<<");
-        assert_eq!(Atom::Activation(Activation::East).to_string(), ">>");
+        assert_eq!(Atom::Function(Function::SelfBangingNorth).to_string(), "^^");
+        assert_eq!(Atom::Function(Function::SelfBangingSouth).to_string(), "vv");
+        assert_eq!(Atom::Function(Function::SelfBangingWest).to_string(), "<<");
+        assert_eq!(Atom::Function(Function::SelfBangingEast).to_string(), ">>");
     }
 
     #[test]

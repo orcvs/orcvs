@@ -1,5 +1,6 @@
 use crate::{
-    Atom, Error, Function, InterpretationError, Performance, Sequence, Stack, TickInputs, Value,
+    Atom, Error, Function, InterpretationError, Performance, Sequence, SourceEffect, Stack,
+    TickInputs, Value,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -33,6 +34,13 @@ pub enum Interpretation {
     /// because the Range Functions that would spell a Sequence operand are
     /// unbuilt.
     Play(Performance),
+    /// The Cells one active Source-writing Function root plans to write.
+    ///
+    /// It carries a displacement and a spelling rather than Positions, because
+    /// ADR 0009 keeps destination resolution in `orcvs` and this crate holds no
+    /// Grid. The consumer turns the offset into a Portal, refuses a destination
+    /// the Grid does not hold, and orders the writes of the bundle.
+    Source(SourceEffect),
 }
 
 ///
@@ -163,6 +171,25 @@ impl Interpreter {
                     }
                     Function::TimedPlay => {
                         return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
+                    }
+                    // The Self-Banging Functions take no operand and read no
+                    // Context: the whole of the effect is declared in the
+                    // table, so the arm reads the declaration rather than
+                    // repeating the four offsets here. A Function whose kind
+                    // carries no Source write cannot reach this arm, which is
+                    // what `expect` states.
+                    Function::SelfBangingEast
+                    | Function::SelfBangingNorth
+                    | Function::SelfBangingSouth
+                    | Function::SelfBangingWest => {
+                        let (columns, rows) = fun
+                            .source_write()
+                            .expect("a Self-Banging Function declares a Source write");
+                        return Ok(Interpretation::Source(SourceEffect {
+                            columns,
+                            rows,
+                            spelling: fun.spelling(),
+                        }));
                     }
                 },
                 atom => (*atom).into(),
@@ -913,7 +940,15 @@ mod test {
             .expect("the definitions declare at least one Function");
         let mut deepest_walk_reached = 0;
 
-        for root in Function::ALL.iter().copied() {
+        // A root declaring no operand has no position for a chain to stand in,
+        // and appending one spells trailing content the Parser rejects rather
+        // than a deeper walk. The Self-Banging Functions are the rows this
+        // skips; every other row still carries the chain.
+        for root in Function::ALL
+            .iter()
+            .copied()
+            .filter(|root| !root.signature().is_empty())
+        {
             for link in binary.iter().copied() {
                 for chain in 1..=CHAIN_LENGTH {
                     // The chain stands in the first operand, which the

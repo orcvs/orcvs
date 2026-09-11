@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lang::{Activation, Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
+use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::{
     glyph::Glyph,
@@ -52,7 +52,6 @@ pub enum LanguageUnitKind {
     OperandLiteral,
     Function(Function),
     Bang,
-    Activation(Activation),
     /// The `||` introducer and every Cell of the row after it. ADR 0035 makes
     /// a Comment a Language Unit the Parser establishes, so it has a Span and
     /// an anchor like the rest — and, unlike the rest, no value: it records a
@@ -240,10 +239,11 @@ impl LanguageMap {
     pub(super) fn bangs(&self) -> impl Iterator<Item = (Position, Span)> + '_ {
         self.expressions().flat_map(move |expression| {
             let atoms = expression.atoms().filter(|atoms| {
-                atoms
-                    .as_slice()
-                    .iter()
-                    .all(|atom| matches!(atom, Atom::Bang | Atom::Activation(_)))
+                atoms.as_slice().iter().all(|atom| {
+                    matches!(atom, Atom::Bang)
+                        || matches!(atom, Atom::Function(function)
+                                if lang::Tokens::from(function).is_empty())
+                })
             });
             atoms.into_iter().flat_map(move |atoms| {
                 atoms
@@ -531,9 +531,6 @@ fn name_units(
             (Token::Comment, _) => Some(LanguageUnitKind::Comment),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
-            (_, Some(Atom::Activation(activation))) => {
-                Some(LanguageUnitKind::Activation(activation))
-            }
             (_, Some(Atom::Number(_) | Atom::Note(_) | Atom::Char(_))) => {
                 Some(LanguageUnitKind::OperandLiteral)
             }
@@ -586,7 +583,7 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
 mod tests {
     use crate::{glyph::Glyph, grid::Grid};
 
-    use lang::{Activation, Atom};
+    use lang::{Atom, Function};
 
     use super::{LanguageMap, LanguageUnitKind, Span};
 
@@ -847,10 +844,10 @@ mod tests {
             vec![
                 LanguageUnitKind::Function(lang::Function::Add),
                 LanguageUnitKind::OperandLiteral,
-                LanguageUnitKind::Activation(Activation::East),
-                LanguageUnitKind::Activation(Activation::North),
-                LanguageUnitKind::Activation(Activation::South),
-                LanguageUnitKind::Activation(Activation::West),
+                LanguageUnitKind::Function(lang::Function::SelfBangingEast),
+                LanguageUnitKind::Function(lang::Function::SelfBangingNorth),
+                LanguageUnitKind::Function(lang::Function::SelfBangingSouth),
+                LanguageUnitKind::Function(lang::Function::SelfBangingWest),
                 LanguageUnitKind::Function(lang::Function::Add),
                 LanguageUnitKind::OperandLiteral,
             ]
@@ -1078,7 +1075,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 (0, 1, Some(vec![Atom::Bang])),
-                (2, 3, Some(vec![Atom::Activation(Activation::North)])),
+                (2, 3, Some(vec![Atom::Function(Function::SelfBangingNorth)])),
             ],
         );
         assert_eq!(map.diagnostics().count(), 0);
@@ -1132,8 +1129,8 @@ mod tests {
                 .map(|expression| expression.atoms().unwrap().as_slice().to_vec())
                 .collect::<Vec<_>>(),
             vec![
-                vec![Atom::Activation(Activation::East)],
-                vec![Atom::Activation(Activation::East)],
+                vec![Atom::Function(Function::SelfBangingEast)],
+                vec![Atom::Function(Function::SelfBangingEast)],
             ]
         );
         assert_eq!(activations.diagnostics().count(), 0);
@@ -1165,7 +1162,7 @@ mod tests {
 mod property {
     use super::{LanguageMap, LanguageUnitKind, Parser, SPACE_BYTE};
     use crate::grid::Grid;
-    use lang::{Activation, Atom, Function, Note, Token};
+    use lang::{Atom, Function, Note, Token};
     use proptest::prelude::*;
     use proptest::sample::select;
     use proptest::test_runner::{Config, TestRunner};
@@ -1179,13 +1176,19 @@ mod property {
     const COLS: usize = 12;
     const ROWS: usize = 3;
 
-    /// The standalone Language Unit spellings: the Bang and every Activation,
-    /// read from the Atoms themselves rather than restated, and from
-    /// `Activation::ALL` so a fifth Activation is drawn the day it is
-    /// declared.
+    /// The standalone Language Unit spellings: the Bang and every Function
+    /// that declares no operand, read from the Atoms themselves rather than
+    /// restated, and from `Function::ALL` so a fifth Self-Banging Function is
+    /// drawn the day it is declared.
     fn standalone_spellings() -> Vec<String> {
         std::iter::once(Atom::Bang)
-            .chain(Activation::ALL.iter().copied().map(Atom::Activation))
+            .chain(
+                Function::ALL
+                    .iter()
+                    .copied()
+                    .filter(|function| lang::Tokens::from(function).is_empty())
+                    .map(Atom::Function),
+            )
             .map(|atom| atom.to_string())
             .collect()
     }

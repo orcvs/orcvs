@@ -4,7 +4,7 @@
 nominated commit SHA, publishing authoritative native, persistence, WASM, browser, semantic, and
 documentation results without moving the full cost onto every ordinary pull request.
 
-**Blocked by:** property-testing/02; property-testing/04; property-testing/05; sequence-values/03; sequence-values/05; spatial-tick-planning/03; spatial-tick-planning/04; spatial-tick-planning/05; tick-functions/02; tick-functions/03; tick-functions/04; restyle-egui-console/02; native-midi/02 — Put midir behind a native-midi feature; midi-output-family/06 — Clear controllers and bend in the safety action; v1-release/02.
+**Blocked by:** property-testing/02; property-testing/04; property-testing/05; sequence-values/03; sequence-values/05; spatial-tick-planning/03; spatial-tick-planning/06; spatial-tick-planning/04; spatial-tick-planning/05; tick-functions/02; tick-functions/03; tick-functions/04; restyle-egui-console/02; native-midi/02 — Put midir behind a native-midi feature; midi-output-family/06 — Clear controllers and bend in the safety action; v1-release/02.
 
 **Status:** ready-for-agent
 

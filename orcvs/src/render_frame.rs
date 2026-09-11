@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn east_activation_is_not_classified_as_a_function() {
+    fn a_self_banging_function_is_painted_as_a_function() {
         let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
         source.set(cell(grid, 0), ">").unwrap();
@@ -307,8 +307,12 @@ mod tests {
             },
         );
 
-        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Char);
-        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Char);
+        // `>>` painted as an ordinary character while it was its own Atom
+        // variant, which mapped to `Glyph::Char`. It is a row of the Function
+        // table now, so it is painted where every other Function is. The change
+        // is visible and it is a correction: these two Cells spell a Function.
+        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Function);
+        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Function);
     }
 
     #[test]
