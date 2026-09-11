@@ -10,13 +10,27 @@ Do not solve this with a hand-written count assertion. `assert_eq!(ALL.len(), 5)
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `ReplacementChange::ALL` is derived from the variant declaration rather than written out beside it.
-- [ ] Adding a variant without adding it to `ALL` does not compile, or is not expressible.
-- [ ] The mutation the review ran — add a variant, give it a `Display` arm, omit it from `ALL` — now fails a test or fails to build. Record which, and that it was tried.
-- [ ] No change to what ships: the five facts and the four table rows are unchanged.
+- [x] `ReplacementChange::ALL` is derived from the variant declaration rather than written out beside it.
+- [x] Adding a variant without adding it to `ALL` does not compile, or is not expressible.
+- [x] The mutation the review ran — add a variant, give it a `Display` arm, omit it from `ALL` — now fails a test or fails to build. Record which, and that it was tried.
+- [x] No change to what ships: the five facts and the four table rows are unchanged.
 
 ## Verification
 
 `cargo fmt --all -- --check`, `cargo clippy --package <crate> --all-targets --locked -- -D warnings`, and `PROPTEST_CASES=32 cargo nextest run --package <crate> --locked` for `lang` and `orcvs`, which depends on it.
+
+## What the mutation did
+
+`define_replacement_changes!` mints the enum, `ALL` and the `Display` arm from one row
+each, so the review's mutation — a sixth variant, its `Display` arm, and no `ALL` entry —
+is no longer expressible: there is no hand-written variant list to leave it out of.
+
+The expressible remainder was run in its place: a sixth row, `Sixth => "a sixth fact"`,
+added to the declaration. `PROPTEST_CASES=32 cargo nextest run --package lang --locked`
+then failed both tests rather than neither —
+`each_named_change_is_compared_exactly_once` because the declaration table compares the
+new fact zero times, and `every_declared_change_is_the_first_difference_for_some_pair`
+with "no pair reports Sixth as its first difference". The row was removed and the
+working tree checked clean before the change was committed.

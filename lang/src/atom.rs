@@ -992,22 +992,64 @@ define_functions! {
     TimedPlay => ("!~", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
-/// Which fact an incoming Function changes about the Function a computation is
-/// already running, when a Function replacement is refused.
+/// Declares every fact a Function replacement is refused for changing, minting
+/// the enum, the complete list of its variants, and the wording a refusal
+/// states, from one row each.
 ///
-/// ADR 0032 fixes a Tick's schedule before any Function evaluates and ADR 0036
-/// reserves a result's Cells from the Function found at each anchor, so a
-/// replacement is admitted only where the incoming Function agrees with the
-/// running one on every fact those two derivations read. This type names the
-/// five so that a refusal states which one differed: one diagnostic string
-/// answered all of them before, and a byte-identical duplicate of one term
-/// stood in the guard unnoticed because no test could tell the terms apart.
-///
-/// Declaration order is the order the comparison applies, which is the order
-/// the guard has always applied. A replacement differing on several facts
-/// reports the first.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ReplacementChange {
+/// Each fact was stated in three places before: the variant, its membership of
+/// [`ReplacementChange::ALL`], and its [`fmt::Display`] arm. The `match` is
+/// exhaustive so the wording cannot be forgotten, but the list was written out
+/// by hand beside the enum, and a variant left out of it escaped
+/// `each_named_change_is_compared_exactly_once` — the test written to catch
+/// exactly that omission. A sixth variant with its `Display` arm and no list
+/// entry left both tests green. Generating the list from the declaration makes
+/// the omission not expressible rather than merely untested, which is what
+/// `define_functions!` already does for [`Function::ALL`] and the reason that
+/// list needs no such test.
+macro_rules! define_replacement_changes {
+    ($($(#[$doc:meta])* $variant:ident => $wording:literal),+ $(,)?) => {
+        /// Which fact an incoming Function changes about the Function a
+        /// computation is already running, when a Function replacement is
+        /// refused.
+        ///
+        /// ADR 0032 fixes a Tick's schedule before any Function evaluates and
+        /// ADR 0036 reserves a result's Cells from the Function found at each
+        /// anchor, so a replacement is admitted only where the incoming
+        /// Function agrees with the running one on every fact those two
+        /// derivations read. This type names the five so that a refusal states
+        /// which one differed: one diagnostic string answered all of them
+        /// before, and a byte-identical duplicate of one term stood in the
+        /// guard unnoticed because no test could tell the terms apart.
+        ///
+        /// Declaration order is the order the comparison applies, which is the
+        /// order the guard has always applied. A replacement differing on
+        /// several facts reports the first.
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub enum ReplacementChange {
+            $($(#[$doc])* $variant,)+
+        }
+
+        impl ReplacementChange {
+            /// Every fact a Function replacement is refused for changing,
+            /// generated from the declarations above and so complete by
+            /// construction.
+            pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
+        }
+
+        impl fmt::Display for ReplacementChange {
+            /// The fact, worded as CONTEXT.md's Function Replacement entry
+            /// words it, so that a refusal reads as the rule's own sentence
+            /// continued.
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(match self {
+                    $(Self::$variant => $wording,)+
+                })
+            }
+        }
+    };
+}
+
+define_replacement_changes! {
     /// Whether the Function answers a value the surrounding Expression can
     /// consume, rather than performing an effect.
     ///
@@ -1016,7 +1058,7 @@ pub enum ReplacementChange {
     /// derived from the answer the Function found here gave, so a replacement
     /// that changed it would leave Turns ordered from edges that no longer
     /// describe what runs.
-    AnswerKind,
+    AnswerKind => "whether it answers a value",
     /// Where the Function's activation comes from: taken on its own, or
     /// delivered by a Bang.
     ///
@@ -1026,7 +1068,7 @@ pub enum ReplacementChange {
     /// until `^^` was declared — so admitting a replacement that changed it
     /// would leave the schedule holding a root that now needs no Bang, or one
     /// waiting on a Bang no edge delivers.
-    Activation,
+    Activation => "where its activation comes from",
     /// Whether the Function can answer Bang even where its operands produce no
     /// result.
     ///
@@ -1034,7 +1076,7 @@ pub enum ReplacementChange {
     /// activation, and orders the Functions waiting on them before deciding
     /// whether to perform. A replacement that changed it would leave those
     /// edges standing on a declaration that no longer holds.
-    BangEmission,
+    BangEmission => "whether it can emit Bang",
     /// The Source write the Function declares: the displacement, the spelling
     /// and the bundle, compared whole.
     ///
@@ -1050,7 +1092,7 @@ pub enum ReplacementChange {
     /// effect is compared rather than its fields because every field of it is
     /// read at the Turn: the offsets resolve the Portal and the bundle decides
     /// how many.
-    Write,
+    Write => "the Source write it declares",
     /// How wide a result the Function reserves.
     ///
     /// ADR 0036: a schedule reserves Cells from the Function it found at each
@@ -1065,36 +1107,12 @@ pub enum ReplacementChange {
     /// `lang` holds neither. `orcvs` composes this comparison onto
     /// [`Function::replacing`], appended last, which is where the order this
     /// enum states is completed. No declared pair differs here in any case —
-    /// no Function answers a Sequence, so nothing derives a width wider than a
-    /// Cell pair — and the variant is stated with the other four so that one
-    /// type names all five facts and [`ReplacementChange::ALL`] is a complete
-    /// list.
-    Width,
-}
-
-impl ReplacementChange {
-    /// Every fact a Function replacement is refused for changing.
-    pub const ALL: &'static [Self] = &[
-        Self::AnswerKind,
-        Self::Activation,
-        Self::BangEmission,
-        Self::Write,
-        Self::Width,
-    ];
-}
-
-impl fmt::Display for ReplacementChange {
-    /// The fact, worded as CONTEXT.md's Function Replacement entry words it, so
-    /// that a refusal reads as the rule's own sentence continued.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::AnswerKind => "whether it answers a value",
-            Self::Activation => "where its activation comes from",
-            Self::BangEmission => "whether it can emit Bang",
-            Self::Write => "the Source write it declares",
-            Self::Width => "how wide a result it reserves",
-        })
-    }
+    /// no Function answers a Sequence, which `no_function_declares_a_sequence_answer`
+    /// states here and `a_computation_over_any_function_reserves_a_cell_pair`
+    /// states in `orcvs`, so nothing derives a width wider than a Cell pair —
+    /// and the variant is stated with the other four so that one type names all
+    /// five facts.
+    Width => "how wide a result it reserves",
 }
 
 /// One fact a Function declares, beside the comparison that answers whether a
