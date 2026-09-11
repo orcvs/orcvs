@@ -2050,6 +2050,69 @@ mod test {
     }
 
     #[test]
+    fn a_computation_over_any_function_reserves_a_cell_pair() {
+        // ADR 0036 reserves a result's Cells from the Function found at each
+        // anchor, and `ReplacementChange::Width` refuses a replacement that
+        // would change that reservation. The guard compares
+        // `would_reserve(index, replacement)` against `reserved(index)`, so the
+        // term can fire only where those two can be different widths — and this
+        // is where that can be shown, because a reservation is derived from a
+        // Grid and from the widths a computation's children settled, neither of
+        // which `lang` has. `no_function_declares_a_sequence_answer` there
+        // holds the other half: no Function answers a Sequence, so nothing
+        // widens.
+        //
+        // A failure here is not something breaking. It means a Function now
+        // reaches a schedule declaring a width wider than a Cell pair, so the
+        // width term has become reachable and the guard's fifth fact is live
+        // for the first time.
+        //
+        // Both a root and the child nested in its first operand are asked,
+        // because `reserved_for` treats the two positions differently: the
+        // child is a leaf over literals with nothing to widen from, and the
+        // root owns an operand child whose settled width it reads.
+        //
+        // The premise that makes those two positions different, pinned so it
+        // cannot go quiet: some Function widens over a Sequence operand, so
+        // `reserved_for` reaches the `.any()` that reads a child's settled
+        // width. Were no Function to widen, that term would short-circuit for
+        // the root exactly as it does for the leaf, and this test would pass
+        // while asking one question twice.
+        assert!(
+            lang::Function::ALL
+                .iter()
+                .any(|function| function.widens_over_a_sequence_operand()),
+            "no Function widens, so the root and the child are the same question",
+        );
+
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &["                ", ".+.-000003"]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        // Parser preorder: the owning `.+` at column 0, then the `.-` nested in
+        // its first operand.
+        assert_eq!(lookup.nodes().len(), 2);
+        let (root, child) = (0, 1);
+        assert_eq!(lookup.nodes()[child].parent, Some(root));
+
+        for index in [root, child] {
+            assert_eq!(
+                lookup.reserved(index),
+                super::Reserved::Pair,
+                "computation {index} settled a width wider than a Cell pair",
+            );
+            for function in lang::Function::ALL.iter().copied() {
+                assert_eq!(
+                    lookup.would_reserve(index, function),
+                    super::Reserved::Pair,
+                    "{function:?} replacing computation {index} would reserve more than a Cell pair",
+                );
+            }
+        }
+    }
+
+    #[test]
     #[should_panic(expected = "a stated answer names a computation the schedule contains")]
     fn a_cyclic_source_does_not_excuse_a_fixture_error() {
         // A Source that admits no order publishes diagnostics and nothing
