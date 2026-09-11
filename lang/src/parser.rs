@@ -846,8 +846,9 @@ mod test {
     #[test]
     fn comparison_spellings_parse_without_activation_collisions() {
         // `.<` and `.>` share their second Cell with the Self-Banging Functions
-        // `<<` and `>>`, and the parser tests an Activation before a Function.
-        // These pin that the shared Cell alone never wins.
+        // `<<` and `>>`, which are rows of the one Function table the parser
+        // matches a Language Unit against. These pin that the shared Cell alone
+        // never wins.
         for (source, function) in [
             (".|0A05", Function::AbsoluteDifference),
             (".%0A05", Function::Modulo),
@@ -1082,7 +1083,7 @@ mod test {
             Function::ALL
                 .iter()
                 .copied()
-                .filter(|function| function.signature().is_empty())
+                .filter(|function| function.takes_no_operand())
                 .map(Atom::Function),
         ) {
             let mut source = atom.to_string();
@@ -1218,7 +1219,7 @@ mod property {
                 Function::ALL
                     .iter()
                     .copied()
-                    .filter(|function| function.signature().is_empty())
+                    .filter(|function| function.takes_no_operand())
                     .map(Atom::Function),
             )
             .collect()

@@ -721,9 +721,9 @@ mod test {
     /// One Atom of every variant, so a check that claims to answer for all of
     /// them is swept rather than sampled.
     ///
-    /// The Activations and the Functions come from their own `ALL`, which are
-    /// the two lists the crate already keeps honest, so a fifth Activation or a
-    /// newly declared Function is covered the day it exists rather than the day
+    /// The Functions come from `Function::ALL`, the one list the crate already
+    /// keeps honest, so a newly declared Function — a fifth Self-Banging
+    /// Function among them — is covered the day it exists rather than the day
     /// someone remembers this list.
     fn every_atom() -> Vec<Atom> {
         let mut atoms = vec![

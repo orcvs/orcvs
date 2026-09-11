@@ -35,6 +35,14 @@ of record.
       not move during the Tick that wrote it.
 - [ ] These four Functions answer an effect and not a value, and ADR 0025's single construction point
       refuses each by its declared kind.
+- [ ] A Bang result activates a zero-operand root at its west anchor. Inherited from issue 03, which
+      could not drive it: the `column - 2` lookup in `bang_roots` went unreachable while every
+      Function in `define_functions!` declared an operand, and issue 03 made it reachable without
+      making it decide anything — its four roots are intrinsically active, and both callers of that
+      arm act on a root only where the root is not. A Directional Bang Function is the first root
+      that declares no operand *and* waits for activation, so it is the first Source that can tell
+      the arm apart from silence. The `bang_roots` doc comment near `orcvs/src/source/tick.rs:534`
+      names this ticket as the owner of the test that drives it.
 - [ ] Tick-by-Tick Source Grid tests cover emission in all four directions, Grid edges, and the
       refused destination. One test drives a full cycle: a Bang activates `*>`, `*>` writes `>>`, and
       `>>` moves on the following Tick.

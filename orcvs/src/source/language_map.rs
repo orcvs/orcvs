@@ -242,7 +242,7 @@ impl LanguageMap {
                 atoms.as_slice().iter().all(|atom| {
                     matches!(atom, Atom::Bang)
                         || matches!(atom, Atom::Function(function)
-                                if lang::Tokens::from(function).is_empty())
+                                if function.takes_no_operand())
                 })
             });
             atoms.into_iter().flat_map(move |atoms| {
@@ -1186,7 +1186,7 @@ mod property {
                 Function::ALL
                     .iter()
                     .copied()
-                    .filter(|function| lang::Tokens::from(function).is_empty())
+                    .filter(|function| function.takes_no_operand())
                     .map(Atom::Function),
             )
             .map(|atom| atom.to_string())

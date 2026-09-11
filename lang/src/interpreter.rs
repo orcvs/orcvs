@@ -947,7 +947,7 @@ mod test {
         for root in Function::ALL
             .iter()
             .copied()
-            .filter(|root| !root.signature().is_empty())
+            .filter(|root| !root.takes_no_operand())
         {
             for link in binary.iter().copied() {
                 for chain in 1..=CHAIN_LENGTH {

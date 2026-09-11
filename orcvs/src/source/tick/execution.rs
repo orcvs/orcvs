@@ -448,6 +448,16 @@ impl<'a> Execution<'a> {
                         || replacement.is_intrinsically_active()
                             != target.is_intrinsically_active()
                         || replacement.can_emit_bang() != target.can_emit_bang()
+                        // The Portal a Function declares is read twice: once
+                        // by scheduling, which reserves the Cells it resolves
+                        // to, and once here at the Turn, which writes through
+                        // it. A replacement that moves the offset separates
+                        // the two, so the write lands at Cells no dependency
+                        // edge names — the same ADR 0036 defect the widths
+                        // below refuse, stated about direction rather than
+                        // extent. `^^` and `>>` agree on every other term, so
+                        // this is the only one that tells them apart.
+                        || replacement.source_write() != target.source_write()
                         // ADR 0036: a schedule reserves Cells from the Function
                         // it found at each anchor, so a replacement that would
                         // widen or narrow that reservation is refused with the
@@ -586,8 +596,11 @@ impl<'a> Execution<'a> {
                 // the receiving operand decodes what is in Source when it
                 // consumes it, and the edge above is what makes it read this
                 // producer's Cells rather than the ones it replaced.
-                let cleared = Encoding::literal(&" ".repeat(spelling.len()))
-                    .expect("a space is a printable Cell");
+                // Stated rather than built, for the reason `Execution::new`
+                // states it: `define_functions!` asserts every spelling is two
+                // ASCII Cells at compile time, so clearing one is always these
+                // two spaces.
+                let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                 let clear = Portal::at(self.grid, anchor)
                     .admit(&cleared)
                     .expect("a Function standing in the Source fits its own Span");
@@ -680,6 +693,19 @@ impl<'a> Execution<'a> {
     }
 }
 
+/// Why a destination refused the value sent to it.
+///
+/// `OutsideGrid` has no live path and is not a gap in the coverage. The only
+/// producer of it is `Portal::displaced`, and the only caller of that at a Turn
+/// is `deliver_source_effect`, which by ADR 0006 answers an out-of-Grid
+/// displacement with `**` and no diagnostic rather than a message. This
+/// function is reached only from `deliver_output`, which a Source-writing
+/// Function never enters because it answers `Interpretation::Source`; the
+/// refusals that do arrive here come from `Portal::at(..).admit(..)`, which
+/// resolves inside the Grid by construction and so can only answer
+/// `BelowSource` or `CrossesRowEdge`. The arm is kept because the match is
+/// exhaustive over `PortalError` and ADR 0028 rules out a panic inside Tick
+/// planning, which are the only two alternatives to stating it.
 fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
     let encoding = encoding.to_string();
     match reason {

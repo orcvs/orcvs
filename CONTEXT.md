@@ -37,7 +37,7 @@ The semantic view derived from the Parser's interpretation of one Source revisio
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
 **Atom**:
-One parsed value or operation an Expression is made of: a Number, a Note, a Char, a Bang, a Self-Banging Function, a Function, or the absence marker. An Atom is what the Evaluator walks and what a Sequence holds. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
+One parsed value or operation an Expression is made of: a Number, a Note, a Char, a Bang, a Function, or the absence marker. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what the Evaluator walks and what a Sequence holds. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
 _Avoid_: Token, glyph, symbol, cell value
 
 **Operand Literal**:
@@ -129,7 +129,7 @@ The Atom an Expression answers when it leaves no value. It displays as `_` but h
 _Avoid_: Null, nil, empty value, empty Sequence, void
 
 **Sequence**:
-A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Self-Banging Function, a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. All three refusals are in force: `FunctionKind` distinguishes value from effect, with Terminal Output carried as one effect kind rather than being the definition of effect, so each effect Function declared later is refused there by its own definition. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
+A flat ordered sequence of Atoms produced and consumed as one language value. Its members are Atoms of any kind other than a Function that answers an effect rather than a value, or the Absence Marker. Per ADR 0025 membership is checked at the single point every Sequence is constructed through, and per ADR 0029 that check asks a Function's declared kind rather than admitting the Function family. Both refusals are in force, and a Self-Banging Function is refused by the first of them rather than by one of its own: `FunctionKind` distinguishes value from effect, with Terminal Output carried as one effect kind rather than being the definition of effect, so each effect Function declared later is refused there by its own definition. Atomic Functions extend pervasively across compatible Sequences, while Sequence-specific Functions transform the sequence itself.
 _Avoid_: Pattern, Cell batch, write list, string
 
 **Atomic Function**:

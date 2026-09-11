@@ -941,6 +941,28 @@ fn order_turns(
                 }
             };
             for contact in relationships.functions() {
+                // ADR 0004 admits a move only where the Cells it enters are
+                // empty, so a Source-writing Function's Portal never writes
+                // over the Language Unit it contacts: the contact blocks the
+                // move and the Function bangs its own Span instead. The one
+                // thing contact still delivers is Bang activation, and an
+                // intrinsically active root does not need it — which is the
+                // exemption the Bang emission arm below already makes, for the
+                // same reason.
+                //
+                // Without it two Functions whose Portals cover each other name
+                // each other in reservations neither can write through, and
+                // ordering each after the other makes that pair a cycle that
+                // costs the whole Grid its Tick. ADR 0036 names that rejected
+                // alternative: a reservation orders Turns and decides nothing
+                // else, and two blocked moves are not a contested Cell.
+                if clears_its_own_span
+                    && nodes[nodes[contact.index].owner]
+                        .function
+                        .is_intrinsically_active()
+                {
+                    continue;
+                }
                 for descendant in contact.subtree {
                     order_after(descendant);
                 }
@@ -1298,6 +1320,53 @@ mod test {
         let (_, grids, _) = tick_by_tick(Grid::new(4, 2), &["  >>", ""], 1);
 
         assert_eq!(grids[0], ["  **", "    "]);
+    }
+
+    #[test]
+    fn a_westward_move_stops_at_the_row_edge_rather_than_wrapping_into_the_previous_row() {
+        // The mirror, and a different refusal reaching the same cost. Eastward
+        // off the last column and westward off the first both stay inside the
+        // Grid when the neighbouring row exists, so `Portal::displaced`
+        // resolves a destination in each case and the row-edge check is the
+        // only thing that refuses it. The single-row edge tests above take the
+        // other path, where no Portal resolves at all.
+        let (_, grids, _) = tick_by_tick(Grid::new(4, 2), &["", "<<  "], 1);
+
+        assert_eq!(grids[0], ["    ", "**  "]);
+    }
+
+    #[test]
+    fn two_movers_reserving_each_other_each_bang_rather_than_costing_the_tick() {
+        // Each of these reserves a destination that covers the other's Span,
+        // so the two reservations name each other. A reservation orders Turns
+        // and decides nothing else, per ADR 0036, and neither of these Turns
+        // can write where the other stands: a move is admitted only into empty
+        // Cells, so mutual reservation describes two blocked moves rather than
+        // two writes competing for one Cell. Ordering either after the other
+        // would make that pair a cycle and cost the whole Grid its Tick, which
+        // is the rejected alternative ADR 0036 names. Both are blocked by
+        // complete root contact and both bang, which is what ADR 0006 gives a
+        // blocked move whatever blocked it.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &[">><<  "], 1);
+
+        assert_eq!(grids[0], ["****  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // The vertical pair shares no Cell at all, so it says the same thing
+        // about reservations rather than about the overlap a horizontal move
+        // has with its own old Span.
+        let (vertical, rows, _) = tick_by_tick(Grid::new(2, 2), &["vv", "^^"], 1);
+
+        assert_eq!(rows[0], ["**", "**"]);
+        assert!(
+            vertical[0].diagnostics.is_empty(),
+            "{:?}",
+            vertical[0].diagnostics
+        );
     }
 
     #[test]
@@ -2190,6 +2259,38 @@ mod test {
             d.message
                 .contains("activation requirements, output kind, or result width")
         }));
+    }
+
+    #[test]
+    fn a_replacement_that_changes_only_the_declared_portal_offset_is_refused() {
+        // Two Self-Banging Functions agree on every other column the guard
+        // reads — neither answers a value, both are intrinsically active,
+        // neither can return Bang, and both reserve a Cell pair — and they
+        // differ only in the Portal offset they declare. The schedule reserved
+        // the Cells `^^` declares, so admitting `>>` here would leave the Turn
+        // writing at Cells no dependency edge names, which is the ADR 0036
+        // defect this guard exists to refuse.
+        let (plan, source) = replaced_source(
+            Grid::new(16, 3),
+            &[".+0000", "^^", ""],
+            &[(0, 16)],
+            &[(0, lang::Function::SelfBangingEast)],
+        );
+
+        // `^^` stays the running Function and takes its own Turn, which the
+        // Addition to its north blocks, so its Span is the Bang a blocked move
+        // leaves. That is the assertion: an admitted replacement moves east
+        // instead, leaving a space and a `>` here and writing the second `>`
+        // one Cell outside the reservation.
+        assert_eq!(&source.snapshot()[16..18], "**");
+        assert!(
+            plan.diagnostics.iter().any(|d| {
+                d.message
+                    .contains("activation requirements, output kind, or result width")
+            }),
+            "{:?}",
+            plan.diagnostics
+        );
     }
 
     #[test]

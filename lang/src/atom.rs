@@ -758,6 +758,21 @@ macro_rules! define_functions {
                 matches!(self.answer(), Answer::Elementwise)
             }
 
+            /// Whether this Function declares no operand at all.
+            ///
+            /// One name for a question both crates ask and neither could
+            /// spell the same way: `signature()` is `pub(crate)`, so `orcvs`
+            /// reached it through `Tokens::from(..).is_empty()` while `lang`
+            /// asked the slice directly. It is a fact about the declaration
+            /// and not about a Function group — the Directional Bang
+            /// Functions `spatial-tick-planning/06` adds declare no operand
+            /// either — so a caller that means "is a Self-Banging Function"
+            /// should ask [`Function::source_write`] instead.
+            #[inline(always)]
+            pub const fn takes_no_operand(self) -> bool {
+                self.signature().is_empty()
+            }
+
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => &[$(operand_token!($operand),)*],)+
@@ -1015,7 +1030,7 @@ mod test {
                 "{function:?} displaces by something its spelling does not name",
             );
             assert!(
-                function.signature().is_empty(),
+                function.takes_no_operand(),
                 "{function:?} declares an operand a Self-Banging Function does not take",
             );
         }

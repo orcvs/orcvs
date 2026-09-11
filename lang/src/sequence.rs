@@ -25,15 +25,15 @@ impl Sequence {
     ///
     /// Membership is checked here and nowhere else, so [`Sequence::empty`],
     /// [`Sequence::promote`], and every Sequence Function a later issue adds
-    /// inherit exactly one rule and one diagnostic. An `Atom::Activation` is
-    /// refused because a Self-Banging Function is a root-only Source effect
-    /// rather than an operand, runtime value, or Sequence member; an
-    /// `Atom::Empty` is refused because it is the absence marker the
-    /// Interpreter answers with when an Expression leaves no value, not an
-    /// Atom with a Source encoding; and a Function Atom is refused when its
-    /// declared kind says it answers an effect, because per ADR 0029 a Sequence
-    /// is the value that carries results and so admits only a Function that
-    /// answers one.
+    /// inherit exactly one rule and one diagnostic. An `Atom::Empty` is
+    /// refused because it is the absence marker the Interpreter answers with
+    /// when an Expression leaves no value, not an Atom with a Source encoding;
+    /// and a Function Atom is refused when its declared kind says it answers an
+    /// effect, because per ADR 0029 a Sequence is the value that carries
+    /// results and so admits only a Function that answers one. A Self-Banging
+    /// Function is refused by that second rule rather than by one of its own:
+    /// being a root-only Source effect is what its declared kind states, so
+    /// one rule keeps one mechanism.
     pub fn new(atoms: impl IntoIterator<Item = Atom>) -> Result<Self, Error> {
         let atoms: Vec<Atom> = atoms.into_iter().collect();
 
@@ -55,8 +55,8 @@ impl Sequence {
     /// Promotes one Atom into a singleton Sequence.
     ///
     /// This is the only promotion, so an operand a Sequence Function widens
-    /// diagnoses identically to a member supplied directly: a promoted
-    /// Activation or Empty is refused by [`Sequence::new`] with the same
+    /// diagnoses identically to a member supplied directly: a promoted effect
+    /// Function or Empty is refused by [`Sequence::new`] with the same
     /// diagnostic it would raise inside a longer Sequence.
     #[inline(always)]
     pub fn promote(atom: Atom) -> Result<Self, Error> {

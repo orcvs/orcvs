@@ -103,10 +103,6 @@ ADR 0029 makes Sequence membership ask the declared kind of a Function.
       refuses each by its declared kind, per ADR 0029. No check names a spelling.
 - [x] Self-Banging Functions stay root-only Source effects. They are not operands, runtime values, or
       Sequence members.
-- [ ] A Bang result activates a zero-operand root at its west anchor. This closes the `column - 2`
-      lookup in `bang_roots` that no Source could author while every root declared an operand. It is
-      the converse of root contact above — a Bang result finding a root, not a Self-Banging Function
-      moving into one — and is a separate code path in `orcvs/src/source/tick.rs`.
 
 - [ ] Stated destinations reach `computations` without a Terminal Output Function acquiring one:
       ADR 0009's refusal is raised in shipped code and covered by a test of its own, not by the
@@ -252,7 +248,11 @@ the codebase already has.
 dependency edges. If only the destination is reserved, the clear can reach a computation that already
 ran, and `tick.rs` rejects the whole Tick for that. Issue 05 states the same rule for Halt.
 
-2026-09-11 (third): Delivery split into two branches.
+2026-09-11 (third): **Superseded by the fourth and fifth comments below.** Its stage boundary
+was redrawn by Function group, so the scope list here is not this ticket's scope: capability 1
+and root contact are in, the Directional Bang Functions are out, and the heading it names
+("Kind, membership, and contact") does not exist in the file. Kept for the reasoning, not the
+scope. Delivery split into two branches.
 
 **Stage 1 — representation and write machinery.** The four spellings `^^ vv << >>` become
 `define_functions!` rows. `Atom::Activation`, `Token::Activation`, the `sequence.rs` match arm and
@@ -295,8 +295,12 @@ One correction found while implementing: these Cells do not paint as a Glyph of 
 character. The migration changes it to Function. That is still a visible change, and it is a
 correction rather than a regression.
 
-2026-09-11 (fifth): Stage 1 is built. Every item above is ticked except the west-anchor one, which
-moves to issue 06. Four things are worth carrying forward.
+2026-09-11 (fifth): Stage 1 is built. Two items above stay open and the ticket stays
+`ready-for-agent` for them. The west-anchor item that stood here has moved to issue 06, which now
+carries it and its test. The stated-destinations item stays here, open, for the reason the
+2026-09-10 inherited comment below gives: this branch states a destination from a declaration, not
+from input, so it neither reaches ADR 0009's refusal nor retires the `#[cfg(test)]` raiser of it.
+Four things are worth carrying forward.
 
 **The activation source is a column of `define_functions!`.** `^^` answers an effect and takes its
 Turn anyway, so `answers_value` stopped being the question the activation seed meant. Every row now

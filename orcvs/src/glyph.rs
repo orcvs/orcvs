@@ -64,10 +64,9 @@ impl From<Token> for Glyph {
             // Atom position declares no type to colour, and a Sequence is never
             // spelled in Source at all, so the Cells at either position take the
             // ordinary glyph `Token::Char` gives a Cell with no colour of its
-            // own. Whatever actually stands there — a nested
-            // Function, or a literal that decoded to a Number, a Note, or a
-            // Char — is labelled by its own entry and painted by its own arm
-            // above.
+            // own. Whatever actually stands there — a nested Function, or a
+            // literal that decoded to a Number, a Note, or a Char — is
+            // labelled by its own entry and painted by its own arm above.
             Token::Atom | Token::Sequence => G::Char,
         }
     }
