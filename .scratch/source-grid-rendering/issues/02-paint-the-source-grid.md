@@ -3,11 +3,10 @@
 **What to build:** Replace the per-Cell `egui::Button` field with one allocated interaction
 rectangle and painter drawing, at strict visual parity.
 
-**Blocked by:** None. This issue was written as blocked by 01 — Record the transform ownership
-decision as an ADR — but it lands inside `Scene` unchanged and touches no transform, so it never
-depended on that decision. The dependency is real for 03, which is where the transform moves.
-Corrected here rather than left to imply 01 was skipped: 01 is still `ready-for-agent` and
-`docs/adr/0038-the-console-owns-the-source-grid-transform.md` does not exist.
+**Blocked by:** 01 — Record the transform ownership decision as an ADR. Resolved, and
+`docs/adr/0038-the-console-owns-the-source-grid-transform.md` records it. Worth noting for 03: this
+issue lands inside `Scene` unchanged and touches no transform, so it did not in fact depend on that
+decision. 03 is where the dependency is real.
 
 **Status:** resolved
 
@@ -195,6 +194,9 @@ Three independent reviews ran against `main`. What they changed:
 - `caret` is listed under `_Avoid_` for **Cursor** in `CONTEXT.md`, and this issue's own acceptance
   list and resolution used it. The shape vector is `cursor_strokes` and the test is
   `the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry`.
+- This issue was `resolved` while 01 was still open, which `docs/agents/issue-tracker.md` forbids.
+  01 has since been resolved on `main` and the `Blocked by:` line above now records that, so the
+  inconsistency is closed rather than argued away.
 - `the_grid_edge_and_the_letterboxing_resolve_to_no_cell_past_the_last` asserted that
   `available.left_center()` holds no Cell, which was only true because the chosen area letterboxes
   horizontally. Both orientations are asked now.
