@@ -5,7 +5,7 @@ owns the transform for, at strict visual parity.
 
 ## Why
 
-`show_source` (`shell/src/console.rs:287-341`) builds one `egui::Button` per Cell inside a
+`show_source` (`console/src/console.rs:287-341`) builds one `egui::Button` per Cell inside a
 `ui.horizontal` per row. At the default 40x25 that is a thousand interactive widgets per Render
 Frame, and the code already spends three lines zeroing a layout engine it does not want —
 `item_spacing`, `button_padding` and `interact_size` at `:294-296`.
@@ -46,7 +46,7 @@ claim about cost, and `.scratch/benchmarks/spec.md` puts the comparison in CI. T
 structure, not speed: a thousand widgets become one, a thousand per-frame `String` allocations
 become zero, a thousand `Context` write locks become none, and cost scales with the viewport
 rather than with the Source. Each of those is countable from the diff. No issue here asserts a
-frame time, and no new bench harness is added to `shell`.
+frame time, and no new bench harness is added to `console`.
 
 **Parity is asserted against the Render Frame, not against pixels.** `console-testing/spec.md`
 already rules image comparison out of scope and already says assertions are made against `Console`

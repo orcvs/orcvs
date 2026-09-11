@@ -111,7 +111,7 @@ workarounds for a seven-cell-wide field a real Panel does not have.
 
 ## Fog
 
-Persistence of Anchor, orientation and visibility across sessions — `shell` has the `persistence`
+Persistence of Anchor, orientation and visibility across sessions — `console` has the `persistence`
 feature on by default and this was never asked.
 
 What happens to a Panel when the window is resized below the Panel's own size.

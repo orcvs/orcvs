@@ -22,7 +22,7 @@ make sure a light preference cannot produce a half-styled console.
 
 **The defect.** eframe restores egui memory before it calls the application creator, on native and on
 web. `ThemePreference` is part of the serializable `Options` that eframe restores. `Console::new`
-then calls `set_theme(Theme::Dark)` with no condition, which replaces the restored value. The `shell`
+then calls `set_theme(Theme::Dark)` with no condition, which replaces the restored value. The `console`
 crate already has a `persistence` feature that turns on `eframe/persistence`, so the defect is live.
 
 **Why the second acceptance line is required.** Removing the `set_theme` call alone is not safe

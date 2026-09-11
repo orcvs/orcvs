@@ -8,7 +8,7 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 
 #[cfg(not(target_arch = "wasm32"))]
-use shell::console::DEFAULT_VIEW_SIZE;
+use console::console::DEFAULT_VIEW_SIZE;
 
 pub const DEFAULT_VIEW_SIZE_MIN: [f32; 2] = [300.0, 220.0];
 
@@ -32,7 +32,7 @@ fn trace() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> eframe::Result {
-    use shell::console::Console;
+    use console::console::Console;
 
     trace();
 
@@ -57,8 +57,8 @@ async fn main() -> eframe::Result {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    use shell::console::Console;
-    use shell::web_startup::canvas_or_report;
+    use console::console::Console;
+    use console::web_startup::canvas_or_report;
     use wasm_bindgen::JsCast;
 
     // Redirect `log` message to `console.log` and friends:

@@ -1,7 +1,7 @@
 use orcvs::playback::PlaybackDiagnostic;
 
 ///
-/// The message the shell shows for a Playback diagnostic, or `None` when the
+/// The message the console shows for a Playback diagnostic, or `None` when the
 /// diagnostic reports no failure. An Overrun is a late Tick the Playback Engine
 /// deliberately skips, so it is not a failure and the user is not told about it.
 ///

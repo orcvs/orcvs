@@ -1,5 +1,5 @@
 [package]
-name = "shell"
+name = "console"
 version = "0.1.0"
 authors = []
 edition.workspace = true
@@ -12,11 +12,11 @@ rust-version.workspace = true
 workspace = true
 
 [lib]
-name = "shell"
+name = "console"
 path = "src/lib.rs"
 
 [[bin]]
-name = "shell"
+name = "console"
 path = "src/main.rs"
 
 [features]

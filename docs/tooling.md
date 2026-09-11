@@ -29,13 +29,13 @@ doctests follow the same rule: a doctest that one feature set compiles and the o
 compiled by only one of them, so the tier runs `cargo test --doc` under both rather than only the
 shipped one.
 
-`persistence` is a default feature of `shell`, so "both feature sets" now means the default one and
+`persistence` is a default feature of `console`, so "both feature sets" now means the default one and
 `--no-default-features`. The shipped binary saves the current Source revision and restores it on the
 next start, which is what `product-persistence/01` requires of the shipped application: a feature
 that shipped off would be proved only in a configuration nobody launches, since `mise run run`,
-`cargo run`, the `.vscode` cargo tasks, and a plain `trunk build` all take the default set. `shell`
+`cargo run`, the `.vscode` cargo tasks, and a plain `trunk build` all take the default set. `console`
 pulls `orcvs/persistence` in through its own feature, so `orcvs` keeps `default = []` and the whole
-workspace still resolves with storage on whenever `shell` is in the build.
+workspace still resolves with storage on whenever `console` is in the build.
 
 That makes `--no-default-features` the arm that proves the feature-off build, and it is the arm that
 proves it *only* — nothing else in either tier compiles the application without the storage path.
@@ -45,7 +45,7 @@ run` and `cargo test --doc` over the default set with the same three over `--no-
 and `check_wasm` pairs the two `trunk build` invocations the same way. Naming `--features
 persistence` on the other half of any of those pairs would name the default twice and leave one
 configuration tested; `scripts/check-tooling-contract.sh` pins both halves, and pins
-`default = ["persistence"]` in `shell/Cargo.toml` beside them, because with the default flipped back
+`default = ["persistence"]` in `console/Cargo.toml` beside them, because with the default flipped back
 the pair collapses into two feature-off runs and nothing compiles the storage path at all.
 
 The browser suite and `mise run test_persistence` take no feature flag decision from this.
@@ -53,7 +53,7 @@ The browser suite and `mise run test_persistence` take no feature flag decision 
 headless Firefox run on a build `check_wasm` already compiles buys nothing. `test_persistence` keeps
 its explicit `--features persistence`: `persistence` is not in the `orcvs` default set, so its
 `cargo check --package orcvs --lib` line has no other way to reach the feature, and the task keeps
-its meaning if the `shell` default ever moves.
+its meaning if the `console` default ever moves.
 
 `mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
 is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the
@@ -81,7 +81,7 @@ in the workflow, because putting the line back is a one-word edit nothing else n
 `orcvs` carries a second feature, and it is the one a tier can pass without ever building.
 `native-midi` gates the platform MIDI backend and the `midir` dependency that reaches it, and it is
 on by default, so every command in this file resolves exactly as it did before the feature existed
-— the `--no-default-features` halves included, because `shell` names `orcvs/native-midi` for its
+— the `--no-default-features` halves included, because `console` names `orcvs/native-midi` for its
 non-WASM targets and workspace resolution hands it back.
 What turning it off gives up is delivery. A running Orcvs still composes, executes, and renders
 Source, and still has a MIDI output adapter; the adapter holds a backend that offers no destination
@@ -98,7 +98,7 @@ tests with `--no-default-features`; between them and the two workspace passes be
 carry the backend either way, all four cells of the two features are compiled, and the tests that
 state what disabling
 `native-midi` gives up — compiled only with it off — are executed rather than merely type-checked.
-The scope is `orcvs` because it is the only crate the feature reaches: `shell` asks for
+The scope is `orcvs` because it is the only crate the feature reaches: `console` asks for
 `orcvs/native-midi` by name for its non-WASM targets and would keep it whatever the tier passed, and
 the browser build asks for no native backend at all. `mise run audit_deps` holds the tree claim
 itself rather than describing it — it resolves the feature-off tree and fails if `midir` or an audio

@@ -1025,7 +1025,7 @@ mod test {
     /// than in `mod property`: it draws nothing, so the `cfg` that keeps
     /// proptest out of a WASM build has no claim on it. `check_wasm`'s
     /// `--all-targets` clippy now type-checks it, which is as far as any
-    /// `lang` test reaches on that target — `test_wasm` runs the `shell`
+    /// `lang` test reaches on that target — `test_wasm` runs the `console`
     /// crate's browser suite and no unit test here — so what running it proves
     /// is proven natively.
     ///

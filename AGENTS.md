@@ -43,7 +43,7 @@ filters. `docs/tooling.md` records what each covers. Re-deriving any of it local
 and gigabytes on an answer CI gives anyway.
 
 Run this for every change, on the crate you edited and the crates that depend on it — `lang`
-means `lang` and `orcvs`, `orcvs` means `orcvs` and `shell`:
+means `lang` and `orcvs`, `orcvs` means `orcvs` and `console`:
 
 ```sh
 cargo fmt --all -- --check
@@ -70,7 +70,7 @@ Then run only the gates whose inputs the change actually touched:
 - `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
   `node scripts/roadmap.ts > /dev/null`
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
-  `shell` enables `persistence` by default, so the ordinary run already covers the feature-on
+  `console` enables `persistence` by default, so the ordinary run already covers the feature-on
   path and `--features persistence` adds nothing; the arm worth running per change is the one
   that proves the feature still compiles out. `mise run test_persistence` is the merge tier's
   whole pass and belongs to CI.

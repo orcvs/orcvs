@@ -30,15 +30,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'shell'",
+            "name": "Debug executable 'console'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=shell",
-                    "--package=shell"
+                    "--bin=console",
+                    "--package=console"
                 ],
                 "filter": {
-                    "name": "shell",
+                    "name": "console",
                     "kind": "bin"
                 }
             },

@@ -1,9 +1,9 @@
 //!
-//! The shell's error channel: one report, on whichever channel the target
+//! The console's error channel: one report, on whichever channel the target
 //! being built actually reads.
 //!
 //! What is reported is the same on both targets; what reads a report is not.
-//! The native binary installs a `tracing` subscriber (`shell/src/main.rs`) and
+//! The native binary installs a `tracing` subscriber (`console/src/main.rs`) and
 //! reads `tracing`. The browser build installs `eframe::WebLogger` instead,
 //! which forwards `log` records to the developer console and knows nothing of
 //! `tracing`; with no `tracing` subscriber on that target a `tracing` event is
@@ -49,7 +49,7 @@
 /// feature, the Playback failure report's on the target — so a native build
 /// with `--no-default-features` compiles no caller at all. That is a fact
 /// about which sites that build contains, not about the channel: this is the
-/// shell's error channel on every target, and the next site to need it must
+/// console's error channel on every target, and the next site to need it must
 /// not have to re-derive what it knows. `unused_macros`, and the
 /// `unused_imports` the re-export below draws with it, cannot see that, so
 /// they are silenced on these two items and nowhere else.

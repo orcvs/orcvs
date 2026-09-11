@@ -33,7 +33,7 @@ make_fixture() {
   fi
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
-  mkdir -p "$fixture_dir/scripts/tests" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/shell/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  mkdir -p "$fixture_dir/scripts/tests" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/console/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
   # The contract asks git whether the proptest regression files are ignored, so a
   # fixture has to be a work tree or that check cannot run against it at all.
   git -C "$fixture_dir" init --quiet
@@ -43,8 +43,8 @@ make_fixture() {
   # against it. A fixture without it has nothing for that assertion to read.
   cp "$repo_root/scripts/tests/check-tooling-contract.sh" "$fixture_dir/scripts/tests/"
   cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
-  cp "$repo_root/shell/Cargo.toml" "$repo_root/shell/Trunk.toml" "$fixture_dir/shell/"
-  cp "$repo_root/shell/assets/sw.js" "$fixture_dir/shell/assets/"
+  cp "$repo_root/console/Cargo.toml" "$repo_root/console/Trunk.toml" "$fixture_dir/console/"
+  cp "$repo_root/console/assets/sw.js" "$fixture_dir/console/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
   # `miri.yml` is copied like the other three. The contract's Miri rules are
@@ -150,7 +150,7 @@ test_quick_benchmark_output_is_rejected() {
   # pin instead, and the case would pass with this assertion deleted. A step the
   # pins do not reach is what proves the ban itself.
   make_fixture
-  perl -0pi -e 's/(      - name: Run benchmarks\n)/      - name: Benchmark the shell crate too\n        run: cargo bench --benches -- --output-format bencher --quick\n$1/' "$fixture_dir/.github/workflows/bench.yml"
+  perl -0pi -e 's/(      - name: Run benchmarks\n)/      - name: Benchmark the console crate too\n        run: cargo bench --benches -- --output-format bencher --quick\n$1/' "$fixture_dir/.github/workflows/bench.yml"
   assert_rejected "a benchmark workflow asking criterion for unnamed quick output"
 }
 
@@ -192,7 +192,7 @@ test_unlocked_audit_deny_is_rejected() {
 
 test_unlocked_wasm_pack_is_rejected() {
   make_fixture
-  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/wasm-pack test --headless --firefox console --test wasm --locked/wasm-pack test --headless --firefox console --test wasm/' "$fixture_dir/mise.toml"
   assert_rejected "an unlocked wasm-pack test invocation"
 }
 
@@ -217,114 +217,114 @@ test_wasm_test_without_persistence_is_rejected() {
   # The browser suite runs the shipped configuration, and storage is in it by
   # default. Opting out here would leave the one gate that drives a real browser
   # exercising a build the browser never loads.
-  perl -pi -e 's/wasm-pack test --headless --firefox shell --test wasm --locked/wasm-pack test --headless --firefox shell --test wasm --no-default-features --locked/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/wasm-pack test --headless --firefox console --test wasm --locked/wasm-pack test --headless --firefox console --test wasm --no-default-features --locked/' "$fixture_dir/mise.toml"
   assert_rejected "browser tests that opt out of the persistence default"
 }
 
 test_stale_wasm_artifact_name_is_rejected() {
   make_fixture
-  perl -pi -e 's/shell_bg[.]wasm/console_bg.wasm/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/console_bg[.]wasm/shell_bg.wasm/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a stale WASM artifact name in the service worker cache"
 }
 
 test_hashed_wasm_artifacts_are_rejected() {
   make_fixture
-  perl -pi -e 's/filehash = false/filehash = true/' "$fixture_dir/shell/Trunk.toml"
+  perl -pi -e 's/filehash = false/filehash = true/' "$fixture_dir/console/Trunk.toml"
   assert_rejected "hashed WASM artifacts with fixed service-worker cache names"
 }
 
 test_stale_script_artifact_name_is_rejected() {
   make_fixture
-  perl -pi -e "s|'./shell[.]js'|'./console.js'|" "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e "s|'./console[.]js'|'./shell.js'|" "$fixture_dir/console/assets/sw.js"
   assert_rejected "a stale script artifact name in the service worker cache"
 }
 
 test_service_worker_without_cache_invalidation_is_rejected() {
   make_fixture
-  perl -0pi -e "s/self[.]addEventListener[(]'activate'.*?^}[)];\n//ms" "$fixture_dir/shell/assets/sw.js"
+  perl -0pi -e "s/self[.]addEventListener[(]'activate'.*?^}[)];\n//ms" "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker without versioned cache invalidation"
 }
 
 test_service_worker_deleting_unrelated_caches_is_rejected() {
   make_fixture
-  perl -pi -e 's/return isOrcvsCache && name !== cacheName;/return name !== cacheName;/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/return isOrcvsCache && name !== cacheName;/return name !== cacheName;/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker that deletes unrelated origin caches"
 }
 
 test_service_worker_without_legacy_cache_cleanup_is_rejected() {
   make_fixture
-  perl -pi -e "s/egui-template-pwa/unrelated-pwa/" "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e "s/egui-template-pwa/unrelated-pwa/" "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker that leaves its legacy cache behind"
 }
 
 test_service_worker_caching_error_responses_is_rejected() {
   make_fixture
-  perl -pi -e 's/if [(]response[.]ok[)]/if (true)/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/if [(]response[.]ok[)]/if (true)/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker that caches HTTP error responses"
 }
 
 test_service_worker_discarding_live_response_on_cache_failure_is_rejected() {
   make_fixture
-  perl -pi -e 's/cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch/cache.put(e.request, response.clone()).then/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/cache[.]put[(]e[.]request, response[.]clone[(][)][)][.]catch/cache.put(e.request, response.clone()).then/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker that discards a live response when cache storage fails"
 }
 
 test_service_worker_without_explicit_offline_error_is_rejected() {
   make_fixture
-  perl -pi -e 's/response [|][|] Response[.]error[(][)]/response/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/response [|][|] Response[.]error[(][)]/response/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker whose offline cache miss resolves without a response"
 }
 
 test_service_worker_without_immediate_activation_is_rejected() {
   make_fixture
-  perl -pi -e 's/self[.]skipWaiting[(][)]/self.waitForOldClients()/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/self[.]skipWaiting[(][)]/self.waitForOldClients()/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker that waits for every old tab to close"
 }
 
 test_service_worker_without_immediate_control_is_rejected() {
   make_fixture
-  perl -pi -e 's/self[.]clients[.]claim[(][)]/self.clients.waitForReload()/' "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e 's/self[.]clients[.]claim[(][)]/self.clients.waitForReload()/' "$fixture_dir/console/assets/sw.js"
   assert_rejected "a service worker that does not control existing tabs after activation"
 }
 
 test_service_worker_with_cache_first_navigation_is_rejected() {
   make_fixture
-  perl -pi -e "s/e[.]request[.]mode === 'navigate'/e.request.mode === 'cached-navigation'/" "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e "s/e[.]request[.]mode === 'navigate'/e.request.mode === 'cached-navigation'/" "$fixture_dir/console/assets/sw.js"
   assert_rejected "cache-first navigation after a deploy"
 }
 
 test_service_worker_with_cache_first_stable_artifacts_is_rejected() {
   make_fixture
-  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell[.]js'[)]|false|" "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/console[.]js'[)]|false|" "$fixture_dir/console/assets/sw.js"
   assert_rejected "cache-first stable JavaScript after an unchanged service-worker deploy"
 
   make_fixture
-  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/shell_bg[.]wasm'[)]|false|" "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e "s|e[.]request[.]url[.]endsWith[(]'/console_bg[.]wasm'[)]|false|" "$fixture_dir/console/assets/sw.js"
   assert_rejected "cache-first stable WASM after an unchanged service-worker deploy"
 }
 
 test_service_worker_using_the_default_http_cache_is_rejected() {
   make_fixture
-  perl -pi -e "s/fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]/fetch(e.request)/" "$fixture_dir/shell/assets/sw.js"
+  perl -pi -e "s/fetch[(]e[.]request, \{ cache: 'no-cache' \}[)]/fetch(e.request)/" "$fixture_dir/console/assets/sw.js"
   assert_rejected "network-first stable artifacts that can use the HTTP cache"
 }
 
 test_stale_debug_package_is_rejected() {
   make_fixture
-  perl -pi -e 's/("--package=shell")/$1,\n                    "--package=vtha"/' "$fixture_dir/.vscode/launch.json"
+  perl -pi -e 's/("--package=console")/$1,\n                    "--package=vtha"/' "$fixture_dir/.vscode/launch.json"
   assert_rejected "a stale package name in the debugger configuration"
 }
 
 test_stale_benchmark_is_rejected() {
   make_fixture
-  perl -pi -e 's/("--package=shell")/$1,\n                    "--bin=parser_benchmark"/' "$fixture_dir/.vscode/launch.json"
+  perl -pi -e 's/("--package=console")/$1,\n                    "--bin=parser_benchmark"/' "$fixture_dir/.vscode/launch.json"
   assert_rejected "a retired parser benchmark in the debugger configuration"
 }
 
-test_console_debug_package_is_rejected() {
+test_shell_debug_package_is_rejected() {
   make_fixture
-  perl -pi -e 's/("--package=shell")/$1,\n                    "--package=console"/' "$fixture_dir/.vscode/launch.json"
-  assert_rejected "the retired console package in the debugger configuration"
+  perl -pi -e 's/("--package=console")/$1,\n                    "--package=shell"/' "$fixture_dir/.vscode/launch.json"
+  assert_rejected "the retired shell package in the debugger configuration"
 }
 
 test_missing_orcvs_persistence_check_is_rejected() {
@@ -564,20 +564,20 @@ test_pull_request_tier_without_feature_off_doctests_is_rejected() {
 
 test_optional_persistence_default_is_rejected() {
   make_fixture
-  # Every feature arm in the tiers is stated relative to the shell default. With
-  # `default = []` the plain workspace runs stop compiling the storage path and
-  # the `--no-default-features` runs beside them test the same thing, so the pair
-  # collapses into one configuration and persistence is verified nowhere.
-  perl -pi -e 's/^default = \["persistence"\]$/default = []/' "$fixture_dir/shell/Cargo.toml"
-  assert_rejected "a shell manifest that ships persistence off"
+  # Every feature arm in the tiers is stated relative to the console default.
+  # With `default = []` the plain workspace runs stop compiling the storage path
+  # and the `--no-default-features` runs beside them test the same thing, so the
+  # pair collapses into one configuration and persistence is verified nowhere.
+  perl -pi -e 's/^default = \["persistence"\]$/default = []/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a console manifest that ships persistence off"
 
   # The other way to lose the pair is to stop the feature being a feature at all.
   # `--no-default-features` then proves nothing, and the acceptance criterion the
   # default-on decision was taken against — that the path still compiles out —
   # has no build behind it.
   make_fixture
-  perl -pi -e 's|^persistence = \["eframe/persistence", "orcvs/persistence"\]$|# $&|' "$fixture_dir/shell/Cargo.toml"
-  assert_rejected "a shell manifest with no persistence feature to switch off"
+  perl -pi -e 's|^persistence = \["eframe/persistence", "orcvs/persistence"\]$|# $&|' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a console manifest with no persistence feature to switch off"
 }
 
 test_prohibited_action_main_ref_is_rejected() {
@@ -732,24 +732,24 @@ test_native_midi_off_by_default_is_rejected() {
 
 test_console_without_native_midi_is_rejected() {
   make_fixture
-  perl -pi -e 's/, features = \["native-midi"\] \}$/ }/' "$fixture_dir/shell/Cargo.toml"
+  perl -pi -e 's/, features = \["native-midi"\] \}$/ }/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console that asks for no native MIDI backend on its native targets"
 
   # Asking for it by name is the point: with `orcvs` defaulting the feature on,
   # a console that merely leaves the default alone still ships MIDI today and
   # loses it silently the day that default changes.
   make_fixture
-  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/shell/Cargo.toml"
+  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console that leans on the orcvs default instead of naming the feature"
 }
 
 test_console_with_a_second_feature_is_accepted() {
   make_fixture
-  # `shell` already has a `persistence` feature that maps onto
+  # `console` already has a `persistence` feature that maps onto
   # `orcvs/persistence`, so a second entry beside `native-midi` is a manifest
   # the contract has no reason to refuse. Pinning the list by its length refused
   # it, and said the feature was missing while doing so.
-  perl -pi -e 's/features = \["native-midi"\] \}$/features = ["native-midi", "persistence"] }/' "$fixture_dir/shell/Cargo.toml"
+  perl -pi -e 's/features = \["native-midi"\] \}$/features = ["native-midi", "persistence"] }/' "$fixture_dir/console/Cargo.toml"
   assert_accepted "a console that names native-midi alongside another feature"
 }
 
@@ -759,7 +759,7 @@ test_console_target_table_reborrowing_defaults_is_rejected() {
   # takes effect if every one of them says it. Dropping it here alone puts
   # `orcvs feature "default"` back in the console's native build while the plain
   # table still reads as though defaults were off.
-  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false, features = \["native-midi"\] \}$/orcvs = { path = "..\/orcvs", version = "0.1.0", features = ["native-midi"] }/' "$fixture_dir/shell/Cargo.toml"
+  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false, features = \["native-midi"\] \}$/orcvs = { path = "..\/orcvs", version = "0.1.0", features = ["native-midi"] }/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console whose native table borrows the orcvs default back"
 }
 
@@ -841,7 +841,7 @@ case "${1:-all}" in
   service-worker-http-cache) test_service_worker_using_the_default_http_cache_is_rejected ;;
   stale-debug-package) test_stale_debug_package_is_rejected ;;
   stale-debug-benchmark) test_stale_benchmark_is_rejected ;;
-  console-debug-package) test_console_debug_package_is_rejected ;;
+  shell-debug-package) test_shell_debug_package_is_rejected ;;
   missing-orcvs-persistence) test_missing_orcvs_persistence_check_is_rejected ;;
   dotted-dependency) test_dotted_dependency_version_is_rejected ;;
   dependency-table) test_dependency_table_version_is_rejected ;;
@@ -931,7 +931,7 @@ case "${1:-all}" in
     test_service_worker_using_the_default_http_cache_is_rejected
     test_stale_debug_package_is_rejected
     test_stale_benchmark_is_rejected
-    test_console_debug_package_is_rejected
+    test_shell_debug_package_is_rejected
     test_missing_orcvs_persistence_check_is_rejected
     test_persistence_command_in_wrong_task_is_rejected
     test_dotted_dependency_version_is_rejected

@@ -37,7 +37,7 @@ pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 
 ///
 /// One running Orcvs: its options, Source and Grid, Cursor, and Playback
-/// lifecycle. Output-device discovery and selection belong to the shell.
+/// lifecycle. Output-device discovery and selection belong to the console.
 ///
 /// Selection names a Position, and only a Grid mints one. A pair outside the
 /// Grid never becomes a Position at all, so `select` has no rejection to make
@@ -285,7 +285,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     fn play(&mut self) {
         let ms = self.opts.bpm.delay_ms();
         // A start failure is already recorded as a Playback diagnostic, which
-        // `observe_playback` hands to the shell; reporting it again here would
+        // `observe_playback` hands to the console; reporting it again here would
         // put one failure on two channels.
         if self.playback.start(Duration::from_millis(ms)).is_ok() {
             self.playback_state = PlaybackState::Playing;
