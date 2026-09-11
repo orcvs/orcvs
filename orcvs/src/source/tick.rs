@@ -2485,12 +2485,20 @@ mod test {
     #[test]
     fn a_replacement_that_changes_only_the_activation_source_is_refused() {
         // The term the Self-Banging Functions added to that guard. Raw Play and
-        // `^^` agree on every other column it reads — neither answers a value,
-        // neither can return Bang, and both reserve a Cell pair — and they
-        // differ in where their activation comes from. A guard still asking
-        // `answers_value` for that question would admit this replacement and
-        // leave the schedule holding edges derived from a root that now needs
-        // no Bang.
+        // `^^` differ on where their activation comes from, and that is the
+        // first difference the guard finds: neither answers a value, so the
+        // term ahead of it agrees. They differ on the Source write as well —
+        // `^^` declares one and Raw Play declares none — so this fixture
+        // changes two facts and is named for the one that is reported.
+        //
+        // No pair changes activation alone. Every Function whose activation is
+        // intrinsic either answers a value or declares a Source write, and no
+        // Bang-activated Function does either, so a fixture that changed this
+        // fact and nothing else cannot be written;
+        // `every_declared_change_is_the_first_difference_for_some_pair` in
+        // `lang` holds that. A guard still asking `answers_value` for this
+        // question would admit the replacement and leave the schedule holding
+        // edges derived from a root that now needs no Bang.
         let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".+0000", "!>007FC4", ""],
@@ -2503,6 +2511,41 @@ mod test {
             plan.diagnostics
                 .iter()
                 .any(|d| { d.message.contains("where its activation comes from") })
+        );
+    }
+
+    #[test]
+    fn a_replacement_that_changes_only_bang_emission_is_refused() {
+        // The one fact of the five that a pair can differ on alone and that
+        // nothing asserted until now. Equality and Addition agree on every
+        // other column the guard reads — both answer a value, both are
+        // intrinsically active, neither declares a Source write, both reserve a
+        // Cell pair — and ADR 0011's Equality can answer Bang where Addition
+        // never can.
+        //
+        // Scheduling reads that declaration to decide which roots can supply
+        // activation, so admitting this replacement would leave the Turn run by
+        // a Function that can answer Bang with no activation edge built from
+        // it, and a neighbouring root waiting on a Bang the schedule never
+        // ordered.
+        let (plan, source) = replaced_source(
+            Grid::new(16, 3),
+            &[".+0000", ".+0102", ""],
+            &[(0, 16)],
+            &[(0, lang::Function::Equality)],
+        );
+
+        assert_eq!(
+            &source.snapshot()[16..22],
+            ".+0102",
+            "the refused replacement wrote no Cell, so the parsed Function stands"
+        );
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("whether it can emit Bang") }),
+            "{:?}",
+            plan.diagnostics
         );
     }
 

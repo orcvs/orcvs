@@ -10,11 +10,11 @@ Neither of these is a behaviour change. The first corrects a comment; the second
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The activation test's comment states what its fixture actually differs on, and that no Activation-only pair exists.
-- [ ] A test covers a replacement differing only in Bang emission, asserting the refusal and the named fact.
-- [ ] No production code changes in this ticket.
+- [x] The activation test's comment states what its fixture actually differs on, and that no Activation-only pair exists.
+- [x] A test covers a replacement differing only in Bang emission, asserting the refusal and the named fact.
+- [x] No production code changes in this ticket.
 
 ## Verification
 
