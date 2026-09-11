@@ -1,5 +1,12 @@
 # Keep the core crate free of the UI toolkit
 
+The crate named `shell` below is now named `console`, renamed by `console-testing/01` because
+`CONTEXT.md` already used "console" as a plain noun while listing "shell command" under _Avoid_.
+The boundary this ADR draws is unchanged; only the name on one side of it moved. The old name is
+left as written throughout, here and in every ADR that cites a path under it: a name that no
+longer resolves is what lets a reader trace the rename across the ADRs and the commits that made
+it.
+
 Orcvs splits into three crates. `lang` parses and interprets Expressions. `orcvs` owns the Source, the Grid, the Language Map, Glyph classification, the Cursor, the Render Frame, the Playback Engine, and MIDI output. `shell` owns the egui and eframe presentation, the window, the style, and MIDI device selection. `orcvs` does not depend on `egui`, `eframe`, or `winit`, and no module moves into `orcvs` until it is free of them.
 
 Measurement drove the boundary rather than taste. Of roughly 5,900 lines in the former `console` crate, roughly 5,100 hold no reference to the toolkit: the Source model, the Grid, the Language Map, the Render Frame, Playback, MIDI, Glyph, Cursor, and options. The application state holds 581 of those lines behind a single `use egui::{Event, Key}` import. A cold check of the workspace costs 48 seconds and a cold test build costs a further 59 seconds, almost all of it `eframe`, `winit`, and `glutin`, while `lang` builds and tests from nothing in 9 seconds. Every domain test, property test, and Language Map partition check previously paid a UI compile it never used.
