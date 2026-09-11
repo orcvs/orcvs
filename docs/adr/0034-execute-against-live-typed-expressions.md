@@ -37,6 +37,61 @@ The sentence that accompanied the deferral of a Source operation producing Funct
 
 The spatial encoding rule replaces this proposal's earlier rule that whole spatial replacements preserve the producer's type. Whole and partial spatial writes now use the receiving operand's literal interpretation. The reason is Source-equivalent behavior: identical final operand characters have the same meaning, whether entered directly or supplied spatially. Historical prototype assessments are evidence about their recorded candidate, not the production contract.
 
+## Amendment: the Render Frame carries Tokens, not a Glyph classification
+
+This ADR states that the Parser's typed output is the structure rendering uses and that the
+production migration retires the independent spelling classifier. One classifier survived the
+migration: `orcvs::glyph::Glyph`, the per-Cell enum the Render Frame carries and the console paints
+from. It is retired too, and the Render Frame carries `Option<Token>` in its place.
+
+`Glyph` is not a paint vocabulary that resembles the token vocabulary. It is that vocabulary with
+the type-carrying variants removed:
+
+| Carried by | Variants |
+| --- | --- |
+| Both | `Bang`, `Char`, `Comment`, `Function`, `Note`, `Number` |
+| `Glyph` alone | `Marker`, `Highlight`, `Space` |
+| `Token` alone | `Activation`, `Atom`, `Sequence` |
+
+`Space` is the absence of a Token, which `Option` already spells. `Marker` and `Highlight` are the
+Orca inheritance: in a terminal the Grid's background rulings *are* characters, so a `+` every
+Marker Spacing and a `.` at the Highlight Spacing were Cell content. Orcvs paints both as geometry
+instead — `marker_spacing` drives the sector seam strengths and `highlight_dot_spacing` the Cursor
+bloom radius — and no Cell has been able to carry either classification since. `LanguageMap` assigns
+a Glyph only to a Cell holding a parsed token or a non-space byte, so every other Cell answers
+`Glyph::Space`, and `GlyphString::marker()` and `::highlight()` are reached by nothing but their own
+unit test.
+
+That leaves `Activation`, `Atom` and `Sequence`, which `From<Token> for Glyph` folds into `Char`
+with a comment recording the loss. The fold is the whole of what the classifier does that `Option`
+does not, and what it discards is exactly the type information this ADR established: a generic Atom
+operand, a whole-Sequence operand and a literal character become one colour.
+
+The decision:
+
+- `RenderCell` carries `Option<Token>`. `Glyph`, `GlyphString`'s blank spelling table,
+  `From<Token> for Glyph`, and the `LanguageMap` row's `Vec<Option<Glyph>>` are deleted. This ADR
+  already deferred that array's existence — "neither individually allocated linked nodes nor a
+  cell-indexed classification array is a settled requirement" — so removing it settles the deferral
+  rather than revising a decision.
+- `Marker` and `Highlight` leave the vocabulary. `CONTEXT.md`'s **Glyph** entry is retired with the
+  type it named, and the Grid's background rulings are described where they are drawn.
+- Facts that belong to an Expression stay on the Expression. A diagnostic and an Expression's
+  executability are per-Expression and already live on `ExpressionEntry` as `diagnostic`, `span` and
+  `root`; the Render Frame carries those spans once rather than copying two booleans onto every Cell
+  the Expression covers. Copying them per Cell would repeat at a finer granularity the duplication
+  this amendment removes.
+
+What this does not decide, because it is language design rather than a consequence of retiring a
+duplicate, is deferred to `.scratch/typed-source-paint/`:
+
+- What an unfilled operand Cell shows. `GlyphString` spells `h` for an empty Number slot and `n` for
+  a Note, which is the same terminal inheritance as `Marker`: standing a character in because a
+  terminal has only characters. A typed console can paint the Cell in its declared type instead and
+  spell nothing. Neither is adopted here.
+- How a diagnostic and an inexecutable Expression are painted. That they *can* be is the point of
+  this amendment; which paint they take belongs with the palette record.
+
 ## Interview status and deferred questions
 
 The bounded integration design was confirmed in discussion and subsequently implemented through the production Source/Tick boundary. [Delivery evidence](../../.scratch/live-typed-execution/evidence.md) maps all 26 acceptance cases to regressions and records local verification. Prototype approval alone was not acceptance of production behavior; the captured HTML remains outside the implementation.
