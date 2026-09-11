@@ -176,7 +176,7 @@ impl Broadcast {
     /// `None` is exactly the scalar shape, so a caller that binds one element
     /// can refuse a widened one without an impossible branch to describe.
     ///
-    /// Read only by [`Stack::extract`], which ADR 0036's Delay and Euclidean
+    /// Read only by [`Stack::extract`], which ADR 0039's Delay and Euclidean
     /// reach on every evaluation.
     #[inline(always)]
     fn first_sequence(&self) -> Option<&Sequence> {
@@ -414,7 +414,7 @@ impl Stack {
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
     ///
-    /// Two Functions declare themselves scalar and bind here: ADR 0036's Delay
+    /// Two Functions declare themselves scalar and bind here: ADR 0039's Delay
     /// `~*` and Euclidean `~%`, which refuse a Sequence operand because a
     /// widened pulse has nothing to answer where an element does not Bang.
     /// ADR 0012's Increment and Interpolation are the exception stated on its
@@ -1350,7 +1350,7 @@ mod test {
 
     #[test]
     fn a_sequence_operand_is_refused_exactly_where_a_function_declares_it_does_not_pervade() {
-        // ADR 0036's Delay and Euclidean are what reach the pervasion arm of
+        // ADR 0039's Delay and Euclidean are what reach the pervasion arm of
         // `broadcast` today, and ADR 0012's Increment and Interpolation are
         // still unbuilt. The rule is stated over the table rather than over the
         // two Functions that reach it, so a row that changes its answer — in

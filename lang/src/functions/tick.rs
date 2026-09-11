@@ -13,14 +13,14 @@ use crate::{
 // Numbers, and the Tick is shared by the whole operation because an Expression
 // is evaluated at one Tick.
 //
-// Two of the three answer a pulse rather than a Number, and ADR 0036 declares
+// Two of the three answer a pulse rather than a Number, and ADR 0039 declares
 // those two Scalar: they refuse a Sequence operand rather than widening. A
 // widened pulse would need one answer per element, an element that does not
 // Bang has only the absence marker to offer, and `Sequence::new` refuses that
 // as a member because it has no Source encoding. What is left is a reduction
 // over the elements, and every reduction fixes a meaning for two rhythms
 // layered on one Cell that could not later be changed without breaking Source,
-// so the operand is refused instead — a refusal ADR 0036 can relax once the
+// so the operand is refused instead — a refusal ADR 0039 can relax once the
 // Sequence Functions make one spellable. The refusal comes from the declaration
 // alone: `Stack::broadcast` raises `ExpectedAtom` for a Sequence at any operand
 // of a Function that does not pervade, so neither body checks for one. They
@@ -78,7 +78,7 @@ fn cycle_factors(function: Function, rate: u8, modulus: u8) -> Result<(u64, u64)
 /// absence marker is what the Interpreter already reads as "no result write",
 /// and answering a Number for the silent Tick would put a Cell meaning "no" in
 /// the Source for the next Tick to read as an operand. It is also the Atom
-/// `Sequence::new` refuses, which is why ADR 0036 has these two refuse a
+/// `Sequence::new` refuses, which is why ADR 0039 has these two refuse a
 /// Sequence operand rather than answer one.
 ///
 #[inline(always)]
@@ -91,7 +91,7 @@ fn pulse(banged: bool) -> Value {
 /// The step a cycle of `rate * modulus` Ticks is at, as a Number: `rate` Ticks
 /// to a step and `modulus` steps to the cycle, so the answer counts `00`,
 /// `01`, … up to `modulus - 1` and begins again. It is the one Function of the
-/// three that answers a Number, so it is the one ADR 0036 leaves pervasive: it
+/// three that answers a Number, so it is the one ADR 0039 leaves pervasive: it
 /// broadcasts through `Stack::apply` and a Sequence operand answers a Sequence
 /// of steps, because every element has a step to contribute.
 #[inline(always)]
@@ -131,7 +131,7 @@ pub fn clock(ctx: &mut Context) -> Result<Value, Error> {
 /// makes the two operands a rate and a step count rather than two names for the
 /// same period.
 ///
-/// It answers a pulse, so ADR 0036 keeps it scalar: a Sequence at either
+/// It answers a pulse, so ADR 0039 keeps it scalar: a Sequence at either
 /// operand is refused by the declaration before this body runs, and the one
 /// pair `Stack::extract` binds is the whole operation.
 #[inline(always)]
@@ -165,7 +165,7 @@ pub fn delay(ctx: &mut Context) -> Result<Value, Error> {
 /// the counter must not overflow; what the counter itself does at its end is
 /// decided by [`crate::Tick::next`], which saturates rather than wraps.
 ///
-/// It answers a pulse, so ADR 0036 keeps it scalar for the reason Delay is:
+/// It answers a pulse, so ADR 0039 keeps it scalar for the reason Delay is:
 /// a Sequence at either operand is refused by the declaration, and the one pair
 /// `Stack::extract` binds is the whole operation.
 #[inline(always)]
@@ -634,7 +634,7 @@ mod test {
 
     #[test]
     fn a_clock_broadcasts_one_step_per_element() {
-        // Clock answers a Number, so ADR 0036 leaves it pervasive and it
+        // Clock answers a Number, so ADR 0039 leaves it pervasive and it
         // extends element-wise like any other Atomic Function: a scalar operand
         // repeats and equal lengths pair.
         assert_eq!(
@@ -718,7 +718,7 @@ mod test {
 
     #[test]
     fn a_pulse_refuses_a_sequence_at_either_operand_position() {
-        // ADR 0036. A widened pulse would need one answer per element and an
+        // ADR 0039. A widened pulse would need one answer per element and an
         // element that does not Bang has only the Absence Marker to offer,
         // which ADR 0025 refuses as a Sequence member; every reduction to one
         // answer fixes a meaning for layered rhythms that could not be changed

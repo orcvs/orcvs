@@ -30,7 +30,7 @@ pub enum Error {
 #[derive(Error, Debug)]
 pub enum SequenceError {
     /// A Sequence at an operand position of a Function that declares it does
-    /// not pervade. Two rows declare that: ADR 0036 keeps Delay `~*` and
+    /// not pervade. Two rows declare that: ADR 0039 keeps Delay `~*` and
     /// Euclidean `~%` scalar, because a widened pulse would have to answer
     /// something at an element that does not Bang and the Absence Marker,
     /// which is the only Atom meaning nothing, is refused as a Sequence member

@@ -16,7 +16,7 @@ Number operands.
 - [x] Euclidean handles zero hits, full hits, zero steps, and hits greater than steps.
 - [x] Note operands diagnose in Clock, Delay, and Euclidean tests rather than converting implicitly.
 - [x] Sequence operands: Clock follows the ordinary broadcasting rules; Delay and Euclidean
-      refuse a Sequence at either operand position under ADR 0036, which holds the decision.
+      refuse a Sequence at either operand position under ADR 0039, which holds the decision.
 - [x] Tick-by-Tick tests use explicit Source Grids and diagnostics.
 - [x] `CONTEXT.md` gains a glossary entry for the Clock Function `~.`, the Delay Function `~*`, and
       the Euclidean Function `~%`, naming each spelling, its operands, and its `_Avoid_` terms.
@@ -53,7 +53,7 @@ before the phase offset, exactly as written.
 Delay and Euclidean each answer a pulse or nothing. `Atom::Empty` is refused as a Sequence member
 by `Sequence::new` because it has no Source encoding, so an element-wise map has nothing to write
 at a position where an element did not Bang. That leaves a reduction of the elements to one answer,
-and ADR 0036 refuses the operand instead of choosing one: AND is the intersection of the rhythms,
+and ADR 0039 refuses the operand instead of choosing one: AND is the intersection of the rhythms,
 which is not what layering two of them on one Cell should mean; OR is the likelier reading and is
 not settled either, because nothing in Source can spell the operand and there is nothing to listen
 to. A refusal can be relaxed later without breaking Source that anyone wrote, and neither reduction
@@ -105,7 +105,7 @@ rather than a pattern with no onsets; that ordering has a test of its own.
 which is what `expect` was there to do — and its doc comment now says the seam has consumers and
 that the anchor is still waiting for ADR 0013's Random. `lang/src/tick.rs`'s module doc no longer
 says "None of them exists yet". `Pervasion::Scalar`, `Stack::extract`, and
-`Broadcast::first_sequence` have lost theirs as well: ADR 0036 makes Delay and Euclidean the built
+`Broadcast::first_sequence` have lost theirs as well: ADR 0039 makes Delay and Euclidean the built
 Functions those seams were waiting for, so `expect` turned each attribute into the error that
 deleted it. Increment and Interpolation remain unbuilt and will declare the same answer.
 
@@ -166,7 +166,7 @@ write and says so, rather than answering `00`. No property test was added: the f
 enough to enumerate exhaustively over the ranges that matter, which is a stronger claim than a
 sampled one.
 
-What a Sequence operand means for a pulse Function is no longer open here: ADR 0036 decides it, and
+What a Sequence operand means for a pulse Function is no longer open here: ADR 0039 decides it, and
 `CONTEXT.md`'s Atomic Function, Absence Marker, Delay, and Euclidean entries record the refusal
 rather than a whole-value answer. What that ADR defers is the reduction — AND or OR — and it defers
 it to the ticket that makes a Sequence operand spellable, which is `sequence-values/03` for the

@@ -7,11 +7,11 @@ different mechanisms, both concerning Sequences, and the repository cites both a
 filename. A reader chasing a citation has no way to tell which one they want, and the subject matter
 gives no signal that they opened the wrong file.
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] One of the two ends is chosen and recorded here with its reason: renumber one ADR, or disambiguate the citations.
-- [ ] No citation anywhere resolves to two decisions.
-- [ ] Whatever is chosen, `docs/adr/` cannot grow a third collision without it being noticed.
+- [x] One of the two ends is chosen and recorded here with its reason: renumber one ADR, or disambiguate the citations.
+- [x] No citation anywhere resolves to two decisions.
+- [x] Whatever is chosen, `docs/adr/` cannot grow a third collision without it being noticed.
 
 ## Verification
 
@@ -19,6 +19,44 @@ gives no signal that they opened the wrong file.
 and `PROPTEST_CASES=32 cargo nextest run --package <crate> --locked` for whichever crates' comments
 are touched. If `.scratch/` changes: `node --test scripts/tests/roadmap.test.ts` and
 `node scripts/roadmap.ts > /dev/null`.
+
+## Answer
+
+**Renumber one ADR**, and specifically the one that was still on a branch when the collision was
+created. The repository owner settled this as a standing policy rather than as a one-off ruling:
+*always renumber the ADR in the branch; the ADR already on `main` keeps its number.* It is now
+written down at `docs/adr/README.md`, which did not exist before, so the next pair does not have to
+be brought back here to be decided.
+
+`0036-reserve-result-cells-before-their-width-exists.md` landed first, in `1faeb39` on 2026-09-09,
+and keeps 0036. `0036-pulse-functions-refuse-a-sequence-operand.md` landed second, in `a90aed7` on
+2026-09-10, and becomes `docs/adr/0039-pulse-functions-refuse-a-sequence-operand.md` — the next
+number above the highest file, since `docs/adr/` topped out at 0038. Its Status line now records
+that it was accepted as 0036, so a commit message or issue file citing "ADR 0036" and meaning the
+pulse decision can still be followed.
+
+28 citations moved to 0039, each read and classified from what its own sentence says rather than
+replaced in bulk: 1 in `lang/src/error.rs`, 8 in `lang/src/functions/tick.rs`, 3 in
+`lang/src/stack.rs`, 6 of the 15 in `lang/src/atom.rs`, 5 of the 8 in `CONTEXT.md`, the linked form
+in `docs/adr/0012`, and 4 in `.scratch/tick-functions/issues/02`. Every remaining `ADR 0036`
+citation means the reserve decision — all 24 in `orcvs/src/source/tick.rs` (one of them wrapped
+across lines 984-985), 4 in `orcvs/src/source/tick/execution.rs`, 9 in `lang/src/atom.rs`, 3 in
+`CONTEXT.md`, 2 in `docs/adr/0032`, and 9 across six other `.scratch/` files. The `.scratch/`
+citations were updated where they name the pulse decision and left alone otherwise; nothing there
+was reworded.
+
+The third criterion is answered by a check appended to `scripts/check-tooling-contract.sh`, which
+`check_pull_request` already runs on every pull request. It reads the leading four digits of every
+`docs/adr/*.md` filename and fails on any number that appears twice. Proven to fire: creating
+`docs/adr/0039-a-deliberate-collision.md` made the script exit 1 with
+
+```text
+expected every ADR in docs/adr/ to take a number no other ADR takes; duplicated:
+0039
+```
+
+and it passed again once the file was deleted. Gaps are deliberately not checked — `0027` is absent
+because an unlanded branch claims it, and a number nothing answers to breaks no citation.
 
 ## Comments
 

@@ -743,3 +743,27 @@ assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]n
 # contract should accept; requiring the list to be exactly `["native-midi"]`
 # rejected it with a message that read as though the feature were missing.
 assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*[^-]features[[:space:]]*=[[:space:]]*[[]([^]]*,[[:space:]]*)?"native-midi"'
+
+# Every ADR takes a number no other ADR takes. `0036` named two accepted
+# decisions for a day — the pulse refusal and the Cell reservation — and every
+# one of the 78 bare "ADR 0036" citations outside `docs/adr/` resolved to either
+# of them, in comments that sat within thirty lines of each other. Nothing
+# noticed, because nothing was looking: the number is chosen by whoever writes
+# the file, and two branches open at once choose the same one. `docs/adr/README.md`
+# states which of the two gets renumbered; this is what fails when a third pair
+# is written. Gaps are not checked — `0027` is missing from this directory
+# because an unlanded branch claims it, and a number nothing here answers to
+# breaks no citation — and neither is order. A number appearing twice is the one
+# thing that makes a citation ambiguous, so it is the one thing asserted.
+#
+# Guarded on the directory existing because the fixture suite in `scripts/tests/`
+# builds a tree from the manifests and workflows alone, with no `docs/` in it.
+adr_dir="$root_dir/docs/adr"
+if [ -d "$adr_dir" ]; then
+  duplicate_adr_numbers="$(find "$adr_dir" -maxdepth 1 -name '*.md' -exec basename {} \; | grep -Eo '^[0-9]{4}' | sort | uniq -d || true)"
+  if [ -n "$duplicate_adr_numbers" ]; then
+    echo "expected every ADR in docs/adr/ to take a number no other ADR takes; duplicated:" >&2
+    printf '%s\n' "$duplicate_adr_numbers" >&2
+    exit 1
+  fi
+fi
