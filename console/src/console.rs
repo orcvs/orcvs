@@ -656,11 +656,15 @@ impl SourceShapes {
         pixels_per_point: f32,
     ) -> Self {
         let grid = paint.grid();
-        // A background is the exception and a border is the rule, so only the
-        // borders are sized to the Grid up front.
+        // A border is the rule and a Glyph is one on a written Grid, so both
+        // are sized to the Grid up front: a densely written Source that regrew
+        // either of them would pay the reallocation on every Render Frame. A
+        // background is the exception — the Cursor's bloom reaches fifteen
+        // Cells and the rest of the Grid asks for none — so that one starts
+        // empty and grows to whatever the blink is asking for.
         let mut backgrounds = Vec::new();
         let mut borders = Vec::with_capacity(grid.count());
-        let mut glyphs = Vec::new();
+        let mut glyphs = Vec::with_capacity(grid.count());
         let mut seams = Vec::new();
         let mut cursor = Vec::new();
 
@@ -1212,11 +1216,11 @@ mod tests {
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, CellCharacters, DEFAULT_FONT_SIZE,
-        DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM,
-        SECTOR_LINE_WIDTH, SourceShapes, SourceView, TOP_PANEL_HEIGHT, blank_glyph_index,
-        frames_per_second, glyph_scale, is_presentable, show_source_scene, source_bounds,
-        source_panel_frame, translate_event,
+        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, CellCharacters, Console,
+        DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable,
+        MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SourceShapes, SourceView, TOP_PANEL_HEIGHT,
+        blank_glyph_index, frames_per_second, glyph_scale, is_presentable, show_source_scene,
+        source_bounds, source_panel_frame, translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -1620,6 +1624,100 @@ mod tests {
                 "a click at {target:?} in a {screen_size:?} console"
             );
         }
+    }
+
+    ///
+    /// One pass of the whole running Console, the way eframe drives it.
+    ///
+    /// `eframe::Frame::_new_kittest` and `CreationContext::_new_kittest` are
+    /// eframe's own headless constructors, which is how an `App` runs outside a
+    /// window; `storage_tests` reaches for the same pair for the same reason.
+    ///
+    fn app_pass(
+        ctx: &egui::Context,
+        screen: Rect,
+        events: Vec<Event>,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+    ) {
+        use eframe::App as _;
+
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |root| console.ui(root, host));
+        output.drop_without_applying_deltas();
+    }
+
+    ///
+    /// Where a running Console presented its Source Grid, asked of the
+    /// transform the pass left behind.
+    ///
+    /// The same three calls `show_source_scene` makes, and for the reason the
+    /// `presented` helper cannot serve here: that one fits the Grid to a console
+    /// area, and a running Console's console area is the screen less whatever
+    /// height the menu bar settled the top panel at. The stored transform
+    /// already carries that fit, so this asks it rather than re-deriving it.
+    ///
+    fn console_viewport(ctx: &egui::Context, console: &Console) -> GridViewport {
+        let grid = console.orcvs.render_frame().grid();
+
+        presented_grid(
+            console.source_view.to_global,
+            source_bounds(grid.columns(), grid.rows()),
+            grid.columns(),
+            grid.rows(),
+            ctx.pixels_per_point(),
+        )
+    }
+
+    ///
+    /// Clicking a Cell of a running Console moves the Cursor onto it.
+    ///
+    /// Every other click test goes through `console_pass_at`, which shows the
+    /// Source itself and applies the answered Position itself — so none of them
+    /// reaches the `orcvs.select` call `Console::ui` owns, and all of them pass
+    /// with that call deleted. `show_source` answers the Cell rather than
+    /// selecting it, which is what makes clicking a Cell a wiring question at
+    /// all, and this is the one test that asks it: a real `Console`, driven
+    /// through `eframe::App::ui` over an egui pass, with nothing between the
+    /// pointer and the Cursor but the console's own code.
+    ///
+    /// `storage_tests` exists for the same reason one module below, and says
+    /// so: an interface-level test cannot see whether the Console is wired to
+    /// the interface at all.
+    ///
+    #[test]
+    fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()));
+        let mut host = eframe::Frame::_new_kittest();
+
+        // One quiet pass, so the top panel has claimed its height and the view
+        // holds the fit the Grid was presented under.
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        assert_eq!(
+            selected_cell(&console.orcvs),
+            (0, 0),
+            "a fresh Console did not open with the Cursor in the corner"
+        );
+
+        let viewport = console_viewport(&ctx, &console);
+        let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+        // Pressed on one pass and released on the next, because a click is
+        // reported on the release.
+        app_pass(&ctx, screen, click_at(target), &mut console, &mut host);
+        app_pass(&ctx, screen, release_at(target), &mut console, &mut host);
+
+        assert_eq!(
+            selected_cell(&console.orcvs),
+            (3, 1),
+            "a click at {target:?} on a Grid presented at {:?}",
+            viewport.rect
+        );
     }
 
     #[test]
@@ -2505,6 +2603,124 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    ///
+    /// A whole console pass strokes the Grid at the zoom it presented the
+    /// Source at, and snaps its background runs to the device scale it ran on.
+    ///
+    /// Both are `show_source`'s own arithmetic — the zoom is the presented Cell
+    /// side over the Source's own, the device scale is the `Ui`'s — and both
+    /// are handed to `SourceShapes::new` and reach the Shapes nowhere else.
+    /// Every other Shape assertion here builds a `SourceShapes` through the
+    /// `source_shapes` helper, which is given a zoom and a device scale the
+    /// test chose, so all of them still hold with either argument replaced by a
+    /// constant one at the call site. What would ship then is a Grid whose
+    /// lines and sector seams stay one Source point wide at every zoom instead
+    /// of scaling with it, and runs snapped to whole points on a screen whose
+    /// pixels are not whole points.
+    ///
+    /// The geometry is chosen so neither argument can be mistaken for one. A
+    /// 201 point console over a 20 Cell Grid fits the Source at 0.4, and at a
+    /// device scale of 1.5 the presented Grid's corner is floored two physical
+    /// pixels in — two thirds of a point — so every run edge is snapped
+    /// somewhere a snap to whole points would not put it.
+    ///
+    #[test]
+    fn a_console_pass_strokes_at_its_own_zoom_and_snaps_its_runs_to_its_own_device_scale() {
+        const DEVICE_SCALE: f32 = 1.5;
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(201.0));
+        let mut orcvs = Orcvs::new(20, 20);
+        let mut view = SourceView::default();
+
+        let (viewport, shapes) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            DEVICE_SCALE,
+        );
+        let scale = viewport.cell_size / CELL_SIZE;
+
+        assert!(
+            (scale - 0.4).abs() < 1e-6,
+            "the pass fitted the Source at {scale}, and a zoom of one would be \
+             indistinguishable from the constant"
+        );
+
+        // Every Cell is stroked once — the Cursor's by the Cursor — and every
+        // one of those strokes carries the zoom.
+        let mut stroked = 0;
+        for shape in &shapes {
+            if let Shape::Rect(painted) = shape
+                && painted.stroke.width > 0.0
+            {
+                assert!(
+                    (painted.stroke.width - GRID_LINE_WIDTH * scale).abs() < 1e-6,
+                    "a Cell border was stroked {} points wide against {} at this zoom",
+                    painted.stroke.width,
+                    GRID_LINE_WIDTH * scale
+                );
+                stroked += 1;
+            }
+        }
+        assert_eq!(stroked, 400, "the pass stroked {stroked} of 400 Cells");
+
+        // And so does every sector seam, which takes its own width.
+        let mut seams = 0;
+        for shape in &shapes {
+            if let Shape::LineSegment { stroke, .. } = shape {
+                assert!(
+                    (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6,
+                    "a sector seam was stroked {} points wide against {} at this zoom",
+                    stroke.width,
+                    SECTOR_LINE_WIDTH * scale
+                );
+                seams += 1;
+            }
+        }
+        assert!(seams > 0, "the pass drew no sector seam");
+
+        // Which Cells coalesce into a run is `Paint::background_runs`' answer
+        // and is pinned there; what this asks is where the pass put the
+        // rectangle that replaces them.
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive(&frame);
+        let runs = paint.background_runs();
+        assert!(!runs.is_empty(), "the pass painted no background run");
+
+        for run in &runs {
+            let covered = Rect::from_min_max(
+                viewport.cell_rect(run.columns.start, run.row).min,
+                viewport.cell_rect(run.columns.end - 1, run.row).max,
+            );
+            let snapped = covered.round_to_pixels(DEVICE_SCALE);
+
+            assert_ne!(
+                snapped,
+                covered.round_to_pixels(1.0),
+                "the run over columns {:?} of row {} is snapped to the same \
+                 rectangle at either device scale, so it tells them apart from \
+                 nothing",
+                run.columns,
+                run.row
+            );
+            assert!(
+                shapes.iter().any(|shape| matches!(
+                    shape,
+                    Shape::Rect(painted)
+                        if painted.rect == snapped
+                            && painted.fill == run.colour
+                            && painted.stroke.width == 0.0
+                )),
+                "the pass filled nothing at {snapped:?} for the run over columns \
+                 {:?} of row {}",
+                run.columns,
+                run.row
+            );
         }
     }
 
