@@ -113,20 +113,6 @@ fn translate_event(event: Event) -> Option<InputEvent> {
     }
 }
 
-fn source_dimensions(frame: &RenderFrame) -> (usize, usize) {
-    let rows = frame.rows();
-    let col_count = rows
-        .first()
-        .expect("a Render Frame contains at least one row")
-        .len();
-    debug_assert!(
-        rows.iter().all(|row| row.len() == col_count),
-        "a Render Frame has the Grid's fixed rectangular shape"
-    );
-
-    (col_count, rows.len())
-}
-
 fn source_bounds(columns: usize, rows: usize) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
@@ -608,7 +594,9 @@ fn show_source(
     grid: GridViewport,
     clip: Rect,
 ) {
-    let (columns, rows) = source_dimensions(frame);
+    // The shape the Render Frame was derived from, named apart from the
+    // `GridViewport` the Cells are painted at.
+    let source_grid = frame.grid();
     // One rectangle for the whole Grid, sensing clicks and nothing else.
     //
     // Within a layer a later-registered child wins the click tie, and would win
@@ -672,7 +660,11 @@ fn show_source(
     // clip rectangle above discards. See `GridViewport::visible_positions` for
     // why that makes the margin a boundary case rather than a seam that would
     // otherwise go missing.
-    let visible = grid.visible_positions(clip, columns, rows);
+    //
+    // The bounds come from the Render Frame's own Grid rather than from a shape
+    // recovered out of its rows, which is what this commit's `source_dimensions`
+    // removal is for.
+    let visible = grid.visible_positions(clip, source_grid.columns(), source_grid.rows());
     let cells = visible.count();
     // A background is the exception and a border is the rule, so only the
     // borders are sized to the drawn Cells up front.
@@ -683,11 +675,11 @@ fn show_source(
     let mut cursor_strokes = Vec::new();
 
     // Indexed rather than `get(..).unwrap_or_default()`. Both ranges are
-    // clamped to the `columns` and `rows` that `source_dimensions` just read
-    // from this same Render Frame, so neither slice can be out of bounds while
-    // a Frame is the rectangle it is asserted to be. Answering an empty slice
-    // instead would turn a broken invariant into a row that silently goes
-    // unpainted; indexing keeps it loud.
+    // clamped to the columns and rows of this Render Frame's own Grid, so
+    // neither slice can be out of bounds while a Frame is the rectangle its
+    // Grid says it is. Answering an empty slice instead would turn a broken
+    // invariant into a row that silently goes unpainted; indexing keeps it
+    // loud.
     for row in &frame.rows()[visible.rows.clone()] {
         // The run of consecutive Cells in this row that share one background:
         // the colour, and the rectangle it covers so far. A Cell wanting a
@@ -836,7 +828,8 @@ fn show_source(
     // points, which is the space the presented Grid is in.
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
-        && let Some((column, row)) = grid.cell_at(pointer, columns, rows)
+        && let Some((column, row)) =
+            grid.cell_at(pointer, source_grid.columns(), source_grid.rows())
         && let Some(cell) = frame.rows().get(row).and_then(|row| row.get(column))
     {
         orcvs.select(cell.position());
@@ -870,8 +863,10 @@ fn show_source_scene(
     font_family: &egui::FontFamily,
     view: &mut SourceView,
 ) -> GridViewport {
-    let (columns, rows) = source_dimensions(frame);
-    let source = source_bounds(columns, rows);
+    // The shape the Render Frame was derived from, named apart from the
+    // `GridViewport` this function goes on to present it at.
+    let source_grid = frame.grid();
+    let source = source_bounds(source_grid.columns(), source_grid.rows());
     // The whole console area, sensing clicks and drags, allocated before any
     // Cell rectangle so the Grid's own click rectangle registers after it. This
     // is also what `Scene::show` reached `force_set_min_rect` for: the space
@@ -879,7 +874,7 @@ fn show_source_scene(
     // Grid fills it or letterboxes inside it.
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
-    let viewport = grid_viewport(console, columns, rows);
+    let viewport = grid_viewport(console, source_grid.columns(), source_grid.rows());
     let fitted = viewport.fit_transform(source);
 
     if !view.adjusted {
@@ -938,8 +933,8 @@ fn show_source_scene(
     let grid = presented_grid(
         view.to_global,
         source,
-        columns,
-        rows,
+        source_grid.columns(),
+        source_grid.rows(),
         ui.ctx().pixels_per_point(),
     );
     show_source(ui, orcvs, frame, font_family, grid, console);
@@ -1181,8 +1176,7 @@ mod tests {
         ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, CellCharacters, DEFAULT_VIEW_SIZE,
         GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
         SourceView, TOP_PANEL_HEIGHT, blank_glyph_index, frames_per_second, glyph_scale,
-        is_presentable, show_source_scene, source_bounds, source_dimensions, source_panel_frame,
-        translate_event,
+        is_presentable, show_source_scene, source_bounds, source_panel_frame, translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -1737,8 +1731,8 @@ mod tests {
     #[test]
     fn source_bounds_are_available_before_the_first_render() {
         let orcvs = Orcvs::new(32, 16);
-        let (columns, rows) = source_dimensions(&orcvs.render_frame());
-        let bounds = source_bounds(columns, rows);
+        let source_grid = orcvs.render_frame().grid();
+        let bounds = source_bounds(source_grid.columns(), source_grid.rows());
 
         assert_eq!(
             bounds,
