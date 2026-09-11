@@ -1239,6 +1239,21 @@ mod test {
     }
 
     ///
+    /// Which Turn each computation took during one Tick, or `None` for a
+    /// computation the Tick ended before reaching.
+    ///
+    /// One entry per computation, in the order the schedule holds them — the
+    /// order they were parsed, which is the order [`interpreted`] groups its
+    /// entries by and not the order the Turns were taken. An ordering claim is
+    /// therefore read as "this computation took the earlier Turn" rather than
+    /// off a position in a list, and a test that asserts the whole answer at
+    /// once states an order no reordering of two computations survives.
+    ///
+    fn turns(states: &[ComputationState]) -> Vec<Option<usize>> {
+        states.iter().map(ComputationState::turn).collect()
+    }
+
+    ///
     /// The fixed Portal destinations a fixture states, in the terms a carried
     /// schedule takes them: one destination list per anchor, keyed by the
     /// anchor's own Cell.
@@ -1777,9 +1792,13 @@ mod test {
     }
 
     ///
-    /// [`stated_source`], with the inputs the Interpreter received for each
-    /// computation it ran for. Split from it for the reason [`carried_tick`]
-    /// gives.
+    /// [`stated_source`], with what each computation's Turn did. Split from it
+    /// for the reason [`carried_tick`] gives.
+    ///
+    /// The states themselves rather than one fact read off them, because two
+    /// facts are read off them here: [`interpreted`] asks what the Interpreter
+    /// was handed and [`turns`] asks which Turn each computation took, and a
+    /// fixture that answered one of them could not answer the other.
     ///
     fn stated_tick(
         grid: Grid,
@@ -1787,7 +1806,7 @@ mod test {
         outputs: &[(usize, usize)],
         reservations: &[(usize, super::Reserved)],
         answers: &[(usize, Value)],
-    ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
+    ) -> (TickPlan, Vec<ComputationState>, crate::source::Source) {
         let mut source = seeded_source(grid, rows);
         let reservations: Vec<_> = reservations
             .iter()
@@ -1808,7 +1827,7 @@ mod test {
             &answers,
         );
         source.commit_tick(&plan);
-        (plan, interpreted(&states), source)
+        (plan, states, source)
     }
 
     ///
@@ -1837,7 +1856,7 @@ mod test {
         outputs: &[(usize, usize)],
         replacements: &[(usize, lang::Function)],
     ) -> (TickPlan, Vec<lang::TickInputs>, crate::source::Source) {
-        stated_tick(
+        let (plan, states, source) = stated_tick(
             grid,
             rows,
             outputs,
@@ -1846,7 +1865,8 @@ mod test {
                 .iter()
                 .map(|(anchor, function)| (*anchor, Value::Atom(lang::Atom::Function(*function))))
                 .collect::<Vec<_>>(),
-        )
+        );
+        (plan, interpreted(&states), source)
     }
 
     ///
@@ -1869,7 +1889,21 @@ mod test {
         outputs: &[(usize, usize)],
         answers: &[(usize, &[u8])],
     ) -> (TickPlan, crate::source::Source) {
-        stated_source(
+        let (plan, _, source) = sequence_turns(grid, rows, outputs, answers);
+        (plan, source)
+    }
+
+    ///
+    /// [`sequence_source`], with the Turn each computation took. Split from it
+    /// for the reason [`carried_tick`] gives.
+    ///
+    fn sequence_turns(
+        grid: Grid,
+        rows: &[&str],
+        outputs: &[(usize, usize)],
+        answers: &[(usize, &[u8])],
+    ) -> (TickPlan, Vec<Option<usize>>, crate::source::Source) {
+        let (plan, states, source) = stated_tick(
             grid,
             rows,
             outputs,
@@ -1881,7 +1915,8 @@ mod test {
                 .iter()
                 .map(|(anchor, values)| (*anchor, Value::Sequence(sequence(values))))
                 .collect::<Vec<_>>(),
-        )
+        );
+        (plan, turns(&states), source)
     }
 
     ///
@@ -2866,7 +2901,7 @@ mod test {
         // Expression it covers is suppressed rather than executed against a
         // spelling that is no longer there.
         let grid = Grid::new(16, 2);
-        let (plan, source) = sequence_source(
+        let (plan, turns, source) = sequence_turns(
             grid,
             &["        .+0102", ".+0000"],
             &[(16, 0)],
@@ -2874,6 +2909,12 @@ mod test {
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            turns,
+            vec![Some(1), Some(0)],
+            "the producer in row 1 took the first Turn and the Expression it \
+             covers the second, which row-major order alone would reverse",
+        );
         assert_eq!(plan.writes.len(), 12);
         assert_eq!(
             source.snapshot(),
@@ -2892,7 +2933,7 @@ mod test {
         // `03` into row 1. Suppressing everything the reservation names would
         // leave that Cell pair empty.
         let grid = Grid::new(16, 2);
-        let (plan, source) = sequence_source(
+        let (plan, turns, source) = sequence_turns(
             grid,
             &["        .+0102", ".+0000"],
             &[(16, 0)],
@@ -2900,6 +2941,12 @@ mod test {
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            turns,
+            vec![Some(1), Some(0)],
+            "the reservation ordered the Expression after the producer, and \
+             then left it to execute",
+        );
         assert_eq!(
             source.snapshot(),
             snapshot(grid, &["0A0B    .+0102", ".+0000  03"]),
@@ -2967,6 +3014,42 @@ mod test {
     }
 
     #[test]
+    fn live_a_rejected_tick_records_no_turn_for_the_computations_it_never_reached() {
+        // The test above, with one more computation standing where the Tick
+        // never gets to. A rejection stops the order where the defect was
+        // found and keeps the states, so the Turn each computation took is the
+        // one record that tells how far the Tick got: the producer took the
+        // first Turn and the Tick was rejected in it, and the Addition in row 1
+        // — ordered after the producer by nothing but anchor order, since no
+        // reservation reaches row 1 — took no Turn at all.
+        //
+        // A sentinel ordinal, or an ordinal recorded when the order was built,
+        // would say the Addition was ordered second and leave the two cases
+        // indistinguishable. The Source cannot tell them apart either: a
+        // rejected Tick writes nothing, so a computation that ran and one that
+        // never did leave the same Cells behind.
+        let grid = Grid::new(16, 3);
+        let rows = ["        .+0102", ".+0000", ""];
+        let (plan, turns, source) = sequence_turns(
+            grid,
+            &rows,
+            &[(8, 0)],
+            &[(8, &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F])],
+        );
+
+        assert_eq!(turns, vec![Some(0), None]);
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics.iter().any(|d| {
+                d.message == "spatial output reached an executed computation; Tick effects rejected"
+            }),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
     fn live_a_row_reservation_names_no_computation_of_the_next_row() {
         // ADR 0036 reserves the rest of the destination's row, and "the rest"
         // is counted from the destination's own column: a destination at
@@ -2984,7 +3067,7 @@ mod test {
         // the Addition's spelling and its literals, order that Addition after
         // the Sequence, and hand those two Cells to it instead.
         let grid = Grid::new(16, 3);
-        let (plan, source) = sequence_source(
+        let (plan, turns, source) = sequence_turns(
             grid,
             &["", ".+0102", ".+0000"],
             &[(16, 8), (32, 8)],
@@ -2992,6 +3075,11 @@ mod test {
         );
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            turns,
+            vec![Some(0), Some(1)],
+            "the Addition took the first Turn and the Sequence the second",
+        );
         assert_eq!(
             source.snapshot(),
             snapshot(grid, &["        0A0B", ".+0102", ".+0000"]),
@@ -3413,6 +3501,16 @@ mod test {
                 super::execution::execute(grid, bytes.as_bytes(), &map, Tick::ZERO, schedule);
             assert!(rejected.writes.is_empty());
             assert!(rejected.play_commands.is_empty());
+            // The broken order was walked as given, and stopped where it was
+            // rejected: the computation anchored at Cell 32 took the first Turn
+            // ahead of the one anchored at Cell 16, and the one anchored at
+            // Cell 112 never took a Turn at all. Read in parse order, which is
+            // anchor order here, so the entries name Cells 16, 32, 48, 64, 80
+            // and 112.
+            assert_eq!(
+                turns(&states),
+                vec![Some(1), Some(0), Some(2), Some(3), Some(4), None],
+            );
             let mut expected = vec![(48, "cannot divide by zero")];
             if target == "./0100" {
                 expected.push((64, "cannot divide by zero"));

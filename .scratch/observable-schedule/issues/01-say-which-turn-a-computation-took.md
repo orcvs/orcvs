@@ -22,13 +22,13 @@ Add `turn: Option<usize>` to `ComputationState`, initialised `None` where `Execu
 
 Nothing about ordering changes. The same computations take the same Turns in the same sequence.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `ComputationState` carries `turn: Option<usize>`, written in `execute`'s loop.
-- [ ] A computation the Tick never reached keeps `None`, and a test proves it through a rejected Tick.
-- [ ] The accessor matches `interpreted`'s form, including a doc comment explaining the `allow`.
-- [ ] Three or four ordering tests assert the Turn alongside their existing byte assertion.
-- [ ] No test's expectation about Source bytes, writes, Play Commands or diagnostics changes.
+- [x] `ComputationState` carries `turn: Option<usize>`, written in `execute`'s loop.
+- [x] A computation the Tick never reached keeps `None`, and a test proves it through a rejected Tick.
+- [x] The accessor matches `interpreted`'s form, including a doc comment explaining the `allow`.
+- [x] Three or four ordering tests assert the Turn alongside their existing byte assertion.
+- [x] No test's expectation about Source bytes, writes, Play Commands or diagnostics changes.
 
 ## Verification
 
