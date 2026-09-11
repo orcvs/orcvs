@@ -710,6 +710,13 @@ mod test {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
             Interpretation::Cell(atom) => Value::from(atom),
             Interpretation::Sequence(sequence) => Value::from(sequence),
+            // A Source effect is not an answer this seam delivers. It writes
+            // its own Cells at Portals it resolves, so there is no value to
+            // encode and no ordinary result destination to admit one through;
+            // `tick::execution` owns that bundle and the Tick tests drive it.
+            Interpretation::Source(effect) => {
+                panic!("{effect:?} is a Source effect and not a stated answer")
+            }
         };
         // The rule for what an answer becomes in Cells is production's, called
         // here rather than restated: these tests state an answer because no

@@ -54,7 +54,6 @@ impl From<Token> for Glyph {
     fn from(t: Token) -> Self {
         match t {
             Token::Bang => G::Bang,
-            Token::Activation => G::Char,
             Token::Comment => G::Comment,
             Token::Function => G::Function,
             Token::Note => G::Note,
@@ -64,11 +63,10 @@ impl From<Token> for Glyph {
             // spelling the Parser recognised has no paint of its own. A generic
             // Atom position declares no type to colour, and a Sequence is never
             // spelled in Source at all, so the Cells at either position take the
-            // ordinary glyph `Token::Activation` already takes for having no
-            // colour of its own. Whatever actually stands there — a nested
-            // Function, or a literal that decoded to a Number, a Note, or a
-            // Char — is labelled by its own entry and painted by its own arm
-            // above.
+            // ordinary glyph `Token::Char` gives a Cell with no colour of its
+            // own. Whatever actually stands there — a nested Function, or a
+            // literal that decoded to a Number, a Note, or a Char — is
+            // labelled by its own entry and painted by its own arm above.
             Token::Atom | Token::Sequence => G::Char,
         }
     }
@@ -195,7 +193,6 @@ mod test {
         // and not a side effect of adding a `Glyph` variant.
         assert_eq!(Glyph::from(lang::Token::Atom), Glyph::Char);
         assert_eq!(Glyph::from(lang::Token::Sequence), Glyph::Char);
-        assert_eq!(Glyph::from(lang::Token::Activation), Glyph::Char);
     }
 
     #[test]

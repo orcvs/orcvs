@@ -35,12 +35,11 @@ type Record = PositionedEntry;
 /// requires at that position. The two readings coincide for the literal
 /// operands — a Number position holds two hexadecimal Cells and an entry
 /// holding them is labelled `Number` — and they come apart at both ends.
-/// `Activation`, `Bang`, `Comment`, and `Function` are labels the Parser
-/// applies to Cells no signature declares, and `Atom` and `Sequence` below are
-/// declarations no Cells spell.
+/// `Bang`, `Comment`, and `Function` are labels the Parser applies to Cells no
+/// signature declares, and `Atom` and `Sequence` below are declarations no
+/// Cells spell.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
-    Activation,
     Bang,
     /// The rest of the Source, claimed by the `||` introducer and never
     /// decoded — a Grid row, wherever one supplied the Source. A Comment
@@ -179,15 +178,12 @@ impl Token {
             // invented here would be the privileged interpretation that ADR
             // rules out.
             Self::Sequence => Err(crate::SyntaxError::ExpectedToken.into()),
-            // The Parser fills these three positions structurally rather than by
+            // The Parser fills these two positions structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
-            // recognises `**`, an Activation spelling, or a Function spelling,
-            // and labels the entry with what it found. Nothing asks them to
-            // decode, and the refusal they have always answered with is
-            // unchanged.
-            Self::Activation | Self::Bang | Self::Function => {
-                Err(crate::SyntaxError::ExpectedToken.into())
-            }
+            // recognises `**` or a Function spelling, and labels the entry with
+            // what it found. Nothing asks them to decode, and the refusal they
+            // have always answered with is unchanged.
+            Self::Bang | Self::Function => Err(crate::SyntaxError::ExpectedToken.into()),
             // A Comment records no Atom at all (ADR 0035): its claim is the
             // rest of the Source, a Grid row rather than a fixed-width value,
             // and nothing asks it to decode one.
@@ -225,8 +221,7 @@ impl Token {
             // able to fill the position; and `Token::is_empty` is `len() == 0`,
             // so a zero-width operand would claim an operand position that holds
             // nothing and hand the Parser a slot it advances no Cells past.
-            Token::Activation
-            | Token::Bang
+            Token::Bang
             | Token::Comment
             | Token::Function
             | Token::Note

@@ -249,6 +249,28 @@ impl Grid {
     }
 
     ///
+    /// The Position `columns` Cells east and `rows` Cells south of `pos`, or
+    /// `None` where that Cell is outside this Grid.
+    ///
+    /// Negative offsets go west and north. Like `below` and unlike `up`,
+    /// `down`, `left` and `right`, it never clamps: a displacement that leaves
+    /// the Grid is a destination that does not exist, which is what ADR 0009
+    /// wants reported rather than silently moved to an edge Cell the caller did
+    /// not ask for.
+    ///
+    /// A displaced Cell stays inside its own row only when `rows` is zero;
+    /// there is no wrapping, because a column past the last one is outside the
+    /// Grid in the same way a row past the last one is.
+    ///
+    #[inline]
+    pub(crate) fn displaced(&self, pos: Position, columns: i16, rows: i16) -> Option<Position> {
+        self.assert_owns(pos);
+        let x = pos.x.checked_add_signed(isize::from(columns))?;
+        let y = pos.y.checked_add_signed(isize::from(rows))?;
+        self.position(x, y)
+    }
+
+    ///
     /// The Position one row above `pos`, clamped at the top row.
     ///
     #[inline]
@@ -597,6 +619,36 @@ mod test {
         // clamping the way cursor movement does
         assert_eq!(grid.below(at(3, 1)), None);
         assert_eq!(grid.down(at(3, 1)), at(3, 1));
+    }
+
+    #[test]
+    fn test_grid_displaces_in_both_axes_and_stops_at_every_edge() {
+        trace();
+
+        let grid = Grid::new(4, 3);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let middle = at(1, 1);
+
+        // Both axes move independently, and each sign moves the way its name
+        // says: positive columns east, positive rows south. A transposed or
+        // sign-flipped offset lands on none of these four.
+        assert_eq!(grid.displaced(middle, 0, -1), Some(at(1, 0)));
+        assert_eq!(grid.displaced(middle, 0, 1), Some(at(1, 2)));
+        assert_eq!(grid.displaced(middle, -1, 0), Some(at(0, 1)));
+        assert_eq!(grid.displaced(middle, 1, 0), Some(at(2, 1)));
+        assert_eq!(grid.displaced(middle, 2, 1), Some(at(3, 2)));
+
+        // Every edge answers `None` rather than a clamped Cell, including the
+        // one a wrapping index would have reached: the Cell after the last
+        // column of a row exists in the Grid, and it is not this row's.
+        assert_eq!(grid.displaced(at(0, 0), 0, -1), None);
+        assert_eq!(grid.displaced(at(0, 0), -1, 0), None);
+        assert_eq!(grid.displaced(at(3, 0), 1, 0), None);
+        assert_eq!(grid.displaced(at(0, 2), 0, 1), None);
+
+        // Zero is the Cell itself, which is what makes a Function that
+        // declines no default declare nothing special.
+        assert_eq!(grid.displaced(middle, 0, 0), Some(middle));
     }
 }
 

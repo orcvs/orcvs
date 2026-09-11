@@ -653,17 +653,17 @@ fn check_token(expected: Token, atom: Atom) -> Result<(), Error> {
         // diagnostic instead of a silent element-wise reading of the Sequence it
         // was supposed to receive intact.
         (Token::Sequence, atom) => Err(SequenceError::ExpectedSequence(atom.into()).into()),
-        // The five `Token`s the Parser mints as labels and `operand_token!`
+        // The four `Token`s the Parser mints as labels and `operand_token!`
         // never mints as a declaration. This function reads signatures and
         // nothing else, and a signature is `&[operand_token!($operand)]`, so the
         // set of `Token`s that can arrive here is exactly the set that macro's
         // arms produce: `Number` and `Note` today, and `Atom` or `Sequence` the
-        // day a row declares one. Adding an arm for one of these four is the
+        // day a row declares one. Adding an arm for one of these is the
         // only edit that reaches this, and `declaration_agreement` sweeps every
         // declared operand of every Function through a witness table that panics
         // on a `Token` it holds none for — so that edit fails a test before it
         // can reach a Tick.
-        (Token::Activation | Token::Bang | Token::Char | Token::Comment | Token::Function, _) => {
+        (Token::Bang | Token::Char | Token::Comment | Token::Function, _) => {
             unreachable!("no operand type declares a Token the Parser mints only as a label")
         }
     }
@@ -706,9 +706,9 @@ impl TryFrom<Atom> for NumericValue {
 #[cfg(test)]
 mod test {
     use crate::{
-        Activation, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error,
-        Function, InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand,
-        Sequence, SequenceError, Stack, Token, TypeError, Value, Velocity,
+        ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
+        InterpretationError, Length, MidiChannel, Note, Performance, PlayCommand, Sequence,
+        SequenceError, Stack, Token, TypeError, Value, Velocity,
         atom::operands,
         stack::{MAX_OPERANDS, NumericValue, check_token},
     };
@@ -721,9 +721,9 @@ mod test {
     /// One Atom of every variant, so a check that claims to answer for all of
     /// them is swept rather than sampled.
     ///
-    /// The Activations and the Functions come from their own `ALL`, which are
-    /// the two lists the crate already keeps honest, so a fifth Activation or a
-    /// newly declared Function is covered the day it exists rather than the day
+    /// The Functions come from `Function::ALL`, the one list the crate already
+    /// keeps honest, so a newly declared Function — a fifth Self-Banging
+    /// Function among them — is covered the day it exists rather than the day
     /// someone remembers this list.
     fn every_atom() -> Vec<Atom> {
         let mut atoms = vec![
@@ -734,7 +734,6 @@ mod test {
             note(60),
         ];
 
-        atoms.extend(Activation::ALL.iter().copied().map(Atom::Activation));
         atoms.extend(Function::ALL.iter().copied().map(Atom::Function));
         atoms
     }
@@ -977,8 +976,8 @@ mod test {
 
         for refused in [
             Atom::Empty,
-            Atom::Activation(Activation::North),
             Atom::Function(Function::RawPlay),
+            Atom::Function(Function::SelfBangingNorth),
         ] {
             assert!(
                 matches!(
