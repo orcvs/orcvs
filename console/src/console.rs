@@ -892,8 +892,18 @@ fn show_source_scene(
     show_source(ui, orcvs, frame, font_family, grid, console);
 
     // Panning or zooming moves the view off the fitted viewport and holds it
-    // there; a double click hands it back. A frame that does both is a reset:
-    // the double click is the later intent.
+    // there; a double click on the letterboxing hands it back. A frame that
+    // does both is a reset: the double click is the later intent.
+    //
+    // Only on the letterboxing. The Grid's own click rectangle is registered
+    // after this one and wins every tie inside the Grid, so a double click on
+    // a Cell selects it and leaves the view pinned. That is what the field of
+    // Cell Buttons did before the Grid was painted, and it means the gesture
+    // is unreachable at a window the Grid fills exactly — `DEFAULT_VIEW_SIZE`
+    // included, where the fit is 1.0 and there is no letterboxing to hit. A
+    // viewer pinned there zooms back out rather than double clicking. Giving
+    // the reset a gesture that does not depend on surplus area is a change to
+    // what the console offers, not to how it draws, so it is not made here.
     //
     // The pin asks the transform whether it moved rather than asking the
     // `Response` whether it changed. `register_pan_and_zoom` calls
@@ -2477,6 +2487,61 @@ mod tests {
 
         console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(view.to_global, fitted, "the view did not return to the fit");
+    }
+
+    ///
+    /// A double click inside the Grid selects the Cell and leaves the view
+    /// where the viewer put it.
+    ///
+    /// The reset is the letterboxing's gesture alone, because the Grid's click
+    /// rectangle is registered after the pan rectangle and wins every tie
+    /// inside the Grid. That is the Cell Buttons' own resolution, kept
+    /// deliberately, and it has a consequence worth pinning rather than
+    /// leaving to the comment beside the branch: a console the Grid fills
+    /// exactly has no letterboxing, so it offers no way to double click back
+    /// to the fit. `DEFAULT_VIEW_SIZE` is such a console.
+    ///
+    #[test]
+    fn a_double_click_inside_the_grid_selects_a_cell_and_holds_the_view() {
+        let ctx = egui::Context::default();
+        // A 8 by 8 Source is 200 points square, so this console fits it
+        // exactly and letterboxes nowhere — the shape `DEFAULT_VIEW_SIZE` has.
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert!(
+            letterboxing(screen, viewport.rect).is_none(),
+            "the console letterboxes, so it is not the case this test is about"
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            zoom_at(screen.center()),
+            &mut orcvs,
+            &mut view,
+        );
+        assert!(view.adjusted, "zooming did not pin the view");
+        let pinned = view.to_global;
+
+        let target = viewport.rect.min + Vec2::new(2.5, 3.5) * viewport.cell_size;
+        double_click(&ctx, screen, target, &mut orcvs, &mut view);
+
+        assert_eq!(
+            selected_cell(&orcvs),
+            (2, 3),
+            "the double click did not reach the Cell under it"
+        );
+        assert!(
+            view.adjusted,
+            "the double click unpinned a view with no letterboxing to hit"
+        );
+        assert_eq!(
+            view.to_global, pinned,
+            "the double click moved a view it should have left alone"
+        );
     }
 
     ///
