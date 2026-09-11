@@ -31,9 +31,9 @@ impl Sequence {
     /// and a Function Atom is refused when its declared kind says it answers an
     /// effect, because per ADR 0029 a Sequence is the value that carries
     /// results and so admits only a Function that answers one. A Self-Banging
-    /// Function is refused by that second rule rather than by one of its own:
-    /// being a root-only Source effect is what its declared kind states, so
-    /// one rule keeps one mechanism.
+    /// or Directional Bang Function is refused by that second rule rather than
+    /// by one of its own: being a root-only Source effect is what its declared
+    /// kind states, so one rule keeps one mechanism.
     pub fn new(atoms: impl IntoIterator<Item = Atom>) -> Result<Self, Error> {
         let atoms: Vec<Atom> = atoms.into_iter().collect();
 

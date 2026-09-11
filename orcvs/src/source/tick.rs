@@ -578,9 +578,13 @@ pub(super) fn plan(
 }
 
 /// ADR 0009's refusal. Only [`carry`] raises it, because only a carried
-/// schedule can name a destination for a Terminal Output Function: the
-/// destinations [`computations`] resolves are the ordinary result positions
-/// roots resolve for themselves, and a Terminal Output Function resolves none.
+/// schedule can name a destination for a Terminal Output Function. The
+/// destinations [`computations`] resolves are the ordinary result position a
+/// root resolves for itself and, since the Source-writing Functions arrived,
+/// the displaced destination a row declares — and the
+/// `performs_terminal_output()` gate is read before either, so neither reaches
+/// a Function this refusal is about. Statement order is what holds the rule in
+/// shipped code; this constant holds it in the carried schedule.
 #[cfg(test)]
 const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
 
@@ -593,10 +597,12 @@ const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
 /// without the planning path taking a parameter or a map lookup of its own.
 ///
 /// A test needs this because no production Tick can state such a destination
-/// yet: every Function that writes somewhere other than below its own root
-/// belongs to ADR 0004's Source Function family, which is unbuilt. When that
-/// family arrives it states its destinations in Source, through
-/// [`computations`], and this goes away with the tests that needed it.
+/// for a Terminal Output Function. ADR 0004's Source Function family is built
+/// now and states its destinations through [`computations`], but it states them
+/// from a declaration rather than from input, and no row declares both a
+/// displacement and Terminal Output. Carrying one is still the only way to put
+/// a destination on a Function that resolves none, which is the case ADR 0009
+/// refuses.
 ///
 #[cfg(test)]
 fn carry(
@@ -1389,12 +1395,19 @@ mod test {
         // this producer is not leaving its own Cells, so it has none to say it
         // in. Both refusals are here: Cells that are not empty, and a
         // displacement that leaves the Grid.
+        //
+        // The diagnostic names the producer and not the Function it would have
+        // emitted. The two come apart only for this group — a Self-Banging
+        // Function writes its own spelling — and naming the emission alone
+        // would point the author at Cells holding `>>` when the Grid contains
+        // no `>>` at all. Both spellings are here because both are the author's
+        // question: which Cell to fix, and what it was trying to put where.
         let occupied = Grid::new(10, 2);
         let (plans, grids, _) = tick_by_tick(occupied, &[".=0101", "  *>xx"], 1);
         assert_eq!(grids[0], [".=0101    ", "***>xx    "]);
         assert_eq!(
             messages(&plans[0]),
-            vec![">> has no empty destination inside the Grid"]
+            vec!["*> has no empty destination inside the Grid for >>"]
         );
 
         let edge = Grid::new(10, 2);
@@ -1402,7 +1415,30 @@ mod test {
         assert_eq!(grids[0], ["  .=0101  ", "*<**      "]);
         assert_eq!(
             messages(&plans[0]),
-            vec!["<< has no empty destination inside the Grid"]
+            vec!["*< has no empty destination inside the Grid for <<"]
+        );
+
+        // The vertical half of the same refusal, which leaves the Grid by the
+        // last row rather than by the first column. It is here because the two
+        // reach `Portal::displaced` through different arms of `Grid::displaced`
+        // — a row that does not exist against a column that does not — and one
+        // fixture proves only the arm it takes.
+        //
+        // The other two edges are not written out because no Source reaches
+        // them. A Bang comes only from the Delay, the Equality, or the
+        // Euclidean, each six Cells wide, so a producer at column `C` needs
+        // `C + 6 <= W` and the roots its Bang can anchor are `C - 2` and
+        // `C + 2`. The rightmost is `W - 4`, whose emission ends at `W - 1` and
+        // stays in the row: `*>` cannot be made to cross the row edge. A `*^`
+        // in the first row would need a Bang in that row, and nothing writes
+        // one there — a producer Bangs into the row below itself, and a
+        // Source-resident `**` is cleared before any Turn.
+        let floor = Grid::new(8, 2);
+        let (plans, grids, _) = tick_by_tick(floor, &[".=0101", "  *v"], 1);
+        assert_eq!(grids[0], [".=0101  ", "***v    "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["*v has no empty destination inside the Grid for vv"]
         );
     }
 

@@ -471,7 +471,18 @@ impl<'a> Execution<'a> {
                         // it. The widths it reads are its children's, settled
                         // the same way.
                         || self.lookup.would_reserve(contact.index, *replacement)
-                            != self.lookup.reserved(contact.index))
+                            != self.lookup.reserved(contact.index)
+                        // ADR 0004: a Source-writing Function states where it
+                        // writes in its declaration, and `computations` reads
+                        // that declaration to reserve the destination before
+                        // any Turn. A replacement carrying a different offset
+                        // would have the Turn write Cells the schedule reserved
+                        // for another column, which is the same fact the width
+                        // term above refuses — a reservation the admitted write
+                        // then leaves. The whole effect is compared because
+                        // every field of it is read at the Turn: the offsets
+                        // resolve the Portal and the bundle decides how many.
+                        || replacement.source_effect() != target.source_effect())
             })
         {
             self.effects.push(Effect::Diagnose(diagnose(
@@ -557,6 +568,13 @@ impl<'a> Execution<'a> {
         let anchor = node.anchor;
         let spelling = Encoding::literal(effect.spelling)
             .expect("a Function spelling is printable ASCII Cells");
+        // What stands in the Source, which is not always what gets written. A
+        // Self-Banging Function writes its own spelling and the two agree; a
+        // Directional Bang Function writes the Function it emits, and only this
+        // one names the Cells the author would go and fix. `Function` displays
+        // as its spelling, which is how every other diagnostic in this file
+        // names one.
+        let producer = self.states[index].function;
         // The Cells this Function stands in. Every Function spelling is two
         // ASCII Cells by compile-time assertion, and every spelling a
         // Source-writing Function writes is another Function's, so the Span it
@@ -652,7 +670,7 @@ impl<'a> Execution<'a> {
                     Contact::Root(root) => self.states[root].activated = true,
                     Contact::Partial => self.effects.push(Effect::Diagnose(diagnose(
                         node,
-                        format!("{} contacts part of a Language Unit", effect.spelling),
+                        format!("{producer} contacts part of a Language Unit"),
                     ))),
                     Contact::Silent => {}
                 }
@@ -662,10 +680,16 @@ impl<'a> Execution<'a> {
             // classifies no contact either: what it would have emitted into is
             // not a Cell it was moving to, so there is nothing there it could
             // be aligned with.
+            //
+            // Both spellings are named because this is the one group where they
+            // differ: the producer is the Cell pair to go and fix, and the
+            // emission is what it was trying to put outside its own Span. ADR
+            // 0006 states the precondition as one conjunction — "empty and
+            // inside the Grid" — so the refusals share one wording.
             _ => self.effects.push(Effect::Diagnose(diagnose(
                 node,
                 format!(
-                    "{} has no empty destination inside the Grid",
+                    "{producer} has no empty destination inside the Grid for {}",
                     effect.spelling
                 ),
             ))),

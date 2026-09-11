@@ -948,8 +948,8 @@ mod test {
 
         // A root declaring no operand has no position for a chain to stand in,
         // and appending one spells trailing content the Parser rejects rather
-        // than a deeper walk. The Self-Banging Functions are the rows this
-        // skips; every other row still carries the chain.
+        // than a deeper walk. The Self-Banging and Directional Bang Functions
+        // are the rows this skips; every other row still carries the chain.
         for root in Function::ALL
             .iter()
             .copied()
