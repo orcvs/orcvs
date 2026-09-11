@@ -2591,8 +2591,8 @@ mod test {
         //
         // Reading the parsed Function answered this the same way, and no
         // fixture can make the two disagree: this guard admits no replacement
-        // that changes any of the three facts it compares, so the running
-        // Function agrees with the parsed one on all three for as long as the
+        // that changes any of the five facts it compares, so the running
+        // Function agrees with the parsed one on all five for as long as the
         // guard is the only thing that changes it. That agreement is an
         // invariant about the guard itself, held nowhere and by nothing else,
         // and reading the running Function is what stops it being load-bearing.
