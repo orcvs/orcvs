@@ -410,13 +410,13 @@ enum ActivationSource {
 /// hold. An exception that arrived by omission would therefore be silent, so
 /// this is declared beside every other property of a Function rather than
 /// inferred from a family prefix or assumed from a signature: two Functions of
-/// the same family and the same signature can differ in it. ADR 0036 is that
+/// the same family and the same signature can differ in it. ADR 0039 is that
 /// case built — Clock `~.` and Delay `~*` share the Tick family and share a
 /// signature of two Numbers, and one broadcasts while the other refuses.
 #[derive(Clone, Copy)]
 enum Pervasion {
     Pervasive,
-    /// Declared by ADR 0036's Delay `~*` and Euclidean `~%`. Each answers a
+    /// Declared by ADR 0039's Delay `~*` and Euclidean `~%`. Each answers a
     /// pulse, so a widened operation would need one answer per element and an
     /// element that does not Bang has only the Absence Marker to offer, which
     /// ADR 0025 refuses as a Sequence member; reducing the elements to one
@@ -776,7 +776,7 @@ macro_rules! define_functions {
             /// rather than something the shape of its operands decides for it:
             /// a Sequence reaching a Scalar Function is refused with the same
             /// diagnostic whether that Function is Terminal or, like Delay, an
-            /// ordinary value Function that ADR 0036 keeps scalar.
+            /// ordinary value Function that ADR 0039 keeps scalar.
             #[inline(always)]
             pub const fn is_pervasive(self) -> bool {
                 matches!(self.pervasion(), Pervasion::Pervasive)
@@ -1696,7 +1696,7 @@ mod test {
         // the other family the same way: the Terminal Output Functions extend
         // as well, so pervasion is not a property of answering a value either,
         // and a `!`-spelled row is no more predictable from its spelling than a
-        // `.`-spelled one. Nor is it a property of a signature: ADR 0036 keeps
+        // `.`-spelled one. Nor is it a property of a signature: ADR 0039 keeps
         // Delay and Euclidean scalar while Clock, which shares Delay's family
         // and its two Number operands, broadcasts. It is declared per Function
         // instead, and this match is exhaustive over `Function` with no
@@ -1724,7 +1724,7 @@ mod test {
                 | Function::TimedPlay => true,
                 // The Source-writing Functions declare no operand, so there is
                 // no operand for pervasion to widen over. They are `Scalar` for
-                // the reason ADR 0036's two pulses are not: those refuse a
+                // the reason ADR 0039's two pulses are not: those refuse a
                 // Sequence they could have been handed, while these are never
                 // handed anything.
                 Function::DirectionalBangEast
@@ -1771,7 +1771,7 @@ mod test {
         for function in Function::ALL.iter().copied() {
             let (sequence, widens) = match function {
                 Function::Equality => (false, false),
-                // ADR 0036's two pulses answer one Atom as well, and now for a
+                // ADR 0039's two pulses answer one Atom as well, and now for a
                 // different reason than Equality's. Equality broadcasts to
                 // find its comparison pairs and reduces them; these refuse a
                 // Sequence operand outright, so there is no width to reduce

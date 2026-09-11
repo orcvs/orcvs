@@ -2,6 +2,8 @@
 
 Status: accepted. Revises the Sequence-broadcasting clause of [ADR 0012](0012-time-and-feedback-are-explicit-tick-inputs.md) for Delay `~*` and Euclidean `~%`; Clock `~.` broadcasts as that decision wrote it.
 
+This decision was accepted as ADR 0036 and renumbered to 0039, so history written before the renumbering — commits, pull requests, and issue files that cannot be rewritten — cites it as "ADR 0036" and means this file rather than [ADR 0036](0036-reserve-result-cells-before-their-width-exists.md), which held the number first and kept it.
+
 Delay `~*` and Euclidean `~%` answer a pulse: a Bang on the Ticks their cycle names and nothing at all on the rest. A Sequence at either of their operand positions is refused, under the same `expected an Atom` diagnostic every other scalar operand raises, rather than widening the operation. The refusal is declared in the pervasion column of the Function table beside their spelling and signature, so it is stated where every Function's pervasion is stated and no check is written into either body.
 
 A widened pulse has no answer to give, and that is the whole of the reason. ADR 0007 makes a widened operation answer one Sequence holding one element answer per element, and a Tick at which an element does not fire has only the Absence Marker to contribute — the Atom the Interpreter answers with when an Expression leaves no value. ADR 0025 refuses that Atom as a Sequence member, and not on a technicality: it has no Source encoding, so there are no Cells for the position it would occupy. The element-wise answer pervasive extension asks for therefore does not exist for these two Functions, and something else has to be decided in its place.
