@@ -172,24 +172,30 @@ impl Interpreter {
                     Function::TimedPlay => {
                         return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
                     }
-                    // The Self-Banging Functions take no operand and read no
+                    // The Source-writing Functions take no operand and read no
                     // Context: the whole of the effect is declared in the
                     // table, so the arm reads the declaration rather than
-                    // repeating the four offsets here. A Function whose kind
-                    // carries no Source write cannot reach this arm, which is
-                    // what `expect` states.
-                    Function::SelfBangingEast
+                    // repeating eight offsets and two bundles here. A Function
+                    // whose kind carries no Source write cannot reach this arm,
+                    // which is what `expect` states.
+                    //
+                    // One arm for both groups, and it is not a case the two
+                    // share by coincidence: they differ in what they declare
+                    // and not in what interpreting them does, which is read the
+                    // declaration. ADR 0029's asymmetry lives in the activation
+                    // column and the bundle, and both are settled before this.
+                    Function::DirectionalBangEast
+                    | Function::DirectionalBangNorth
+                    | Function::DirectionalBangSouth
+                    | Function::DirectionalBangWest
+                    | Function::SelfBangingEast
                     | Function::SelfBangingNorth
                     | Function::SelfBangingSouth
                     | Function::SelfBangingWest => {
-                        let (columns, rows) = fun
-                            .source_write()
-                            .expect("a Self-Banging Function declares a Source write");
-                        return Ok(Interpretation::Source(SourceEffect {
-                            columns,
-                            rows,
-                            spelling: fun.spelling(),
-                        }));
+                        return Ok(Interpretation::Source(
+                            fun.source_effect()
+                                .expect("a Source-writing Function declares a Source write"),
+                        ));
                     }
                 },
                 atom => (*atom).into(),

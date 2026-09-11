@@ -185,12 +185,12 @@ impl<'a> IntoIterator for &'a Performance {
 /// property every Function has, with the ordinary result position one row south
 /// as the default one. A Function carrying this declines that default.
 ///
-/// Every producer today is a Self-Banging Function, so the effect means "clear
-/// my own Span, then write `spelling` at that Span displaced by this offset".
-/// Stage 2 of `spatial-tick-planning/03` adds the Directional Bang Functions,
-/// which emit without clearing, and issue 04's Jump relays a spelling read from
-/// Source rather than a fixed one. Each widens this type when it arrives with a
-/// caller to shape it, rather than being guessed at now.
+/// Every producer today declares the whole of it, so this is read twice for one
+/// declaration: once by scheduling, which needs the destinations before any
+/// Function evaluates, and once as the Interpreter's answer. Issue 04's Jump
+/// relays a spelling read from Source rather than a fixed one, and it is the
+/// first producer for which the two readings differ; the type is widened when
+/// that caller arrives to shape it, rather than guessed at now.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SourceEffect {
     /// Cells to displace horizontally, positive to the east.
@@ -199,6 +199,34 @@ pub struct SourceEffect {
     pub rows: i16,
     /// The characters written at the displaced Span.
     pub spelling: &'static str,
+    /// Which of ADR 0004's bundles this effect plans.
+    pub bundle: SourceBundle,
+}
+
+/// Which of ADR 0004's validated effect bundles a Source-writing Function
+/// plans.
+///
+/// The two Function groups of ADR 0006 differ here and in their activation
+/// source, and in nothing else: `*^` and `^^` write the same spelling at the
+/// same kind of declared Portal. ADR 0029 refuses to collapse the activation
+/// asymmetry, and this is the other half of the same statement — what a
+/// producer does with the Cells it is standing in.
+///
+/// Each variant fixes what a refusal costs as well as what a success writes,
+/// because the two are one fact: a bundle that plans the producer's own Span
+/// has somewhere to report a refusal, and a bundle that does not has nowhere.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SourceBundle {
+    /// Two Portals: spaces over the producer's own Span, then `spelling` at
+    /// that Span displaced. The producer vacates the Cells it stood in, so
+    /// ADR 0006 has a refused destination replace them with `**` rather than
+    /// diagnose — the Span is part of what this bundle plans either way.
+    Advance,
+    /// One Portal: `spelling` at the displaced Span, with the producer left
+    /// standing. ADR 0006 has a refused destination diagnose and emit nothing,
+    /// because this bundle plans nothing at the producer's own Cells to say it
+    /// with.
+    Emit,
 }
 
 #[inline(always)]

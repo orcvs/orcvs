@@ -6,7 +6,10 @@
 
 use std::ops::ControlFlow::{self, Break, Continue};
 
-use lang::{Atom, Function, Interpretation, Interpreter, SourceEffect, Tick, TickInputs, Value};
+use lang::{
+    Atom, Function, Interpretation, Interpreter, SourceBundle, SourceEffect, Tick, TickInputs,
+    Value,
+};
 
 use super::{
     Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal, PortalError,
@@ -511,25 +514,33 @@ impl<'a> Execution<'a> {
     ///
     /// ADR 0004's one validated effect bundle for a Source-writing Function.
     ///
-    /// Every Function answering one is a Self-Banging Function today, so the
-    /// bundle is ADR 0006's move: "An empty destination plans one validated
-    /// Portal bundle: spaces over the current Span, followed by its own
-    /// spelling at the shifted destination. A blocked or out-of-Grid move
-    /// instead replaces its current Span with `**`."
+    /// The declared bundle decides which of ADR 0006's two it is. An `Advance`
+    /// is that ADR's move: "An empty destination plans one validated Portal
+    /// bundle: spaces over the current Span, followed by its own spelling at
+    /// the shifted destination. A blocked or out-of-Grid move instead replaces
+    /// its current Span with `**`." An `Emit` is that ADR's emission: "The
+    /// complete initial destination must be empty and inside the Grid or the
+    /// producer diagnoses and emits nothing."
+    ///
+    /// The precondition is one rule and the refusal is two, which is why the
+    /// groups share this path rather than each having one. What a refusal costs
+    /// follows from whether the bundle plans the producer's own Span: a
+    /// producer that was leaving those Cells reports in them, and a producer
+    /// that is staying has nothing of its own to report in.
     ///
     /// It is not [`Execution::deliver_value`] with a different destination.
     /// That path delivers one encoding through every Portal a computation
-    /// resolved; this one writes different Cells at each of its two, and what
-    /// it writes at the second decides what it writes at the first. The rules
-    /// they do share — the executed-computation rejection and one write
+    /// resolved; an `Advance` writes different Cells at each of its two, and
+    /// what it writes at the second decides what it writes at the first. The
+    /// rules they do share — the executed-computation rejection and one write
     /// admitted whole or not at all — are asked here over the Cells this bundle
     /// covers.
     ///
-    /// The producer's own Span is excepted from the contact rule, because this
-    /// bundle covers it by design: clearing the Cells it stands in is the first
-    /// half of moving out of them. `order_turns` excepts the same producer from
-    /// the self-edge that would otherwise reject every Tick one of these takes
-    /// a Turn in.
+    /// The producer's own Span is excepted from the contact rule of an
+    /// `Advance`, because that bundle covers it by design: clearing the Cells
+    /// it stands in is the first half of moving out of them. `order_turns`
+    /// excepts the same producer from the self-edge that would otherwise reject
+    /// every Tick one of these takes a Turn in.
     ///
     /// The displacement is the Interpreter's answer and the destination
     /// `computations` reserved is the same declaration read before the Turn.
@@ -547,16 +558,25 @@ impl<'a> Execution<'a> {
         let spelling = Encoding::literal(effect.spelling)
             .expect("a Function spelling is printable ASCII Cells");
         // The Cells this Function stands in. Every Function spelling is two
-        // ASCII Cells by compile-time assertion, and a Self-Banging Function
-        // writes its own spelling, so the Span it leaves and the Span it writes
-        // are the same width and one length serves both.
+        // ASCII Cells by compile-time assertion, and every spelling a
+        // Source-writing Function writes is another Function's, so the Span it
+        // occupies and the Span it writes are the same width and one length
+        // serves both.
+        let advancing = effect.bundle == SourceBundle::Advance;
         let start = self.grid.index(anchor).get();
         let own = start..start + spelling.len();
 
-        // ADR 0006 tests "only Cells newly entered by a one-Cell move", which
-        // is the whole destination for a vertical move and one Cell of it for a
-        // horizontal one. The asymmetry is not carved into the write: per
-        // ADR 0004 the clear covers the complete old Span and ADR 0020's
+        // Which Cells the precondition is asked about, and the one place the
+        // two bundles read differently. ADR 0006 has an advancing Function test
+        // "only Cells newly entered by a one-Cell move" — the whole destination
+        // for a vertical move and one Cell of it for a horizontal one — and an
+        // emitting one test "the complete initial destination". The two
+        // coincide for every offset declared today, because no emission
+        // overlaps its producer, so the distinction is stated rather than
+        // relied on.
+        //
+        // The asymmetry is not carved into the write either way: per ADR 0004
+        // an advancing clear covers the complete old Span and ADR 0020's
         // later-write-wins settles the Cell the two share.
         let admitted =
             Portal::displaced(self.grid, anchor, effect.columns, effect.rows).and_then(|portal| {
@@ -568,7 +588,7 @@ impl<'a> Execution<'a> {
             Ok((_, write)) => write
                 .cells()
                 .map(|(cell, _)| cell.get())
-                .filter(|cell| !own.contains(cell))
+                .filter(|cell| !advancing || !own.contains(cell))
                 .collect(),
             Err(_) => vec![],
         };
@@ -596,21 +616,24 @@ impl<'a> Execution<'a> {
                 // the receiving operand decodes what is in Source when it
                 // consumes it, and the edge above is what makes it read this
                 // producer's Cells rather than the ones it replaced.
-                // Stated rather than built, for the reason `Execution::new`
-                // states it: `define_functions!` asserts every spelling is two
-                // ASCII Cells at compile time, so clearing one is always these
-                // two spaces.
-                let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
-                let clear = Portal::at(self.grid, anchor)
-                    .admit(&cleared)
-                    .expect("a Function standing in the Source fits its own Span");
-                self.write(clear);
+                if advancing {
+                    // Stated rather than built, for the reason `Execution::new`
+                    // states it: `define_functions!` asserts every spelling is
+                    // two ASCII Cells at compile time, so clearing one is
+                    // always these two spaces.
+                    let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
+                    let clear = Portal::at(self.grid, anchor)
+                        .admit(&cleared)
+                        .expect("a Function standing in the Source fits its own Span");
+                    self.write(clear);
+                }
                 self.write(write);
             }
             // Refused: out of the Grid, past the row edge, or blocked by Cells
             // that are not empty. ADR 0004 admits no partial write, so the
-            // whole destination is gone in every case.
-            _ => {
+            // whole destination is gone in every case, and what the producer
+            // does instead is the bundle's to say.
+            _ if advancing => {
                 // Source content rather than an answer: this Bang is the
                 // display ADR 0006 gives a refused move, so it is stated here
                 // the way the Bang cleanup in `Execution::new` is, and it
@@ -634,6 +657,18 @@ impl<'a> Execution<'a> {
                     Contact::Silent => {}
                 }
             }
+            // An emitting Function stays where it is, so it has no Cells of its
+            // own to report in and ADR 0006 gives it a diagnostic instead. It
+            // classifies no contact either: what it would have emitted into is
+            // not a Cell it was moving to, so there is nothing there it could
+            // be aligned with.
+            _ => self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                format!(
+                    "{} has no empty destination inside the Grid",
+                    effect.spelling
+                ),
+            ))),
         }
         Continue(())
     }

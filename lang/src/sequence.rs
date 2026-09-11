@@ -350,16 +350,16 @@ mod test {
     }
 
     #[test]
-    fn a_self_banging_function_is_rejected_as_a_member_and_through_promotion() {
-        // Read from the table rather than listed, so a fifth Self-Banging
+    fn a_source_writing_function_is_rejected_as_a_member_and_through_promotion() {
+        // Read from the table rather than listed, so a ninth Source-writing
         // Function is covered the day it is declared. Each is refused by the
         // declared-kind arm that refuses every other effect Function, which is
-        // ADR 0029's one rule reaching them through one mechanism.
+        // ADR 0029's one rule reaching both groups through one mechanism.
         let mut seen = 0;
         for function in Function::ALL
             .iter()
             .copied()
-            .filter(|function| function.source_write().is_some())
+            .filter(|function| function.source_effect().is_some())
         {
             seen += 1;
             let atom = Atom::Function(function);
@@ -378,8 +378,8 @@ mod test {
             }
         }
         assert_eq!(
-            seen, 4,
-            "the Source-writing rows are no longer the four expected"
+            seen, 8,
+            "the Source-writing rows are no longer the eight expected"
         );
     }
 

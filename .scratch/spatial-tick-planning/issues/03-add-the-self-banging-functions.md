@@ -316,6 +316,16 @@ act on a root only where the root is *not* intrinsically active, and every zero-
 takes its Turn without a Bang. `*^` is the first zero-operand root that waits for one. The item and
 its test belong with it, and `bang_roots` now carries a doc comment saying so.
 
+*Superseded the same day, by issue 06.* `*^` is built, the item is ticked, and the test that drives
+the arm is `an_active_directional_bang_function_emits_its_self_banging_function`: its north and west
+fixtures activate their producer through a Bang two columns east, and deleting the arm leaves both
+emitting nothing. `bang_roots` names that test instead of naming a future one.
+
+That leaves one acceptance item open, and it is the one inherited from the renamed file rather than
+one of this ticket's own: ADR 0009's Portal refusal still has only its `#[cfg(test)]` raiser. The
+Status line stays `ready-for-agent` for it. Every other item here is delivered, so an agent picking
+this up should read the comment below before re-reading the list.
+
 **Contact is classified against the Language Map, not the Lookup.** A `Lookup` indexes Expressions,
 so a Comment and a standalone Bang are absent from it, and ADR 0006 classifies contact against every
 Language Unit. The rule is stated without naming a direction: one complete Expression root covering
