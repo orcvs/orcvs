@@ -6,7 +6,9 @@
 
 pub(super) mod execution;
 
-use lang::{Anchor, Atom, Function, SourceBundle, SourceEffect, Tick, TickInputs};
+use lang::{
+    Anchor, Atom, Function, ReplacementChange, SourceBundle, SourceEffect, Tick, TickInputs,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
@@ -334,6 +336,32 @@ impl Lookup {
     /// disagrees with.
     fn would_reserve(&self, index: usize, function: Function) -> Reserved {
         reserved_for(&self.nodes, index, function)
+    }
+
+    /// Which of the five facts a Function replacement at `index` changes about
+    /// `running`, the Function that computation is running, or `None` where it
+    /// changes none of them and the replacement is admitted.
+    ///
+    /// `lang` answers the four a declaration states and this crate appends the
+    /// fifth, because a reservation is derived from the schedule ADR 0032
+    /// settled and from the widths this computation's children hold, and `lang`
+    /// has neither. Appending it rather than interleaving it is what keeps the
+    /// order the guard has always applied, so every replacement reports the
+    /// fact it reported before the facts had names.
+    ///
+    /// The width is compared against the settled reservation rather than
+    /// against a second derivation: the Turns were ordered from that one, and
+    /// this same guard is what keeps every admitted replacement inside it.
+    fn replacement_change(
+        &self,
+        index: usize,
+        replacement: Function,
+        running: Function,
+    ) -> Option<ReplacementChange> {
+        replacement.replacing(running).or_else(|| {
+            (self.would_reserve(index, replacement) != self.reserved(index))
+                .then_some(ReplacementChange::Width)
+        })
     }
 
     /// A fixed destination has relationships only if the Cells reserved for
@@ -2447,10 +2475,11 @@ mod test {
         );
         assert_eq!(&source.snapshot()[..6], ".+0204");
         assert_eq!(&source.snapshot()[32..34], "06");
-        assert!(plan.diagnostics.iter().any(|d| {
-            d.message
-                .contains("activation requirements, output kind, or result width")
-        }));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("whether it answers a value") })
+        );
     }
 
     #[test]
@@ -2470,10 +2499,11 @@ mod test {
         );
 
         assert_eq!(&source.snapshot()[16..24], "!>007FC4");
-        assert!(plan.diagnostics.iter().any(|d| {
-            d.message
-                .contains("activation requirements, output kind, or result width")
-        }));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("where its activation comes from") })
+        );
     }
 
     #[test]
@@ -2499,10 +2529,9 @@ mod test {
         // one Cell outside the reservation.
         assert_eq!(&source.snapshot()[16..18], "**");
         assert!(
-            plan.diagnostics.iter().any(|d| {
-                d.message
-                    .contains("activation requirements, output kind, or result width")
-            }),
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("the Source write it declares") }),
             "{:?}",
             plan.diagnostics
         );
@@ -2568,10 +2597,9 @@ mod test {
         );
 
         assert!(
-            plan.diagnostics.iter().any(|d| {
-                d.message
-                    .contains("activation requirements, output kind, or result width")
-            }),
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("whether it answers a value") }),
             "{:?}",
             plan.diagnostics
         );

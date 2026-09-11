@@ -16,19 +16,29 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `Function::replacing` answers the first of four declared differences from a `const` table walked in order.
-- [ ] `Lookup::replacement_change` composes that with the width comparison, appended last.
-- [ ] The guard reads one answer and emits a diagnostic naming the fact that differed.
-- [ ] The four existing message assertions name a specific fact instead of the shared string.
-- [ ] Each variant's rationale is a doc comment on the variant.
-- [ ] A test proves each variant appears exactly once across the table and the appended term.
-- [ ] A test proves each variant is the first difference for some pair, and that `Width` is the first difference for none, under a comment stating why.
-- [ ] No replacement admitted before this ticket is refused after it, and none refused is admitted.
+- [x] `Function::replacing` answers the first of four declared differences from a `const` table walked in order.
+- [x] `Lookup::replacement_change` composes that with the width comparison, appended last.
+- [x] The guard reads one answer and emits a diagnostic naming the fact that differed.
+- [x] The four existing message assertions name a specific fact instead of the shared string.
+- [x] Each variant's rationale is a doc comment on the variant.
+- [x] A test proves each variant appears exactly once across the table and the appended term.
+- [x] A test proves each variant is the first difference for some pair, and that `Width` is the first difference for none, under a comment stating why.
+- [x] No replacement admitted before this ticket is refused after it, and none refused is admitted.
 
 ## Verification
 
 Both crates are edited, so: `cargo fmt --all -- --check`, then `cargo clippy --package <crate> --all-targets --locked -- -D warnings` and `cargo nextest run --package <crate> --locked` for `lang`, `orcvs` and `console`.
 
 No benchmark is owed. The guard is unreachable in production — see the spec — so this change cannot move the cost of any path a Source reaches, and the ticket claims no performance effect.
+
+## Note on the accessor's signature
+
+`Lookup::replacement_change` takes the running Function as a third parameter —
+`(index, replacement, running)` rather than the `(index, replacement)` sketched
+above. `Lookup` holds the Function the Parser found; the Function a computation
+is running lives in execution's per-Tick state, and the spec settles that the
+guard keeps reading that one. Reading `nodes[index].function` inside the
+accessor would have changed which Function is compared, so the caller supplies
+it and the carried-forward comment stays where it was.
