@@ -4,7 +4,7 @@
 south, scheduled ahead of that root, with no separate control phase. ADR 0032 removed Source-order
 turns and requires this ticket to adopt the dependency model before adding its effects.
 
-**Blocked by:** 02 — Add Source Bang activation and expiry; evaluation-machine/05 — Widen the Function kind to value or effect.
+**Blocked by:** 02 — Add Source Bang activation and expiry; evaluation-machine/05 — Widen the Function kind to value or effect; grid-boundedness/01 — Decide whether the Grid's edge is a language concept.
 
 **Status:** ready-for-agent
 

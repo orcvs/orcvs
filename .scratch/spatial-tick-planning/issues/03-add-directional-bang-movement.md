@@ -3,7 +3,7 @@
 **What to build:** Implement `*^`, `*v`, `*<`, and `*>` plus the root-only Self-Banging Functions
 `^^`, `vv`, `<<`, and `>>` using the representation selected by the focused prototype.
 
-**Blocked by:** 02 — Add Source Bang activation and expiry; evaluation-machine/05 — Widen the Function kind to value or effect.
+**Blocked by:** 02 — Add Source Bang activation and expiry; evaluation-machine/05 — Widen the Function kind to value or effect; grid-boundedness/01 — Decide whether the Grid's edge is a language concept.
 
 **Status:** ready-for-agent
 
