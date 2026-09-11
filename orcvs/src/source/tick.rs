@@ -967,34 +967,8 @@ fn order_turns(
             // Tick one of these takes a Turn in. An emitting bundle plans
             // nothing at its own Cells and needs no exception.
             let clears_its_own_span = advances(node.function);
-            // The fourth way a reservation is not an order, and the only one
-            // about another computation rather than this one. Two movers
-            // approaching each other end up reserving the Cells the other
-            // stands in, which is an edge each way and an order no sort
-            // satisfies. Rejecting the Tick for it stops every computation on
-            // the Grid and never starts one again, and ADR 0006 does not ask
-            // for that: it admits contact with a root whose Turn has already
-            // passed — "a later root evaluates at its turn, while an earlier
-            // root is not revisited" — so the preference this edge states is
-            // one a pair of movers can do without.
-            //
-            // The edge dropped is the one that would order a mover ahead of a
-            // mover earlier in Source, which leaves ADR 0020's Source order:
-            // the ready set below is keyed by Cell index, so the earlier Turn
-            // is the earlier Cell. Each mover then meets the other's Cells at
-            // its own Turn and takes ADR 0006's ordinary refusal there. The
-            // rule is only for a pair that both move, because only a bundle
-            // that vacates its own Span can be the far end of such a pair; a
-            // mover landing on anything else still orders itself first.
-            let own_turn = grid.index(node.anchor);
             let mut order_after = |consumer: usize| {
                 if (may_stop_short || clears_its_own_span) && consumer == index {
-                    return;
-                }
-                if clears_its_own_span
-                    && advances(nodes[consumer].function)
-                    && grid.index(nodes[consumer].anchor) < own_turn
-                {
                     return;
                 }
                 edges.insert((index, consumer));

@@ -460,7 +460,7 @@ impl<'a> Execution<'a> {
                         // below refuse, stated about direction rather than
                         // extent. `^^` and `>>` agree on every other term, so
                         // this is the only one that tells them apart.
-                        || replacement.source_write() != target.source_write()
+                        || replacement.source_effect() != target.source_effect()
                         // ADR 0036: a schedule reserves Cells from the Function
                         // it found at each anchor, so a replacement that would
                         // widen or narrow that reservation is refused with the
