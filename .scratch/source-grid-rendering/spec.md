@@ -80,9 +80,11 @@ at native resolution. It also carries the retained-table atlas bug issue 02 avoi
 per frame.
 
 Neither hand-builds an `epaint::Mesh`, manages a texture atlas, or uses a paint callback for glyphs.
-Every implementation goes through `Shape::text` or `Shape::galley`. Issue 04 keeps a mesh only for
-Cell backgrounds and Grid lines, and only after run coalescing has been tried, because coalescing is
-what the working implementations actually do.
+Every implementation goes through `Shape::text` or `Shape::galley`. Issue 04 reaches for no mesh at
+all: it coalesces runs of same-coloured Cell backgrounds through the ordinary painter, because
+coalescing is what the working implementations actually do. Grid lines are not in it — per-Cell
+stroked borders stay, and issue 04 records why a spanning line cannot reproduce today's one under
+this effort's strict-parity rule.
 
 These are references to read, not dependencies to take. `hxy-view` has a hundred-odd downloads and
 `horizon` is not published at all.

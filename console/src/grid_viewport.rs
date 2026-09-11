@@ -6,7 +6,7 @@
 //! here, apart from the rendering, so the wide, tall and square cases are
 //! settled by arithmetic a test can ask about without a window.
 
-use egui::{Pos2, Rect, Vec2};
+use egui::{Pos2, Rect, Vec2, emath::GuiRounding as _, emath::TSTransform};
 
 ///
 /// The Grid viewport the console presents inside an available area.
@@ -33,21 +33,25 @@ impl GridViewport {
     }
 
     ///
-    /// The region of the Source an [`egui::Scene`] must show to present this
-    /// viewport.
+    /// The transform that presents this viewport: the scale and translation
+    /// that carry the Source's own coordinates onto it.
     ///
-    /// A Scene fits the region it is given into the available area under one
-    /// scale factor for both axes and centres it there, so the region that
-    /// presents this viewport is the available area measured in Source
-    /// coordinates, centred on the Source. The surplus the letterboxing covers
-    /// is part of the region: it is Source coordinate space that holds no Cell.
+    /// This is the fit rebuilt rather than borrowed. `egui::Scene` computes the
+    /// same thing in a private `fit_to_rect_in_scene`, and the numbers it needs
+    /// are the ones this viewport already holds: one scale for both axes, and
+    /// the translation that puts the Source's corner on the viewport's.
     ///
-    pub(crate) fn scene_view(&self, source: Rect, available: Rect) -> Rect {
+    /// A console with no area answers a scale of zero, which is no fit to
+    /// reach; the caller guards that rather than this returning a transform it
+    /// cannot invert.
+    ///
+    pub(crate) fn fit_transform(&self, source: Rect) -> TSTransform {
         let scale = self.scale(source);
-        if scale <= 0.0 {
-            return source;
-        }
-        Rect::from_center_size(source.center(), available.size() / scale)
+
+        TSTransform::new(
+            self.rect.min.to_vec2() - scale * source.min.to_vec2(),
+            scale,
+        )
     }
 
     ///
@@ -149,11 +153,73 @@ pub(crate) fn grid_viewport(available: Rect, columns: usize, rows: usize) -> Gri
     }
 }
 
+///
+/// The Grid rectangle `to_global` presents, with Cell geometry snapped to whole
+/// physical pixels.
+///
+/// **This is the one place the Source is scaled.** The console owns
+/// `to_global` — `egui::Scene` used to own it, and a Scene applies its scale to
+/// a whole layer of shapes after they are built. Here the scale reaches the
+/// Grid before a single Shape exists, so a Cell's two axes still cannot part
+/// company (one `scaling` serves both) and no galley is ever transformed after
+/// layout.
+///
+/// # Why the Cell size is snapped
+///
+/// A Cell size derived from a continuous zoom is fractional, and a fractional
+/// Cell size puts each row's edges at a different sub-pixel offset. Rows then
+/// resolve a pixel taller or shorter than their neighbours and the eye reads
+/// the Grid as irregularly spaced. Snapping the Cell side to a whole physical
+/// pixel makes every row identical.
+///
+/// The snap floors rather than rounds, and the Grid is re-centred on the
+/// rectangle the transform asked for afterwards. Rounding up would let a Grid
+/// of `columns` Cells exceed the area the fit gave it by half a pixel per
+/// column — twenty points at the default forty — and the surplus would be
+/// clipped rather than letterboxed. Flooring spends the same error as
+/// letterboxing, which is what the surplus already is.
+///
+pub(crate) fn presented_grid(
+    to_global: TSTransform,
+    source: Rect,
+    columns: usize,
+    rows: usize,
+    pixels_per_point: f32,
+) -> GridViewport {
+    let presented = to_global * source;
+    // The device scale is divided by as well as multiplied by — once for the
+    // Cell size and again for the corner — so it is refused on the same terms
+    // as every other input here rather than checked for finiteness alone. Zero
+    // answers an infinite Cell and a NaN corner; a negative one answers a Cell
+    // that `cell_rect` paints inverted and `cell_at` refuses every click on.
+    // Refused, the Grid keeps its unsnapped corner and no Cell at all, which is
+    // the same nothing a console with no area presents.
+    let device_scale =
+        (pixels_per_point.is_finite() && pixels_per_point > 0.0).then_some(pixels_per_point);
+    let raw = presented.width() / columns.max(1) as f32;
+    // At least one physical pixel wherever there is any Cell at all, so a Grid
+    // that is merely very small is still drawn rather than floored away.
+    let cell_size = match device_scale {
+        Some(scale) if raw.is_finite() && raw > 0.0 => (raw * scale).floor().max(1.0) / scale,
+        _ => 0.0,
+    };
+    let size = Vec2::new(columns as f32, rows as f32) * cell_size;
+    let corner = presented.center() - size / 2.0;
+
+    GridViewport {
+        cell_size,
+        rect: Rect::from_min_size(
+            device_scale.map_or(corner, |scale| corner.round_to_pixels(scale)),
+            size,
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use egui::{Pos2, Rect, Vec2, emath::TSTransform};
 
-    use super::{GridViewport, grid_viewport};
+    use super::{GridViewport, grid_viewport, presented_grid};
 
     const GRID: usize = 32;
 
@@ -411,22 +477,17 @@ mod tests {
     }
 
     ///
-    /// Mirrors the fit `egui::Scene` applies to the region it is shown: one
-    /// scale for both axes, centred on the region.
+    /// The fit the console owns puts the Source exactly where the fitted
+    /// viewport says it goes — which is what lets `egui::Scene`, and the
+    /// private `fit_to_rect_in_scene` inside it, be retired rather than
+    /// reached for.
     ///
-    fn scene_fit(region: Rect, available: Rect) -> TSTransform {
-        let scale = (available.size() / region.size()).min_elem();
-        TSTransform::from_translation(
-            available.center().to_vec2() - scale * region.center().to_vec2(),
-        ) * TSTransform::from_scaling(scale)
-    }
-
     #[test]
-    fn the_scene_view_presents_exactly_the_fitted_viewport() {
+    fn the_fit_transform_presents_exactly_the_fitted_viewport() {
         let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(GRID as f32 * 25.0));
         for available in [area(1200.0, 700.0), area(700.0, 1200.0), area(800.0, 800.0)] {
             let viewport = grid_viewport(available, GRID, GRID);
-            let presented = scene_fit(viewport.scene_view(source, available), available) * source;
+            let presented = viewport.fit_transform(source) * source;
 
             assert_close(presented.left(), viewport.rect.left(), "presented left");
             assert_close(presented.top(), viewport.rect.top(), "presented top");
@@ -436,6 +497,152 @@ mod tests {
                 viewport.rect.height(),
                 "presented height",
             );
+        }
+    }
+
+    ///
+    /// The Grid the fit presents is the fitted viewport, Cell for Cell, so
+    /// nothing about owning the transform moves the square-Cell fit or the
+    /// letterboxing it produces.
+    ///
+    #[test]
+    fn the_fit_transform_presents_the_viewport_it_was_built_from() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(GRID as f32 * 25.0));
+        for available in [area(1200.0, 700.0), area(700.0, 1200.0), area(800.0, 800.0)] {
+            let viewport = grid_viewport(available, GRID, GRID);
+            let presented = presented_grid(viewport.fit_transform(source), source, GRID, GRID, 1.0);
+
+            // Whole physical pixels, so the presented Cell is at most a pixel
+            // short of the fit and the Grid is at most `GRID` pixels narrower.
+            assert!(
+                viewport.cell_size - presented.cell_size < 1.0
+                    && presented.cell_size <= viewport.cell_size,
+                "{} is not the snapped {}",
+                presented.cell_size,
+                viewport.cell_size
+            );
+            assert_close(
+                presented.rect.center().x,
+                viewport.rect.center().x,
+                "presented centre x",
+            );
+            assert_close(
+                presented.rect.center().y,
+                viewport.rect.center().y,
+                "presented centre y",
+            );
+            assert!(
+                presented.rect.width() <= available.width() + 1e-3
+                    && presented.rect.height() <= available.height() + 1e-3,
+                "the presented Grid {:?} left the console area {available:?}",
+                presented.rect
+            );
+        }
+    }
+
+    ///
+    /// Every Cell is the same whole number of physical pixels across, at every
+    /// zoom and at every device scale. A fractional Cell side would pixel-snap
+    /// differently row by row and read as irregular spacing.
+    ///
+    #[test]
+    fn every_cell_is_a_whole_number_of_physical_pixels() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        for pixels_per_point in [1.0_f32, 1.5, 2.0] {
+            for scaling in [0.25_f32, 0.31, 0.7, 1.0, 1.37, 2.0] {
+                let presented = presented_grid(
+                    TSTransform::new(Vec2::new(11.3, 7.9), scaling),
+                    source,
+                    8,
+                    8,
+                    pixels_per_point,
+                );
+                let in_pixels = presented.cell_size * pixels_per_point;
+
+                assert!(
+                    (in_pixels - in_pixels.round()).abs() < 1e-3,
+                    "a Cell was {in_pixels} pixels across at {scaling}x, {pixels_per_point} ppp"
+                );
+                assert!(
+                    in_pixels >= 1.0,
+                    "a Cell was floored away at {scaling}x, {pixels_per_point} ppp"
+                );
+                // The whole Grid is a whole number of Cells, so the last Cell's
+                // far edge is where the Grid's is.
+                assert_close(
+                    presented.cell_rect(7, 7).max.x,
+                    presented.rect.max.x,
+                    "the Grid's far edge",
+                );
+            }
+        }
+    }
+
+    ///
+    /// A pan moves the presented Grid by exactly what it moved the transform
+    /// by, whatever the zoom. The scale multiplies the Source's coordinates,
+    /// never a translation already expressed in presented points.
+    ///
+    #[test]
+    fn a_translation_moves_the_presented_grid_by_itself_at_any_scale() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        let moved = Vec2::new(40.0, 24.0);
+        for scaling in [0.5_f32, 1.0, 2.0] {
+            let before = presented_grid(TSTransform::from_scaling(scaling), source, 8, 8, 1.0);
+            let after = presented_grid(TSTransform::new(moved, scaling), source, 8, 8, 1.0);
+
+            assert_close(after.rect.min.x - before.rect.min.x, moved.x, "panned x");
+            assert_close(after.rect.min.y - before.rect.min.y, moved.y, "panned y");
+            assert_close(after.cell_size, before.cell_size, "a pan changed the zoom");
+        }
+    }
+
+    ///
+    /// A console with no area answers a transform that cannot be inverted, and
+    /// a Grid with no Cell to click. The console replaces the transform before
+    /// it reaches `inverse()`; this pins the half that belongs to the geometry.
+    ///
+    #[test]
+    fn a_degenerate_fit_presents_no_cell_rather_than_a_nan_one() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        let viewport = grid_viewport(Rect::ZERO, GRID, GRID);
+
+        assert_eq!(viewport.fit_transform(source).scaling, 0.0);
+        assert!(!viewport.fit_transform(source).is_valid());
+
+        let presented = presented_grid(viewport.fit_transform(source), source, GRID, GRID, 1.0);
+
+        assert_eq!(presented.cell_size, 0.0);
+        assert_eq!(presented.cell_at(Pos2::ZERO, GRID, GRID), None);
+    }
+
+    ///
+    /// A device scale that is not a scale presents no Grid rather than an
+    /// infinite or an inverted one.
+    ///
+    /// The snap divides by `pixels_per_point` after flooring to at least one
+    /// physical pixel, so a zero scale answers an infinite Cell and a NaN
+    /// rectangle, and a negative one answers a Cell that `cell_rect` paints
+    /// inverted while `cell_at` refuses every click. Every other degenerate
+    /// input to this function is already refused; this is the same refusal
+    /// stated over the one input that was only checked for finiteness.
+    ///
+    #[test]
+    fn a_device_scale_that_is_not_a_scale_presents_no_grid() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        for pixels_per_point in [0.0_f32, -2.0, f32::NAN, f32::INFINITY] {
+            let presented = presented_grid(TSTransform::IDENTITY, source, 8, 8, pixels_per_point);
+
+            assert_eq!(
+                presented.cell_size, 0.0,
+                "a device scale of {pixels_per_point} presented a Cell"
+            );
+            assert!(
+                presented.rect.min.x.is_finite() && presented.rect.min.y.is_finite(),
+                "a device scale of {pixels_per_point} put the Grid at {:?}",
+                presented.rect.min
+            );
+            assert_eq!(presented.cell_at(Pos2::ZERO, 8, 8), None);
         }
     }
 }
