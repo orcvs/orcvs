@@ -967,10 +967,37 @@ fn order_turns(
             // Tick one of these takes a Turn in. An emitting bundle plans
             // nothing at its own Cells and needs no exception.
             let clears_its_own_span = advances(node.function);
+            // The fourth way a reservation is not an order, and the only one
+            // about another computation rather than this one. Two movers
+            // approaching each other end up reserving the Cells the other
+            // stands in, which is an edge each way and an order no sort
+            // satisfies. Rejecting the Tick for it stops every computation on
+            // the Grid and never starts one again, and ADR 0006 does not ask
+            // for that: it admits contact with a root whose Turn has already
+            // passed — "a later root evaluates at its turn, while an earlier
+            // root is not revisited" — so the preference this edge states is
+            // one a pair of movers can do without.
+            //
+            // The edge dropped is the one that would order a mover ahead of a
+            // mover earlier in Source, which leaves ADR 0020's Source order:
+            // the ready set below is keyed by Cell index, so the earlier Turn
+            // is the earlier Cell. Each mover then meets the other's Cells at
+            // its own Turn and takes ADR 0006's ordinary refusal there. The
+            // rule is only for a pair that both move, because only a bundle
+            // that vacates its own Span can be the far end of such a pair; a
+            // mover landing on anything else still orders itself first.
+            let own_turn = grid.index(node.anchor);
             let mut order_after = |consumer: usize| {
-                if !((may_stop_short || clears_its_own_span) && consumer == index) {
-                    edges.insert((index, consumer));
+                if (may_stop_short || clears_its_own_span) && consumer == index {
+                    return;
                 }
+                if clears_its_own_span
+                    && advances(nodes[consumer].function)
+                    && grid.index(nodes[consumer].anchor) < own_turn
+                {
+                    return;
+                }
+                edges.insert((index, consumer));
             };
             for contact in relationships.functions() {
                 // ADR 0004 admits a move only where the Cells it enters are
@@ -1318,6 +1345,65 @@ mod test {
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
+    }
+
+    #[test]
+    fn two_moves_that_want_the_same_cells_each_bang_in_their_own_span() {
+        // Two movers approaching each other close the gap by two Cells a Tick,
+        // so its parity never changes and there are two cases. An odd gap ends
+        // at one Cell: the first Turn takes it and the second is blocked, which
+        // is `a_self_banging_function_moves_once_per_tick_and_bangs_where_it_
+        // stops` with a second mover supplying the obstacle. An even gap ends
+        // flush, and that is this test — each wants the two Cells the other
+        // stands in, and ADR 0006 gives each the refusal it gives a mover
+        // blocked by anything else: "replaces its current Span with `**`".
+        //
+        // No rule here is new. `>>` holds the earlier Turn by Source order,
+        // finds `<` in the Cell it would enter, and reports in its own Span.
+        // `<<` then finds that fresh `*` and does the same. Both Bangs are
+        // display, so the Tick after clears them and the pair is gone.
+        //
+        // What this pins is the schedule. Each mover reserves Cells the other
+        // stands in, which is an edge each way and an order no sort satisfies.
+        // Before `order_turns` dropped one of them the Tick was rejected, and
+        // the Grid never moved again.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 1), &[">>  <<  "], 3);
+
+        assert_eq!(grids[0], [" >><<   "]);
+        assert_eq!(grids[1], [" ****   "]);
+        assert_eq!(grids[2], ["        "]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+
+        // The vertical pair, which reaches the same refusal through a different
+        // geometry: a vertical destination shares no Cell with the Span it
+        // leaves, so each mover tests the whole of the other's Span rather than
+        // the one Cell a horizontal move enters.
+        let (plans, grids, _) = tick_by_tick(Grid::new(4, 2), &["vv", "^^"], 2);
+
+        assert_eq!(grids[0], ["**  ", "**  "]);
+        assert_eq!(grids[1], ["    ", "    "]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn a_blocked_pair_of_moves_leaves_the_rest_of_the_grid_running() {
+        // The cost of rejecting that Tick was never local. A rejected schedule
+        // discards every write on the Grid, so an Addition sharing the Source
+        // with a facing pair fell silent with nothing wrong with it and no
+        // diagnostic of its own. The pair reports in its own four Cells and the
+        // Addition answers `03` in the same Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::new(13, 2), &[" >><<  .+0102", ""], 1);
+
+        assert_eq!(grids[0], [" ****  .+0102", "       03    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
     }
 
     #[test]
