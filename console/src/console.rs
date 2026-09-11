@@ -496,7 +496,7 @@ fn show_source(
     let mut backgrounds = Vec::with_capacity(cells);
     let mut painted_glyphs = Vec::with_capacity(cells);
     let mut seams = Vec::new();
-    let mut carets = Vec::new();
+    let mut cursor_strokes = Vec::new();
 
     for row in frame.rows() {
         for cell in row {
@@ -525,7 +525,7 @@ fn show_source(
             )));
 
             if cell.selected() {
-                carets.push(Shape::Rect(RectShape::stroke(
+                cursor_strokes.push(Shape::Rect(RectShape::stroke(
                     rect,
                     CornerRadius::ZERO,
                     border,
@@ -590,7 +590,7 @@ fn show_source(
             .into_iter()
             .chain(painted_glyphs)
             .chain(seams)
-            .chain(carets),
+            .chain(cursor_strokes),
     );
 
     // The click resolves by division through the viewport the Cells were
@@ -834,13 +834,14 @@ mod tests {
     use orcvs::glyph::Glyph;
 
     use crate::grid_viewport::GridViewport;
-    use crate::style::PALETTE;
+    use crate::style::{PALETTE, sector_line};
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
         ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, DEFAULT_VIEW_SIZE, GRID_LINE_WIDTH,
-        GlyphTable, SourceView, TOP_PANEL_HEIGHT, blank_glyph_index, frames_per_second, scene_zoom,
-        show_source_scene, source_bounds, source_dimensions, translate_event,
+        GlyphTable, SECTOR_LINE_WIDTH, SourceView, TOP_PANEL_HEIGHT, blank_glyph_index,
+        frames_per_second, scene_zoom, show_source_scene, source_bounds, source_dimensions,
+        translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -1272,12 +1273,12 @@ mod tests {
     }
 
     ///
-    /// The caret reaches what a Cell is painted *with* and never where it is
-    /// painted.
+    /// The Cursor's blink reaches what a Cell is painted *with* and never
+    /// where it is painted.
     ///
-    /// This is the property `caret_phase_does_not_change_cell_border_geometry`
-    /// held over `cell_line_width`, a shipped function that took the caret and
-    /// ignored it. Under the painter the property is structural —
+    /// This is the property the retired `cell_line_width` test held over a
+    /// shipped function that took the blink phase and ignored it. Under the
+    /// painter the property is structural —
     /// `GridViewport::cell_rect` takes a Position and nothing else — so it is
     /// asserted here against the geometry that actually reached the Render
     /// Frame.
@@ -1291,7 +1292,7 @@ mod tests {
     /// rather than beside it or around it.
     ///
     #[test]
-    fn the_caret_reaches_the_paint_of_a_cell_and_never_its_geometry() {
+    fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = Orcvs::new(8, 8);
@@ -1441,9 +1442,9 @@ mod tests {
     }
 
     ///
-    /// The Cell border is the ordinary Grid line, and the caret changes its
-    /// colour rather than its width — which is what `cell_line_width` returned
-    /// a constant for.
+    /// The Cell border is the ordinary Grid line, and the Cursor's blink
+    /// changes its colour rather than its width — which is what
+    /// `cell_line_width` returned a constant for.
     ///
     #[test]
     fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
@@ -1568,6 +1569,155 @@ mod tests {
         assert_eq!(painted_glyphs, 4, "the written Source was not painted");
         assert_eq!(glyphs.len(), painted_glyphs, "a blank Cell painted a Glyph");
         assert!(bloomed > 0, "no Cell took a CursorBloom");
+    }
+
+    ///
+    /// Sector seams reach the Render Frame with the geometry and the
+    /// `sector_line` attenuation the Render Cell asks for, and a selected Cell
+    /// carries none.
+    ///
+    /// The Grid is 16 Cells square because the default Marker spacing is 8: an
+    /// 8x8 Grid has no column or row that is a non-zero multiple of it, so every
+    /// `sector_left_strength` and `sector_top_strength` in one is `None` and the
+    /// seams the console paints would go unexercised by a Grid that size.
+    ///
+    #[test]
+    fn sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = Orcvs::new(16, 16);
+        let mut view = SourceView::default();
+        // The Cursor goes on a Cell that would otherwise carry both seams, so
+        // the suppression is asserted against a Cell that has something to
+        // suppress.
+        let corner = orcvs.render_frame().rows()[8][8].position();
+        orcvs.select(corner);
+
+        let frame = orcvs.render_frame();
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let scale = viewport.cell_size / CELL_SIZE;
+
+        let painted: Vec<_> = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::LineSegment { points, stroke } => Some((*points, *stroke)),
+                _ => None,
+            })
+            .collect();
+
+        let mut expected = 0;
+        for cell in frame.rows().iter().flatten() {
+            let position = cell.position();
+            let rect = viewport.cell_rect(position.x(), position.y());
+            let seams = [
+                (
+                    cell.sector_left_strength(),
+                    [rect.left_top(), rect.left_bottom()],
+                ),
+                (
+                    cell.sector_top_strength(),
+                    [rect.left_top(), rect.right_top()],
+                ),
+            ];
+
+            for (strength, ends) in seams {
+                let Some(strength) = strength else { continue };
+                let found = painted.iter().find(|(points, _)| {
+                    (points[0] - ends[0]).length() < 1e-3 && (points[1] - ends[1]).length() < 1e-3
+                });
+
+                if cell.selected() {
+                    assert!(
+                        found.is_none(),
+                        "the Cursor at {position:?} was crossed by a sector seam"
+                    );
+                    continue;
+                }
+                let (_, stroke) =
+                    found.unwrap_or_else(|| panic!("Cell {position:?} painted no sector seam"));
+                assert_eq!(
+                    stroke.color,
+                    sector_line(strength),
+                    "the seam at {position:?} did not take its attenuated colour"
+                );
+                assert!(
+                    (stroke.width / scale - SECTOR_LINE_WIDTH).abs() < 1e-3,
+                    "the seam at {position:?} was {} points wide",
+                    stroke.width / scale
+                );
+                expected += 1;
+            }
+        }
+
+        assert!(
+            expected > 0,
+            "the Grid asked for no sector seams, so nothing was asserted"
+        );
+        assert_eq!(
+            painted.len(),
+            expected,
+            "the console painted sector seams the Render Frame did not ask for"
+        );
+    }
+
+    fn middle_press_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Middle,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ]
+    }
+
+    ///
+    /// A middle drag that starts on a Cell pans the Scene.
+    ///
+    /// This is what `Sense::CLICK` on the Grid rectangle buys. Within one layer
+    /// a later-registered child wins the click tie and would win the drag tie
+    /// too if it sensed drag, and the Grid is registered after the Scene's own
+    /// pan response. Sensing clicks alone is what leaves the drag to the Scene,
+    /// and the drag has to be started *over the Grid* to assert it: the
+    /// letterboxing is territory the Grid never covered.
+    ///
+    #[test]
+    fn a_middle_drag_that_starts_on_a_cell_still_pans_the_scene() {
+        let ctx = egui::Context::default();
+        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
+        // The middle of the Grid, which is a Cell rather than letterboxing.
+        let over_a_cell = viewport.cell_rect(4, 4).center();
+        assert!(
+            viewport.rect.contains(over_a_cell),
+            "the drag did not start over the Grid"
+        );
+        let fitted = view.rect;
+
+        console_frame(
+            &ctx,
+            wide,
+            middle_press_at(over_a_cell),
+            &mut orcvs,
+            &mut view,
+        );
+        console_frame(
+            &ctx,
+            wide,
+            vec![Event::PointerMoved(over_a_cell + Vec2::new(40.0, 25.0))],
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert!(
+            view.adjusted,
+            "a middle drag over a Cell did not pan the Scene"
+        );
+        assert_ne!(view.rect, fitted, "the pan did not move the view");
     }
 
     const WIDE: Vec2 = Vec2::new(400.0, 200.0);

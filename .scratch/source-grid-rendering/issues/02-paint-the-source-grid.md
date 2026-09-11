@@ -3,7 +3,11 @@
 **What to build:** Replace the per-Cell `egui::Button` field with one allocated interaction
 rectangle and painter drawing, at strict visual parity.
 
-**Blocked by:** 01 — Record the transform ownership decision as an ADR.
+**Blocked by:** None. This issue was written as blocked by 01 — Record the transform ownership
+decision as an ADR — but it lands inside `Scene` unchanged and touches no transform, so it never
+depended on that decision. The dependency is real for 03, which is where the transform moves.
+Corrected here rather than left to imply 01 was skipped: 01 is still `ready-for-agent` and
+`docs/adr/0038-the-console-owns-the-source-grid-transform.md` does not exist.
 
 **Status:** resolved
 
@@ -160,8 +164,45 @@ Cell the same allocation and lock either way.
 phases. The Cursor's phase turns on a wall-clock delay held inside `orcvs` and nothing the console
 can reach flips it, and a seam to set it would be the test-only input into shipped code `CLAUDE.md`
 forbids. What replaces it —
-`the_caret_reaches_the_paint_of_a_cell_and_never_its_geometry` — asserts the whole of what that
+`the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry` — asserts the whole of what that
 phase could have moved against the painted Render Frame: every Cell, the selected one included,
 occupies exactly the rectangle `GridViewport::cell_rect` gives its Position, and the Cursor's own
 stroke lands on that same rectangle. `cell_rect` takes a Position and nothing else, so the property
 is now structural as well as asserted.
+
+### Review pass (2026-09-11)
+
+Three independent reviews ran against `main`. What they changed:
+
+- `GridViewport::cell_at` was a bare division and claimed in its own doc comment to be the inverse
+  of `cell_rect`. It is not, in `f32`: `start + n * cell_size` and the division undoing it can
+  disagree by a Cell at a corner — `cell_size` `34.436707` at `rect.min.x` `432.0` answers column 18
+  for column 19's own corner. Today's console never reaches it, because `show_source` paints at the
+  `CELL_SIZE` constant where the division is exact for every origin, so nothing mis-selected. It is
+  pinned now rather than after `03` moves the transform into the console and starts painting at a
+  fitted Cell size. `cell_index` corrects the division against `cell_rect`'s own arithmetic; a sweep
+  of 160 million corners and centres finds no disagreement, where the bare division failed 1,366.
+- Nothing painted a sector seam in any test. Every console test used an 8x8 Grid and the default
+  Marker spacing is 8, so no Cell in the fixture carried a `sector_left_strength` or a
+  `sector_top_strength` at all and `seams` was always empty. Deleting `.chain(seams)` left all 54
+  tests green. `sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor` uses a
+  16x16 Grid, which has the column and row the spacing needs, and it catches both that deletion and
+  the removal of the selected-Cell suppression.
+- Nothing drove a middle drag, so `Sense::CLICK` — the acceptance line about the drag tie — was
+  unguarded. `a_middle_drag_that_starts_on_a_cell_still_pans_the_scene` starts the drag over a Cell
+  rather than the letterboxing, and it is the only test that fails when `Sense::CLICK` becomes
+  `Sense::click_and_drag()`.
+- `caret` is listed under `_Avoid_` for **Cursor** in `CONTEXT.md`, and this issue's own acceptance
+  list and resolution used it. The shape vector is `cursor_strokes` and the test is
+  `the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry`.
+- `the_grid_edge_and_the_letterboxing_resolve_to_no_cell_past_the_last` asserted that
+  `available.left_center()` holds no Cell, which was only true because the chosen area letterboxes
+  horizontally. Both orientations are asked now.
+
+One acceptance line is weaker than it reads. `GlyphTable::blanks` covers all nine Glyphs, but
+`RenderFrame::derive` takes its Glyph from `LanguageMap::glyph_at`, which answers a *semantic*
+classification or `None`, and `None` becomes `Glyph::Space`. No Grid produces a `Glyph::Marker` or
+`Glyph::Highlight` Cell today, so the `'+'` and `'.'` spellings the table holds cannot reach the
+paint and cannot be asserted against a Render Frame without constructing state the Source has no way
+to reach. `a_blank_cell_shows_what_its_glyph_spells` covers `blank_character` directly; the painted
+path waits for the Render Frame to classify Markers and Highlights.
