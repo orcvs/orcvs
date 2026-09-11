@@ -8,11 +8,11 @@ The two comments argue for the same expression from different directions — one
 
 This lands before `02` so that the deepening's diff is not credited with removing a line it did not have to touch.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Exactly one `source_effect` comparison remains in the guard.
-- [ ] The surviving comment carries both arguments, or the ticket records why they could not be merged.
-- [ ] No test changes. The predicate is unchanged, so the suite is the evidence.
+- [x] Exactly one `source_effect` comparison remains in the guard.
+- [x] The surviving comment carries both arguments, or the ticket records why they could not be merged.
+- [x] No test changes. The predicate is unchanged, so the suite is the evidence.
 
 ## Verification
 

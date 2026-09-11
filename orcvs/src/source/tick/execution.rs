@@ -451,15 +451,21 @@ impl<'a> Execution<'a> {
                         || replacement.is_intrinsically_active()
                             != target.is_intrinsically_active()
                         || replacement.can_emit_bang() != target.can_emit_bang()
-                        // The Portal a Function declares is read twice: once
-                        // by scheduling, which reserves the Cells it resolves
-                        // to, and once here at the Turn, which writes through
-                        // it. A replacement that moves the offset separates
-                        // the two, so the write lands at Cells no dependency
-                        // edge names — the same ADR 0036 defect the widths
-                        // below refuse, stated about direction rather than
-                        // extent. `^^` and `>>` agree on every other term, so
-                        // this is the only one that tells them apart.
+                        // ADR 0004: a Source-writing Function states where it
+                        // writes in its declaration, and `computations` reads
+                        // that declaration to reserve the destination before
+                        // any Turn. The Portal it declares is therefore read
+                        // twice: once by scheduling, which reserves the Cells
+                        // it resolves to, and once here at the Turn, which
+                        // writes through it. A replacement that moves the
+                        // offset separates the two, so the write lands at
+                        // Cells no dependency edge names — the same ADR 0036
+                        // defect the widths below refuse, stated about
+                        // direction rather than extent. `^^` and `>>` agree on
+                        // every other term, so this is the only one that tells
+                        // them apart. The whole effect is compared because
+                        // every field of it is read at the Turn: the offsets
+                        // resolve the Portal and the bundle decides how many.
                         || replacement.source_effect() != target.source_effect()
                         // ADR 0036: a schedule reserves Cells from the Function
                         // it found at each anchor, so a replacement that would
@@ -471,18 +477,7 @@ impl<'a> Execution<'a> {
                         // it. The widths it reads are its children's, settled
                         // the same way.
                         || self.lookup.would_reserve(contact.index, *replacement)
-                            != self.lookup.reserved(contact.index)
-                        // ADR 0004: a Source-writing Function states where it
-                        // writes in its declaration, and `computations` reads
-                        // that declaration to reserve the destination before
-                        // any Turn. A replacement carrying a different offset
-                        // would have the Turn write Cells the schedule reserved
-                        // for another column, which is the same fact the width
-                        // term above refuses — a reservation the admitted write
-                        // then leaves. The whole effect is compared because
-                        // every field of it is read at the Turn: the offsets
-                        // resolve the Portal and the bundle decides how many.
-                        || replacement.source_effect() != target.source_effect())
+                            != self.lookup.reserved(contact.index))
             })
         {
             self.effects.push(Effect::Diagnose(diagnose(
