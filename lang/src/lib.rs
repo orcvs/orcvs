@@ -10,7 +10,7 @@ mod tick;
 
 pub use atom::{
     Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
-    Velocity, to_atom_note, to_atom_num,
+    ReplacementChange, Velocity, to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SequenceError, SyntaxError, TypeError};
 pub use expression::{Expression, PositionedEntry, Token, Tokens};

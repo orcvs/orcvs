@@ -992,6 +992,161 @@ define_functions! {
     TimedPlay => ("!~", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
 
+/// Which fact an incoming Function changes about the Function a computation is
+/// already running, when a Function replacement is refused.
+///
+/// ADR 0032 fixes a Tick's schedule before any Function evaluates and ADR 0036
+/// reserves a result's Cells from the Function found at each anchor, so a
+/// replacement is admitted only where the incoming Function agrees with the
+/// running one on every fact those two derivations read. This type names the
+/// five so that a refusal states which one differed: one diagnostic string
+/// answered all of them before, and a byte-identical duplicate of one term
+/// stood in the guard unnoticed because no test could tell the terms apart.
+///
+/// Declaration order is the order the comparison applies, which is the order
+/// the guard has always applied. A replacement differing on several facts
+/// reports the first.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReplacementChange {
+    /// Whether the Function answers a value the surrounding Expression can
+    /// consume, rather than performing an effect.
+    ///
+    /// ADR 0028's distinction, and the one Sequence membership, the
+    /// Interpreter's nesting guard and tick planning all read. The schedule was
+    /// derived from the answer the Function found here gave, so a replacement
+    /// that changed it would leave Turns ordered from edges that no longer
+    /// describe what runs.
+    AnswerKind,
+    /// Where the Function's activation comes from: taken on its own, or
+    /// delivered by a Bang.
+    ///
+    /// The question scheduling's activation seed asks, and the term the
+    /// Self-Banging Functions added to this guard. It is not
+    /// [`ReplacementChange::AnswerKind`] — those two selected the same rows
+    /// until `^^` was declared — so admitting a replacement that changed it
+    /// would leave the schedule holding a root that now needs no Bang, or one
+    /// waiting on a Bang no edge delivers.
+    Activation,
+    /// Whether the Function can answer Bang even where its operands produce no
+    /// result.
+    ///
+    /// Scheduling reads this declaration to decide which roots can supply
+    /// activation, and orders the Functions waiting on them before deciding
+    /// whether to perform. A replacement that changed it would leave those
+    /// edges standing on a declaration that no longer holds.
+    BangEmission,
+    /// The Source write the Function declares: the displacement, the spelling
+    /// and the bundle, compared whole.
+    ///
+    /// ADR 0004 has a Source-writing Function state where it writes in its
+    /// declaration, and `computations` reads that declaration to reserve the
+    /// destination before any Turn. The Portal it declares is therefore read
+    /// twice: once by scheduling, which reserves the Cells it resolves to, and
+    /// once at the Turn, which writes through it. A replacement that moves the
+    /// offset separates the two, so the write lands at Cells no dependency edge
+    /// names — the same ADR 0036 defect [`ReplacementChange::Width`] refuses,
+    /// stated about direction rather than extent. `^^` and `>>` agree on every
+    /// other fact, so this is the only one that tells them apart. The whole
+    /// effect is compared rather than its fields because every field of it is
+    /// read at the Turn: the offsets resolve the Portal and the bundle decides
+    /// how many.
+    Write,
+    /// How wide a result the Function reserves.
+    ///
+    /// ADR 0036: a schedule reserves Cells from the Function it found at each
+    /// anchor, so a replacement that would widen or narrow that reservation is
+    /// refused with the ones that change activation or answer kind. What it is
+    /// compared against stays the settled reservation, because the Turns were
+    /// ordered from that one and this same guard is what keeps every admitted
+    /// replacement inside it.
+    ///
+    /// The one fact this crate cannot answer: a reservation is derived from the
+    /// schedule and from the widths a computation's children settled, and
+    /// `lang` holds neither. `orcvs` composes this comparison onto
+    /// [`Function::replacing`], appended last, which is where the order this
+    /// enum states is completed. No declared pair differs here in any case —
+    /// no Function answers a Sequence, so nothing derives a width wider than a
+    /// Cell pair — and the variant is stated with the other four so that one
+    /// type names all five facts and [`ReplacementChange::ALL`] is a complete
+    /// list.
+    Width,
+}
+
+impl ReplacementChange {
+    /// Every fact a Function replacement is refused for changing.
+    pub const ALL: &'static [Self] = &[
+        Self::AnswerKind,
+        Self::Activation,
+        Self::BangEmission,
+        Self::Write,
+        Self::Width,
+    ];
+}
+
+impl fmt::Display for ReplacementChange {
+    /// The fact, worded as CONTEXT.md's Function Replacement entry words it, so
+    /// that a refusal reads as the rule's own sentence continued.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::AnswerKind => "whether it answers a value",
+            Self::Activation => "where its activation comes from",
+            Self::BangEmission => "whether it can emit Bang",
+            Self::Write => "the Source write it declares",
+            Self::Width => "how wide a result it reserves",
+        })
+    }
+}
+
+/// One fact a Function declares, beside the comparison that answers whether a
+/// replacement changes it.
+///
+/// Named so that [`Function::DECLARED_CHANGES`] reads as the table it is rather
+/// than as its element type spelled out, which is also what keeps the row shape
+/// stated once for the tests that walk it.
+type DeclaredChange = (ReplacementChange, fn(Function, Function) -> bool);
+
+impl Function {
+    /// The four facts a declaration states, each beside the comparison that
+    /// answers whether a replacement changes it, in the order the guard applies
+    /// them.
+    ///
+    /// A table rather than a chain of `||` terms. A chain admits a
+    /// byte-identical duplicate as a dead arm Rust does not warn about — one
+    /// stood in the replacement guard, reached through a merge — while a table
+    /// is a value a test can count, which is what
+    /// `each_named_change_is_compared_exactly_once` does.
+    /// [`ReplacementChange::Width`] is absent because it is not a fact a
+    /// declaration states; `orcvs` appends that comparison after these.
+    const DECLARED_CHANGES: &'static [DeclaredChange] = &[
+        (ReplacementChange::AnswerKind, |replacement, running| {
+            replacement.answers_value() != running.answers_value()
+        }),
+        (ReplacementChange::Activation, |replacement, running| {
+            replacement.is_intrinsically_active() != running.is_intrinsically_active()
+        }),
+        (ReplacementChange::BangEmission, |replacement, running| {
+            replacement.can_emit_bang() != running.can_emit_bang()
+        }),
+        (ReplacementChange::Write, |replacement, running| {
+            replacement.source_effect() != running.source_effect()
+        }),
+    ];
+
+    /// Which declared fact this Function changes about `running`, the Function
+    /// a computation is running, or `None` where it changes none of them.
+    ///
+    /// The first difference under the table's order rather than every
+    /// difference: a replacement is refused once and names one fact. `None` is
+    /// not yet an admitted replacement — `orcvs` asks its own width comparison
+    /// after this one, which is the fifth fact and the last.
+    pub fn replacing(self, running: Self) -> Option<ReplacementChange> {
+        Self::DECLARED_CHANGES
+            .iter()
+            .find(|(_, differs)| differs(self, running))
+            .map(|&(change, _)| change)
+    }
+}
+
 #[inline(always)]
 pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
     match midi_note_to_number(s) {
@@ -1057,8 +1212,106 @@ impl fmt::Display for Atom {
 mod test {
     use super::{
         Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
-        Velocity, to_atom_num,
+        ReplacementChange, Velocity, to_atom_num,
     };
+
+    /// Every ordered pair of Functions, which is what a replacement is: the
+    /// incoming Function beside the one a computation is running. A Function
+    /// paired with itself is included, because that pair is the admitted
+    /// replacement every fixture that replaces `.+` with `.-` relies on.
+    fn replacement_pairs() -> impl Iterator<Item = (Function, Function)> {
+        Function::ALL.iter().copied().flat_map(|replacement| {
+            Function::ALL
+                .iter()
+                .copied()
+                .map(move |running| (replacement, running))
+        })
+    }
+
+    /// Every declared fact the pair differs on, in the table's order, which is
+    /// how a sole difference is told from a first one.
+    fn declared_differences(replacement: Function, running: Function) -> Vec<ReplacementChange> {
+        Function::DECLARED_CHANGES
+            .iter()
+            .filter(|(_, differs)| differs(replacement, running))
+            .map(|&(change, _)| change)
+            .collect()
+    }
+
+    #[test]
+    fn each_named_change_is_compared_exactly_once() {
+        // The test the duplicated term would have failed. `deliver_output`
+        // compared the declared Source write twice, byte for byte, and the
+        // suite could not see it: a chain of `||` terms has no value to count
+        // and a repeated term is not a pattern Rust warns about. A table has
+        // both, so each fact is compared once or the count says so.
+        //
+        // `Width` is expected zero times here because it is not a fact a
+        // declaration states. `orcvs` appends that one comparison to this
+        // table's answer, so across the two every variant is compared exactly
+        // once, and its absence here is the half of that this crate can hold.
+        for change in ReplacementChange::ALL.iter().copied() {
+            let compared = Function::DECLARED_CHANGES
+                .iter()
+                .filter(|(named, _)| *named == change)
+                .count();
+            assert_eq!(
+                compared,
+                usize::from(change != ReplacementChange::Width),
+                "{change:?} is compared {compared} times by the declaration table",
+            );
+        }
+    }
+
+    #[test]
+    fn every_declared_change_is_the_first_difference_for_some_pair() {
+        // What each variant is worth: a fact some pair of real Functions
+        // actually differs on first, so a diagnostic naming it can be produced
+        // rather than merely spelled.
+        for change in ReplacementChange::ALL.iter().copied() {
+            let reached = replacement_pairs()
+                .any(|(replacement, running)| replacement.replacing(running) == Some(change));
+            if change == ReplacementChange::Width {
+                // Not reachable, and not only because this crate cannot answer
+                // it. `reserved_for` answers a Row only where a Function
+                // declares a Sequence answer or widens over one, and no row in
+                // the definitions above declares `Sequence` — so no schedule
+                // derived from a declaration ever holds a width wider than a
+                // Cell pair, and no pair of Functions differs on it. The one
+                // thing that mints a Row is a width a test states, and the
+                // fixture that states one refuses to combine it with a stated
+                // Function replacement. The variant is stated so the five facts
+                // have one home, not because a pair reaches it.
+                assert!(!reached, "no declared pair differs on the reserved width");
+                continue;
+            }
+            assert!(
+                reached,
+                "no pair reports {change:?} as its first difference"
+            );
+        }
+
+        // The weaker set, recorded because the difference between the two is
+        // what made an existing test's comment wrong: only these two facts are
+        // ever the *sole* difference between a pair. A pair differing on the
+        // answer kind differs on activation or on the write as well, and a pair
+        // differing on activation differs on one of the others, so a fixture
+        // naming either of those cannot be a fixture that changes one thing.
+        let sole = ReplacementChange::ALL
+            .iter()
+            .copied()
+            .filter(|&change| {
+                replacement_pairs().any(|(replacement, running)| {
+                    declared_differences(replacement, running) == [change]
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sole,
+            vec![ReplacementChange::BangEmission, ReplacementChange::Write],
+            "the facts a pair can differ on alone are no longer the two expected",
+        );
+    }
 
     #[test]
     fn every_source_writing_function_declares_the_effect_its_spelling_names() {

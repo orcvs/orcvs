@@ -6,7 +6,9 @@
 
 pub(super) mod execution;
 
-use lang::{Anchor, Atom, Function, SourceBundle, SourceEffect, Tick, TickInputs};
+use lang::{
+    Anchor, Atom, Function, ReplacementChange, SourceBundle, SourceEffect, Tick, TickInputs,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
@@ -334,6 +336,32 @@ impl Lookup {
     /// disagrees with.
     fn would_reserve(&self, index: usize, function: Function) -> Reserved {
         reserved_for(&self.nodes, index, function)
+    }
+
+    /// Which of the five facts a Function replacement at `index` changes about
+    /// `running`, the Function that computation is running, or `None` where it
+    /// changes none of them and the replacement is admitted.
+    ///
+    /// `lang` answers the four a declaration states and this crate appends the
+    /// fifth, because a reservation is derived from the schedule ADR 0032
+    /// settled and from the widths this computation's children hold, and `lang`
+    /// has neither. Appending it rather than interleaving it is what keeps the
+    /// order the guard has always applied, so every replacement reports the
+    /// fact it reported before the facts had names.
+    ///
+    /// The width is compared against the settled reservation rather than
+    /// against a second derivation: the Turns were ordered from that one, and
+    /// this same guard is what keeps every admitted replacement inside it.
+    fn replacement_change(
+        &self,
+        index: usize,
+        replacement: Function,
+        running: Function,
+    ) -> Option<ReplacementChange> {
+        replacement.replacing(running).or_else(|| {
+            (self.would_reserve(index, replacement) != self.reserved(index))
+                .then_some(ReplacementChange::Width)
+        })
     }
 
     /// A fixed destination has relationships only if the Cells reserved for
@@ -2447,21 +2475,30 @@ mod test {
         );
         assert_eq!(&source.snapshot()[..6], ".+0204");
         assert_eq!(&source.snapshot()[32..34], "06");
-        assert!(plan.diagnostics.iter().any(|d| {
-            d.message
-                .contains("activation requirements, output kind, or result width")
-        }));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("whether it answers a value") })
+        );
     }
 
     #[test]
     fn a_replacement_that_changes_only_the_activation_source_is_refused() {
         // The term the Self-Banging Functions added to that guard. Raw Play and
-        // `^^` agree on every other column it reads — neither answers a value,
-        // neither can return Bang, and both reserve a Cell pair — and they
-        // differ in where their activation comes from. A guard still asking
-        // `answers_value` for that question would admit this replacement and
-        // leave the schedule holding edges derived from a root that now needs
-        // no Bang.
+        // `^^` differ on where their activation comes from, and that is the
+        // first difference the guard finds: neither answers a value, so the
+        // term ahead of it agrees. They differ on the Source write as well —
+        // `^^` declares one and Raw Play declares none — so this fixture
+        // changes two facts and is named for the one that is reported.
+        //
+        // No pair changes activation alone. Every Function whose activation is
+        // intrinsic either answers a value or declares a Source write, and no
+        // Bang-activated Function does either, so a fixture that changed this
+        // fact and nothing else cannot be written;
+        // `every_declared_change_is_the_first_difference_for_some_pair` in
+        // `lang` holds that. A guard still asking `answers_value` for this
+        // question would admit the replacement and leave the schedule holding
+        // edges derived from a root that now needs no Bang.
         let (plan, source) = replaced_source(
             Grid::new(16, 3),
             &[".+0000", "!>007FC4", ""],
@@ -2470,10 +2507,46 @@ mod test {
         );
 
         assert_eq!(&source.snapshot()[16..24], "!>007FC4");
-        assert!(plan.diagnostics.iter().any(|d| {
-            d.message
-                .contains("activation requirements, output kind, or result width")
-        }));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("where its activation comes from") })
+        );
+    }
+
+    #[test]
+    fn a_replacement_that_changes_only_bang_emission_is_refused() {
+        // The one fact of the five that a pair can differ on alone and that
+        // nothing asserted until now. Equality and Addition agree on every
+        // other column the guard reads — both answer a value, both are
+        // intrinsically active, neither declares a Source write, both reserve a
+        // Cell pair — and ADR 0011's Equality can answer Bang where Addition
+        // never can.
+        //
+        // Scheduling reads that declaration to decide which roots can supply
+        // activation, so admitting this replacement would leave the Turn run by
+        // a Function that can answer Bang with no activation edge built from
+        // it, and a neighbouring root waiting on a Bang the schedule never
+        // ordered.
+        let (plan, source) = replaced_source(
+            Grid::new(16, 3),
+            &[".+0000", ".+0102", ""],
+            &[(0, 16)],
+            &[(0, lang::Function::Equality)],
+        );
+
+        assert_eq!(
+            &source.snapshot()[16..22],
+            ".+0102",
+            "the refused replacement wrote no Cell, so the parsed Function stands"
+        );
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("whether it can emit Bang") }),
+            "{:?}",
+            plan.diagnostics
+        );
     }
 
     #[test]
@@ -2499,10 +2572,9 @@ mod test {
         // one Cell outside the reservation.
         assert_eq!(&source.snapshot()[16..18], "**");
         assert!(
-            plan.diagnostics.iter().any(|d| {
-                d.message
-                    .contains("activation requirements, output kind, or result width")
-            }),
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("the Source write it declares") }),
             "{:?}",
             plan.diagnostics
         );
@@ -2519,8 +2591,8 @@ mod test {
         //
         // Reading the parsed Function answered this the same way, and no
         // fixture can make the two disagree: this guard admits no replacement
-        // that changes any of the three facts it compares, so the running
-        // Function agrees with the parsed one on all three for as long as the
+        // that changes any of the five facts it compares, so the running
+        // Function agrees with the parsed one on all five for as long as the
         // guard is the only thing that changes it. That agreement is an
         // invariant about the guard itself, held nowhere and by nothing else,
         // and reading the running Function is what stops it being load-bearing.
@@ -2568,10 +2640,9 @@ mod test {
         );
 
         assert!(
-            plan.diagnostics.iter().any(|d| {
-                d.message
-                    .contains("activation requirements, output kind, or result width")
-            }),
+            plan.diagnostics
+                .iter()
+                .any(|d| { d.message.contains("whether it answers a value") }),
             "{:?}",
             plan.diagnostics
         );

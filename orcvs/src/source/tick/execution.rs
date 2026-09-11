@@ -426,7 +426,10 @@ impl<'a> Execution<'a> {
             }
         }
         if let Value::Atom(Atom::Function(replacement)) = value
-            && relationships.functions().any(|contact| {
+            && let Some(change) = relationships.functions().find_map(|contact| {
+                if !contact.at_anchor {
+                    return None;
+                }
                 // The Function this computation is running, which is the one a
                 // replacement replaces. It is the Function the Parser found
                 // until an earlier replacement in this same Tick changed it,
@@ -445,49 +448,18 @@ impl<'a> Execution<'a> {
                 // `self.lookup.nodes()[contact.index].function` passes the
                 // whole suite. The running Function is read because it is the
                 // one being replaced, not because a fixture can say so.
-                let target = self.states[contact.index].function;
-                contact.at_anchor
-                    && (replacement.answers_value() != target.answers_value()
-                        || replacement.is_intrinsically_active()
-                            != target.is_intrinsically_active()
-                        || replacement.can_emit_bang() != target.can_emit_bang()
-                        // The Portal a Function declares is read twice: once
-                        // by scheduling, which reserves the Cells it resolves
-                        // to, and once here at the Turn, which writes through
-                        // it. A replacement that moves the offset separates
-                        // the two, so the write lands at Cells no dependency
-                        // edge names — the same ADR 0036 defect the widths
-                        // below refuse, stated about direction rather than
-                        // extent. `^^` and `>>` agree on every other term, so
-                        // this is the only one that tells them apart.
-                        || replacement.source_effect() != target.source_effect()
-                        // ADR 0036: a schedule reserves Cells from the Function
-                        // it found at each anchor, so a replacement that would
-                        // widen or narrow that reservation is refused with the
-                        // ones that change activation or output kind. What it
-                        // is compared against stays the settled reservation:
-                        // the Turns were ordered from that one, and this same
-                        // guard is what keeps every admitted replacement inside
-                        // it. The widths it reads are its children's, settled
-                        // the same way.
-                        || self.lookup.would_reserve(contact.index, *replacement)
-                            != self.lookup.reserved(contact.index)
-                        // ADR 0004: a Source-writing Function states where it
-                        // writes in its declaration, and `computations` reads
-                        // that declaration to reserve the destination before
-                        // any Turn. A replacement carrying a different offset
-                        // would have the Turn write Cells the schedule reserved
-                        // for another column, which is the same fact the width
-                        // term above refuses — a reservation the admitted write
-                        // then leaves. The whole effect is compared because
-                        // every field of it is read at the Turn: the offsets
-                        // resolve the Portal and the bundle decides how many.
-                        || replacement.source_effect() != target.source_effect())
+                let running = self.states[contact.index].function;
+                self.lookup
+                    .replacement_change(contact.index, *replacement, running)
             })
         {
+            // The fact that differed, not the list of facts that could have.
+            // Each is argued on `ReplacementChange`, and the wording is
+            // CONTEXT.md's, so the diagnostic continues the glossary's own
+            // sentence about what a replacement may not change.
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
-                "Function replacement changes activation requirements, output kind, or result width",
+                format!("Function replacement changes {change}"),
             )));
             return Continue(());
         }
