@@ -22,8 +22,14 @@ pub(crate) struct GridViewport {
 }
 
 ///
-/// The Positions the console is showing, as a half-open column range and a
+/// The Positions the console draws, as a half-open column range and a
 /// half-open row range.
+///
+/// This is what the console shows *and one Cell more* in every direction the
+/// Grid has one, so it is not the set of Positions a viewer can see — see
+/// [`GridViewport::visible_positions`] for why the margin is there. A caller
+/// that needs only what is on screen has to narrow it; a caller drawing them
+/// does not.
 ///
 /// The ranges are already clamped to the Grid, so a caller slices a Render
 /// Frame's rows with them rather than bounds-checking a Position at a time.
@@ -169,13 +175,24 @@ impl GridViewport {
     ///
     /// # Why the range is one Cell wider than the clip
     ///
-    /// The margin is correctness wearing an optimisation's costume. A Cell's
-    /// left and top sector seams are drawn by the Cell *one past* them, so a
-    /// range stopping at the last visible Cell drops the trailing seams at the
-    /// right and bottom edges of the viewport; and a feathered border spills
-    /// roughly a physical pixel outside the rectangle it strokes. Drawing one
-    /// Cell further in every direction hands that surplus to the clip
-    /// rectangle, whose job it already is to discard it.
+    /// The margin is deliberate over-draw handed to the clip rectangle, whose
+    /// job it already is to discard it. A Cell draws the sector seams on its
+    /// *own* left and top edges, so the seam at a Cell's right or bottom edge
+    /// is drawn by the Cell one past it; and a feathered border spills roughly
+    /// a physical pixel outside the rectangle it strokes.
+    ///
+    /// Both of those land on the clip's boundary rather than inside it. The
+    /// seam at the last shown Cell's right edge is on screen only where the
+    /// clip's own edge falls exactly on that Cell boundary, and the feathering
+    /// is sub-pixel. So this is a margin for the boundary cases, not a rescue
+    /// of seams that would otherwise be missing from inside the viewport:
+    /// removing it changes no painted Shape strictly inside the clip in any
+    /// case the suite reaches. That is why
+    /// `a_zoomed_console_paints_every_sector_seam_inside_the_clip` asserts the
+    /// seams the clip keeps, and why the margin itself is pinned as a range
+    /// value in
+    /// `the_visible_range_is_the_shown_positions_and_one_cell_more_each_way`
+    /// rather than as a line a viewer can see.
     ///
     pub(crate) fn visible_positions(
         &self,
@@ -184,10 +201,19 @@ impl GridViewport {
         rows: usize,
     ) -> VisiblePositions {
         let visible = self.rect.intersect(clip);
-        // `Rect::intersect` answers an inverted rectangle when the two do not
-        // meet, and a corner of an inverted rectangle is outside the Grid, so
-        // `cell_at` refuses it. That is also where the degenerate viewport and
-        // the empty Grid are refused, rather than in three guards here.
+        // A clip sharing exactly one edge with the Grid shows no part of it.
+        // `Rect::intersect` answers a zero-area rectangle there, and
+        // `Rect::contains` is inclusive, so both of its corners are inside the
+        // Grid and `cell_at` would accept them — answering a range of Cells
+        // that are entirely off screen. Area is the same question `overlaps`
+        // asks of a single Cell in the tests below, asked of the whole Grid.
+        // This also covers the inverted rectangle `intersect` answers when the
+        // two do not meet at all.
+        if !visible.is_positive() {
+            return VisiblePositions::empty();
+        }
+        // The degenerate viewport and the empty Grid are refused by `cell_at`
+        // rather than by two more guards here.
         let (Some((first_column, first_row)), Some((last_column, last_row))) = (
             self.cell_at(visible.min, columns, rows),
             self.cell_at(visible.max, columns, rows),
@@ -543,11 +569,14 @@ mod tests {
     /// The visible range is every Position the clip shows, and one more in
     /// every direction the Grid has one.
     ///
-    /// The margin is the acceptance criterion rather than a tolerance. A
-    /// Cell's left and top sector seams are drawn by the Cell one past them, so
-    /// a range stopping at the last shown Cell drops the trailing seams at the
-    /// right and bottom edges of the viewport; the clip rectangle is what
-    /// discards the surplus the margin adds.
+    /// The margin is the acceptance criterion rather than a tolerance, and a
+    /// range value is the only place it can be held. A Cell draws its own left
+    /// and top seams, so the seam at a Cell's right or bottom edge belongs to
+    /// the Cell one past it — but that seam is on screen only where the clip's
+    /// edge falls exactly on the boundary, and the clip discards the rest of
+    /// what the margin adds. See `GridViewport::visible_positions`: the margin
+    /// reaches no painted Shape strictly inside the clip, so no assertion about
+    /// what was painted can pin it.
     ///
     #[test]
     fn the_visible_range_is_the_shown_positions_and_one_cell_more_each_way() {
@@ -646,6 +675,46 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    ///
+    /// A clip that only touches the Grid shows no part of it, so it ranges
+    /// over nothing.
+    ///
+    /// `Rect::intersect` answers a zero-area rectangle where two rectangles
+    /// share an edge, and `Rect::contains` is inclusive, so both corners of
+    /// that rectangle are inside the Grid and `cell_at` accepts them. A shared
+    /// edge shows nothing, which is what the `overlaps` helper above says of a
+    /// Cell and what this says of the whole Grid.
+    ///
+    #[test]
+    fn a_clip_that_only_touches_the_grid_ranges_over_nothing() {
+        let viewport = grid_viewport(area(800.0, 800.0), GRID, GRID);
+        let rect = viewport.rect;
+
+        // Just past each edge in turn, sharing exactly that edge with the Grid.
+        for clip in [
+            Rect::from_min_max(
+                Pos2::new(rect.max.x, rect.min.y),
+                Pos2::new(rect.max.x + 100.0, rect.max.y),
+            ),
+            Rect::from_min_max(
+                Pos2::new(rect.min.x - 100.0, rect.min.y),
+                Pos2::new(rect.min.x, rect.max.y),
+            ),
+            Rect::from_min_max(
+                Pos2::new(rect.min.x, rect.max.y),
+                Pos2::new(rect.max.x, rect.max.y + 100.0),
+            ),
+            Rect::from_min_max(
+                Pos2::new(rect.min.x, rect.min.y - 100.0),
+                Pos2::new(rect.max.x, rect.min.y),
+            ),
+        ] {
+            let visible = viewport.visible_positions(clip, GRID, GRID);
+
+            assert_eq!(visible.count(), 0, "{clip:?} reached {visible:?}");
+        }
     }
 
     #[test]

@@ -20,6 +20,12 @@ is not. **This turned out not to be a cost.** Measured beside the frame it feeds
 because the code reads alarming, and struck from the list because the measurement says so. Do not
 open an issue against it.
 
+Those figures come from a local benchmark run, which `.scratch/benchmarks/spec.md` and issue 01 agree
+decides nothing on its own — the comparison lives in the action. They are cited here for the one
+thing a local run does settle: a ratio between two groups measured in the same pass, three orders of
+magnitude apart, which no plausible machine-to-machine variation closes. They are not a number a
+later issue should claim to have beaten, and the same caveat covers the per-Cell figure below.
+
 `cursor_bloom` (`orcvs/src/render_frame.rs:119-134`) pays its Chebyshev distance, `signal_breakup`
 and `cell_hash` for **every** Cell, not only those inside the bloom radius.
 `classify_cursor_bloom` (`:174-189`) returns `None` for distant Cells, but only after the arithmetic
