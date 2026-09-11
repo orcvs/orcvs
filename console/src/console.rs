@@ -440,6 +440,40 @@ fn blank_character(glyph: Glyph) -> char {
 }
 
 ///
+/// What each Cell of a Render Frame shows: its own content, or the character
+/// its Glyph spells when it holds none.
+///
+/// This is the whole of deciding what a Cell says, and it needs no
+/// `egui::Context`. Only drawing that character does — [`GlyphTable`] holds the
+/// galleys and nothing else — so a step that has to answer what a Cell says,
+/// rather than paint it, builds one of these and never touches the font atlas.
+///
+/// The nine blank spellings are read once, because reading one is a
+/// `GlyphString` and a `String` per call and a Grid has a thousand Cells; the
+/// table is an array of nine `char`s indexed by [`blank_glyph_index`], so
+/// building it is far cheaper than the per-Cell reads it saves.
+///
+struct CellCharacters {
+    /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
+    blanks: [char; BLANK_GLYPHS.len()],
+}
+
+impl CellCharacters {
+    /// Reads what an empty Cell of each [`Glyph`] spells.
+    fn new() -> Self {
+        Self {
+            blanks: BLANK_GLYPHS.map(blank_character),
+        }
+    }
+
+    /// The character `cell` shows.
+    fn character(&self, cell: &RenderCell) -> char {
+        cell.content()
+            .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
+    }
+}
+
+///
 /// One laid-out Glyph per character of the alphabet, for the font and size the
 /// Source is painted at.
 ///
@@ -478,8 +512,6 @@ struct GlyphTable {
     font: FontId,
     /// The alphabet, indexed by `byte - ALPHABET_FIRST`.
     characters: Vec<Arc<Galley>>,
-    /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
-    blanks: [char; BLANK_GLYPHS.len()],
 }
 
 impl GlyphTable {
@@ -511,17 +543,7 @@ impl GlyphTable {
                 .collect()
         });
 
-        Self {
-            font,
-            characters,
-            blanks: BLANK_GLYPHS.map(blank_character),
-        }
-    }
-
-    /// The character `cell` shows.
-    fn character(&self, cell: &RenderCell) -> char {
-        cell.content()
-            .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
+        Self { font, characters }
     }
 
     /// The laid-out Glyph for `character`, or `None` for a character outside
@@ -632,6 +654,10 @@ fn show_source(
         // atlas; see `GLYPH_SCALE_STEP`.
         FontId::new(DEFAULT_FONT_SIZE * glyph_scale(scale), font_family.clone()),
     );
+    // What each Cell says, read once for the nine blank spellings and never per
+    // Cell. It is deliberately not part of the Glyph table: the table exists
+    // because galleys need a `Context`, and this needs none.
+    let characters = CellCharacters::new();
 
     // The only source of Positions this loop has. Everything below reads the
     // Cells these ranges select and nothing outside them, so the cost of a
@@ -751,7 +777,7 @@ fn show_source(
                 }
             }
 
-            let character = glyphs.character(cell);
+            let character = characters.character(cell);
             if character != ' ' {
                 let galley = match glyphs.galley(character) {
                     Some(galley) => galley.clone(),
@@ -1152,7 +1178,7 @@ mod tests {
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, DEFAULT_VIEW_SIZE,
+        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, CellCharacters, DEFAULT_VIEW_SIZE,
         GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
         SourceView, TOP_PANEL_HEIGHT, blank_glyph_index, frames_per_second, glyph_scale,
         is_presentable, show_source_scene, source_bounds, source_dimensions, source_panel_frame,
@@ -1960,6 +1986,72 @@ mod tests {
         assert_eq!(super::blank_character(Glyph::Marker), '+');
         assert_eq!(super::blank_character(Glyph::Highlight), '.');
         assert_eq!(super::blank_character(Glyph::Space), ' ');
+    }
+
+    ///
+    /// Which character a Cell shows is answered from the Render Frame alone.
+    ///
+    /// No `egui::Context` is built here, and that is the assertion: the lookup
+    /// is a reading of `GlyphString`, not a reading of the font atlas, so the
+    /// step that decides what a Cell says is reachable without the harness the
+    /// galleys need. Every Cell of the Grid is checked against `GlyphString`'s
+    /// own answer, the written Cells for their content and the rest for the
+    /// spelling their Glyph gives an empty Cell.
+    ///
+    #[test]
+    fn a_cell_answers_its_character_with_no_context() {
+        let mut orcvs = Orcvs::new(8, 8);
+        // An Addition, whose claim reaches past the two Cells it is spelled in
+        // and leaves the operand Cells behind it empty but classified. Those
+        // are the Cells that make the blank table answer something other than
+        // the space.
+        let written = ".+";
+        for (x, character) in written.chars().enumerate() {
+            let position = orcvs.render_frame().rows()[2][x].position();
+            orcvs.select(position);
+            orcvs.write(&character.to_string());
+        }
+
+        let characters = CellCharacters::new();
+        let frame = orcvs.render_frame();
+        let mut content = String::new();
+        let mut blanks = std::collections::BTreeSet::new();
+
+        for cell in frame.rows().iter().flatten() {
+            let spelled = orcvs::glyph::GlyphString::new(
+                cell.content().map(|content| content.to_string()),
+                cell.glyph(),
+            )
+            .to_string();
+
+            assert_eq!(
+                characters.character(cell).to_string(),
+                spelled,
+                "the Cell at {:?} shows something its GlyphString does not spell",
+                cell.position()
+            );
+
+            match cell.content() {
+                Some(character) => content.push(character),
+                None => {
+                    blanks.insert(characters.character(cell));
+                }
+            }
+        }
+
+        assert_eq!(content, written, "the written Cells kept their content");
+        // A Grid whose blank Cells all spell the space would pass the loop
+        // above while telling nothing apart, so the Addition's unfilled operand
+        // slots have to be in it: `h` is what an empty Cell a signature says a
+        // Number belongs in shows.
+        assert!(
+            blanks.contains(&'h'),
+            "no unfilled operand slot reached the blank table, so it went untested: {blanks:?}"
+        );
+        assert!(
+            blanks.contains(&' '),
+            "no empty Cell reached the blank table, so it went untested: {blanks:?}"
+        );
     }
 
     ///
