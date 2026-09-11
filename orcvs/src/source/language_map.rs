@@ -198,11 +198,11 @@ impl LanguageMap {
         );
         let id = LanguageMapId::new();
         let rows = bytes
-            .chunks_exact(grid.cols())
+            .chunks_exact(grid.columns())
             .enumerate()
             .map(|(row, bytes)| {
                 if dirty.contains(&row) {
-                    DerivedRow::derive(id, grid, row * grid.cols(), bytes)
+                    DerivedRow::derive(id, grid, row * grid.columns(), bytes)
                 } else {
                     previous.rows[row].for_revision(id)
                 }
@@ -219,9 +219,9 @@ impl LanguageMap {
         );
         let id = LanguageMapId::new();
         let rows = bytes
-            .chunks_exact(grid.cols())
+            .chunks_exact(grid.columns())
             .enumerate()
-            .map(|(row, bytes)| DerivedRow::derive(id, grid, row * grid.cols(), bytes))
+            .map(|(row, bytes)| DerivedRow::derive(id, grid, row * grid.columns(), bytes))
             .collect();
         Self { id, grid, rows }
     }
@@ -280,9 +280,9 @@ impl LanguageMap {
     /// that Cell a language classification.
     pub fn glyph_at(&self, position: Position) -> Option<Glyph> {
         let index = self.grid.index(position).get();
-        self.rows[index / self.grid.cols()]
+        self.rows[index / self.grid.columns()]
             .glyphs
-            .get(index % self.grid.cols())
+            .get(index % self.grid.columns())
             .copied()
             .flatten()
     }
@@ -302,7 +302,7 @@ impl LanguageMap {
             self.id == expression.map_id,
             "ExpressionEntry belongs to another LanguageMap"
         );
-        let row = expression.span.start().get() / self.grid.cols();
+        let row = expression.span.start().get() / self.grid.columns();
         &self.rows[row].units[expression.units.clone()]
     }
 }
@@ -1117,7 +1117,7 @@ mod tests {
         );
         assert!(
             bang_grid
-                .rows()
+                .positions_by_row()
                 .flatten()
                 .take(4)
                 .all(|position| bangs.glyph_at(position) == Some(Glyph::Bang))
@@ -1651,7 +1651,7 @@ mod property {
                 }
             }
 
-            for (position, byte) in grid.rows().flatten().zip(bytes.iter().copied()) {
+            for (position, byte) in grid.positions_by_row().flatten().zip(bytes.iter().copied()) {
                 if byte != SPACE_BYTE {
                     prop_assert!(
                         map.glyph_at(position).is_some(),
