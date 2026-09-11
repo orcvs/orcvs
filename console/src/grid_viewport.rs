@@ -6,7 +6,7 @@
 //! here, apart from the rendering, so the wide, tall and square cases are
 //! settled by arithmetic a test can ask about without a window.
 
-use egui::{Rect, Vec2};
+use egui::{Pos2, Rect, Vec2};
 
 ///
 /// The Grid viewport the console presents inside an available area.
@@ -48,6 +48,77 @@ impl GridViewport {
             return source;
         }
         Rect::from_center_size(source.center(), available.size() / scale)
+    }
+
+    ///
+    /// The rectangle the Cell at `column` and `row` occupies.
+    ///
+    /// A Cell's rectangle is a function of its Position and nothing else. The
+    /// Cursor, the selection and the blink phase reach the paint a Cell is
+    /// filled and stroked with; none of them reaches the geometry it is painted
+    /// at.
+    ///
+    pub(crate) fn cell_rect(&self, column: usize, row: usize) -> Rect {
+        Rect::from_min_size(
+            self.rect.min + Vec2::new(column as f32, row as f32) * self.cell_size,
+            Vec2::splat(self.cell_size),
+        )
+    }
+
+    ///
+    /// The Cell `point` falls in, as a column and a row, or `None` when the
+    /// point is outside the presented Grid.
+    ///
+    /// This is the whole of what a click has to answer, and it is arithmetic
+    /// rather than a search: no Cell is hit-tested. `columns` and `rows` bound
+    /// the answer, because a point on the Grid's far edge divides to one past
+    /// the last Cell. It is the inverse of [`Self::cell_rect`] — see
+    /// [`Self::cell_index`] for what that costs in `f32` — so a click cannot
+    /// resolve to a Cell other than the one drawn under it.
+    ///
+    pub(crate) fn cell_at(
+        &self,
+        point: Pos2,
+        columns: usize,
+        rows: usize,
+    ) -> Option<(usize, usize)> {
+        if columns == 0 || rows == 0 || !(self.cell_size.is_finite() && self.cell_size > 0.0) {
+            return None;
+        }
+        if !self.rect.contains(point) {
+            return None;
+        }
+        Some((
+            self.cell_index(point.x, self.rect.min.x, columns),
+            self.cell_index(point.y, self.rect.min.y, rows),
+        ))
+    }
+
+    ///
+    /// Which of `extent` Cells along one axis `coordinate` falls in, counting
+    /// from `start`.
+    ///
+    /// The division is the answer wherever the arithmetic is exact, and the
+    /// clamp is for the far edge, which divides to one past the last Cell. The
+    /// correction is for everywhere else: `start + n * cell_size` is the corner
+    /// [`Self::cell_rect`] mints, and neither that multiply-add nor the division
+    /// undoing it is exact in `f32`, so a corner can land a fraction either side
+    /// of the boundary the division assumes. Correcting against `cell_rect`'s
+    /// own arithmetic rather than trusting the division is what makes this the
+    /// inverse it claims to be: the error is at most one Cell, so one step
+    /// either way settles it.
+    ///
+    fn cell_index(&self, coordinate: f32, start: f32, extent: usize) -> usize {
+        let index = ((coordinate - start) / self.cell_size) as usize;
+        let index = index.min(extent - 1);
+
+        if index > 0 && coordinate < start + index as f32 * self.cell_size {
+            index - 1
+        } else if index + 1 < extent && coordinate >= start + (index + 1) as f32 * self.cell_size {
+            index + 1
+        } else {
+            index
+        }
     }
 }
 
@@ -180,6 +251,151 @@ mod tests {
                 assert!(filled, "the viewport {viewport:?} wasted both axes");
             }
         }
+    }
+
+    ///
+    /// A Cell's own corner answers that Cell for any Cell size, not only for
+    /// the sizes whose arithmetic happens to come out exact.
+    ///
+    /// `cell_rect` reaches a corner by `rect.min + n * cell_size` and `cell_at`
+    /// returns from it by `(point - rect.min) / cell_size`. Neither step is
+    /// exact in `f32`, so a corner can land a fraction below the boundary that
+    /// produced it and truncate into the Cell before it. The pair below is such
+    /// a case, found by sweeping the two together: `rect.min.x` of `432.0` with
+    /// a Cell size of `34.436707` puts the corner of column 19 just under its
+    /// own boundary.
+    ///
+    /// Today's console never reaches it — `show_source` paints at the
+    /// `CELL_SIZE` constant, where the division is exact for every origin — so
+    /// this pins the inverse before `source-grid-rendering/03` moves the
+    /// transform into the console and starts painting at a fitted Cell size.
+    ///
+    #[test]
+    fn a_cell_corner_answers_its_own_cell_whatever_the_cell_measures() {
+        let viewport = GridViewport {
+            cell_size: 34.436707,
+            rect: Rect::from_min_size(Pos2::new(432.0, 432.0), Vec2::splat(34.436707 * 32.0)),
+        };
+
+        for row in 0..GRID {
+            for column in 0..GRID {
+                let corner = viewport.cell_rect(column, row).min;
+
+                assert_eq!(
+                    viewport.cell_at(corner, GRID, GRID),
+                    Some((column, row)),
+                    "the corner of Cell ({column}, {row}) answered another Cell"
+                );
+            }
+        }
+
+        // The one pair above is the case that was found; the sweep is what says
+        // the inverse holds rather than that this pair was patched. Cell
+        // centres are swept alongside corners, because a correction that
+        // reached past the boundary would move them too.
+        for step in 0..200 {
+            let cell_size = 0.75 + step as f32 * 0.31719;
+            let viewport = GridViewport {
+                cell_size,
+                rect: Rect::from_min_size(
+                    Pos2::new(311.0 + step as f32 * 7.13, 47.0 + step as f32 * 3.7),
+                    Vec2::splat(cell_size * GRID as f32),
+                ),
+            };
+
+            for row in 0..GRID {
+                for column in 0..GRID {
+                    let rect = viewport.cell_rect(column, row);
+
+                    assert_eq!(
+                        viewport.cell_at(rect.min, GRID, GRID),
+                        Some((column, row)),
+                        "the corner of Cell ({column}, {row}) at a Cell size of {cell_size}"
+                    );
+                    assert_eq!(
+                        viewport.cell_at(rect.center(), GRID, GRID),
+                        Some((column, row)),
+                        "the centre of Cell ({column}, {row}) at a Cell size of {cell_size}"
+                    );
+                }
+            }
+        }
+    }
+
+    ///
+    /// Painting and clicking go through one arithmetic, so the Cell a click
+    /// answers is the Cell drawn under the pointer rather than a second
+    /// derivation that could drift from it.
+    ///
+    #[test]
+    fn a_point_in_a_cell_answers_the_cell_that_was_painted_there() {
+        let viewport = grid_viewport(area(1200.0, 700.0), 10, 4);
+
+        for row in 0..4 {
+            for column in 0..10 {
+                let rect = viewport.cell_rect(column, row);
+
+                assert_eq!(viewport.cell_at(rect.center(), 10, 4), Some((column, row)));
+                assert_eq!(viewport.cell_at(rect.min, 10, 4), Some((column, row)));
+                assert_close(rect.width(), viewport.cell_size, "Cell width");
+                assert_close(rect.height(), viewport.cell_size, "Cell height");
+            }
+        }
+    }
+
+    ///
+    /// The Grid's far corner belongs to the last Cell rather than to a Cell one
+    /// past it, and everything outside the Grid belongs to no Cell at all —
+    /// which is what leaves the letterboxing to the Scene.
+    ///
+    #[test]
+    fn the_grid_edge_and_the_letterboxing_resolve_to_no_cell_past_the_last() {
+        let available = area(1200.0, 700.0);
+        let viewport = grid_viewport(available, GRID, GRID);
+
+        assert_eq!(
+            viewport.cell_at(viewport.rect.max, GRID, GRID),
+            Some((GRID - 1, GRID - 1))
+        );
+        assert_eq!(
+            viewport.cell_at(viewport.rect.min, GRID, GRID),
+            Some((0, 0))
+        );
+        assert_eq!(
+            viewport.cell_at(available.left_center(), GRID, GRID),
+            None,
+            "a point in the letterboxing answered a Cell"
+        );
+        assert_eq!(viewport.cell_at(Pos2::new(f32::NAN, 0.0), GRID, GRID), None);
+
+        // The wide console above letterboxes left and right, so `left_center`
+        // is the surplus and `top_center` is inside the Grid. A tall console
+        // swaps the two, and the assertion is only about letterboxing if both
+        // orientations are asked.
+        let tall = area(700.0, 1200.0);
+        let viewport = grid_viewport(tall, GRID, GRID);
+
+        assert_eq!(
+            viewport.cell_at(tall.center_top(), GRID, GRID),
+            None,
+            "a point in the letterboxing above a tall Grid answered a Cell"
+        );
+        assert_eq!(
+            viewport.cell_at(tall.left_center(), GRID, GRID),
+            Some((0, GRID / 2)),
+            "a tall console letterboxes above and below, not left and right"
+        );
+    }
+
+    #[test]
+    fn a_viewport_with_no_area_answers_no_cell() {
+        let viewport = grid_viewport(Rect::ZERO, GRID, GRID);
+
+        assert_eq!(viewport.cell_at(Pos2::ZERO, GRID, GRID), None);
+        assert_eq!(
+            grid_viewport(area(100.0, 100.0), GRID, GRID).cell_at(Pos2::new(10.0, 20.0), 0, 0),
+            None
+        );
     }
 
     #[test]

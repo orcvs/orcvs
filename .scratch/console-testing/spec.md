@@ -4,7 +4,7 @@
 
 ## Why
 
-`console` has twenty real tests and not one of them constructs an `egui::Context`. Everything from `Console::update` down is unexercised: the Scene, the Cell button grid, the Cursor overlay, the menu bar, the MIDI and Tempo menus.
+`console` has twenty real tests and not one of them constructs an `egui::Context`. Everything from `Console::update` down is unexercised: the Scene, the Source Grid, the Cursor overlay, the menu bar, the MIDI and Tempo menus.
 
 The input path is the sharpest case. `translate_event` is tested in isolation and `Orcvs::event_handler` is tested in isolation, and nothing asserts that the two halves meet. A change that dropped every translated event on the floor would pass the full gate.
 
@@ -16,7 +16,7 @@ Image comparison is out of scope, and this is a decision rather than an omission
 
 Test the seam, not the derivation. `orcvs/src/render_frame.rs` already covers which Glyph each Cell receives, the sector seam strengths, the Cursor bloom bands, and the determinism of the hashed edge breakup. `cell_visuals` and `sector_line` already cover the mapping from Glyph and state to colour. None of that is repeated here.
 
-Assert on state, not on labels. The Source Grid is a field of `egui::Button`s whose labels are single characters and mostly blank, so AccessKit queries cannot address them unambiguously. The harness earns its place by driving the real `eframe::App` end to end; the assertions are made against `Console` and the Render Frame afterwards. Label queries are used only for the menus, which carry distinct labels.
+Assert on state, not on labels. The Source Grid is one interaction rectangle that paints every Cell through `ui.painter()`, so no Cell is a widget and AccessKit has nothing to address a Cell by. `source-grid-rendering/02` made this so; before it the Grid was a field of `egui::Button`s whose labels were single characters and mostly blank, which AccessKit could not address unambiguously either. The harness earns its place by driving the real `eframe::App` end to end; the assertions are made against `Console` and the Render Frame afterwards. Label queries are used only for the menus, which carry distinct labels.
 
 Values, not adjectives. A palette test names hex.
 
