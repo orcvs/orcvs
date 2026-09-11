@@ -1,4 +1,9 @@
-use egui::{Event, EventFilter, FontId, Key, Pos2, Rect, Stroke, Vec2};
+use std::sync::Arc;
+
+use egui::{
+    Color32, CornerRadius, Event, EventFilter, FontId, Key, Pos2, Rect, Sense, Shape, Stroke,
+    StrokeKind, Vec2, epaint::RectShape, text::Galley,
+};
 
 use crate::grid_viewport::{GridViewport, grid_viewport};
 use crate::midi::MidiDeviceSelection;
@@ -6,15 +11,14 @@ use crate::persistence::starting_source;
 use crate::style::{PALETTE, cell_visuals, sector_line, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
-    glyph::GlyphString,
+    glyph::{Glyph, GlyphString},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT},
     native_midi::{self, NativeMidiBackend},
     opts::{Bpm, DEFAULT_FONT_SIZE},
-    render_frame::RenderFrame,
+    render_frame::{RenderCell, RenderFrame},
 };
 
 const CELL_SIZE: f32 = 25.0;
-const CELL_PADDING: f32 = 0.5;
 const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
@@ -284,60 +288,320 @@ fn show_diagnostics(
         });
 }
 
+///
+/// The alphabet the Glyph table covers: the printable ASCII a Source Cell can
+/// show, less the space.
+///
+/// `orcvs::source::CellContent` accepts exactly `0x20..=0x7e`, and every
+/// spelling `GlyphString` prints for an empty Cell is inside that range, so no
+/// Cell of a Source can ask for a character outside it. The space is the one
+/// printable character deliberately left out: a Cell showing one paints no
+/// Glyph at all, and a Shape and a galley clone spent showing nothing is the
+/// cost this drawing exists to stop paying.
+///
+const ALPHABET_FIRST: u8 = b'!';
+const ALPHABET_LAST: u8 = b'~';
+
+///
+/// Every [`Glyph`] a Render Frame can carry, in the order
+/// [`blank_glyph_index`] gives them.
+///
+const BLANK_GLYPHS: [Glyph; 9] = [
+    Glyph::Bang,
+    Glyph::Char,
+    Glyph::Comment,
+    Glyph::Function,
+    Glyph::Highlight,
+    Glyph::Marker,
+    Glyph::Note,
+    Glyph::Number,
+    Glyph::Space,
+];
+
+///
+/// Where `glyph` sits in [`BLANK_GLYPHS`].
+///
+/// The match is exhaustive, so a `Glyph` added to the vocabulary fails to build
+/// here rather than quietly painting the wrong character.
+///
+fn blank_glyph_index(glyph: Glyph) -> usize {
+    match glyph {
+        Glyph::Bang => 0,
+        Glyph::Char => 1,
+        Glyph::Comment => 2,
+        Glyph::Function => 3,
+        Glyph::Highlight => 4,
+        Glyph::Marker => 5,
+        Glyph::Note => 6,
+        Glyph::Number => 7,
+        Glyph::Space => 8,
+    }
+}
+
+///
+/// What an empty Cell of `glyph` shows.
+///
+/// `GlyphString` is where an empty Cell's spelling is decided, so the console
+/// reads it rather than restating it — once per Render Frame for the nine
+/// Glyphs, never once per Cell.
+///
+fn blank_character(glyph: Glyph) -> char {
+    let spelling = GlyphString::new(None, glyph).to_string();
+    debug_assert_eq!(
+        spelling.chars().count(),
+        1,
+        "an empty Cell shows exactly one character"
+    );
+
+    spelling.chars().next().unwrap_or(' ')
+}
+
+///
+/// One laid-out Glyph per character of the alphabet, for the font and size the
+/// Source is painted at.
+///
+/// The table has one owner and one construction site — [`show_source`] — so
+/// nothing lays the alphabet out at a second size and thrashes it.
+///
+/// # Scratch for exactly one Render Frame
+///
+/// Retaining this table across Render Frames is unsound, not merely wasteful,
+/// and that is why it is rebuilt every frame rather than memoised.
+///
+/// A galley's `RowVisuals::mesh` holds *texel* coordinates into the live font
+/// atlas, normalised against that atlas's size at tessellation
+/// (`epaint-0.36.1/src/text/text_layout_types.rs`, `tessellator.rs`), and
+/// `Fonts::begin_pass` (`epaint-0.36.1/src/text/fonts.rs`) replaces the whole
+/// `FontsImpl` — a fresh atlas with empty glyph caches — whenever the text
+/// options change or the atlas passes its fill ratio. A galley held across that
+/// recreate indexes unrelated texels and paints a *different character*. Atlas
+/// *growth* is safe, because it only extends the image height and every texel
+/// keeps its coordinates; *recreation* is what corrupts, and `font_image_size()`
+/// cannot tell the two apart.
+///
+/// epaint's own `GalleyCache` is the memo, and it is the only cache in the
+/// stack that `begin_pass` invalidates alongside the atlas. An
+/// `egui::cache::FrameCache` or a `ctx.data()` entry evicts on last-frame use
+/// and knows nothing about fonts, so either would carry exactly that
+/// corruption. Do not "optimise" this into one.
+///
+/// Rebuilding costs one `Context` write lock for the whole table instead of one
+/// per Cell, and one `String` per character of the alphabet instead of one per
+/// Cell. Those are the wins; retaining the table is needed for none of them.
+///
+struct GlyphTable {
+    /// The font the alphabet was laid out at, for the one character the table
+    /// cannot cover.
+    font: FontId,
+    /// The alphabet, indexed by `byte - ALPHABET_FIRST`.
+    characters: Vec<Arc<Galley>>,
+    /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
+    blanks: [char; BLANK_GLYPHS.len()],
+}
+
+impl GlyphTable {
+    ///
+    /// Lays the alphabet out for this Render Frame, inside a single
+    /// `ctx.fonts_mut` closure.
+    ///
+    /// One galley per character, never one per row: egui 0.36 shapes through
+    /// harfrust with `liga` and `calt` enabled and does not apply
+    /// `extra_letter_spacing` within a shaping cluster, so a row laid out as one
+    /// galley would let a ligature consume two Cells and shift the rest of the
+    /// row. MonaspaceNeon has ligatures and Orcvs Source is full of the pairs
+    /// that trigger them.
+    ///
+    fn lay_out(ctx: &egui::Context, font: FontId) -> Self {
+        let characters = ctx.fonts_mut(|fonts| {
+            (ALPHABET_FIRST..=ALPHABET_LAST)
+                .map(|byte| {
+                    // Laid out with `Color32::PLACEHOLDER`, so one galley serves
+                    // every Cell whatever colour that Cell's Glyph is painted
+                    // in: the tessellator substitutes the fallback colour for
+                    // placeholder vertices alone.
+                    fonts.layout_delayed_color(
+                        char::from(byte).to_string(),
+                        font.clone(),
+                        f32::INFINITY,
+                    )
+                })
+                .collect()
+        });
+
+        Self {
+            font,
+            characters,
+            blanks: BLANK_GLYPHS.map(blank_character),
+        }
+    }
+
+    /// The character `cell` shows.
+    fn character(&self, cell: &RenderCell) -> char {
+        cell.content()
+            .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
+    }
+
+    /// The laid-out Glyph for `character`, or `None` for a character outside
+    /// the alphabet — the space included.
+    fn galley(&self, character: char) -> Option<&Arc<Galley>> {
+        let byte = u8::try_from(character).ok()?;
+        self.characters
+            .get(usize::from(byte.checked_sub(ALPHABET_FIRST)?))
+    }
+}
+
+///
+/// Draws the Source Grid and answers the one question a click asks of it.
+///
+/// The whole Grid is one allocated rectangle and every Cell is painted, so no
+/// Cell is a widget and the cost of a Render Frame is shapes rather than
+/// interaction rects and widget ids.
+///
 fn show_source(
     ui: &mut egui::Ui,
     orcvs: &mut Orcvs,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
 ) {
-    ui.spacing_mut().item_spacing = Vec2::ZERO;
-    ui.spacing_mut().button_padding = Vec2::splat(CELL_PADDING);
-    ui.spacing_mut().interact_size = Vec2::ZERO;
+    let (columns, rows) = source_dimensions(frame);
+    // One rectangle for the whole Grid, sensing clicks and nothing else.
+    //
+    // Within a layer a later-registered child wins the click tie, and would win
+    // the drag too if it sensed drag. The Scene's pan response is registered
+    // before any content, so sensing clicks alone takes the clicks and leaves
+    // the middle-drag pan to the Scene. `Sense::CLICK` rather than
+    // `Sense::click()`, which is `CLICK | FOCUSABLE` and would put the Grid in
+    // the tab order where a thousand Buttons never were.
+    //
+    // The rectangle is the Grid, not the console area. The letterboxing is the
+    // only territory where the Scene's own `double_clicked()` still fires, and
+    // that double click is what hands a pinned view back to the fit.
+    let (grid_rect, response) = ui.allocate_exact_size(
+        Vec2::new(columns as f32, rows as f32) * CELL_SIZE,
+        Sense::CLICK,
+    );
+    // The Grid as the Source lays it out. Painting and clicking go through this
+    // one arithmetic, so a click cannot resolve to a Cell other than the one
+    // drawn under it.
+    let grid = GridViewport {
+        cell_size: CELL_SIZE,
+        rect: grid_rect,
+    };
+    let glyphs = GlyphTable::lay_out(
+        ui.ctx(),
+        FontId::new(DEFAULT_FONT_SIZE, font_family.clone()),
+    );
+
+    let cells = columns.saturating_mul(rows);
+    let mut backgrounds = Vec::with_capacity(cells);
+    let mut painted_glyphs = Vec::with_capacity(cells);
+    let mut seams = Vec::new();
+    let mut carets = Vec::new();
+
     for row in frame.rows() {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::ZERO;
-            for cell in row {
-                let glyph = GlyphString::new(
-                    cell.content().map(|content| content.to_string()),
-                    cell.glyph(),
-                );
-                let visuals = cell_visuals(
-                    cell.glyph(),
-                    cell.cursor_bloom(),
-                    cell.selected(),
-                    cell.cursor_visible(),
-                );
-                let button_text = egui::RichText::new(glyph.to_string())
-                    .font(FontId::new(DEFAULT_FONT_SIZE, font_family.clone()))
-                    .color(visuals.foreground);
-                let line_width = cell_line_width(cell.selected(), cell.cursor_visible());
-                let button = egui::Button::new(button_text)
-                    .fill(visuals.background)
-                    .stroke(Stroke::new(line_width, visuals.border))
-                    .corner_radius(0.0)
-                    .frame(true);
+        for cell in row {
+            let position = cell.position();
+            let rect = grid.cell_rect(position.x(), position.y());
+            let visuals = cell_visuals(
+                cell.glyph(),
+                cell.cursor_bloom(),
+                cell.selected(),
+                cell.cursor_visible(),
+            );
+            let border = Stroke::new(GRID_LINE_WIDTH, visuals.border);
 
-                let response = ui.add_sized(Vec2::splat(CELL_SIZE), button);
-                if !cell.selected() {
-                    if let Some(strength) = cell.sector_left_strength() {
-                        ui.painter().line_segment(
-                            [response.rect.left_top(), response.rect.left_bottom()],
-                            Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
-                        );
-                    }
-                    if let Some(strength) = cell.sector_top_strength() {
-                        ui.painter().line_segment(
-                            [response.rect.left_top(), response.rect.right_top()],
-                            Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
-                        );
-                    }
+            backgrounds.push(Shape::Rect(RectShape::new(
+                rect,
+                CornerRadius::ZERO,
+                visuals.background,
+                // The selected Cell's border is the Cursor, and the Cursor is
+                // painted last.
+                if cell.selected() {
+                    Stroke::NONE
+                } else {
+                    border
+                },
+                StrokeKind::Inside,
+            )));
+
+            if cell.selected() {
+                carets.push(Shape::Rect(RectShape::stroke(
+                    rect,
+                    CornerRadius::ZERO,
+                    border,
+                    StrokeKind::Inside,
+                )));
+            } else {
+                // A sector seam is suppressed on a selected Cell, so the Cursor
+                // is never crossed by one.
+                if let Some(strength) = cell.sector_left_strength() {
+                    seams.push(Shape::line_segment(
+                        [rect.left_top(), rect.left_bottom()],
+                        Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
+                    ));
                 }
-
-                if response.clicked() {
-                    orcvs.select(cell.position());
+                if let Some(strength) = cell.sector_top_strength() {
+                    seams.push(Shape::line_segment(
+                        [rect.left_top(), rect.right_top()],
+                        Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
+                    ));
                 }
             }
-        });
+
+            let character = glyphs.character(cell);
+            if character != ' ' {
+                let galley = match glyphs.galley(character) {
+                    Some(galley) => galley.clone(),
+                    // A character the alphabet does not cover. A Source Cell
+                    // holds printable ASCII by construction, so this lays out
+                    // at most the odd galley for a Source that found a way to
+                    // hold something else — and it costs that one Cell the
+                    // allocation and the whole-`Context` lock the table exists
+                    // to take once. It stays a Shape in the ordered sequence
+                    // rather than a `Painter::text`, which would both allocate
+                    // and paint out of turn.
+                    None => ui.painter().layout_no_wrap(
+                        character.to_string(),
+                        glyphs.font.clone(),
+                        Color32::PLACEHOLDER,
+                    ),
+                };
+                // Centred in a Cell whose own corner is an exact multiple of
+                // the Cell size.
+                painted_glyphs.push(Shape::galley(
+                    rect.center() - galley.size() / 2.0,
+                    galley,
+                    visuals.foreground,
+                ));
+            }
+        }
+    }
+
+    // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
+    // `Context::graphics_mut`, which is a full `Context` write lock, so a
+    // per-Cell loop would take more locks than the Button field it replaces and
+    // turn this change into a regression.
+    //
+    // Every background precedes every Glyph, so a later Cell's fill can never
+    // paint over an earlier Cell's Glyph, and the Cursor comes after both, so no
+    // neighbouring Cell's fill or seam can paint over it.
+    ui.painter().extend(
+        backgrounds
+            .into_iter()
+            .chain(painted_glyphs)
+            .chain(seams)
+            .chain(carets),
+    );
+
+    // The click resolves by division through the viewport the Cells were
+    // painted at. `interact_pointer_pos` is already in the Scene's own
+    // coordinates, which is the space `grid_rect` is in.
+    if response.clicked()
+        && let Some(pointer) = response.interact_pointer_pos()
+        && let Some((column, row)) = grid.cell_at(pointer, columns, rows)
+        && let Some(cell) = frame.rows().get(row).and_then(|row| row.get(column))
+    {
+        orcvs.select(cell.position());
     }
 }
 
@@ -393,10 +657,6 @@ fn show_source_scene(
     }
 
     viewport
-}
-
-fn cell_line_width(_selected: bool, _cursor_visible: bool) -> f32 {
-    GRID_LINE_WIDTH
 }
 
 impl eframe::App for Console {
@@ -569,15 +829,17 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
+    use egui::{Event, Key, Modifiers, Pos2, Rect, Shape, Vec2};
     use orcvs::app::{InputEvent, InputKey, Orcvs};
+    use orcvs::glyph::Glyph;
 
     use crate::grid_viewport::GridViewport;
     use crate::style::PALETTE;
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
-        CELL_SIZE, DEFAULT_VIEW_SIZE, SourceView, TOP_PANEL_HEIGHT, frames_per_second, scene_zoom,
+        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, DEFAULT_VIEW_SIZE, GRID_LINE_WIDTH,
+        GlyphTable, SourceView, TOP_PANEL_HEIGHT, blank_glyph_index, frames_per_second, scene_zoom,
         show_source_scene, source_bounds, source_dimensions, translate_event,
     };
 
@@ -632,13 +894,20 @@ mod tests {
         assert_eq!(scene_zoom(Vec2::ZERO, Rect::ZERO), None);
     }
 
-    fn console_frame(
+    ///
+    /// One Render Frame, and everything it painted in paint order.
+    ///
+    /// The Scene nests its contents, so the shapes are flattened: what an
+    /// assertion is about is the order the Source Grid was painted in, not how
+    /// deeply a container wrapped it.
+    ///
+    fn console_pass(
         ctx: &egui::Context,
         screen: Rect,
         events: Vec<Event>,
         orcvs: &mut Orcvs,
         view: &mut SourceView,
-    ) -> GridViewport {
+    ) -> (GridViewport, Vec<Shape>) {
         let frame = orcvs.render_frame();
         let mut presented = None;
         let output = ctx.run_ui(
@@ -661,9 +930,37 @@ mod tests {
                     });
             },
         );
+        let mut painted = Vec::new();
+        for clipped in &output.shapes {
+            flatten(clipped.shape.clone(), &mut painted);
+        }
         output.drop_without_applying_deltas();
 
-        presented.expect("the central panel showed the Source")
+        (
+            presented.expect("the central panel showed the Source"),
+            painted,
+        )
+    }
+
+    fn flatten(shape: Shape, into: &mut Vec<Shape>) {
+        match shape {
+            Shape::Vec(shapes) => {
+                for shape in shapes {
+                    flatten(shape, into);
+                }
+            }
+            shape => into.push(shape),
+        }
+    }
+
+    fn console_frame(
+        ctx: &egui::Context,
+        screen: Rect,
+        events: Vec<Event>,
+        orcvs: &mut Orcvs,
+        view: &mut SourceView,
+    ) -> GridViewport {
+        console_pass(ctx, screen, events, orcvs, view).0
     }
 
     fn click_at(point: Pos2) -> Vec<Event> {
@@ -956,36 +1253,321 @@ mod tests {
         );
     }
 
-    #[test]
-    fn glyph_button_fits_the_fixed_cell() {
-        let ctx = egui::Context::default();
-        let key = "MonaspaceNeon";
-        let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert(
-            key.to_owned(),
-            egui::FontData::from_static(include_bytes!("../assets/MonaspaceNeon-Regular.otf"))
-                .into(),
-        );
-        fonts
-            .families
-            .entry(egui::FontFamily::Monospace)
-            .or_default()
-            .insert(0, key.to_owned());
-        ctx.set_fonts(fonts);
+    /// The rectangles the Cells were painted at, in paint order.
+    fn painted_rects(shapes: &[Shape], cell_size: f32) -> Vec<Rect> {
+        shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Rect(rect) => Some(rect.rect),
+                _ => None,
+            })
+            .filter(|rect| {
+                (rect.width() - cell_size).abs() < 1e-3 && (rect.height() - cell_size).abs() < 1e-3
+            })
+            .collect()
+    }
 
-        let mut button_size = Vec2::ZERO;
+    fn close(left: Rect, right: Rect) -> bool {
+        (left.min - right.min).length() < 1e-3 && (left.max - right.max).length() < 1e-3
+    }
+
+    ///
+    /// The caret reaches what a Cell is painted *with* and never where it is
+    /// painted.
+    ///
+    /// This is the property `caret_phase_does_not_change_cell_border_geometry`
+    /// held over `cell_line_width`, a shipped function that took the caret and
+    /// ignored it. Under the painter the property is structural —
+    /// `GridViewport::cell_rect` takes a Position and nothing else — so it is
+    /// asserted here against the geometry that actually reached the Render
+    /// Frame.
+    ///
+    /// The Cursor's own blink phase cannot be driven from a console test: it
+    /// turns on a wall-clock delay held inside `orcvs`, and a seam to set it
+    /// would be a test-only input cut into shipped code. What is asserted
+    /// instead is the whole of what that phase could have moved — every Cell,
+    /// the selected one included, occupies exactly the rectangle its Position
+    /// gives it, and the Cursor's own stroke is drawn on that same rectangle
+    /// rather than beside it or around it.
+    ///
+    #[test]
+    fn the_caret_reaches_the_paint_of_a_cell_and_never_its_geometry() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let painted = painted_rects(&shapes, viewport.cell_size);
+
+        // Every Cell, and then the Cursor's stroke on the one Cell that has it.
+        assert_eq!(
+            painted.len(),
+            8 * 8 + 1,
+            "painted {} Cell rects",
+            painted.len()
+        );
+        let mut expected = Vec::new();
+        for row in 0..8 {
+            for column in 0..8 {
+                expected.push(viewport.cell_rect(column, row));
+            }
+        }
+        for (index, rect) in expected.iter().enumerate() {
+            assert!(
+                close(painted[index], *rect),
+                "Cell {index} was painted at {:?} rather than {rect:?}",
+                painted[index]
+            );
+        }
+        // The selected Cell is (0, 0), and the Cursor's stroke lands on exactly
+        // the rectangle that Cell already occupies.
+        assert_eq!(selected_cell(&orcvs), (0, 0));
+        assert!(
+            close(painted[8 * 8], viewport.cell_rect(0, 0)),
+            "the Cursor was painted at {:?} rather than {:?}",
+            painted[8 * 8],
+            viewport.cell_rect(0, 0)
+        );
+    }
+
+    ///
+    /// A Cell's background never paints over a Glyph, whichever Cell that Glyph
+    /// belongs to. Backgrounds and Glyphs are built as two sequences and
+    /// concatenated precisely so a later Cell in the row order cannot erase an
+    /// earlier Cell's Glyph, and the Cursor comes after both.
+    ///
+    #[test]
+    fn every_background_is_painted_before_every_glyph_and_the_cursor_after_both() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+        // A Glyph in the first Cell of the Grid, so every other Cell's
+        // background is built after it and would paint over it if the shapes
+        // were emitted Cell by Cell.
+        orcvs.write("1");
+        orcvs.select(orcvs.render_frame().rows()[0][0].position());
+
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        let last_background = shapes
+            .iter()
+            .rposition(|shape| match shape {
+                Shape::Rect(rect) => rect.fill.a() > 0,
+                _ => false,
+            })
+            .expect("the Grid painted Cell backgrounds");
+        let first_glyph = shapes
+            .iter()
+            .position(|shape| matches!(shape, Shape::Text(_)))
+            .expect("the Grid painted a Glyph");
+        let cursor = shapes
+            .iter()
+            .rposition(|shape| match shape {
+                Shape::Rect(rect) => {
+                    rect.fill.a() == 0 && close(rect.rect, viewport.cell_rect(0, 0))
+                }
+                _ => false,
+            })
+            .expect("the Grid painted the Cursor");
+
+        assert!(
+            last_background < first_glyph,
+            "a background at {last_background} painted after the Glyph at {first_glyph}"
+        );
+        assert!(
+            first_glyph < cursor,
+            "the Cursor at {cursor} painted before the Glyph at {first_glyph}"
+        );
+    }
+
+    ///
+    /// The Source's Cells hold printable ASCII, so that is what the table
+    /// covers. The space is the one printable character left out, because a
+    /// Cell showing one paints no Glyph.
+    ///
+    #[test]
+    fn the_glyph_table_covers_the_printable_ascii_a_cell_can_hold() {
+        let ctx = egui::Context::default();
+        let mut table = None;
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            ui.spacing_mut().button_padding = Vec2::splat(super::CELL_PADDING);
-            let text = egui::RichText::new("+")
-                .font(egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE));
-            button_size = ui
-                .add_sized(Vec2::splat(super::CELL_SIZE), egui::Button::new(text))
-                .rect
-                .size();
+            table = Some(GlyphTable::lay_out(
+                ui.ctx(),
+                egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE),
+            ));
         });
         output.drop_without_applying_deltas();
+        let table = table.expect("the pass laid the alphabet out");
 
-        assert_eq!(button_size, Vec2::splat(super::CELL_SIZE));
+        for byte in ALPHABET_FIRST..=ALPHABET_LAST {
+            assert!(
+                table.galley(char::from(byte)).is_some(),
+                "the table does not cover {:?}",
+                char::from(byte)
+            );
+        }
+        // Outside the alphabet on both sides, and beyond ASCII altogether.
+        // Every one of these falls back to a single uncached layout for that
+        // Cell alone.
+        for character in [' ', '\n', '\u{7f}', 'é', '✦'] {
+            assert!(
+                table.galley(character).is_none(),
+                "the table claims to cover {character:?}"
+            );
+        }
+    }
+
+    ///
+    /// What an empty Cell shows is `GlyphString`'s answer, read once per Render
+    /// Frame rather than restated in the console.
+    ///
+    #[test]
+    fn a_blank_cell_shows_what_its_glyph_spells() {
+        for glyph in BLANK_GLYPHS {
+            assert_eq!(
+                BLANK_GLYPHS[blank_glyph_index(glyph)],
+                glyph,
+                "the blank table is not indexed by its own order"
+            );
+            assert_eq!(
+                super::blank_character(glyph).to_string(),
+                orcvs::glyph::GlyphString::new(None, glyph).to_string()
+            );
+        }
+        assert_eq!(super::blank_character(Glyph::Marker), '+');
+        assert_eq!(super::blank_character(Glyph::Highlight), '.');
+        assert_eq!(super::blank_character(Glyph::Space), ' ');
+    }
+
+    ///
+    /// The Cell border is the ordinary Grid line, and the caret changes its
+    /// colour rather than its width — which is what `cell_line_width` returned
+    /// a constant for.
+    ///
+    #[test]
+    fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        // The Scene scales the stroke with everything else, so the width is
+        // asserted in the Source's own points.
+        let scale = viewport.cell_size / CELL_SIZE;
+
+        for shape in &shapes {
+            let Shape::Rect(rect) = shape else { continue };
+            if (rect.rect.width() - viewport.cell_size).abs() >= 1e-3 || rect.stroke.width == 0.0 {
+                continue;
+            }
+            assert!(
+                (rect.stroke.width / scale - GRID_LINE_WIDTH).abs() < 1e-3,
+                "a Cell border was {} points wide",
+                rect.stroke.width / scale
+            );
+        }
+    }
+
+    ///
+    /// Every case `cell_visuals` distinguishes reaches the paint unchanged:
+    /// the Glyph foreground colours, the selection fill and its resting stroke,
+    /// the Grid line, and the four `CursorBloom` fill and line pairs.
+    ///
+    /// The palette took five issues to settle and this drawing is not allowed
+    /// to move it, so the assertion is against `cell_visuals` itself rather
+    /// than against a second list of colours that could drift from it.
+    ///
+    #[test]
+    fn a_painted_cell_takes_exactly_the_visuals_its_render_cell_asks_for() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+        // Source enough to colour several Cells differently from each other.
+        orcvs.select(orcvs.render_frame().rows()[3][1].position());
+        for character in ["C", "4", "#", "a"] {
+            orcvs.write(character);
+        }
+
+        let frame = orcvs.render_frame();
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        let backgrounds: Vec<_> = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Rect(rect)
+                    if (rect.rect.width() - viewport.cell_size).abs() < 1e-3
+                        && rect.fill.a() > 0 =>
+                {
+                    Some(rect)
+                }
+                _ => None,
+            })
+            .collect();
+        let strokes: Vec<_> = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Rect(rect)
+                    if (rect.rect.width() - viewport.cell_size).abs() < 1e-3
+                        && rect.stroke.width > 0.0 =>
+                {
+                    Some((rect.rect, rect.stroke.color))
+                }
+                _ => None,
+            })
+            .collect();
+        let glyphs: Vec<_> = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Text(text) => Some(text.fallback_color),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            backgrounds.len(),
+            8 * 8,
+            "the painted backgrounds do not line up with the Grid's Cells"
+        );
+        let mut painted_glyphs = 0;
+        let mut bloomed = 0;
+        for (index, cell) in frame.rows().iter().flatten().enumerate() {
+            let expected = crate::style::cell_visuals(
+                cell.glyph(),
+                cell.cursor_bloom(),
+                cell.selected(),
+                cell.cursor_visible(),
+            );
+            let position = cell.position();
+            let rect = viewport.cell_rect(position.x(), position.y());
+            bloomed += usize::from(cell.cursor_bloom().is_some());
+
+            assert_eq!(
+                backgrounds[index].fill, expected.background,
+                "Cell {position:?} was filled wrongly"
+            );
+            let stroke = strokes
+                .iter()
+                .find(|(painted, _)| close(*painted, rect))
+                .unwrap_or_else(|| panic!("Cell {position:?} was never stroked"));
+            assert_eq!(
+                stroke.1, expected.border,
+                "Cell {position:?} bordered wrongly"
+            );
+
+            if let Some(content) = cell.content() {
+                assert_eq!(
+                    glyphs[painted_glyphs], expected.foreground,
+                    "the Glyph {content:?} at {position:?} was painted wrongly"
+                );
+                painted_glyphs += 1;
+            }
+        }
+        assert_eq!(painted_glyphs, 4, "the written Source was not painted");
+        assert_eq!(glyphs.len(), painted_glyphs, "a blank Cell painted a Glyph");
+        assert!(bloomed > 0, "no Cell took a CursorBloom");
     }
 
     const WIDE: Vec2 = Vec2::new(400.0, 200.0);
@@ -1053,13 +1635,6 @@ mod tests {
 
         console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(view.rect, fitted, "the view did not return to the fit");
-    }
-
-    #[test]
-    fn caret_phase_does_not_change_cell_border_geometry() {
-        assert_eq!(super::cell_line_width(false, false), super::GRID_LINE_WIDTH);
-        assert_eq!(super::cell_line_width(true, false), super::GRID_LINE_WIDTH);
-        assert_eq!(super::cell_line_width(true, true), super::GRID_LINE_WIDTH);
     }
 }
 

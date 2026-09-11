@@ -6,7 +6,7 @@
 //! here, apart from the rendering, so the wide, tall and square cases are
 //! settled by arithmetic a test can ask about without a window.
 
-use egui::{Rect, Vec2};
+use egui::{Pos2, Rect, Vec2};
 
 ///
 /// The Grid viewport the console presents inside an available area.
@@ -48,6 +48,52 @@ impl GridViewport {
             return source;
         }
         Rect::from_center_size(source.center(), available.size() / scale)
+    }
+
+    ///
+    /// The rectangle the Cell at `column` and `row` occupies.
+    ///
+    /// A Cell's rectangle is a function of its Position and nothing else. The
+    /// Cursor, the selection and the caret phase reach the paint a Cell is
+    /// filled and stroked with; none of them reaches the geometry it is painted
+    /// at.
+    ///
+    pub(crate) fn cell_rect(&self, column: usize, row: usize) -> Rect {
+        Rect::from_min_size(
+            self.rect.min + Vec2::new(column as f32, row as f32) * self.cell_size,
+            Vec2::splat(self.cell_size),
+        )
+    }
+
+    ///
+    /// The Cell `point` falls in, as a column and a row, or `None` when the
+    /// point is outside the presented Grid.
+    ///
+    /// This is the whole of what a click has to answer, and it is a division
+    /// rather than a search: no Cell is hit-tested. `columns` and `rows` bound
+    /// the answer, because a point on the Grid's far edge divides to one past
+    /// the last Cell. It is the inverse of [`Self::cell_rect`], so a click
+    /// cannot resolve to a Cell other than the one drawn under it.
+    ///
+    pub(crate) fn cell_at(
+        &self,
+        point: Pos2,
+        columns: usize,
+        rows: usize,
+    ) -> Option<(usize, usize)> {
+        if columns == 0 || rows == 0 || !(self.cell_size.is_finite() && self.cell_size > 0.0) {
+            return None;
+        }
+        if !self.rect.contains(point) {
+            return None;
+        }
+        let offset = point - self.rect.min;
+        // Both offsets are non-negative inside the Grid, so truncation is the
+        // floor, and the clamp is for the far edge alone.
+        let column = (offset.x / self.cell_size) as usize;
+        let row = (offset.y / self.cell_size) as usize;
+
+        Some((column.min(columns - 1), row.min(rows - 1)))
     }
 }
 
@@ -180,6 +226,64 @@ mod tests {
                 assert!(filled, "the viewport {viewport:?} wasted both axes");
             }
         }
+    }
+
+    ///
+    /// Painting and clicking go through one arithmetic, so the Cell a click
+    /// answers is the Cell drawn under the pointer rather than a second
+    /// derivation that could drift from it.
+    ///
+    #[test]
+    fn a_point_in_a_cell_answers_the_cell_that_was_painted_there() {
+        let viewport = grid_viewport(area(1200.0, 700.0), 10, 4);
+
+        for row in 0..4 {
+            for column in 0..10 {
+                let rect = viewport.cell_rect(column, row);
+
+                assert_eq!(viewport.cell_at(rect.center(), 10, 4), Some((column, row)));
+                assert_eq!(viewport.cell_at(rect.min, 10, 4), Some((column, row)));
+                assert_close(rect.width(), viewport.cell_size, "Cell width");
+                assert_close(rect.height(), viewport.cell_size, "Cell height");
+            }
+        }
+    }
+
+    ///
+    /// The Grid's far corner belongs to the last Cell rather than to a Cell one
+    /// past it, and everything outside the Grid belongs to no Cell at all —
+    /// which is what leaves the letterboxing to the Scene.
+    ///
+    #[test]
+    fn the_grid_edge_and_the_letterboxing_resolve_to_no_cell_past_the_last() {
+        let available = area(1200.0, 700.0);
+        let viewport = grid_viewport(available, GRID, GRID);
+
+        assert_eq!(
+            viewport.cell_at(viewport.rect.max, GRID, GRID),
+            Some((GRID - 1, GRID - 1))
+        );
+        assert_eq!(
+            viewport.cell_at(viewport.rect.min, GRID, GRID),
+            Some((0, 0))
+        );
+        assert_eq!(
+            viewport.cell_at(available.left_center(), GRID, GRID),
+            None,
+            "a point in the letterboxing answered a Cell"
+        );
+        assert_eq!(viewport.cell_at(Pos2::new(f32::NAN, 0.0), GRID, GRID), None);
+    }
+
+    #[test]
+    fn a_viewport_with_no_area_answers_no_cell() {
+        let viewport = grid_viewport(Rect::ZERO, GRID, GRID);
+
+        assert_eq!(viewport.cell_at(Pos2::ZERO, GRID, GRID), None);
+        assert_eq!(
+            grid_viewport(area(100.0, 100.0), GRID, GRID).cell_at(Pos2::new(10.0, 20.0), 0, 0),
+            None
+        );
     }
 
     #[test]

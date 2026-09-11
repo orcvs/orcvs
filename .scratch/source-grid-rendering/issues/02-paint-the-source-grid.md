@@ -5,19 +5,19 @@ rectangle and painter drawing, at strict visual parity.
 
 **Blocked by:** 01 — Record the transform ownership decision as an ADR.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `show_source` allocates one response for the whole Grid and draws every Cell through
+- [x] `show_source` allocates one response for the whole Grid and draws every Cell through
       `ui.painter()`. No Cell is a widget.
-- [ ] A click resolves to a Position by arithmetic through `GridViewport`, not by hit-testing Cells.
+- [x] A click resolves to a Position by arithmetic through `GridViewport`, not by hit-testing Cells.
       `Orcvs::select` is called with the same Position the button field would have selected, and the
       existing click tests (`console.rs:751`, `:785`) pass unchanged.
-- [ ] Glyphs are painted from a table of `Arc<Galley>` — one per character of the Source's character
+- [x] Glyphs are painted from a table of `Arc<Galley>` — one per character of the Source's character
       set, laid out with `Color32::PLACEHOLDER` via `FontsView::layout_delayed_color` — built inside
       a single `ctx.fonts_mut` closure and **rebuilt every Render Frame**. The paint-time colour is
       supplied as `Painter::galley`'s `fallback_color`, which the tessellator substitutes only for
       placeholder vertices.
-- [ ] The table is per-Render-Frame scratch and is never retained across frames. This is a
+- [x] The table is per-Render-Frame scratch and is never retained across frames. This is a
       correctness requirement, not a style preference. `RowVisuals::mesh` holds **texel** UVs that
       are normalised at tessellation against the live atlas size
       (`epaint/src/text/text_layout_types.rs:852-855`, `tessellator.rs:2030-2033`), and
@@ -28,61 +28,61 @@ rectangle and painter drawing, at strict visual parity.
       every texel keeps its coordinates; recreation is what corrupts, and the two are separate
       events. `font_image_size()` is not a usable signal for either — it can be identical on both
       sides of a recreate.
-- [ ] Rebuilding per frame is what makes the table correct by construction: epaint's own
+- [x] Rebuilding per frame is what makes the table correct by construction: epaint's own
       `GalleyCache` is the memo, and it is the only cache in the stack that `begin_pass` invalidates
       alongside the atlas. `egui::cache::FrameCache` and `ctx.data()` evict on last-frame use and know
       nothing about fonts, so either would carry the same corruption.
-- [ ] The rebuild costs one `Context` write lock for the whole table instead of one per Cell, and one
+- [x] The rebuild costs one `Context` write lock for the whole table instead of one per Cell, and one
       `String` per character of the alphabet instead of one per Cell. Those are the wins this issue
       claims; retaining the table across frames is not needed for any of them.
-- [ ] Shapes are accumulated into a `Vec<Shape>` and submitted with one `Painter::extend`, never
+- [x] Shapes are accumulated into a `Vec<Shape>` and submitted with one `Painter::extend`, never
       added one at a time. `Painter::add` goes through `paint_list` to `Context::graphics_mut`, which
       is `Context::write` (`painter.rs:197-199, 213-221`; `context.rs:1038-1040`) — a full Context
       write lock **per shape**. A per-Cell `add` loop would take more locks than the Button field does
       today, turning this issue's headline claim into a regression. `Painter::extend` takes the lock
       once and its own doc says calling it once is faster than calling `add` repeatedly.
-- [ ] Backgrounds and Glyphs are built as two separate shape sequences and concatenated so every
+- [x] Backgrounds and Glyphs are built as two separate shape sequences and concatenated so every
       background precedes every Glyph. A background belonging to a later Cell must never paint over
       an earlier Cell's Glyph. Both surveyed implementations that coalesce backgrounds hit this and
       left a permanent comment about it; one pins the ordering with a test.
-- [ ] Cursor and selection strokes are painted after all backgrounds and all Glyphs, so a
+- [x] Cursor and selection strokes are painted after all backgrounds and all Glyphs, so a
       neighbouring Cell's fill cannot paint over the Cursor.
-- [ ] The alphabet the table covers is stated, and so is the fallback for a character outside it. A
+- [x] The alphabet the table covers is stated, and so is the fallback for a character outside it. A
       single uncached `Painter::text` in the Cell loop reintroduces the per-Cell allocation and the
       per-shape lock for that Cell.
-- [ ] The table has exactly one owner and one construction site. Two callers laying out at different
+- [x] The table has exactly one owner and one construction site. Two callers laying out at different
       sizes would thrash it.
-- [ ] No per-Cell `String` is allocated and `Painter::text` is not called in the Cell loop — it takes
+- [x] No per-Cell `String` is allocated and `Painter::text` is not called in the Cell loop — it takes
       `impl ToString` and calls `layout_no_wrap(text.to_string(), ..)`, which costs an allocation and
       a whole-`Context` write lock per call.
-- [ ] Glyphs are positioned at exact multiples of `CELL_SIZE` and centred in their Cell. A row is
+- [x] Glyphs are positioned at exact multiples of `CELL_SIZE` and centred in their Cell. A row is
       never laid out as one galley: egui 0.36 shapes through harfrust with `liga`/`calt` enabled and
       `extra_letter_spacing` is not applied within a shaping cluster, so a ligature in a coding font
       would consume two Cells and shift the rest of the row. MonaspaceNeon has ligatures and the
       Source's character set is full of the pairs that trigger them.
-- [ ] Visual parity holds for every case `cell_visuals` (`style.rs:67-104`) distinguishes: the eight
+- [x] Visual parity holds for every case `cell_visuals` (`style.rs:67-104`) distinguishes: the eight
       Glyph foreground colours, the selection fill and its two stroke states, and all four
       `CursorBloom` fill and line pairs.
-- [ ] Sector seam lines keep their current geometry and their `sector_line` strength attenuation, and
+- [x] Sector seam lines keep their current geometry and their `sector_line` strength attenuation, and
       are still suppressed on a selected Cell.
-- [ ] `cell_line_width` is deleted along with `caret_phase_does_not_change_cell_border_geometry`,
+- [x] `cell_line_width` is deleted along with `caret_phase_does_not_change_cell_border_geometry`,
       and the property that test held — that caret phase does not move Cell geometry — is asserted
       against the painted geometry instead.
-- [ ] `glyph_button_fits_the_fixed_cell` is deleted. It asserts that `button_padding` does not
+- [x] `glyph_button_fits_the_fixed_cell` is deleted. It asserts that `button_padding` does not
       inflate `add_sized`, about a widget that no longer exists.
-- [ ] The three `ui.spacing_mut()` lines at `console.rs:294-296` are gone, along with the
+- [x] The three `ui.spacing_mut()` lines at `console.rs:294-296` are gone, along with the
       `ui.horizontal` per row.
-- [ ] The interaction rectangle senses **click only**, never drag. A same-layer child registered
+- [x] The interaction rectangle senses **click only**, never drag. A same-layer child registered
       after the Scene's pan response wins the click tie, and would win the drag too if it sensed
       drag — which would kill the middle-drag pan. `Sense::click()` is `CLICK | FOCUSABLE`; use
       `Sense::CLICK` to keep one rectangle out of the tab order where a thousand Buttons were.
-- [ ] The interaction rectangle is sized to the **Grid**, not to the console area. The Scene's pan
+- [x] The interaction rectangle is sized to the **Grid**, not to the console area. The Scene's pan
       response covers the whole outer rect, and the letterbox is the only territory where its
       `double_clicked()` still fires — a Cell widget eats the click everywhere it covers, today and
       after this change. A rectangle covering the letterbox would break
       `a_double_click_unpins_the_view_and_hands_it_back_to_the_fit` (`console.rs:1039`), which
       double-clicks at exactly that point.
-- [ ] With those two constraints `console.rs:995`, `:1020` and `:1039` pass unchanged, and the click
+- [x] With those two constraints `console.rs:995`, `:1020` and `:1039` pass unchanged, and the click
       tests at `:752` and `:786` pass because the Grid rectangle is the click hit.
 
 ## Comments
@@ -130,3 +130,38 @@ egui offers two ways to colour a cached galley at paint time. `layout_delayed_co
 only; `Painter::galley_with_override_text_color` replaces glyph vertices unconditionally and leaves
 background, underline and strikethrough alone. Both exist on 0.36.1 and both work for single-character
 galleys carrying none of those extras. Prefer the placeholder path, which is what egui itself uses.
+
+---
+
+Resolved. The Grid is one `Ui::allocate_exact_size` rectangle sensing `Sense::CLICK`, and every
+Cell is a `Shape` in a `Vec` submitted with a single `Painter::extend`: backgrounds, then Glyphs,
+then sector seams, then the Cursor and selection strokes. `GlyphTable` lays the alphabet out inside
+one `ctx.fonts_mut` closure each Render Frame, and the doc comment on it says why retaining it is
+unsound rather than merely wasteful.
+
+Four things the acceptance list did not name, all of them decided in the direction it implies.
+
+The shapes are built with `Shape::galley` and `epaint::RectShape` rather than `Painter::galley` and
+`Painter::rect`, because every `Painter` drawing helper ends in `Painter::add` — the per-shape
+`Context` write lock this issue exists to stop taking. `Shape::galley` is exactly what
+`Painter::galley` wraps, so the `fallback_color` contract is the one this issue asked for.
+
+The Cursor and the selection stroke had to leave the Cell's own `RectShape` to be painted after
+every Glyph, so a selected Cell's background carries `Stroke::NONE` and its border is a second
+stroke-only `RectShape` in the later sequence. Under the Button field the two were one shape, which
+is why a neighbouring Cell's seam could paint over the Cursor; it no longer can.
+
+The out-of-alphabet fallback lays its galley out through `Painter::layout_no_wrap` rather than
+`Painter::text`. `Painter::text` would paint immediately and so out of turn, breaking the ordering
+the issue requires; laying out and pushing the Shape keeps the sequence intact and costs that one
+Cell the same allocation and lock either way.
+
+`caret_phase_does_not_change_cell_border_geometry` could not be re-asserted across both caret
+phases. The Cursor's phase turns on a wall-clock delay held inside `orcvs` and nothing the console
+can reach flips it, and a seam to set it would be the test-only input into shipped code `CLAUDE.md`
+forbids. What replaces it —
+`the_caret_reaches_the_paint_of_a_cell_and_never_its_geometry` — asserts the whole of what that
+phase could have moved against the painted Render Frame: every Cell, the selected one included,
+occupies exactly the rectangle `GridViewport::cell_rect` gives its Position, and the Cursor's own
+stroke lands on that same rectangle. `cell_rect` takes a Position and nothing else, so the property
+is now structural as well as asserted.
