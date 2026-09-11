@@ -76,6 +76,6 @@ and its fixture suite, `actionlint`, `zizmor --offline .github/workflows`, the r
 `mise run audit_deps`, and `mise run check_wasm` for the trunk output names above.
 
 ADRs 0022 and 0037 still name `shell` and cite `shell/src/diagnostics.rs`. They are dated records of
-decisions taken when that was the crate's name, so they are left as written. Resolved issues under
+decisions taken when that was the crate's name, so their bodies are left as written; `source-grid-rendering/04` later added a dated header to each saying which crate the old name now refers to, without touching the text below it. Resolved issues under
 `.scratch/` are left for the same reason; open ones that cite paths a reader would follow were
 updated.

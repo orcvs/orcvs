@@ -923,6 +923,25 @@ fn show_source_scene(
     grid
 }
 
+///
+/// The frame the Source Grid is painted on.
+///
+/// The fill is load-bearing rather than decorative. `show_source` omits a
+/// Cell's background wherever `cell_visuals` asks for `PALETTE.source`, on the
+/// grounds that this frame has already painted exactly that colour across the
+/// whole console and clips every Shape to it. An ordinary Cell therefore has no
+/// rectangle of its own, and on the default Grid — where the Cursor's bloom
+/// reaches fifteen Cells — most Cells are ordinary.
+///
+/// It is a function rather than a literal at the panel so the painting tests
+/// render on the same ground production does, and so
+/// `the_omitted_background_is_the_colour_the_panel_is_filled_with` has one
+/// value to pin instead of a comment to trust.
+///
+fn source_panel_frame() -> egui::Frame {
+    egui::Frame::new().fill(PALETTE.source)
+}
+
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
@@ -1059,7 +1078,7 @@ impl eframe::App for Console {
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(PALETTE.source))
+            .frame(source_panel_frame())
             .show(root, |ui| {
                 console_area = ui.available_rect_before_wrap();
                 let Console {
@@ -1109,7 +1128,8 @@ mod tests {
         ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, DEFAULT_VIEW_SIZE,
         GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
         SourceView, TOP_PANEL_HEIGHT, blank_glyph_index, frames_per_second, glyph_scale,
-        is_presentable, show_source_scene, source_bounds, source_dimensions, translate_event,
+        is_presentable, show_source_scene, source_bounds, source_dimensions, source_panel_frame,
+        translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -1309,7 +1329,7 @@ mod tests {
             .native_pixels_per_point = Some(pixels_per_point);
         let output = ctx.run_ui(input, |root| {
             egui::CentralPanel::default()
-                .frame(egui::Frame::new())
+                .frame(source_panel_frame())
                 .show(root, |ui| {
                     presented = Some(show_source_scene(
                         ui,
@@ -1325,6 +1345,21 @@ mod tests {
             flatten(clipped.shape.clone(), &mut painted);
         }
         output.drop_without_applying_deltas();
+        // The harness renders on `source_panel_frame`, the frame production
+        // gives the Grid, so the Cells that decline a background sit here on
+        // the ground they sit on in the console. That frame paints its own fill
+        // before the Grid's first Shape, and it is the console's rectangle
+        // rather than any Cell's, so it is dropped rather than counted among
+        // the shapes the Grid painted. Nothing else can match it: a Cell's run
+        // is never the whole console, and a run is never `PALETTE.source` at
+        // all — that is the colour `show_source` declines to paint.
+        painted.retain(|shape| {
+            !matches!(
+                shape,
+                Shape::Rect(rect)
+                    if rect.fill == PALETTE.source && rect.rect.contains_rect(screen)
+            )
+        });
 
         (
             presented.expect("the central panel showed the Source"),
@@ -1629,7 +1664,7 @@ mod tests {
                         });
                     });
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::new().fill(PALETTE.source))
+                    .frame(source_panel_frame())
                     .show(root, |ui| {
                         console = ui.available_size_before_wrap();
                     });
@@ -2079,6 +2114,30 @@ mod tests {
     /// alternates a rectangle and no rectangle. A reordering of those arms
     /// would be a palette change, and this fails when one happens.
     ///
+    ///
+    /// The background the Grid declines to paint is the one the panel paints.
+    ///
+    /// `show_source` omits a Cell's rectangle wherever `cell_visuals` asks for
+    /// `PALETTE.source`, and what stands in its place is the `CentralPanel`
+    /// frame. The two values are stated in different places, so nothing but
+    /// this holds them together: give the panel any other fill and every
+    /// ordinary Cell — outside the Cursor's fifteen-Cell bloom, most of the
+    /// default Grid — renders on a ground the palette never chose for it.
+    ///
+    /// The whole console is checked rather than the constant alone, because it
+    /// is the painted result that has to sit on the right colour.
+    ///
+    #[test]
+    fn the_omitted_background_is_the_colour_the_panel_is_filled_with() {
+        assert_eq!(
+            source_panel_frame().fill,
+            PALETTE.source,
+            "show_source omits a Cell's background wherever cell_visuals asks \
+             for PALETTE.source, so the panel standing in for it must be \
+             filled with exactly that colour"
+        );
+    }
+
     #[test]
     fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
         for glyph in [Glyph::Char, Glyph::Bang, Glyph::Space, Glyph::Comment] {
@@ -2663,7 +2722,7 @@ mod tests {
             },
             |root| {
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::new())
+                    .frame(source_panel_frame())
                     .show(root, |ui| {
                         grid_layer = Some(ui.layer_id());
                         show_source_scene(
