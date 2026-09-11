@@ -10,13 +10,29 @@ This is the test that should fail the day a Function declares a Sequence answer 
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The `Width` branch of the `lang` test is either removed or reduced to what it can honestly assert, with the reachability claim no longer resting on it.
-- [ ] A test in `lang` asserts no Function declares a Sequence answer.
-- [ ] A test in `orcvs` asserts that a computation over any Function in the table reserves a Cell pair, so the width comparison cannot differ.
-- [ ] Both tests name ADR 0036 and say, in a comment, that their failure means the width term has become reachable rather than that something broke.
+- [x] The `Width` branch of the `lang` test is either removed or reduced to what it can honestly assert, with the reachability claim no longer resting on it.
+- [x] A test in `lang` asserts no Function declares a Sequence answer.
+- [x] A test in `orcvs` asserts that a computation over any Function in the table reserves a Cell pair, so the width comparison cannot differ.
+- [x] Both tests name ADR 0036 and say, in a comment, that their failure means the width term has become reachable rather than that something broke.
 
 ## Verification
 
 `cargo fmt --all -- --check`, `cargo clippy --package <crate> --all-targets --locked -- -D warnings`, and `PROPTEST_CASES=32 cargo nextest run --package <crate> --locked` for `lang`, `orcvs` and `console`.
+
+## What the mutation did
+
+The claim both tests carry is that no Function declares a Sequence answer, so the
+mutation is to declare one: `Clock`'s answer column changed from `Elementwise` to
+`Sequence` in `define_functions!`.
+
+`PROPTEST_CASES=32 cargo nextest run --package lang --locked --no-fail-fast` then failed
+`no_function_declares_a_sequence_answer` — "[Clock] declare a Sequence answer, so a
+reserved width can now differ" — alongside the existing
+`every_function_declares_how_wide_an_answer_it_gives`, which names the row.
+`PROPTEST_CASES=32 cargo nextest run --package orcvs --locked` failed
+`a_computation_over_any_function_reserves_a_cell_pair` with "Clock replacing computation 0
+would reserve more than a Cell pair", which is the width term becoming reachable stated in
+the place the reservation lives. The row was restored and the working tree checked clean
+before the change was committed.
