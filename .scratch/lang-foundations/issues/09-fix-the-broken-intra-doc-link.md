@@ -10,11 +10,30 @@ Change the link target. Check the sentence still says something true of `source_
 
 Found while reviewing the `function-replacement` effort. Unrelated to it, which is why it is filed here rather than there.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` succeeds.
-- [ ] The sentence carrying the link is true of the method it now names.
+- [x] `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` succeeds.
+- [x] The sentence carrying the link is true of the method it now names.
 
 ## Verification
 
 `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, plus `cargo fmt --all -- --check` and `cargo clippy --package lang --all-targets --locked -- -D warnings`.
+
+## Answer
+
+The link now names `Function::source_effect`, and the advice needed the sharpening this issue
+anticipated rather than the link alone. `source_effect` answers `Some(..)` for both groups, so
+pointing a caller at it without saying what to read would have swapped one untrue sentence for
+another. The effect table settles which half to read: every Self-Banging arm declares
+`SourceBundle::Advance` and every Directional Bang arm `SourceBundle::Emit`, so the bundle is what
+tells the groups apart and the sentence now says so.
+
+`RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` exits 0 across all three
+crates, where it failed with "unresolved link to `Function::source_write`" and "could not document
+`lang`" before. `cargo fmt --all -- --check`, `cargo clippy --package lang --all-targets --locked --
+-D warnings`, `PROPTEST_CASES=32 cargo nextest run --package lang --locked` (223 passed) and
+`cargo test --package lang --doc --locked` all pass.
+
+Pushed straight to `main` rather than through a pull request. The gate this fixes is one of the
+three required status checks, and it had been failing on `main` since before PR #71 — every merge
+inherited a red `full-gate` and no pull request of its own could have turned it green any faster.

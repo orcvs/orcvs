@@ -818,7 +818,10 @@ macro_rules! define_functions {
             /// and not about a Function group — the Directional Bang
             /// Functions `spatial-tick-planning/06` adds declare no operand
             /// either — so a caller that means "is a Self-Banging Function"
-            /// should ask [`Function::source_write`] instead.
+            /// should ask [`Function::source_effect`] instead, and read the
+            /// bundle it answers: both groups declare an effect, and it is the
+            /// `Advance` a Self-Banging Function declares that tells it from
+            /// the `Emit` of a Directional Bang one.
             #[inline(always)]
             pub const fn takes_no_operand(self) -> bool {
                 self.signature().is_empty()
