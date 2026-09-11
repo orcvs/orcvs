@@ -1,6 +1,6 @@
 use crate::{
     glyph::Glyph,
-    grid::Position,
+    grid::{Grid, Position},
     opts::{HighlightSpacing, MarkerSpacing},
     source::SourceRevision,
 };
@@ -67,6 +67,7 @@ impl RenderCell {
 
 #[derive(Clone, Debug)]
 pub struct RenderFrame {
+    grid: Grid,
     rows: Vec<Vec<RenderCell>>,
 }
 
@@ -77,9 +78,9 @@ impl RenderFrame {
         cursor_visible: bool,
         config: RenderFrameConfig,
     ) -> Self {
-        source.grid().assert_owns(selected);
-        let rows = source
-            .grid()
+        let grid = source.grid();
+        grid.assert_owns(selected);
+        let rows = grid
             .positions_by_row()
             .map(|row| {
                 row.map(|position| {
@@ -108,9 +109,30 @@ impl RenderFrame {
                 .collect::<Vec<_>>()
             })
             .collect();
-        Self { rows }
+        Self { grid, rows }
     }
 
+    ///
+    /// The Grid this Render Frame was derived from.
+    ///
+    /// Carried rather than recovered. The derivation already holds it to assert
+    /// the selected Position belongs to it, and `Grid` is `Copy`, so keeping
+    /// the fact costs nothing. It spares every consumer reading the shape back
+    /// out of `rows` — a first row that has to be asserted to exist and row
+    /// lengths that have to be asserted equal, both of which the Grid
+    /// guarantees by construction.
+    ///
+    pub fn grid(&self) -> Grid {
+        self.grid
+    }
+
+    ///
+    /// Every Cell of the Grid, one `Vec` per row, top to bottom and each row
+    /// left to right.
+    ///
+    /// This is the count's counterpart, not its rival: [`Grid::rows`] answers
+    /// how many rows the shape has, and this answers what stands in them.
+    ///
     pub fn rows(&self) -> &[Vec<RenderCell>] {
         &self.rows
     }
