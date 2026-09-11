@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
-#[cfg(any(test, target_arch = "wasm32"))]
-use std::future::Future;
+use std::future::{self, Future};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -246,7 +245,6 @@ fn wasm_timeout_millis(delay: Duration) -> u32 {
         .min(u128::from(u32::MAX)) as u32
 }
 
-#[cfg(any(test, target_arch = "wasm32"))]
 async fn wait_for_tick_or_cancellation<F>(delay: F, cancellation: &CancellationToken) -> bool
 where
     F: Future<Output = ()>,
@@ -1014,29 +1012,20 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
             });
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
             return Err(PlaybackStartError::ZeroTickPeriod);
         }
-        let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|_| PlaybackStartError::RuntimeUnavailable)?;
-
+        // Obtain the spawner before retiring the current clock: failure must
+        // leave a playing run with its existing clock still driving it.
+        let spawner = ClockSpawner::acquire()?;
         let (generation, cancellation, weak, first_tick_at) = {
             let mut inner = lock_recover(&self.inner);
             if !inner.playing {
                 return Ok(());
             }
-            // The new grid runs from the deadline the last executed Tick was
-            // due at. Clamping to the present instead would rebase the grid
-            // onto the instant the retune arrived, which is the permanent
-            // offset ADR 0037 rejects.
             let first_tick_at =
                 first_retuned_tick_at(inner.last_tick_at, ClockInstant::now(), tick_period);
-            // Retuning retires the running clock and hands the run to a new
-            // one, but it does not begin a run: `begin_run` is deliberately not
-            // called here, because this run keeps its absolute Tick and the
-            // deadline its last Tick was due at is what the new grid runs from.
             if let Some(previous) = inner.cancellation.take() {
                 previous.cancel();
             }
@@ -1050,213 +1039,130 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
                 first_tick_at,
             )
         };
-
-        runtime.spawn(async move {
-            let mut guard = ClockRunGuard::new(weak.clone(), generation);
-            let epoch = time::Instant::now();
-            // Measured from this clock's own epoch, so the first deadline is
-            // exactly `first_tick_at` however long the spawn took to run.
-            let mut scheduled_at = first_tick_at.saturating_duration_since(epoch);
-
-            loop {
-                tokio::select! {
-                    _ = cancellation.cancelled() => {
-                        guard.finish();
-                        break;
-                    },
-                    () = time::sleep_until(epoch + scheduled_at) => {
-                        let observed_at = time::Instant::now().duration_since(epoch);
-                        let Some(inner) = weak.upgrade() else { break };
-                        lock_recover(&inner).execute_tick(generation, TickTiming {
-                            epoch,
-                            scheduled_at,
-                            observed_at,
-                            period: tick_period,
-                        });
-                        scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
-                    }
-                }
-            }
-        });
+        spawner.spawn(run_clock(
+            weak,
+            generation,
+            cancellation,
+            tick_period,
+            Some(first_tick_at),
+        ));
         Ok(())
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn retune(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
+    pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
         if tick_period.is_zero() {
-            return Err(PlaybackStartError::ZeroTickPeriod);
+            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
         }
-
-        let (generation, cancellation, weak, first_tick_at) = {
+        if lock_recover(&self.inner).playing {
+            return Ok(());
+        }
+        let spawner = ClockSpawner::acquire().map_err(|error| self.report_start_error(error))?;
+        let (generation, cancellation, weak) = {
             let mut inner = lock_recover(&self.inner);
-            if !inner.playing {
+            if inner.playing {
                 return Ok(());
             }
-            // The new grid runs from the deadline the last executed Tick was
-            // due at. Clamping to the present instead would rebase the grid
-            // onto the instant the retune arrived, which is the permanent
-            // offset ADR 0037 rejects.
-            let first_tick_at =
-                first_retuned_tick_at(inner.last_tick_at, ClockInstant::now(), tick_period);
-            // Retuning retires the running clock and hands the run to a new
-            // one, but it does not begin a run: `begin_run` is deliberately not
-            // called here, because this run keeps its absolute Tick and the
-            // deadline its last Tick was due at is what the new grid runs from.
-            if let Some(previous) = inner.cancellation.take() {
-                previous.cancel();
-            }
-            inner.generation = inner.generation.wrapping_add(1);
-            let cancellation = CancellationToken::new();
-            inner.cancellation = Some(cancellation.clone());
-            (
-                inner.generation,
-                cancellation,
-                Arc::downgrade(&self.inner),
-                first_tick_at,
-            )
+            let (generation, cancellation) = inner.begin_run();
+            (generation, cancellation, Arc::downgrade(&self.inner))
         };
-
-        wasm_bindgen_futures::spawn_local(async move {
-            let mut guard = ClockRunGuard::new(weak.clone(), generation);
-            let epoch = web_time::Instant::now();
-            // Measured from this clock's own epoch, so the first deadline is
-            // exactly `first_tick_at` however long `spawn_local` was deferred
-            // behind the main thread.
-            let mut scheduled_at = first_tick_at.saturating_duration_since(epoch);
-
-            loop {
-                let delay = scheduled_at.saturating_sub(epoch.elapsed());
-                if !wait_for_tick_or_cancellation(
-                    gloo_timers::future::TimeoutFuture::new(wasm_timeout_millis(delay)),
-                    &cancellation,
-                )
-                .await
-                {
-                    guard.finish();
-                    break;
-                }
-
-                let observed_at = epoch.elapsed();
-                let Some(inner) = weak.upgrade() else { break };
-                lock_recover(&inner).execute_tick(
-                    generation,
-                    TickTiming {
-                        epoch,
-                        scheduled_at,
-                        observed_at,
-                        period: tick_period,
-                    },
-                );
-                scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
-            }
-        });
+        spawner.spawn(run_clock(weak, generation, cancellation, tick_period, None));
         Ok(())
+    }
+}
+
+/// Runtime availability is settled before a run's state changes. The browser
+/// spawner needs no runtime handle; its future need not be Send either.
+struct ClockSpawner {
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime: tokio::runtime::Handle,
+}
+
+impl ClockSpawner {
+    fn acquire() -> Result<Self, PlaybackStartError> {
+        Ok(Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            runtime: tokio::runtime::Handle::try_current()
+                .map_err(|_| PlaybackStartError::RuntimeUnavailable)?,
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
-        if tick_period.is_zero() {
-            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
-        }
-        if lock_recover(&self.inner).playing {
-            return Ok(());
-        }
-        let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|_| self.report_start_error(PlaybackStartError::RuntimeUnavailable))?;
-
-        let (generation, cancellation, weak) = {
-            let mut inner = lock_recover(&self.inner);
-            if inner.playing {
-                return Ok(());
-            }
-            let (generation, cancellation) = inner.begin_run();
-            (generation, cancellation, Arc::downgrade(&self.inner))
-        };
-
-        runtime.spawn(async move {
-            let mut guard = ClockRunGuard::new(weak.clone(), generation);
-            let epoch = time::Instant::now();
-            let mut scheduled_at = Duration::ZERO;
-
-            loop {
-                tokio::select! {
-                    _ = cancellation.cancelled() => {
-                        guard.finish();
-                        break;
-                    },
-                    () = time::sleep_until(epoch + scheduled_at) => {
-                        let observed_at = time::Instant::now().duration_since(epoch);
-                        let Some(inner) = weak.upgrade() else { break };
-                        lock_recover(&inner).execute_tick(generation, TickTiming {
-                            epoch,
-                            scheduled_at,
-                            observed_at,
-                            period: tick_period,
-                        });
-                        scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
-                    }
-                }
-            }
-        });
-        Ok(())
+    fn spawn(self, clock: impl Future<Output = ()> + Send + 'static) {
+        self.runtime.spawn(clock);
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn start(&self, tick_period: Duration) -> Result<(), PlaybackStartError> {
-        if tick_period.is_zero() {
-            return Err(self.report_start_error(PlaybackStartError::ZeroTickPeriod));
-        }
-        if lock_recover(&self.inner).playing {
-            return Ok(());
-        }
+    fn spawn(self, clock: impl Future<Output = ()> + 'static) {
+        wasm_bindgen_futures::spawn_local(clock);
+    }
+}
 
-        let (generation, cancellation, weak) = {
-            let mut inner = lock_recover(&self.inner);
-            if inner.playing {
-                return Ok(());
-            }
-            let (generation, cancellation) = inner.begin_run();
-            (generation, cancellation, Arc::downgrade(&self.inner))
+#[cfg(not(target_arch = "wasm32"))]
+async fn sleep_until(deadline: ClockInstant) {
+    time::sleep_until(deadline).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn sleep_until(deadline: ClockInstant) {
+    let delay = deadline.saturating_duration_since(ClockInstant::now());
+    // A deadline already behind the clock still waits, on a timer of zero.
+    // This is the browser clock's only yield back to the event loop, so
+    // skipping it for an elapsed deadline would let a Tick costing more than
+    // its period run the loop again and again without the page ever getting a
+    // turn: nothing rendered, no input dispatched, and no moment in which the
+    // Space that calls `stop` could be delivered. The immediate first Tick,
+    // which is what a browser timer would cost a whole period at the short end
+    // of `Bpm`, is spared this wait by `run_clock` and not by this function.
+    gloo_timers::future::TimeoutFuture::new(wasm_timeout_millis(delay)).await;
+}
+
+/// Start begins its grid when the task runs; retune carries the deadline
+/// anchored on the last executed Tick. Everything after that is one loop.
+async fn run_clock<A: OutputAdapter>(
+    weak: Weak<Mutex<PlaybackInner<A>>>,
+    generation: u64,
+    cancellation: CancellationToken,
+    tick_period: Duration,
+    first_tick_at: Option<ClockInstant>,
+) {
+    let mut guard = ClockRunGuard::new(weak.clone(), generation);
+    let epoch = ClockInstant::now();
+    let mut scheduled_at = first_tick_at
+        .map(|deadline| deadline.saturating_duration_since(epoch))
+        .unwrap_or(Duration::ZERO);
+    // A first deadline already reached is executed on arrival rather than
+    // waited for: `start` is due at its own epoch, and `retune` anchored on a
+    // Tick already behind it. On the browser even a zero timer costs a
+    // `setTimeout` hop of one to four milliseconds, which is enough for
+    // `is_overrun` to decline that Tick at the one-millisecond end of `Bpm`.
+    //
+    // Only the first. Every deadline after it waits whether or not it has
+    // elapsed, because that wait is the browser clock's only yield back to the
+    // event loop.
+    let mut due_on_arrival = scheduled_at.is_zero();
+    loop {
+        let reached = if due_on_arrival {
+            due_on_arrival = false;
+            wait_for_tick_or_cancellation(future::ready(()), &cancellation).await
+        } else {
+            wait_for_tick_or_cancellation(sleep_until(epoch + scheduled_at), &cancellation).await
         };
-
-        wasm_bindgen_futures::spawn_local(async move {
-            let mut guard = ClockRunGuard::new(weak.clone(), generation);
-            let epoch = web_time::Instant::now();
-            let mut scheduled_at = Duration::ZERO;
-
-            loop {
-                if cancellation.is_cancelled() {
-                    guard.finish();
-                    break;
-                }
-
-                let observed_at = epoch.elapsed();
-                let Some(inner) = weak.upgrade() else { break };
-                lock_recover(&inner).execute_tick(
-                    generation,
-                    TickTiming {
-                        epoch,
-                        scheduled_at,
-                        observed_at,
-                        period: tick_period,
-                    },
-                );
-
-                scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
-                let delay = scheduled_at.saturating_sub(epoch.elapsed());
-                let delay_ms = wasm_timeout_millis(delay);
-                if !wait_for_tick_or_cancellation(
-                    gloo_timers::future::TimeoutFuture::new(delay_ms),
-                    &cancellation,
-                )
-                .await
-                {
-                    guard.finish();
-                    break;
-                }
-            }
-        });
-        Ok(())
+        if !reached {
+            guard.finish();
+            break;
+        }
+        let observed_at = epoch.elapsed();
+        let Some(inner) = weak.upgrade() else { break };
+        lock_recover(&inner).execute_tick(
+            generation,
+            TickTiming {
+                epoch,
+                scheduled_at,
+                observed_at,
+                period: tick_period,
+            },
+        );
+        scheduled_at = next_scheduled_at(scheduled_at, observed_at, tick_period);
     }
 }
 
@@ -1696,10 +1602,8 @@ mod tests {
     /// Both retunes anchor their new grid with this one function, and it
     /// answers with an instant rather than a wait so that neither clock can
     /// apply a wait against an epoch it was not measured from. The browser
-    /// retune is the path that cannot be tested here at all — nothing in the
-    /// workspace compiles it — so the arithmetic it runs on is stated here, in
-    /// the same way ADR 0037 has both targets hold one rule by sharing one
-    /// function.
+    /// retune is exercised by `console/tests/wasm.rs`; this native test pins the
+    /// arithmetic independently of browser timer jitter.
     ///
     /// The stall is a whole number of periods plus half of one, so the three
     /// candidate rules answer differently: the backlog rule would name `2s`,
@@ -1741,9 +1645,8 @@ mod tests {
     /// periods at and below five milliseconds are the ones Tokio's missed-tick
     /// machinery cannot express, which is why the loop no longer uses it.
     ///
-    /// The browser loops compute their deadlines with the same
-    /// `next_scheduled_at`, so the rule is shared by construction rather than
-    /// by this test: nothing here compiles `wasm32`.
+    /// Both targets run this clock loop. Browser waiting and the public tempo
+    /// change path are also exercised by `console/tests/wasm.rs`.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     async fn assert_native_clock_holds_the_shared_rule(retune: bool) {
@@ -1835,8 +1738,13 @@ mod tests {
     }
 
     #[test]
-    fn zero_wasm_delay_still_schedules_a_browser_timer() {
-        assert_eq!(super::wasm_timeout_millis(Duration::ZERO), 0);
+    fn browser_wait_rounds_up_a_fractional_millisecond() {
+        for (nanos, millis) in [(1, 1), (999_999, 1), (1_000_000, 1), (1_000_001, 2)] {
+            assert_eq!(
+                super::wasm_timeout_millis(Duration::from_nanos(nanos)),
+                millis
+            );
+        }
     }
 
     #[tokio::test]
