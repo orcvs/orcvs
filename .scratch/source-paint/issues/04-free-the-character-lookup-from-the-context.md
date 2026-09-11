@@ -8,12 +8,12 @@ Ticket `05` needs this. `Paint::derive` must take a `&RenderFrame` and nothing e
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Resolving a `RenderCell` to the character it shows is reachable without an egui `Context`.
-- [ ] `GlyphTable` keeps only the galleys — the part that genuinely needs a `Context`.
-- [ ] `show_source` still resolves characters the same way and paints the same glyphs.
-- [ ] A test proves the lookup runs with no `Context` constructed.
+- [x] Resolving a `RenderCell` to the character it shows is reachable without an egui `Context`.
+- [x] `GlyphTable` keeps only the galleys — the part that genuinely needs a `Context`.
+- [x] `show_source` still resolves characters the same way and paints the same glyphs.
+- [x] A test proves the lookup runs with no `Context` constructed.
 
 ## Verification
 
