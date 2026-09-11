@@ -10,9 +10,10 @@ Integrate performative spatial behavior with the dependency-ordered Tick contrac
 
 1. `issues/01-order-effects-by-language-map-position.md`
 2. `issues/02-add-source-bang-activation-and-expiry.md`
-3. `issues/03-add-directional-bang-movement.md`
-4. `issues/04-add-directional-jump-chains.md`
-5. `issues/05-add-halt-root-locking.md`
+3. `issues/03-add-the-self-banging-functions.md`
+4. `issues/06-add-the-directional-bang-functions.md`
+5. `issues/04-add-directional-jump-chains.md`
+6. `issues/05-add-halt-root-locking.md`
 
 ## Historical required behavior — superseded by ADR 0032
 

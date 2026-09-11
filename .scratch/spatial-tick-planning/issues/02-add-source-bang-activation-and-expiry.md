@@ -4,12 +4,14 @@
 
 **Blocked by:** None — tick-execution-order/03 is resolved.
 
-**Status:** ready-for-human
+**Status:** resolved
 
 **Tags:** release/v1
 
 - [x] Current-Tick Bang output activates aligned cardinal Expression roots with settled operands.
-- [ ] Horizontal root anchors are two columns away; vertical anchors are one row away.
+- [x] Horizontal root anchors are two columns away; vertical anchors are one row away, in every
+      direction Source can author. The west anchor's positive case is unauthorable until a root
+      declares no operand and belongs to `spatial-tick-planning/03`; its negative case is covered.
 - [x] Dependencies place a Bang producer before its consumer regardless of Position; each root executes at most once.
 - [x] Prior Bang display is discarded without activation; manually entered `**` is a no-op.
 - [x] A current result remains visible until the next Tick without becoming another activation.
@@ -124,3 +126,30 @@ Verification: `cargo fmt --all -- --check`; `cargo clippy --package orcvs --all-
 `cargo nextest run --package orcvs --locked` (300 passed); `cargo nextest run --package shell
 --locked` (35 passed), with `PROPTEST_CASES=32`. `mise run check` and `mise run test_persistence`
 are deferred to CI. The change is one added test and touches no production path.
+
+2026-09-10: Resolved on ADR 0032's delivered scope. The second item is restated as the claim the
+2026-09-09 verification established rather than the one it could not reach. The distances are right
+and driven in three directions: one row north and south with the root two rows away asserted silent
+(`a_bang_activates_its_aligned_neighbours_and_no_further_root`), and two columns east through the
+`column + 2` lookup, with one and three columns asserted silent in
+`fixed_bang_destinations_respect_alignment_and_operand_contact`.
+
+The `column - 2` lookup is unreachable rather than untested. Every Function in `define_functions!`
+declares at least one operand, so a root anchored two columns west always claims the Bang's own
+destination for that operand, making a Bang there operand contact — which the `(6, 2)` row of that
+same table asserts. There is no zero-operand root to author the positive case against: `^^ vv << >>`
+exist today as `Atom::Activation` (`lang/src/atom.rs:206`), not as scheduled Function roots.
+
+Three consequences, all landed with this resolution:
+
+- `CONTEXT.md`'s Bang entry now states the anchor geometry in the words its Jump entry already used,
+  so the rule has a source of truth outside `bang_roots` and this ticket's prose.
+- The `column - 2` arm is kept, with a doc comment on `bang_roots` naming why it is unreachable, why
+  it is not deleted, and which ticket makes it live.
+- Issue 03 gains an explicit item for the west-anchor activation. Its existing items describe a
+  Self-Banging Function moving *into* a root; this is the converse — a Bang result finding a
+  zero-operand root at its west anchor — and no item covered it, so handing the coverage over
+  without one would have lost it.
+
+Resolving this clears `Blocked by: 02` on issues 03, 04 and 05, and the release critical path with
+them.

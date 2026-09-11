@@ -474,6 +474,27 @@ impl PortalRelationships<'_> {
         self.lookup.literals.touching(self.cells.clone())
     }
 
+    ///
+    /// The Expression roots a Source-writing Function's own Span could move
+    /// into at these Cells.
+    ///
+    /// ADR 0006 activates on contact: "Complete aligned root contact also
+    /// directly delivers Bang activation". This is that question asked of the
+    /// schedule, which knows the geometry and not the Source — the Cells a
+    /// move newly enters, and so which of these roots is actually contacted,
+    /// are settled at the Turn against working Source.
+    ///
+    /// It is the contacted Function rather than a cardinal neighbour, which is
+    /// what separates it from [`PortalRelationships::bang_roots`]: a
+    /// Self-Banging Function moves onto a root's Cells, while a Bang activates
+    /// roots it never touches.
+    fn contacted_roots(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lookup
+            .functions
+            .touching(self.cells.clone())
+            .filter(|index| self.lookup.nodes()[*index].parent.is_none())
+    }
+
     /// Geometrically eligible roots, regardless of their activation policy or
     /// whether this producer actually returns Bang. Even a partial overlap
     /// with an operand excludes activation; nested operands count here too.
@@ -494,6 +515,27 @@ impl PortalRelationships<'_> {
     /// Bang's own two Cells rather than about the Cells a wider answer might
     /// have reached, so what the reservation should be asked here is settled
     /// against that Function's tests rather than guessed at now.
+    ///
+    /// The four anchors are one geometric fact and are stated as one, though
+    /// no Source has yet made the west arm say anything. Until the Self-Banging
+    /// Functions were declared, every Function in `define_functions!` took at
+    /// least one operand, so a root anchored two columns west always claimed
+    /// this destination for that operand and a Bang landing here was operand
+    /// contact rather than an anchor — the `(6, 2)` row of
+    /// `fixed_bang_destinations_respect_alignment_and_operand_contact` asserts
+    /// exactly that silence.
+    ///
+    /// `^^ vv << >>` are the first roots declaring no operand, so the arm now
+    /// answers with one. What it answers still changes nothing: both callers
+    /// act on a root only where the root is not intrinsically active, and every
+    /// zero-operand root there is takes its Turn without a Bang. The first
+    /// Function to make this arm decide a Tick is a Directional Bang Function,
+    /// which declares no operand and waits for activation;
+    /// `spatial-tick-planning/06` carries the test that drives it.
+    ///
+    /// The arm is kept meanwhile because the asymmetry it states is the
+    /// language's and not this function's: a horizontally aligned root anchors
+    /// two columns away because every Language Unit spells as a Cell pair.
     fn bang_roots(&self) -> impl Iterator<Item = usize> + '_ {
         let in_operand = self
             .lookup
@@ -648,14 +690,30 @@ fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::Comput
     )
 }
 
-/// An inactive root can contribute no child Portal. Start from value roots,
-/// then close over potential Bang deliveries; actual activation is still
-/// checked during execution, after those producers have settled.
-fn potentially_active(lookup: &Lookup) -> Vec<bool> {
+///
+/// Which roots this Tick must order effects for: the ones that take a Turn
+/// with nothing delivered to them, closed over every root those can deliver
+/// activation to.
+///
+/// An inactive root contributes no Portal, so a schedule that left one out
+/// would order nothing against the writes it turns out to make. The seed is
+/// exact — a root declares its activation source and nothing else decides it,
+/// per ADR 0006 — and the closure is deliberately wider than the Tick: which
+/// root a delivery actually reaches depends on values and on working Source
+/// that no schedule has yet, so execution checks activation again once those
+/// producers have settled.
+///
+/// Two declarations deliver, because ADR 0006 gives activation two paths. A
+/// Function that can return Bang delivers through the Bang it writes, to the
+/// cardinal anchors that ADR names for a Source-resident Bang. A Source-writing
+/// Function delivers on contact, to a complete root its own Span moves into. No
+/// row declares both.
+///
+fn active_roots(lookup: &Lookup) -> Vec<bool> {
     let nodes = lookup.nodes();
     let mut active: Vec<_> = nodes
         .iter()
-        .map(|node| node.parent.is_none() && node.function.answers_value())
+        .map(|node| node.parent.is_none() && node.function.is_intrinsically_active())
         .collect();
     let mut pending: Vec<_> = active
         .iter()
@@ -664,11 +722,11 @@ fn potentially_active(lookup: &Lookup) -> Vec<bool> {
         .collect();
     while let Some(owner) = pending.pop() {
         for index in lookup.descendants(owner) {
-            let node = &nodes[index];
-            if !node.function.can_emit_bang() {
+            let function = nodes[index].function;
+            if !function.can_emit_bang() && function.source_write().is_none() {
                 continue;
             }
-            for output in node
+            for output in nodes[index]
                 .outputs
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
@@ -676,8 +734,19 @@ fn potentially_active(lookup: &Lookup) -> Vec<bool> {
                 let Some(relationships) = lookup.reserved_at(index, *output) else {
                     continue;
                 };
-                for index in relationships.bang_roots() {
-                    if !nodes[index].function.answers_value() && !active[index] {
+                let banged = function
+                    .can_emit_bang()
+                    .then(|| relationships.bang_roots())
+                    .into_iter()
+                    .flatten();
+                let contacted = function
+                    .source_write()
+                    .is_some()
+                    .then(|| relationships.contacted_roots())
+                    .into_iter()
+                    .flatten();
+                for index in banged.chain(contacted).collect::<Vec<_>>() {
+                    if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
                         pending.push(index);
                     }
@@ -730,12 +799,31 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 // resolve multiple Portals. Asking the wide question here
                 // would deny the Halt, Directional Bang, and Jump Functions a
                 // Portal they are entitled to.
-                let outputs = if function.performs_terminal_output() {
+                let outputs = if function.performs_terminal_output() || parent.is_some() {
                     vec![]
-                } else if parent.is_none() {
-                    vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())]
+                } else if let Some((columns, rows)) = function.source_write() {
+                    // ADR 0004's effect bundle, in the emission order ADR 0020
+                    // resolves it by: the Cells this Function clears, then the
+                    // Cells it writes at the Portal it declares. Both are
+                    // reserved because a clear is a write — scheduling makes
+                    // its dependency edges from every Cell a producer reaches,
+                    // and a clear reaching a computation that already ran is
+                    // the ordering defect execution rejects a Tick for.
+                    //
+                    // The displacement is read from the declaration here and
+                    // answered again by the Interpreter at the Turn. That is
+                    // the relationship ADR 0036 already has between a
+                    // reservation and the write it orders: a schedule is fixed
+                    // before any Function evaluates, so it reads what the
+                    // Function declares, and the admitted write is the answer
+                    // arriving inside what was reserved for it.
+                    vec![
+                        Ok(anchor),
+                        Portal::displaced(grid, anchor, columns, rows)
+                            .map(|portal| portal.destination()),
+                    ]
                 } else {
-                    vec![]
+                    vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())]
                 };
                 nodes.push(Computation {
                     anchor,
@@ -802,7 +890,7 @@ fn order_turns(
 ) -> Result<Schedule, Vec<Diagnostic>> {
     let grid = lookup.grid;
     let nodes = lookup.nodes();
-    let active = potentially_active(&lookup);
+    let active = active_roots(&lookup);
     let mut edges = BTreeSet::new();
     for (index, node) in nodes.iter().enumerate() {
         if let Some(parent) = node.parent {
@@ -841,12 +929,40 @@ fn order_turns(
             // asks `written_over` over the Cells actually covered, and ADR
             // 0034's executed-computation guard is waiting for them there.
             let may_stop_short = lookup.reserved(index).admits_a_narrower_write();
+            // The third way a producer's own Cells are not a defect, and the
+            // only one a declaration states outright: ADR 0004's bundle for a
+            // Source-writing Function clears the Span it stands in, so its
+            // first Portal covers its own spelling by design. Ordering it after
+            // itself would reject every Tick one of these takes a Turn in.
+            let clears_its_own_span = node.function.source_write().is_some();
             let mut order_after = |consumer: usize| {
-                if !(may_stop_short && consumer == index) {
+                if !((may_stop_short || clears_its_own_span) && consumer == index) {
                     edges.insert((index, consumer));
                 }
             };
             for contact in relationships.functions() {
+                // ADR 0004 admits a move only where the Cells it enters are
+                // empty, so a Source-writing Function's Portal never writes
+                // over the Language Unit it contacts: the contact blocks the
+                // move and the Function bangs its own Span instead. The one
+                // thing contact still delivers is Bang activation, and an
+                // intrinsically active root does not need it — which is the
+                // exemption the Bang emission arm below already makes, for the
+                // same reason.
+                //
+                // Without it two Functions whose Portals cover each other name
+                // each other in reservations neither can write through, and
+                // ordering each after the other makes that pair a cycle that
+                // costs the whole Grid its Tick. ADR 0036 names that rejected
+                // alternative: a reservation orders Turns and decides nothing
+                // else, and two blocked moves are not a contested Cell.
+                if clears_its_own_span
+                    && nodes[nodes[contact.index].owner]
+                        .function
+                        .is_intrinsically_active()
+                {
+                    continue;
+                }
                 for descendant in contact.subtree {
                     order_after(descendant);
                 }
@@ -856,7 +972,7 @@ fn order_turns(
             }
             if node.function.can_emit_bang() {
                 for owner in relationships.bang_roots() {
-                    if !nodes[owner].function.answers_value() {
+                    if !nodes[owner].function.is_intrinsically_active() {
                         for consumer in lookup.descendants(owner) {
                             order_after(consumer);
                         }
@@ -1078,6 +1194,294 @@ mod test {
                 .push(grid.position_at(cell(grid, *output)));
         }
         carried
+    }
+
+    ///
+    /// The committed Source as one string per Grid row.
+    ///
+    /// A Self-Banging Function is specified by where its Cells are, so a test
+    /// of one states a Grid and compares a Grid. Reading the same fact off a
+    /// list of Cell indices states the arithmetic instead of the geometry, and
+    /// an expectation nobody can picture is one nobody can check.
+    ///
+    fn rows_of(grid: Grid, source: &crate::source::Source) -> Vec<String> {
+        source
+            .snapshot()
+            .into_bytes()
+            .chunks(grid.cols())
+            .map(|row| String::from_utf8(row.to_vec()).expect("ASCII Source"))
+            .collect()
+    }
+
+    ///
+    /// Runs `ticks` consecutive Ticks against `rows` through the production
+    /// path, answering the Grid after each one.
+    ///
+    /// [`crate::source::Source::execute`] and not [`carried_source`]: a
+    /// Self-Banging Function resolves its own Portals from the offset it
+    /// declares, so a fixture that carried destinations for it would be
+    /// testing the fixture.
+    ///
+    fn tick_by_tick(
+        grid: Grid,
+        rows: &[&str],
+        ticks: u64,
+    ) -> (Vec<TickPlan>, Vec<Vec<String>>, crate::source::Source) {
+        let mut source = seeded_source(grid, rows);
+        let mut plans = Vec::new();
+        let mut grids = Vec::new();
+        for tick in 0..ticks {
+            plans.push(source.execute(Tick::new(tick)));
+            grids.push(rows_of(grid, &source));
+        }
+        (plans, grids, source)
+    }
+
+    ///
+    /// The messages one Tick Plan diagnosed, so a test states what was said
+    /// rather than how many things were.
+    ///
+    fn messages(plan: &TickPlan) -> Vec<&str> {
+        plan.diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn a_self_banging_function_advances_its_whole_span_by_one_cell() {
+        // ADR 0006's move, in all four directions, each from the middle of a
+        // Grid that admits it. The vertical pair shares no Cell with the Span
+        // it left; the horizontal pair overlaps it by one, and per ADR 0004
+        // the clear still covers the complete old Span while ADR 0020's
+        // later-write-wins commits the Cell the two writes share. Carving the
+        // clear around that Cell and testing both Cells a horizontal move
+        // lands on are the two symmetrical bugs this states the answer to.
+        let column = Grid::new(6, 3);
+        let (_, north, _) = tick_by_tick(column, &["", "^^", ""], 1);
+        assert_eq!(north[0], ["^^    ", "      ", "      "]);
+
+        let (_, south, _) = tick_by_tick(column, &["", "vv", ""], 1);
+        assert_eq!(south[0], ["      ", "      ", "vv    "]);
+
+        let row = Grid::new(6, 1);
+        let (_, east, _) = tick_by_tick(row, &["  >>  "], 1);
+        assert_eq!(east[0], ["   >> "]);
+
+        let (_, west, _) = tick_by_tick(row, &["  <<  "], 1);
+        assert_eq!(west[0], [" <<   "]);
+    }
+
+    #[test]
+    fn a_self_banging_function_moves_once_per_tick_and_bangs_where_it_stops() {
+        // Intrinsic activation is a turn every Tick and not a one-off: the
+        // Function is in the Snapshot each time, so it moves each time. The
+        // last Tick is the edge, which is the other half — an out-of-Grid move
+        // costs it the Span it stood in and leaves `**` there.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["  >>  "], 3);
+
+        assert_eq!(grids[0], ["   >> "]);
+        assert_eq!(grids[1], ["    >>"]);
+        assert_eq!(grids[2], ["    **"]);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn a_move_that_leaves_the_grid_replaces_its_own_span_with_bang() {
+        // Every edge, each reached by the one Function that points at it. Two
+        // refusals answer for the four: a displacement past the first column
+        // or past the last row resolves no Portal at all, and a displacement
+        // that stays inside the Grid but runs past the row edge resolves one
+        // and is refused the whole write. ADR 0006 gives both the same cost,
+        // so the Grid says the same thing four times.
+        let column = Grid::new(4, 1);
+        let (_, north, _) = tick_by_tick(column, &["^^  "], 1);
+        assert_eq!(north[0], ["**  "]);
+
+        let (_, south, _) = tick_by_tick(column, &["vv  "], 1);
+        assert_eq!(south[0], ["**  "]);
+
+        let (_, west, _) = tick_by_tick(column, &["<<  "], 1);
+        assert_eq!(west[0], ["**  "]);
+
+        let (_, east, _) = tick_by_tick(column, &["  >>"], 1);
+        assert_eq!(east[0], ["  **"]);
+    }
+
+    #[test]
+    fn an_eastward_move_stops_at_the_row_edge_rather_than_wrapping_into_the_next_row() {
+        // A row is the whole horizontal extent there is. The Cell after the
+        // last column of row 0 exists in the Grid and is the first Cell of row
+        // 1, so a displacement alone cannot tell the two apart; the row-edge
+        // refusal is what does, and it costs the whole write. The second row
+        // stays empty, which is the assertion that says so.
+        let (_, grids, _) = tick_by_tick(Grid::new(4, 2), &["  >>", ""], 1);
+
+        assert_eq!(grids[0], ["  **", "    "]);
+    }
+
+    #[test]
+    fn a_westward_move_stops_at_the_row_edge_rather_than_wrapping_into_the_previous_row() {
+        // The mirror, and a different refusal reaching the same cost. Eastward
+        // off the last column and westward off the first both stay inside the
+        // Grid when the neighbouring row exists, so `Portal::displaced`
+        // resolves a destination in each case and the row-edge check is the
+        // only thing that refuses it. The single-row edge tests above take the
+        // other path, where no Portal resolves at all.
+        let (_, grids, _) = tick_by_tick(Grid::new(4, 2), &["", "<<  "], 1);
+
+        assert_eq!(grids[0], ["    ", "**  "]);
+    }
+
+    #[test]
+    fn two_movers_reserving_each_other_each_bang_rather_than_costing_the_tick() {
+        // Each of these reserves a destination that covers the other's Span,
+        // so the two reservations name each other. A reservation orders Turns
+        // and decides nothing else, per ADR 0036, and neither of these Turns
+        // can write where the other stands: a move is admitted only into empty
+        // Cells, so mutual reservation describes two blocked moves rather than
+        // two writes competing for one Cell. Ordering either after the other
+        // would make that pair a cycle and cost the whole Grid its Tick, which
+        // is the rejected alternative ADR 0036 names. Both are blocked by
+        // complete root contact and both bang, which is what ADR 0006 gives a
+        // blocked move whatever blocked it.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &[">><<  "], 1);
+
+        assert_eq!(grids[0], ["****  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        // The vertical pair shares no Cell at all, so it says the same thing
+        // about reservations rather than about the overlap a horizontal move
+        // has with its own old Span.
+        let (vertical, rows, _) = tick_by_tick(Grid::new(2, 2), &["vv", "^^"], 1);
+
+        assert_eq!(rows[0], ["**", "**"]);
+        assert!(
+            vertical[0].diagnostics.is_empty(),
+            "{:?}",
+            vertical[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_move_blocked_by_one_complete_language_unit_bangs_without_diagnosing() {
+        // ADR 0006: "Complete non-root contact adds no collision diagnostic."
+        // The two Cells north of `^^` are the whole of the `01` operand
+        // literal, so the contact is complete and the unit is no root. The
+        // Addition beside it still answers, which is what says the `**` is
+        // this Function reporting its own blocked move rather than the Tick
+        // going wrong around it.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 3), &[".+0102", "  ^^", ""], 1);
+
+        assert_eq!(grids[0], [".+0102  ", "03**    ", "        "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_move_that_lands_across_two_language_units_diagnoses_its_misalignment() {
+        // The other half of the same rule: these two Cells hold the last Cell
+        // of `01` and the first Cell of `02`, so neither unit is met whole.
+        // ADR 0006 diagnoses and delivers nothing, and the move is blocked
+        // exactly as a complete contact blocks it — the diagnostic is the only
+        // difference, because a misalignment is the one outcome the `**` alone
+        // does not tell a Source author about.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 3), &[".+0102", "   ^^", ""], 1);
+
+        assert_eq!(grids[0], [".+0102  ", "03 **   ", "        "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["^^ contacts part of a Language Unit"]
+        );
+    }
+
+    #[test]
+    fn complete_aligned_root_contact_activates_the_root_it_blocked_against() {
+        // ADR 0006: "Complete aligned root contact also directly delivers Bang
+        // activation." The Raw Play north of `^^` is inert on its own, so the
+        // Play Command is the whole evidence that activation was delivered —
+        // and the `**` is the evidence the move was still blocked, because
+        // ADR 0006 gives contact both outcomes and not a choice between them.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["!>007FC4", "^^"], 1);
+
+        assert_eq!(grids[0], ["!>007FC4", "**      "]);
+        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_horizontally_aligned_root_is_contacted_two_columns_away() {
+        // The same rule where the geometry differs: a horizontal move enters
+        // one Cell, and the root whose Span holds that Cell is anchored two
+        // columns from the producer, because every Language Unit spells as a
+        // Cell pair. That is ADR 0006's east anchor `(x+2, y)` reached by
+        // contact rather than by a Source-resident Bang, and it is why the
+        // contact rule asks which unit covers the Cells entered rather than
+        // which unit begins at them.
+        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &[">>!>007FC4", ""], 1);
+
+        assert_eq!(grids[0], ["**!>007FC4", "          "]);
+        assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn the_schedule_orders_a_move_ahead_of_the_computation_it_would_land_on() {
+        // Reserving the destination Portal is what puts these two Turns in an
+        // order, and the order is what keeps the move honest: `>>` points at
+        // the Cell `^^` stands in, so `>>` takes its Turn first and reads the
+        // Source Snapshot's own answer — blocked, by a complete root, so `**`
+        // and an activation `^^` already had. `^^` then moves north out of the
+        // way it never had to give.
+        //
+        // Without that edge `^^` could move first and `>>` would find the Cell
+        // empty, planning a write over Cells a computation that had already
+        // run was scheduled at. That is the defect ADR 0034 rejects a Tick for,
+        // and this is the ordering that stops it arising.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["", ">>^^  "], 1);
+
+        assert_eq!(grids[0], ["  ^^  ", "**    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_self_banging_function_is_not_scheduled_inside_another_expression() {
+        // Root-only, enforced by the declared kind rather than by a check that
+        // names these four spellings: `.+` declares two Number operands, `^^`
+        // answers an effect, and ADR 0028's nesting rule refuses it where a
+        // value is required. The refusal is the Expression's, so the Cells are
+        // left standing and nothing moves.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &[".+^^01", ""], 1);
+
+        assert_eq!(grids[0], [".+^^01  ", "        "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec![
+                "a Function that answers an effect is valid only at the root of an Expression",
+                "nested computation at column 2, row 0 supplied no typed result",
+            ]
+        );
     }
 
     /// `carry` splices its refusals in front of the diagnostics it was handed,
@@ -1832,6 +2236,61 @@ mod test {
             d.message
                 .contains("activation requirements, output kind, or result width")
         }));
+    }
+
+    #[test]
+    fn a_replacement_that_changes_only_the_activation_source_is_refused() {
+        // The term the Self-Banging Functions added to that guard. Raw Play and
+        // `^^` agree on every other column it reads — neither answers a value,
+        // neither can return Bang, and both reserve a Cell pair — and they
+        // differ in where their activation comes from. A guard still asking
+        // `answers_value` for that question would admit this replacement and
+        // leave the schedule holding edges derived from a root that now needs
+        // no Bang.
+        let (plan, source) = replaced_source(
+            Grid::new(16, 3),
+            &[".+0000", "!>007FC4", ""],
+            &[(0, 16)],
+            &[(0, lang::Function::SelfBangingNorth)],
+        );
+
+        assert_eq!(&source.snapshot()[16..24], "!>007FC4");
+        assert!(plan.diagnostics.iter().any(|d| {
+            d.message
+                .contains("activation requirements, output kind, or result width")
+        }));
+    }
+
+    #[test]
+    fn a_replacement_that_changes_only_the_declared_portal_offset_is_refused() {
+        // Two Self-Banging Functions agree on every other column the guard
+        // reads — neither answers a value, both are intrinsically active,
+        // neither can return Bang, and both reserve a Cell pair — and they
+        // differ only in the Portal offset they declare. The schedule reserved
+        // the Cells `^^` declares, so admitting `>>` here would leave the Turn
+        // writing at Cells no dependency edge names, which is the ADR 0036
+        // defect this guard exists to refuse.
+        let (plan, source) = replaced_source(
+            Grid::new(16, 3),
+            &[".+0000", "^^", ""],
+            &[(0, 16)],
+            &[(0, lang::Function::SelfBangingEast)],
+        );
+
+        // `^^` stays the running Function and takes its own Turn, which the
+        // Addition to its north blocks, so its Span is the Bang a blocked move
+        // leaves. That is the assertion: an admitted replacement moves east
+        // instead, leaving a space and a `>` here and writing the second `>`
+        // one Cell outside the reservation.
+        assert_eq!(&source.snapshot()[16..18], "**");
+        assert!(
+            plan.diagnostics.iter().any(|d| {
+                d.message
+                    .contains("activation requirements, output kind, or result width")
+            }),
+            "{:?}",
+            plan.diagnostics
+        );
     }
 
     #[test]

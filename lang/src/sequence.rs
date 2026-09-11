@@ -25,15 +25,15 @@ impl Sequence {
     ///
     /// Membership is checked here and nowhere else, so [`Sequence::empty`],
     /// [`Sequence::promote`], and every Sequence Function a later issue adds
-    /// inherit exactly one rule and one diagnostic. An `Atom::Activation` is
-    /// refused because a Self-Banging Function is a root-only Source effect
-    /// rather than an operand, runtime value, or Sequence member; an
-    /// `Atom::Empty` is refused because it is the absence marker the
-    /// Interpreter answers with when an Expression leaves no value, not an
-    /// Atom with a Source encoding; and a Function Atom is refused when its
-    /// declared kind says it answers an effect, because per ADR 0029 a Sequence
-    /// is the value that carries results and so admits only a Function that
-    /// answers one.
+    /// inherit exactly one rule and one diagnostic. An `Atom::Empty` is
+    /// refused because it is the absence marker the Interpreter answers with
+    /// when an Expression leaves no value, not an Atom with a Source encoding;
+    /// and a Function Atom is refused when its declared kind says it answers an
+    /// effect, because per ADR 0029 a Sequence is the value that carries
+    /// results and so admits only a Function that answers one. A Self-Banging
+    /// Function is refused by that second rule rather than by one of its own:
+    /// being a root-only Source effect is what its declared kind states, so
+    /// one rule keeps one mechanism.
     pub fn new(atoms: impl IntoIterator<Item = Atom>) -> Result<Self, Error> {
         let atoms: Vec<Atom> = atoms.into_iter().collect();
 
@@ -55,8 +55,8 @@ impl Sequence {
     /// Promotes one Atom into a singleton Sequence.
     ///
     /// This is the only promotion, so an operand a Sequence Function widens
-    /// diagnoses identically to a member supplied directly: a promoted
-    /// Activation or Empty is refused by [`Sequence::new`] with the same
+    /// diagnoses identically to a member supplied directly: a promoted effect
+    /// Function or Empty is refused by [`Sequence::new`] with the same
     /// diagnostic it would raise inside a longer Sequence.
     #[inline(always)]
     pub fn promote(atom: Atom) -> Result<Self, Error> {
@@ -88,19 +88,17 @@ impl Sequence {
     /// wildcard, so a new variant is classified here, by the compiler, instead
     /// of becoming a legal member by default.
     ///
-    /// The Function arm is the one refusal that reads a declaration rather than
-    /// a variant, because ADR 0029 makes membership follow from whether a
-    /// Function answers a value: an enumerated check naming `*^` or `*!` would
-    /// be a second place to keep in step with the Function definitions and
-    /// would silently admit the next effect Function declared. A Directional
-    /// Bang Function is refused here, by its kind, while the Self-Banging
-    /// Function it emits is refused by the `Atom::Activation` arm above — the
-    /// two mechanisms ADR 0029 keeps apart, because the activation asymmetry
-    /// between them is why both forms exist.
+    /// The Function arm reads a declaration rather than a variant, because
+    /// ADR 0029 makes membership follow from whether a Function answers a
+    /// value: an enumerated check naming `*^` or `*!` would be a second place
+    /// to keep in step with the Function definitions and would silently admit
+    /// the next effect Function declared. Every Source-writing Function is
+    /// refused here by its kind, the Self-Banging Functions among them, so one
+    /// rule keeps one mechanism.
     #[inline(always)]
     fn check_member(atom: Atom) -> Result<(), Error> {
         match atom {
-            Atom::Activation(_) | Atom::Empty => Err(SequenceError::Member(atom.into()).into()),
+            Atom::Empty => Err(SequenceError::Member(atom.into()).into()),
             Atom::Function(function) if !function.answers_value() => {
                 Err(SequenceError::Member(atom.into()).into())
             }
@@ -190,9 +188,7 @@ impl TryFrom<Value> for Sequence {
 #[cfg(test)]
 mod test {
     use super::{Sequence, Value};
-    use crate::{
-        Activation, Atom, Error, Function, Note, SequenceError, to_atom_note, to_atom_num,
-    };
+    use crate::{Atom, Error, Function, Note, SequenceError, to_atom_note, to_atom_num};
 
     fn note(value: u8) -> Atom {
         Atom::Note(Note::try_from(value).unwrap())
@@ -246,7 +242,6 @@ mod test {
         // fail to compile here rather than needing a flattening pass at
         // construction.
         for atom in [
-            Atom::Activation(Activation::North),
             Atom::Bang,
             Atom::Char('z'),
             Atom::Empty,
@@ -255,8 +250,7 @@ mod test {
             Atom::Number(0),
         ] {
             match atom {
-                Atom::Activation(_)
-                | Atom::Bang
+                Atom::Bang
                 | Atom::Char(_)
                 | Atom::Empty
                 | Atom::Function(_)
@@ -357,13 +351,18 @@ mod test {
 
     #[test]
     fn a_self_banging_function_is_rejected_as_a_member_and_through_promotion() {
-        for activation in [
-            Activation::North,
-            Activation::South,
-            Activation::West,
-            Activation::East,
-        ] {
-            let atom = Atom::Activation(activation);
+        // Read from the table rather than listed, so a fifth Self-Banging
+        // Function is covered the day it is declared. Each is refused by the
+        // declared-kind arm that refuses every other effect Function, which is
+        // ADR 0029's one rule reaching them through one mechanism.
+        let mut seen = 0;
+        for function in Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| function.source_write().is_some())
+        {
+            seen += 1;
+            let atom = Atom::Function(function);
 
             for result in [
                 Sequence::promote(atom),
@@ -373,11 +372,15 @@ mod test {
                 let error = result.unwrap_err();
                 assert!(
                     matches!(&error, Error::Sequence(SequenceError::Member(found))
-                        if found == activation.spelling()),
-                    "{activation:?} gave {error:?}"
+                        if found == &function.to_string()),
+                    "{function:?} gave {error:?}"
                 );
             }
         }
+        assert_eq!(
+            seen, 4,
+            "the Source-writing rows are no longer the four expected"
+        );
     }
 
     #[test]
