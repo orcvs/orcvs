@@ -267,3 +267,7 @@ _Avoid_: Guide, gridline, ruler dot
 **Render Frame**:
 One repaint of the console, in which every Position the Grid yields is drawn once. Render Frames are driven by the UI many times a second, independently of musical time: a Render Frame reads the Source and never advances Playback, so it is not a Tick.
 _Avoid_: Frame, Tick, refresh
+
+**Paint**:
+The per-Cell decision of how one Render Frame is drawn: its background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
+_Avoid_: Shapes, draw list, painter

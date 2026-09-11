@@ -439,21 +439,21 @@ fn blank_character(glyph: Glyph) -> char {
 /// table is an array of nine `char`s indexed by [`blank_glyph_index`], so
 /// building it is far cheaper than the per-Cell reads it saves.
 ///
-struct CellCharacters {
+pub(crate) struct CellCharacters {
     /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
     blanks: [char; BLANK_GLYPHS.len()],
 }
 
 impl CellCharacters {
     /// Reads what an empty Cell of each [`Glyph`] spells.
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             blanks: BLANK_GLYPHS.map(blank_character),
         }
     }
 
     /// The character `cell` shows.
-    fn character(&self, cell: &RenderCell) -> char {
+    pub(crate) fn character(&self, cell: &RenderCell) -> char {
         cell.content()
             .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
     }
