@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use egui::{
-    Color32, CornerRadius, Event, EventFilter, FontId, Key, Pos2, Rect, Sense, Shape, Stroke,
-    StrokeKind, Vec2, epaint::RectShape, text::Galley,
+    Color32, CornerRadius, Event, EventFilter, FontId, Key, PointerButton, Pos2, Rect, Sense,
+    Shape, Stroke, StrokeKind, Vec2, containers::DragPanButtons, emath::TSTransform,
+    epaint::RectShape, text::Galley,
 };
 
-use crate::grid_viewport::{GridViewport, grid_viewport};
+use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
 use crate::persistence::starting_source;
 use crate::style::{PALETTE, cell_visuals, sector_line, style};
@@ -23,6 +24,41 @@ const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 2.0;
+
+///
+/// The step the scale is quantised to before it reaches a [`FontId`].
+///
+/// # Why this is an atlas budget, not a cache-hit rate
+///
+/// A Glyph is laid out at the size it is drawn at, so the scale has to reach
+/// the font size. A *continuous* scale would reach it as a fresh size per
+/// Render Frame, and epaint rasterises a fresh glyph set per distinct size —
+/// `FontImpl::glyph_info` scales by `font_size * pixels_per_point` and rounds
+/// nothing (`epaint-0.36.1/src/text/font.rs:567`). `subpixel_binning` is on by
+/// default (`epaint-0.36.1/src/text/mod.rs:62`) and renders each glyph at up to
+/// four fractional offsets, so a zoom sweep across `N` sizes costs up to
+/// `N x alphabet x 4` rasters into one atlas.
+///
+/// That is the budget, because the atlas is not merely wasted when it fills:
+/// `Fonts::begin_pass` replaces the whole `FontsImpl` — a new atlas with empty
+/// glyph caches — as soon as `atlas.fill_ratio()` passes 0.8
+/// (`epaint-0.36.1/src/text/fonts.rs:734-748`), restarting glyph rasterisation
+/// mid-session for every size already paid for.
+///
+/// At a step of an eighth, the zoom range `MIN_ZOOM..=MAX_ZOOM` holds fifteen
+/// distinct scales, so a viewer who sweeps the whole range spends at most
+/// `15 x 94 x 4 = 5,640` rasters — roughly two megapixels of a 2048-square
+/// atlas at one device pixel per point, which stays inside the fill ratio.
+/// Both zoom limits and the Source's own scale are exact multiples of the step,
+/// so the default window and either end of the range land on it rather than
+/// beside it.
+///
+/// The step costs a Glyph at most a sixteenth of the Source's Cell scale in
+/// size, which is at most six percent of a Glyph at or above the Source's own
+/// scale and more than that below it. It is still strictly sharper than what it
+/// replaces: a Scene bilinearly resamples one rasterised size at *every* zoom.
+///
+const GLYPH_SCALE_STEP: f32 = 0.125;
 
 /// The height the top panel takes from the window, leaving the rest to the
 /// console. It is the panel's own minimum, which the menu bar does not exceed.
@@ -86,24 +122,54 @@ fn source_bounds(columns: usize, rows: usize) -> Rect {
 }
 
 ///
-/// The region of the Source the Scene shows, and whether the viewer has moved
-/// it.
+/// The scale and translation the Source is presented under, and whether the
+/// viewer has moved it.
 ///
-/// While the viewer has not panned or zoomed, the region follows the fitted
+/// This is what the console holds instead of handing a region to an
+/// `egui::Scene`. It carries a transform rather than a Scene-space rectangle
+/// because a rectangle only describes a fit: it cannot say where the Source
+/// sits once a viewer has panned to somewhere the fit never chose.
+///
+/// While the viewer has not panned or zoomed, the transform follows the fitted
 /// square viewport, so every resize re-fits rather than cropping.
 ///
+#[derive(Default)]
 struct SourceView {
-    rect: Rect,
+    to_global: TSTransform,
     adjusted: bool,
 }
 
-impl Default for SourceView {
-    fn default() -> Self {
-        Self {
-            rect: Rect::ZERO,
-            adjusted: false,
-        }
+///
+/// Whether `to_global` can be presented and inverted.
+///
+/// `egui::Scene::show` used to reset a transform that had gone bad
+/// (`egui-0.36.1/src/containers/scene.rs:151-152, 168-173`) and nothing
+/// replaces that once the container is gone. `grid_viewport` answers a Cell
+/// size of zero for a console with no area, so the fit it yields has a scaling
+/// of zero, and `TSTransform::inverse` divides by the scaling — which
+/// `Scene::register_pan_and_zoom` does on every frame the pointer is over the
+/// console. An unguarded zero therefore resolves every pointer position to NaN.
+///
+/// `TSTransform::is_valid` is not enough on its own: it checks only
+/// `translation.x` (`emath-0.36.1/src/ts_transform.rs:55-57`) and admits a
+/// negative scaling, which would present the Source mirrored.
+///
+fn is_presentable(to_global: TSTransform) -> bool {
+    to_global.scaling.is_finite() && to_global.scaling > 0.0 && to_global.translation.is_finite()
+}
+
+///
+/// The scale a [`FontId`] is derived from, quantised to [`GLYPH_SCALE_STEP`].
+///
+/// Never zero or negative: a font size of zero lays nothing out, and the
+/// smallest step still draws something a viewer can see is there.
+///
+fn glyph_scale(scaling: f32) -> f32 {
+    if !scaling.is_finite() || scaling <= 0.0 {
+        return GLYPH_SCALE_STEP;
     }
+
+    ((scaling / GLYPH_SCALE_STEP).round() * GLYPH_SCALE_STEP).max(GLYPH_SCALE_STEP)
 }
 
 #[derive(Default)]
@@ -212,18 +278,12 @@ fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
 }
 
-fn scene_zoom(console_area: Vec2, source_view_rect: Rect) -> Option<f32> {
-    (source_view_rect.is_positive() && console_area.x > 0.0 && console_area.y > 0.0).then(|| {
-        (console_area.x / source_view_rect.width()).min(console_area.y / source_view_rect.height())
-    })
-}
-
 fn show_diagnostics(
     ctx: &egui::Context,
     open: &mut bool,
     frame: &eframe::Frame,
-    source_view_rect: Rect,
-    console_area: Vec2,
+    to_global: TSTransform,
+    console: Rect,
     cell_size: f32,
 ) {
     let frame_time = ctx.input(|input| input.stable_dt);
@@ -260,16 +320,14 @@ fn show_diagnostics(
                     ui.monospace(format!("{cell_size:.1} pt"));
                     ui.end_row();
 
+                    // The console owns the transform, so the zoom is a field of
+                    // it rather than a ratio derived back out of a region.
                     ui.label("Source zoom");
-                    ui.monospace(
-                        scene_zoom(console_area, source_view_rect)
-                            .map(|zoom| format!("{zoom:.2}×"))
-                            .unwrap_or_else(|| "—".to_owned()),
-                    );
+                    ui.monospace(format!("{:.2}×", to_global.scaling));
                     ui.end_row();
 
                     ui.label("Visible Source region");
-                    ui.monospace(format!("{source_view_rect:.1?}"));
+                    ui.monospace(format!("{:.1?}", to_global.inverse() * console));
                     ui.end_row();
 
                     ui.label("Pixels per point");
@@ -462,34 +520,51 @@ fn show_source(
     orcvs: &mut Orcvs,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
+    grid: GridViewport,
+    clip: Rect,
 ) {
     let (columns, rows) = source_dimensions(frame);
     // One rectangle for the whole Grid, sensing clicks and nothing else.
     //
     // Within a layer a later-registered child wins the click tie, and would win
-    // the drag too if it sensed drag. The Scene's pan response is registered
-    // before any content, so sensing clicks alone takes the clicks and leaves
-    // the middle-drag pan to the Scene. `Sense::CLICK` rather than
-    // `Sense::click()`, which is `CLICK | FOCUSABLE` and would put the Grid in
-    // the tab order where a thousand Buttons never were.
+    // the drag too if it sensed drag. The pan rectangle `show_source_scene`
+    // allocates is registered before this one, so sensing clicks alone takes
+    // the clicks and leaves the middle-drag pan to it. `Sense::CLICK` rather
+    // than `Sense::click()`, which is `CLICK | FOCUSABLE` and would put the
+    // Grid in the tab order where a thousand Buttons never were.
     //
     // The rectangle is the Grid, not the console area. The letterboxing is the
-    // only territory where the Scene's own `double_clicked()` still fires, and
-    // that double click is what hands a pinned view back to the fit.
-    let (grid_rect, response) = ui.allocate_exact_size(
-        Vec2::new(columns as f32, rows as f32) * CELL_SIZE,
+    // only territory where the pan rectangle's own `double_clicked()` still
+    // fires, and that double click is what hands a pinned view back to the fit.
+    //
+    // Clipped to the console, because `Ui::interact` bounds a widget by the
+    // `Ui`'s clip rect rather than by the console area, and a zoomed-in Grid
+    // reaches past the console on every side. `Scene::show` used to set that
+    // clip rect itself (`scene.rs:209`); with the container gone the Grid
+    // states its own bound.
+    let response = ui.interact(
+        grid.rect.intersect(clip),
+        ui.id().with("source_grid"),
         Sense::CLICK,
     );
-    // The Grid as the Source lays it out. Painting and clicking go through this
-    // one arithmetic, so a click cannot resolve to a Cell other than the one
-    // drawn under it.
-    let grid = GridViewport {
-        cell_size: CELL_SIZE,
-        rect: grid_rect,
-    };
+    // What `Scene::show` did with `set_clip_rect` and a sublayer, in the one
+    // layer that is left: the Grid is clipped to the console area, so a zoomed
+    // Grid cannot paint over the chrome around it. A sublayer is not needed
+    // because the Source Grid is all this layer holds, so painting it directly
+    // is the ordering `set_sublayer` used to arrange.
+    let painter = ui.painter().with_clip_rect(clip);
+    // The scale is already in the Cell size, and the Scene used to carry it to
+    // the strokes as well, so the Grid lines and sector seams take it here
+    // rather than staying one Source point wide at every zoom.
+    let scale = grid.cell_size / CELL_SIZE;
     let glyphs = GlyphTable::lay_out(
         ui.ctx(),
-        FontId::new(DEFAULT_FONT_SIZE, font_family.clone()),
+        // Laid out at the size it is drawn at rather than resampled from a
+        // rasterisation at the Source's own size, which is the second thing the
+        // layer transform cost. The scale is quantised so a steady zoom hits
+        // the galley cache and a sweep across the zoom range stays inside the
+        // atlas; see `GLYPH_SCALE_STEP`.
+        FontId::new(DEFAULT_FONT_SIZE * glyph_scale(scale), font_family.clone()),
     );
 
     let cells = columns.saturating_mul(rows);
@@ -508,7 +583,7 @@ fn show_source(
                 cell.selected(),
                 cell.cursor_visible(),
             );
-            let border = Stroke::new(GRID_LINE_WIDTH, visuals.border);
+            let border = Stroke::new(GRID_LINE_WIDTH * scale, visuals.border);
 
             backgrounds.push(Shape::Rect(RectShape::new(
                 rect,
@@ -537,13 +612,13 @@ fn show_source(
                 if let Some(strength) = cell.sector_left_strength() {
                     seams.push(Shape::line_segment(
                         [rect.left_top(), rect.left_bottom()],
-                        Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
+                        Stroke::new(SECTOR_LINE_WIDTH * scale, sector_line(strength)),
                     ));
                 }
                 if let Some(strength) = cell.sector_top_strength() {
                     seams.push(Shape::line_segment(
                         [rect.left_top(), rect.right_top()],
-                        Stroke::new(SECTOR_LINE_WIDTH, sector_line(strength)),
+                        Stroke::new(SECTOR_LINE_WIDTH * scale, sector_line(strength)),
                     ));
                 }
             }
@@ -560,7 +635,7 @@ fn show_source(
                     // to take once. It stays a Shape in the ordered sequence
                     // rather than a `Painter::text`, which would both allocate
                     // and paint out of turn.
-                    None => ui.painter().layout_no_wrap(
+                    None => painter.layout_no_wrap(
                         character.to_string(),
                         glyphs.font.clone(),
                         Color32::PLACEHOLDER,
@@ -585,7 +660,7 @@ fn show_source(
     // Every background precedes every Glyph, so a later Cell's fill can never
     // paint over an earlier Cell's Glyph, and the Cursor comes after both, so no
     // neighbouring Cell's fill or seam can paint over it.
-    ui.painter().extend(
+    painter.extend(
         backgrounds
             .into_iter()
             .chain(painted_glyphs)
@@ -594,8 +669,8 @@ fn show_source(
     );
 
     // The click resolves by division through the viewport the Cells were
-    // painted at. `interact_pointer_pos` is already in the Scene's own
-    // coordinates, which is the space `grid_rect` is in.
+    // painted at. With no layer transform, `interact_pointer_pos` is in global
+    // points, which is the space the presented Grid is in.
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && let Some((column, row)) = grid.cell_at(pointer, columns, rows)
@@ -610,9 +685,20 @@ fn show_source(
 /// holds, centred so the surplus is letterboxing, and answers the geometry it
 /// was presented under.
 ///
-/// The Scene is the one place the Source is scaled, so a Cell's two axes cannot
-/// part company: a Scene scales both under a single factor. Every Cell, and so
-/// every click that lands on one, goes through this geometry.
+/// The console owns the scale and translation the Source is presented under —
+/// `view.to_global` — and `grid_viewport::presented_grid` is the one place that
+/// scale is applied, so a Cell's two axes still cannot part company: one
+/// `scaling` serves both. Every Cell, and so every click that lands on one,
+/// goes through that one arithmetic. Nothing here sets a layer transform, which
+/// is the point: a transformed layer reaches every `TextShape` in it through
+/// `Arc::make_mut` at end of pass, and a cached galley's refcount is never one.
+/// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
+///
+/// The pan and zoom *input* handling is still `egui::Scene`'s:
+/// `Scene::register_pan_and_zoom` is public, takes the `&mut TSTransform` its
+/// caller owns, and touches no layer. Only its drag-pan branch has to be
+/// replaced, and only because that branch corrects for a division that happens
+/// nowhere but inside a transformed layer.
 ///
 fn show_source_scene(
     ui: &mut egui::Ui,
@@ -621,42 +707,86 @@ fn show_source_scene(
     font_family: &egui::FontFamily,
     view: &mut SourceView,
 ) -> GridViewport {
-    let available = ui.available_rect_before_wrap();
     let (columns, rows) = source_dimensions(frame);
     let source = source_bounds(columns, rows);
-    let viewport = grid_viewport(available, columns, rows);
+    // The whole console area, sensing clicks and drags, allocated before any
+    // Cell rectangle so the Grid's own click rectangle registers after it. This
+    // is also what `Scene::show` reached `force_set_min_rect` for: the space
+    // the Source is presented in is claimed from the parent layout whether the
+    // Grid fills it or letterboxes inside it.
+    let (console, mut pan) =
+        ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
+    let viewport = grid_viewport(console, columns, rows);
+    let fitted = viewport.fit_transform(source);
 
     if !view.adjusted {
-        view.rect = viewport.scene_view(source, available);
+        view.to_global = fitted;
     }
-    // The fitted scale has to be reachable, or the Scene clamps it and the Grid
-    // stops filling the console. A console smaller than the viewer's zoom
-    // limits allows fits it out on either side, so both ends give. A console
-    // with no area answers a scale of zero, which is no fit to reach.
+    if !is_presentable(view.to_global) {
+        // A console with no area has no fit to reach either, and the identity
+        // is the one transform that is always invertible. The Grid it presents
+        // is clipped away to nothing, which is what a console with no area
+        // shows regardless.
+        view.to_global = if is_presentable(fitted) {
+            fitted
+        } else {
+            TSTransform::IDENTITY
+        };
+    }
+
+    // The fitted scale has to be reachable, or the clamp inside
+    // `register_pan_and_zoom` pulls the Grid off the console. A console smaller
+    // than the viewer's zoom limits allows fits it out on either side, so both
+    // ends give. A console with no area answers a scale of zero, which is no
+    // fit to reach.
     let fitted_zoom = viewport.scale(source);
     let min_zoom = if fitted_zoom > 0.0 {
         MIN_ZOOM.min(fitted_zoom)
     } else {
         MIN_ZOOM
     };
-    let response = egui::Scene::new()
+    let pan_and_zoom = egui::Scene::new()
         .zoom_range(min_zoom..=MAX_ZOOM.max(fitted_zoom))
-        .drag_pan_buttons(egui::containers::DragPanButtons::MIDDLE)
-        .show(ui, &mut view.rect, |ui| {
-            show_source(ui, orcvs, frame, font_family);
-        })
-        .response;
+        // The helper's own drag-pan branch is dead here, and deliberately.
+        // It computes `to_global.translation += to_global.scaling *
+        // resp.drag_delta()` (`scene.rs:239`), and `Response::drag_delta`
+        // divides by the layer transform's scaling *only when the layer has
+        // one* (`response.rs:452-465`). Inside `Scene::show` the two cancel and
+        // the pan is 1:1 with the pointer. With the transform owned here there
+        // is no layer transform, nothing divides, and the multiply would
+        // over-pan by the zoom factor — invisibly at the fitted scale of one,
+        // which is exactly where a test would be looking.
+        .drag_pan_buttons(DragPanButtons::empty());
+
+    if pan.dragged_by(PointerButton::Middle) {
+        // The pointer moved this far in presented points, and the translation
+        // is in presented points, so it is added and not scaled.
+        view.to_global.translation += pan.drag_delta();
+        pan.mark_changed();
+    }
+    // Zoom at the pointer, the smooth-scroll pan and the `zoom_range` clamp are
+    // kept rather than reimplemented: all three are layer-independent.
+    pan_and_zoom.register_pan_and_zoom(ui, &mut pan, &mut view.to_global);
+
+    let grid = presented_grid(
+        view.to_global,
+        source,
+        columns,
+        rows,
+        ui.ctx().pixels_per_point(),
+    );
+    show_source(ui, orcvs, frame, font_family, grid, console);
 
     // Panning or zooming moves the view off the fitted viewport and holds it
     // there; a double click hands it back. A frame that does both is a reset:
     // the double click is the later intent.
-    if response.double_clicked() {
+    if pan.double_clicked() {
         view.adjusted = false;
-    } else if response.changed() {
+    } else if pan.changed() {
         view.adjusted = true;
     }
 
-    viewport
+    grid
 }
 
 impl eframe::App for Console {
@@ -792,12 +922,12 @@ impl eframe::App for Console {
         self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
 
-        let mut console_area = Vec2::ZERO;
+        let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(PALETTE.source))
             .show(root, |ui| {
-                console_area = ui.available_size_before_wrap();
+                console_area = ui.available_rect_before_wrap();
                 let Console {
                     orcvs,
                     midi: _,
@@ -819,7 +949,7 @@ impl eframe::App for Console {
                 &ctx,
                 &mut self.diagnostics_open,
                 eframe,
-                self.source_view.rect,
+                self.source_view.to_global,
                 console_area,
                 cell_size,
             );
@@ -829,7 +959,7 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Event, Key, Modifiers, Pos2, Rect, Shape, Vec2};
+    use egui::{Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::TSTransform};
     use orcvs::app::{InputEvent, InputKey, Orcvs};
     use orcvs::glyph::Glyph;
 
@@ -838,10 +968,10 @@ mod tests {
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, DEFAULT_VIEW_SIZE, GRID_LINE_WIDTH,
-        GlyphTable, SECTOR_LINE_WIDTH, SourceView, TOP_PANEL_HEIGHT, blank_glyph_index,
-        frames_per_second, scene_zoom, show_source_scene, source_bounds, source_dimensions,
-        translate_event,
+        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, DEFAULT_VIEW_SIZE,
+        GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
+        SourceView, TOP_PANEL_HEIGHT, blank_glyph_index, frames_per_second, glyph_scale,
+        is_presentable, show_source_scene, source_bounds, source_dimensions, translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -881,26 +1011,88 @@ mod tests {
         assert_eq!(translate_event(Event::Copy), None);
     }
 
+    ///
+    /// The frame rate is still derived; the Source zoom no longer is. Under an
+    /// owned transform the zoom the diagnostics show *is* `scaling`, so what
+    /// used to be a ratio recovered from a Scene-space region collapsed to a
+    /// field read and `scene_zoom` went with it. What is left to assert is that
+    /// the field the diagnostics read is never a value they cannot show: the
+    /// guard is what makes the read safe.
+    ///
     #[test]
-    fn diagnostics_derive_frame_rate_and_scene_zoom_from_view_state() {
+    fn diagnostics_derive_frame_rate_and_read_the_source_zoom_from_the_owned_transform() {
         assert_eq!(frames_per_second(0.02), Some(50.0));
         assert_eq!(frames_per_second(0.0), None);
+
+        let zoomed = TSTransform::new(Vec2::new(11.0, 7.0), 2.0);
+        assert!(is_presentable(zoomed));
+        assert_eq!(zoomed.scaling, 2.0);
+        // The visible Source region the diagnostics show is the console area
+        // read back through the transform, which is what the Scene-space
+        // rectangle used to hold directly.
         assert_eq!(
-            scene_zoom(
-                Vec2::new(800.0, 400.0),
-                Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))
-            ),
-            Some(2.0)
+            zoomed.inverse() * Rect::from_min_size(Pos2::new(11.0, 7.0), Vec2::new(800.0, 400.0)),
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))
         );
-        assert_eq!(scene_zoom(Vec2::ZERO, Rect::ZERO), None);
+
+        for unpresentable in [
+            TSTransform::from_scaling(0.0),
+            TSTransform::from_scaling(-1.0),
+            TSTransform::from_scaling(f32::NAN),
+            TSTransform::from_translation(Vec2::new(0.0, f32::NAN)),
+        ] {
+            assert!(
+                !is_presentable(unpresentable),
+                "{unpresentable:?} reached the diagnostics"
+            );
+        }
+    }
+
+    ///
+    /// The step the glyph scale is quantised to, and the budget it implies.
+    /// Both zoom limits and the Source's own scale land on a step, so the
+    /// default window lays its Glyphs out at exactly the Source's font size.
+    ///
+    #[test]
+    fn the_glyph_scale_is_quantised_to_a_stated_step() {
+        assert_eq!(glyph_scale(1.0), 1.0);
+        assert_eq!(glyph_scale(MIN_ZOOM), MIN_ZOOM);
+        assert_eq!(glyph_scale(MAX_ZOOM), MAX_ZOOM);
+        assert_eq!(glyph_scale(1.01), 1.0, "a nudge re-laid the whole alphabet");
+        assert_eq!(glyph_scale(1.1), 1.125);
+        // Never zero, never negative, whatever reaches it.
+        for degenerate in [0.0, -1.0, f32::NAN, f32::INFINITY, 1e-9] {
+            assert!(
+                glyph_scale(degenerate) >= GLYPH_SCALE_STEP,
+                "{degenerate} laid out at a font size of {}",
+                glyph_scale(degenerate)
+            );
+        }
+
+        // Fifteen distinct sizes over the whole zoom range is the atlas budget
+        // `GLYPH_SCALE_STEP` states.
+        let mut sizes: Vec<f32> = Vec::new();
+        let mut zoom = MIN_ZOOM;
+        while zoom <= MAX_ZOOM {
+            let scale = glyph_scale(zoom);
+            if !sizes.iter().any(|held| (held - scale).abs() < 1e-6) {
+                sizes.push(scale);
+            }
+            zoom += 0.001;
+        }
+        assert_eq!(
+            sizes.len(),
+            15,
+            "the zoom range holds {} sizes",
+            sizes.len()
+        );
     }
 
     ///
     /// One Render Frame, and everything it painted in paint order.
     ///
-    /// The Scene nests its contents, so the shapes are flattened: what an
-    /// assertion is about is the order the Source Grid was painted in, not how
-    /// deeply a container wrapped it.
+    /// The shapes are flattened: what an assertion is about is the order the
+    /// Source Grid was painted in, not how deeply a `Shape::Vec` wrapped it.
     ///
     fn console_pass(
         ctx: &egui::Context,
@@ -994,6 +1186,21 @@ mod tests {
     ) {
         console_frame(ctx, screen, click_at(point), orcvs, view);
         console_frame(ctx, screen, release_at(point), orcvs, view);
+    }
+
+    ///
+    /// The middle button pressed at `point`, which is the button that pans.
+    ///
+    fn middle_press_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Middle,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ]
     }
 
     ///
@@ -1243,7 +1450,7 @@ mod tests {
     }
 
     #[test]
-    fn source_bounds_are_available_before_the_first_scene_render() {
+    fn source_bounds_are_available_before_the_first_render() {
         let orcvs = Orcvs::new(32, 16);
         let (columns, rows) = source_dimensions(&orcvs.render_frame());
         let bounds = source_bounds(columns, rows);
@@ -1454,8 +1661,9 @@ mod tests {
         let mut view = SourceView::default();
 
         let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        // The Scene scales the stroke with everything else, so the width is
-        // asserted in the Source's own points.
+        // The owned transform scales the stroke with everything else, the way
+        // the Scene's layer transform used to, so the width is asserted in the
+        // Source's own points.
         let scale = viewport.cell_size / CELL_SIZE;
 
         for shape in &shapes {
@@ -1660,30 +1868,18 @@ mod tests {
         );
     }
 
-    fn middle_press_at(point: Pos2) -> Vec<Event> {
-        vec![
-            Event::PointerMoved(point),
-            Event::PointerButton {
-                pos: point,
-                button: egui::PointerButton::Middle,
-                pressed: true,
-                modifiers: Modifiers::NONE,
-            },
-        ]
-    }
-
     ///
-    /// A middle drag that starts on a Cell pans the Scene.
+    /// A middle drag that starts on a Cell pans the Source.
     ///
     /// This is what `Sense::CLICK` on the Grid rectangle buys. Within one layer
     /// a later-registered child wins the click tie and would win the drag tie
-    /// too if it sensed drag, and the Grid is registered after the Scene's own
-    /// pan response. Sensing clicks alone is what leaves the drag to the Scene,
-    /// and the drag has to be started *over the Grid* to assert it: the
-    /// letterboxing is territory the Grid never covered.
+    /// too if it sensed drag, and the Grid is registered after the pan
+    /// response. Sensing clicks alone is what leaves the drag to the pan
+    /// rectangle, and the drag has to be started *over the Grid* to assert it:
+    /// the letterboxing is territory the Grid never covered.
     ///
     #[test]
-    fn a_middle_drag_that_starts_on_a_cell_still_pans_the_scene() {
+    fn a_middle_drag_that_starts_on_a_cell_still_pans_the_source() {
         let ctx = egui::Context::default();
         let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
         let mut orcvs = Orcvs::new(8, 8);
@@ -1696,7 +1892,7 @@ mod tests {
             viewport.rect.contains(over_a_cell),
             "the drag did not start over the Grid"
         );
-        let fitted = view.rect;
+        let fitted = view.to_global;
 
         console_frame(
             &ctx,
@@ -1715,9 +1911,9 @@ mod tests {
 
         assert!(
             view.adjusted,
-            "a middle drag over a Cell did not pan the Scene"
+            "a middle drag over a Cell did not pan the Source"
         );
-        assert_ne!(view.rect, fitted, "the pan did not move the view");
+        assert_ne!(view.to_global, fitted, "the pan did not move the view");
     }
 
     const WIDE: Vec2 = Vec2::new(400.0, 200.0);
@@ -1732,11 +1928,11 @@ mod tests {
         let mut view = SourceView::default();
 
         console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        let wide_region = view.rect;
+        let wide_fit = view.to_global;
         let viewport = console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
 
         assert!(!view.adjusted, "an untouched view was pinned");
-        assert_ne!(view.rect, wide_region, "the resize did not re-fit");
+        assert_ne!(view.to_global, wide_fit, "the resize did not re-fit");
         // The Grid follows the re-fitted viewport rather than the old one.
         click(
             &ctx,
@@ -1761,10 +1957,13 @@ mod tests {
         console_frame(&ctx, wide, zoom_at(over_the_scene), &mut orcvs, &mut view);
 
         assert!(view.adjusted, "zooming did not pin the view");
-        let pinned = view.rect;
+        let pinned = view.to_global;
         console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
 
-        assert_eq!(view.rect, pinned, "the resize discarded the viewer's zoom");
+        assert_eq!(
+            view.to_global, pinned,
+            "the resize discarded the viewer's zoom"
+        );
     }
 
     #[test]
@@ -1775,7 +1974,7 @@ mod tests {
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        let fitted = view.rect;
+        let fitted = view.to_global;
         let over_the_scene = letterboxing(wide, viewport.rect).expect("a wide console letterboxes");
         console_frame(&ctx, wide, zoom_at(over_the_scene), &mut orcvs, &mut view);
         assert!(view.adjusted, "zooming did not pin the view");
@@ -1784,7 +1983,170 @@ mod tests {
         assert!(!view.adjusted, "the double click did not unpin the view");
 
         console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        assert_eq!(view.rect, fitted, "the view did not return to the fit");
+        assert_eq!(view.to_global, fitted, "the view did not return to the fit");
+    }
+
+    ///
+    /// A middle-button drag pans the Source by exactly what the pointer moved,
+    /// at a scale that is not one.
+    ///
+    /// This is the one behaviour retiring the container could break silently.
+    /// `Scene::register_pan_and_zoom` pans with `to_global.translation +=
+    /// to_global.scaling * resp.drag_delta()` (`scene.rs:239`), and
+    /// `Response::drag_delta` divides by the layer transform's scaling *only
+    /// when the layer has one* (`response.rs:452-465`). Inside `Scene::show`
+    /// those cancel; with the transform owned by the console there is no layer
+    /// transform, nothing divides, and the multiply would move the Source by
+    /// the zoom factor times the pointer. At the default window the fitted
+    /// scale is exactly one and that bug is invisible, so this console is sized
+    /// to fit at two.
+    ///
+    #[test]
+    fn a_middle_drag_pans_by_the_pointer_and_not_by_the_pointer_times_the_zoom() {
+        let ctx = egui::Context::default();
+        // A 8 by 8 Source is 200 points square, so a 400 point console fits it
+        // at exactly two.
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        let before = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.to_global.scaling, 2.0,
+            "the console did not fit at two"
+        );
+        let anchor = view.to_global.translation;
+
+        // Press, then move further than `max_click_dist` so the gesture
+        // resolves as a drag rather than a click.
+        let from = screen.center();
+        let moved = Vec2::new(40.0, 24.0);
+        console_frame(&ctx, screen, middle_press_at(from), &mut orcvs, &mut view);
+        let after = console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(from + moved)],
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert!(view.adjusted, "the pan did not pin the view");
+        assert_eq!(
+            view.to_global.translation - anchor,
+            moved,
+            "the Source panned by {:?} for a pointer that moved {moved:?}",
+            view.to_global.translation - anchor
+        );
+        assert_eq!(
+            after.rect.min - before.rect.min,
+            moved,
+            "the presented Grid moved by {:?}",
+            after.rect.min - before.rect.min
+        );
+        assert_eq!(
+            after.cell_size, before.cell_size,
+            "the pan changed the Cell size"
+        );
+
+        // The click arithmetic followed the pan: painting and clicking go
+        // through the one presented viewport, at a scale and an offset the fit
+        // never chose.
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerButton {
+                pos: from + moved,
+                button: egui::PointerButton::Middle,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+            &mut orcvs,
+            &mut view,
+        );
+        let target = after.rect.min + Vec2::new(3.5, 1.5) * after.cell_size;
+        click(&ctx, screen, target, &mut orcvs, &mut view);
+
+        assert_eq!(selected_cell(&orcvs), (3, 1), "a click at {target:?}");
+    }
+
+    ///
+    /// **The acceptance criterion the whole effort exists for.**
+    ///
+    /// No layer the Source Grid is painted into carries a transform, so no
+    /// `TextShape` in it reaches `Arc::make_mut`. `GraphicLayers::drain`
+    /// applies a layer's transform to every shape in it at end of pass, and for
+    /// a `TextShape` that is `TextShape::transform`, which reaches the galley
+    /// through `Arc::make_mut` and each of its rows through `Arc::make_mut`
+    /// again. epaint's `GalleyCache` holds an `Arc` to every galley it hands
+    /// out, so the refcount is never one and the clone is never elided. Given a
+    /// transform the clone is unconditional, so the *absence* of the transform
+    /// is the whole proof — there is nothing else to observe, and a profile
+    /// would not show it anyway, because the clone happens inside `end_pass`
+    /// rather than in `tessellate_shapes`.
+    ///
+    /// The console is sized to fit at two rather than at one on purpose:
+    /// `Context::set_transform_layer` *removes* the entry for an identity
+    /// transform, so a fit of one would let a Scene pass this.
+    ///
+    #[test]
+    fn no_layer_carrying_the_source_grid_is_transformed() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        orcvs.write("1");
+        let mut view = SourceView::default();
+        let frame = orcvs.render_frame();
+        let mut grid_layer = None;
+
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |root| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new())
+                    .show(root, |ui| {
+                        grid_layer = Some(ui.layer_id());
+                        show_source_scene(
+                            ui,
+                            &mut orcvs,
+                            &frame,
+                            &egui::FontFamily::Monospace,
+                            &mut view,
+                        );
+                    });
+            },
+        );
+        let mut painted = Vec::new();
+        for clipped in &output.shapes {
+            flatten(clipped.shape.clone(), &mut painted);
+        }
+        output.drop_without_applying_deltas();
+
+        assert_eq!(
+            view.to_global.scaling, 2.0,
+            "the console did not fit at two"
+        );
+        assert!(
+            painted.iter().any(|shape| matches!(shape, Shape::Text(_))),
+            "the pass painted no Glyph, so it proves nothing about galleys"
+        );
+
+        let grid_layer = grid_layer.expect("the central panel showed the Source");
+        assert_eq!(
+            ctx.layer_transform_to_global(grid_layer),
+            None,
+            "the Source Grid's own layer carries a transform"
+        );
+        // Not just that layer: no layer at all. The Scene painted into a
+        // sublayer of its own, so checking only the layer the console paints
+        // into would miss the transform that used to exist.
+        assert!(
+            ctx.memory(|memory| memory.to_global.is_empty()),
+            "a layer transform survived: {:?}",
+            ctx.memory(|memory| memory.to_global.clone())
+        );
     }
 }
 

@@ -46,11 +46,13 @@ rather than delegating it to `egui::Scene`, and why.
       per-Cell loop back into runs.
 - [x] It does not reopen ADR 0005. The Grid stays fixed; this decision only makes an infinite one
       reachable later.
-- [ ] The doc comment on `show_source_scene` (`console.rs:346-352`), which currently argues that the
+- [x] The doc comment on `show_source_scene` (`console.rs:346-352`), which currently argues that the
       Scene is the one place the Source is scaled, is updated or removed by issue 03 rather than
       left contradicting the ADR. **Not this issue's work** — issue 03 owns that edit and carries
       the same acceptance line; left unticked deliberately. The ADR was written so it does not
-      depend on that comment changing first.
+      depend on that comment changing first. Discharged by issue 03: `show_source_scene` now says
+      the console owns the transform and points at `grid_viewport::presented_grid`, whose own doc
+      carries the claim to be the one place the Source is scaled.
 
 ## Comments
 
