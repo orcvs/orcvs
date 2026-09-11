@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789116443869,
+  "lastUpdate": 1789116451230,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -12859,6 +12859,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/38b2eb364477ddbead8d56280f6508a9aa7ba2bf"
         },
         "date": 1789115119008,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 24,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture bytes",
+            "value": 816,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture written four times blocks",
+            "value": 44,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture written four times bytes",
+            "value": 3264,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 5061,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 127,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 46643,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 6613,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 358,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 171209,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 9717,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 1174,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 653376,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "distinct": true,
+          "id": "d2d2ac60c6d8c7a29b0be75d0bf2cef034d0afb9",
+          "message": "Point the Self-Banging advice at the method that exists\n\ntakes_no_operand's doc linked Function::source_write, which no crate declares.\nIt is the only rustdoc error in the workspace and it fails the merge tier's\ngate under RUSTDOCFLAGS=\"-D warnings\", so full-gate has been red on main rather\nthan on any one branch — PR #71 and PR #73 each merged and each inherited it.\n\nFunction::source_effect is the method meant, but naming it was not the whole\nfix. Both groups declare an effect, so a caller told to ask source_effect and\nnothing more would have been given a second untrue sentence in place of the\nfirst. The effect table decides it: every Self-Banging arm declares\nSourceBundle::Advance and every Directional Bang arm SourceBundle::Emit, so the\nbundle is what tells them apart and the sentence now says to read it.\n\nPushed straight to main. The gate is one of the three required status checks and\nwas failing before this change on every branch equally, so a pull request of its\nown could not have turned it green any sooner.\n\nCloses .scratch/lang-foundations/issues/09.\n\nClaude-Session: https://claude.ai/code/session_017SYs8gt3hywhcyxxM2L13j",
+          "timestamp": "2026-09-11T18:44:28+10:00",
+          "tree_id": "72243a435d8340110470399cce1a23f0f1174d41",
+          "url": "https://github.com/orcvs/orcvs/commit/d2d2ac60c6d8c7a29b0be75d0bf2cef034d0afb9"
+        },
+        "date": 1789116451196,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
