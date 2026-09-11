@@ -2193,7 +2193,6 @@ mod tests {
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
             let mut orcvs = Orcvs::new(8, 8);
             let mut view = SourceView::default();
-            let frame = orcvs.render_frame();
             let (viewport, shapes) = console_pass_at(
                 &ctx,
                 screen,
@@ -2208,37 +2207,54 @@ mod tests {
                 "the pass did not run at the device scale it was asked for"
             );
 
-            // The maximal runs the Render Frame asks for, worked out from
-            // `cell_visuals` rather than from what was painted.
-            let mut expected: Vec<(Color32, usize, usize, usize)> = Vec::new();
-            let mut filled = 0;
-            for row in frame.rows() {
-                let mut run: Option<(Color32, usize, usize, usize)> = None;
-                for cell in row {
-                    let (column, row) = (cell.position().x(), cell.position().y());
-                    let visuals = crate::style::cell_visuals(
-                        cell.glyph(),
-                        cell.cursor_bloom(),
-                        cell.selected(),
-                        cell.cursor_visible(),
-                    );
-                    let background =
-                        (visuals.background != PALETTE.source).then_some(visuals.background);
-                    filled += usize::from(background.is_some());
-                    run = match (run, background) {
-                        (Some((colour, row, first, _)), Some(background))
-                            if colour == background =>
-                        {
-                            Some((colour, row, first, column))
-                        }
-                        (finished, background) => {
-                            expected.extend(finished);
-                            background.map(|colour| (colour, row, column, column))
-                        }
-                    };
-                }
-                expected.extend(run);
-            }
+            // The runs this fixture asks for, written out rather than folded.
+            //
+            // Deriving the expectation with the same match the console runs
+            // would check that the painting agrees with the rule without ever
+            // checking the rule: invert the guard in both places and the test
+            // still passes. These spans are read off the 8 by 8 default Grid
+            // instead, so the fold's arm structure is pinned by something
+            // outside the code under test.
+            //
+            // The Cursor rests at 0,0 and its bloom grades outwards through
+            // four bands, which is why the rows nearest it break into short
+            // runs while the far rows run whole. Row 7 carries the bloom's
+            // hashed outer edge, so its Cells alternate instead of joining up —
+            // that ragged boundary is the Render Frame's, and a run that
+            // swallowed it would be caught here.
+            let expected: Vec<(Color32, usize, usize, usize)> = vec![
+                (PALETTE.selection_fill, 0, 0, 0),
+                (PALETTE.bloom_core_fill, 0, 1, 1),
+                (PALETTE.bloom_inner_fill, 0, 2, 2),
+                (PALETTE.bloom_mid_fill, 0, 3, 3),
+                (PALETTE.bloom_outer_fill, 0, 4, 6),
+                (PALETTE.bloom_inner_fill, 1, 0, 0),
+                (PALETTE.bloom_core_fill, 1, 1, 1),
+                (PALETTE.bloom_mid_fill, 1, 2, 4),
+                (PALETTE.bloom_outer_fill, 1, 5, 6),
+                (PALETTE.bloom_mid_fill, 2, 0, 0),
+                (PALETTE.bloom_inner_fill, 2, 1, 1),
+                (PALETTE.bloom_mid_fill, 2, 2, 3),
+                (PALETTE.bloom_outer_fill, 2, 4, 6),
+                (PALETTE.bloom_mid_fill, 3, 0, 4),
+                (PALETTE.bloom_outer_fill, 3, 5, 6),
+                (PALETTE.bloom_mid_fill, 4, 0, 0),
+                (PALETTE.bloom_outer_fill, 4, 1, 1),
+                (PALETTE.bloom_mid_fill, 4, 2, 3),
+                (PALETTE.bloom_outer_fill, 4, 4, 6),
+                (PALETTE.bloom_outer_fill, 5, 0, 6),
+                (PALETTE.bloom_outer_fill, 6, 0, 6),
+                (PALETTE.bloom_outer_fill, 7, 1, 1),
+                (PALETTE.bloom_outer_fill, 7, 3, 3),
+                (PALETTE.bloom_outer_fill, 7, 5, 5),
+                (PALETTE.bloom_outer_fill, 7, 7, 7),
+            ];
+            // The Cells those runs replace, counted off the same table: a span
+            // covers `last - first + 1` of them.
+            let filled: usize = expected
+                .iter()
+                .map(|(_, _, first, last)| last - first + 1)
+                .sum();
 
             let painted = background_runs(&shapes);
 
