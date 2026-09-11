@@ -768,6 +768,19 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // of the new run that has not started. Discarding the schedule is part
         // of beginning a run for the same reason resetting the counter is.
         self.owned.clear();
+        // The latch suppresses a report of the failure it already reported, so
+        // a device refusing every Tick is reported once rather than once per
+        // Tick. That is one report per run, not one per adapter lifetime:
+        // `observe` drains the diagnostics, so a run inheriting the latch would
+        // say nothing at all about a device still failing in front of the user.
+        //
+        // Here alone, and deliberately not in `stop`. The safety action `stop`
+        // sends is the last submission of the run that recorded the latch, so a
+        // refusal repeating that run's failure is the same fault, which is what
+        // the latch is for; clearing before sending it would report one device
+        // fault twice. A stopped engine submits nothing, so a latch left
+        // standing after `stop` suppresses nothing until this line clears it.
+        self.last_output_failure = None;
         if let Some(previous) = self.cancellation.take() {
             previous.cancel();
         }
@@ -1369,6 +1382,30 @@ mod tests {
 
         fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
             Ok(())
+        }
+    }
+
+    ///
+    /// An adapter that refuses every submission and every safety action with
+    /// the same error, as a device that is gone refuses everything sent to it.
+    ///
+    /// `InMemoryOutputAdapter::fail_next_submission` arms a single refusal,
+    /// and the failure a latch de-duplicates is one that keeps happening: a
+    /// test of that latch needs an adapter that keeps refusing.
+    ///
+    struct RefusingOutputAdapter;
+
+    impl RefusingOutputAdapter {
+        const ERROR: &'static str = "device lost";
+    }
+
+    impl OutputAdapter for RefusingOutputAdapter {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+            Err(OutputAdapterError::new(Self::ERROR))
+        }
+
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            Err(OutputAdapterError::new(Self::ERROR))
         }
     }
 
@@ -3162,6 +3199,41 @@ mod tests {
 
         engine.clock_tick(scheduled(Duration::from_secs(1), Duration::from_secs(1)));
         assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
+    }
+
+    #[tokio::test]
+    async fn a_run_that_begins_after_a_failed_run_reports_the_failure_again() {
+        let source = SourceCommander::new(Grid::new(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
+        let engine = PlaybackEngine::new(source, RefusingOutputAdapter);
+
+        // Two runs, each of two Ticks the adapter refuses identically, with
+        // the safety action `stop` sends refused the same way between them.
+        engine.activate_for_test();
+        run_tick(&engine, 0);
+        run_tick(&engine, 1);
+        engine.stop();
+        engine.activate_for_test();
+        run_tick(&engine, 2);
+        run_tick(&engine, 3);
+
+        // One report per run: not one per Tick, which is the de-duplication
+        // the latch exists for, and not one per adapter lifetime, which would
+        // leave the second run silent about a device that is still failing.
+        // `stop`'s own refusal is not a third report — it is the tail of the
+        // run whose failure has already been reported.
+        assert_eq!(
+            engine.diagnostics(),
+            vec![
+                PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
+                    RefusingOutputAdapter::ERROR
+                )),
+                PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
+                    RefusingOutputAdapter::ERROR
+                )),
+            ]
+        );
     }
 
     #[tokio::test]
