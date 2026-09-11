@@ -2071,6 +2071,20 @@ mod test {
         // because `reserved_for` treats the two positions differently: the
         // child is a leaf over literals with nothing to widen from, and the
         // root owns an operand child whose settled width it reads.
+        //
+        // The premise that makes those two positions different, pinned so it
+        // cannot go quiet: some Function widens over a Sequence operand, so
+        // `reserved_for` reaches the `.any()` that reads a child's settled
+        // width. Were no Function to widen, that term would short-circuit for
+        // the root exactly as it does for the leaf, and this test would pass
+        // while asking one question twice.
+        assert!(
+            lang::Function::ALL
+                .iter()
+                .any(|function| function.widens_over_a_sequence_operand()),
+            "no Function widens, so the root and the child are the same question",
+        );
+
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &["                ", ".+.-000003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
