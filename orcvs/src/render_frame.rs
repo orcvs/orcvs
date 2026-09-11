@@ -80,7 +80,7 @@ impl RenderFrame {
         source.grid().assert_owns(selected);
         let rows = source
             .grid()
-            .rows()
+            .positions_by_row()
             .map(|row| {
                 row.map(|position| {
                     let is_selected = position == selected;
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn only_the_faint_space_between_sector_corners_has_deterministic_gaps() {
         let grid = Grid::new(256, 8);
-        let positions = grid.rows().flatten().collect::<Vec<_>>();
+        let positions = grid.positions_by_row().flatten().collect::<Vec<_>>();
 
         assert!(
             positions
@@ -439,12 +439,12 @@ mod tests {
     fn boundary_breakup_approximates_half_inner_and_two_thirds_outer() {
         let grid = Grid::new(1024, 1);
         let inner_breaks = grid
-            .rows()
+            .positions_by_row()
             .flatten()
             .filter(|&position| super::signal_breakup(position, 4, 7) == 1)
             .count();
         let outer_breaks = grid
-            .rows()
+            .positions_by_row()
             .flatten()
             .filter(|&position| super::signal_breakup(position, 7, 7) == 1)
             .count();
@@ -463,7 +463,7 @@ mod tests {
     fn cell_noise_is_stable_while_cursor_movement_changes_the_boundary() {
         let grid = Grid::new(32, 1);
         let edge = grid
-            .rows()
+            .positions_by_row()
             .flatten()
             .skip(7)
             .find(|&position| super::signal_breakup(position, 7, 7) == 1)

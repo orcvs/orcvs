@@ -324,7 +324,7 @@ impl Grid {
     /// bottom, each yielding that row's Positions left to right. The render
     /// path states no bound of its own, so a swapped axis is not expressible.
     ///
-    pub fn rows(&self) -> impl Iterator<Item = impl Iterator<Item = Position>> {
+    pub fn positions_by_row(&self) -> impl Iterator<Item = impl Iterator<Item = Position>> {
         // Captured by value: Grid and Position are allocation-free Copy values,
         // so the returned iterators borrow nothing.
         let (id, cols, rows) = (self.id, self.cols, self.rows);
@@ -333,11 +333,22 @@ impl Grid {
     }
 
     ///
-    /// How many Cells occupy each row of this finite Grid.
+    /// How many Cells occupy each row of this finite Grid: the column count
+    /// half of the shape a Source occupies.
     ///
     #[inline]
-    pub(crate) fn cols(&self) -> usize {
+    pub fn columns(&self) -> usize {
         self.cols
+    }
+
+    ///
+    /// How many rows of Cells this finite Grid has: the row count half of the
+    /// shape a Source occupies, and the number of iterators
+    /// [`positions_by_row`](Self::positions_by_row) yields.
+    ///
+    #[inline]
+    pub fn rows(&self) -> usize {
+        self.rows
     }
 
     ///
@@ -376,7 +387,7 @@ mod test {
         let grid = Grid::new(4, 2);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
 
-        let rows: Vec<Vec<Position>> = grid.rows().map(|row| row.collect()).collect();
+        let rows: Vec<Vec<Position>> = grid.positions_by_row().map(|row| row.collect()).collect();
 
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].len(), 4);
@@ -735,8 +746,9 @@ mod property {
     /// they are actually drawn rather than merely drawable.
     ///
     /// The rectangular arm keeps its own weight because a transposed
-    /// implementation — `x * rows + y` for an index, or a `rows()` that yields
-    /// columns — agrees with a correct one on every square Grid.
+    /// implementation — `x * rows + y` for an index, or a
+    /// `positions_by_row()` that yields columns — agrees with a correct one on
+    /// every square Grid.
     ///
     fn dimensions() -> impl Strategy<Value = (usize, usize)> {
         prop_oneof![
@@ -932,8 +944,9 @@ mod property {
 
         ///
         /// "One repaint of the console, in which every Position the Grid yields
-        /// is drawn once": `rows` yields exactly `count` Positions, each index
-        /// appearing once, in the order the Source stores its Cells.
+        /// is drawn once": `positions_by_row` yields exactly `count`
+        /// Positions, each index appearing once, in the order the Source stores
+        /// its Cells.
         ///
         /// Equality with `0..cols * rows` states all three at once — a repeat, an
         /// omission, or a swapped axis each make the sequence differ somewhere
@@ -941,12 +954,12 @@ mod property {
         /// implementation is distinguishable at all.
         ///
         #[test]
-        fn rows_yields_every_cell_of_the_grid_once(
+        fn positions_by_row_yields_every_cell_of_the_grid_once(
             (cols, rows) in dimensions(),
         ) {
             let grid = Grid::new(cols, rows);
 
-            let yielded: Vec<Vec<Position>> = grid.rows().map(|row| row.collect()).collect();
+            let yielded: Vec<Vec<Position>> = grid.positions_by_row().map(|row| row.collect()).collect();
 
             prop_assert_eq!(yielded.len(), rows);
             for row in &yielded {

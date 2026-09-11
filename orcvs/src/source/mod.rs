@@ -298,7 +298,7 @@ mod tests {
         );
         assert_eq!(read.content_at(grid.position(1, 0).unwrap()), Some('+'));
         assert!(
-            grid.rows()
+            grid.positions_by_row()
                 .flatten()
                 .skip(2)
                 .all(|position| read.content_at(position).is_none())
