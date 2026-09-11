@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use egui::{
     Color32, CornerRadius, Event, EventFilter, FontId, Key, PointerButton, Pos2, Rect, Sense,
-    Shape, Stroke, StrokeKind, Vec2, containers::DragPanButtons, emath::TSTransform,
-    epaint::RectShape, text::Galley,
+    Shape, Stroke, StrokeKind, Vec2, containers::DragPanButtons, emath::GuiRounding as _,
+    emath::TSTransform, epaint::RectShape, text::Galley,
 };
 
 use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
@@ -534,11 +534,47 @@ impl GlyphTable {
 }
 
 ///
+/// One run of consecutive Cells that share a background colour, as the single
+/// rectangle that fills them all.
+///
+/// # Why the rectangle is snapped
+///
+/// Snapping is what makes one wide rectangle the same pixels as the Cells it
+/// replaces. `Rect::round_to_pixels` rounds the two corners independently, so
+/// adjacent rectangles that tiled before it still tile after it
+/// (`emath-0.36.1/src/gui_rounding.rs:155-186`): the run's far edge lands on
+/// the same physical pixel the next Cell's near edge would have. Without it the
+/// two edges can fall either side of a pixel boundary, and it is the *split*
+/// version that then carries a dark seam between its Cells.
+///
+/// `presented_grid` already floors the Cell side to whole physical pixels, so
+/// a Cell corner is on a pixel boundary up to the error of multiplying a column
+/// index by a Cell side no binary float holds exactly. This removes that error
+/// rather than a whole pixel of misalignment, and it removes it *here*, in the
+/// Shape, which is where this effort makes its assertions — epaint rounds rects
+/// again at tessellation (`round_rects_to_pixels`, `tessellator.rs:1778`,
+/// `:1830-1861`) but nothing in a Render Frame can see it do so.
+///
+fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape {
+    Shape::Rect(RectShape::filled(
+        covered.round_to_pixels(pixels_per_point),
+        CornerRadius::ZERO,
+        fill,
+    ))
+}
+
+///
 /// Draws the Source Grid and answers the one question a click asks of it.
 ///
 /// The whole Grid is one allocated rectangle and every Cell is painted, so no
 /// Cell is a widget and the cost of a Render Frame is shapes rather than
 /// interaction rects and widget ids.
+///
+/// A background is painted only where it differs from the Source fill the panel
+/// is already filled with, and consecutive Cells in a row that want the same
+/// background share one rectangle. The Cursor's bloom reaches fifteen Cells
+/// across, so on the default Grid most Cells ask for no background at all and
+/// the ones that do arrive in runs.
 ///
 fn show_source(
     ui: &mut egui::Ui,
@@ -582,6 +618,9 @@ fn show_source(
     // the strokes as well, so the Grid lines and sector seams take it here
     // rather than staying one Source point wide at every zoom.
     let scale = grid.cell_size / CELL_SIZE;
+    // The device scale the background runs are snapped to; see
+    // [`background_run`].
+    let pixels_per_point = ui.pixels_per_point();
     let glyphs = GlyphTable::lay_out(
         ui.ctx(),
         // Laid out at the size it is drawn at rather than resampled from a
@@ -593,12 +632,20 @@ fn show_source(
     );
 
     let cells = columns.saturating_mul(rows);
-    let mut backgrounds = Vec::with_capacity(cells);
+    // A background is the exception and a border is the rule, so only the
+    // borders are sized to the Grid up front.
+    let mut backgrounds = Vec::new();
+    let mut borders = Vec::with_capacity(cells);
     let mut painted_glyphs = Vec::with_capacity(cells);
     let mut seams = Vec::new();
     let mut cursor_strokes = Vec::new();
 
     for row in frame.rows() {
+        // The run of consecutive Cells in this row that share one background:
+        // the colour, and the rectangle it covers so far. A Cell wanting a
+        // different colour ends it, and so does a Cell wanting none.
+        let mut run: Option<(Color32, Rect)> = None;
+
         for cell in row {
             let position = cell.position();
             let rect = grid.cell_rect(position.x(), position.y());
@@ -610,19 +657,38 @@ fn show_source(
             );
             let border = Stroke::new(GRID_LINE_WIDTH * scale, visuals.border);
 
-            backgrounds.push(Shape::Rect(RectShape::new(
-                rect,
-                CornerRadius::ZERO,
-                visuals.background,
-                // The selected Cell's border is the Cursor, and the Cursor is
-                // painted last.
-                if cell.selected() {
-                    Stroke::NONE
-                } else {
-                    border
-                },
-                StrokeKind::Inside,
-            )));
+            // A Cell is filled only where `cell_visuals` asks for something
+            // other than the Source fill. The `CentralPanel` frame already
+            // fills the console with `PALETTE.source` and clips every shape to
+            // that same rectangle, so no pan or zoom can expose unfilled area
+            // and an ordinary Cell needs no rectangle at all.
+            //
+            // The colours are compared rather than the conditions behind them,
+            // so this cannot drift from `cell_visuals`. The condition it works
+            // out to is `cursor_visible || (!selected && bloom.is_none())`,
+            // which reads wrong and is right: `cell_visuals` tests
+            // `cursor_visible` *before* the bloom arm, so the Cursor's own Cell
+            // takes the Source fill even though `cursor_bloom` answers
+            // `Some(Core)` for it. The blink therefore alternates a rectangle
+            // and no rectangle. `the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source`
+            // pins the two together.
+            let background = (visuals.background != PALETTE.source).then_some(visuals.background);
+            run = match (run, background) {
+                (Some((colour, covered)), Some(background)) if colour == background => {
+                    // Widened rather than emitted. The far edge is this Cell's
+                    // own, straight from `GridViewport::cell_rect` — the
+                    // function the per-Cell path uses — so a coalesced edge is
+                    // the edge that Cell would have been given rather than a
+                    // sum of Cell sides accumulated across the row.
+                    Some((colour, Rect::from_min_max(covered.min, rect.max)))
+                }
+                (finished, background) => {
+                    if let Some((colour, covered)) = finished {
+                        backgrounds.push(background_run(covered, colour, pixels_per_point));
+                    }
+                    background.map(|colour| (colour, rect))
+                }
+            };
 
             if cell.selected() {
                 cursor_strokes.push(Shape::Rect(RectShape::stroke(
@@ -632,6 +698,16 @@ fn show_source(
                     StrokeKind::Inside,
                 )));
             } else {
+                // The Cell's own border, stroke and no fill: a widened run
+                // would paint over the borders of every Cell inside it, so the
+                // fill and the border can no longer be one shape. The selected
+                // Cell's border is the Cursor, and the Cursor is painted last.
+                borders.push(Shape::Rect(RectShape::stroke(
+                    rect,
+                    CornerRadius::ZERO,
+                    border,
+                    StrokeKind::Inside,
+                )));
                 // A sector seam is suppressed on a selected Cell, so the Cursor
                 // is never crossed by one.
                 if let Some(strength) = cell.sector_left_strength() {
@@ -675,6 +751,12 @@ fn show_source(
                 ));
             }
         }
+
+        // A run ends at the end of its row: Cells are consecutive within a row
+        // and the row below starts a Cell side lower.
+        if let Some((colour, covered)) = run {
+            backgrounds.push(background_run(covered, colour, pixels_per_point));
+        }
     }
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
@@ -684,10 +766,13 @@ fn show_source(
     //
     // Every background precedes every Glyph, so a later Cell's fill can never
     // paint over an earlier Cell's Glyph, and the Cursor comes after both, so no
-    // neighbouring Cell's fill or seam can paint over it.
+    // neighbouring Cell's fill or seam can paint over it. The borders join that
+    // background sequence and follow the fills within it, because a run widened
+    // across several Cells covers the borders of every Cell but its last.
     painter.extend(
         backgrounds
             .into_iter()
+            .chain(borders)
             .chain(painted_glyphs)
             .chain(seams)
             .chain(cursor_strokes),
@@ -998,9 +1083,13 @@ impl eframe::App for Console {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::TSTransform};
+    use egui::{
+        Color32, Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::GuiRounding as _,
+        emath::TSTransform, epaint::RectShape,
+    };
     use orcvs::app::{InputEvent, InputKey, Orcvs};
     use orcvs::glyph::Glyph;
+    use orcvs::render_frame::CursorBloom;
 
     use crate::grid_viewport::GridViewport;
     use crate::style::{PALETTE, sector_line};
@@ -1176,28 +1265,51 @@ mod tests {
         orcvs: &mut Orcvs,
         view: &mut SourceView,
     ) -> (GridViewport, Vec<Shape>) {
+        console_pass_at(ctx, screen, events, orcvs, view, 1.0)
+    }
+
+    ///
+    /// The same pass at a stated device scale.
+    ///
+    /// The scale is given as the viewport's `native_pixels_per_point` rather
+    /// than through `Context::set_pixels_per_point`, which sets the zoom factor
+    /// instead and rewrites the next pass's `screen_rect` from the previous
+    /// one's to avoid jitter (`egui-0.36.1/src/context.rs:436-446`) — so the
+    /// console would not be the size the caller asked for.
+    ///
+    fn console_pass_at(
+        ctx: &egui::Context,
+        screen: Rect,
+        events: Vec<Event>,
+        orcvs: &mut Orcvs,
+        view: &mut SourceView,
+        pixels_per_point: f32,
+    ) -> (GridViewport, Vec<Shape>) {
         let frame = orcvs.render_frame();
         let mut presented = None;
-        let output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(screen),
-                events,
-                ..Default::default()
-            },
-            |root| {
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::new())
-                    .show(root, |ui| {
-                        presented = Some(show_source_scene(
-                            ui,
-                            orcvs,
-                            &frame,
-                            &egui::FontFamily::Monospace,
-                            view,
-                        ));
-                    });
-            },
-        );
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .expect("the root viewport")
+            .native_pixels_per_point = Some(pixels_per_point);
+        let output = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new())
+                .show(root, |ui| {
+                    presented = Some(show_source_scene(
+                        ui,
+                        orcvs,
+                        &frame,
+                        &egui::FontFamily::Monospace,
+                        view,
+                    ));
+                });
+        });
         let mut painted = Vec::new();
         for clipped in &output.shapes {
             flatten(clipped.shape.clone(), &mut painted);
@@ -1536,18 +1648,45 @@ mod tests {
         );
     }
 
-    /// The rectangles the Cells were painted at, in paint order.
-    fn painted_rects(shapes: &[Shape], cell_size: f32) -> Vec<Rect> {
+    ///
+    /// The Cell-sized rectangles that were *stroked*, in paint order: every
+    /// Cell's border, and then the Cursor's own stroke.
+    ///
+    /// A background is a fill carrying no stroke and is excluded, because a
+    /// background covering exactly one Cell is Cell-sized too.
+    ///
+    fn stroked_cell_rects(shapes: &[Shape], cell_size: f32) -> Vec<Rect> {
         shapes
             .iter()
             .filter_map(|shape| match shape {
-                Shape::Rect(rect) => Some(rect.rect),
+                Shape::Rect(rect) if rect.stroke.width > 0.0 => Some(rect.rect),
                 _ => None,
             })
             .filter(|rect| {
                 (rect.width() - cell_size).abs() < 1e-3 && (rect.height() - cell_size).abs() < 1e-3
             })
             .collect()
+    }
+
+    ///
+    /// The background rectangles, in paint order: a fill carrying no stroke,
+    /// which is what a coalesced run is and what nothing else in the Grid is.
+    ///
+    fn background_runs(shapes: &[Shape]) -> Vec<&RectShape> {
+        shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Rect(rect) if rect.fill.a() > 0 && rect.stroke.width == 0.0 => Some(rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The background painted under `point`, if any.
+    fn background_at(runs: &[&RectShape], point: Pos2) -> Option<Color32> {
+        runs.iter()
+            .find(|run| run.rect.contains(point))
+            .map(|run| run.fill)
     }
 
     fn close(left: Rect, right: Rect) -> bool {
@@ -1573,6 +1712,10 @@ mod tests {
     /// gives it, and the Cursor's own stroke is drawn on that same rectangle
     /// rather than beside it or around it.
     ///
+    /// The Cell's rectangle is now the one it is *stroked* at: a Cell is filled
+    /// only where its background differs from the Source, and the Cells that
+    /// are filled share their rectangles with their neighbours.
+    ///
     #[test]
     fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
         let ctx = egui::Context::default();
@@ -1581,21 +1724,22 @@ mod tests {
         let mut view = SourceView::default();
 
         let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        let painted = painted_rects(&shapes, viewport.cell_size);
+        let painted = stroked_cell_rects(&shapes, viewport.cell_size);
 
-        // Every Cell, and then the Cursor's stroke on the one Cell that has it.
-        assert_eq!(
-            painted.len(),
-            8 * 8 + 1,
-            "painted {} Cell rects",
-            painted.len()
-        );
+        // Every Cell but the selected one is stroked with its own border, and
+        // the selected one is stroked by the Cursor after all of them.
+        assert_eq!(painted.len(), 8 * 8, "painted {} Cell rects", painted.len());
+        assert_eq!(selected_cell(&orcvs), (0, 0));
         let mut expected = Vec::new();
         for row in 0..8 {
             for column in 0..8 {
-                expected.push(viewport.cell_rect(column, row));
+                if (column, row) != (0, 0) {
+                    expected.push(viewport.cell_rect(column, row));
+                }
             }
         }
+        // The selected Cell's rectangle arrives last, as the Cursor.
+        expected.push(viewport.cell_rect(0, 0));
         for (index, rect) in expected.iter().enumerate() {
             assert!(
                 close(painted[index], *rect),
@@ -1603,15 +1747,16 @@ mod tests {
                 painted[index]
             );
         }
-        // The selected Cell is (0, 0), and the Cursor's stroke lands on exactly
-        // the rectangle that Cell already occupies.
-        assert_eq!(selected_cell(&orcvs), (0, 0));
-        assert!(
-            close(painted[8 * 8], viewport.cell_rect(0, 0)),
-            "the Cursor was painted at {:?} rather than {:?}",
-            painted[8 * 8],
-            viewport.cell_rect(0, 0)
-        );
+        // Every background lies on the Cell geometry too, rather than beside
+        // it: a run starts and ends on a Cell edge.
+        for run in background_runs(&shapes) {
+            assert!(
+                (run.rect.height() - viewport.cell_size).abs() < 1e-3,
+                "a background was {} tall against a Cell of {}",
+                run.rect.height(),
+                viewport.cell_size
+            );
+        }
     }
 
     ///
@@ -1662,6 +1807,28 @@ mod tests {
         assert!(
             first_glyph < cursor,
             "the Cursor at {cursor} painted before the Glyph at {first_glyph}"
+        );
+        // The widened runs are the shapes this ordering is now about: one of
+        // them reaches into Cells built after it, and would paint over their
+        // Glyphs if it were emitted Cell by Cell.
+        let runs = background_runs(&shapes);
+        assert!(
+            runs.iter()
+                .any(|run| run.rect.width() > viewport.cell_size * 1.5),
+            "no background covered more than one Cell, so the ordering proves nothing"
+        );
+        // And beneath the Cell borders, for the same reason: a run reaching
+        // across several Cells covers the borders of every Cell but its last.
+        let first_border = shapes
+            .iter()
+            .position(|shape| match shape {
+                Shape::Rect(rect) => rect.fill.a() == 0 && rect.stroke.width > 0.0,
+                _ => false,
+            })
+            .expect("the Grid painted Cell borders");
+        assert!(
+            last_background < first_border,
+            "a background at {last_background} painted over the border at {first_border}"
         );
     }
 
@@ -1763,11 +1930,25 @@ mod tests {
     /// to move it, so the assertion is against `cell_visuals` itself rather
     /// than against a second list of colours that could drift from it.
     ///
+    /// It is run at a fractional device scale as well as at one, because that
+    /// is where a background run and the Cells it replaces could fall either
+    /// side of a pixel boundary and stop being the same paint.
+    ///
     #[test]
     fn a_painted_cell_takes_exactly_the_visuals_its_render_cell_asks_for() {
+        for pixels_per_point in [1.0_f32, 1.5] {
+            a_painted_cell_takes_its_visuals_at(pixels_per_point);
+        }
+    }
+
+    fn a_painted_cell_takes_its_visuals_at(pixels_per_point: f32) {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        // Wider than the Cursor's bloom, which reaches fifteen Cells across, so
+        // that Cells asking for no background at all are in the Grid. On an
+        // 8x8 Grid every Cell blooms and the half of this test that asserts a
+        // Cell is *not* filled would hold vacuously.
+        let mut orcvs = Orcvs::new(20, 20);
         let mut view = SourceView::default();
         // Source enough to colour several Cells differently from each other.
         orcvs.select(orcvs.render_frame().rows()[3][1].position());
@@ -1776,20 +1957,21 @@ mod tests {
         }
 
         let frame = orcvs.render_frame();
-        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let (viewport, shapes) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            pixels_per_point,
+        );
+        assert_eq!(
+            ctx.pixels_per_point(),
+            pixels_per_point,
+            "the pass did not run at the device scale it was asked for"
+        );
 
-        let backgrounds: Vec<_> = shapes
-            .iter()
-            .filter_map(|shape| match shape {
-                Shape::Rect(rect)
-                    if (rect.rect.width() - viewport.cell_size).abs() < 1e-3
-                        && rect.fill.a() > 0 =>
-                {
-                    Some(rect)
-                }
-                _ => None,
-            })
-            .collect();
+        let backgrounds = background_runs(&shapes);
         let strokes: Vec<_> = shapes
             .iter()
             .filter_map(|shape| match shape {
@@ -1810,14 +1992,15 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(
-            backgrounds.len(),
-            8 * 8,
-            "the painted backgrounds do not line up with the Grid's Cells"
+        assert!(
+            backgrounds.len() < 20 * 20,
+            "every Cell took a background rectangle of its own"
         );
         let mut painted_glyphs = 0;
         let mut bloomed = 0;
-        for (index, cell) in frame.rows().iter().flatten().enumerate() {
+        let mut selected_fills = 0;
+        let mut unfilled = 0;
+        for cell in frame.rows().iter().flatten() {
             let expected = crate::style::cell_visuals(
                 cell.glyph(),
                 cell.cursor_bloom(),
@@ -1828,10 +2011,23 @@ mod tests {
             let rect = viewport.cell_rect(position.x(), position.y());
             bloomed += usize::from(cell.cursor_bloom().is_some());
 
-            assert_eq!(
-                backgrounds[index].fill, expected.background,
-                "Cell {position:?} was filled wrongly"
-            );
+            // The Source fill is the panel's own, so a Cell asking for it is
+            // painted by not being painted.
+            if expected.background == PALETTE.source {
+                unfilled += 1;
+                assert_eq!(
+                    background_at(&backgrounds, rect.center()),
+                    None,
+                    "Cell {position:?} was filled with the Source fill the panel already carries"
+                );
+            } else {
+                selected_fills += usize::from(expected.background == PALETTE.selection_fill);
+                assert_eq!(
+                    background_at(&backgrounds, rect.center()),
+                    Some(expected.background),
+                    "Cell {position:?} was filled wrongly"
+                );
+            }
             let stroke = strokes
                 .iter()
                 .find(|(painted, _)| close(*painted, rect))
@@ -1852,6 +2048,181 @@ mod tests {
         assert_eq!(painted_glyphs, 4, "the written Source was not painted");
         assert_eq!(glyphs.len(), painted_glyphs, "a blank Cell painted a Glyph");
         assert!(bloomed > 0, "no Cell took a CursorBloom");
+        assert_eq!(selected_fills, 1, "the selection fill was never painted");
+        assert!(
+            unfilled > 0,
+            "every Cell wanted a background, so painting none proves nothing"
+        );
+    }
+
+    ///
+    /// The Cell that needs no background rectangle is exactly the Cell
+    /// `cell_visuals` fills with the Source's own colour, and that is exactly
+    /// `cursor_visible || (!selected && bloom.is_none())`.
+    ///
+    /// The console compares the colours rather than restating the condition, so
+    /// it cannot drift from `cell_visuals`. This is where the condition is
+    /// written down, because it reads wrong: `cell_visuals` tests
+    /// `cursor_visible` *before* its bloom arm, so the Cursor's own Cell takes
+    /// the Source fill on the visible half of the blink even though
+    /// `cursor_bloom` answers `Some(Core)` for it — and the blink therefore
+    /// alternates a rectangle and no rectangle. A reordering of those arms
+    /// would be a palette change, and this fails when one happens.
+    ///
+    #[test]
+    fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
+        for glyph in [Glyph::Char, Glyph::Bang, Glyph::Space, Glyph::Comment] {
+            for bloom in [
+                None,
+                Some(CursorBloom::Core),
+                Some(CursorBloom::Inner),
+                Some(CursorBloom::Mid),
+                Some(CursorBloom::Outer),
+            ] {
+                for selected in [false, true] {
+                    for cursor_visible in [false, true] {
+                        let visuals =
+                            crate::style::cell_visuals(glyph, bloom, selected, cursor_visible);
+                        let skipped = cursor_visible || (!selected && bloom.is_none());
+
+                        assert_eq!(
+                            visuals.background == PALETTE.source,
+                            skipped,
+                            "{glyph:?} {bloom:?} selected={selected}, cursor_visible={cursor_visible}, filled {:?}",
+                            visuals.background
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    ///
+    /// Consecutive Cells in a row that want the same background share one
+    /// rectangle, and that rectangle is the one the Cells it replaces would
+    /// have tiled.
+    ///
+    /// Three things are asserted and the third is the one that matters. The
+    /// runs are the maximal runs the Render Frame asks for; each run's
+    /// rectangle is built from `GridViewport::cell_rect` — the column-to-x
+    /// function the per-Cell path uses — rather than from a sum of Cell sides;
+    /// and every edge is snapped to a physical pixel, which is what makes one
+    /// wide rectangle the same paint as the Cells it replaces. The snap is not
+    /// a nicety even though `presented_grid` already floors the Cell side to
+    /// whole physical pixels: multiplying a column index by a Cell side that no
+    /// binary float holds exactly leaves two neighbours' shared edge on either
+    /// side of the pixel boundary, and it is the *split* version that then
+    /// carries the seam.
+    ///
+    /// Run at a fractional device scale as well as at one, because at one the
+    /// Cell side is a whole point and there is nothing for a snap to correct.
+    ///
+    #[test]
+    fn consecutive_cells_sharing_a_background_are_one_rectangle() {
+        for pixels_per_point in [1.0_f32, 1.5] {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+            let mut orcvs = Orcvs::new(8, 8);
+            let mut view = SourceView::default();
+            let frame = orcvs.render_frame();
+            let (viewport, shapes) = console_pass_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut orcvs,
+                &mut view,
+                pixels_per_point,
+            );
+            assert_eq!(
+                ctx.pixels_per_point(),
+                pixels_per_point,
+                "the pass did not run at the device scale it was asked for"
+            );
+
+            // The maximal runs the Render Frame asks for, worked out from
+            // `cell_visuals` rather than from what was painted.
+            let mut expected: Vec<(Color32, usize, usize, usize)> = Vec::new();
+            let mut filled = 0;
+            for row in frame.rows() {
+                let mut run: Option<(Color32, usize, usize, usize)> = None;
+                for cell in row {
+                    let (column, row) = (cell.position().x(), cell.position().y());
+                    let visuals = crate::style::cell_visuals(
+                        cell.glyph(),
+                        cell.cursor_bloom(),
+                        cell.selected(),
+                        cell.cursor_visible(),
+                    );
+                    let background =
+                        (visuals.background != PALETTE.source).then_some(visuals.background);
+                    filled += usize::from(background.is_some());
+                    run = match (run, background) {
+                        (Some((colour, row, first, _)), Some(background))
+                            if colour == background =>
+                        {
+                            Some((colour, row, first, column))
+                        }
+                        (finished, background) => {
+                            expected.extend(finished);
+                            background.map(|colour| (colour, row, column, column))
+                        }
+                    };
+                }
+                expected.extend(run);
+            }
+
+            let painted = background_runs(&shapes);
+
+            assert!(
+                expected.iter().any(|(_, _, first, last)| last > first),
+                "no run covered more than one Cell, so nothing was coalesced"
+            );
+            assert!(
+                expected.len() < filled,
+                "{} rectangles for {filled} filled Cells is no saving",
+                expected.len()
+            );
+            assert_eq!(
+                painted.len(),
+                expected.len(),
+                "painted {} background rectangles against {} runs",
+                painted.len(),
+                expected.len()
+            );
+            for (run, (colour, row, first, last)) in painted.iter().zip(&expected) {
+                assert_eq!(run.fill, *colour, "a run was filled wrongly");
+                // Built from the Cells' own rectangles, and snapped. Exact
+                // equality: a coalesced edge is the edge the per-Cell path
+                // would have drawn, not an edge near it.
+                assert_eq!(
+                    run.rect,
+                    Rect::from_min_max(
+                        viewport.cell_rect(*first, *row).min,
+                        viewport.cell_rect(*last, *row).max,
+                    )
+                    .round_to_pixels(pixels_per_point),
+                    "the run over columns {first}..={last} of row {row}"
+                );
+                // The Cells this run replaced would have tiled at exactly the
+                // pixels it covers: every interior edge snaps to the same
+                // physical pixel from either side.
+                for column in *first..*last {
+                    assert_eq!(
+                        viewport
+                            .cell_rect(column, *row)
+                            .max
+                            .x
+                            .round_to_pixels(pixels_per_point),
+                        viewport
+                            .cell_rect(column + 1, *row)
+                            .min
+                            .x
+                            .round_to_pixels(pixels_per_point),
+                        "the Cells either side of column {column} in row {row} do not tile"
+                    );
+                }
+            }
+        }
     }
 
     ///
