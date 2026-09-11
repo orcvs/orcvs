@@ -1602,7 +1602,7 @@ mod tests {
     /// Both retunes anchor their new grid with this one function, and it
     /// answers with an instant rather than a wait so that neither clock can
     /// apply a wait against an epoch it was not measured from. The browser
-    /// retune is exercised by `shell/tests/wasm.rs`; this native test pins the
+    /// retune is exercised by `console/tests/wasm.rs`; this native test pins the
     /// arithmetic independently of browser timer jitter.
     ///
     /// The stall is a whole number of periods plus half of one, so the three
@@ -1646,7 +1646,7 @@ mod tests {
     /// machinery cannot express, which is why the loop no longer uses it.
     ///
     /// Both targets run this clock loop. Browser waiting and the public tempo
-    /// change path are also exercised by `shell/tests/wasm.rs`.
+    /// change path are also exercised by `console/tests/wasm.rs`.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     async fn assert_native_clock_holds_the_shared_rule(retune: bool) {

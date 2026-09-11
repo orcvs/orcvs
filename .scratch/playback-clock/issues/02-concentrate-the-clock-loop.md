@@ -131,7 +131,7 @@ build artefacts small, and `PROPTEST_CASES=32` as required for local verificatio
 - `git diff --check` — passed.
 - `cargo nextest run --package orcvs --locked -E 'test(playback::tests::)'` — passed
   before and after consolidation: 60 tests in each run.
-- `wasm-pack test --headless --firefox shell --test wasm --locked` — passed: 11 tests.
+- `wasm-pack test --headless --firefox console --test wasm --locked` — passed: 11 tests.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings` — passed.
 - `cargo nextest run --workspace --locked` — passed: 631 tests.
 - `cargo test --workspace --doc --locked` — passed: 13 doctests, including five
@@ -150,7 +150,7 @@ setup attempts because neither reached test execution.
 
 The combined `mise run check`, `mise run check_merge`, `mise run bench`, other CI
 feature combinations, and 256-case proptest are deferred to CI. Workspace gates
-cover the changed `orcvs` crate and its dependent `shell` crate. No performance
+cover the changed `orcvs` crate and its dependent `console` crate. No performance
 improvement is claimed. The change's risks are lifecycle concurrency and platform
 waiting, covered by existing native tests and the browser tests; the browser
 anchoring assertion allows 150 ms of dispatch jitter.
@@ -176,7 +176,7 @@ The shortcut now belongs to `run_clock`, which spares the run's first deadline
 only, and `sleep_until` waits on every deadline it is given. `retune`'s anchored
 first deadline is usually ahead of its epoch and waits like any other.
 
-`shell/tests/wasm.rs` gained `web_clock_yields_to_the_event_loop_between_ticks`,
+`console/tests/wasm.rs` gained `web_clock_yields_to_the_event_loop_between_ticks`,
 which drives a 100 ms grid through an adapter that spends 115 ms of the browser
 thread per submission and asserts the page gets a turn. It reported 6 Ticks
 against the consolidated loop before the fix and 1 after.
@@ -209,9 +209,29 @@ carry a failure.
   617 tests, the arm that proves `persistence` still compiles out.
 - `cargo test --workspace --doc --locked` — passed: 13 doctests.
 - `mise run check_wasm` — passed.
-- `wasm-pack test --headless --firefox shell --test wasm --locked` — 11 passed
+- `wasm-pack test --headless --firefox console --test wasm --locked` — 11 passed
   with the new test red at 6 Ticks, then 12 passed. Run to answer the
   browser-waiting question the fix turns on, not to stand in for a merge gate.
 
 `mise run check`, `mise run check_merge`, `mise run bench` and the 256-case
 proptest stay deferred to CI.
+
+## Rebase — 2026-09-11
+
+Rebased onto `main` after the `shell` crate was renamed to `console`. The only
+conflict was the import block in `console/tests/wasm.rs`, where this branch's
+`std::sync` imports met the renamed `console::web_startup` import. Every path
+this branch newly writes now names `console`; ADR 0037's Overrun paragraph keeps
+`shell/src/diagnostics.rs` because it is dated text this branch does not touch,
+which is how the rename issue left ADRs 0022 and 0037.
+
+- `cargo fmt --all -- --check` — passed.
+- `cargo clippy --package orcvs --all-targets --locked -- -D warnings` — passed.
+- `cargo clippy --package console --all-targets --locked -- -D warnings` — passed.
+- `cargo nextest run --package orcvs --package console --locked` — passed: 410 tests.
+- `mise run check_wasm` — passed, which is what compiles `console/tests/wasm.rs`
+  after the conflict resolution.
+
+`mise run test_wasm` was not rerun; the resolution changed imports only and
+`check_wasm` compiles the target. The browser suite is merge-tier and deferred
+to CI.
