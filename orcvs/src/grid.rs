@@ -73,7 +73,7 @@ impl CellIndex {
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
 ///
-/// The default is 8 by 5 — a Grid that reads left to right in time, in the
+/// The default is 40 by 25 — a Grid that reads left to right in time, in the
 /// proportion a console is most often given. Cells are square, so these counts
 /// are the Grid's aspect ratio, and a console opened in that proportion spends
 /// all of its area on the Grid rather than on letterboxing.
