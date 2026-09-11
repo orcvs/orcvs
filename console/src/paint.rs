@@ -23,12 +23,6 @@
 //! Grid already addresses Cells by.
 //!
 
-// Complete and not yet wired: `show_source` still paints from its own loop and
-// is rewired onto this module by the next ticket of the effort, which takes the
-// allow with it. Landing the value layer and the rewire in one change would
-// mean neither could be reviewed on its own.
-#![allow(dead_code)]
-
 use std::ops::Range;
 
 use egui::Color32;
@@ -178,6 +172,18 @@ impl Paint {
     /// What the Cell at `position` is drawn as.
     pub(crate) fn at(&self, position: Position) -> &CellPaint {
         &self.cells[self.grid.index(position).get()]
+    }
+
+    ///
+    /// The shape of what was painted: the Grid the Render Frame was derived
+    /// from.
+    ///
+    /// A Paint is addressed by Position and a Position can only come from a
+    /// Grid, so the step that walks every Cell asks the Paint for the Grid it
+    /// already holds rather than carrying a second copy alongside it.
+    ///
+    pub(crate) fn grid(&self) -> Grid {
+        self.grid
     }
 
     ///
@@ -582,6 +588,74 @@ mod tests {
         let paint = paint_of(&[&[None, Some(colour), None]]);
 
         assert_eq!(paint.background_runs(), vec![run(colour, 0, 1..2)]);
+    }
+
+    ///
+    /// Consecutive Cells in a row that want the same background are one run,
+    /// over a real Render Frame rather than a fixture.
+    ///
+    /// The runs this Grid asks for are written out rather than folded. Deriving
+    /// the expectation with the same match the fold runs would check that the
+    /// answer agrees with the rule without ever checking the rule: invert the
+    /// guard in both places and the test still passes. These spans are read off
+    /// the 8 by 8 default Grid instead, so the fold's arm structure is pinned
+    /// by something outside the code under test.
+    ///
+    /// The Cursor rests at 0,0 and its bloom grades outwards through four
+    /// bands, which is why the rows nearest it break into short runs while the
+    /// far rows run whole. Row 7 carries the bloom's hashed outer edge, so its
+    /// Cells alternate instead of joining up — that ragged boundary is the
+    /// Render Frame's, and a run that swallowed it would be caught here.
+    ///
+    /// Columns and no geometry: what rectangle a run becomes is the viewport's
+    /// arithmetic and is asserted in `console.rs`, where a viewport exists.
+    ///
+    #[test]
+    fn consecutive_cells_sharing_a_background_are_one_rectangle() {
+        let orcvs = Orcvs::new(8, 8);
+        let frame = orcvs.render_frame();
+        let paint = Paint::derive(&frame);
+
+        let expected = vec![
+            run(PALETTE.selection_fill, 0, 0..1),
+            run(PALETTE.bloom_core_fill, 0, 1..2),
+            run(PALETTE.bloom_inner_fill, 0, 2..3),
+            run(PALETTE.bloom_mid_fill, 0, 3..4),
+            run(PALETTE.bloom_outer_fill, 0, 4..7),
+            run(PALETTE.bloom_inner_fill, 1, 0..1),
+            run(PALETTE.bloom_core_fill, 1, 1..2),
+            run(PALETTE.bloom_mid_fill, 1, 2..5),
+            run(PALETTE.bloom_outer_fill, 1, 5..7),
+            run(PALETTE.bloom_mid_fill, 2, 0..1),
+            run(PALETTE.bloom_inner_fill, 2, 1..2),
+            run(PALETTE.bloom_mid_fill, 2, 2..4),
+            run(PALETTE.bloom_outer_fill, 2, 4..7),
+            run(PALETTE.bloom_mid_fill, 3, 0..5),
+            run(PALETTE.bloom_outer_fill, 3, 5..7),
+            run(PALETTE.bloom_mid_fill, 4, 0..1),
+            run(PALETTE.bloom_outer_fill, 4, 1..2),
+            run(PALETTE.bloom_mid_fill, 4, 2..4),
+            run(PALETTE.bloom_outer_fill, 4, 4..7),
+            run(PALETTE.bloom_outer_fill, 5, 0..7),
+            run(PALETTE.bloom_outer_fill, 6, 0..7),
+            run(PALETTE.bloom_outer_fill, 7, 1..2),
+            run(PALETTE.bloom_outer_fill, 7, 3..4),
+            run(PALETTE.bloom_outer_fill, 7, 5..6),
+            run(PALETTE.bloom_outer_fill, 7, 7..8),
+        ];
+        // The Cells those runs replace, counted off the same table.
+        let filled: usize = expected.iter().map(|run| run.columns.len()).sum();
+
+        assert!(
+            expected.iter().any(|run| run.columns.len() > 1),
+            "no run covered more than one Cell, so nothing was coalesced"
+        );
+        assert!(
+            expected.len() < filled,
+            "{} runs for {filled} filled Cells is no saving",
+            expected.len()
+        );
+        assert_eq!(paint.background_runs(), expected);
     }
 
     #[test]
