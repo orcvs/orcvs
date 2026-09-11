@@ -236,12 +236,12 @@ impl FunctionKind {
         matches!(self, Self::Effect(EffectKind::TerminalOutput))
     }
 
-    /// The Cells this Function writes back into the Source, relative to its own
-    /// anchor, or `None` for a Function that writes none.
+    /// The Source write this Function performs, or `None` for a Function that
+    /// performs none.
     #[inline(always)]
-    const fn source_write(self) -> Option<(i16, i16)> {
+    const fn source_effect(self) -> Option<crate::SourceEffect> {
         match self {
-            Self::Effect(EffectKind::SourceWrite { columns, rows }) => Some((columns, rows)),
+            Self::Effect(EffectKind::SourceWrite(effect)) => Some(effect),
             _ => None,
         }
     }
@@ -264,19 +264,14 @@ enum EffectKind {
     /// ADR 0004's Source-writing effect: Cells written back into the Source
     /// through one validated Portal bundle, with no Play Command and no value.
     ///
-    /// The displacement rides inside the variant because that is what this type
-    /// is for — the effect a Function performs, not merely that it performs one.
-    /// It is a whole-Cell offset rather than a named direction: ADR 0006 states
-    /// this geometry in coordinates already, north `(x, y-1)` and west
-    /// `(x-2, y)`, and a Portal is an output property every Function has, with
-    /// `Portal::ordinary_result` one row south as the default. These Functions
-    /// decline the default and say by how much.
-    SourceWrite {
-        /// Cells to displace horizontally, positive to the east.
-        columns: i16,
-        /// Rows to displace vertically, positive to the south.
-        rows: i16,
-    },
+    /// The whole effect rides inside the variant because that is what this type
+    /// is for — the effect a Function performs, not merely that it performs
+    /// one. The displacement is a whole-Cell offset rather than a named
+    /// direction: ADR 0006 states this geometry in coordinates already, north
+    /// `(x, y-1)` and west `(x-2, y)`, and a Portal is an output property every
+    /// Function has, with `Portal::ordinary_result` one row south as the
+    /// default. These Functions decline the default and say by how much.
+    SourceWrite(crate::SourceEffect),
 }
 
 /// The kind column of the canonical definitions, mapped to the declaration it
@@ -294,34 +289,86 @@ macro_rules! function_kind {
     (TerminalOutput) => {
         FunctionKind::Effect(EffectKind::TerminalOutput)
     };
-    // One arm per Self-Banging Function rather than one `SourceWrite` arm
+    // One arm per Source-writing Function rather than one `SourceWrite` arm
     // taking arguments: the kind column of the table is a single identifier,
     // and this macro is already "the one place a new effect is related to the
-    // value-or-effect rule". Declaring the displacement here keeps the table to
-    // one column per property and gives the four offsets one home.
+    // value-or-effect rule". Declaring the whole effect here keeps the table to
+    // one column per property and gives the eight of them one home.
+    //
+    // The two groups are written as one block on purpose. Each `SelfBang` arm
+    // sits beside the `Bang` arm that emits it, and the pair differs in the
+    // bundle and — in the table's activation column — in where the Turn comes
+    // from. That is ADR 0029's asymmetry as two lines rather than as a
+    // paragraph, and the horizontal offsets say the rest: a Self-Banging
+    // Function moves one Cell, and a Directional Bang Function emits two, which
+    // is outside its own Span. A direction name would have hidden the
+    // difference the numbers state.
+    //
+    // The spelling is read from the emitted Function rather than written out,
+    // so `^^` has one home whichever of the two rows names it.
     (SelfBangNorth) => {
-        FunctionKind::Effect(EffectKind::SourceWrite {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-        })
+            spelling: Function::SelfBangingNorth.spelling(),
+            bundle: crate::SourceBundle::Advance,
+        }))
+    };
+    (BangNorth) => {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
+            columns: 0,
+            rows: -1,
+            spelling: Function::SelfBangingNorth.spelling(),
+            bundle: crate::SourceBundle::Emit,
+        }))
     };
     (SelfBangSouth) => {
-        FunctionKind::Effect(EffectKind::SourceWrite {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-        })
+            spelling: Function::SelfBangingSouth.spelling(),
+            bundle: crate::SourceBundle::Advance,
+        }))
+    };
+    (BangSouth) => {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
+            columns: 0,
+            rows: 1,
+            spelling: Function::SelfBangingSouth.spelling(),
+            bundle: crate::SourceBundle::Emit,
+        }))
     };
     (SelfBangWest) => {
-        FunctionKind::Effect(EffectKind::SourceWrite {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -1,
             rows: 0,
-        })
+            spelling: Function::SelfBangingWest.spelling(),
+            bundle: crate::SourceBundle::Advance,
+        }))
+    };
+    (BangWest) => {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
+            columns: -2,
+            rows: 0,
+            spelling: Function::SelfBangingWest.spelling(),
+            bundle: crate::SourceBundle::Emit,
+        }))
     };
     (SelfBangEast) => {
-        FunctionKind::Effect(EffectKind::SourceWrite {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 1,
             rows: 0,
-        })
+            spelling: Function::SelfBangingEast.spelling(),
+            bundle: crate::SourceBundle::Advance,
+        }))
+    };
+    (BangEast) => {
+        FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
+            columns: 2,
+            rows: 0,
+            spelling: Function::SelfBangingEast.spelling(),
+            bundle: crate::SourceBundle::Emit,
+        }))
     };
 }
 
@@ -698,14 +745,18 @@ macro_rules! define_functions {
                 self.kind().performs_terminal_output()
             }
 
-            /// The Cells this Function writes back into the Source, relative
-            /// to its own anchor, or `None` for a Function that writes none.
+            /// The Source write this Function performs, or `None` for a
+            /// Function that performs none.
             ///
-            /// `orcvs` resolves the offset against the Grid, because ADR 0009
-            /// keeps destination resolution there and this crate holds no Grid.
+            /// `orcvs` resolves the displacement against the Grid, because
+            /// ADR 0009 keeps destination resolution there and this crate holds
+            /// no Grid. It is read before the Tick, to reserve the Cells the
+            /// bundle can reach, and answered again as the interpretation:
+            /// these Functions take no operand and read no Context, so the
+            /// whole of the effect is declared here.
             #[inline(always)]
-            pub const fn source_write(self) -> Option<(i16, i16)> {
-                self.kind().source_write()
+            pub const fn source_effect(self) -> Option<crate::SourceEffect> {
+                self.kind().source_effect()
             }
 
             /// Whether this Function can return Bang, even when the current
@@ -919,6 +970,10 @@ define_functions! {
     ConvertToNote => (".^", Value, Intrinsic, Pervasive, Elementwise, false, [value: Number]),
     ConvertToNumber => (".v", Value, Intrinsic, Pervasive, Elementwise, false, [value: Note]),
     Delay => ("~*", Value, Intrinsic, Scalar, Atom, true, [rate: Number, modulus: Number]),
+    DirectionalBangEast => ("*>", BangEast, Bang, Scalar, Atom, false, []),
+    DirectionalBangNorth => ("*^", BangNorth, Bang, Scalar, Atom, false, []),
+    DirectionalBangSouth => ("*v", BangSouth, Bang, Scalar, Atom, false, []),
+    DirectionalBangWest => ("*<", BangWest, Bang, Scalar, Atom, false, []),
     Divide => ("./", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Equality => (".=", Value, Intrinsic, Pervasive, Atom, true, [left: Number, right: Number]),
     Euclidean => ("~%", Value, Intrinsic, Scalar, Atom, true, [hits: Number, steps: Number]),
@@ -1006,37 +1061,56 @@ mod test {
     };
 
     #[test]
-    fn every_self_banging_function_declares_the_displacement_its_spelling_names() {
-        // The four displacements live in `function_kind!`, so this is the test
-        // that keeps that macro in step with the spellings. It is exhaustive
-        // over the Source-writing rows rather than a list of four, so a fifth
-        // Self-Banging Function is drawn the day it is declared, the way
-        // `Function::ALL` keeps every other sweep honest.
+    fn every_source_writing_function_declares_the_effect_its_spelling_names() {
+        // The eight effects live in `function_kind!`, so this is the test that
+        // keeps that macro in step with the spellings. It is exhaustive over
+        // the Source-writing rows rather than a list, so a ninth is drawn the
+        // day it is declared, the way `Function::ALL` keeps every other sweep
+        // honest.
+        //
+        // The pairs are stated together because the pairing is the design.
+        // `*^` and `^^` write `^^` and differ in two declared things: the
+        // bundle, here, and the activation source, in the sweep below. The
+        // horizontal rows carry the third difference the offsets state — a
+        // Self-Banging Function moves one Cell and a Directional Bang Function
+        // emits two, which is the first Cell outside its own Span — and a test
+        // reading `(-1, 0)` where it expected `(-2, 0)` is the whole point of
+        // writing them out.
         let mut seen = 0;
         for function in Function::ALL.iter().copied() {
-            let Some(displacement) = function.source_write() else {
+            let Some(effect) = function.source_effect() else {
                 continue;
             };
             seen += 1;
-            let expected = match function.spelling() {
-                "^^" => (0, -1),
-                "vv" => (0, 1),
-                "<<" => (-1, 0),
-                ">>" => (1, 0),
-                other => panic!("{other} declares a Source write with no stated displacement"),
+            let (columns, rows, spelling, bundle) = match function.spelling() {
+                "^^" => (0, -1, "^^", crate::SourceBundle::Advance),
+                "vv" => (0, 1, "vv", crate::SourceBundle::Advance),
+                "<<" => (-1, 0, "<<", crate::SourceBundle::Advance),
+                ">>" => (1, 0, ">>", crate::SourceBundle::Advance),
+                "*^" => (0, -1, "^^", crate::SourceBundle::Emit),
+                "*v" => (0, 1, "vv", crate::SourceBundle::Emit),
+                "*<" => (-2, 0, "<<", crate::SourceBundle::Emit),
+                "*>" => (2, 0, ">>", crate::SourceBundle::Emit),
+                other => panic!("{other} declares a Source write with no stated effect"),
             };
             assert_eq!(
-                displacement, expected,
-                "{function:?} displaces by something its spelling does not name",
+                effect,
+                crate::SourceEffect {
+                    columns,
+                    rows,
+                    spelling,
+                    bundle,
+                },
+                "{function:?} writes something its spelling does not name",
             );
             assert!(
                 function.takes_no_operand(),
-                "{function:?} declares an operand a Self-Banging Function does not take",
+                "{function:?} declares an operand a Source-writing Function does not take",
             );
         }
         assert_eq!(
-            seen, 4,
-            "the Source-writing rows are no longer the four expected"
+            seen, 8,
+            "the Source-writing rows are no longer the eight expected"
         );
     }
 
@@ -1334,6 +1408,14 @@ mod test {
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => (false, false, true),
+                // The same effect kind, waiting for a Bang. These four and the
+                // four above are the table's whole record of ADR 0029's
+                // asymmetry, and reading them as one group is the mistake this
+                // column exists to make impossible.
+                Function::DirectionalBangEast
+                | Function::DirectionalBangNorth
+                | Function::DirectionalBangSouth
+                | Function::DirectionalBangWest => (false, false, false),
             };
 
             assert_eq!(function.answers_value(), answers_value, "{function:?}");
@@ -1384,12 +1466,16 @@ mod test {
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => true,
-                // The Self-Banging Functions declare no operand, so there is no
-                // operand for pervasion to widen over. They are `Scalar` for
+                // The Source-writing Functions declare no operand, so there is
+                // no operand for pervasion to widen over. They are `Scalar` for
                 // the reason ADR 0036's two pulses are not: those refuse a
                 // Sequence they could have been handed, while these are never
                 // handed anything.
-                Function::SelfBangingEast
+                Function::DirectionalBangEast
+                | Function::DirectionalBangNorth
+                | Function::DirectionalBangSouth
+                | Function::DirectionalBangWest
+                | Function::SelfBangingEast
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => false,
@@ -1441,7 +1527,11 @@ mod test {
                 // Sequence and widens over nothing. It declares the column all
                 // the same, because the column says how wide an answer is and
                 // scheduling reads it before any Function has evaluated.
-                Function::SelfBangingEast
+                Function::DirectionalBangEast
+                | Function::DirectionalBangNorth
+                | Function::DirectionalBangSouth
+                | Function::DirectionalBangWest
+                | Function::SelfBangingEast
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => (false, false),
