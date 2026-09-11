@@ -187,20 +187,29 @@ pub(crate) fn presented_grid(
     pixels_per_point: f32,
 ) -> GridViewport {
     let presented = to_global * source;
+    // The device scale is divided by as well as multiplied by — once for the
+    // Cell size and again for the corner — so it is refused on the same terms
+    // as every other input here rather than checked for finiteness alone. Zero
+    // answers an infinite Cell and a NaN corner; a negative one answers a Cell
+    // that `cell_rect` paints inverted and `cell_at` refuses every click on.
+    // Refused, the Grid keeps its unsnapped corner and no Cell at all, which is
+    // the same nothing a console with no area presents.
+    let device_scale =
+        (pixels_per_point.is_finite() && pixels_per_point > 0.0).then_some(pixels_per_point);
     let raw = presented.width() / columns.max(1) as f32;
     // At least one physical pixel wherever there is any Cell at all, so a Grid
     // that is merely very small is still drawn rather than floored away.
-    let cell_size = if raw.is_finite() && raw > 0.0 && pixels_per_point.is_finite() {
-        (raw * pixels_per_point).floor().max(1.0) / pixels_per_point
-    } else {
-        0.0
+    let cell_size = match device_scale {
+        Some(scale) if raw.is_finite() && raw > 0.0 => (raw * scale).floor().max(1.0) / scale,
+        _ => 0.0,
     };
     let size = Vec2::new(columns as f32, rows as f32) * cell_size;
+    let corner = presented.center() - size / 2.0;
 
     GridViewport {
         cell_size,
         rect: Rect::from_min_size(
-            (presented.center() - size / 2.0).round_to_pixels(pixels_per_point),
+            device_scale.map_or(corner, |scale| corner.round_to_pixels(scale)),
             size,
         ),
     }
@@ -605,5 +614,35 @@ mod tests {
 
         assert_eq!(presented.cell_size, 0.0);
         assert_eq!(presented.cell_at(Pos2::ZERO, GRID, GRID), None);
+    }
+
+    ///
+    /// A device scale that is not a scale presents no Grid rather than an
+    /// infinite or an inverted one.
+    ///
+    /// The snap divides by `pixels_per_point` after flooring to at least one
+    /// physical pixel, so a zero scale answers an infinite Cell and a NaN
+    /// rectangle, and a negative one answers a Cell that `cell_rect` paints
+    /// inverted while `cell_at` refuses every click. Every other degenerate
+    /// input to this function is already refused; this is the same refusal
+    /// stated over the one input that was only checked for finiteness.
+    ///
+    #[test]
+    fn a_device_scale_that_is_not_a_scale_presents_no_grid() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        for pixels_per_point in [0.0_f32, -2.0, f32::NAN, f32::INFINITY] {
+            let presented = presented_grid(TSTransform::IDENTITY, source, 8, 8, pixels_per_point);
+
+            assert_eq!(
+                presented.cell_size, 0.0,
+                "a device scale of {pixels_per_point} presented a Cell"
+            );
+            assert!(
+                presented.rect.min.x.is_finite() && presented.rect.min.y.is_finite(),
+                "a device scale of {pixels_per_point} put the Grid at {:?}",
+                presented.rect.min
+            );
+            assert_eq!(presented.cell_at(Pos2::ZERO, 8, 8), None);
+        }
     }
 }

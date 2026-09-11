@@ -46,17 +46,30 @@ const MAX_ZOOM: f32 = 2.0;
 /// mid-session for every size already paid for.
 ///
 /// At a step of an eighth, the zoom range `MIN_ZOOM..=MAX_ZOOM` holds fifteen
-/// distinct scales, so a viewer who sweeps the whole range spends at most
+/// distinct scales, so a viewer who sweeps that range spends at most
 /// `15 x 94 x 4 = 5,640` rasters — roughly two megapixels of a 2048-square
 /// atlas at one device pixel per point, which stays inside the fill ratio.
 /// Both zoom limits and the Source's own scale are exact multiples of the step,
 /// so the default window and either end of the range land on it rather than
 /// beside it.
 ///
-/// The step costs a Glyph at most a sixteenth of the Source's Cell scale in
-/// size, which is at most six percent of a Glyph at or above the Source's own
-/// scale and more than that below it. It is still strictly sharper than what it
-/// replaces: a Scene bilinearly resamples one rasterised size at *every* zoom.
+/// Fifteen is the floor of the budget, not its ceiling, and the honest
+/// statement is that the step bounds a sweep rather than eliminating it. The
+/// range the console actually offers is `min_zoom..=MAX_ZOOM.max(fitted_zoom)`
+/// (see `show_source_scene`), because the fitted scale has to stay reachable,
+/// and a console large enough to fit the Grid above `MAX_ZOOM` widens it: a
+/// 2560-point-wide window on the default Grid fits at about 2.25 and offers
+/// seventeen steps, and one twice that wide fits at about 4.5 and offers
+/// thirty-five — some 13,000 rasters, which would pass the fill ratio. That is
+/// a sweep across the whole of a very large console's range, not a zoom a
+/// viewer holds, and the cost of passing it is a re-rasterisation rather than a
+/// fault.
+///
+/// The step costs a Glyph at most an eighth of the Source's Cell scale in size,
+/// taken downwards so a Glyph is never larger than its share of the Cell — see
+/// [`glyph_scale`], which states why the rounding goes that way. It is still
+/// strictly sharper than what it replaces: a Scene bilinearly resamples one
+/// rasterised size at *every* zoom.
 ///
 const GLYPH_SCALE_STEP: f32 = 0.125;
 
@@ -164,12 +177,24 @@ fn is_presentable(to_global: TSTransform) -> bool {
 /// Never zero or negative: a font size of zero lays nothing out, and the
 /// smallest step still draws something a viewer can see is there.
 ///
+/// # Why the step is taken downwards
+///
+/// The step is absolute, so rounding to the nearest one is disproportionate at
+/// a small scale: a console fitting at 0.2 would round up to 0.25 and lay an
+/// 18 point Glyph out at 4.5 points inside a 5 point Cell, where the same Glyph
+/// at the Source's own scale takes 18 of 25. Flooring keeps a Glyph's share of
+/// its Cell at or under what the fit gave it at every scale, and costs at most
+/// one step of sharpness rather than a Cell's worth of proportion. Both zoom
+/// limits and the Source's own scale are exact multiples of the step, so
+/// flooring leaves them exactly where rounding did, and the step count the
+/// atlas budget above is stated over is unchanged.
+///
 fn glyph_scale(scaling: f32) -> f32 {
     if !scaling.is_finite() || scaling <= 0.0 {
         return GLYPH_SCALE_STEP;
     }
 
-    ((scaling / GLYPH_SCALE_STEP).round() * GLYPH_SCALE_STEP).max(GLYPH_SCALE_STEP)
+    ((scaling / GLYPH_SCALE_STEP).floor() * GLYPH_SCALE_STEP).max(GLYPH_SCALE_STEP)
 }
 
 #[derive(Default)]
@@ -758,6 +783,10 @@ fn show_source_scene(
         // which is exactly where a test would be looking.
         .drag_pan_buttons(DragPanButtons::empty());
 
+    // Where the view sits before any gesture reaches it, so the pin below can
+    // ask whether one moved it.
+    let before_the_gesture = view.to_global;
+
     if pan.dragged_by(PointerButton::Middle) {
         // The pointer moved this far in presented points, and the translation
         // is in presented points, so it is added and not scaled.
@@ -780,9 +809,19 @@ fn show_source_scene(
     // Panning or zooming moves the view off the fitted viewport and holds it
     // there; a double click hands it back. A frame that does both is a reset:
     // the double click is the later intent.
+    //
+    // The pin asks the transform whether it moved rather than asking the
+    // `Response` whether it changed. `register_pan_and_zoom` calls
+    // `mark_changed` whenever a zoom or scroll event arrived at all, whether or
+    // not the `zoom_range` clamp left `to_global` exactly where it was
+    // (`scene.rs:265-274`). A console already sitting at either end of its zoom
+    // range therefore reports a change for a gesture the clamp reverted, and
+    // pinning on that costs the viewer every later re-fit: the owned transform
+    // is absolute, and unlike the Scene-space rectangle it replaces it does not
+    // track the window across a resize.
     if pan.double_clicked() {
         view.adjusted = false;
-    } else if pan.changed() {
+    } else if view.to_global != before_the_gesture {
         view.adjusted = true;
     }
 
@@ -1059,7 +1098,11 @@ mod tests {
         assert_eq!(glyph_scale(MIN_ZOOM), MIN_ZOOM);
         assert_eq!(glyph_scale(MAX_ZOOM), MAX_ZOOM);
         assert_eq!(glyph_scale(1.01), 1.0, "a nudge re-laid the whole alphabet");
-        assert_eq!(glyph_scale(1.1), 1.125);
+        // Downwards, so the Glyph keeps its share of the Cell: a zoom part way
+        // into a step is laid out at the step it is past, not the one it is
+        // approaching.
+        assert_eq!(glyph_scale(1.1), 1.0);
+        assert_eq!(glyph_scale(1.13), 1.125);
         // Never zero, never negative, whatever reaches it.
         for degenerate in [0.0, -1.0, f32::NAN, f32::INFINITY, 1e-9] {
             assert!(
@@ -1070,15 +1113,16 @@ mod tests {
         }
 
         // Fifteen distinct sizes over the whole zoom range is the atlas budget
-        // `GLYPH_SCALE_STEP` states.
+        // `GLYPH_SCALE_STEP` states. Swept in exact thousandths rather than by
+        // accumulating one: the top of the range is reached by the
+        // `zoom_range` clamp exactly, and a sum that drifts past it would drop
+        // the step it lands on.
         let mut sizes: Vec<f32> = Vec::new();
-        let mut zoom = MIN_ZOOM;
-        while zoom <= MAX_ZOOM {
-            let scale = glyph_scale(zoom);
+        for thousandth in (MIN_ZOOM * 1_000.0) as u32..=(MAX_ZOOM * 1_000.0) as u32 {
+            let scale = glyph_scale(thousandth as f32 / 1_000.0);
             if !sizes.iter().any(|held| (held - scale).abs() < 1e-6) {
                 sizes.push(scale);
             }
-            zoom += 0.001;
         }
         assert_eq!(
             sizes.len(),
@@ -1086,6 +1130,37 @@ mod tests {
             "the zoom range holds {} sizes",
             sizes.len()
         );
+    }
+
+    ///
+    /// A Glyph is never laid out at a larger fraction of its Cell than the fit
+    /// gave it.
+    ///
+    /// The quantisation step is an absolute one, so rounding to the nearest
+    /// step is disproportionate at a small scale: a console fitting at 0.2
+    /// rounds up to 0.25 and lays an 18 point Glyph out at 4.5 points inside a
+    /// 5 point Cell, where the same Glyph at the Source's own scale takes 18 of
+    /// 25. Under the retired Scene the layer scaled the Glyph exactly, so this
+    /// is the proportion the effort's strict-parity rule is about. Quantising
+    /// downwards keeps it and costs at most one step of sharpness.
+    ///
+    /// The floor at [`GLYPH_SCALE_STEP`] is the one deliberate exception, and
+    /// the case above it is what this pins.
+    ///
+    #[test]
+    fn a_glyph_is_never_laid_out_larger_than_the_scale_it_is_drawn_at() {
+        // A sweep at half the step, so it lands both on steps and between them.
+        let mut scaling = GLYPH_SCALE_STEP;
+        while scaling <= MAX_ZOOM {
+            assert!(
+                glyph_scale(scaling) <= scaling,
+                "a Glyph at {scaling} was laid out at {}",
+                glyph_scale(scaling)
+            );
+            scaling += GLYPH_SCALE_STEP / 2.0;
+        }
+        // The fit below the zoom floor is where the rounding was worst.
+        assert_eq!(glyph_scale(0.2), 0.125);
     }
 
     ///
@@ -1963,6 +2038,53 @@ mod tests {
         assert_eq!(
             view.to_global, pinned,
             "the resize discarded the viewer's zoom"
+        );
+    }
+
+    ///
+    /// A zoom the `zoom_range` clamp reverts is not a zoom, so it leaves the
+    /// view unpinned and still re-fitting.
+    ///
+    /// `Scene::register_pan_and_zoom` calls `mark_changed` whenever a zoom or
+    /// scroll event arrived at all, whether or not the clamp left `to_global`
+    /// exactly where it was (`scene.rs:265-274`), so `Response::changed` cannot
+    /// say whether the view moved. Pinning on it costs the viewer every later
+    /// re-fit: the owned transform is absolute, and unlike the Scene-space
+    /// rectangle it replaces it does not track the window across a resize.
+    ///
+    #[test]
+    fn a_zoom_the_clamp_reverts_leaves_the_view_unpinned_and_re_fitting() {
+        let ctx = egui::Context::default();
+        // An 8 by 8 Source is 200 points square, so a 400 point console fits it
+        // at exactly two — which is `MAX_ZOOM`, leaving a zoom in nowhere to go.
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
+        let larger = Rect::from_min_size(Pos2::ZERO, Vec2::splat(800.0));
+        let mut orcvs = Orcvs::new(8, 8);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.to_global.scaling, MAX_ZOOM,
+            "the console did not fit at the zoom ceiling"
+        );
+        let fitted = view.to_global;
+
+        console_frame(
+            &ctx,
+            screen,
+            zoom_at(screen.center()),
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(view.to_global, fitted, "the clamp let the zoom through");
+        assert!(!view.adjusted, "a zoom that moved nothing pinned the view");
+
+        // And the view is still the console's to re-fit.
+        console_frame(&ctx, larger, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.to_global.scaling, 4.0,
+            "the resize did not re-fit the Grid the viewer never moved"
         );
     }
 
