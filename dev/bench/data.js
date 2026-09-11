@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789115119053,
+  "lastUpdate": 1789116443869,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -8765,6 +8765,204 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_edges/128x128",
             "value": 1435050,
             "range": "± 9527",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "tobyhede@gmail.com",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "distinct": true,
+          "id": "d2d2ac60c6d8c7a29b0be75d0bf2cef034d0afb9",
+          "message": "Point the Self-Banging advice at the method that exists\n\ntakes_no_operand's doc linked Function::source_write, which no crate declares.\nIt is the only rustdoc error in the workspace and it fails the merge tier's\ngate under RUSTDOCFLAGS=\"-D warnings\", so full-gate has been red on main rather\nthan on any one branch — PR #71 and PR #73 each merged and each inherited it.\n\nFunction::source_effect is the method meant, but naming it was not the whole\nfix. Both groups declare an effect, so a caller told to ask source_effect and\nnothing more would have been given a second untrue sentence in place of the\nfirst. The effect table decides it: every Self-Banging arm declares\nSourceBundle::Advance and every Directional Bang arm SourceBundle::Emit, so the\nbundle is what tells them apart and the sentence now says to read it.\n\nPushed straight to main. The gate is one of the three required status checks and\nwas failing before this change on every branch equally, so a pull request of its\nown could not have turned it green any sooner.\n\nCloses .scratch/lang-foundations/issues/09.\n\nClaude-Session: https://claude.ai/code/session_017SYs8gt3hywhcyxxM2L13j",
+          "timestamp": "2026-09-11T18:44:28+10:00",
+          "tree_id": "72243a435d8340110470399cce1a23f0f1174d41",
+          "url": "https://github.com/orcvs/orcvs/commit/d2d2ac60c6d8c7a29b0be75d0bf2cef034d0afb9"
+        },
+        "date": 1789116443023,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 169,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 65,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 80,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 692,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 52,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 97,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 247,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 462,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 880,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 41,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 43,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 68,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 2943,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 11772,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 45764,
+            "range": "± 41",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 6523,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 23191,
+            "range": "± 87",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 85709,
+            "range": "± 351",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 6706,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 23304,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 86282,
+            "range": "± 292",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 19818,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 73853,
+            "range": "± 258",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 297601,
+            "range": "± 1161",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1237310,
+            "range": "± 3178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 12493,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 74409,
+            "range": "± 396",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 342548,
+            "range": "± 467",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1386988,
+            "range": "± 2692",
             "unit": "ns/iter"
           }
         ]
