@@ -127,10 +127,12 @@ impl Paint {
     ///
     pub(crate) fn derive(frame: &RenderFrame, drawn: &VisiblePositions) -> Self {
         let grid = frame.grid();
-        // Recovered in the one pass rather than searched for afterwards. The
-        // Render Frame marks the Cell it was derived for and does not answer
-        // the Position separately, so this is where it is read back.
-        let mut cursor = None;
+        // The Cursor is the Position the Render Frame was derived for. A Paint
+        // covers a viewport, so `None` here means that Position is outside the
+        // drawn range — not that the Frame selected nothing.
+        let cursor = frame.cursor();
+        let cursor = (drawn.columns.contains(&cursor.x()) && drawn.rows.contains(&cursor.y()))
+            .then_some(cursor);
         // What each Cell says, read once for the nine blank spellings and never
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
         // of `GlyphString`, and only drawing it reaches the font atlas.
@@ -145,9 +147,6 @@ impl Paint {
                 .iter()
                 .flat_map(|row| row[columns.clone()].iter())
                 .map(|cell| {
-                    if cell.selected() {
-                        cursor = Some(cell.position());
-                    }
                     let visuals = cell_visuals(
                         cell.glyph(),
                         cell.cursor_bloom(),
@@ -202,16 +201,6 @@ impl Paint {
         Self {
             grid,
             drawn: drawn.clone(),
-            // Optional because a Paint covers a viewport and the Cursor can be
-            // outside it, never because the Render Frame is vague about where
-            // the Cursor is. That chain is total and all of it is in
-            // `orcvs::render_frame`: `RenderFrame`'s fields are private and
-            // `RenderFrame::derive` is its only constructor, that function
-            // calls `Grid::assert_owns(selected)` before building a single
-            // Cell, and it then derives one Cell per Position of that same
-            // Grid. So at most one Cell in the walk above compares equal to the
-            // selected Position, and exactly one does wherever the drawn range
-            // reaches it.
             cursor,
             cells,
         }
@@ -310,10 +299,10 @@ impl Paint {
     /// Where the Cursor is, when this Paint covers it.
     ///
     /// One Position for the whole Paint rather than a flag on every Cell:
-    /// `RenderFrame::derive` takes one selected Position and asserts the Grid
-    /// owns it, so exactly one exists, and a per-Cell bool would re-open a
-    /// state the layer below has closed. `None` says the Cursor is outside the
-    /// viewport this Paint covers, not that the Render Frame selected nothing.
+    /// [`RenderFrame::cursor`] answers the Position `derive` was given, so
+    /// exactly one exists, and a per-Cell bool would re-open a state the layer
+    /// below has closed. `None` says the Cursor is outside the viewport this
+    /// Paint covers, not that the Render Frame selected nothing.
     ///
     pub(crate) fn cursor(&self) -> Option<Position> {
         self.cursor
@@ -641,21 +630,9 @@ mod tests {
         let selected = orcvs.render_frame().rows()[3][6].position();
         orcvs.select(selected);
 
-        let frame = orcvs.render_frame();
-        let paint = whole(&frame);
+        let paint = whole(&orcvs.render_frame());
 
         assert_eq!(paint.cursor(), Some(selected));
-        assert_eq!(
-            frame
-                .rows()
-                .iter()
-                .flatten()
-                .filter(|cell| cell.selected())
-                .map(|cell| cell.position())
-                .collect::<Vec<_>>(),
-            vec![selected],
-            "the Render Frame selects exactly the Cell the Paint calls the Cursor"
-        );
     }
 
     ///

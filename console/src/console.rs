@@ -1513,15 +1513,8 @@ mod tests {
     }
 
     fn selected_cell(orcvs: &Orcvs) -> (usize, usize) {
-        let frame = orcvs.render_frame();
-        let cell = frame
-            .rows()
-            .iter()
-            .flatten()
-            .find(|cell| cell.selected())
-            .expect("the Cursor is on a Cell");
-
-        (cell.position().x(), cell.position().y())
+        let cursor = orcvs.render_frame().cursor();
+        (cursor.x(), cursor.y())
     }
 
     #[tokio::test]

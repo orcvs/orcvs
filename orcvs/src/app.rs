@@ -632,6 +632,20 @@ mod test {
         assert!(frame.rows()[0][1].selected());
     }
 
+    ///
+    /// The Cursor is the Position `derive` was given, carried rather than found.
+    ///
+    #[tokio::test]
+    async fn render_frame_answers_the_cursor_it_was_derived_for() {
+        let mut app = Orcvs::new(4, 3).expect("the test runtime");
+        let origin = app.grid.origin();
+        assert_eq!(app.render_frame().cursor(), origin);
+
+        let moved = app.grid.position(2, 1).unwrap();
+        app.select(moved);
+        assert_eq!(app.render_frame().cursor(), moved);
+    }
+
     #[tokio::test]
     async fn deriving_a_render_frame_does_not_advance_cursor_blink_state() {
         let mut app = orcvs();

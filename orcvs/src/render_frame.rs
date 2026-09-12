@@ -68,6 +68,7 @@ impl RenderCell {
 #[derive(Clone, Debug)]
 pub struct RenderFrame {
     grid: Grid,
+    cursor: Position,
     rows: Vec<Vec<RenderCell>>,
 }
 
@@ -109,7 +110,11 @@ impl RenderFrame {
                 .collect::<Vec<_>>()
             })
             .collect();
-        Self { grid, rows }
+        Self {
+            grid,
+            cursor: selected,
+            rows,
+        }
     }
 
     ///
@@ -124,6 +129,19 @@ impl RenderFrame {
     ///
     pub fn grid(&self) -> Grid {
         self.grid
+    }
+
+    ///
+    /// The Cursor: the Position [`derive`](Self::derive) was given and asserted
+    /// the Grid owns.
+    ///
+    /// Carried rather than recovered. `derive` already holds the Position, and
+    /// `Position` is `Copy`, so keeping it costs nothing. It spares every
+    /// consumer scanning the Cells for the one whose `selected` flag is set —
+    /// a search whose answer the type of `&[Vec<RenderCell>]` cannot state.
+    ///
+    pub fn cursor(&self) -> Position {
+        self.cursor
     }
 
     ///
