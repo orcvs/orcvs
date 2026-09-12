@@ -30,15 +30,15 @@ about `docs/adr/0040`, and an ADR is not the glossary.
 `console-testing/02` still owns the **Console** entry, is still `ready-for-agent`, and specifies it
 down to its `_Avoid_` list. Do not write that entry here. It simply does not gate this ticket.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `docs/adr/0040-the-console-paints-from-a-value.md` exists, status accepted, in the house format.
-- [ ] It states the decision: the paint is derived as a per-Cell value carrying no geometry, and a separate step converts it to Shapes.
-- [ ] It records the rejected alternative of publishing `RenderFrame::derive`, and why the return value is not the seam either.
-- [ ] It cites ADR 0038 for why the console left egui's widget surface, and does not restate that decision or reopen it.
-- [ ] It records the rejection of `epaint::Mesh::add_colored_rect`. Nothing else in epaint merges adjacent same-colour rectangles, so the coalescing fold is the console's own work — but one `Shape::Mesh` carrying a quad per Cell would skip per-rect tessellation and feathering, need no coalescing to cut vertex count, and tile exactly, since mesh quads have no anti-aliased edge. It is the one facility in epaint that does what the fold is for, and it is refused rather than passed over: it moves vertex placement and pixel snapping into this crate and gives up per-rect anti-aliasing. Say that, so the next reader does not have to find it.
-- [ ] It records that screenshot testing was investigated and refused, citing `console-testing/spec.md` as the owning decision.
-- [ ] No ADR is renumbered, and `.scratch/adr-numbering/` is not touched. That effort is settled: `728183c` renumbered the pulse decision to 0039, `adr-numbering/01` is `resolved`, and the policy it was asking about is now written in `docs/adr/README.md`. There is no open question left to add a data point to.
+- [x] `docs/adr/0040-the-console-paints-from-a-value.md` exists, status accepted, in the house format.
+- [x] It states the decision: the paint is derived as a per-Cell value carrying no geometry, and a separate step converts it to Shapes.
+- [x] It records the rejected alternative of publishing `RenderFrame::derive`, and why the return value is not the seam either.
+- [x] It cites ADR 0038 for why the console left egui's widget surface, and does not restate that decision or reopen it.
+- [x] It records the rejection of `epaint::Mesh::add_colored_rect`. Nothing else in epaint merges adjacent same-colour rectangles, so the coalescing fold is the console's own work — but one `Shape::Mesh` carrying a quad per Cell would skip per-rect tessellation and feathering, need no coalescing to cut vertex count, and tile exactly, since mesh quads have no anti-aliased edge. It is the one facility in epaint that does what the fold is for, and it is refused rather than passed over: it moves vertex placement and pixel snapping into this crate and gives up per-rect anti-aliasing. Say that, so the next reader does not have to find it.
+- [x] It records that screenshot testing was investigated and refused, citing `console-testing/spec.md` as the owning decision.
+- [x] No ADR is renumbered, and `.scratch/adr-numbering/` is not touched. That effort is settled: `728183c` renumbered the pulse decision to 0039, `adr-numbering/01` is `resolved`, and the policy it was asking about is now written in `docs/adr/README.md`. There is no open question left to add a data point to.
 
 ## Verification
 

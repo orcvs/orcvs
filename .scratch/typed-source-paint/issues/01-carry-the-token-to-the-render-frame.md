@@ -27,10 +27,15 @@ token vocabulary between the Parser and the painter is deleted.
 - [ ] Strict parity is asserted: for every Token that maps onto a Glyph today, the painted colour is
       unchanged. The existing `style.rs` tests that name hexes are the record, and they are updated
       to name Tokens without changing a value.
-- [ ] `console`'s `BLANK_GLYPHS`, `blank_glyph_index` and `GlyphTable::blanks` are deleted, and
-      `GlyphTable::character` collapses to the Cell's content. Their painted path is unreachable
-      today — no Cell with `content() == None` carries a Token — which is why deleting them changes
-      nothing on screen. Confirm that before deleting rather than trusting this line.
+- [ ] `console`'s `BLANK_GLYPHS`, `blank_glyph_index` and `CellCharacters::blanks` are **kept** and
+      re-keyed from `Glyph` onto `Option<Token>`; `CellCharacters::character` still answers a blank
+      spelling. An earlier draft of this line had them deleted as an unreachable path, on the
+      grounds that no Cell with `content() == None` carries a Token. That is false. `LanguageMap`
+      gives every Cell an Expression's claim covers that claim's Glyph whether or not it holds a
+      byte, so an Addition's reserved but unfilled operand Cell answers `Number` with no content —
+      `language_map.rs:1584` states the rule and `paint.rs:633` asserts the `h` that reaches the
+      blank table through it. Deleting them would blank every unfilled operand slot on screen.
+      Whether those placeholders should survive at all is `02`'s decision, not this ticket's.
 - [ ] `CONTEXT.md`'s **Glyph** entry is removed and no term replaces it. The Grid's background
       rulings — the sector seams and the Cursor bloom — are described where they are drawn.
 - [ ] `PALETTE.marker` and `PALETTE.highlight` are deleted. `restyle-egui-console/02` names
