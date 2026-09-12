@@ -141,7 +141,7 @@ impl Reserved {
             // The row's remaining Cells, measured from the destination's own
             // column so the count stops at the row edge rather than running on
             // into the next row's Cells.
-            Self::Row => Some(start..start + (grid.cols() - output.x())),
+            Self::Row => Some(start..start + (grid.columns() - output.x())),
         }
     }
 
@@ -1284,7 +1284,7 @@ mod test {
         source
             .snapshot()
             .into_bytes()
-            .chunks(grid.cols())
+            .chunks(grid.columns())
             .map(|row| String::from_utf8(row.to_vec()).expect("ASCII Source"))
             .collect()
     }
@@ -3114,7 +3114,7 @@ mod test {
             proptest::prop_assert_eq!(plan, repeated);
             let full = LanguageMap::derive(grid, &source.snapshot()).unwrap();
             proptest::prop_assert_eq!(source.language_map().units().collect::<Vec<_>>(), full.units().collect::<Vec<_>>());
-            for position in grid.rows().flatten() {
+            for position in grid.positions_by_row().flatten() {
                 proptest::prop_assert_eq!(source.language_map().glyph_at(position), full.glyph_at(position));
             }
         }

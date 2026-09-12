@@ -4,6 +4,7 @@ pub mod console;
 pub mod diagnostics;
 mod grid_viewport;
 mod midi;
+mod paint;
 pub mod persistence;
 mod report;
 pub mod style;

@@ -536,7 +536,7 @@ mod test {
         assert_eq!(rendered(&app, at(1, 1)), written);
 
         // and it is those Cells' content, not another's
-        for row in grid.rows() {
+        for row in grid.positions_by_row() {
             for position in row {
                 if position == at(0, 1) || position == at(1, 1) {
                     continue;
