@@ -69,7 +69,7 @@ impl RenderCell {
 pub struct RenderFrame {
     grid: Grid,
     cursor: Position,
-    rows: Vec<Vec<RenderCell>>,
+    cells: Vec<RenderCell>,
 }
 
 impl RenderFrame {
@@ -81,39 +81,37 @@ impl RenderFrame {
     ) -> Self {
         let grid = source.grid();
         grid.assert_owns(selected);
-        let rows = grid
+        let cells = grid
             .positions_by_row()
-            .map(|row| {
-                row.map(|position| {
-                    let is_selected = position == selected;
-                    let marker_spacing = config.marker_spacing.cells();
-                    RenderCell {
-                        position,
-                        content: source.content_at(position),
-                        glyph: source
-                            .language_map()
-                            .glyph_at(position)
-                            .unwrap_or(Glyph::Space),
-                        cursor_bloom: cursor_bloom(position, selected, config),
-                        sector_left_strength: (position.x() > 0
-                            && position.x().is_multiple_of(marker_spacing))
-                        .then(|| sector_seam_strength(position.y(), marker_spacing, position))
-                        .flatten(),
-                        sector_top_strength: (position.y() > 0
-                            && position.y().is_multiple_of(marker_spacing))
-                        .then(|| sector_seam_strength(position.x(), marker_spacing, position))
-                        .flatten(),
-                        selected: is_selected,
-                        cursor_visible: is_selected && cursor_visible,
-                    }
-                })
-                .collect::<Vec<_>>()
+            .flatten()
+            .map(|position| {
+                let is_selected = position == selected;
+                let marker_spacing = config.marker_spacing.cells();
+                RenderCell {
+                    position,
+                    content: source.content_at(position),
+                    glyph: source
+                        .language_map()
+                        .glyph_at(position)
+                        .unwrap_or(Glyph::Space),
+                    cursor_bloom: cursor_bloom(position, selected, config),
+                    sector_left_strength: (position.x() > 0
+                        && position.x().is_multiple_of(marker_spacing))
+                    .then(|| sector_seam_strength(position.y(), marker_spacing, position))
+                    .flatten(),
+                    sector_top_strength: (position.y() > 0
+                        && position.y().is_multiple_of(marker_spacing))
+                    .then(|| sector_seam_strength(position.x(), marker_spacing, position))
+                    .flatten(),
+                    selected: is_selected,
+                    cursor_visible: is_selected && cursor_visible,
+                }
             })
             .collect();
         Self {
             grid,
             cursor: selected,
-            rows,
+            cells,
         }
     }
 
@@ -122,10 +120,7 @@ impl RenderFrame {
     ///
     /// Carried rather than recovered. The derivation already holds it to assert
     /// the selected Position belongs to it, and `Grid` is `Copy`, so keeping
-    /// the fact costs nothing. It spares every consumer reading the shape back
-    /// out of `rows` — a first row that has to be asserted to exist and row
-    /// lengths that have to be asserted equal, both of which the Grid
-    /// guarantees by construction.
+    /// the fact costs nothing.
     ///
     pub fn grid(&self) -> Grid {
         self.grid
@@ -138,21 +133,27 @@ impl RenderFrame {
     /// Carried rather than recovered. `derive` already holds the Position, and
     /// `Position` is `Copy`, so keeping it costs nothing. It spares every
     /// consumer scanning the Cells for the one whose `selected` flag is set —
-    /// a search whose answer the type of `&[Vec<RenderCell>]` cannot state.
+    /// a search whose answer the type of `&[RenderCell]` cannot state.
     ///
     pub fn cursor(&self) -> Position {
         self.cursor
     }
 
     ///
-    /// Every Cell of the Grid, one `Vec` per row, top to bottom and each row
-    /// left to right.
+    /// The Cell at `position`.
     ///
-    /// This is the count's counterpart, not its rival: [`Grid::rows`] answers
-    /// how many rows the shape has, and this answers what stands in them.
+    /// Indexed through [`Grid::index`] in row-major order over the flat Cells.
     ///
-    pub fn rows(&self) -> &[Vec<RenderCell>] {
-        &self.rows
+    pub fn at(&self, position: Position) -> &RenderCell {
+        self.grid.assert_owns(position);
+        &self.cells[self.grid.index(position).get()]
+    }
+
+    ///
+    /// Every Cell of the Grid in row-major order.
+    ///
+    pub fn cells(&self) -> &[RenderCell] {
+        &self.cells
     }
 }
 
@@ -249,12 +250,7 @@ mod tests {
     }
 
     fn cell_at(frame: &RenderFrame, position: crate::grid::Position) -> &super::RenderCell {
-        frame
-            .rows()
-            .iter()
-            .flatten()
-            .find(|cell| cell.position() == position)
-            .expect("Render Frame contains every Grid Position")
+        frame.at(position)
     }
 
     #[test]
@@ -283,23 +279,42 @@ mod tests {
             },
         );
 
-        assert_eq!(frame.rows().len(), 2);
-        assert_eq!(frame.rows()[0].len(), 2);
-        assert_eq!(frame.rows()[1].len(), 2);
-        assert_eq!(frame.rows()[0][0].position(), grid.position(0, 0).unwrap());
-        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Space);
-        assert_eq!(frame.rows()[0][1].content(), Some('x'));
+        assert_eq!(frame.grid().rows(), 2);
+        assert_eq!(frame.grid().columns(), 2);
+        assert_eq!(frame.grid().columns(), 2);
+        assert_eq!(
+            frame.at(grid.position(0, 0).unwrap()).position(),
+            grid.position(0, 0).unwrap()
+        );
+        assert_eq!(frame.at(grid.position(0, 0).unwrap()).glyph(), Glyph::Space);
+        assert_eq!(frame.at(grid.position(1, 0).unwrap()).content(), Some('x'));
         // A character standing where a Function goes is classified there,
         // whether or not the table holds its spelling.
-        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Function);
-        assert!(frame.rows()[0][1].selected());
-        assert!(frame.rows()[0][1].cursor_visible());
-        assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
-        assert_eq!(frame.rows()[0][0].sector_top_strength(), None);
-        assert_eq!(frame.rows()[0][1].sector_left_strength(), None);
-        assert_eq!(frame.rows()[1][0].glyph(), Glyph::Space);
-        assert!(!frame.rows()[1][0].selected());
-        assert!(!frame.rows()[1][0].cursor_visible());
+        assert_eq!(
+            frame.at(grid.position(1, 0).unwrap()).glyph(),
+            Glyph::Function
+        );
+        assert!(frame.at(grid.position(1, 0).unwrap()).selected());
+        assert!(frame.at(grid.position(1, 0).unwrap()).cursor_visible());
+        assert_eq!(
+            frame
+                .at(grid.position(0, 0).unwrap())
+                .sector_left_strength(),
+            None
+        );
+        assert_eq!(
+            frame.at(grid.position(0, 0).unwrap()).sector_top_strength(),
+            None
+        );
+        assert_eq!(
+            frame
+                .at(grid.position(1, 0).unwrap())
+                .sector_left_strength(),
+            None
+        );
+        assert_eq!(frame.at(grid.position(0, 1).unwrap()).glyph(), Glyph::Space);
+        assert!(!frame.at(grid.position(0, 1).unwrap()).selected());
+        assert!(!frame.at(grid.position(0, 1).unwrap()).cursor_visible());
     }
 
     #[test]
@@ -320,14 +335,20 @@ mod tests {
             },
         );
 
-        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Bang);
-        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Bang);
+        assert_eq!(frame.at(grid.position(0, 0).unwrap()).glyph(), Glyph::Bang);
+        assert_eq!(frame.at(grid.position(1, 0).unwrap()).glyph(), Glyph::Bang);
         // The third `*` is not half a Bang. It opens an Expression of its own
         // whose spelling `*x` the Function table does not hold, and the `x`
         // opens the one after that — each classified where a Function goes,
         // because that is where each of them stands.
-        assert_eq!(frame.rows()[0][2].glyph(), Glyph::Function);
-        assert_eq!(frame.rows()[0][3].glyph(), Glyph::Function);
+        assert_eq!(
+            frame.at(grid.position(2, 0).unwrap()).glyph(),
+            Glyph::Function
+        );
+        assert_eq!(
+            frame.at(grid.position(3, 0).unwrap()).glyph(),
+            Glyph::Function
+        );
     }
 
     #[test]
@@ -351,8 +372,14 @@ mod tests {
         // variant, which mapped to `Glyph::Char`. It is a row of the Function
         // table now, so it is painted where every other Function is. The change
         // is visible and it is a correction: these two Cells spell a Function.
-        assert_eq!(frame.rows()[0][0].glyph(), Glyph::Function);
-        assert_eq!(frame.rows()[0][1].glyph(), Glyph::Function);
+        assert_eq!(
+            frame.at(grid.position(0, 0).unwrap()).glyph(),
+            Glyph::Function
+        );
+        assert_eq!(
+            frame.at(grid.position(1, 0).unwrap()).glyph(),
+            Glyph::Function
+        );
     }
 
     #[test]

@@ -109,9 +109,10 @@ impl Orcvs {
     ///
     /// // the Source arrives whole: its Cells, and the Grid it was built from
     /// let frame = orcvs.render_frame();
-    /// assert_eq!(frame.rows().len(), 3);
-    /// assert_eq!(frame.rows()[0].len(), 6);
-    /// assert_eq!(frame.rows()[0][0].content(), Some('1'));
+    /// let grid = frame.grid();
+    /// assert_eq!(grid.rows(), 3);
+    /// assert_eq!(grid.columns(), 6);
+    /// assert_eq!(frame.at(grid.origin()).content(), Some('1'));
     /// ```
     ///
     pub fn with_source(source: Source) -> Result<Self, PlaybackStartError> {
@@ -152,8 +153,9 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     ///
     /// // the shape is the Source's, not a pair passed alongside it, and the
     /// // Cursor opens on that Grid's origin
-    /// assert_eq!(orcvs.render_frame().rows().len(), 3);
-    /// assert!(orcvs.render_frame().rows()[0][0].selected());
+    /// let frame = orcvs.render_frame();
+    /// assert_eq!(frame.grid().rows(), 3);
+    /// assert!(frame.at(frame.grid().origin()).selected());
     /// ```
     ///
     pub fn with_source_and_output_adapter(
@@ -623,14 +625,14 @@ fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
 
         let frame = app.render_frame();
 
-        assert_eq!(frame.rows().len(), 1);
-        assert_eq!(frame.rows()[0].len(), 2);
-        assert_eq!(frame.rows()[0][0].content(), Some('x'));
+        assert_eq!(frame.grid().rows(), 1);
+        assert_eq!(frame.grid().columns(), 2);
+        assert_eq!(frame.at(app.grid.origin()).content(), Some('x'));
         assert_eq!(
-            frame.rows()[0][1].position(),
+            frame.at(app.grid.position(1, 0).unwrap()).position(),
             app.grid.position(1, 0).unwrap()
         );
-        assert!(frame.rows()[0][1].selected());
+        assert!(frame.at(app.grid.position(1, 0).unwrap()).selected());
     }
 
     ///
@@ -655,8 +657,8 @@ fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
         let first = app.render_frame();
         let second = app.render_frame();
 
-        assert!(first.rows()[0][0].cursor_visible());
-        assert!(second.rows()[0][0].cursor_visible());
+        assert!(first.at(app.grid.origin()).cursor_visible());
+        assert!(second.at(app.grid.origin()).cursor_visible());
         assert!(app.cursor.on);
     }
 
@@ -679,12 +681,7 @@ fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
 
     fn rendered(app: &Orcvs, position: crate::grid::Position) -> GlyphString {
         let frame = app.render_frame();
-        let cell = frame
-            .rows()
-            .iter()
-            .flatten()
-            .find(|cell| cell.position() == position)
-            .expect("Render Frame contains every Grid Position");
+        let cell = frame.at(position);
         GlyphString::new(
             cell.content().map(|content| content.to_string()),
             cell.glyph(),
@@ -869,26 +866,17 @@ fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
 
         let frame = app.render_frame();
         assert_eq!(
-            frame.rows()[0]
-                .iter()
-                .map(|cell| cell.sector_left_strength().is_some())
+            (0..7)
+                .map(|x| frame.at(at(x, 0)).sector_left_strength().is_some())
                 .collect::<Vec<_>>(),
             vec![false, false, true, false, true, false, true]
         );
-        assert!(
-            frame.rows()[0]
-                .iter()
-                .all(|cell| cell.glyph() == Glyph::Space)
-        );
+        assert!((0..7).all(|x| frame.at(at(x, 0)).glyph() == Glyph::Space));
 
         app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
         let frame = app.render_frame();
-        assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
-        assert!(
-            frame.rows()[0][1..]
-                .iter()
-                .all(|cell| cell.sector_left_strength().is_some())
-        );
+        assert_eq!(frame.at(at(0, 0)).sector_left_strength(), None);
+        assert!((1..7).all(|x| frame.at(at(x, 0)).sector_left_strength().is_some()));
     }
 
     ///
@@ -916,11 +904,7 @@ fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
         // Every Cell of the row belongs to the one Comment, so every Cell
         // carries its Glyph, the space between the two words included.
         let frame = app.render_frame();
-        assert!(
-            frame.rows()[0]
-                .iter()
-                .all(|cell| cell.glyph() == Glyph::Comment)
-        );
+        assert!((0..10).all(|x| frame.at(at(x, 0)).glyph() == Glyph::Comment));
         // And each renders what the Source holds there, no more.
         assert_eq!(
             (0..10)
