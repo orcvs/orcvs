@@ -20,3 +20,4 @@ Issue 01 first. Nothing else can be measured until one run is green.
 - `issues/02-remove-the-redundant-check-pass.md`
 - `issues/03-move-the-slow-gates-to-the-merge-trigger.md`
 - `issues/04-measure-the-warm-gate.md`
+- `issues/05-stop-running-the-benchmarks-as-tests-in-the-merge-tier.md`

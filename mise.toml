@@ -214,7 +214,20 @@ description = "Test persistence features"
 run = '''
 cargo check --package orcvs --lib --features persistence --locked
 cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
-cargo nextest run --workspace --all-targets --features persistence --profile ci --locked
+# `--all-targets` keeps every target compiling and linking under the feature,
+# and `-E` keeps the benchmark targets from being *run*. nextest executes a
+# criterion benchmark as a test, and criterion then takes its own defaults —
+# a 3s warm-up, a 5s measurement and a 100,000-resample bootstrap per
+# benchmark — because none of the budget flags `bench` passes reach it here.
+# Measured, that is about fourteen seconds each for the 29 benchmarks, and on a
+# contended four-vCPU runner it was 235s each: merge-queue runs 34660432645,
+# 34668680539, 34668705820 and 34672300753 all sat in this line until
+# `timeout-minutes` killed them. nextest records pass or fail and discards every
+# number, so nothing read the measurement it spent that on;
+# `.github/workflows/bench.yml` is what measures these, budgeted, on its own
+# trigger. `kind(bench)` names the target kind rather than matching on a name,
+# so a test binary that merely has "bench" in its name still runs.
+cargo nextest run --workspace --all-targets --features persistence --profile ci --locked -E 'not kind(bench)'
 cargo test --workspace --doc --features persistence --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked
 '''

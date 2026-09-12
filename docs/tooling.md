@@ -60,6 +60,16 @@ is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASE
 merge tier is the only place the properties run at proptest's 256-case default. What is genuinely
 merge-only is the browser run, the rustdoc gates, and that full-case run.
 
+Its `nextest` line carries `-E 'not kind(bench)'`, and the filter is load-bearing. `--all-targets`
+includes `--benches`, and `nextest` executes a criterion benchmark as a test, where criterion falls
+back to its own defaults because the budget flags `mise run bench` passes do not reach it — a 3s
+warm-up, a 5s measurement and a 100,000-resample bootstrap, per benchmark, for all 29. That was
+about 26 of the line's 27.5 seconds on a warm runner and 235 seconds per benchmark on a contended
+one, which held four merge-queue runs until `timeout-minutes` killed them. No number survived the
+spend: `nextest` records pass or fail. `.github/workflows/bench.yml` is where these are measured,
+budgeted, on its own trigger. `--all-targets` stays so every target still compiles and links under
+the feature; only the execution is filtered.
+
 The tooling contract and its fixture suite are gated differently, and the split is worth stating
 because it looks like an inconsistency. `scripts/check-tooling-contract.sh` runs in
 `check_pull_request`: it costs under a second, and it is what fails when someone edits a pinned
