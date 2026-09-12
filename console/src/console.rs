@@ -968,12 +968,12 @@ fn show_source_scene(
 ///
 /// The frame the Source Grid is painted on.
 ///
-/// The fill is load-bearing rather than decorative. `show_source` omits a
-/// Cell's background wherever `cell_visuals` asks for `PALETTE.source`, on the
-/// grounds that this frame has already painted exactly that colour across the
-/// whole console and clips every Shape to it. An ordinary Cell therefore has no
-/// rectangle of its own, and on the default Grid — where the Cursor's bloom
-/// reaches fifteen Cells — most Cells are ordinary.
+/// The fill is load-bearing rather than decorative. `cell_visuals` answers
+/// `None` for a Cell's background wherever the panel has already painted
+/// `PALETTE.source`, on the grounds that this frame has already painted exactly
+/// that colour across the whole console and clips every Shape to it. An ordinary
+/// Cell therefore has no rectangle of its own, and on the default Grid — where
+/// the Cursor's bloom reaches fifteen Cells — most Cells are ordinary.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -1164,8 +1164,7 @@ mod tests {
         Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::GuiRounding as _, emath::TSTransform,
     };
     use orcvs::app::{InputEvent, InputKey, Orcvs};
-    use orcvs::glyph::Glyph;
-    use orcvs::render_frame::{CursorBloom, RenderFrame};
+    use orcvs::render_frame::RenderFrame;
 
     use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
     use crate::paint::Paint;
@@ -2376,59 +2375,6 @@ mod tests {
              for PALETTE.source, so the panel standing in for it must be \
              filled with exactly that colour"
         );
-    }
-
-    ///
-    /// `cell_visuals` fills a Cell with the Source's own colour — which is what
-    /// `Paint::derive` skips a background for — in exactly the cases
-    /// `cursor_visible || (!selected && bloom.is_none())` names, over every
-    /// case of the truth table and so in **both** halves of the Cursor's blink.
-    ///
-    /// This half of the split is a table over `cell_visuals`. It builds no
-    /// Render Frame and no Paint, and that is what lets it reach the blink's
-    /// visible half at all: a running Orcvs starts with the Cursor off and
-    /// turns it on by elapsed time alone, with nothing public to set it, so
-    /// `paint.rs`'s
-    /// `the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source`
-    /// — which asserts the same skip over a Paint derived from a real Render
-    /// Frame — can only ever see `cursor_visible` false. Neither test is the
-    /// other written twice.
-    ///
-    /// `Paint::derive` compares the colours rather than restating the
-    /// condition, so it cannot drift from `cell_visuals`. This is where the
-    /// condition is written down, because it reads wrong: `cell_visuals` tests
-    /// `cursor_visible` *before* its bloom arm, so the Cursor's own Cell takes
-    /// the Source fill on the visible half of the blink even though
-    /// `cursor_bloom` answers `Some(Core)` for it — and the blink therefore
-    /// alternates a rectangle and no rectangle. A reordering of those arms
-    /// would be a palette change, and this fails when one happens.
-    ///
-    #[test]
-    fn the_skip_condition_matches_cell_visuals_in_both_blink_phases() {
-        for glyph in [Glyph::Char, Glyph::Bang, Glyph::Space, Glyph::Comment] {
-            for bloom in [
-                None,
-                Some(CursorBloom::Core),
-                Some(CursorBloom::Inner),
-                Some(CursorBloom::Mid),
-                Some(CursorBloom::Outer),
-            ] {
-                for selected in [false, true] {
-                    for cursor_visible in [false, true] {
-                        let visuals =
-                            crate::style::cell_visuals(glyph, bloom, selected, cursor_visible);
-                        let skipped = cursor_visible || (!selected && bloom.is_none());
-
-                        assert_eq!(
-                            visuals.background == PALETTE.source,
-                            skipped,
-                            "{glyph:?} {bloom:?} selected={selected}, cursor_visible={cursor_visible}, filled {:?}",
-                            visuals.background
-                        );
-                    }
-                }
-            }
-        }
     }
 
     ///

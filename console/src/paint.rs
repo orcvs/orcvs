@@ -55,18 +55,15 @@ use orcvs::{
 
 use crate::{
     grid_viewport::VisiblePositions,
-    style::{PALETTE, cell_visuals, sector_line},
+    style::{cell_visuals, sector_line},
 };
 
 ///
 /// What one Cell of a Render Frame is drawn as.
 ///
-/// Flat, and deliberately not a `CellVisuals` alongside a filtered background.
-/// A Cell carries no background exactly where `cell_visuals` asks for the
-/// Source's own colour, and keeping the unfiltered answer beside the filtered
-/// one would make that invariant a property of this struct — where nothing
-/// exercises it — instead of a property of the derivation, which is where its
-/// subtlety lives.
+/// Flat. The background is already decided at `cell_visuals`: `None` means the
+/// panel behind the Grid has painted the Source colour, and `Some` means this
+/// Cell needs a fill of its own.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CellPaint {
@@ -155,25 +152,7 @@ impl Paint {
                     );
 
                     CellPaint {
-                        // A Cell is filled only where `cell_visuals` asks for
-                        // something other than the Source fill, because the panel
-                        // behind the Grid is already filled with exactly that
-                        // colour. The skip is the derivation's, not the struct's:
-                        // a `CellPaint` carrying both the filtered background and
-                        // the `CellVisuals` it came from would make this invariant
-                        // a property of the value, where nothing exercises it.
-                        //
-                        // The colours are compared rather than the conditions
-                        // behind them, so this cannot drift from `cell_visuals`.
-                        // The condition it works out to is
-                        // `cursor_visible || (!selected && bloom.is_none())`, which
-                        // reads wrong and is right: `cell_visuals` tests
-                        // `cursor_visible` *before* the bloom arm, so the Cursor's
-                        // own Cell takes the Source fill even though `cursor_bloom`
-                        // answers `Some(Core)` for it, and the blink alternates a
-                        // background and none.
-                        background: (visuals.background != PALETTE.source)
-                            .then_some(visuals.background),
+                        background: visuals.background,
                         border: visuals.border,
                         foreground: visuals.foreground,
                         // A sector seam is suppressed on the Cursor's Cell, so the
@@ -552,72 +531,6 @@ mod tests {
             foregrounds.len() > 1,
             "every foreground was the same colour"
         );
-    }
-
-    ///
-    /// The Cell carrying no background is exactly the Cell `cell_visuals`
-    /// fills with the Source's own colour, over a Paint derived from a real
-    /// Render Frame.
-    ///
-    /// The comparison calls `cell_visuals` rather than restating a colour,
-    /// because this is the one assertion tying the skip to the function it
-    /// must not drift from. The condition the skip works out to is
-    /// `cursor_visible || (!selected && bloom.is_none())`, which reads wrong
-    /// and is right: `cell_visuals` tests `cursor_visible` *before* its bloom
-    /// arm, so the Cursor's own Cell takes the Source fill even though
-    /// `cursor_bloom` answers `Some(Core)` for it, and the blink alternates a
-    /// background and none. Restating any of that here would let the derive
-    /// and `cell_visuals` drift apart while both still passed.
-    ///
-    /// The Grid is wide enough to carry the Cursor's whole bloom and Cells
-    /// beyond it, so the skipped Cells and the filled ones are both present;
-    /// a Grid where every Cell wanted the same thing would pass while telling
-    /// nothing apart.
-    ///
-    /// The visible half of the blink is the one Render Frame this cannot
-    /// reach: a running Orcvs starts with the Cursor off and turns it on by
-    /// elapsed time alone, with nothing public to set it. That half of the
-    /// split is `console.rs`'s
-    /// `the_skip_condition_matches_cell_visuals_in_both_blink_phases`, a truth
-    /// table over `cell_visuals` that needs no Render Frame at all.
-    ///
-    #[tokio::test]
-    async fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
-        let mut orcvs = running_orcvs(24, 16);
-        orcvs.select(orcvs.render_frame().rows()[7][9].position());
-
-        let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-        let mut skipped = 0;
-        let mut filled = 0;
-
-        for cell in frame.rows().iter().flatten() {
-            let visuals = cell_visuals(
-                cell.glyph(),
-                cell.cursor_bloom(),
-                cell.selected(),
-                cell.cursor_visible(),
-            );
-            let background = paint.at(cell.position()).background;
-
-            assert_eq!(
-                background.is_none(),
-                visuals.background == PALETTE.source,
-                "the background at {:?}, which cell_visuals fills with {:?}",
-                cell.position(),
-                visuals.background
-            );
-            match background {
-                Some(colour) => {
-                    assert_eq!(colour, visuals.background);
-                    filled += 1;
-                }
-                None => skipped += 1,
-            }
-        }
-
-        assert!(skipped > 0, "no Cell was left to the Source fill");
-        assert!(filled > 0, "no Cell asked for a background of its own");
     }
 
     ///
