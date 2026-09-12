@@ -155,7 +155,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// // Cursor opens on that Grid's origin
     /// let frame = orcvs.render_frame();
     /// assert_eq!(frame.grid().rows(), 3);
-    /// assert!(frame.at(frame.grid().origin()).selected());
+    /// assert_eq!(frame.cursor(), frame.grid().origin());
     /// ```
     ///
     pub fn with_source_and_output_adapter(
@@ -412,7 +412,7 @@ mod test {
     use crate::test::trace;
     use crate::{
         glyph::{Glyph, GlyphString},
-        opts::{DEFAULT_MARKER_SPACING, MarkerSpacing},
+        opts::DEFAULT_MARKER_SPACING,
     };
 
     ///
@@ -632,7 +632,7 @@ mod test {
             frame.at(app.grid.position(1, 0).unwrap()).position(),
             app.grid.position(1, 0).unwrap()
         );
-        assert!(frame.at(app.grid.position(1, 0).unwrap()).selected());
+        assert_eq!(frame.cursor(), app.grid.position(1, 0).unwrap());
     }
 
     ///
@@ -657,8 +657,8 @@ mod test {
         let first = app.render_frame();
         let second = app.render_frame();
 
-        assert!(first.at(app.grid.origin()).cursor_visible());
-        assert!(second.at(app.grid.origin()).cursor_visible());
+        assert!(first.cursor_visible());
+        assert!(second.cursor_visible());
         assert!(app.cursor.on);
     }
 
@@ -854,29 +854,6 @@ mod test {
         app.select_or_panic(7, 0);
 
         assert!((0..=2).all(|x| rendered(&app, at(x, 0)) == GlyphString::space()));
-    }
-
-    #[tokio::test]
-    async fn test_sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
-        let mut app = Orcvs::new(7, 3).expect("the test runtime");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(6, 2));
-        app.opts.marker_spacing = MarkerSpacing::new(2).unwrap();
-
-        let frame = app.render_frame();
-        assert_eq!(
-            (0..7)
-                .map(|x| frame.at(at(x, 0)).sector_left_strength().is_some())
-                .collect::<Vec<_>>(),
-            vec![false, false, true, false, true, false, true]
-        );
-        assert!((0..7).all(|x| frame.at(at(x, 0)).glyph() == Glyph::Space));
-
-        app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
-        let frame = app.render_frame();
-        assert_eq!(frame.at(at(0, 0)).sector_left_strength(), None);
-        assert!((1..7).all(|x| frame.at(at(x, 0)).sector_left_strength().is_some()));
     }
 
     ///

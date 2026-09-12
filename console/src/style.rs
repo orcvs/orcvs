@@ -2,7 +2,9 @@ use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
 
-use orcvs::{glyph::Glyph, render_frame::CursorBloom};
+use orcvs::glyph::Glyph;
+
+use crate::marks::CursorBloom;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
@@ -162,7 +164,8 @@ pub fn style() -> Style {
 #[cfg(test)]
 mod tests {
     use super::{PALETTE, cell_visuals, sector_line};
-    use orcvs::{glyph::Glyph, render_frame::CursorBloom};
+    use crate::marks::CursorBloom;
+    use orcvs::glyph::Glyph;
 
     #[test]
     fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {

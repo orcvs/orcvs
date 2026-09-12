@@ -111,39 +111,36 @@ while there is still something to measure. `retired-glyph-vocabulary/01` settles
 concepts are called, so the code that arrives in `console` arrives named after the glossary rather
 than after a `render_frame.rs` identifier that predates it.
 
-**Status:** ready-for-agent — `retired-glyph-vocabulary/01` is resolved (glossary holds **Sector
-Seam** and **Cursor Bloom**). `01`/`02`/`03` and `render-frame-derivation/01` are resolved on this
-branch; `02` of that effort is still `needs-triage` with no early-out to carry. Do not edit
-`CONTEXT.md` here.
+**Status:** resolved
 
-- [ ] `RenderFrame` answers the seam period and bloom radius (under the names
+- [x] `RenderFrame` answers the seam period and bloom radius (under the names
       `retired-glyph-vocabulary/05` left them, if that ticket has landed). Presentation fields of
       `Opts` stay in `orcvs`; they are not moved by this ticket.
-- [ ] `orcvs/src/render_frame.rs` contains no bloom, no seam strength, no hash, and no alpha
+- [x] `orcvs/src/render_frame.rs` contains no bloom, no seam strength, no hash, and no alpha
       percentage. `CursorBloom` is not exported by `orcvs`.
-- [ ] The moved functions arrive in `console` with their comments intact. The phosphor and
+- [x] The moved functions arrive in `console` with their comments intact. The phosphor and
       registration-mark comments are the record of why the numbers are what they are and must not be
       dropped in transit.
-- [ ] `RenderCell` carries the Cell's content and its Glyph, and nothing about how either is shown.
+- [x] `RenderCell` carries the Cell's content and its Glyph, and nothing about how either is shown.
       `selected`, `cursor_visible`, `cursor_bloom`, `sector_left_strength` and
       `sector_top_strength` are gone from it; `RenderFrame::cursor()` and
       `RenderFrame::cursor_visible()` answer what the first two were for.
-- [ ] `Paint::derive` computes the bloom and the seams itself from `frame.grid()`, `frame.cursor()`
+- [x] `Paint::derive` computes the bloom and the seams itself from `frame.grid()`, `frame.cursor()`
       and `frame.cursor_visible()`. It still takes a `&RenderFrame` and nothing else — no `Orcvs`,
       no `egui::Context` — which is the decision `source-paint` turns on and this ticket must not
       weaken.
-- [ ] Every test that moves, moves. The bloom band tests
+- [x] Every test that moves, moves. The bloom band tests
       (`orcvs/src/render_frame.rs:402` and the seam tests around `:660-690` in `orcvs/src/app.rs`)
       assert appearance and belong beside the code that decides it. Their assertions do not change,
       only where they live.
-- [ ] `CONTEXT.md` is **not** edited by this ticket, and the **Cursor Bloom** and **Sector Seam**
+- [x] `CONTEXT.md` is **not** edited by this ticket, and the **Cursor Bloom** and **Sector Seam**
       entries are not written here. `retired-glyph-vocabulary/01` already owns both, specified down
       to their `_Avoid_` lists, and this ticket blocks on it so the moved code can be named after the
       words it settles. This follows `source-paint/01`'s handling of the **Console** entry that
       `console-testing/02` owned: block, do not duplicate.
-- [ ] Nothing about what is drawn changes. Same colours, same geometry, same order, both blink
+- [x] Nothing about what is drawn changes. Same colours, same geometry, same order, both blink
       phases.
-- [ ] The commit message states that no cost claim is made and why.
+- [x] The commit message states that no cost claim is made and why.
 
 ## Verification
 
@@ -172,3 +169,11 @@ has to be sequenced against another effort's measurement. None of that is an age
 Criterion accepted via ticket `01`. Spacings: option (1) — `RenderFrame` answers them; `Opts` drift
 stays out of scope. Sequencing unchanged: still blocked on `01`, `02`, `03`,
 `render-frame-derivation/01`, and `retired-glyph-vocabulary/01`. No cost claim in either direction.
+
+**Resolved 2026-09-13.** Bloom, seams, hash, `CursorBloom` and `SECTOR_SEAM_STRENGTHS` live in
+`console/src/marks.rs`; `Paint::derive` computes them from `frame.cursor()`,
+`frame.cursor_visible()`, `frame.marker_spacing()` and `frame.highlight_dot_spacing()`.
+`RenderFrameConfig` still carries the two spacings into derive; `Opts` fields stay in `orcvs`.
+`render-frame-derivation/02` was still `needs-triage` with no early-out to carry. Field names are
+still `marker_spacing` / `highlight_dot_spacing` — `retired-glyph-vocabulary/05` has not landed.
+No cost claim: same arithmetic, different crate.

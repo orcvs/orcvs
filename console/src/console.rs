@@ -3144,18 +3144,20 @@ mod tests {
             for cell in frame.cells() {
                 let position = cell.position();
                 let rect = viewport.cell_rect(position.x(), position.y());
+                let spacing = frame.marker_spacing().cells();
+                let selected = position == frame.cursor();
 
                 for (strength, ends) in [
                     (
-                        cell.sector_left_strength(),
+                        crate::marks::sector_left_strength(position, spacing),
                         [rect.left_top(), rect.left_bottom()],
                     ),
                     (
-                        cell.sector_top_strength(),
+                        crate::marks::sector_top_strength(position, spacing),
                         [rect.left_top(), rect.right_top()],
                     ),
                 ] {
-                    if strength.is_none() || cell.selected() {
+                    if strength.is_none() || selected {
                         continue;
                     }
                     let span = Rect::from_two_pos(ends[0], ends[1]);
