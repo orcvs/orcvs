@@ -257,7 +257,7 @@ The one Cell the console is editing: a Position, plus the blink state that draws
 _Avoid_: Caret, pointer, insertion point
 
 **Glyph**:
-The classification that decides how a Cell is painted: Function, Note, Number, Bang, Comment or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. Comment reaches every Cell of a Comment's claim, empty Cells included, and paints them without standing anything in: an empty operand Cell shows the spelling its signature declares, and a Comment declares none. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
+The classification that decides how a Cell is painted: Function, Note, Number, Bang, Comment or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. Comment reaches every Cell of a Comment's claim, empty Cells included, and paints them without standing anything in: an empty operand Cell shows the spelling its signature declares, and a Comment declares none. A Glyph is derived from the Source and typed Function operands, never stored as Cell content. ADR 0034's amendment retires this classification in favour of the `Option<Token>` the Render Frame will carry, and retires **Marker** and **Highlight** with it; the terms stand here until that migration lands, and what an unfilled operand Cell shows is deferred rather than decided.
 _Avoid_: Style, token, syntax highlight
 
 **Marker**:

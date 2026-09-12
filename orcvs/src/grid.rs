@@ -784,9 +784,9 @@ mod property {
     ///
     /// The bounds come from the generated dimensions rather than from the Grid,
     /// so a sweep never agrees with the Grid's own answer about its shape by
-    /// construction. Obtained through `position` rather than through `rows`,
-    /// for the same reason: `rows` is itself under test in
-    /// `rows_yields_every_cell_of_the_grid_once`.
+    /// construction. Obtained through `position` rather than through
+    /// `positions_by_row`, for the same reason: that iterator is itself under
+    /// test in `positions_by_row_yields_every_cell_of_the_grid_once`.
     ///
     fn every_position(grid: Grid, cols: usize, rows: usize) -> impl Iterator<Item = Position> {
         (0..rows).flat_map(move |y| {

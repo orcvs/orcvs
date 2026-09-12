@@ -1,6 +1,6 @@
 # Let the Source Grid paint answer instead of take
 
-**Status:** ready-for-agent
+**Status:** resolved — every ticket is `resolved`. `02`-`06` shipped the two layers; `01` recorded them as [ADR 0040](../../docs/adr/0040-the-console-paints-from-a-value.md).
 
 ## Goal
 
@@ -84,7 +84,7 @@ Settled in a grilling session. Implement as written. If one is impossible or wro
 
 - `CONTEXT.md` gains **Paint**: the per-Cell decision of how one Render Frame is drawn — background, border, foreground, seams and the character shown — derived from a Render Frame and carrying no geometry. _Avoid_: shapes, draw list, painter.
 - Past tense was rejected for the name. `PaintedCells` claims a painting that has not happened; this is the description a later step turns into shapes.
-- **Console** is not written here. `console-testing/02` already owns that entry, is `ready-for-agent`, and specifies it down to its `_Avoid_` list. Ticket `01` blocks on it rather than duplicating it.
+- **Console** is not written here. `console-testing/02` already owns that entry, is `ready-for-agent`, and specifies it down to its `_Avoid_` list. Nothing in this effort blocks on it: an earlier draft blocked ticket `01` on that entry, but the **Paint** entry landed under ticket `05` in `20d2a8a` and names no Console, and ticket `01` writes an ADR rather than the glossary. See `issues/01` for the full reasoning.
 - Types: `Paint`, `CellPaint`, `SourceShapes`, `PresentedSource`.
 
 ### Record
