@@ -279,7 +279,12 @@ assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^  exit 1$'
 assert_contains "$root_dir/mise.toml" "grep -E '\^\(midir\|alsa\|alsa-sys\|coremidi\|coremidi-sys\) '"
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
-assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked$'
+# The `-E` is the point of the assertion, not decoration on it. Without the
+# filter this line runs the criterion benchmarks as tests, unbudgeted, which is
+# what held four merge-queue runs until `timeout-minutes` killed them. Anchored
+# without it the pin passed against exactly that line. The parentheses are
+# bracketed because the pattern reaches awk as an ERE.
+assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' "^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked -E 'not kind[(]bench[)]'\$"
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo test --workspace --doc --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
 # `--lib` type-checks no test target, so the browser regressions compiled only
