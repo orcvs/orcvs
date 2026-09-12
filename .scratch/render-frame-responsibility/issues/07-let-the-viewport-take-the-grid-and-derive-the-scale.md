@@ -75,7 +75,7 @@ defend against real states — a console with no area, a degenerate device scale
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] `SourceShapes::new` no longer takes a `scale` parameter; it derives it from the viewport, or
       the viewport answers it through an accessor that is **not** named `scale`.

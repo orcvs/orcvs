@@ -6,20 +6,19 @@ use egui::{
     emath::TSTransform, epaint::RectShape, text::Galley,
 };
 
-use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
 use crate::paint::Paint;
 use crate::persistence::starting_source;
 use crate::style::{PALETTE, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
-    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Position},
+    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
     native_midi::{self, NativeMidiBackend},
     opts::{Bpm, DEFAULT_FONT_SIZE},
     render_frame::RenderFrame,
 };
 
-const CELL_SIZE: f32 = 25.0;
 const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
@@ -113,10 +112,10 @@ fn translate_event(event: Event) -> Option<InputEvent> {
     }
 }
 
-fn source_bounds(columns: usize, rows: usize) -> Rect {
+fn source_bounds(grid: Grid) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
-        Vec2::new(columns as f32, rows as f32) * CELL_SIZE,
+        Vec2::new(grid.columns() as f32, grid.rows() as f32) * CELL_SIZE,
     )
 }
 
@@ -554,18 +553,18 @@ impl SourceShapes {
     /// Draws a Paint at `viewport`: the geometry the value layer carries none
     /// of, applied to the colours and characters it carries all of.
     ///
-    /// `scale` is the presented Cell side over the Source's own, which the
-    /// stroke widths take so the Grid lines and sector seams are one Source
-    /// point wide at every zoom. `pixels_per_point` is the device scale the
-    /// background runs are snapped to; see [`background_run`].
+    /// Stroke widths take [`GridViewport::cell_scale`] so the Grid lines and
+    /// sector seams are one Source point wide at every zoom.
+    /// `pixels_per_point` is the device scale the background runs are snapped
+    /// to; see [`background_run`].
     ///
     fn new(
         paint: &Paint,
         viewport: &GridViewport,
         table: &GlyphTable,
-        scale: f32,
         pixels_per_point: f32,
     ) -> Self {
+        let scale = viewport.cell_scale();
         // A border is the rule and a Glyph is one on a written Grid, so both
         // are sized up front — and to the Cells the Paint covers rather than to
         // the Grid: a densely written Source that regrew either of them would
@@ -743,7 +742,6 @@ fn show_source(
     // The scale is already in the Cell size, and the Scene used to carry it to
     // the strokes as well, so the Grid lines and sector seams take it here
     // rather than staying one Source point wide at every zoom.
-    let scale = viewport.cell_size / CELL_SIZE;
     // The device scale the background runs are snapped to; see
     // [`background_run`].
     let pixels_per_point = ui.pixels_per_point();
@@ -754,7 +752,10 @@ fn show_source(
         // layer transform cost. The scale is quantised so a steady zoom hits
         // the galley cache and a sweep across the zoom range stays inside the
         // atlas; see `GLYPH_SCALE_STEP`.
-        FontId::new(DEFAULT_FONT_SIZE * glyph_scale(scale), font_family.clone()),
+        FontId::new(
+            DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
+            font_family.clone(),
+        ),
     );
 
     // The only source of Positions the two steps below have. Everything they
@@ -779,7 +780,7 @@ fn show_source(
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive(frame, &visible);
-    let shapes = SourceShapes::new(&paint, &viewport, &table, scale, pixels_per_point);
+    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
@@ -792,8 +793,7 @@ fn show_source(
     // points, which is the space the presented Grid is in.
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
-        && let Some((column, row)) =
-            viewport.cell_at(pointer, source_grid.columns(), source_grid.rows())
+        && let Some((column, row)) = viewport.cell_at(pointer, source_grid)
         && let Some(cell) = frame.rows().get(row).and_then(|row| row.get(column))
     {
         Some(cell.position())
@@ -846,7 +846,7 @@ fn show_source_scene(
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` this function goes on to present it at.
     let source_grid = frame.grid();
-    let source = source_bounds(source_grid.columns(), source_grid.rows());
+    let source = source_bounds(source_grid);
     // The whole console area, sensing clicks and drags, allocated before any
     // Cell rectangle so the Grid's own click rectangle registers after it. This
     // is also what `Scene::show` reached `force_set_min_rect` for: the space
@@ -854,7 +854,7 @@ fn show_source_scene(
     // Grid fills it or letterboxes inside it.
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
-    let viewport = grid_viewport(console, source_grid.columns(), source_grid.rows());
+    let viewport = grid_viewport(console, source_grid);
     let fitted = viewport.fit_transform(source);
 
     if !view.adjusted {
@@ -913,8 +913,7 @@ fn show_source_scene(
     let grid = presented_grid(
         view.to_global,
         source,
-        source_grid.columns(),
-        source_grid.rows(),
+        source_grid,
         ui.ctx().pixels_per_point(),
     );
     let clicked = show_source(ui, frame, font_family, grid, console);
@@ -1155,13 +1154,13 @@ mod tests {
     use orcvs::app::{InputEvent, InputKey, Orcvs};
     use orcvs::render_frame::RenderFrame;
 
-    use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
+    use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
     use crate::paint::Paint;
     use crate::style::PALETTE;
-    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, CELL_SIZE, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE,
+        ALPHABET_FIRST, ALPHABET_LAST, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE,
         GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
         SourceShapes, SourceView, TOP_PANEL_HEIGHT, frames_per_second, glyph_scale, is_presentable,
         show_source_scene, source_bounds, source_panel_frame, translate_event,
@@ -1603,9 +1602,8 @@ mod tests {
 
         presented_grid(
             console.source_view.to_global,
-            source_bounds(grid.columns(), grid.rows()),
-            grid.columns(),
-            grid.rows(),
+            source_bounds(grid),
+            grid,
             ctx.pixels_per_point(),
         )
     }
@@ -1795,7 +1793,7 @@ mod tests {
     fn source_bounds_are_available_before_the_first_render() {
         let orcvs = Orcvs::new(32, 16);
         let source_grid = orcvs.render_frame().grid();
-        let bounds = source_bounds(source_grid.columns(), source_grid.rows());
+        let bounds = source_bounds(source_grid);
 
         assert_eq!(
             bounds,
@@ -1813,14 +1811,14 @@ mod tests {
     /// `grid_viewport.rs`.
     ///
     fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
-        let source = source_bounds(columns, rows);
-        let viewport = grid_viewport(screen, columns, rows);
+        let grid = Grid::new(columns, rows);
+        let source = source_bounds(grid);
+        let viewport = grid_viewport(screen, grid);
 
         presented_grid(
             viewport.fit_transform(source),
             source,
-            columns,
-            rows,
+            grid,
             pixels_per_point,
         )
     }
@@ -1853,14 +1851,13 @@ mod tests {
     /// the grouping and the stroke widths.
     ///
     fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
-        let scale = viewport.cell_size / CELL_SIZE;
         let ctx = egui::Context::default();
         let mut shapes = None;
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let table = GlyphTable::lay_out(
                 ui.ctx(),
                 egui::FontId::new(
-                    DEFAULT_FONT_SIZE * glyph_scale(scale),
+                    DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
                     egui::FontFamily::Monospace,
                 ),
             );
@@ -1868,7 +1865,6 @@ mod tests {
                 paint,
                 &viewport,
                 &table,
-                scale,
                 pixels_per_point,
             ));
         });
@@ -2240,7 +2236,7 @@ mod tests {
         // The owned transform scales the stroke with everything else, the way
         // the Scene's layer transform used to, so the width is asserted in the
         // Source's own points.
-        let scale = viewport.cell_size / CELL_SIZE;
+        let scale = viewport.cell_scale();
         let mut colours = std::collections::BTreeSet::new();
 
         for (position, cell) in paint.cells() {
@@ -2617,7 +2613,7 @@ mod tests {
             &mut view,
             DEVICE_SCALE,
         );
-        let scale = viewport.cell_size / CELL_SIZE;
+        let scale = viewport.cell_scale();
 
         assert!(
             (scale - 0.4).abs() < 1e-6,
@@ -2724,7 +2720,7 @@ mod tests {
         let viewport = presented(screen, 16, 16, 1.0);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_shapes(&paint, viewport, 1.0);
-        let scale = viewport.cell_size / CELL_SIZE;
+        let scale = viewport.cell_scale();
 
         let mut expected = Vec::new();
         for (position, cell) in paint.cells() {
