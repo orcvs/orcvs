@@ -114,11 +114,14 @@ mod tests {
         assert_eq!(std::mem::size_of_val(&cell_hash(position)), 4);
     }
 
-    #[test]
-    fn cursor_field_is_local_and_centred_on_the_cursor() {
-        let grid = Grid::new(24, 16);
+    #[tokio::test]
+    async fn cursor_field_is_local_and_centred_on_the_cursor() {
+        let mut orcvs = orcvs::app::Orcvs::new(24, 16).expect("the test runtime");
+        let grid = orcvs.grid();
         let selected = grid.position(9, 7).unwrap();
-        let radius = 7;
+        orcvs.select(selected);
+        let frame = orcvs.render_frame();
+        let radius = frame.highlight_dot_spacing().cells();
 
         assert_eq!(
             cursor_bloom(selected, selected, radius),
@@ -135,6 +138,10 @@ mod tests {
         assert_eq!(
             cursor_bloom(grid.position(17, 7).unwrap(), selected, radius),
             None
+        );
+        assert_eq!(
+            frame.at(grid.position(12, 10).unwrap()).glyph(),
+            orcvs::glyph::Glyph::Space
         );
     }
 
@@ -237,8 +244,8 @@ mod tests {
         assert_eq!(cursor_bloom(edge, after, 7), Some(CursorBloom::Outer));
     }
 
-    #[test]
-    fn sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
+    #[tokio::test]
+    async fn sector_edges_use_one_whole_cell_spacing_without_marker_glyphs() {
         let grid = Grid::new(7, 3);
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
 
@@ -250,5 +257,14 @@ mod tests {
         );
         assert_eq!(sector_left_strength(at(0, 0), 1), None);
         assert!((1..7).all(|x| sector_left_strength(at(x, 0), 1).is_some()));
+
+        // Glyph half: empty Cells stay Space. Custom seam periods are not
+        // settable from outside `orcvs`, so the spacing=2/1 pattern above is
+        // pure strength arithmetic; emptiness is checked on a default Frame.
+        let orcvs = orcvs::app::Orcvs::new(7, 3).expect("the test runtime");
+        let frame = orcvs.render_frame();
+        assert!((0..7).all(|x| {
+            frame.at(frame.grid().position(x, 0).unwrap()).glyph() == orcvs::glyph::Glyph::Space
+        }));
     }
 }

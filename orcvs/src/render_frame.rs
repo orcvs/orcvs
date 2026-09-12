@@ -100,7 +100,7 @@ impl RenderFrame {
     ///
     /// Whether the Cursor is on the visible half of its blink for this Frame.
     ///
-    /// Carried from [`derive`](Self::derive) rather than recovered from a Cell
+    /// Carried from derivation rather than recovered from a Cell
     /// flag. The blink is a fact about the Frame, not about any one Cell.
     ///
     pub fn cursor_visible(&self) -> bool {
