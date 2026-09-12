@@ -95,22 +95,22 @@ This ticket adds the accessor and deletes the recovery; it leaves the bools wher
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `RenderFrame::cursor() -> Position` exists, documented as the Position `derive` was given and
+- [x] `RenderFrame::cursor() -> Position` exists, documented as the Position `derive` was given and
       asserted, not as a Position found by looking.
-- [ ] `Paint::derive` reads `frame.cursor()`. No `Option`, no `expect`, no assignment inside the
+- [x] `Paint::derive` reads `frame.cursor()`. No `Option`, no `expect`, no assignment inside the
       `map` closure, and the `map` closure captures nothing mutable.
-- [ ] The nine-line proof comment at `console/src/paint.rs:164-171` is gone rather than moved. The
+- [x] The nine-line proof comment at `console/src/paint.rs:164-171` is gone rather than moved. The
       fact it proves is now stated by the type.
-- [ ] `console/src/console.rs`'s `selected_cell` test helper reads `cursor()` or is deleted; no
+- [x] `console/src/console.rs`'s `selected_cell` test helper reads `cursor()` or is deleted; no
       `.find(|cell| cell.selected())` survives in either crate.
-- [ ] `the_cursor_is_the_selected_position` either goes or keeps only what is still worth asserting
+- [x] `the_cursor_is_the_selected_position` either goes or keeps only what is still worth asserting
       — that the Paint's Cursor is the Position that was selected. Its second assertion, that the
       Render Frame's Cells select exactly that one, is the scan's own correctness and goes with it.
-- [ ] A new test in `orcvs` asserts `RenderFrame::cursor()` is the Position `derive` was given,
+- [x] A new test in `orcvs` asserts `RenderFrame::cursor()` is the Position `derive` was given,
       including after `Orcvs::select` moves it.
-- [ ] Nothing about what is drawn changes. Same colours, same geometry, same order.
+- [x] Nothing about what is drawn changes. Same colours, same geometry, same order.
 
 ## Verification
 
@@ -132,3 +132,9 @@ doctests (`orcvs/src/app.rs:96-97, 128`) read the Render Frame directly.
 fix is one field and one accessor. It is the cheapest ticket in the effort and the one most clearly
 right on its own: even if ticket `01` is refused outright, a `Position` handed in should not have to
 be found again.
+
+Landed on top of `cull-source-paint`: `Paint::cursor` remains `Option<Position>` because a Paint
+covers a viewport and the Cursor can sit outside it (`source-paint/07`). The scan/`expect` path is
+gone; `derive` reads `frame.cursor()` and keeps `Some` only where the drawn ranges cover that
+Position. The checklist's "No Option" referred to the pre-cull recovery `Option`+`expect`, not the
+viewport coverage answer.
