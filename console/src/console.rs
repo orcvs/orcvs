@@ -794,9 +794,8 @@ fn show_source(
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && let Some((column, row)) = viewport.cell_at(pointer, source_grid)
-        && let Some(cell) = frame.rows().get(row).and_then(|row| row.get(column))
     {
-        Some(cell.position())
+        source_grid.position(column, row)
     } else {
         None
     }
@@ -3080,7 +3079,7 @@ mod tests {
                 "the pan {translation:?} culled nothing on one side, so no seam is near a culled edge: {visible:?}"
             );
 
-            for cell in frame.rows().iter().flatten() {
+            for cell in frame.cells() {
                 let position = cell.position();
                 let rect = viewport.cell_rect(position.x(), position.y());
 

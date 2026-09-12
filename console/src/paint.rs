@@ -35,12 +35,9 @@
 //! A [`Paint`] holds one `Vec<CellPaint>` in row-major order over the drawn
 //! Positions, and [`Paint::at`] indexes it by subtracting the range's own
 //! corner. `Grid::index` is deliberately not that arithmetic: it addresses a
-//! Cell of the whole Grid, and this `Vec` holds a sub-rectangle of one. This is
-//! deliberately unlike `RenderFrame`, which nests a `Vec` per row: a Render
-//! Frame's only consumer walks it in row order to paint it, and the nesting
-//! exists to serve exactly that. A Paint is asked about one Cell — what colour
-//! is the Cell at this Position — so the shape that serves it is the one the
-//! Grid already addresses Cells by.
+//! Cell of the whole Grid, and this `Vec` holds a sub-rectangle of one. The
+//! Render Frame is flat too, over the whole Grid; the difference is only which
+//! Positions each covers.
 //!
 
 use std::ops::Range;
@@ -134,48 +131,47 @@ impl Paint {
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
         // of `GlyphString`, and only drawing it reaches the font atlas.
         let characters = CellCharacters::new();
-        let columns = drawn.columns.clone();
-        // Sized up front. A `FlatMap` states no length, so collecting into a
-        // `Vec` would grow it by doubling across every row of a Render Frame
-        // where the drawn count is already known exactly.
+        // Sized up front. The drawn count is known exactly, so collecting into
+        // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
-        cells.extend(
-            frame.rows()[drawn.rows.clone()]
-                .iter()
-                .flat_map(|row| row[columns.clone()].iter())
-                .map(|cell| {
-                    let visuals = cell_visuals(
-                        cell.glyph(),
-                        cell.cursor_bloom(),
-                        cell.selected(),
-                        cell.cursor_visible(),
-                    );
+        for row in drawn.rows.clone() {
+            for column in drawn.columns.clone() {
+                let position = grid
+                    .position(column, row)
+                    .expect("a drawn Position is one the visible range clamped to this Grid");
+                let cell = frame.at(position);
+                let visuals = cell_visuals(
+                    cell.glyph(),
+                    cell.cursor_bloom(),
+                    cell.selected(),
+                    cell.cursor_visible(),
+                );
 
-                    CellPaint {
-                        background: visuals.background,
-                        border: visuals.border,
-                        foreground: visuals.foreground,
-                        // A sector seam is suppressed on the Cursor's Cell, so the
-                        // Cursor is never crossed by one. It is decided here rather
-                        // than left to the step that draws it: in the loop this
-                        // replaced the rule was structural — the selected Cell took
-                        // a branch the seams were not in — and a rule that survives
-                        // only as a branch shape is a rule the next reader has to
-                        // rediscover.
-                        //
-                        // `sector_line` is pure, so the strength the Render Frame
-                        // states becomes a colour here. The stroke widths are
-                        // geometry and stay out of this layer.
-                        sector_left: (!cell.selected())
-                            .then(|| cell.sector_left_strength().map(sector_line))
-                            .flatten(),
-                        sector_top: (!cell.selected())
-                            .then(|| cell.sector_top_strength().map(sector_line))
-                            .flatten(),
-                        character: characters.character(cell),
-                    }
-                }),
-        );
+                cells.push(CellPaint {
+                    background: visuals.background,
+                    border: visuals.border,
+                    foreground: visuals.foreground,
+                    // A sector seam is suppressed on the Cursor's Cell, so the
+                    // Cursor is never crossed by one. It is decided here rather
+                    // than left to the step that draws it: in the loop this
+                    // replaced the rule was structural — the selected Cell took
+                    // a branch the seams were not in — and a rule that survives
+                    // only as a branch shape is a rule the next reader has to
+                    // rediscover.
+                    //
+                    // `sector_line` is pure, so the strength the Render Frame
+                    // states becomes a colour here. The stroke widths are
+                    // geometry and stay out of this layer.
+                    sector_left: (!cell.selected())
+                        .then(|| cell.sector_left_strength().map(sector_line))
+                        .flatten(),
+                    sector_top: (!cell.selected())
+                        .then(|| cell.sector_top_strength().map(sector_line))
+                        .flatten(),
+                    character: characters.character(cell),
+                });
+            }
+        }
 
         Self {
             grid,
@@ -495,7 +491,7 @@ mod tests {
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let visuals = cell_visuals(
                 cell.glyph(),
                 cell.cursor_bloom(),
@@ -568,7 +564,7 @@ mod tests {
         let paint = whole(&frame);
         let mut seams = 0;
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let painted = paint.at(cell.position());
 
             if cell.selected() {
@@ -622,7 +618,7 @@ mod tests {
         let characters = CellCharacters::new();
         let mut spellings = std::collections::BTreeSet::new();
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let shown = paint.at(cell.position()).character;
 
             assert_eq!(
@@ -691,7 +687,7 @@ mod tests {
         let mut content = String::new();
         let mut blanks = std::collections::BTreeSet::new();
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let spelled = orcvs::glyph::GlyphString::new(
                 cell.content().map(|content| content.to_string()),
                 cell.glyph(),
