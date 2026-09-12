@@ -75,7 +75,7 @@ pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
     ///
     /// Whether this Orcvs has asked its Playback Engine to be running.
     ///
-    /// Not a second copy of the engine's lifecycle state: ADR 0040 publishes
+    /// Not a second copy of the engine's lifecycle state: ADR 0041 publishes
     /// that, and it answers what the engine *is*. This answers what it has
     /// been *asked* to be, which is the only thing Space can toggle against.
     /// An input batch is a whole frame's events handled with nothing awaited
@@ -135,7 +135,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// carries the shape it was stored with, and the Cursor starts at that
     /// Grid's origin.
     ///
-    /// Fallible because the Playback Engine is: ADR 0040 gives the engine's
+    /// Fallible because the Playback Engine is: ADR 0041 gives the engine's
     /// state a task that owns it, and a task needs a runtime to be spawned on,
     /// so a running Orcvs is one whose engine is already running.
     ///
@@ -191,7 +191,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// is no longer carrying out.
     ///
     /// It answers with diagnostics alone. Lifecycle state is no longer handed
-    /// back beside them and cached here: per ADR 0040 the engine publishes it,
+    /// back beside them and cached here: per ADR 0041 the engine publishes it,
     /// and whoever needs it reads the published value at the moment it is
     /// asked rather than the value the last frame happened to carry away.
     ///
@@ -592,7 +592,7 @@ mod test {
     /// builder, which the `[target.'cfg(not(target_arch = "wasm32"))'
     /// .dependencies]` table pulls in and a browser target never has.
     ///
-    /// ADR 0040 makes the Playback Engine a task, so a runtime is what
+    /// ADR 0041 makes the Playback Engine a task, so a runtime is what
     /// building a running Orcvs requires and construction is where the absence
     /// of one is answered. There is nothing half-built left over: an Orcvs
     /// that could not spawn its engine is not returned at all.

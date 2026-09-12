@@ -137,7 +137,7 @@ fn populated_source(cols: usize, rows: usize) -> SourceCommander {
 ///
 /// The runtime a benched running Orcvs spawns its Playback Engine onto.
 ///
-/// ADR 0040 makes that engine a task, so building a running Orcvs needs a
+/// ADR 0041 makes that engine a task, so building a running Orcvs needs a
 /// runtime to build it on. These benchmarks measure the Source paths and never
 /// start a run, so one runtime kept for the length of the process is the whole
 /// of what they need from it.

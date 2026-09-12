@@ -84,7 +84,7 @@ impl MidiSelection {
 ///
 /// One value rather than two channels, because the console reads both while
 /// drawing one frame and a menu drawn from two channels can show a checkmark
-/// against a row the other channel has already withdrawn. ADR 0040 has the
+/// against a row the other channel has already withdrawn. ADR 0041 has the
 /// engine's task own the adapter, so this is the whole of what a caller can see
 /// of it without asking.
 ///
@@ -117,7 +117,7 @@ pub struct MidiOutputAdapter<B> {
     /// published rather than stored.
     ///
     /// The console compares them against every row of its MIDI menu while
-    /// drawing a frame, and ADR 0040 has that frame read the latest published
+    /// drawing a frame, and ADR 0041 has that frame read the latest published
     /// value instead of asking the engine a question: the browser main thread
     /// has no blocking receive, so a frame cannot wait for an answer at all,
     /// and once the engine's task owns this adapter there is no other way to

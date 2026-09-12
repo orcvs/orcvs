@@ -21,7 +21,7 @@ returns `Ok(())` from `safety_reset`, so `clock_failure_remains_observable_after
 **This is pre-existing, not introduced by this branch, and should be prioritised on that basis.**
 At `25c8de8`, `impl Drop for ClockRunGuard` (`orcvs/src/playback.rs:1202-1218`) did the same thing:
 it reported the identical `"Playback clock terminated unexpectedly"` message and then called
-`inner.stop()` into `adapter.safety_reset()`. ADR 0040 moved the destructor and deleted the guard;
+`inner.stop()` into `adapter.safety_reset()`. ADR 0041 moved the destructor and deleted the guard;
 it did not open this window.
 
 A `std::thread::panicking()` check, or a `catch_unwind` around the safety action, closes it. Neither
@@ -50,7 +50,7 @@ merge tier are the ones that matter and are deferred to CI.
 Filed from the `playback-actor` review ledger as **CR-02** (major).
 
 The original report presented this as a defect of this branch. It is not, and the issue above says
-so: `25c8de8`'s `ClockRunGuard` destructor had the same shape. What ADR 0040 changed is where the
+so: `25c8de8`'s `ClockRunGuard` destructor had the same shape. What ADR 0041 changed is where the
 destructor lives, not whether it re-enters the adapter mid-unwind.
 
 Same module, same class of hazard, noted rather than filed: `lock_recover` (`:93-97`) exists for the

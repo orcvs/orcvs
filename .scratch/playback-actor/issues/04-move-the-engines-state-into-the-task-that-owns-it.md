@@ -1,6 +1,6 @@
 # 04 — Move the engine's state into the task that owns it
 
-**What to build:** [ADR 0040](../../../docs/adr/0040-the-playback-engine-owns-its-state-in-one-task.md), implemented. `PlaybackInner` stops living behind `Arc<Mutex<..>>` and becomes the state of one task. `PlaybackEngine` becomes a cloneable handle that sends messages. That task owns its clock: it waits on its message channel and its next deadline together, so a Tick is one arm of a loop that processes `stop` and `retune` on the other.
+**What to build:** [ADR 0041](../../../docs/adr/0041-the-playback-engine-owns-its-state-in-one-task.md), implemented. `PlaybackInner` stops living behind `Arc<Mutex<..>>` and becomes the state of one task. `PlaybackEngine` becomes a cloneable handle that sends messages. That task owns its clock: it waits on its message channel and its next deadline together, so a Tick is one arm of a loop that processes `stop` and `retune` on the other.
 
 **What gets deleted, not renamed.** `generation`, `CancellationToken` and `ClockRunGuard` all exist because a second task calls into shared state. `generation` makes a Tick from a retired clock decline; `cancellation` wakes a retired clock out of its sleep; `ClockRunGuard` notices when the clock task dies without finishing. With one task there is no second party to be stale relative to, nothing sleeping that must be woken, and no other task whose death must be detected. A retune recomputes the deadline the loop waits on and that is the whole of it.
 
@@ -8,7 +8,7 @@ The `Arc<AtomicUsize>` handle count goes too. Dropping the last sender closes th
 
 `PlaybackEngine::new` becomes fallible and spawns eagerly, which is where `PlaybackStartError::RuntimeUnavailable` moves to. The native-only test that hand-builds a `Runtime` to stage that failure moves with it.
 
-**`stop` keeps its synchronous guarantee, and this is the part to get right.** ADR 0002 requires that further Ticks are prevented before `stop` returns, and sending a message does not do that — `send` returns once the message is queued and the task may be mid-Tick. A one-way flag, set by the handle before the message goes and read by the task before it executes each Tick, restores it. Name it for what it carries: a request to stop. It is not "playing", it is not the lifecycle state, and nothing may read it to decide which state the engine is in. ADR 0040 admits this one piece of shared state deliberately and says why; a later reader collapsing it into the lifecycle state would re-admit exactly what this effort removes.
+**`stop` keeps its synchronous guarantee, and this is the part to get right.** ADR 0002 requires that further Ticks are prevented before `stop` returns, and sending a message does not do that — `send` returns once the message is queued and the task may be mid-Tick. A one-way flag, set by the handle before the message goes and read by the task before it executes each Tick, restores it. Name it for what it carries: a request to stop. It is not "playing", it is not the lifecycle state, and nothing may read it to decide which state the engine is in. ADR 0041 admits this one piece of shared state deliberately and says why; a later reader collapsing it into the lifecycle state would re-admit exactly what this effort removes.
 
 **Spawning.** `ClockSpawner` already has the cfg seam this needs: native takes a `tokio::runtime::Handle`, the browser uses `wasm_bindgen_futures::spawn_local` with no `Send` bound. The actor task spawns the same way. Note the asymmetry already in the tree — the lifecycle methods sit in an `impl` block carrying `Send` on both targets even though the browser spawn does not need it.
 
@@ -23,7 +23,7 @@ The `Arc<AtomicUsize>` handle count goes too. Dropping the last sender closes th
 - [x] `stop` prevents further Ticks before it returns, proved by a test, through a flag named for the request it carries.
 - [x] `new` is fallible and spawns eagerly; `RuntimeUnavailable` is reported at construction.
 - [x] Every guarantee ADR 0002 states still holds, and ADR 0037's Tick Grid rule is untouched — a retune still anchors on the deadline the last executed Tick was due at.
-- [x] `source-playback-engine/23` is closed against ADR 0040 rather than built.
+- [x] `source-playback-engine/23` is closed against ADR 0041 rather than built.
 
 ## Verification
 
@@ -35,7 +35,7 @@ This is the ticket whose risk lands in the browser suite and in the concurrency 
 
 `PlaybackInner` is the state of one task. `PlaybackEngine` is a handle holding an
 `mpsc::UnboundedSender<PlaybackCommand<A>>`, the readers of what the engine publishes, and the
-one `AtomicBool` ADR 0040 admits. There is no lock over the state, no `Weak`, no token, no task
+one `AtomicBool` ADR 0041 admits. There is no lock over the state, no `Weak`, no token, no task
 handle and no generation anywhere in the module.
 
 **The three mechanisms are deleted, not renamed.** `generation`, `CancellationToken` and
@@ -57,7 +57,7 @@ the close, stops the run — which sends the safety action — and exits.
 `dropping_the_final_handle_during_a_tick_completes_playback_safety` survive as behavioural
 assertions. The second one no longer asserts that the drop *blocks* until the Tick finishes: there
 is no lock left for it to block on, and a `stop` that held a console frame behind a device
-submission is a cost ADR 0040 removes. What it asserts now is that the drop returns without
+submission is a cost ADR 0041 removes. What it asserts now is that the drop returns without
 waiting and the safety action still arrives, exactly once.
 
 **`stop` keeps its synchronous guarantee.** `PlaybackEngine::stop_requested: Arc<AtomicBool>` is
@@ -80,7 +80,7 @@ stage the failure moved with it and is now
 
 **What the ticket did not name, and had to be decided.** The adapter moves into the task with the
 rest of the state, so `MidiSelectionHandle` can no longer reach it to ask it anything —
-`destinations()` and `select()` were still questions. They are published now, the way ADR 0040
+`destinations()` and `select()` were still questions. They are published now, the way ADR 0041
 publishes everything else: `MidiOutputAdapter` owns one `watch::Sender<MidiDestinations>` carrying
 both the destinations the last discovery found (or the failure it reported) and the one the
 adapter is connected to; `OutputAdapter::published_destinations` is the one defaulted trait method

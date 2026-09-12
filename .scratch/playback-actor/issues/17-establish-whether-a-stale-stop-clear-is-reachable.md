@@ -14,13 +14,13 @@ Why it is smaller than it first looks. The queue mitigations are real: `biased;`
 `try_recv` at `:1212` both take a queued `Stop` before any deadline, so a `Stop` sitting in the queue
 is never overtaken by a Tick. What neither covers is the window inside the Deadline arm itself —
 between the `stop_requested.load` at `:1281` and `execute_tick` at `:1292`. That gap, not a second
-handle, is what makes the sequence reachable at all. And ADR 0040 already concedes the same window
+handle, is what makes the sequence reachable at all. And ADR 0041 already concedes the same window
 from the other side: "a Tick already in flight continues past the return". The incremental risk over
 what the ADR admits is therefore small.
 
 Why it is still worth recording. The stale clear does change behaviour: a Tick the flag would
 otherwise have declined gets executed, and no diagnostic marks it. That is a different fact from the
-one ADR 0040 concedes, which is about a Tick already running.
+one ADR 0041 concedes, which is about a Tick already running.
 
 Why nobody reviewing the console could construct it. The console is single-threaded through
 `Orcvs::event_handler`; there is one handle and the calls are serialised. A second concurrent caller
@@ -31,7 +31,7 @@ is possible through the public API — `PlaybackEngine` is `Clone` — but no in
 - [ ] Whether an interleaving exists that clears a live request is established, by construction or by
       argument that none exists.
 - [ ] If one exists, the decision is recorded: tie the clear to the request that raised it (a
-      generation, or a per-request flag), or accept it as within what ADR 0040 already concedes and
+      generation, or a per-request flag), or accept it as within what ADR 0041 already concedes and
       say so in the ADR.
 - [ ] If none exists, what forbids it is written beside `:1271`, because the code does not currently
       say that the `Stop` it is clearing for is the `Stop` that raised the flag.
@@ -49,7 +49,7 @@ Filed from the `playback-actor` review ledger as **CR-18**, downgraded to minor 
 as suspected rather than confirmed.
 
 The downgrade has two parts, both in the text above: the original report attributed the reachability
-to a second handle, when the load-to-execute gap is what actually opens it; and ADR 0040 already
+to a second handle, when the load-to-execute gap is what actually opens it; and ADR 0041 already
 admits the same window for a Tick in flight, so the new exposure is narrower than first stated. It
 should be worked as an investigation, not as a fix.
 
@@ -78,7 +78,7 @@ calls. Nothing else clones a `PlaybackEngine`.
 
 So the decision the second acceptance asks for is still open, and it is a real
 one: tying the clear to the request that raised it needs request identity — a
-token or generation on the gate — which is machinery ADR 0040 deleted from the
+token or generation on the gate — which is machinery ADR 0041 deleted from the
 clock and would be reintroducing here. Left `needs-triage` deliberately rather
 than closed, because that trade is not mine to make.
 

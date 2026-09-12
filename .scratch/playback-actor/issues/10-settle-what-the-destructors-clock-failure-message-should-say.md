@@ -1,7 +1,7 @@
 # 10 — Settle what the destructor's clock-failure message should say
 
 **What to decide:** `Drop for PlaybackInner` reports `ClockFailure { message: "Playback clock
-terminated unexpectedly" }` (`orcvs/src/playback.rs:834`). ADR 0040 deleted the clock task, so there
+terminated unexpectedly" }` (`orcvs/src/playback.rs:834`). ADR 0041 deleted the clock task, so there
 is no longer a clock task to name. Decide what the message should say, and first find out whether
 anyone ever sees it.
 
@@ -31,7 +31,7 @@ Recorded honestly: wrong message, low impact, firing unconfirmed.
 
 - [ ] Whether the destructor's report fires on an orderly console teardown is established, by
       observation rather than by reading — including how often, since it is a race.
-- [ ] The message no longer names a clock task that ADR 0040 deleted.
+- [ ] The message no longer names a clock task that ADR 0041 deleted.
 - [ ] If the answer is that nobody can ever receive this report, that is recorded beside the
       destructor, because it changes what the report is for.
 

@@ -74,7 +74,7 @@ pub trait OutputAdapter {
     ///
     /// A reader of the MIDI destinations this adapter publishes.
     ///
-    /// ADR 0040 moves the adapter into the task that owns the engine's state,
+    /// ADR 0041 moves the adapter into the task that owns the engine's state,
     /// so nothing outside that task can reach the adapter to ask it anything.
     /// The subscription is therefore taken here, while the adapter is still in
     /// the constructor's hand, and travels to the handle that reads it — which
@@ -352,7 +352,7 @@ struct PlaybackInner<A: OutputAdapter> {
     ///
     /// The lifecycle state, published rather than held.
     ///
-    /// ADR 0040 has the console read this without awaiting and without
+    /// ADR 0041 has the console read this without awaiting and without
     /// reaching the engine, because the frame that gates Space on it cannot
     /// wait for an answer. The sender is the one copy of the fact: this
     /// engine reads its own state back through `borrow`, so what it acts on
@@ -364,7 +364,7 @@ struct PlaybackInner<A: OutputAdapter> {
     /// The writing end of the diagnostics stream.
     ///
     /// ADR 0002 asks that diagnostics be drained in order and exactly once
-    /// while lifecycle state is observed; ADR 0040 moves that guarantee from
+    /// while lifecycle state is observed; ADR 0041 moves that guarantee from
     /// the lock to this channel, which is ordered, and from which a receive
     /// takes each diagnostic away. It is unbounded because the queue it
     /// replaces — a `Vec` drained by the console each frame — was, and because
@@ -431,7 +431,7 @@ type AdapterTransition<A> = Box<dyn FnOnce(&mut PlaybackInner<A>) + Send>;
 ///
 /// A cloneable handle to one Playback Engine.
 ///
-/// ADR 0040 puts the state in a task and leaves this holding the ends of the
+/// ADR 0041 puts the state in a task and leaves this holding the ends of the
 /// channels that reach it: a sender for the transitions, readers for what the
 /// engine publishes, and the one bit of shared state a synchronous `stop`
 /// needs. There is no lock here, no task handle, and nothing to be stale
@@ -457,7 +457,7 @@ pub struct PlaybackEngine<A: OutputAdapter> {
     /// it executes each Tick, so a Tick whose read begins after `stop` returned
     /// finds the request and declines.
     ///
-    /// ADR 0040 admits this one piece of shared state deliberately. It carries
+    /// ADR 0041 admits this one piece of shared state deliberately. It carries
     /// one fact in one direction — someone has asked me to stop — and nothing
     /// reads it to decide which state the engine is in. "A stop has been
     /// requested" and "this engine is playing" are different facts: the second
@@ -959,7 +959,7 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     /// called on — or because the task ended without being asked to. A panic
     /// unwinding out of an adapter is the way that happens, and `ClockSpawner`
     /// keeps no `JoinHandle` to notice it by, so this failure is the only
-    /// evidence a handle ever gets. ADR 0040 puts the state in the task, so a
+    /// evidence a handle ever gets. ADR 0041 puts the state in the task, so a
     /// task that ended took the state with it and there is nothing left to
     /// respawn a clock over: what is owed the caller is the truth, not a
     /// recovery.
@@ -1073,7 +1073,7 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     pub fn new(source: SourceCommander, adapter: A) -> Result<Self, PlaybackStartError> {
         let spawner = ClockSpawner::acquire()?;
         // Subscribed while the adapter is still in hand. Once it is the task's
-        // there is no way back to it, which is the whole of what ADR 0040 buys.
+        // there is no way back to it, which is the whole of what ADR 0041 buys.
         let destinations = adapter.published_destinations();
         let (inner, channels) = PlaybackInner::new(source, adapter);
         let (commands, queued) = mpsc::unbounded_channel();
@@ -3381,7 +3381,7 @@ mod tests {
     ///
     /// The drop no longer waits for the Tick — there is no lock left for it to
     /// wait on, and a `stop` that blocked a console frame behind a device
-    /// submission is the cost ADR 0040 removes. What survives is the guarantee
+    /// submission is the cost ADR 0041 removes. What survives is the guarantee
     /// itself: the queue closes, the task sees the close when it next looks,
     /// and the last thing it does is silence the device.
     ///

@@ -148,7 +148,7 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
     // immediately below it on every Tick.
     write(&source, ".=0101              !>007FC4");
     let adapter = InMemoryOutputAdapter::default();
-    // Fallible and eager since ADR 0040: the engine is a task, spawned here
+    // Fallible and eager since ADR 0041: the engine is a task, spawned here
     // rather than at the first `start`. The browser spawns onto the page's own
     // event loop, so what a Tokio runtime answers on the desktop is answered
     // by the page here.

@@ -239,7 +239,7 @@ impl Console {
     ///
     /// The console over the running Orcvs its storage last held.
     ///
-    /// Fallible because a running Orcvs is: ADR 0040 makes its Playback Engine
+    /// Fallible because a running Orcvs is: ADR 0041 makes its Playback Engine
     /// a task, and a task needs a runtime to be spawned on. The native binary
     /// is inside `#[tokio::main]` when `eframe` calls this, and the browser
     /// spawns onto the page's event loop and needs nothing; a build that

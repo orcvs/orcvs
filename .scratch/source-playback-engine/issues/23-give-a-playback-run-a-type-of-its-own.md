@@ -48,13 +48,13 @@ An architecture review of the workspace, in the session that filed `22`. Its arg
 
 ## Answer
 
-Closed against [ADR 0040](../../../docs/adr/0040-the-playback-engine-owns-its-state-in-one-task.md)
+Closed against [ADR 0041](../../../docs/adr/0041-the-playback-engine-owns-its-state-in-one-task.md)
 rather than built, and the `playback-actor` effort implemented that decision in
 `playback-actor/04`.
 
 The question this issue asked first — is a run a value or a phase of the engine? — was
 answered by neither of the two shapes it offered. Both keep the lock and give the state behind
-it better types, and ADR 0040 records why that treats the symptom: state behind a lock is opaque
+it better types, and ADR 0041 records why that treats the symptom: state behind a lock is opaque
 to the type system, which is *why* the invariants had to be written as comments at each mutation
 site and why `last_output_failure` could outlive its run until review found it. Ownership is what
 makes the ordering expressible, and a task is how a shared handle gets an owner.

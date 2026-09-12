@@ -13,7 +13,7 @@ const STOPPING: u8 = 2;
 ///
 /// ADR 0002 requires that further Ticks are prevented before `stop` returns,
 /// and a message cannot do that: `send` returns once the message is queued and
-/// the task may be about to execute a Tick. ADR 0040 admits this state
+/// the task may be about to execute a Tick. ADR 0041 admits this state
 /// deliberately. It carries one fact — someone has asked me to stop — and
 /// nothing reads it to decide which state the engine is in.
 ///

@@ -8,28 +8,28 @@ exception.
 
 The case for it is real. It is crate-private, it is documented in place, and it is how `select` and
 `refresh` cross the seam without the general `PlaybackCommand` enum learning MIDI vocabulary — the
-same tension `ADR 0040`'s note on `published_destinations` records.
+same tension `ADR 0041`'s note on `published_destinations` records.
 
-The case against is what ADR 0040 is for. The decision's whole content is that only the task mutates
+The case against is what ADR 0041 is for. The decision's whole content is that only the task mutates
 the state, and that what it can be asked to do is a known set of transitions the type system
 enumerates. A variant carrying an arbitrary `FnOnce(&mut PlaybackInner<A>)` is a hole in exactly that
 enumeration: it admits any mutation, in any order, from any crate-internal caller, and the enum no
 longer tells a reader what can happen to a run.
 
 Narrowing it — two named variants for the two transitions that exist — costs the generic `Adapter`
-seam its generality and puts MIDI vocabulary somewhere. That is the same choice ADR 0040 leaves open
+seam its generality and puts MIDI vocabulary somewhere. That is the same choice ADR 0041 leaves open
 about where the destination subscription belongs, so the two should probably be settled together.
 
 **Status:** needs-triage
 
-**Sources of truth:** `orcvs/src/playback.rs:397-402` (the variant and its alias); ADR 0040's closing
+**Sources of truth:** `orcvs/src/playback.rs:397-402` (the variant and its alias); ADR 0041's closing
 paragraphs (what the message set is supposed to guarantee, and the open question beside it).
 
 - [ ] The decision is recorded, either as an ADR amendment or as this ticket's answer.
 - [ ] If the hatch stays, the ADR says so — that the message set enumerates every transition *except*
       the adapter's, and why.
 - [ ] If it goes, the transitions that replace it are named, and where the MIDI vocabulary lands is
-      decided alongside ADR 0040's open question about `published_destinations`.
+      decided alongside ADR 0041's open question about `published_destinations`.
 
 ## Verification
 

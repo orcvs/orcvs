@@ -73,7 +73,7 @@ wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
 lang = { path = "../lang", version = "0.1.0" }
-# ADR 0040 makes the Playback Engine a task, so building a running Orcvs needs a
+# ADR 0041 makes the Playback Engine a task, so building a running Orcvs needs a
 # runtime to spawn it on and every test that builds one needs `#[tokio::test]`.
 # Declared for every target rather than beside the non-WASM dependency table:
 # the unit tests are compiled for `wasm32-unknown-unknown` by the WASM check

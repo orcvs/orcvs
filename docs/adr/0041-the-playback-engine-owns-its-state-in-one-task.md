@@ -2,6 +2,8 @@
 
 Status: accepted. Refines how [ADR 0002](0002-playback-engine-owns-lifecycle-concurrency.md) is implemented; that decision stands and every guarantee it states is kept.
 
+This decision was accepted as ADR 0040 and renumbered to 0041, so history written before the renumbering — commits, pull requests, and issue files that cannot be rewritten — cites it as "ADR 0040" and means this file rather than [ADR 0040](0040-the-console-paints-from-a-value.md), which held the number first and kept it.
+
 The Playback Engine's state lives in one task that owns it, reached through a cloneable handle that sends messages. It is not shared behind a lock. That task also owns its clock: rather than spawning a separate clock task that calls back in, the engine waits on its message channel and its next deadline together, so a Tick is one arm of the loop that processes `stop` and `retune` on the other.
 
 ADR 0002 decided that the Playback Engine owns its clock task, synchronization, cancellation, stale-clock protection and shutdown rather than making callers coordinate them. That decision is unchanged and is the reason for this one: three of those five are mechanisms that exist only because the state is shared with a second task, and owning the state properly deletes them rather than encapsulating them better.

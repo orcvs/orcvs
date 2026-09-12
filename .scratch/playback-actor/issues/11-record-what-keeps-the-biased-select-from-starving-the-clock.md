@@ -37,7 +37,7 @@ warnings` and `PROPTEST_CASES=32 cargo nextest run --package orcvs --locked`.
 Filed from the `playback-actor` review ledger as **CR-12**, minor.
 
 Minor because it cannot happen with the producers that exist. Filed because the thing missing is not
-a fix but a record: ADR 0040 made the loop the single place Ticks come from, and `biased;` is the one
+a fix but a record: ADR 0041 made the loop the single place Ticks come from, and `biased;` is the one
 line that can stop them without saying so.
 
 Related: `07` pins the ordering `biased;` exists to provide, so the two should be read together.

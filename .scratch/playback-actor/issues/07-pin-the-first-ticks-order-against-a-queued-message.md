@@ -38,7 +38,7 @@ deferred to CI.
 
 Filed from the `playback-actor` review ledger as **CR-06** (major).
 
-ADR 0040 states that a run "still executes its first Tick immediately" and ticket 04's Comments call
+ADR 0041 states that a run "still executes its first Tick immediately" and ticket 04's Comments call
 the immediate first Tick a rule the browser cares about. Neither says what happens to a message that
 was already in the queue when that Tick came due, and that is the case with a user-visible wrong
 answer.

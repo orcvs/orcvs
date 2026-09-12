@@ -34,7 +34,7 @@ impl<B: MidiBackend + 'static> MidiDeviceSelection<B> {
     /// Asks the running Orcvs to look for destinations again.
     ///
     /// Discovery reaches a platform MIDI service through the Playback Engine's
-    /// adapter, which per ADR 0040 that engine's task owns, so the answer is
+    /// adapter, which per ADR 0041 that engine's task owns, so the answer is
     /// published rather than returned: what this reports here is only whether
     /// there was still a running Orcvs to ask. The list arrives through
     /// `destinations`, which every frame that draws the menu reads.
@@ -321,7 +321,7 @@ mod tests {
 
     ///
     /// Both ways a backend can refuse the console reach the status line, by the
-    /// two routes ADR 0040 leaves open to an engine that cannot answer a
+    /// two routes ADR 0041 leaves open to an engine that cannot answer a
     /// caller: a discovery failure is published in place of the list, and a
     /// connection failure is reported on the diagnostics stream the console
     /// drains each frame.
@@ -350,7 +350,7 @@ mod tests {
     ///
     /// `console::midi::playback_start_errors_are_exposed_as_status` used to
     /// state this end to end, by building an `Orcvs` outside a runtime so that
-    /// Space produced `RuntimeUnavailable`. ADR 0040 moved that failure to
+    /// Space produced `RuntimeUnavailable`. ADR 0041 moved that failure to
     /// construction and made `Orcvs::new` fallible, so the path the old test
     /// walked no longer exists — and no console gesture left on this branch
     /// produces a `StartFailure` at all: `set_bpm` holds a `Bpm` that cannot be

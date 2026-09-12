@@ -45,7 +45,7 @@ different shape.
 
 `playback_start_errors_are_exposed_as_status` cannot come back as it was: it
 built an `Orcvs` outside a runtime so that Space produced `RuntimeUnavailable`,
-and ADR 0040 moved that failure to construction and made `Orcvs::new` fallible.
+and ADR 0041 moved that failure to construction and made `Orcvs::new` fallible.
 The deletion was correct. Nor is there a console gesture left that produces a
 `StartFailure` at all — `set_bpm` holds a `Bpm` that cannot be zero, which is
 `08`'s subject.

@@ -4,7 +4,7 @@
 
 ## Goal
 
-Move the Playback Engine's state out of `Arc<Mutex<PlaybackInner>>` and into one task that owns it, reached through a cloneable handle that sends messages. Give that task its own clock, so a Tick is one arm of a loop that handles `stop` and `retune` on the other. [ADR 0040](../../docs/adr/0040-the-playback-engine-owns-its-state-in-one-task.md) records the decision and what it keeps from [ADR 0002](../../docs/adr/0002-playback-engine-owns-lifecycle-concurrency.md).
+Move the Playback Engine's state out of `Arc<Mutex<PlaybackInner>>` and into one task that owns it, reached through a cloneable handle that sends messages. Give that task its own clock, so a Tick is one arm of a loop that handles `stop` and `retune` on the other. [ADR 0041](../../docs/adr/0041-the-playback-engine-owns-its-state-in-one-task.md) records the decision and what it keeps from [ADR 0002](../../docs/adr/0002-playback-engine-owns-lifecycle-concurrency.md).
 
 ## Why, in one paragraph
 
@@ -36,9 +36,9 @@ Derived from each issue's `Status:` and `Blocked by:` lines, not authored here.
 
 Every guarantee ADR 0002 states is kept, including that further Ticks are prevented before `stop` returns. The Source/Playback seam and ADR 0037's Tick Grid rule are unchanged. A run still has one fixed Tick period at a time, still executes its first Tick immediately, and still turns output failures and Overruns into diagnostics without rolling back Source writes or stopping later Ticks.
 
-The output adapter seam is the one exception, and this line used to claim otherwise. `OutputAdapter` gained a defaulted `published_destinations` (`orcvs/src/playback.rs:88-90`), overridden by `MidiOutputAdapter` (`orcvs/src/midi.rs:309-311`) and absent at `25c8de8`. Moving the adapter into the task leaves no synchronous path from `MidiSelectionHandle::destinations()`/`select()` to it, and the browser frame has no blocking receive to await a reply on, so what those asked for is published instead — and a generic `PlaybackEngine::new` needs the subscription while the adapter is still in hand. `04`'s Comments record the deviation; ADR 0040 records the same correction and the open question of whether the subscription belongs on the general trait at all.
+The output adapter seam is the one exception, and this line used to claim otherwise. `OutputAdapter` gained a defaulted `published_destinations` (`orcvs/src/playback.rs:88-90`), overridden by `MidiOutputAdapter` (`orcvs/src/midi.rs:309-311`) and absent at `25c8de8`. Moving the adapter into the task leaves no synchronous path from `MidiSelectionHandle::destinations()`/`select()` to it, and the browser frame has no blocking receive to await a reply on, so what those asked for is published instead — and a generic `PlaybackEngine::new` needs the subscription while the adapter is still in hand. `04`'s Comments record the deviation; ADR 0041 records the same correction and the open question of whether the subscription belongs on the general trait at all.
 
 ## Out of scope
 
 - The Tick pipeline in `orcvs/src/source/`. It is a pipeline, not a state machine: nothing persists between its stages and nothing receives events there. Its problems are interface problems and are tracked elsewhere.
-- `source-playback-engine/23`, which proposed giving the shared state better types behind the lock. ADR 0040 records why that treats the symptom; this effort absorbs it and `23` should be closed against this spec rather than built.
+- `source-playback-engine/23`, which proposed giving the shared state better types behind the lock. ADR 0041 records why that treats the symptom; this effort absorbs it and `23` should be closed against this spec rather than built.
