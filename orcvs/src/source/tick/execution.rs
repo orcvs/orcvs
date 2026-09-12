@@ -38,7 +38,11 @@ pub(super) fn execute(
         diagnostics,
     } = schedule;
     let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
-    for index in order {
+    for (turn, index) in order.into_iter().enumerate() {
+        // Recorded here rather than where the order was built: the ordinal is
+        // the Turn a computation took, and a Tick that stops partway through
+        // leaves every computation after it without one.
+        execution.states[index].turn = Some(turn);
         if let Break(diagnostic) = execution.take_turn(index) {
             return execution.reject(diagnostic);
         }
@@ -56,6 +60,16 @@ pub(in crate::source) struct ComputationState {
     activated: bool,
     suppressed: bool,
     attempted: bool,
+    /// Which Turn this computation took, or `None` where the Tick ended before
+    /// reaching it.
+    ///
+    /// The ordinal of the Turn in the order the schedule established, counted
+    /// from zero by the loop that walks that order. It is written as the Turn
+    /// is taken rather than when the order is built, because those are two
+    /// different facts: an ordering defect rejects the Tick where it is found
+    /// and the states survive it, so a computation ordered third and reached is
+    /// told apart from one ordered third and never reached.
+    turn: Option<usize>,
     /// The explicit inputs the Interpreter was handed for this computation, or
     /// `None` where it was never called for it. A Turn that was suppressed,
     /// refused by its own prologue, or stopped by operands it could not
@@ -79,10 +93,29 @@ pub(in crate::source) struct ComputationState {
 
 impl ComputationState {
     ///
+    /// Which Turn this computation took, or `None` where the Tick ended before
+    /// reaching it.
+    ///
+    /// The order a schedule establishes is consumed by the loop that walks it
+    /// and survives nowhere else, so this is the only record of it a caller
+    /// can read. Nothing publishes it yet: it is what a console or a diagnostic
+    /// view will ask for, and what the ordering tests of this module ask for
+    /// today — a claim about which computation took the earlier Turn is
+    /// asserted here rather than inferred from the Cells the later write won.
+    ///
+    /// Allowed rather than expected: the method is dead in the library build
+    /// and live in the test build, so an expectation would go unfulfilled in
+    /// the second and fail the gate that compiles both.
+    #[allow(dead_code, reason = "an output the shipped callers discard")]
+    pub(in crate::source) fn turn(&self) -> Option<usize> {
+        self.turn
+    }
+
+    ///
     /// The inputs the Interpreter received for this computation, or `None`
     /// where it never ran for it.
     ///
-    /// The one thing a caller outside this module reads off a state. Nothing
+    /// One of the facts a caller outside this module reads off a state. Nothing
     /// publishes it yet: a Tick Plan carries what to apply, and this carries
     /// what happened, which is what a console or a diagnostic view will ask
     /// for and what the tests of this module ask for today.
@@ -186,6 +219,7 @@ impl<'a> Execution<'a> {
                     activated: false,
                     suppressed: false,
                     attempted: false,
+                    turn: None,
                     interpreted: None,
                     interpretations: 0,
                 })
@@ -792,10 +826,13 @@ fn render_message(reason: RenderError) -> String {
 ///   declared Range row.
 ///
 /// Only the Turn loop is reimplemented, because substituting one Turn is the
-/// one thing this does differently. The starting state, the Bang cleanup it
-/// performs, the schedule, the rejection path, the resolution, and the Turn
-/// every other computation takes are all the production ones, reached through
-/// the same [`Execution::new`] that [`execute`] reaches them through.
+/// one thing this does differently. It records each Turn's ordinal exactly as
+/// the production loop does, and a rejected Tick through this loop is held to
+/// that by a test of its own, so the two cannot drift apart unnoticed. The
+/// starting state, the Bang cleanup it performs, the schedule, the rejection
+/// path, the resolution, and the Turn every other computation takes are all
+/// the production ones, reached through the same [`Execution::new`] that
+/// [`execute`] reaches them through.
 ///
 #[cfg(test)]
 pub(super) mod stated {
@@ -905,16 +942,21 @@ pub(super) mod stated {
         };
         let mut execution = Execution::new(grid, bytes, map, tick, &lookup, diagnostics);
         let mut stated = vec![false; answers.len()];
-        for index in order {
+        for (turn, index) in order.into_iter().enumerate() {
             let anchor = grid.index(lookup.nodes()[index].anchor);
-            let turn = match answers.iter().position(|(stated, _)| *stated == anchor) {
+            // The ordinal production records, recorded here for the reason the
+            // loop around it is reproduced: a stated answer replaces what one
+            // computation answers and nothing else, and the Turn it took is
+            // the Turn it would have taken.
+            execution.states[index].turn = Some(turn);
+            let outcome = match answers.iter().position(|(stated, _)| *stated == anchor) {
                 Some(position) => {
                     stated[position] = true;
                     execution.state_answer(index, answers[position].1.clone())
                 }
                 None => execution.take_turn(index),
             };
-            if let Break(diagnostic) = turn {
+            if let Break(diagnostic) = outcome {
                 // The order stops where a rejection found it, so the answers
                 // after that Turn are unstated for a reason the fixture chose.
                 return execution.reject(diagnostic);
