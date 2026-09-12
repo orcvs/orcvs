@@ -1936,7 +1936,7 @@ mod tests {
         let paint = painted(&frame, viewport, screen);
         let shapes = source_shapes(&paint, viewport, 1.0);
 
-        assert_eq!(paint.cursor(), Some(frame.rows()[0][0].position()));
+        assert_eq!(paint.cursor(), Some(frame.cursor()));
         // Every Cell but the Cursor's is stroked with its own border, in row
         // order.
         let mut expected = Vec::new();
@@ -2001,7 +2001,7 @@ mod tests {
         // background is built after it and would paint over it if the Shapes
         // were emitted Cell by Cell.
         orcvs.write("1");
-        orcvs.select(orcvs.render_frame().rows()[0][0].position());
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 8, 8, 1.0);
         let paint = painted(&frame, viewport, screen);
@@ -2082,7 +2082,7 @@ mod tests {
         let mut view = SourceView::default();
         // A written Cell, so a Glyph is painted at all.
         orcvs.write("1");
-        orcvs.select(orcvs.render_frame().rows()[0][0].position());
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
         let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
@@ -2306,10 +2306,10 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
-            orcvs.select(orcvs.render_frame().rows()[2][x].position());
+            orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
-        orcvs.select(orcvs.render_frame().rows()[5][5].position());
+        orcvs.select(orcvs.grid().position(5, 5).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 8, 8, 1.0);
@@ -2734,7 +2734,7 @@ mod tests {
         let mut orcvs = running_orcvs(16, 16);
         // The Cursor goes on a Cell that would otherwise carry both seams, so
         // the suppression the derive applies is visible as an absence here too.
-        orcvs.select(orcvs.render_frame().rows()[8][8].position());
+        orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 16, 16, 1.0);
@@ -2973,7 +2973,7 @@ mod tests {
         // drawn rows and stops short of the upper ones: the viewport holds
         // filled and unfilled Cells at once, and every drawn row that is filled
         // is filled at both its edges.
-        orcvs.select(orcvs.render_frame().rows()[20][18].position());
+        orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
 
         // The Grid's near corner at (-700, -500), so the console shows a window
         // in the middle of it rather than a corner.

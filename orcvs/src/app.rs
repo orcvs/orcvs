@@ -46,23 +46,22 @@ pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 ///
 /// ```
 /// use orcvs::app::Orcvs;
-/// use orcvs::grid::Grid;
 ///
 /// // A running Orcvs runs: its Playback Engine is a task, and a task needs a
 /// // runtime to be spawned on, so building one is fallible and eager.
 /// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let _runtime = runtime.enter();
 ///
-/// let orcvs = Orcvs::new(16, 16).expect("a Tokio runtime");
-/// let grid = Grid::new(16, 16);
+/// let mut orcvs = Orcvs::new(16, 16).expect("a Tokio runtime");
+/// let grid = orcvs.grid();
 ///
 /// // the Grid refuses a pair outside itself, so there is no Position to select
 /// assert_eq!(grid.position(99, 99), None);
 ///
-/// // every Position `select` can be handed is one the Grid minted
+/// // every Position `select` can be handed is one this Grid minted
 /// let position = grid.position(15, 15).expect("inside the grid");
-/// assert_eq!((position.x(), position.y()), (15, 15));
-/// assert_eq!(orcvs.render_frame().rows().len(), 16);
+/// orcvs.select(position);
+/// assert_eq!(orcvs.render_frame().cursor(), position);
 /// ```
 ///
 pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
@@ -241,6 +240,17 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 
     ///
+    /// The Grid this running Orcvs's Source occupies.
+    ///
+    /// The only thing that mints a Position [`select`](Self::select) will
+    /// accept. `Grid` is `Copy`, and the same Grid is already reachable as
+    /// `render_frame().grid()` — this answers it without deriving a Frame.
+    ///
+    pub fn grid(&self) -> Grid {
+        self.grid
+    }
+
+    ///
     /// writes s to the current cursor position
     /// triggers parse of expression
     ///
@@ -262,15 +272,6 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     fn delete(&mut self) {
         self.source.unset(self.grid.index(self.cursor.position()));
         self.cursor.select(self.grid.left(self.cursor.position()));
-    }
-
-    ///
-    /// Convert a Position into a linear index.
-    /// Total: a Position can only come from a Grid, so it is in range for the
-    /// Grid that minted it.
-    ///
-    pub fn index(&self, position: Position) -> usize {
-        self.grid.index(position).get()
     }
 
     pub fn render_frame(&self) -> RenderFrame {
@@ -599,7 +600,7 @@ mod test {
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
+fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
 
         let outside = Orcvs::with_output_adapter(2, 1, adapter.clone());
@@ -616,7 +617,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
+    async fn render_frame_reflects_a_write_and_the_selection() {
         let mut app = orcvs();
         app.write("x");
 
@@ -718,20 +719,6 @@ mod test {
             self.select_or_panic(x, y);
             self.write(s);
         }
-    }
-
-    #[tokio::test]
-    async fn test_to_idx() {
-        trace();
-        let app = Orcvs::new(10, 4).expect("the test runtime");
-
-        let position = app.grid.position(0, 0).expect("inside the grid");
-        let idx = app.index(position);
-        assert_eq!(idx, 0);
-
-        let position = app.grid.position(5, 3).expect("inside the grid");
-        let idx = app.index(position);
-        assert_eq!(idx, 35);
     }
 
     #[tokio::test]

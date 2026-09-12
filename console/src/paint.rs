@@ -489,10 +489,10 @@ mod tests {
     async fn a_cell_is_answered_at_the_position_the_grid_indexes() {
         let mut orcvs = running_orcvs(6, 4);
         for (x, character) in "#a#".chars().enumerate() {
-            orcvs.select(orcvs.render_frame().rows()[2][x + 1].position());
+            orcvs.select(orcvs.grid().position(x + 1, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
-        orcvs.select(orcvs.render_frame().rows()[1][4].position());
+        orcvs.select(orcvs.grid().position(4, 1).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -540,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn the_cursor_is_the_selected_position() {
         let mut orcvs = running_orcvs(9, 5);
-        let selected = orcvs.render_frame().rows()[3][6].position();
+        let selected = orcvs.grid().position(6, 3).expect("inside the grid");
         orcvs.select(selected);
 
         let paint = whole(&orcvs.render_frame());
@@ -565,7 +565,7 @@ mod tests {
     async fn seams_stand_where_the_render_frame_asks_and_never_on_the_cursor() {
         let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default marker spacing of eight.
-        let corner = orcvs.render_frame().rows()[8][8].position();
+        let corner = orcvs.grid().position(8, 8).expect("inside the grid");
         orcvs.select(corner);
 
         let frame = orcvs.render_frame();
@@ -616,10 +616,10 @@ mod tests {
     async fn each_cell_shows_the_character_the_table_answers() {
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
-            orcvs.select(orcvs.render_frame().rows()[2][x].position());
+            orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
-        orcvs.select(orcvs.render_frame().rows()[5][5].position());
+        orcvs.select(orcvs.grid().position(5, 5).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -685,7 +685,7 @@ mod tests {
         // the space.
         let written = ".+";
         for (x, character) in written.chars().enumerate() {
-            let position = orcvs.render_frame().rows()[2][x].position();
+            let position = orcvs.grid().position(x, 2).expect("inside the grid");
             orcvs.select(position);
             orcvs.write(&character.to_string());
         }
@@ -923,7 +923,7 @@ mod tests {
     #[tokio::test]
     async fn a_paint_decides_the_drawn_cells_and_answers_them_unchanged() {
         let mut orcvs = running_orcvs(40, 30);
-        orcvs.select(orcvs.render_frame().rows()[10][9].position());
+        orcvs.select(orcvs.grid().position(9, 10).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let drawn = VisiblePositions {
@@ -978,7 +978,7 @@ mod tests {
     #[tokio::test]
     async fn the_runs_a_culled_paint_answers_are_the_whole_grids_clipped_to_it() {
         let mut orcvs = running_orcvs(32, 24);
-        orcvs.select(orcvs.render_frame().rows()[11][15].position());
+        orcvs.select(orcvs.grid().position(15, 11).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let drawn = VisiblePositions {
@@ -1022,7 +1022,7 @@ mod tests {
     #[tokio::test]
     async fn the_cursor_is_answered_only_where_the_paint_covers_it() {
         let mut orcvs = running_orcvs(20, 20);
-        let selected = orcvs.render_frame().rows()[4][5].position();
+        let selected = orcvs.grid().position(5, 4).expect("inside the grid");
         orcvs.select(selected);
 
         let frame = orcvs.render_frame();
