@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 /// No stop is standing and no Tick is executing.
 const OPEN: u8 = 0;
@@ -29,15 +29,22 @@ const STOPPING: u8 = 2;
 /// that no *further* Tick is admitted, not that the engine is silent by the
 /// time `stop` returns.
 ///
+/// Outstanding requests are counted, not collapsed into a single bit: two
+/// cloned handles may each raise a stop before either message is applied, and
+/// answering the first must not reopen admission for a Tick that overtakes the
+/// second.
+///
 #[derive(Debug)]
 pub(super) struct TickGate {
     state: AtomicU8,
+    outstanding_stops: AtomicUsize,
 }
 
 impl TickGate {
     pub(super) fn new() -> Self {
         Self {
             state: AtomicU8::new(OPEN),
+            outstanding_stops: AtomicUsize::new(0),
         }
     }
 
@@ -50,6 +57,7 @@ impl TickGate {
     /// is refused whichever of the two got here first.
     ///
     pub(super) fn request_stop(&self) {
+        self.outstanding_stops.fetch_add(1, Ordering::AcqRel);
         self.state.store(STOPPING, Ordering::Release);
     }
 
@@ -79,7 +87,8 @@ impl TickGate {
     }
 
     ///
-    /// Answers the standing stop request, reopening the gate for a later run.
+    /// Answers one standing stop request, reopening the gate only when none
+    /// remain.
     ///
     /// The task calls this as it applies the `Stop` message, which is the only
     /// thing that can answer a request. Conditional on a request actually
@@ -88,9 +97,33 @@ impl TickGate {
     /// raised after it was sent.
     ///
     pub(super) fn clear_stop(&self) {
-        let _ = self
-            .state
-            .compare_exchange(STOPPING, OPEN, Ordering::AcqRel, Ordering::Acquire);
+        loop {
+            let outstanding = self.outstanding_stops.load(Ordering::Acquire);
+            if outstanding == 0 {
+                return;
+            }
+            if self
+                .outstanding_stops
+                .compare_exchange(
+                    outstanding,
+                    outstanding - 1,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_err()
+            {
+                continue;
+            }
+            if outstanding == 1 {
+                let _ = self.state.compare_exchange(
+                    STOPPING,
+                    OPEN,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+            }
+            return;
+        }
     }
 }
 
@@ -167,6 +200,29 @@ mod tests {
         // Only the `Stop` message answers it.
         gate.clear_stop();
 
+        assert!(gate.begin_tick());
+    }
+
+    ///
+    /// Two handles can each raise a stop before either message is applied.
+    /// Answering the first must not reopen admission for a Tick that overtakes
+    /// the second — that Tick would run after the second `stop` had already
+    /// returned, which ADR 0002 / 0040 forbid.
+    ///
+    #[test]
+    fn two_outstanding_stops_keep_the_gate_shut_until_both_are_answered() {
+        let gate = TickGate::new();
+
+        gate.request_stop();
+        gate.request_stop();
+        gate.clear_stop();
+
+        assert!(
+            !gate.begin_tick(),
+            "the first Stop cleared a second handle's still-standing request"
+        );
+
+        gate.clear_stop();
         assert!(gate.begin_tick());
     }
 }

@@ -96,6 +96,8 @@ async fn selection_handle_cannot_outlive_the_running_orcvs() {
     )
     .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
+    midi.refresh_destinations().unwrap();
+    tokio::task::yield_now().await;
     midi.select(&MidiDestinationId::new("studio")).unwrap();
     tokio::task::yield_now().await;
 

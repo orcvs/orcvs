@@ -667,8 +667,10 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     ///
     /// Whether this engine is in a run, read back from the value it publishes.
     ///
-    /// The published state is the only copy, so this is the same fact the
-    /// console gates Space on rather than a second one kept beside it.
+    /// The published state is the only copy of what the engine *is*. Space
+    /// gates on what this Orcvs has *asked* it to be (`playback_requested` in
+    /// `app`), which can disagree with this value until the task applies the
+    /// request.
     ///
     fn is_playing(&self) -> bool {
         *self.state.borrow() == PlaybackState::Playing
@@ -729,6 +731,28 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     fn send_safety_reset(&mut self) {
         if let Err(error) = self.adapter.safety_reset() {
             self.record_output_failure(error);
+        }
+    }
+
+    ///
+    /// Ends the run under the same containment `Drop` uses for a panicking
+    /// silence action.
+    ///
+    /// The ordinary `Stop` path publishes `Stopped` before the safety action.
+    /// A panic there would otherwise unwind the task, reach `Drop` already
+    /// stopped, and skip both the contained retry and the `ClockFailure` that
+    /// lets the console withdraw `playback_requested`.
+    ///
+    fn stop_contained(&mut self) {
+        let silenced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop()));
+        if silenced.is_err() {
+            // `stop` clears the schedule after the safety action; a panic in
+            // that action leaves claims that must not survive into the next
+            // run the task is about to keep serving.
+            self.owned.clear();
+            self.report(PlaybackDiagnostic::ClockFailure {
+                message: "Playback output could not be silenced".to_string(),
+            });
         }
     }
 
@@ -1301,11 +1325,17 @@ const MESSAGES_BEFORE_A_DEADLINE: usize = 64;
 /// arriving in the same moment as a deadline must not leave the Tick to be
 /// executed by a task that already has the stop in hand.
 ///
-/// Past `MESSAGES_BEFORE_A_DEADLINE` the bias inverts and the deadline is
-/// taken first, because a queue that never empties is not a tie. Inverting it
-/// costs `stop` nothing: the request is raised before its message is sent, so
-/// a Tick that overtakes a queued `Stop` still meets a shut gate and is
-/// refused admission.
+/// Past `MESSAGES_BEFORE_A_DEADLINE` the bias inverts for a *sleeping*
+/// deadline and the deadline is taken first, because a queue that never
+/// empties is not a tie. Inverting it costs `stop` nothing: the request is
+/// raised before its message is sent, so a Tick that overtakes a queued `Stop`
+/// still meets a shut gate and is refused admission.
+///
+/// The first Tick of a run is due on arrival and answered without awaiting.
+/// That path never inverts: a message already queued when the run began —
+/// `Disconnect`, a destination change — must still be applied before that
+/// Tick, and the fairness budget may already have been spent while the engine
+/// was stopped.
 ///
 async fn next_playback_event<A: OutputAdapter>(
     commands: &mut mpsc::UnboundedReceiver<PlaybackCommand<A>>,
@@ -1321,11 +1351,8 @@ async fn next_playback_event<A: OutputAdapter>(
     if clock.due_on_arrival {
         // Answered without awaiting, so that the first Tick of a run is
         // executed in the turn the run began in rather than one browser timer
-        // later. A message already queued is still taken first, until enough
-        // of them have been that the Tick is owed its turn.
-        if messages_since_tick >= MESSAGES_BEFORE_A_DEADLINE {
-            return PlaybackEvent::Deadline;
-        }
+        // later. A message already queued is always taken first: the fairness
+        // invert belongs to the sleeping select below, not to this shortcut.
         return match commands.try_recv() {
             Ok(command) => PlaybackEvent::Command(command),
             Err(mpsc::error::TryRecvError::Empty) => PlaybackEvent::Deadline,
@@ -1394,6 +1421,11 @@ async fn run_engine<A: OutputAdapter>(
                 if !inner.is_playing() {
                     inner.begin_run();
                     clock = Some(TickClock::beginning(tick_period));
+                    // A new run's first Tick must not inherit fairness spent
+                    // while the engine was stopped: that budget is for a
+                    // sleeping deadline under a live clock, not for jumping
+                    // messages already queued behind this start.
+                    messages_since_tick = 0;
                 }
             }
             PlaybackEvent::Command(PlaybackCommand::Retune { tick_period }) => {
@@ -1412,10 +1444,14 @@ async fn run_engine<A: OutputAdapter>(
                 // to hold the line until this message arrived, and a run begun
                 // after it must not find it standing.
                 tick_gate.clear_stop();
-                inner.stop();
+                inner.stop_contained();
                 clock = None;
+                messages_since_tick = 0;
             }
-            PlaybackEvent::Command(PlaybackCommand::Disconnect) => inner.disconnect(),
+            PlaybackEvent::Command(PlaybackCommand::Disconnect) => {
+                inner.disconnect();
+                messages_since_tick = 0;
+            }
             PlaybackEvent::Command(PlaybackCommand::Adapter(transition)) => transition(&mut inner),
             PlaybackEvent::Unschedulable => {
                 // `start` and `retune` refuse a period whose deadlines cannot
@@ -1428,8 +1464,9 @@ async fn run_engine<A: OutputAdapter>(
                 inner.report(PlaybackDiagnostic::ClockFailure {
                     message: "Playback clock ran past the last instant it can schedule".to_string(),
                 });
-                inner.stop();
+                inner.stop_contained();
                 clock = None;
+                messages_since_tick = 0;
             }
             PlaybackEvent::Deadline => {
                 let running = clock
@@ -1458,7 +1495,7 @@ async fn run_engine<A: OutputAdapter>(
     // Every handle is gone, so nothing is left to ask this engine to stop and
     // nothing is left to tell. Stopping here is what makes dropping the last
     // handle safe, structurally rather than arithmetically.
-    inner.stop();
+    inner.stop_contained();
 }
 
 #[cfg(test)]
@@ -1802,11 +1839,29 @@ mod tests {
         delivery_started: Arc<AtomicBool>,
     }
 
+    ///
+    /// Delivers, then panics when asked to silence — the live `Stop` path's
+    /// failure, not a panic that began inside a Tick.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    struct SilencePanickingOutputAdapter;
+
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for DoublyPanickingOutputAdapter {
         fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
             self.delivery_started.store(true, Ordering::SeqCst);
             panic!("test output panic");
+        }
+
+        fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
+            panic!("test safety panic");
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputAdapter for SilencePanickingOutputAdapter {
+        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+            Ok(())
         }
 
         fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
@@ -2625,6 +2680,34 @@ mod tests {
             adapter.command_lists().is_empty(),
             "the first Tick was delivered to an output the queue had already \
              closed behind it"
+        );
+    }
+
+    ///
+    /// The fairness invert is for a sleeping deadline, not for the first Tick
+    /// answered on arrival. Spending the budget while stopped must not let that
+    /// Tick jump a `Disconnect` already queued behind `Start`.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn fairness_spent_while_stopped_does_not_invert_a_run_s_first_tick() {
+        let source = SourceCommander::new(Grid::new(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
+        let adapter = InMemoryOutputAdapter::default();
+        let engine = engine(source, adapter.clone());
+
+        for _ in 0..MESSAGES_BEFORE_A_DEADLINE {
+            settle(&engine).await;
+        }
+
+        engine.start(Duration::from_secs(1)).unwrap();
+        engine.disconnect();
+        settle(&engine).await;
+
+        assert!(
+            adapter.command_lists().is_empty(),
+            "fairness spent while stopped let the first Tick overtake a \
+             Disconnect already queued behind Start"
         );
     }
 
@@ -3466,6 +3549,45 @@ mod tests {
     }
 
     ///
+    /// A live `Stop` whose safety action panics must not leave the task dead
+    /// with no `ClockFailure`: `stop` publishes `Stopped` before silencing, so
+    /// `Drop` sees a finished run and skips both the contained retry and the
+    /// diagnostic `Orcvs` uses to clear `playback_requested`.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_whose_silence_panics_reports_failure_and_leaves_the_engine_usable() {
+        let source = SourceCommander::new(Grid::new(10, 6));
+        write(&source, 20, "!>007FC4");
+        write(&source, 0, ".=0101");
+        let engine = engine(source, SilencePanickingOutputAdapter);
+        engine.start(Duration::from_secs(1)).unwrap();
+        settle(&engine).await;
+
+        engine.stop();
+
+        let mut diagnostics = Vec::new();
+        wait_until("the engine never reported that silence failed", || {
+            diagnostics.extend(engine.drain_diagnostics());
+            diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    PlaybackDiagnostic::ClockFailure { message }
+                        if message == "Playback output could not be silenced"
+                )
+            })
+        })
+        .await;
+
+        assert_eq!(
+            engine.start(Duration::from_millis(1)),
+            Ok(()),
+            "the live Stop path let a silence panic kill the task without \
+             containing it, so the next start hit a dead queue"
+        );
+    }
+
+    ///
     /// A backend that panics being silenced does not take the process with it.
     ///
     /// The destructor exists for the unwind an adapter started, and the first
@@ -3618,8 +3740,9 @@ mod tests {
     /// it has to collect until it has the diagnostics it expects, the way
     /// `a_backend_that_panics_being_silenced_does_not_abort_the_process` does.
     /// The order is deliberate rather than incidental: the published state is
-    /// what the console gates Space on, and moving the publish behind a device
-    /// call would delay it by the length of that call.
+    /// what callers observe without awaiting, while Space gates on
+    /// `playback_requested` in `app` — and moving the publish behind a device
+    /// call would delay that observation by the length of that call.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     async fn diagnostics_once_stopped<A: OutputAdapter>(
