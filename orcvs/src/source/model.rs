@@ -637,7 +637,7 @@ mod test {
             let cells: Vec<char> = self.src.snapshot().chars().collect();
 
             self.grid
-                .rows()
+                .positions_by_row()
                 .nth(row)
                 .expect("a row of the grid")
                 .map(|position| cells[self.grid.index(position).get()])
@@ -656,7 +656,7 @@ mod test {
         /// How many rows this Source has, asked of the Grid it was built from.
         ///
         fn row_count(&self) -> usize {
-            self.grid.rows().count()
+            self.grid.rows()
         }
 
         ///

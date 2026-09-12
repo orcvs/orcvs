@@ -257,7 +257,7 @@ The one Cell the console is editing: a Position, plus the blink state that draws
 _Avoid_: Caret, pointer, insertion point
 
 **Glyph**:
-The classification that decides how a Cell is painted: Function, Note, Number, Bang, Comment or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. Comment reaches every Cell of a Comment's claim, empty Cells included, and paints them without standing anything in: an empty operand Cell shows the spelling its signature declares, and a Comment declares none. A Glyph is derived from the Source and typed Function operands, never stored as Cell content.
+The classification that decides how a Cell is painted: Function, Note, Number, Bang, Comment or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. Comment reaches every Cell of a Comment's claim, empty Cells included, and paints them without standing anything in: an empty operand Cell shows the spelling its signature declares, and a Comment declares none. A Glyph is derived from the Source and typed Function operands, never stored as Cell content. ADR 0034's amendment retires this classification in favour of the `Option<Token>` the Render Frame will carry, and retires **Marker** and **Highlight** with it; the terms stand here until that migration lands, and what an unfilled operand Cell shows is deferred rather than decided.
 _Avoid_: Style, token, syntax highlight
 
 **Marker**:
@@ -267,3 +267,7 @@ _Avoid_: Guide, gridline, ruler dot
 **Render Frame**:
 One repaint of the console, in which every Position the Grid yields is drawn once. Render Frames are driven by the UI many times a second, independently of musical time: a Render Frame reads the Source and never advances Playback, so it is not a Tick.
 _Avoid_: Frame, Tick, refresh
+
+**Paint**:
+The per-Cell decision of how one Render Frame is drawn: its background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
+_Avoid_: Shapes, draw list, painter

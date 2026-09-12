@@ -58,9 +58,16 @@ Orca inheritance: in a terminal the Grid's background rulings *are* characters, 
 Marker Spacing and a `.` at the Highlight Spacing were Cell content. Orcvs paints both as geometry
 instead — `marker_spacing` drives the sector seam strengths and `highlight_dot_spacing` the Cursor
 bloom radius — and no Cell has been able to carry either classification since. `LanguageMap` assigns
-a Glyph only to a Cell holding a parsed token or a non-space byte, so every other Cell answers
-`Glyph::Space`, and `GlyphString::marker()` and `::highlight()` are reached by nothing but their own
-unit test.
+a Glyph to every Cell an Expression's claim covers, and `Glyph::Char` to every other non-space byte;
+neither arm can produce `Marker` or `Highlight`, so `GlyphString::marker()` and `::highlight()` are
+reached by nothing but their own unit test.
+
+`Glyph::Space` is narrower than it looks, and the difference decides the deferred question below. It
+is what a Cell answers when it lies outside every claim *and* holds no byte. A Cell inside a claim
+answers that claim's Glyph whether or not it holds a byte, which is how an Addition's reserved but
+unfilled operand Cell answers `Number` — the property test at `language_map.rs:1584` states this
+rule and `console/src/paint.rs:633` reaches the blank spelling table through it. The blank path is
+live, not vestigial.
 
 That leaves `Activation`, `Atom` and `Sequence`, which `From<Token> for Glyph` folds into `Char`
 with a comment recording the loss. The fold is the whole of what the classifier does that `Option`
@@ -69,11 +76,13 @@ operand, a whole-Sequence operand and a literal character become one colour.
 
 The decision:
 
-- `RenderCell` carries `Option<Token>`. `Glyph`, `GlyphString`'s blank spelling table,
-  `From<Token> for Glyph`, and the `LanguageMap` row's `Vec<Option<Glyph>>` are deleted. This ADR
-  already deferred that array's existence — "neither individually allocated linked nodes nor a
-  cell-indexed classification array is a settled requirement" — so removing it settles the deferral
-  rather than revising a decision.
+- `RenderCell` carries `Option<Token>`. `Glyph`, `From<Token> for Glyph`, and the `LanguageMap`
+  row's `Vec<Option<Glyph>>` are deleted. This ADR already deferred that array's existence —
+  "neither individually allocated linked nodes nor a cell-indexed classification array is a settled
+  requirement" — so removing it settles the deferral rather than revising a decision.
+  `GlyphString`'s blank spelling table is **not** deleted here: what an unfilled operand Cell shows
+  is deferred below, and that table is what shows it today. Retiring the classifier has to keep the
+  blank spellings reachable from `Option<Token>` until that question is decided.
 - `Marker` and `Highlight` leave the vocabulary. `CONTEXT.md`'s **Glyph** entry is retired with the
   type it named, and the Grid's background rulings are described where they are drawn.
 - Facts that belong to an Expression stay on the Expression. A diagnostic and an Expression's

@@ -27,8 +27,10 @@ you can see the shape of is genuinely useful while writing. Retiring them is a j
 the console should look like, which is why `01` deletes the *dead* Glyph vocabulary and leaves this
 alone.
 
-Note that nothing reaches these spellings today either. `LanguageMap` assigns a classification only
-to a Cell holding a parsed token or a non-space byte, so a Cell with no content carries none, and
-the blank path is unreachable rather than merely unused. Deciding to keep the placeholders therefore
-means building the producer as well — the Render Frame would have to classify the empty Cells a
-Function's arity claims, which it does not do now.
+Note that these spellings are reached today, which is what makes this a choice between keeping a
+working feature and removing one. `LanguageMap` gives every Cell an Expression's claim covers that
+claim's classification whether or not the Cell holds a byte — `language_map.rs:1584` states the rule
+— so an Addition's reserved but unfilled operand Cells answer `Number` with no content and spell
+`h`. `paint.rs:633` asserts exactly that. The producer this decision would need already exists:
+keeping the placeholders costs nothing to build, and retiring them is a deletion with a visible
+effect on screen, not the removal of dead vocabulary.
