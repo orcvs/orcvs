@@ -121,7 +121,7 @@ fn web_linear_memory_settles_after_warm_up() {
 
 #[wasm_bindgen_test]
 fn web_app_constructs_and_advances_the_cursor_without_panicking() {
-    let mut app = Orcvs::new(2, 1);
+    let mut app = Orcvs::new(2, 1).expect("browser playback needs no Tokio runtime");
 
     app.advance_cursor_blink();
 
@@ -148,14 +148,17 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
     // immediately below it on every Tick.
     write(&source, ".=0101              !>007FC4");
     let adapter = InMemoryOutputAdapter::default();
-    let engine = PlaybackEngine::new(source, adapter.clone());
-
-    engine
-        .start(Duration::from_millis(10))
+    // Fallible and eager since ADR 0041: the engine is a task, spawned here
+    // rather than at the first `start`. The browser spawns onto the page's own
+    // event loop, so what a Tokio runtime answers on the desktop is answered
+    // by the page here.
+    let engine = PlaybackEngine::new(source, adapter.clone())
         .expect("browser playback does not require a Tokio runtime");
+
+    engine.start(Duration::from_millis(10)).unwrap();
     TimeoutFuture::new(20).await;
 
-    assert_eq!(engine.observe().state, PlaybackState::Playing);
+    assert_eq!(engine.state(), PlaybackState::Playing);
     assert!(adapter.command_lists().iter().any(|commands| commands
         == &[OutputCommand::NoteOn {
             channel: MidiChannel::try_from(0).unwrap(),
@@ -210,7 +213,8 @@ async fn web_clock_yields_to_the_event_loop_between_ticks() {
             submissions: Arc::clone(&submissions),
             cost_millis: 115.0,
         },
-    );
+    )
+    .expect("browser playback does not require a Tokio runtime");
     // A Tick costs more than its period, so `observed_at` — sampled before the
     // Tick executes — leaves every deadline after the first already elapsed by
     // the time the clock reaches it. The clock must wait on those deadlines
@@ -234,7 +238,8 @@ async fn web_clock_yields_to_the_event_loop_between_ticks() {
 #[wasm_bindgen_test(async)]
 async fn web_start_executes_its_first_tick_before_a_browser_timer() {
     let adapter = InMemoryOutputAdapter::default();
-    let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
+    let engine = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone())
+        .expect("browser playback does not require a Tokio runtime");
     // The period is long enough that only the first Tick can fall inside this
     // test, so the count answers where that Tick landed and nothing else. It
     // is the one-millisecond end of `Bpm` that makes the answer matter — a
@@ -256,7 +261,8 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
     use orcvs::playback::PlaybackDiagnostic;
 
     let adapter = InMemoryOutputAdapter::default();
-    let mut app = Orcvs::with_output_adapter(1, 1, adapter.clone());
+    let mut app = Orcvs::with_output_adapter(1, 1, adapter.clone())
+        .expect("browser playback does not require a Tokio runtime");
     app.set_bpm(Bpm::new(1).unwrap()); // 15 seconds: only the immediate Tick runs.
     app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
     TimeoutFuture::new(0).await;
@@ -274,7 +280,7 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
 
     stall_until(started + 3_500.0);
     TimeoutFuture::new(0).await;
-    let first = app.observe_playback();
+    let first = app.drain_playback_diagnostics();
     assert_eq!(
         adapter.command_lists().len(),
         1,
@@ -299,7 +305,7 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
 
     stall_until(started + 5_500.0);
     TimeoutFuture::new(0).await;
-    let second = app.observe_playback();
+    let second = app.drain_playback_diagnostics();
     app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
     let [
         PlaybackDiagnostic::Overrun {
@@ -322,11 +328,56 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
     );
 }
 
+///
+/// Two Space events in one batch are a toggle and its cancellation, in the
+/// browser where the engine's task provably cannot run between them.
+///
+/// `spawn_local` puts the engine's task on this thread, so it gets no turn
+/// until the frame that is handling the batch returns to the event loop. Held
+/// Space is how a user delivers such a batch: egui reports auto-repeat as
+/// further key presses, and any frame longer than the repeat interval carries
+/// two of them.
+///
+/// The third press is the control: it proves the pair above cancelled rather
+/// than jamming, and that an empty list is not simply what this Source always
+/// produces.
+///
+#[wasm_bindgen_test(async)]
+async fn web_two_space_events_in_one_batch_leave_playback_stopped() {
+    use orcvs::app::{InputEvent, InputKey};
+
+    let adapter = InMemoryOutputAdapter::default();
+    let mut app = Orcvs::with_output_adapter(1, 1, adapter.clone())
+        .expect("browser playback does not require a Tokio runtime");
+
+    app.event_handler(vec![
+        InputEvent::KeyPressed(InputKey::Space),
+        InputEvent::KeyPressed(InputKey::Space),
+    ]);
+    TimeoutFuture::new(0).await;
+    assert_eq!(
+        adapter.command_lists().len(),
+        0,
+        "a run cancelled inside its own batch delivers no Tick"
+    );
+
+    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    TimeoutFuture::new(0).await;
+    assert_eq!(
+        adapter.command_lists().len(),
+        1,
+        "the next Space starts a run, whose first Tick is immediate"
+    );
+
+    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+}
+
 #[wasm_bindgen_test(async)]
 async fn web_playback_evaluates_dot_family_arithmetic() {
     let source = SourceCommander::new(Grid::new(10, 2));
     write(&source, ".+0102");
-    let engine = PlaybackEngine::new(source.clone(), InMemoryOutputAdapter::default());
+    let engine = PlaybackEngine::new(source.clone(), InMemoryOutputAdapter::default())
+        .expect("browser playback does not require a Tokio runtime");
 
     engine.start(Duration::from_millis(10)).unwrap();
     TimeoutFuture::new(20).await;
@@ -336,11 +387,12 @@ async fn web_playback_evaluates_dot_family_arithmetic() {
 }
 
 #[wasm_bindgen_test(async)]
-async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
+async fn web_playback_stop_ends_the_run_and_a_restart_begins_a_new_one() {
     let source = SourceCommander::new(Grid::new(10, 3));
     write(&source, ".=0101              !>007FC4");
     let adapter = InMemoryOutputAdapter::default();
-    let engine = PlaybackEngine::new(source, adapter.clone());
+    let engine = PlaybackEngine::new(source, adapter.clone())
+        .expect("browser playback does not require a Tokio runtime");
 
     engine.start(Duration::from_millis(10)).unwrap();
     TimeoutFuture::new(20).await;
@@ -348,12 +400,12 @@ async fn web_playback_stop_cancels_ticks_and_restart_uses_a_new_generation() {
     let stopped_count = adapter.command_lists().len();
 
     TimeoutFuture::new(20).await;
-    assert_eq!(engine.observe().state, PlaybackState::Stopped);
+    assert_eq!(engine.state(), PlaybackState::Stopped);
     assert_eq!(adapter.command_lists().len(), stopped_count);
 
     engine.start(Duration::from_millis(10)).unwrap();
     TimeoutFuture::new(20).await;
-    assert_eq!(engine.observe().state, PlaybackState::Playing);
+    assert_eq!(engine.state(), PlaybackState::Playing);
     assert!(adapter.command_lists().len() > stopped_count);
     engine.stop();
 }
@@ -554,7 +606,9 @@ mod refused_revision {
         // developer-console record or it shows nothing at all. A `tracing`
         // event alone reaches no subscriber on this target and is dropped.
         let reported = records_from(|| console = Some(Console::new(&cc)));
-        let mut console = console.expect("the console was built inside the capture");
+        let mut console = console
+            .expect("the console was built inside the capture")
+            .expect("browser playback does not require a Tokio runtime");
 
         assert!(
             reported.iter().any(|record| record.contains("refused")),

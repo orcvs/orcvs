@@ -485,6 +485,10 @@ mod tests {
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
     use std::ops::Range;
 
+    fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
+        Orcvs::new(cols, rows).expect("the test runtime")
+    }
+
     ///
     /// A Paint over every Position of a Render Frame's Grid.
     ///
@@ -513,9 +517,9 @@ mod tests {
     /// Cells carry Glyph colours of their own, so an answer off by one Cell —
     /// in either axis — differs from the answer asked for.
     ///
-    #[test]
-    fn a_cell_is_answered_at_the_position_the_grid_indexes() {
-        let mut orcvs = Orcvs::new(6, 4);
+    #[tokio::test]
+    async fn a_cell_is_answered_at_the_position_the_grid_indexes() {
+        let mut orcvs = running_orcvs(6, 4);
         for (x, character) in "#a#".chars().enumerate() {
             orcvs.select(orcvs.render_frame().rows()[2][x + 1].position());
             orcvs.write(&character.to_string());
@@ -588,9 +592,9 @@ mod tests {
     /// `the_skip_condition_matches_cell_visuals_in_both_blink_phases`, a truth
     /// table over `cell_visuals` that needs no Render Frame at all.
     ///
-    #[test]
-    fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
-        let mut orcvs = Orcvs::new(24, 16);
+    #[tokio::test]
+    async fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
+        let mut orcvs = running_orcvs(24, 16);
         orcvs.select(orcvs.render_frame().rows()[7][9].position());
 
         let frame = orcvs.render_frame();
@@ -631,9 +635,9 @@ mod tests {
     /// The Cursor is one Position the Paint answers, not a flag to be found by
     /// searching the Cells.
     ///
-    #[test]
-    fn the_cursor_is_the_selected_position() {
-        let mut orcvs = Orcvs::new(9, 5);
+    #[tokio::test]
+    async fn the_cursor_is_the_selected_position() {
+        let mut orcvs = running_orcvs(9, 5);
         let selected = orcvs.render_frame().rows()[3][6].position();
         orcvs.select(selected);
 
@@ -667,9 +671,9 @@ mod tests {
     /// the Render Frame stated. `sector_line` is pure, so the derive resolves
     /// it here; the stroke widths are geometry and are not in this layer.
     ///
-    #[test]
-    fn seams_stand_where_the_render_frame_asks_and_never_on_the_cursor() {
-        let mut orcvs = Orcvs::new(24, 24);
+    #[tokio::test]
+    async fn seams_stand_where_the_render_frame_asks_and_never_on_the_cursor() {
+        let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default marker spacing of eight.
         let corner = orcvs.render_frame().rows()[8][8].position();
         orcvs.select(corner);
@@ -718,9 +722,9 @@ mod tests {
     /// is spelled in and leaves classified but empty operand Cells behind it,
     /// so the blank spellings the table answers are not all the space.
     ///
-    #[test]
-    fn each_cell_shows_the_character_the_table_answers() {
-        let mut orcvs = Orcvs::new(8, 8);
+    #[tokio::test]
+    async fn each_cell_shows_the_character_the_table_answers() {
+        let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
             orcvs.select(orcvs.render_frame().rows()[2][x].position());
             orcvs.write(&character.to_string());
@@ -782,9 +786,9 @@ mod tests {
     /// own answer, the written Cells for their content and the rest for the
     /// spelling their Glyph gives an empty Cell.
     ///
-    #[test]
-    fn a_cell_answers_its_character_with_no_context() {
-        let mut orcvs = Orcvs::new(8, 8);
+    #[tokio::test]
+    async fn a_cell_answers_its_character_with_no_context() {
+        let mut orcvs = running_orcvs(8, 8);
         // An Addition, whose claim reaches past the two Cells it is spelled in
         // and leaves the operand Cells behind it empty but classified. Those
         // are the Cells that make the blank table answer something other than
@@ -954,9 +958,9 @@ mod tests {
     /// Columns and no geometry: what rectangle a run becomes is the viewport's
     /// arithmetic and is asserted in `console.rs`, where a viewport exists.
     ///
-    #[test]
-    fn consecutive_cells_sharing_a_background_are_one_rectangle() {
-        let orcvs = Orcvs::new(8, 8);
+    #[tokio::test]
+    async fn consecutive_cells_sharing_a_background_are_one_rectangle() {
+        let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
 
@@ -1026,9 +1030,9 @@ mod tests {
     /// is the case that would catch a derivation whose answer depended on
     /// where the walk started.
     ///
-    #[test]
-    fn a_paint_decides_the_drawn_cells_and_answers_them_unchanged() {
-        let mut orcvs = Orcvs::new(40, 30);
+    #[tokio::test]
+    async fn a_paint_decides_the_drawn_cells_and_answers_them_unchanged() {
+        let mut orcvs = running_orcvs(40, 30);
         orcvs.select(orcvs.render_frame().rows()[10][9].position());
 
         let frame = orcvs.render_frame();
@@ -1081,9 +1085,9 @@ mod tests {
     /// instead of left to a comment — which is what `3c2b640` asked for when
     /// it pinned the one-Cell margin's purpose with assertions.
     ///
-    #[test]
-    fn the_runs_a_culled_paint_answers_are_the_whole_grids_clipped_to_it() {
-        let mut orcvs = Orcvs::new(32, 24);
+    #[tokio::test]
+    async fn the_runs_a_culled_paint_answers_are_the_whole_grids_clipped_to_it() {
+        let mut orcvs = running_orcvs(32, 24);
         orcvs.select(orcvs.render_frame().rows()[11][15].position());
 
         let frame = orcvs.render_frame();
@@ -1125,9 +1129,9 @@ mod tests {
     /// it. A derivation that searched its own Cells and insisted on finding
     /// one would panic on every zoomed console whose Cursor is off screen.
     ///
-    #[test]
-    fn the_cursor_is_answered_only_where_the_paint_covers_it() {
-        let mut orcvs = Orcvs::new(20, 20);
+    #[tokio::test]
+    async fn the_cursor_is_answered_only_where_the_paint_covers_it() {
+        let mut orcvs = running_orcvs(20, 20);
         let selected = orcvs.render_frame().rows()[4][5].position();
         orcvs.select(selected);
 
@@ -1155,9 +1159,9 @@ mod tests {
     /// degenerate viewport, so this is a range the shipped path reaches rather
     /// than one only a test can build.
     ///
-    #[test]
-    fn a_paint_over_no_positions_is_empty_rather_than_impossible() {
-        let orcvs = Orcvs::new(8, 8);
+    #[tokio::test]
+    async fn a_paint_over_no_positions_is_empty_rather_than_impossible() {
+        let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
         let paint = Paint::derive(&frame, &VisiblePositions::empty());
 

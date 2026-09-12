@@ -16,6 +16,7 @@ use orcvs::{
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Position},
     native_midi::{self, NativeMidiBackend},
     opts::{Bpm, DEFAULT_FONT_SIZE},
+    playback::PlaybackStartError,
     render_frame::RenderFrame,
 };
 
@@ -235,7 +236,17 @@ pub struct Console {
 }
 
 impl Console {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    ///
+    /// The console over the running Orcvs its storage last held.
+    ///
+    /// Fallible because a running Orcvs is: ADR 0041 makes its Playback Engine
+    /// a task, and a task needs a runtime to be spawned on. The native binary
+    /// is inside `#[tokio::main]` when `eframe` calls this, and the browser
+    /// spawns onto the page's event loop and needs nothing; a build that
+    /// reached here with neither has no console to show, which is what handing
+    /// the error to `eframe` says.
+    ///
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
         let style = style();
         cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
         cc.egui_ctx.set_theme(egui::Theme::Dark);
@@ -269,10 +280,10 @@ impl Console {
         // The stored Source revision when storage holds one, and the ordinary
         // default Grid otherwise. Every derived view is rebuilt from it.
         let start = starting_source(cc.storage);
-        let orcvs = Orcvs::with_source(start.source);
+        let orcvs = Orcvs::with_source(start.source)?;
         let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
         midi.refresh_destinations();
-        Self {
+        Ok(Self {
             orcvs,
             midi,
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
@@ -281,7 +292,7 @@ impl Console {
             tempo_edit: TempoEdit::default(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
-        }
+        })
     }
 }
 
@@ -987,7 +998,7 @@ impl eframe::App for Console {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
-        let playback_diagnostics = self.orcvs.observe_playback();
+        let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
         if native_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
@@ -1497,6 +1508,10 @@ mod tests {
         }
     }
 
+    fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
+        Orcvs::new(cols, rows).expect("the test runtime")
+    }
+
     fn selected_cell(orcvs: &Orcvs) -> (usize, usize) {
         let frame = orcvs.render_frame();
         let cell = frame
@@ -1509,8 +1524,8 @@ mod tests {
         (cell.position().x(), cell.position().y())
     }
 
-    #[test]
-    fn a_click_selects_the_cell_under_the_pointer_in_a_letterboxed_console() {
+    #[tokio::test]
+    async fn a_click_selects_the_cell_under_the_pointer_in_a_letterboxed_console() {
         // The last shape fits the Source at a scale above MAX_ZOOM, where a
         // Scene whose zoom range excluded the fitted scale would clamp it and
         // put the Cells somewhere else.
@@ -1521,7 +1536,7 @@ mod tests {
         ] {
             let ctx = egui::Context::default();
             let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
-            let mut orcvs = Orcvs::new(4, 4);
+            let mut orcvs = running_orcvs(4, 4);
             let mut view = SourceView::default();
 
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -1543,14 +1558,14 @@ mod tests {
     /// it at a scale below MIN_ZOOM, where a Scene whose zoom range excluded the
     /// fitted scale would clamp it up and spill the Grid out of the console.
     ///
-    #[test]
-    fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_the_zoom_floor() {
+    #[tokio::test]
+    async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_the_zoom_floor() {
         // A 32 by 32 Source is 800 points wide, so these shapes fit it at 0.2:
         // below the 0.25 floor.
         for screen_size in [Vec2::new(400.0, 160.0), Vec2::new(160.0, 400.0)] {
             let ctx = egui::Context::default();
             let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
-            let mut orcvs = Orcvs::new(32, 32);
+            let mut orcvs = running_orcvs(32, 32);
             let mut view = SourceView::default();
 
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -1634,11 +1649,12 @@ mod tests {
     /// so: an interface-level test cannot see whether the Console is wired to
     /// the interface at all.
     ///
-    #[test]
-    fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
+    #[tokio::test]
+    async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
 
         // One quiet pass, so the top panel has claimed its height and the view
@@ -1665,8 +1681,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell() {
+    #[tokio::test]
+    async fn the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell() {
         for screen_size in [
             Vec2::new(400.0, 200.0),
             Vec2::new(200.0, 400.0),
@@ -1674,7 +1690,7 @@ mod tests {
         ] {
             let ctx = egui::Context::default();
             let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
-            let mut orcvs = Orcvs::new(8, 8);
+            let mut orcvs = running_orcvs(8, 8);
             let mut view = SourceView::default();
 
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -1726,15 +1742,15 @@ mod tests {
     /// the default window spends every point it has on Cells and none on
     /// letterboxing, and no Glyph is resampled to be shown.
     ///
-    #[test]
-    fn the_default_window_presents_the_default_grid_at_its_own_scale() {
+    #[tokio::test]
+    async fn the_default_window_presents_the_default_grid_at_its_own_scale() {
         let ctx = egui::Context::default();
         let console = Vec2::new(
             DEFAULT_VIEW_SIZE[0],
             DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT,
         );
         let screen = Rect::from_min_size(Pos2::ZERO, console);
-        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -1799,9 +1815,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn source_bounds_are_available_before_the_first_render() {
-        let orcvs = Orcvs::new(32, 16);
+    #[tokio::test]
+    async fn source_bounds_are_available_before_the_first_render() {
+        let orcvs = running_orcvs(32, 16);
         let source_grid = orcvs.render_frame().grid();
         let bounds = source_bounds(source_grid.columns(), source_grid.rows());
 
@@ -1919,10 +1935,10 @@ mod tests {
     /// only where its background differs from the Source, and the Cells that
     /// are filled share their rectangles with their neighbours.
     ///
-    #[test]
-    fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
+    #[tokio::test]
+    async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-        let orcvs = Orcvs::new(8, 8);
+        let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 8, 8, 1.0);
         let paint = painted(&frame, viewport, screen);
@@ -1985,10 +2001,10 @@ mod tests {
     /// then arrive at the painter in that order is asserted by
     /// `the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them`.
     ///
-    #[test]
-    fn every_background_is_painted_before_every_glyph_and_the_cursor_after_both() {
+    #[tokio::test]
+    async fn every_background_is_painted_before_every_glyph_and_the_cursor_after_both() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         // A Glyph in the first Cell of the Grid, so every other Cell's
         // background is built after it and would paint over it if the Shapes
         // were emitted Cell by Cell.
@@ -2066,11 +2082,11 @@ mod tests {
     /// eight: an 8x8 Grid asks for no sector seam at all, and an empty group
     /// would let the claims either side of it hold vacuously.
     ///
-    #[test]
-    fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them() {
+    #[tokio::test]
+    async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
-        let mut orcvs = Orcvs::new(16, 16);
+        let mut orcvs = running_orcvs(16, 16);
         let mut view = SourceView::default();
         // A written Cell, so a Glyph is painted at all.
         orcvs.write("1");
@@ -2237,10 +2253,10 @@ mod tests {
     /// are not all one colour and a step that handed every Cell the same
     /// stroke would be caught.
     ///
-    #[test]
-    fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
+    #[tokio::test]
+    async fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-        let orcvs = Orcvs::new(20, 20);
+        let orcvs = running_orcvs(20, 20);
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 20, 20, 1.0);
         let paint = painted(&frame, viewport, screen);
@@ -2293,10 +2309,10 @@ mod tests {
     /// is spelled in and leaves classified but empty operand Cells behind it,
     /// so the Cells showing something are not only the written ones.
     ///
-    #[test]
-    fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
+    #[tokio::test]
+    async fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
             orcvs.select(orcvs.render_frame().rows()[2][x].position());
             orcvs.write(&character.to_string());
@@ -2433,12 +2449,12 @@ mod tests {
     /// one, which is where `presented_grid` floors the Cell side to whole
     /// physical pixels and the two could part company.
     ///
-    #[test]
-    fn the_presented_viewport_is_the_one_a_console_pass_presents() {
+    #[tokio::test]
+    async fn the_presented_viewport_is_the_one_a_console_pass_presents() {
         for pixels_per_point in [1.0_f32, 1.5] {
             let ctx = egui::Context::default();
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-            let mut orcvs = Orcvs::new(8, 8);
+            let mut orcvs = running_orcvs(8, 8);
             let mut view = SourceView::default();
 
             let (viewport, _) = console_pass_at(
@@ -2477,11 +2493,11 @@ mod tests {
     /// Run at a fractional device scale as well as at one, because at one the
     /// Cell side is a whole point and there is nothing for a snap to move.
     ///
-    #[test]
-    fn a_background_run_covers_exactly_the_cells_it_replaces() {
+    #[tokio::test]
+    async fn a_background_run_covers_exactly_the_cells_it_replaces() {
         for pixels_per_point in [1.0_f32, 1.5] {
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
-            let orcvs = Orcvs::new(8, 8);
+            let orcvs = running_orcvs(8, 8);
             let frame = orcvs.render_frame();
             let viewport = presented(screen, 8, 8, pixels_per_point);
             let paint = painted(&frame, viewport, screen);
@@ -2584,13 +2600,13 @@ mod tests {
     /// Cell, and the Grid's last Cell alone. Which Cells those are is
     /// `Paint::background_runs`' answer and is pinned in `paint.rs`.
     ///
-    #[test]
-    fn a_background_run_is_the_rectangle_its_columns_span() {
+    #[tokio::test]
+    async fn a_background_run_is_the_rectangle_its_columns_span() {
         let viewport = GridViewport {
             cell_size: 25.0,
             rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0)),
         };
-        let orcvs = Orcvs::new(8, 8);
+        let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
         let paint = painted(&frame, viewport, viewport.rect);
         let shapes = source_shapes(&paint, viewport, 1.0);
@@ -2662,12 +2678,12 @@ mod tests {
     /// pixels in — two thirds of a point — so every run edge is snapped
     /// somewhere a snap to whole points would not put it.
     ///
-    #[test]
-    fn a_console_pass_strokes_at_its_own_zoom_and_snaps_its_runs_to_its_own_device_scale() {
+    #[tokio::test]
+    async fn a_console_pass_strokes_at_its_own_zoom_and_snaps_its_runs_to_its_own_device_scale() {
         const DEVICE_SCALE: f32 = 1.5;
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(201.0));
-        let mut orcvs = Orcvs::new(20, 20);
+        let mut orcvs = running_orcvs(20, 20);
         let mut view = SourceView::default();
 
         let (viewport, shapes) = console_pass_at(
@@ -2773,10 +2789,10 @@ mod tests {
     /// it, so every seam strength in one is `None` and this would assert
     /// nothing.
     ///
-    #[test]
-    fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
+    #[tokio::test]
+    async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
-        let mut orcvs = Orcvs::new(16, 16);
+        let mut orcvs = running_orcvs(16, 16);
         // The Cursor goes on a Cell that would otherwise carry both seams, so
         // the suppression the derive applies is visible as an absence here too.
         orcvs.select(orcvs.render_frame().rows()[8][8].position());
@@ -2840,11 +2856,11 @@ mod tests {
     /// rectangle, and the drag has to be started *over the Grid* to assert it:
     /// the letterboxing is territory the Grid never covered.
     ///
-    #[test]
-    fn a_middle_drag_that_starts_on_a_cell_still_pans_the_source() {
+    #[tokio::test]
+    async fn a_middle_drag_that_starts_on_a_cell_still_pans_the_source() {
         let ctx = egui::Context::default();
         let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
@@ -2915,8 +2931,8 @@ mod tests {
     /// saves is Cell iteration and Shape construction. The Cell iteration is
     /// counted in `paint.rs`, which needs no `Context` to count it.
     ///
-    #[test]
-    fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
+    #[tokio::test]
+    async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let ctx = egui::Context::default();
         // The default Grid at the Source's own Cell size is exactly this
         // console, so the first pass fits at one with every Cell on screen.
@@ -2927,7 +2943,7 @@ mod tests {
                 DEFAULT_ROW_COUNT as f32 * CELL_SIZE,
             ),
         );
-        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         let mut view = SourceView::default();
 
         let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -3006,13 +3022,13 @@ mod tests {
     /// asserts that this is so rather than assuming it, so it cannot go
     /// quietly vacuous if the bloom moves.
     ///
-    #[test]
-    fn a_zoomed_row_fills_every_cell_the_paint_asks_for_and_no_other() {
+    #[tokio::test]
+    async fn a_zoomed_row_fills_every_cell_the_paint_asks_for_and_no_other() {
         let ctx = egui::Context::default();
         // Narrower than the bloom at the zoom below, so every drawn row both
         // starts and ends inside it.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
-        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         let mut view = SourceView::default();
         // Below the window the console shows, so the bloom covers the lower
         // drawn rows and stops short of the upper ones: the viewport holds
@@ -3115,14 +3131,14 @@ mod tests {
     /// sides drops a seam this asserts. At a single pan the nearest seam can
     /// sit six columns from the edge and a column-side error goes unseen.
     ///
-    #[test]
-    fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
+    #[tokio::test]
+    async fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
 
         let mut asserted = 0;
         for translation in [Vec2::new(-760.0, -520.0), Vec2::new(-820.0, -520.0)] {
-            let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
             let mut view = SourceView::default();
 
             let frame = orcvs.render_frame();
@@ -3193,12 +3209,12 @@ mod tests {
     const WIDE: Vec2 = Vec2::new(400.0, 200.0);
     const TALL: Vec2 = Vec2::new(200.0, 400.0);
 
-    #[test]
-    fn a_resize_re_fits_the_viewport_while_the_view_is_unpinned() {
+    #[tokio::test]
+    async fn a_resize_re_fits_the_viewport_while_the_view_is_unpinned() {
         let ctx = egui::Context::default();
         let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
         let tall = Rect::from_min_size(Pos2::ZERO, TALL);
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
@@ -3218,12 +3234,12 @@ mod tests {
         assert_eq!(selected_cell(&orcvs), (7, 7));
     }
 
-    #[test]
-    fn a_zoom_pins_the_view_and_a_later_resize_leaves_it_where_the_viewer_put_it() {
+    #[tokio::test]
+    async fn a_zoom_pins_the_view_and_a_later_resize_leaves_it_where_the_viewer_put_it() {
         let ctx = egui::Context::default();
         let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
         let tall = Rect::from_min_size(Pos2::ZERO, TALL);
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
@@ -3251,14 +3267,14 @@ mod tests {
     /// re-fit: the owned transform is absolute, and unlike the Scene-space
     /// rectangle it replaces it does not track the window across a resize.
     ///
-    #[test]
-    fn a_zoom_the_clamp_reverts_leaves_the_view_unpinned_and_re_fitting() {
+    #[tokio::test]
+    async fn a_zoom_the_clamp_reverts_leaves_the_view_unpinned_and_re_fitting() {
         let ctx = egui::Context::default();
         // An 8 by 8 Source is 200 points square, so a 400 point console fits it
         // at exactly two — which is `MAX_ZOOM`, leaving a zoom in nowhere to go.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
         let larger = Rect::from_min_size(Pos2::ZERO, Vec2::splat(800.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -3287,11 +3303,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_double_click_unpins_the_view_and_hands_it_back_to_the_fit() {
+    #[tokio::test]
+    async fn a_double_click_unpins_the_view_and_hands_it_back_to_the_fit() {
         let ctx = egui::Context::default();
         let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
@@ -3319,13 +3335,13 @@ mod tests {
     /// exactly has no letterboxing, so it offers no way to double click back
     /// to the fit. `DEFAULT_VIEW_SIZE` is such a console.
     ///
-    #[test]
-    fn a_double_click_inside_the_grid_selects_a_cell_and_holds_the_view() {
+    #[tokio::test]
+    async fn a_double_click_inside_the_grid_selects_a_cell_and_holds_the_view() {
         let ctx = egui::Context::default();
         // A 8 by 8 Source is 200 points square, so this console fits it
         // exactly and letterboxes nowhere — the shape `DEFAULT_VIEW_SIZE` has.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -3377,13 +3393,13 @@ mod tests {
     /// scale is exactly one and that bug is invisible, so this console is sized
     /// to fit at two.
     ///
-    #[test]
-    fn a_middle_drag_pans_by_the_pointer_and_not_by_the_pointer_times_the_zoom() {
+    #[tokio::test]
+    async fn a_middle_drag_pans_by_the_pointer_and_not_by_the_pointer_times_the_zoom() {
         let ctx = egui::Context::default();
         // A 8 by 8 Source is 200 points square, so a 400 point console fits it
         // at exactly two.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         let mut view = SourceView::default();
 
         let before = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
@@ -3464,11 +3480,11 @@ mod tests {
     /// `Context::set_transform_layer` *removes* the entry for an identity
     /// transform, so a fit of one would let a Scene pass this.
     ///
-    #[test]
-    fn no_layer_carrying_the_source_grid_is_transformed() {
+    #[tokio::test]
+    async fn no_layer_carrying_the_source_grid_is_transformed() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
-        let mut orcvs = Orcvs::new(8, 8);
+        let mut orcvs = running_orcvs(8, 8);
         orcvs.write("1");
         let mut view = SourceView::default();
         let frame = orcvs.render_frame();
@@ -3563,7 +3579,7 @@ mod storage_tests {
     fn console_over(storage: &dyn eframe::Storage) -> Console {
         let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
         cc.storage = Some(storage);
-        Console::new(&cc)
+        Console::new(&cc).expect("the test runtime")
     }
 
     ///
@@ -3571,8 +3587,8 @@ mod storage_tests {
     /// console's own save is what would otherwise destroy them: eframe calls it
     /// every thirty seconds and it writes the key the refused value sits under.
     ///
-    #[test]
-    fn a_refused_value_is_preserved_before_the_next_save_overwrites_it() {
+    #[tokio::test]
+    async fn a_refused_value_is_preserved_before_the_next_save_overwrites_it() {
         let (mut storage, refused) = storage_holding_a_refused_value();
 
         let mut console = console_over(&storage);
@@ -3598,8 +3614,8 @@ mod storage_tests {
     /// proves the Console is wired to them at all, which is the one thing an
     /// interface-level test cannot see.
     ///
-    #[test]
-    fn a_refused_start_raises_a_console_notice_that_outlives_the_save() {
+    #[tokio::test]
+    async fn a_refused_start_raises_a_console_notice_that_outlives_the_save() {
         let (mut storage, _) = storage_holding_a_refused_value();
 
         let mut console = console_over(&storage);
@@ -3620,8 +3636,8 @@ mod storage_tests {
     /// A start with nothing wrong raises nothing. A notice a viewer sees on an
     /// ordinary start is a notice they learn to ignore.
     ///
-    #[test]
-    fn an_absent_or_restored_start_raises_no_console_notice() {
+    #[tokio::test]
+    async fn an_absent_or_restored_start_raises_no_console_notice() {
         let mut restored = InMemoryStorage::default();
         store(&mut restored, &edited_source());
 
@@ -3630,8 +3646,8 @@ mod storage_tests {
         }
     }
 
-    #[test]
-    fn a_console_starts_the_revision_its_creation_storage_holds() {
+    #[tokio::test]
+    async fn a_console_starts_the_revision_its_creation_storage_holds() {
         let saved = edited_source();
         let mut storage = InMemoryStorage::default();
         store(&mut storage, &saved);
@@ -3646,8 +3662,8 @@ mod storage_tests {
         assert_eq!(console.orcvs.source().grid().count(), 18);
     }
 
-    #[test]
-    fn the_console_save_call_stores_the_current_revision() {
+    #[tokio::test]
+    async fn the_console_save_call_stores_the_current_revision() {
         let mut restored_from = InMemoryStorage::default();
         store(&mut restored_from, &edited_source());
         let mut console = console_over(&restored_from);

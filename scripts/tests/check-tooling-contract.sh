@@ -342,19 +342,19 @@ test_persistence_command_in_wrong_task_is_rejected() {
 
 test_dotted_dependency_version_is_rejected() {
   make_fixture
-  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/tokio.workspace = true\ntokio.version = "9.0.0"/) { $done = 1 }' "$fixture_dir/orcvs/Cargo.toml"
+  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \[[^\]]*\] \}$/tokio.workspace = true\ntokio.version = "9.0.0"/) { $done = 1 }' "$fixture_dir/orcvs/Cargo.toml"
   assert_rejected "a crate-local dependency version in dotted TOML syntax"
 }
 
 test_dependency_table_version_is_rejected() {
   make_fixture
-  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/[dependencies.tokio]\nworkspace = true\nversion = "9.0.0"/) { $done = 1 }' "$fixture_dir/orcvs/Cargo.toml"
+  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \[[^\]]*\] \}$/[dependencies.tokio]\nworkspace = true\nversion = "9.0.0"/) { $done = 1 }' "$fixture_dir/orcvs/Cargo.toml"
   assert_rejected "a crate-local dependency version in TOML table syntax"
 }
 
 test_commented_dependency_table_version_is_rejected() {
   make_fixture
-  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \["rt", "macros", "time"\] \}$/[dependencies.tokio] # local override\nworkspace = true\nversion = "9.0.0"/) { $done = 1 }' "$fixture_dir/orcvs/Cargo.toml"
+  perl -pi -e 'if (!$done && s/^tokio = \{ workspace = true, features = \[[^\]]*\] \}$/[dependencies.tokio] # local override\nworkspace = true\nversion = "9.0.0"/) { $done = 1 }' "$fixture_dir/orcvs/Cargo.toml"
   assert_rejected "a crate-local dependency version in a TOML table with a trailing comment"
 }
 

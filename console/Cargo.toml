@@ -73,6 +73,14 @@ wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
 lang = { path = "../lang", version = "0.1.0" }
+# ADR 0041 makes the Playback Engine a task, so building a running Orcvs needs a
+# runtime to spawn it on and every test that builds one needs `#[tokio::test]`.
+# Declared for every target rather than beside the non-WASM dependency table:
+# the unit tests are compiled for `wasm32-unknown-unknown` by the WASM check
+# even though they are run natively, and tokio's `rt` and `macros` are among the
+# features that target supports. Already in the locked graph through `orcvs`, so
+# no crate enters here.
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 
 [package.metadata.docs.rs]

@@ -1,3 +1,5 @@
+use tokio::sync::watch;
+
 use crate::playback::{OutputAdapter, OutputAdapterError, OutputCommand};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,11 +77,54 @@ impl MidiSelection {
     }
 }
 
+///
+/// What an output adapter publishes about its MIDI destinations: the ones the
+/// last discovery found, or the failure it reported, and the one the adapter is
+/// connected to.
+///
+/// One value rather than two channels, because the console reads both while
+/// drawing one frame and a menu drawn from two channels can show a checkmark
+/// against a row the other channel has already withdrawn. ADR 0041 has the
+/// engine's task own the adapter, so this is the whole of what a caller can see
+/// of it without asking.
+///
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MidiDestinations {
+    pub discovered: Result<Vec<MidiDestination>, MidiError>,
+    pub selected: Option<MidiDestinationId>,
+}
+
+impl Default for MidiDestinations {
+    ///
+    /// What an adapter publishes before anything has asked it to look: no
+    /// destinations found, because none have been looked for, and none
+    /// selected.
+    ///
+    fn default() -> Self {
+        Self {
+            discovered: Ok(Vec::new()),
+            selected: None,
+        }
+    }
+}
+
 pub struct MidiOutputAdapter<B> {
     backend: B,
     connection: Option<Box<dyn MidiConnection>>,
     delivery_failure: Option<OutputAdapterError>,
-    selected_destination_id: Option<MidiDestinationId>,
+    ///
+    /// The destinations this adapter offers and the one it is connected to,
+    /// published rather than stored.
+    ///
+    /// The console compares them against every row of its MIDI menu while
+    /// drawing a frame, and ADR 0041 has that frame read the latest published
+    /// value instead of asking the engine a question: the browser main thread
+    /// has no blocking receive, so a frame cannot wait for an answer at all,
+    /// and once the engine's task owns this adapter there is no other way to
+    /// reach it. The sender holds the one copy and `borrow` reads it back, so
+    /// what this adapter is connected to and what it publishes cannot disagree.
+    ///
+    destinations: watch::Sender<MidiDestinations>,
 }
 
 impl<B: MidiBackend> MidiOutputAdapter<B> {
@@ -88,12 +133,23 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
             backend,
             connection: None,
             delivery_failure: None,
-            selected_destination_id: None,
+            destinations: watch::Sender::new(MidiDestinations::default()),
         }
     }
 
-    pub fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-        self.backend.destinations()
+    ///
+    /// Asks the backend what it offers and publishes the answer, whether that
+    /// is a list or the failure discovery reported.
+    ///
+    /// The failure is published beside the list rather than reported as a
+    /// diagnostic: it is what the menu has to show in place of rows, and a
+    /// discovery that starts working again replaces it without anything having
+    /// to withdraw it.
+    ///
+    pub(crate) fn refresh_destinations(&mut self) {
+        let discovered = self.backend.destinations();
+        self.destinations
+            .send_modify(|destinations| destinations.discovered = discovered);
     }
 
     pub fn select(
@@ -108,12 +164,13 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
         let connection = self.backend.connect(destination_id)?;
         self.connection = Some(connection);
         self.delivery_failure = None;
-        self.selected_destination_id = Some(destination_id.clone());
+        self.destinations
+            .send_modify(|destinations| destinations.selected = Some(destination_id.clone()));
         Ok(MidiSelection { safety_failure })
     }
 
-    pub fn selected_destination_id(&self) -> Option<&MidiDestinationId> {
-        self.selected_destination_id.as_ref()
+    pub fn selected_destination_id(&self) -> Option<MidiDestinationId> {
+        self.destinations.borrow().selected.clone()
     }
 
     ///
@@ -231,7 +288,8 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
                 // that instead would replace the cause with its consequence.
                 let _ = self.send_safety_reset();
                 self.connection = None;
-                self.selected_destination_id = None;
+                self.destinations
+                    .send_modify(|destinations| destinations.selected = None);
                 self.delivery_failure = Some(delivery_error.clone());
                 return Err(delivery_error);
             }
@@ -243,16 +301,84 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
         self.send_safety_reset()
             .map_err(|error| OutputAdapterError::new(error.message))
     }
+
+    fn published_destinations(&self) -> watch::Receiver<MidiDestinations> {
+        self.destinations.subscribe()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
-    use crate::playback::{OutputAdapter, OutputCommand, PlaybackEngine};
+    use crate::playback::{
+        MidiSelectionHandle, OutputAdapter, OutputCommand, PlaybackDiagnostic, PlaybackEngine,
+    };
+
     use crate::source::{
         BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Velocity,
     };
+
+    ///
+    /// One Playback Engine over `adapter`, whose task is spawned on the test's
+    /// own runtime.
+    ///
+    fn engine<B: MidiBackend + 'static>(
+        source: SourceCommander,
+        adapter: MidiOutputAdapter<B>,
+    ) -> PlaybackEngine<MidiOutputAdapter<B>> {
+        PlaybackEngine::new(source, adapter).expect("the test runtime")
+    }
+
+    ///
+    /// Asks the engine for a destination the way the console does.
+    ///
+    /// Through `MidiSelectionHandle`, which is the only path production has:
+    /// the engine grew a `select_midi_destination` of its own for these twelve
+    /// call sites and nothing else ever called it, which is a seam cut into
+    /// shipped code for a test to reach through.
+    ///
+    fn select<B: MidiBackend + 'static>(
+        playback: &PlaybackEngine<MidiOutputAdapter<B>>,
+        destination_id: &MidiDestinationId,
+    ) {
+        MidiSelectionHandle::new(playback)
+            .select(destination_id)
+            .expect("a running Orcvs");
+    }
+
+    ///
+    /// Waits until the engine's task has answered, or gives up and says so.
+    ///
+    /// Selecting a destination is a message now, so a test that asked for one
+    /// waits for the task before reading what the device received. How many
+    /// turns that takes belongs to the runtime; what the test is waiting for
+    /// belongs to the test, and only the second of those is worth writing
+    /// down.
+    ///
+    /// It spins because what it waits on is a `Mutex` a test fake writes
+    /// under, which nothing here can await, and because a sleep would move a
+    /// clock the caller is holding still. Both halves of that are hazards
+    /// rather than guarantees — the runtime does not promise that yielding
+    /// lets another task run — and `18-take-the-blocking-hazards-out-of-the-
+    /// playback-test-harness` is where they are answered. Where the wait is
+    /// only for time to pass, `sleep` under the paused clock says it exactly:
+    /// the runtime advances to the next timer only once nothing is runnable,
+    /// so every deadline at or before the instant it returns at has been kept.
+    ///
+    macro_rules! settle_until {
+        ($condition:expr) => {{
+            let mut answered = false;
+            for _ in 0..10_000 {
+                if $condition {
+                    answered = true;
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            assert!(answered, "the engine's task never answered");
+        }};
+    }
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -409,17 +535,62 @@ mod tests {
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        let playback = PlaybackEngine::new(source, adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        let playback = engine(source, adapter);
+        select(&playback, &MidiDestinationId::new("one"));
 
         playback.start(Duration::from_secs(1)).unwrap();
-        tokio::task::yield_now().await;
+        // Waited out rather than yielded for: under the paused clock the
+        // runtime advances to the next timer only once it has nothing runnable
+        // left, so a millisecond of it is every message answered and every
+        // deadline at or before it kept.
+        tokio::time::sleep(Duration::from_millis(1)).await;
 
         assert_eq!(
             state.lock().unwrap().messages,
             vec![vec![0xB1, 0x02, 0x07], vec![0xE3, 0x2A, 0x33]]
+        );
+    }
+
+    ///
+    /// A device that refuses the same connection twice is reported twice.
+    ///
+    /// The engine latches the last output failure so that a run does not
+    /// report the same broken device once per Tick. A selection is not a Tick:
+    /// it is a thing the user just did, and the console clears its status line
+    /// on the click that asks for it. Suppressing the second report leaves a
+    /// console showing nothing at all while the device is still unplugged.
+    ///
+    #[tokio::test]
+    async fn a_destination_that_refuses_twice_is_reported_twice() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let grid = Grid::new(10, 6);
+        let source = SourceCommander::new(grid);
+        let adapter = MidiOutputAdapter::new(FakeBackend {
+            state: state.clone(),
+        });
+        let playback = engine(source, adapter);
+
+        state.lock().unwrap().fail_next_connect = true;
+        select(&playback, &MidiDestinationId::new("one"));
+        settle_until!(!state.lock().unwrap().fail_next_connect);
+        state.lock().unwrap().fail_next_connect = true;
+        select(&playback, &MidiDestinationId::new("one"));
+        settle_until!(!state.lock().unwrap().fail_next_connect);
+
+        let reported: Vec<String> = playback
+            .drain_diagnostics()
+            .into_iter()
+            .filter_map(|diagnostic| match diagnostic {
+                PlaybackDiagnostic::OutputFailure(error) => Some(error.message),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            vec![
+                "device unplugged".to_string(),
+                "device unplugged".to_string()
+            ]
         );
     }
 
@@ -430,15 +601,20 @@ mod tests {
             state: state.clone(),
         });
 
+        // Asked for and read back the way production does it: discovery is a
+        // thing the engine's task is told to do, and what it found arrives on
+        // the published value rather than as an answer.
+        let mut published = adapter.published_destinations();
+        adapter.refresh_destinations();
         assert_eq!(
-            adapter.destinations().unwrap(),
-            vec![MidiDestination::new("one", "Synth")]
+            published.borrow_and_update().discovered,
+            Ok(vec![MidiDestination::new("one", "Synth")])
         );
         adapter.select(&MidiDestinationId::new("one")).unwrap();
 
         assert_eq!(
             adapter.selected_destination_id(),
-            Some(&MidiDestinationId::new("one"))
+            Some(MidiDestinationId::new("one"))
         );
         assert_eq!(state.lock().unwrap().connection_count, 1);
     }
@@ -610,19 +786,22 @@ mod tests {
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        let playback = PlaybackEngine::new(source, adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        let playback = engine(source, adapter);
+        select(&playback, &MidiDestinationId::new("one"));
 
         playback.start(Duration::from_secs(1)).unwrap();
-        tokio::task::yield_now().await;
+        // Waited out rather than yielded for: under the paused clock the
+        // runtime advances to the next timer only once it has nothing runnable
+        // left, so a millisecond of it is every message answered and every
+        // deadline at or before it kept.
+        tokio::time::sleep(Duration::from_millis(1)).await;
         assert_eq!(
             state.lock().unwrap().messages,
             vec![vec![0xB1, 0x40, 0x7F], vec![0xE3, 0x00, 0x7F]]
         );
 
         playback.stop();
+        settle_until!(state.lock().unwrap().messages.len() == SOURCE_MESSAGES + SAFETY_ACTION_LEN);
 
         let messages = state.lock().unwrap().messages.clone();
         assert_eq!(messages.len(), SOURCE_MESSAGES + SAFETY_ACTION_LEN);
@@ -659,8 +838,8 @@ mod tests {
         assert_eq!(state.connection_count, 2);
     }
 
-    #[test]
-    fn a_disconnect_sends_the_safety_action_to_the_destination_it_releases() {
+    #[tokio::test]
+    async fn a_disconnect_sends_the_safety_action_to_the_destination_it_releases() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
@@ -669,13 +848,13 @@ mod tests {
         // which drives `InMemoryOutputAdapter`: that fake counts the calls and
         // emits no bytes, so what a device receives can only be read off the
         // adapter that assembles it.
-        let playback = PlaybackEngine::new(SourceCommander::new(Grid::new(1, 1)), adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        let playback = engine(SourceCommander::new(Grid::new(1, 1)), adapter);
+        select(&playback, &MidiDestinationId::new("one"));
+        settle_until!(state.lock().unwrap().connection_count == 1);
         assert!(state.lock().unwrap().messages.is_empty());
 
         playback.disconnect();
+        settle_until!(!state.lock().unwrap().messages.is_empty());
 
         assert_eq!(state.lock().unwrap().messages, safety_action_messages());
     }
@@ -693,17 +872,17 @@ mod tests {
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        let playback = PlaybackEngine::new(source, adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        let playback = engine(source, adapter);
+        select(&playback, &MidiDestinationId::new("one"));
         playback.start(Duration::from_secs(1)).unwrap();
         playback.disconnect();
 
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
-        tokio::task::yield_now().await;
+        select(&playback, &MidiDestinationId::new("one"));
+        // Waited out rather than yielded for: under the paused clock the
+        // runtime advances to the next timer only once it has nothing runnable
+        // left, so a millisecond of it is every message answered and every
+        // deadline at or before it kept.
+        tokio::time::sleep(Duration::from_millis(1)).await;
 
         assert_eq!(
             state.lock().unwrap().messages.last(),
@@ -724,21 +903,21 @@ mod tests {
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
-        let playback = PlaybackEngine::new(source.clone(), adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        let playback = engine(source.clone(), adapter);
+        select(&playback, &MidiDestinationId::new("one"));
         state.lock().unwrap().failing_sends = vec![0];
 
         playback.start(Duration::from_secs(1)).unwrap();
-        tokio::task::yield_now().await;
-        for _ in 0..2 {
-            tokio::time::advance(Duration::from_secs(1)).await;
-            tokio::task::yield_now().await;
-        }
+        // The deadlines at nought, one and two seconds, waited out rather than
+        // stepped past. Under the paused clock a sleep advances to the next
+        // timer only once the runtime has nothing runnable left, so this
+        // returns with all three already executed; the extra millisecond keeps
+        // the wait off the engine's own deadline, where which of the two is
+        // polled first would be the runtime's business rather than the test's.
+        tokio::time::sleep(Duration::from_millis(2_001)).await;
 
         assert_eq!(
-            playback.observe().diagnostics,
+            playback.drain_diagnostics(),
             vec![crate::playback::PlaybackDiagnostic::OutputFailure(
                 OutputAdapterError::new("device lost on send 0")
             )]
@@ -767,13 +946,15 @@ mod tests {
             let adapter = MidiOutputAdapter::new(FakeBackend {
                 state: state.clone(),
             });
-            let playback = PlaybackEngine::new(source.clone(), adapter);
-            playback
-                .select_midi_destination(&MidiDestinationId::new("one"))
-                .unwrap();
+            let playback = engine(source.clone(), adapter);
+            select(&playback, &MidiDestinationId::new("one"));
 
             playback.start(Duration::from_secs(1)).unwrap();
-            tokio::task::yield_now().await;
+            // The Tick due when the run began, waited out rather than yielded
+            // for: the paused clock advances to the next timer only once the
+            // runtime has nothing runnable left, so a millisecond of it is a
+            // deadline kept and not a number of turns guessed at.
+            tokio::time::sleep(Duration::from_millis(1)).await;
             assert_eq!(
                 state.lock().unwrap().messages.last(),
                 Some(&vec![0x90, 60, 0x7f]),
@@ -785,15 +966,13 @@ mod tests {
             // left, which is sent the safety action as it goes, so its scheduled
             // stop belongs to a device this engine no longer holds.
             source.set(cell(grid, 5), "2").unwrap();
-            playback
-                .select_midi_destination(&MidiDestinationId::new("one"))
-                .unwrap();
+            select(&playback, &MidiDestinationId::new("one"));
+            settle_until!(state.lock().unwrap().connection_count == 2);
             let delivered = state.lock().unwrap().messages.len();
 
-            for _ in 0..3 {
-                tokio::time::advance(Duration::from_secs(1)).await;
-                tokio::task::yield_now().await;
-            }
+            // The three deadlines after the change, waited out for the reason
+            // the first one was.
+            tokio::time::sleep(Duration::from_millis(3_001)).await;
 
             let (sent, connections) = {
                 let state = state.lock().unwrap();
@@ -826,13 +1005,15 @@ mod tests {
             let adapter = MidiOutputAdapter::new(FakeBackend {
                 state: state.clone(),
             });
-            let playback = PlaybackEngine::new(source.clone(), adapter);
-            playback
-                .select_midi_destination(&MidiDestinationId::new("one"))
-                .unwrap();
+            let playback = engine(source.clone(), adapter);
+            select(&playback, &MidiDestinationId::new("one"));
 
             playback.start(Duration::from_secs(1)).unwrap();
-            tokio::task::yield_now().await;
+            // The Tick due when the run began, waited out rather than yielded
+            // for: the paused clock advances to the next timer only once the
+            // runtime has nothing runnable left, so a millisecond of it is a
+            // deadline kept and not a number of turns guessed at.
+            tokio::time::sleep(Duration::from_millis(1)).await;
             assert_eq!(
                 state.lock().unwrap().messages.last(),
                 Some(&vec![0x90, 60, 0x7f]),
@@ -844,17 +1025,17 @@ mod tests {
             // regardless, so the note is silenced whether or not the new
             // destination is reached: a change that silences the old device
             // owes the same cleared schedule whether it completes or fails.
+            // The refusal itself is reported on the diagnostics stream rather
+            // than returned, because the engine's task cannot answer a caller.
             source.set(cell(grid, 5), "2").unwrap();
             state.lock().unwrap().fail_next_connect = true;
-            playback
-                .select_midi_destination(&MidiDestinationId::new("one"))
-                .unwrap_err();
+            select(&playback, &MidiDestinationId::new("one"));
+            settle_until!(!state.lock().unwrap().fail_next_connect);
             let delivered = state.lock().unwrap().messages.len();
 
-            for _ in 0..3 {
-                tokio::time::advance(Duration::from_secs(1)).await;
-                tokio::task::yield_now().await;
-            }
+            // The three deadlines after the change, waited out for the reason
+            // the first one was.
+            tokio::time::sleep(Duration::from_millis(3_001)).await;
 
             // Read both counters out before asserting: a guard held across a
             // failing assertion poisons the fake, and the engine's own drop
@@ -868,27 +1049,24 @@ mod tests {
         }
     }
 
-    #[test]
-    fn reselection_reports_safety_failure_and_connects_new_destination() {
+    #[tokio::test]
+    async fn reselection_reports_safety_failure_and_connects_new_destination() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let adapter = MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         });
         let source = SourceCommander::new(Grid::new(1, 1));
-        let playback = PlaybackEngine::new(source, adapter);
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        let playback = engine(source, adapter);
+        select(&playback, &MidiDestinationId::new("one"));
+        settle_until!(state.lock().unwrap().connection_count == 1);
         state.lock().unwrap().failing_sends = vec![0];
 
-        playback
-            .select_midi_destination(&MidiDestinationId::new("one"))
-            .unwrap();
+        select(&playback, &MidiDestinationId::new("one"));
+        settle_until!(state.lock().unwrap().connection_count == 2);
 
         assert_eq!(state.lock().unwrap().connection_count, 2);
-        let observation = playback.observe();
         assert_eq!(
-            observation.diagnostics,
+            playback.drain_diagnostics(),
             vec![crate::playback::PlaybackDiagnostic::OutputFailure(
                 OutputAdapterError::new("device lost on send 0")
             )]
