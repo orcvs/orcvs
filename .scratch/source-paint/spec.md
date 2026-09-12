@@ -50,15 +50,17 @@ Two things that are *not* obstacles, recorded so they are not raised again: the 
 
 Settled in a grilling session. Implement as written. If one is impossible or wrong — not merely awkward — stop and report rather than improvising.
 
+**Three of them were revised by `07`, which re-applies the viewport cull `source-grid-rendering/05` landed as PR #69 and this spec was written without.** A Paint covers the Positions the console draws rather than every Position the Source holds. The revisions are written into the decisions below; `08` carried them into the glossary and ADR 0040. The reason `Paint::derive` takes no `Orcvs` and no `egui::Context` is untouched — a Position range is neither.
+
 ### The value layer
 
 - `Paint` carries no geometry. No `Rect` appears in it. Cell geometry is `GridViewport::cell_rect`'s job and is tested there; a `Rect` in the value layer makes every assertion re-acquire a viewport.
 - Stored flat as `Vec<CellPaint>` plus the `Grid`, with `at(Position)` indexing through `Grid::index`. This is deliberately unlike `RenderFrame`'s `Vec<Vec<RenderCell>>`: `Paint`'s primary access is `at(Position)`, and the row nesting exists on `RenderFrame` only to serve painting. Say so in the module doc.
 - Background runs are derived, never stored. `Paint::background_runs()` is the coalescing fold — today an inline `Option<(Color32, Rect)>` state machine flushed at two places — given a name, a home, and column ranges instead of rectangles. One stored truth, and the fold is testable with no egui at all.
 - `CellPaint` is flat: `background: Option<Color32>`, `border`, `foreground`, two seam colours, `character`. It does not hold a `CellVisuals` alongside the filtered background; holding both would make the skip invariant a property of the struct rather than of the derivation, which is where its subtlety lives. `cell_visuals()` is unchanged and called once inside the derive.
-- `Paint::cursor() -> Position`, not a `bool` on every Cell. `RenderFrame::derive` takes one `selected: Position` and calls `grid.assert_owns(selected)`, so exactly one exists; a per-Cell bool re-opens a state the layer below closed.
+- `Paint::cursor() -> Option<Position>`, not a `bool` on every Cell. `RenderFrame::derive` takes one `selected: Position` and calls `grid.assert_owns(selected)`, so exactly one exists; a per-Cell bool re-opens a state the layer below closed. **Revised by `07`:** the answer is optional because a Paint covers a viewport the Cursor can be outside, never because the Render Frame is vague. Growing `RenderFrame` an accessor for the selected Position to keep the answer total was considered and refused — the shape step reads the Cursor only to place one drawn Cell's border, and a Cursor that is not drawn belongs in no group.
 - Seam suppression on the Cursor's Cell is applied by the derive, so the Cursor's `CellPaint` simply has no seams and the shape step never learns the rule.
-- `Paint::derive(&RenderFrame)` takes nothing else. No `Orcvs`, no egui `Context`. This is the decision the whole effort turns on: if the derive needs a `Context`, the twenty-two Context-building tests that accept a blank Source to dodge harness cost keep dodging.
+- `Paint::derive(&RenderFrame, &VisiblePositions)` takes nothing else. No `Orcvs`, no egui `Context`. This is the decision the whole effort turns on: if the derive needs a `Context`, the twenty-two Context-building tests that accept a blank Source to dodge harness cost keep dodging. **Revised by `07`:** the Position range is the second argument, and it is not a `Context` — it is two `Range<usize>` the viewport has already resolved the clip `Rect` into, so a test names one without building anything. The bar this decision sets is unmoved.
 - It lives in a new `console/src/paint.rs`. Not in `orcvs`: a background colour is a presentation decision and `orcvs` has no business knowing `Color32` or `PALETTE`.
 
 ### The shape step
@@ -130,19 +132,28 @@ Ticket `02` also owes `cargo test --workspace --doc --locked`, because `Grid`'s 
 
 Deferred to CI, and named on the `Not run` line rather than left off: `mise run check_wasm` — nothing here is platform-conditional, there is no `cfg` and no new dependency, and the merge tier compiles the WASM target anyway. The persistence arm is not owed at all; no ticket touches the feature.
 
-No benchmark is owed, and no claim about cost is made in either direction. The shape *sequence*
-handed to `painter.extend` is unchanged — the same Shapes, in the same order — but the work that
-builds it is not. One pass over the Grid inside `show_source`'s loop becomes three: `Paint::derive`
-walks the Render Frame, `Paint::background_runs()` folds over the derived backgrounds, and
-`SourceShapes::new` walks the Grid again to place the geometry. Two heap allocations per Render
-Frame are new with them — the `Vec<CellPaint>` the derive collects, around a thousand entries on the
-default 40x25 Grid, and the `Vec<BackgroundRun>` the fold answers. Both are what the layering buys.
+No benchmark is owed through `06`, and no claim about cost is made in either direction there. The
+shape *sequence* handed to `painter.extend` is unchanged — the same Shapes, in the same order — but
+the work that builds it is not. One pass over the Grid inside `show_source`'s loop becomes three:
+`Paint::derive` walks the Render Frame, `Paint::background_runs()` folds over the derived
+backgrounds, and `SourceShapes::new` walks the Grid again to place the geometry. Two heap
+allocations per Render Frame are new with them — the `Vec<CellPaint>` the derive collects, around a
+thousand entries on the default 40x25 Grid, and the `Vec<BackgroundRun>` the fold answers. Both are
+what the layering buys.
 
-There is no regression against `main` on the Shape vectors themselves: `e3480e9` restored
-`Vec::with_capacity(grid.count())` for `glyphs` beside the one `borders` already had, after review
-caught a densely written Source regrowing it by reallocation on every Render Frame.
+There is no regression against `main` on the Shape vectors themselves: the review pass restored
+`Vec::with_capacity` for `glyphs` beside the one `borders` already had, after it caught a densely
+written Source regrowing it by reallocation on every Render Frame.
 
-None of that is measured, and it stays that way. There is no `console` benchmark — `[[bench]]`
-appears only in `orcvs/Cargo.toml` and `lang/Cargo.toml` — and `CLAUDE.md` asks for a reproducible
-benchmark or profile before any claim about performance. So the honest statement is that the cost of
-a Render Frame is **unmeasured**: not "unchanged", and not "slower".
+**`07` cuts all three of those walks to the viewport**, which is what `source-grid-rendering/05`
+already did to the single loop they replaced. The `Vec<CellPaint>` is sized to the drawn Positions
+rather than to the Grid, so on a zoomed console it is a fraction of a thousand entries rather than
+a thousand, and on a Grid that resize has grown it does not follow the Grid at all.
+
+That claim is asserted by counting rather than by timing, which is what `05` did and all its surface
+allowed: `paint.rs` counts the `CellPaint`s a culled derivation builds, with no `Context` at all,
+and `console.rs` counts one stroked Cell rectangle per drawn Position and a shape total that falls
+with the zoom. It is still **unmeasured** in the sense `CLAUDE.md` means — there is no `console`
+benchmark, `[[bench]]` appears only in `orcvs/Cargo.toml` and `lang/Cargo.toml`, and no frame time
+is asserted anywhere. `09` is where that benchmark is filed; running the comparison is CI's, per
+`.scratch/benchmarks/spec.md`.

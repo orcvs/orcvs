@@ -269,5 +269,5 @@ One repaint of the console, in which every Position the Grid yields is drawn onc
 _Avoid_: Frame, Tick, refresh
 
 **Paint**:
-The per-Cell decision of how one Render Frame is drawn: its background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
+The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
 _Avoid_: Shapes, draw list, painter
