@@ -197,20 +197,27 @@ concepts are *called*, this effort decides which crate they *live in*. Nothing h
 
 ## Triage
 
-Every ticket's `Status:` and the argument for it. The rule applied: `ready-for-agent` only where the
-change is fully specified, decided, and needs no judgement an agent should not be making;
-`needs-triage` where a maintainer has to agree to something before the work is worth starting.
+Every ticket is `ready-for-agent`. Maintainer triage on 2026-09-12 accepted the four
+`needs-triage` tickets as filed, with two settlements recorded on the tickets:
+
+- **Spacings stay in `orcvs` for this effort** — option (1) from ticket `04`: `RenderFrame`
+  answers the seam period and bloom radius; moving presentation fields of `Opts` into `console`
+  stays out of scope here, as this spec already said.
+- **`08` does not wait on `04`** — it stays blocked only on `07`. A sibling-helper alternative was
+  refused (second construction path).
+- **`03` follows `06` as well as `02`** — most of the rewrite churn is coordinate-naming tests that
+  `06` retires.
 
 | Ticket | Status | Why |
 | --- | --- | --- |
-| `01` ADR 0041 | `needs-triage` | It proposes revising the criterion of an accepted ADR. That is the maintainer's call and it is the premise the rest of the effort rests on. |
+| `01` ADR 0041 | `ready-for-agent` | Criterion accepted. Still blocked on `source-paint/01` for the ADR number. |
 | `02` Cursor round trip | `ready-for-agent` | Mechanical, decided, no aesthetic judgement. `Position` is `Copy` and is already a parameter of `derive`. Nothing about the seam has to be settled first. |
-| `03` Flat Cells | `needs-triage` | `source-paint/spec.md` explicitly decided the other way and said it was not to be filed as a follow-up. This ticket argues that decision was reached on test-churn cost. A maintainer has to overrule it. |
-| `04` Move the aesthetic | `needs-triage` | The largest change here, gated on `01`'s criterion and on a measurement in another effort. |
+| `03` Flat Cells | `ready-for-agent` | Source-paint's nesting decision overruled: the consumer flattens immediately; churn is not an argument the shape is right. Blocked by `02` and `06`. |
+| `04` Move the aesthetic | `ready-for-agent` | Criterion accepted; spacings answered as (1). Still sequenced on `01`, `02`, `03`, `render-frame-derivation/01`, `retired-glyph-vocabulary/01`. |
 | `05` Background decided once | `ready-for-agent` | The core change is two `match` arms and a type; the tests that delete themselves are named. Its knock-on cascade is explicitly filed as a question, not as part of the acceptance bar. |
 | `06` `Orcvs`'s surface | `ready-for-agent` | Three small facts about the public API, each independently checkable, none of which needs the seam decision. |
 | `07` Viewport derives its inputs | `ready-for-agent` | Two parameters that can be computed from another parameter. The one trap — the name `scale` is taken — is named in the ticket. |
-| `08` Glyph placement | `needs-triage` | A restructure of a shipped loop whose payoff (five tests stop building a `Context`) is real but partial; the reviews' estimate that only one test would still need the atlas does not survive checking. |
+| `08` Glyph placement | `ready-for-agent` | Five-of-seven Context-free tests accepted as worth the loop split; sibling helper refused. Blocked by `07` only. |
 
 ## Verification
 
