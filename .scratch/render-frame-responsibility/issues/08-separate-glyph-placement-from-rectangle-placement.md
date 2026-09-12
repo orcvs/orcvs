@@ -88,21 +88,21 @@ Both rewrite `SourceShapes::new`'s parameter list and its loop; `07` is two para
 restructure. Taking them in the other order writes the same signature twice and resolves the same
 conflict twice.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Borders, the Cursor's border and the sector seams are built by a function that takes no
+- [x] Borders, the Cursor's border and the sector seams are built by a function that takes no
       `GlyphTable` and no `egui::Context`.
-- [ ] The five geometry tests listed above build no `egui::Context`, directly or through a helper.
-- [ ] `SourceShapes` still has five fields and `into_shapes` still chains them in the same order.
+- [x] The five geometry tests listed above build no `egui::Context`, directly or through a helper.
+- [x] `SourceShapes` still has five fields and `into_shapes` still chains them in the same order.
       Paint order is unchanged and `the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them`
       still passes.
-- [ ] No shape construction becomes lazy.
-- [ ] The two tests that still need the atlas —
+- [x] No shape construction becomes lazy.
+- [x] The two tests that still need the atlas —
       `a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other` and
       `every_background_is_painted_before_every_glyph_and_the_cursor_after_both` — keep a helper that
       says in one line why they need it. The old helper's "for one reason" comment is now accurate
       and should stay.
-- [ ] Nothing about what is drawn changes. Same shapes, same order, same positions.
+- [x] Nothing about what is drawn changes. Same shapes, same order, same positions.
 
 ## Verification
 

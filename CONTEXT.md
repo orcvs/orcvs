@@ -256,6 +256,10 @@ _Avoid_: Host Command, shell command, process execution
 The one Cell the console is editing: a Position, plus the blink state that draws it. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
+**Cursor Bloom**:
+The graded field of four bands the console draws outward from the Cursor's Cell, measured in Cells by Chebyshev distance, decided per Cell and carried on the Render Frame. It changes a Cell's background and border and never its content or its Glyph.
+_Avoid_: Highlight, glow, radial light, focus matrix
+
 **Glyph**:
 The classification that decides how a Cell is painted: Function, Note, Number, Bang, Comment or Char for a Cell the Source has parsed in its Expression context, and Marker, Highlight or Space for a Cell it has not. Comment reaches every Cell of a Comment's claim, empty Cells included, and paints them without standing anything in: an empty operand Cell shows the spelling its signature declares, and a Comment declares none. A Glyph is derived from the Source and typed Function operands, never stored as Cell content. ADR 0034's amendment retires this classification in favour of the `Option<Token>` the Render Frame will carry, and retires **Marker** and **Highlight** with it; the terms stand here until that migration lands, and what an unfilled operand Cell shows is deferred rather than decided.
 _Avoid_: Style, token, syntax highlight
@@ -263,6 +267,10 @@ _Avoid_: Style, token, syntax highlight
 **Marker**:
 A purely visual Glyph the console draws at every marker-spacing interval of Cells in both axes, so distance across the Source can be read by eye. A Marker carries no content and belongs to no Expression; it appears only on a Cell the Source gives no Glyph of its own.
 _Avoid_: Guide, gridline, ruler dot
+
+**Sector Seam**:
+The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.
+_Avoid_: Marker, guide, gridline, ruler dot
 
 **Render Frame**:
 One repaint of the console, in which every Position the Grid yields is drawn once. Render Frames are driven by the UI many times a second, independently of musical time: a Render Frame reads the Source and never advances Playback, so it is not a Tick.

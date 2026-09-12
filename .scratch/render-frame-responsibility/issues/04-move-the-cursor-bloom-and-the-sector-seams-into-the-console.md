@@ -111,7 +111,10 @@ while there is still something to measure. `retired-glyph-vocabulary/01` settles
 concepts are called, so the code that arrives in `console` arrives named after the glossary rather
 than after a `render_frame.rs` identifier that predates it.
 
-**Status:** ready-for-agent
+**Status:** ready-for-agent — `retired-glyph-vocabulary/01` is resolved (glossary holds **Sector
+Seam** and **Cursor Bloom**). `01`/`02`/`03` and `render-frame-derivation/01` are resolved on this
+branch; `02` of that effort is still `needs-triage` with no early-out to carry. Do not edit
+`CONTEXT.md` here.
 
 - [ ] `RenderFrame` answers the seam period and bloom radius (under the names
       `retired-glyph-vocabulary/05` left them, if that ticket has landed). Presentation fields of
