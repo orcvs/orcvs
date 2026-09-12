@@ -75,25 +75,25 @@ defend against real states — a console with no area, a degenerate device scale
 
 **Blocked by:** None — can start immediately.
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] `SourceShapes::new` no longer takes a `scale` parameter; it derives it from the viewport, or
+- [x] `SourceShapes::new` no longer takes a `scale` parameter; it derives it from the viewport, or
       the viewport answers it through an accessor that is **not** named `scale`.
-- [ ] `console/src/console.rs:742` and its duplicate in the test helper at `:1825` both go.
-- [ ] `grid_viewport`, `presented_grid`, `cell_at` and `source_bounds` take a `Grid`.
-- [ ] The `columns == 0 || rows == 0` guard in `cell_at` and the `columns.max(1)` in
+- [x] `console/src/console.rs:742` and its duplicate in the test helper at `:1825` both go.
+- [x] `grid_viewport`, `presented_grid`, `cell_at` and `source_bounds` take a `Grid`.
+- [x] The `columns == 0 || rows == 0` guard in `cell_at` and the `columns.max(1)` in
       `presented_grid` are deleted, along with the zero-count assertion in
       `a_viewport_with_no_area_answers_no_cell` (`console/src/grid_viewport.rs:461-464`). The test
       itself stays: its first assertion is about a console with no area, which is a real state. A
       comment where the guard was may state that `Grid` makes the other one unrepresentable — one
       line, not a paragraph.
-- [ ] The `cell_size` and `pixels_per_point` finiteness guards are untouched, and so are their
+- [x] The `cell_size` and `pixels_per_point` finiteness guards are untouched, and so are their
       tests.
-- [ ] `grid_viewport.rs` keeps testing without a window. If taking a `Grid` forces an `Orcvs` into
+- [x] `grid_viewport.rs` keeps testing without a window. If taking a `Grid` forces an `Orcvs` into
       any test in that module, stop and report — the module's whole premise is that the fit is
       "settled by arithmetic a test can ask about without a window"
       (`console/src/grid_viewport.rs:1-7`), and `Grid::new` alone must be enough.
-- [ ] Nothing about what is drawn changes.
+- [x] Nothing about what is drawn changes.
 
 ## Verification
 
@@ -117,3 +117,7 @@ discover in review.
 Filed as one ticket rather than two. They are the same sentence about the same layer — the geometry
 module should take the thing, not a copy of a fact about the thing — and splitting them would put two
 signature edits to the same call site in two commits.
+
+`CELL_SIZE` moved into `grid_viewport` so `GridViewport::cell_scale()` can answer it; tests use
+`Grid::new` alone and never an `Orcvs`. The zero-count `visible_positions` assertion went with
+the same unrepresentable state.
