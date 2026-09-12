@@ -774,7 +774,7 @@ fn show_source(
     //
     // The bounds are the Render Frame's own Grid's, rather than a shape
     // recovered out of its rows.
-    let visible = viewport.visible_positions(clip, source_grid.columns(), source_grid.rows());
+    let visible = viewport.visible_positions(clip, source_grid);
 
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
@@ -1833,10 +1833,7 @@ mod tests {
     fn painted(frame: &RenderFrame, viewport: GridViewport, clip: Rect) -> Paint {
         let grid = frame.grid();
 
-        Paint::derive(
-            frame,
-            &viewport.visible_positions(clip, grid.columns(), grid.rows()),
-        )
+        Paint::derive(frame, &viewport.visible_positions(clip, grid))
     }
 
     ///
@@ -2866,7 +2863,7 @@ mod tests {
 
         let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(whole.cell_size, CELL_SIZE, "the console did not fit at one");
-        let all_positions = whole.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let all_positions = whole.visible_positions(screen, orcvs.grid());
         assert_eq!(
             all_positions.count(),
             DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT,
@@ -2875,7 +2872,7 @@ mod tests {
 
         pinned_at(&mut view, Vec2::new(-500.0, -300.0), MAX_ZOOM);
         let (zoomed, fewer_shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        let some_positions = zoomed.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let some_positions = zoomed.visible_positions(screen, orcvs.grid());
 
         assert_eq!(
             zoomed.cell_size,
@@ -2958,7 +2955,7 @@ mod tests {
         // in the middle of it rather than a corner.
         pinned_at(&mut view, Vec2::new(-700.0, -500.0), MAX_ZOOM);
         let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let visible = viewport.visible_positions(screen, orcvs.grid());
 
         assert!(
             visible.columns.start > 0 && visible.columns.end < DEFAULT_COL_COUNT,
@@ -3062,7 +3059,7 @@ mod tests {
             let frame = orcvs.render_frame();
             pinned_at(&mut view, translation, MAX_ZOOM);
             let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-            let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let visible = viewport.visible_positions(screen, orcvs.grid());
             let painted: Vec<_> = shapes
                 .iter()
                 .filter_map(|shape| match shape {

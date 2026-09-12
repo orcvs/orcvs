@@ -50,8 +50,8 @@ impl GridViewport {
 /// that needs only what is on screen has to narrow it; a caller drawing them
 /// does not.
 ///
-/// The ranges are already clamped to the Grid, so a caller slices a Render
-/// Frame's rows with them rather than bounds-checking a Position at a time.
+/// The ranges are already clamped to the Grid, so a caller walks those
+/// column and row numbers rather than bounds-checking a Position at a time.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct VisiblePositions {
@@ -210,12 +210,7 @@ impl GridViewport {
     /// `the_visible_range_is_the_shown_positions_and_one_cell_more_each_way`
     /// rather than as a line a viewer can see.
     ///
-    pub(crate) fn visible_positions(
-        &self,
-        clip: Rect,
-        columns: usize,
-        rows: usize,
-    ) -> VisiblePositions {
+    pub(crate) fn visible_positions(&self, clip: Rect, grid: Grid) -> VisiblePositions {
         let visible = self.rect.intersect(clip);
         // A clip sharing exactly one edge with the Grid shows no part of it.
         // `Rect::intersect` answers a zero-area rectangle there, and
@@ -230,7 +225,6 @@ impl GridViewport {
         }
         // The degenerate viewport is refused by `cell_at` rather than by another
         // guard here. `Grid` makes a zero-count Grid unrepresentable.
-        let grid = Grid::new(columns, rows);
         let (Some((first_column, first_row)), Some((last_column, last_row))) = (
             self.cell_at(visible.min, grid),
             self.cell_at(visible.max, grid),
@@ -239,8 +233,9 @@ impl GridViewport {
         };
 
         VisiblePositions {
-            columns: first_column.saturating_sub(1)..last_column.saturating_add(2).min(columns),
-            rows: first_row.saturating_sub(1)..last_row.saturating_add(2).min(rows),
+            columns: first_column.saturating_sub(1)
+                ..last_column.saturating_add(2).min(grid.columns()),
+            rows: first_row.saturating_sub(1)..last_row.saturating_add(2).min(grid.rows()),
         }
     }
 }
@@ -621,7 +616,7 @@ mod tests {
             viewport.rect.min + Vec2::splat(290.0),
         );
 
-        let visible = viewport.visible_positions(clip, GRID, GRID);
+        let visible = viewport.visible_positions(clip, square());
 
         // Columns 4 through 11 are shown, so the range runs 3 through 12.
         assert_eq!(
@@ -667,7 +662,7 @@ mod tests {
         let available = area(800.0, 800.0);
         let viewport = grid_viewport(available, square());
 
-        let visible = viewport.visible_positions(available, GRID, GRID);
+        let visible = viewport.visible_positions(available, square());
 
         assert_eq!(
             visible,
@@ -696,14 +691,14 @@ mod tests {
             Rect::ZERO,
             Rect::NOTHING,
         ] {
-            let visible = viewport.visible_positions(clip, GRID, GRID);
+            let visible = viewport.visible_positions(clip, square());
 
             assert_eq!(visible.count(), 0, "{clip:?} reached {visible:?}");
         }
 
         assert_eq!(
             grid_viewport(Rect::ZERO, square())
-                .visible_positions(available, GRID, GRID)
+                .visible_positions(available, square())
                 .count(),
             0
         );
@@ -743,7 +738,7 @@ mod tests {
                 Pos2::new(rect.max.x, rect.min.y),
             ),
         ] {
-            let visible = viewport.visible_positions(clip, GRID, GRID);
+            let visible = viewport.visible_positions(clip, square());
 
             assert_eq!(visible.count(), 0, "{clip:?} reached {visible:?}");
         }

@@ -33,8 +33,7 @@
 //! # Why the Cells are flat
 //!
 //! A [`Paint`] holds one `Vec<CellPaint>` in row-major order over the drawn
-//! Positions, and [`Paint::at`] indexes it by subtracting the range's own
-//! corner. `Grid::index` is deliberately not that arithmetic: it addresses a
+//! Positions. `Grid::index` is deliberately not that arithmetic: it addresses a
 //! Cell of the whole Grid, and this `Vec` holds a sub-rectangle of one. The
 //! Render Frame is flat too, over the whole Grid; the difference is only which
 //! Positions each covers.
@@ -190,17 +189,12 @@ impl Paint {
     /// corner wraps, and a wrapped offset can land back inside `cells` and
     /// answer some other Cell's paint in silence.
     ///
-    /// Production walks go through [`Self::cells`] or [`Self::background_runs`]
-    /// so they never pay this offset; callers that already hold a Position —
-    /// the colour tests among them — look up here.
+    /// Callers that already hold a Position — the colour tests among them —
+    /// look up here. Production walks go through [`Self::cells`] or
+    /// [`Self::background_runs`] so they never pay this offset, and this
+    /// lookup is compiled only for tests so it is not a shipped seam.
     ///
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Position-indexed lookup; walks use cells()/background_runs()"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn at(&self, position: Position) -> &CellPaint {
         let offset = self
             .offset(position)
@@ -217,6 +211,7 @@ impl Paint {
     /// addresses a Cell of the whole Grid where this `Vec` holds one
     /// sub-rectangle of it.
     ///
+    #[cfg(test)]
     fn offset(&self, position: Position) -> Option<usize> {
         let column = position.x().checked_sub(self.drawn.columns.start)?;
         let row = position.y().checked_sub(self.drawn.rows.start)?;
@@ -228,11 +223,10 @@ impl Paint {
     ///
     /// The drawn Positions in row order, each with what it is drawn as.
     ///
-    /// The one way to walk a Paint. It zips the Positions against the `Vec`
-    /// rather than asking [`Self::at`] for each of them, so the walk the shape
-    /// step makes on every Render Frame does no offset arithmetic at all, and
-    /// the row-major agreement between Positions and Cells is kept here rather
-    /// than restated at each caller.
+    /// The one way to walk a Paint. It zips the Positions against the `Vec`,
+    /// so the walk the shape step makes on every Render Frame does no offset
+    /// arithmetic at all, and the row-major agreement between Positions and
+    /// Cells is kept here rather than restated at each caller.
     ///
     pub(crate) fn cells(&self) -> impl Iterator<Item = (Position, &CellPaint)> {
         self.positions().zip(&self.cells)
@@ -306,9 +300,9 @@ impl Paint {
         let width = self.drawn.columns.len();
         let first_column = self.drawn.columns.start;
 
-        // Row-major slices of `cells`, not `at(Position)`: the fold already
-        // owns the drawn ranges, and re-deriving each Cell's offset through the
-        // Position mint would pay the panic path on every Cell of every frame.
+        // Row-major slices of `cells`: the fold already owns the drawn ranges,
+        // and re-deriving each Cell's offset through a Position mint would pay
+        // a lookup on every Cell of every frame.
         for (row_offset, row) in self.drawn.rows.clone().enumerate() {
             let start = row_offset * width;
             let row_cells = &self.cells[start..start + width];
