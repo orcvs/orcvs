@@ -13,11 +13,10 @@ use crate::persistence::starting_source;
 use crate::style::{PALETTE, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
-    glyph::{Glyph, GlyphString},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Position},
     native_midi::{self, NativeMidiBackend},
     opts::{Bpm, DEFAULT_FONT_SIZE},
-    render_frame::{RenderCell, RenderFrame},
+    render_frame::RenderFrame,
 };
 
 const CELL_SIZE: f32 = 25.0;
@@ -373,94 +372,6 @@ const ALPHABET_FIRST: u8 = b'!';
 const ALPHABET_LAST: u8 = b'~';
 
 ///
-/// Every [`Glyph`] a Render Frame can carry, in the order
-/// [`blank_glyph_index`] gives them.
-///
-const BLANK_GLYPHS: [Glyph; 9] = [
-    Glyph::Bang,
-    Glyph::Char,
-    Glyph::Comment,
-    Glyph::Function,
-    Glyph::Highlight,
-    Glyph::Marker,
-    Glyph::Note,
-    Glyph::Number,
-    Glyph::Space,
-];
-
-///
-/// Where `glyph` sits in [`BLANK_GLYPHS`].
-///
-/// The match is exhaustive, so a `Glyph` added to the vocabulary fails to build
-/// here rather than quietly painting the wrong character.
-///
-fn blank_glyph_index(glyph: Glyph) -> usize {
-    match glyph {
-        Glyph::Bang => 0,
-        Glyph::Char => 1,
-        Glyph::Comment => 2,
-        Glyph::Function => 3,
-        Glyph::Highlight => 4,
-        Glyph::Marker => 5,
-        Glyph::Note => 6,
-        Glyph::Number => 7,
-        Glyph::Space => 8,
-    }
-}
-
-///
-/// What an empty Cell of `glyph` shows.
-///
-/// `GlyphString` is where an empty Cell's spelling is decided, so the console
-/// reads it rather than restating it — once per Render Frame for the nine
-/// Glyphs, never once per Cell.
-///
-fn blank_character(glyph: Glyph) -> char {
-    let spelling = GlyphString::new(None, glyph).to_string();
-    debug_assert_eq!(
-        spelling.chars().count(),
-        1,
-        "an empty Cell shows exactly one character"
-    );
-
-    spelling.chars().next().unwrap_or(' ')
-}
-
-///
-/// What each Cell of a Render Frame shows: its own content, or the character
-/// its Glyph spells when it holds none.
-///
-/// This is the whole of deciding what a Cell says, and it needs no
-/// `egui::Context`. Only drawing that character does — [`GlyphTable`] holds the
-/// galleys and nothing else — so a step that has to answer what a Cell says,
-/// rather than paint it, builds one of these and never touches the font atlas.
-///
-/// The nine blank spellings are read once, because reading one is a
-/// `GlyphString` and a `String` per call and a Grid has a thousand Cells; the
-/// table is an array of nine `char`s indexed by [`blank_glyph_index`], so
-/// building it is far cheaper than the per-Cell reads it saves.
-///
-pub(crate) struct CellCharacters {
-    /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
-    blanks: [char; BLANK_GLYPHS.len()],
-}
-
-impl CellCharacters {
-    /// Reads what an empty Cell of each [`Glyph`] spells.
-    pub(crate) fn new() -> Self {
-        Self {
-            blanks: BLANK_GLYPHS.map(blank_character),
-        }
-    }
-
-    /// The character `cell` shows.
-    pub(crate) fn character(&self, cell: &RenderCell) -> char {
-        cell.content()
-            .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
-    }
-}
-
-///
 /// One laid-out Glyph per character of the alphabet, for the font and size the
 /// Source is painted at.
 ///
@@ -676,6 +587,19 @@ impl SourceShapes {
             // been given rather than a sum of Cell sides accumulated across the
             // row. A run covers at least one column, so `end - 1` is a column
             // of the run.
+            //
+            // Asserted rather than assumed: the non-emptiness is
+            // `Paint::background_runs`' — it seeds a run as
+            // `position.x()..position.x() + 1` and only ever extends the end —
+            // and nothing in `BackgroundRun` holds the fold to it. An empty
+            // range would wrap `end - 1` to `usize::MAX` in release and hand
+            // `cell_rect` a column off the far side of the Grid, which paints a
+            // wild rectangle rather than panicking.
+            debug_assert!(
+                !run.columns.is_empty(),
+                "a background run covers at least one column, not {:?}",
+                run.columns
+            );
             let covered = Rect::from_min_max(
                 viewport.cell_rect(run.columns.start, run.row).min,
                 viewport.cell_rect(run.columns.end - 1, run.row).max,
@@ -1238,11 +1162,10 @@ mod tests {
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, BLANK_GLYPHS, CELL_SIZE, CellCharacters, Console,
-        DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable,
-        MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SourceShapes, SourceView, TOP_PANEL_HEIGHT,
-        blank_glyph_index, frames_per_second, glyph_scale, is_presentable, show_source_scene,
-        source_bounds, source_panel_frame, translate_event,
+        ALPHABET_FIRST, ALPHABET_LAST, CELL_SIZE, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE,
+        GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
+        SourceShapes, SourceView, TOP_PANEL_HEIGHT, frames_per_second, glyph_scale, is_presentable,
+        show_source_scene, source_bounds, source_panel_frame, translate_event,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -2244,91 +2167,59 @@ mod tests {
     }
 
     ///
-    /// What an empty Cell shows is `GlyphString`'s answer, read once per Render
-    /// Frame rather than restated in the console.
+    /// A character the table does not cover is still laid out, and is laid out
+    /// as itself.
+    ///
+    /// `GlyphTable::glyph` answers a galley for every character, because the
+    /// step that draws a Cell has to put *something* in the ordered sequence
+    /// of Shapes rather than skip the Cell and paint it out of turn. The two
+    /// ways it answers are asserted against each other here: inside the
+    /// alphabet it hands back the table's own galley — the same `Arc`, not an
+    /// equal one, which is the whole point of laying the alphabet out once —
+    /// and outside it lays that one character out fresh.
+    ///
+    /// A Source Cell holds printable ASCII by construction, so the fallback is
+    /// for a Source that found a way to hold something else. That is exactly
+    /// why it is worth pinning: nothing else reaches it, so a fallback that
+    /// silently answered the wrong Glyph would paint the wrong character with
+    /// no other test noticing.
     ///
     #[test]
-    fn a_blank_cell_shows_what_its_glyph_spells() {
-        for glyph in BLANK_GLYPHS {
-            assert_eq!(
-                BLANK_GLYPHS[blank_glyph_index(glyph)],
-                glyph,
-                "the blank table is not indexed by its own order"
+    fn a_character_outside_the_alphabet_is_laid_out_as_itself() {
+        let ctx = egui::Context::default();
+        let mut table = None;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            table = Some(GlyphTable::lay_out(
+                ui.ctx(),
+                egui::FontId::monospace(orcvs::opts::DEFAULT_FONT_SIZE),
+            ));
+        });
+        output.drop_without_applying_deltas();
+        let table = table.expect("the pass laid the alphabet out");
+
+        for character in [' ', '\n', '\u{7f}', 'é', '✦'] {
+            let galley = table.glyph(character);
+
+            assert!(
+                table.galley(character).is_none(),
+                "{character:?} is in the alphabet, so this asserts nothing about the fallback"
             );
             assert_eq!(
-                super::blank_character(glyph).to_string(),
-                orcvs::glyph::GlyphString::new(None, glyph).to_string()
+                galley.text(),
+                character.to_string(),
+                "the fallback laid out something other than {character:?}"
             );
         }
-        assert_eq!(super::blank_character(Glyph::Marker), '+');
-        assert_eq!(super::blank_character(Glyph::Highlight), '.');
-        assert_eq!(super::blank_character(Glyph::Space), ' ');
-    }
 
-    ///
-    /// Which character a Cell shows is answered from the Render Frame alone.
-    ///
-    /// No `egui::Context` is built here, and that is the assertion: the lookup
-    /// is a reading of `GlyphString`, not a reading of the font atlas, so the
-    /// step that decides what a Cell says is reachable without the harness the
-    /// galleys need. Every Cell of the Grid is checked against `GlyphString`'s
-    /// own answer, the written Cells for their content and the rest for the
-    /// spelling their Glyph gives an empty Cell.
-    ///
-    #[test]
-    fn a_cell_answers_its_character_with_no_context() {
-        let mut orcvs = Orcvs::new(8, 8);
-        // An Addition, whose claim reaches past the two Cells it is spelled in
-        // and leaves the operand Cells behind it empty but classified. Those
-        // are the Cells that make the blank table answer something other than
-        // the space.
-        let written = ".+";
-        for (x, character) in written.chars().enumerate() {
-            let position = orcvs.render_frame().rows()[2][x].position();
-            orcvs.select(position);
-            orcvs.write(&character.to_string());
-        }
+        for byte in [ALPHABET_FIRST, b'A', ALPHABET_LAST] {
+            let character = char::from(byte);
+            let cached = table.galley(character).expect("inside the alphabet");
 
-        let characters = CellCharacters::new();
-        let frame = orcvs.render_frame();
-        let mut content = String::new();
-        let mut blanks = std::collections::BTreeSet::new();
-
-        for cell in frame.rows().iter().flatten() {
-            let spelled = orcvs::glyph::GlyphString::new(
-                cell.content().map(|content| content.to_string()),
-                cell.glyph(),
-            )
-            .to_string();
-
-            assert_eq!(
-                characters.character(cell).to_string(),
-                spelled,
-                "the Cell at {:?} shows something its GlyphString does not spell",
-                cell.position()
+            assert!(
+                std::sync::Arc::ptr_eq(&table.glyph(character), cached),
+                "{character:?} was laid out again instead of read from the table"
             );
-
-            match cell.content() {
-                Some(character) => content.push(character),
-                None => {
-                    blanks.insert(characters.character(cell));
-                }
-            }
         }
-
-        assert_eq!(content, written, "the written Cells kept their content");
-        // A Grid whose blank Cells all spell the space would pass the loop
-        // above while telling nothing apart, so the Addition's unfilled operand
-        // slots have to be in it: `h` is what an empty Cell a signature says a
-        // Number belongs in shows.
-        assert!(
-            blanks.contains(&'h'),
-            "no unfilled operand slot reached the blank table, so it went untested: {blanks:?}"
-        );
-        assert!(
-            blanks.contains(&' '),
-            "no empty Cell reached the blank table, so it went untested: {blanks:?}"
-        );
     }
 
     ///
@@ -2479,9 +2370,20 @@ mod tests {
     }
 
     ///
-    /// The Cell that needs no background rectangle is exactly the Cell
-    /// `cell_visuals` fills with the Source's own colour, and that is exactly
-    /// `cursor_visible || (!selected && bloom.is_none())`.
+    /// `cell_visuals` fills a Cell with the Source's own colour — which is what
+    /// `Paint::derive` skips a background for — in exactly the cases
+    /// `cursor_visible || (!selected && bloom.is_none())` names, over every
+    /// case of the truth table and so in **both** halves of the Cursor's blink.
+    ///
+    /// This half of the split is a table over `cell_visuals`. It builds no
+    /// Render Frame and no Paint, and that is what lets it reach the blink's
+    /// visible half at all: a running Orcvs starts with the Cursor off and
+    /// turns it on by elapsed time alone, with nothing public to set it, so
+    /// `paint.rs`'s
+    /// `the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source`
+    /// — which asserts the same skip over a Paint derived from a real Render
+    /// Frame — can only ever see `cursor_visible` false. Neither test is the
+    /// other written twice.
     ///
     /// `Paint::derive` compares the colours rather than restating the
     /// condition, so it cannot drift from `cell_visuals`. This is where the
@@ -2492,14 +2394,8 @@ mod tests {
     /// alternates a rectangle and no rectangle. A reordering of those arms
     /// would be a palette change, and this fails when one happens.
     ///
-    /// `paint.rs` asserts the same skip over a derived Paint, and it cannot
-    /// reach the visible half of the blink: a running Orcvs starts with the
-    /// Cursor off and turns it on by elapsed time alone, with nothing public to
-    /// set it. That arm is this table's, which needs no Render Frame at all —
-    /// so this is not the other test written twice.
-    ///
     #[test]
-    fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
+    fn the_skip_condition_matches_cell_visuals_in_both_blink_phases() {
         for glyph in [Glyph::Char, Glyph::Bang, Glyph::Space, Glyph::Comment] {
             for bloom in [
                 None,
@@ -2567,13 +2463,16 @@ mod tests {
     /// A coalesced run covers exactly the Cells it replaces.
     ///
     /// Which Cells coalesce is `Paint::background_runs`' answer and is pinned
-    /// there against a written-out table of spans; what this pins is the
-    /// rectangle the run becomes. Two things: the rectangle is built from the
-    /// Cells' own `GridViewport::cell_rect` — the column-to-x function every
-    /// other Shape goes through — rather than from a sum of Cell sides
-    /// accumulated across the row; and the Cells it replaced would have tiled
-    /// at exactly the pixels it covers, every interior edge landing on the same
-    /// physical pixel from either side.
+    /// there against a written-out table of spans; where the rectangle lands is
+    /// `a_background_run_is_the_rectangle_its_columns_span`'s, pinned against
+    /// written-out coordinates. What this adds is the part only a real
+    /// presented viewport has: the run starts at the corner its first Cell was
+    /// given by `GridViewport::cell_rect` — the column-to-x function every
+    /// other Shape goes through — rather than at a sum of Cell sides
+    /// accumulated across the row, it spans the Cells it replaced and no
+    /// others, and those Cells would have tiled at exactly the pixels it
+    /// covers, every interior edge landing on the same physical pixel from
+    /// either side.
     ///
     /// Run at a fractional device scale as well as at one, because at one the
     /// Cell side is a whole point and there is nothing for a snap to move.
@@ -2607,18 +2506,41 @@ mod tests {
                 };
 
                 assert_eq!(painted.fill, run.colour, "a run was filled wrongly");
-                // Exact equality: a coalesced edge is the edge the Cells it
-                // replaces would have been drawn at, not an edge near it.
+                // The near corner is the one the run's first Cell was given,
+                // and the far corner is a whole number of Cells away from it.
+                // Stated as a span rather than as the far Cell's own corner,
+                // because that is the expression `SourceShapes::new` evaluates
+                // and a test that re-ran it would pass any simultaneous edit to
+                // both. `a_background_run_is_the_rectangle_its_columns_span`
+                // pins the same mapping against written-out coordinates.
                 assert_eq!(
-                    painted.rect,
-                    Rect::from_min_max(
-                        viewport.cell_rect(run.columns.start, run.row).min,
-                        viewport.cell_rect(run.columns.end - 1, run.row).max,
-                    )
-                    .round_to_pixels(pixels_per_point),
-                    "the run over columns {:?} of row {}",
+                    painted.rect.min,
+                    viewport
+                        .cell_rect(run.columns.start, run.row)
+                        .min
+                        .round_to_pixels(pixels_per_point),
+                    "the run over columns {:?} of row {} starts elsewhere",
                     run.columns,
                     run.row
+                );
+                // Half a Cell, because the snap rounds the two corners
+                // independently and so can move a side by up to half a physical
+                // pixel each — while a run one Cell too wide or too narrow is
+                // out by a whole Cell side.
+                let spanned = run.columns.len() as f32 * viewport.cell_size;
+                assert!(
+                    (painted.rect.width() - spanned).abs() < viewport.cell_size / 2.0,
+                    "the run over columns {:?} of row {} is {} wide, not the {spanned} its Cells span",
+                    run.columns,
+                    run.row,
+                    painted.rect.width()
+                );
+                assert!(
+                    (painted.rect.height() - viewport.cell_size).abs() < viewport.cell_size / 2.0,
+                    "the run over columns {:?} of row {} is {} tall, not one Cell",
+                    run.columns,
+                    run.row,
+                    painted.rect.height()
                 );
                 for column in run.columns.start..run.columns.end - 1 {
                     assert_eq!(
@@ -2637,6 +2559,85 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    ///
+    /// A coalesced run becomes the rectangle its columns span, at coordinates
+    /// written out here rather than re-derived.
+    ///
+    /// The viewport is stated instead of presented — a 25 point Cell with the
+    /// Grid's corner at the origin — so every expected rectangle below is a
+    /// literal. That is the point: the assertion this replaced re-ran
+    /// `SourceShapes::new`'s own `Rect::from_min_max(cell_rect(start).min,
+    /// cell_rect(end - 1).max)`, which catches a one-sided edit and passes a
+    /// simultaneous one. These numbers move for neither.
+    ///
+    /// At one device pixel per point every edge of that Grid is already on a
+    /// pixel, so the snap moves nothing and the literals are the coordinates
+    /// the paint lands on. What a *fractional* scale does to them is
+    /// `a_background_run_covers_exactly_the_cells_it_replaces`'.
+    ///
+    /// Four runs of the 8 by 8 default Grid, chosen so no one mistake passes
+    /// all four: the Cursor's own Cell at the origin, a run of three ending
+    /// short of the Grid's right edge, a run spanning a whole row but its last
+    /// Cell, and the Grid's last Cell alone. Which Cells those are is
+    /// `Paint::background_runs`' answer and is pinned in `paint.rs`.
+    ///
+    #[test]
+    fn a_background_run_is_the_rectangle_its_columns_span() {
+        let viewport = GridViewport {
+            cell_size: 25.0,
+            rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0)),
+        };
+        let orcvs = Orcvs::new(8, 8);
+        let frame = orcvs.render_frame();
+        let paint = painted(&frame, viewport, viewport.rect);
+        let shapes = source_shapes(&paint, viewport, 1.0);
+        let runs = paint.background_runs();
+
+        assert_eq!(
+            shapes.backgrounds.len(),
+            runs.len(),
+            "painted {} rectangles for {} runs",
+            shapes.backgrounds.len(),
+            runs.len()
+        );
+
+        for (row, columns, expected) in [
+            (
+                0,
+                0..1,
+                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
+            ),
+            (
+                0,
+                4..7,
+                Rect::from_min_max(Pos2::new(100.0, 0.0), Pos2::new(175.0, 25.0)),
+            ),
+            (
+                5,
+                0..7,
+                Rect::from_min_max(Pos2::new(0.0, 125.0), Pos2::new(175.0, 150.0)),
+            ),
+            (
+                7,
+                7..8,
+                Rect::from_min_max(Pos2::new(175.0, 175.0), Pos2::new(200.0, 200.0)),
+            ),
+        ] {
+            let index = runs
+                .iter()
+                .position(|run| run.row == row && run.columns == columns)
+                .unwrap_or_else(|| {
+                    panic!("this Grid asks for no run over columns {columns:?} of row {row}")
+                });
+
+            assert_eq!(
+                rect_of(&shapes.backgrounds[index]),
+                expected,
+                "the run over columns {columns:?} of row {row}"
+            );
         }
     }
 
