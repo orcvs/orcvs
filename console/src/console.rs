@@ -566,9 +566,11 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 ///
 /// Draws the Source Grid and answers the one question a click asks of it.
 ///
-/// The whole Grid is one allocated rectangle and every Cell is painted, so no
-/// Cell is a widget and the cost of a Render Frame is shapes rather than
-/// interaction rects and widget ids.
+/// The whole Grid is one allocated rectangle and no Cell is a widget, so the
+/// cost of a Render Frame is shapes rather than interaction rects and widget
+/// ids. Only the Positions the viewport covers are painted —
+/// `GridViewport::visible_positions` is this loop's one source of them — so
+/// that cost follows the viewport rather than the Source.
 ///
 /// A background is painted only where it differs from the Source fill the panel
 /// is already filled with, and consecutive Cells in a row that want the same
@@ -631,22 +633,47 @@ fn show_source(
         FontId::new(DEFAULT_FONT_SIZE * glyph_scale(scale), font_family.clone()),
     );
 
-    let cells = columns.saturating_mul(rows);
+    // The only source of Positions this loop has. Everything below reads the
+    // Cells these ranges select and nothing outside them, so the cost of a
+    // Render Frame follows the viewport rather than the Source: a Grid the
+    // console shows a tenth of costs a tenth of the Cell iteration and a tenth
+    // of the Shapes, whatever the Grid's size.
+    //
+    // The ranges reach one Cell past what is visible. A Cell draws its own left
+    // and top seams, so the seam at a Cell's right or bottom edge belongs to
+    // the Cell one past it, and a border feathers a physical pixel outside the
+    // rectangle it strokes. Both land on the clip's boundary, which is what the
+    // clip rectangle above discards. See `GridViewport::visible_positions` for
+    // why that makes the margin a boundary case rather than a seam that would
+    // otherwise go missing.
+    let visible = grid.visible_positions(clip, columns, rows);
+    let cells = visible.count();
     // A background is the exception and a border is the rule, so only the
-    // borders are sized to the Grid up front.
+    // borders are sized to the drawn Cells up front.
     let mut backgrounds = Vec::new();
     let mut borders = Vec::with_capacity(cells);
     let mut painted_glyphs = Vec::with_capacity(cells);
     let mut seams = Vec::new();
     let mut cursor_strokes = Vec::new();
 
-    for row in frame.rows() {
+    // Indexed rather than `get(..).unwrap_or_default()`. Both ranges are
+    // clamped to the `columns` and `rows` that `source_dimensions` just read
+    // from this same Render Frame, so neither slice can be out of bounds while
+    // a Frame is the rectangle it is asserted to be. Answering an empty slice
+    // instead would turn a broken invariant into a row that silently goes
+    // unpainted; indexing keeps it loud.
+    for row in &frame.rows()[visible.rows.clone()] {
         // The run of consecutive Cells in this row that share one background:
         // the colour, and the rectangle it covers so far. A Cell wanting a
         // different colour ends it, and so does a Cell wanting none.
         let mut run: Option<(Color32, Rect)> = None;
 
-        for cell in row {
+        // Sliced rather than filtered, so the run above opens at the first
+        // *drawn* Cell and is flushed at the last. A loop that walked the whole
+        // row and skipped the Cells outside the range would carry a run in from
+        // off-screen instead, and the flush below would no longer be the end of
+        // what was drawn.
+        for cell in &row[visible.columns.clone()] {
             let position = cell.position();
             let rect = grid.cell_rect(position.x(), position.y());
             let visuals = cell_visuals(
@@ -2445,6 +2472,318 @@ mod tests {
             "a middle drag over a Cell did not pan the Source"
         );
         assert_ne!(view.to_global, fitted, "the pan did not move the view");
+    }
+
+    ///
+    /// A point strictly inside both rectangles rather than merely on the
+    /// shared edge of two that touch, so a Cell whose far edge is the clip's
+    /// near edge — a Cell that shows nothing — does not count as shown.
+    ///
+    fn overlaps(cell: Rect, clip: Rect) -> bool {
+        cell.intersect(clip).is_positive()
+    }
+
+    ///
+    /// The view a viewer reaches by zooming and panning, set directly.
+    ///
+    /// `register_pan_and_zoom` would reach the same transform over a sequence
+    /// of wheel events, and the console holds it in exactly these two fields
+    /// afterwards. This is a test building its own input below the shipped
+    /// entry point rather than a seam cut into one: nothing in `show_source`
+    /// or `show_source_scene` exists for it.
+    ///
+    fn pinned_at(view: &mut SourceView, translation: Vec2, scaling: f32) {
+        view.to_global = TSTransform::new(translation, scaling);
+        view.adjusted = true;
+    }
+
+    ///
+    /// The draw loop reaches the visible Position range and nothing else, so
+    /// the cost of a Render Frame follows the viewport rather than the Source.
+    ///
+    /// Every drawn Cell leaves exactly one Cell-sized *stroked* rectangle — its
+    /// own border, or the Cursor's stroke on the selected Cell — so counting
+    /// those counts the Positions the loop reached. It is asserted against
+    /// `GridViewport::visible_positions`' real answer rather than against a
+    /// counter the console keeps for a test's benefit.
+    ///
+    /// The shape total is a bound rather than an equality. Issue 04 coalesces
+    /// consecutive backgrounds into one rectangle, so a row's shapes are not
+    /// one per Cell and the two totals are not proportional. What the bound
+    /// says is the claim this change makes: cost follows the viewport, not the
+    /// Source. No frame time is asserted — epaint already discards off-screen
+    /// shapes at tessellation (`coarse_tessellation_culling`), so what this
+    /// saves is Cell iteration and Shape construction, which is what is counted
+    /// here.
+    ///
+    #[test]
+    fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
+        let ctx = egui::Context::default();
+        // The default Grid at the Source's own Cell size is exactly this
+        // console, so the first pass fits at one with every Cell on screen.
+        let screen = Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::new(
+                DEFAULT_COL_COUNT as f32 * CELL_SIZE,
+                DEFAULT_ROW_COUNT as f32 * CELL_SIZE,
+            ),
+        );
+        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut view = SourceView::default();
+
+        let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(whole.cell_size, CELL_SIZE, "the console did not fit at one");
+        let all_positions = whole.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        assert_eq!(
+            all_positions.count(),
+            DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT,
+            "the fitted console did not show the whole Grid"
+        );
+        assert_eq!(
+            stroked_cell_rects(&every_shape, whole.cell_size).len(),
+            all_positions.count(),
+            "the fitted console did not draw every Position"
+        );
+
+        pinned_at(&mut view, Vec2::new(-500.0, -300.0), MAX_ZOOM);
+        let (zoomed, fewer_shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let some_positions = zoomed.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+
+        assert_eq!(
+            zoomed.cell_size,
+            CELL_SIZE * MAX_ZOOM,
+            "the console did not zoom to {MAX_ZOOM}"
+        );
+        assert!(
+            some_positions.columns.start > 0 && some_positions.rows.start > 0,
+            "the zoom left the Grid's first Position on screen, so nothing was culled on the near side"
+        );
+        assert!(
+            some_positions.count() * 2 < all_positions.count(),
+            "the zoom showed {} of {} Positions, which is not a fraction worth asserting about",
+            some_positions.count(),
+            all_positions.count()
+        );
+        assert_eq!(
+            stroked_cell_rects(&fewer_shapes, zoomed.cell_size).len(),
+            some_positions.count(),
+            "the zoomed console drew Positions the viewport does not reach"
+        );
+        assert!(
+            fewer_shapes.len() * 2 < every_shape.len(),
+            "{} shapes for {} Positions against {} shapes for {}",
+            fewer_shapes.len(),
+            some_positions.count(),
+            every_shape.len(),
+            all_positions.count()
+        );
+    }
+
+    ///
+    /// A range-limited row opens its background run at the first *drawn* Cell
+    /// and flushes it at the last, so every Cell the viewport shows is filled
+    /// with exactly what `cell_visuals` asks for and nothing else is filled
+    /// over it.
+    ///
+    /// Runs are row-local state, opened and flushed inside one row. Under
+    /// culling a row no longer starts at column zero or ends at the last
+    /// column, so the flush at the end of the inner loop is the end of what was
+    /// *drawn* rather than the end of the Source's row — and a run that is not
+    /// flushed there leaves the Cells at the right edge of the viewport
+    /// unfilled. That is not visible until the viewer is zoomed in, which is
+    /// where no other test looks.
+    ///
+    /// The console is small and the zoom is at the limit on purpose, so the
+    /// Cursor's bloom — fifteen Cells across — is wider than the viewport. That
+    /// is what puts a filled Cell at both edges of every drawn row, and a run
+    /// that is not row-local has somewhere to leak from. The test asserts that
+    /// this is so, from the Render Frame rather than from what was painted, so
+    /// it cannot go quietly vacuous if the bloom moves.
+    ///
+    #[test]
+    fn a_zoomed_row_fills_every_cell_the_viewport_shows_and_no_other() {
+        let ctx = egui::Context::default();
+        // Narrower than the bloom at the zoom below, so every drawn row both
+        // starts and ends inside it.
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+        let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut view = SourceView::default();
+        // Below the window the console shows, so the bloom covers the lower
+        // drawn rows and stops short of the upper ones: the viewport holds
+        // filled and unfilled Cells at once, and every drawn row that is filled
+        // is filled at both its edges.
+        orcvs.select(orcvs.render_frame().rows()[20][18].position());
+
+        let frame = orcvs.render_frame();
+        // The Grid's near corner at (-700, -500), so the console shows a window
+        // in the middle of it rather than a corner.
+        pinned_at(&mut view, Vec2::new(-700.0, -500.0), MAX_ZOOM);
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let backgrounds = background_runs(&shapes);
+
+        assert!(
+            visible.columns.start > 0 && visible.columns.end < DEFAULT_COL_COUNT,
+            "the zoom culled nothing on one side, so a run has no off-row Cell to reach from"
+        );
+
+        let mut shown_filled = 0;
+        let mut shown_unfilled = 0;
+        let mut filled_first_drawn = 0;
+        let mut filled_last_drawn = 0;
+        for cell in frame.rows().iter().flatten() {
+            let position = cell.position();
+            let rect = viewport.cell_rect(position.x(), position.y());
+            let expected = crate::style::cell_visuals(
+                cell.glyph(),
+                cell.cursor_bloom(),
+                cell.selected(),
+                cell.cursor_visible(),
+            );
+            let wants_a_fill = expected.background != PALETTE.source;
+
+            // The two Cells a row's run opens and closes on. They are the
+            // margin Cells, so the clip discards them and no assertion is made
+            // about their paint; what matters is that they carry a fill at all,
+            // because a run that never opens or never flushes has nothing to
+            // leak.
+            if visible.rows.contains(&position.y()) && wants_a_fill {
+                filled_first_drawn += usize::from(position.x() == visible.columns.start);
+                filled_last_drawn += usize::from(position.x() == visible.columns.end - 1);
+            }
+
+            if !overlaps(rect, screen) {
+                continue;
+            }
+            if wants_a_fill {
+                shown_filled += 1;
+                assert_eq!(
+                    background_at(&backgrounds, rect.center()),
+                    Some(expected.background),
+                    "the shown Cell {position:?} was filled wrongly"
+                );
+            } else {
+                shown_unfilled += 1;
+                assert_eq!(
+                    background_at(&backgrounds, rect.center()),
+                    None,
+                    "the shown Cell {position:?} was filled and asks for nothing"
+                );
+            }
+        }
+
+        assert!(
+            shown_filled > 0 && shown_unfilled > 0,
+            "{shown_filled} filled and {shown_unfilled} unfilled shown Cells is not the mixture this is about"
+        );
+        assert!(
+            filled_first_drawn > 0,
+            "no drawn row opens a run at its first drawn Cell"
+        );
+        assert!(
+            filled_last_drawn > 0,
+            "no drawn row ends with a run still open"
+        );
+    }
+
+    ///
+    /// Every sector seam the Render Frame asks for inside a culled viewport is
+    /// painted, so culling cannot drop a seam a viewer can see.
+    ///
+    /// This is the acceptance criterion about seams at the edges of the visible
+    /// range, asserted from the Render Frame at a zoom that culls on all four
+    /// sides. `sector_seams_are_painted_where_the_render_frame_asks_and_never_on_the_cursor`
+    /// runs on a default `SourceView` — the fit, with every Position drawn — so
+    /// it says nothing about a range-limited row.
+    ///
+    /// Only seams lying *strictly* inside the clip are asserted. A segment on
+    /// the clip's own edge is what the clip is entitled to discard, and it is
+    /// the only thing the one-Cell margin reaches: a margin Cell's left edge is
+    /// the right boundary of what is shown, never inside it. So this test pins
+    /// the criterion, and the margin is the separate, deliberate over-draw its
+    /// own comment describes.
+    ///
+    /// Two pans rather than one, because which seams land strictly inside the
+    /// clip is a property of the pan. The Marker spacing is 8 and a Cell is 50
+    /// points at this zoom, so one pan is chosen to put a seam column
+    /// immediately inside the first drawn column and the other to put one on
+    /// the last: between them a cull that is short by a Cell on any of the four
+    /// sides drops a seam this asserts. At a single pan the nearest seam can
+    /// sit six columns from the edge and a column-side error goes unseen.
+    ///
+    #[test]
+    fn a_zoomed_console_paints_every_sector_seam_inside_the_clip() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+
+        let mut asserted = 0;
+        for translation in [Vec2::new(-760.0, -520.0), Vec2::new(-820.0, -520.0)] {
+            let mut orcvs = Orcvs::new(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let mut view = SourceView::default();
+
+            let frame = orcvs.render_frame();
+            pinned_at(&mut view, translation, MAX_ZOOM);
+            let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let painted: Vec<_> = shapes
+                .iter()
+                .filter_map(|shape| match shape {
+                    Shape::LineSegment { points, .. } => Some(*points),
+                    _ => None,
+                })
+                .collect();
+
+            assert!(
+                visible.columns.start > 0
+                    && visible.columns.end < DEFAULT_COL_COUNT
+                    && visible.rows.start > 0
+                    && visible.rows.end < DEFAULT_ROW_COUNT,
+                "the pan {translation:?} culled nothing on one side, so no seam is near a culled edge: {visible:?}"
+            );
+
+            for cell in frame.rows().iter().flatten() {
+                let position = cell.position();
+                let rect = viewport.cell_rect(position.x(), position.y());
+
+                for (strength, ends) in [
+                    (
+                        cell.sector_left_strength(),
+                        [rect.left_top(), rect.left_bottom()],
+                    ),
+                    (
+                        cell.sector_top_strength(),
+                        [rect.left_top(), rect.right_top()],
+                    ),
+                ] {
+                    if strength.is_none() || cell.selected() {
+                        continue;
+                    }
+                    let span = Rect::from_two_pos(ends[0], ends[1]);
+                    let inside = span.min.x > screen.min.x
+                        && span.max.x < screen.max.x
+                        && span.min.y > screen.min.y
+                        && span.max.y < screen.max.y;
+                    if !inside {
+                        continue;
+                    }
+
+                    assert!(
+                        painted.iter().any(|points| {
+                            (points[0] - ends[0]).length() < 1e-3
+                                && (points[1] - ends[1]).length() < 1e-3
+                        }),
+                        "the seam at {position:?} is inside the clip at pan \
+                         {translation:?} and was not painted"
+                    );
+                    asserted += 1;
+                }
+            }
+        }
+
+        assert!(
+            asserted > 0,
+            "no seam lies strictly inside the clip, so this asserted nothing"
+        );
     }
 
     const WIDE: Vec2 = Vec2::new(400.0, 200.0);

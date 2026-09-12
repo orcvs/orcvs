@@ -10,11 +10,21 @@ iterating every Position of the Grid, once per Render Frame, with nothing cached
 `Orcvs::render_frame` (`orcvs/src/app.rs:217-227`) constructs a fresh `RenderFrame` on every call,
 and the console calls it once per pass (`console/src/console.rs:1018`).
 
-Three things inside that walk are worth naming separately, because they have different answers.
+Three things inside that walk looked worth naming separately. Issue 01 measured them, and the answer
+is narrower than this spec first claimed — read that correction before planning against the list.
 
 `SourceCommander::read_revision` (`orcvs/src/source/mod.rs:159-166`) clones the whole Source string
 each call (`orcvs/src/source/model.rs:266-268`). The Language Map beside it is `Arc`-shared; the text
-is not.
+is not. **This turned out not to be a cost.** Measured beside the frame it feeds, the clone is around
+0.33% of a Render Frame at 256 by 256, and its share *falls* as the Grid grows. It is named here
+because the code reads alarming, and struck from the list because the measurement says so. Do not
+open an issue against it.
+
+Those figures come from a local benchmark run, which `.scratch/benchmarks/spec.md` and issue 01 agree
+decides nothing on its own — the comparison lives in the action. They are cited here for the one
+thing a local run does settle: a ratio between two groups measured in the same pass, three orders of
+magnitude apart, which no plausible machine-to-machine variation closes. They are not a number a
+later issue should claim to have beaten, and the same caveat covers the per-Cell figure below.
 
 `cursor_bloom` (`orcvs/src/render_frame.rs:119-134`) pays its Chebyshev distance, `signal_breakup`
 and `cell_hash` for **every** Cell, not only those inside the bloom radius.
@@ -24,6 +34,13 @@ so it reaches 15 by 15 — at most 225 Cells of the default 1000 can answer anyt
 
 The allocation shape is one `Vec` per row plus one outer `Vec`, per Render Frame
 (`orcvs/src/render_frame.rs:108-110`).
+
+**What issue 01 found.** Derivation is flat O(Cells) — around 6 ns per Cell with no trend across a
+256-fold change in Cell count, and nothing quadratic. So the whole of what a frame spends is the
+per-Cell walk and the `Vec` per row, which leaves `cursor_bloom`'s unconditional `cell_hash` as the
+only candidate inside `derive` the measurement does not dismiss. That is why issue 02 exists and why
+the clone does not have an issue of its own. The prize is a fraction of ~6 ns per Cell, so "too small
+to measure, and closed" remains a live outcome for issue 02 rather than a formality.
 
 ## Why now, and why not sooner
 
