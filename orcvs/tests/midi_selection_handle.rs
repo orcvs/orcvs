@@ -50,14 +50,20 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
         MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         }),
-    );
+    )
+    .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
 
+    // Discovery and selection are asked of the engine's task and answered
+    // through what it publishes, so each is read after the task has run.
+    midi.refresh_destinations().unwrap();
+    tokio::task::yield_now().await;
     assert_eq!(
         midi.destinations().unwrap(),
         vec![MidiDestination::new("studio", "Studio Synth")]
     );
     midi.select(&MidiDestinationId::new("studio")).unwrap();
+    tokio::task::yield_now().await;
     for content in ".=0101".chars() {
         orcvs.write(&content.to_string());
     }
@@ -87,13 +93,19 @@ async fn selection_handle_cannot_outlive_the_running_orcvs() {
         MidiOutputAdapter::new(FakeBackend {
             state: state.clone(),
         }),
-    );
+    )
+    .expect("the test runtime");
     let midi = orcvs.midi_selection_handle();
     midi.select(&MidiDestinationId::new("studio")).unwrap();
+    tokio::task::yield_now().await;
 
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
     tokio::task::yield_now().await;
     drop(orcvs);
+    // Dropping the last handle closes the queue; the task sees the close,
+    // sends the safety action and ends, which is what takes the published
+    // destinations away with it.
+    tokio::task::yield_now().await;
 
     assert_eq!(
         state
@@ -108,6 +120,10 @@ async fn selection_handle_cannot_outlive_the_running_orcvs() {
 
     assert_eq!(
         midi.destinations().unwrap_err().message,
+        "running Orcvs is no longer available"
+    );
+    assert_eq!(
+        midi.refresh_destinations().unwrap_err().message,
         "running Orcvs is no longer available"
     );
     assert_eq!(

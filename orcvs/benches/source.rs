@@ -11,6 +11,7 @@ use orcvs::grid::{CellIndex, Grid};
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::source::{Source, SourceCommander, Tick};
 use std::hint::black_box;
+use std::sync::OnceLock;
 
 /// Representative Source shapes. A console opens on 1000 Cells, which 32x32
 /// stands for, and the two shapes bracketing it each change the Cell count
@@ -133,8 +134,31 @@ fn populated_source(cols: usize, rows: usize) -> SourceCommander {
     source
 }
 
+///
+/// The runtime a benched running Orcvs spawns its Playback Engine onto.
+///
+/// ADR 0040 makes that engine a task, so building a running Orcvs needs a
+/// runtime to build it on. These benchmarks measure the Source paths and never
+/// start a run, so one runtime kept for the length of the process is the whole
+/// of what they need from it.
+///
+fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        // The single-threaded builder, which every target `orcvs` compiles for
+        // has: these benchmarks never start a run, so what the runtime is for
+        // is having a handle to spawn the engine's task onto.
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("a benchmark runtime")
+    })
+}
+
 fn populated_app(cols: usize, rows: usize) -> Orcvs<InMemoryOutputAdapter> {
-    let mut orcvs = Orcvs::with_output_adapter(cols, rows, InMemoryOutputAdapter::default());
+    let _runtime = benchmark_runtime().enter();
+    let mut orcvs = Orcvs::with_output_adapter(cols, rows, InMemoryOutputAdapter::default())
+        .expect("a benchmark runtime");
     let text = source_text(cols, rows);
     // Only the Grid that owns a Position mints one, and a Render Frame is how the
     // application hands those Positions out.

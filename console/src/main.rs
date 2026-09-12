@@ -51,7 +51,7 @@ async fn main() -> eframe::Result {
     eframe::run_native(
         "Orcvs",
         native_options,
-        Box::new(|cc| Ok(Box::new(Console::new(cc)))),
+        Box::new(|cc| Ok(Box::new(Console::new(cc)?))),
     )
 }
 
@@ -81,7 +81,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(Console::new(cc)))),
+                Box::new(|cc| Ok(Box::new(Console::new(cc)?))),
             )
             .await;
 

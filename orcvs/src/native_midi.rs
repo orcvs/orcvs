@@ -279,7 +279,9 @@ mod feature_disabled_tests {
     fn a_running_orcvs_has_an_adapter_over_a_backend_with_nowhere_to_deliver() {
         let mut adapter = output_adapter();
 
-        assert_eq!(adapter.destinations(), Ok(Vec::new()));
+        let mut published = adapter.published_destinations();
+        adapter.refresh_destinations();
+        assert_eq!(published.borrow_and_update().discovered, Ok(Vec::new()));
         assert_eq!(
             adapter
                 .select(&MidiDestinationId::new("invented"))

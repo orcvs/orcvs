@@ -32,8 +32,16 @@ persistence = ["dep:serde"]
 [dependencies]
 lang = { path = "../lang", version = "0.1.0" }
 serde = { version = "1", default-features = false, features = ["derive", "std"], optional = true }
-tokio = { workspace = true, features = ["rt", "macros", "time"] }
-tokio-util = "0.7.11"
+# `sync` is declared rather than borrowed. ADR 0040 has the Playback Engine
+# publish its lifecycle state through a `watch`, its diagnostics through an
+# `mpsc`, and its transitions through a second `mpsc`, so `tokio::sync` is a
+# direct requirement of this crate and is stated where it is used.
+#
+# `tokio-util` is gone with it. It was here for `CancellationToken`, which
+# existed only to wake a retired clock task out of its sleep; ADR 0040 leaves
+# one task that owns its own deadlines, so there is nothing asleep for a second
+# party to wake and no other user of the crate in the workspace.
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing.workspace = true
 web-time = "1.1.0"
 
