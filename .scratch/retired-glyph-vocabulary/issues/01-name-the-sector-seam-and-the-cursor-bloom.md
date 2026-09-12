@@ -5,25 +5,25 @@ console concepts that are shipped, tested, publicly typed, and undefined.
 
 **Blocked by:** None — can start immediately, but read the trap below before writing a word.
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] `CONTEXT.md` defines **Sector Seam**: the graded registration mark the console draws along
+- [x] `CONTEXT.md` defines **Sector Seam**: the graded registration mark the console draws along
       every sector boundary of the Source Grid, at the configured interval in both axes. It is
       geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no
       Expression. Its `_Avoid_` list names the terms it replaces and the ones it must not drift to.
-- [ ] `CONTEXT.md` defines **Cursor Bloom**: the graded field of four bands the console draws
+- [x] `CONTEXT.md` defines **Cursor Bloom**: the graded field of four bands the console draws
       outward from the Cursor's Cell, measured in Cells by Chebyshev distance, decided per Cell and
       carried on the Render Frame. It changes a Cell's background and border and never its content
       or its Glyph. Its `_Avoid_` list likewise names what it is not.
-- [ ] Both entries follow the file's existing shape exactly: `**Term**:` on its own line, the
+- [x] Both entries follow the file's existing shape exactly: `**Term**:` on its own line, the
       definition as prose beneath it, then an `_Avoid_:` line. They sit in the console section
       beside **Cursor**, **Glyph**, **Render Frame** and **Paint**.
-- [ ] Neither definition states a default value. `8` and `7` are `Opts` defaults
+- [x] Neither definition states a default value. `8` and `7` are `Opts` defaults
       (`orcvs/src/opts.rs:4`, `:6`), not properties of the concepts, and the glossary does not
       record `Opts` values anywhere else.
-- [ ] The **Paint** entry at `CONTEXT.md:271-273` is not reworded. It already uses "sector seams";
+- [x] The **Paint** entry at `CONTEXT.md:271-273` is not reworded. It already uses "sector seams";
       this ticket only gives that term a definition to point at.
-- [ ] `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
+- [x] `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
 
 ## Comments
 
@@ -65,3 +65,10 @@ already owns them. If it does, drop this ticket to a reference — the entries a
 one change — and leave `02` and `05` blocked on that effort's ticket instead. This is how
 `source-paint/01` handled the **Console** entry that `console-testing/02` already owned: it blocked
 on the other effort rather than duplicating the definition.
+
+**Resolved 2026-09-13.** Trap checked: `render-frame-responsibility/01` and `04` assign both
+entries to this ticket and refuse to edit `CONTEXT.md` themselves. Entries land beside **Cursor**
+and **Marker**; **Paint** untouched. **Sector Seam** `_Avoid_` takes Marker plus the Guide /
+gridline / ruler-dot list ticket `02` must not lose when it deletes **Marker**. **Cursor Bloom**
+`_Avoid_` names Highlight and the glow / radial-light / focus-matrix drift `theme.md` already
+contrasts against.
