@@ -558,24 +558,42 @@ impl SourceShapes {
     /// `pixels_per_point` is the device scale the background runs are snapped
     /// to; see [`background_run`].
     ///
+    /// Borders, the Cursor's border, the sector seams and the background runs
+    /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
+    /// so this composes the two steps rather than folding the atlas into the
+    /// geometry pass.
+    ///
     fn new(
         paint: &Paint,
         viewport: &GridViewport,
         table: &GlyphTable,
         pixels_per_point: f32,
     ) -> Self {
+        let mut shapes = Self::geometry(paint, viewport, pixels_per_point);
+        shapes.place_glyphs(paint, viewport, table);
+        shapes
+    }
+
+    ///
+    /// Backgrounds, borders, the Cursor's border and the sector seams — every
+    /// Shape whose construction is arithmetic on a `Rect` and a `Color32`.
+    ///
+    /// Takes no [`GlyphTable`] and no `egui::Context`. The `glyphs` field is
+    /// empty until [`Self::place_glyphs`] fills it; both steps finish before
+    /// [`Self::into_shapes`] hands the first Shape out.
+    ///
+    fn geometry(paint: &Paint, viewport: &GridViewport, pixels_per_point: f32) -> Self {
         let scale = viewport.cell_scale();
-        // A border is the rule and a Glyph is one on a written Grid, so both
-        // are sized up front — and to the Cells the Paint covers rather than to
-        // the Grid: a densely written Source that regrew either of them would
-        // pay the reallocation on every Render Frame, and a zoomed console
-        // reserves what it draws instead of what the Source holds. A background
-        // is the exception — the Cursor's bloom reaches fifteen Cells and the
-        // rest of the Grid asks for none — so that one starts empty and grows
-        // to whatever the blink is asking for.
+        // A border is the rule on every Cell the Paint covers, so it is sized
+        // up front — to those Cells rather than to the Grid: a densely written
+        // Source that regrew the group would pay the reallocation on every
+        // Render Frame, and a zoomed console reserves what it draws instead of
+        // what the Source holds. A background is the exception — the Cursor's
+        // bloom reaches fifteen Cells and the rest of the Grid asks for none —
+        // so that one starts empty and grows to whatever the blink is asking
+        // for. Glyphs are reserved in [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
         let mut borders = Vec::with_capacity(paint.count());
-        let mut glyphs = Vec::with_capacity(paint.count());
         let mut seams = Vec::new();
         let mut cursor = Vec::new();
 
@@ -641,25 +659,41 @@ impl SourceShapes {
                     ));
                 }
             }
-
-            if cell.character != ' ' {
-                let galley = table.glyph(cell.character);
-                // Centred in a Cell whose own corner is an exact multiple of
-                // the Cell size.
-                glyphs.push(Shape::galley(
-                    rect.center() - galley.size() / 2.0,
-                    galley,
-                    cell.foreground,
-                ));
-            }
         }
 
         Self {
             backgrounds,
             borders,
-            glyphs,
+            glyphs: Vec::new(),
             seams,
             cursor,
+        }
+    }
+
+    ///
+    /// Places one galley per Cell that shows a character other than the space.
+    ///
+    /// Needs a [`GlyphTable`] — a galley's size exists only after layout — and
+    /// fills `glyphs` eagerly so [`Self::into_shapes`] never builds a Shape
+    /// while holding the `Context` write lock `Painter::extend` takes.
+    ///
+    fn place_glyphs(&mut self, paint: &Paint, viewport: &GridViewport, table: &GlyphTable) {
+        self.glyphs = Vec::with_capacity(paint.count());
+
+        for (position, cell) in paint.cells() {
+            if cell.character == ' ' {
+                continue;
+            }
+
+            let rect = viewport.cell_rect(position.x(), position.y());
+            let galley = table.glyph(cell.character);
+            // Centred in a Cell whose own corner is an exact multiple of the
+            // Cell size.
+            self.glyphs.push(Shape::galley(
+                rect.center() - galley.size() / 2.0,
+                galley,
+                cell.foreground,
+            ));
         }
     }
 
@@ -1837,14 +1871,29 @@ mod tests {
     }
 
     ///
-    /// What a Paint is drawn as at `viewport`, without a console pass.
+    /// The rectangles and strokes a Paint is drawn as at `viewport` — no
+    /// galleys, no font atlas, no `egui::Context`.
+    ///
+    /// What is asserted through this is what the geometry step itself adds:
+    /// borders, the Cursor's stroke, background runs and sector seams. Colour
+    /// *decisions* stay in `paint.rs`; Glyph placement needs
+    /// [`source_shapes`].
+    ///
+    fn source_geometry(
+        paint: &Paint,
+        viewport: GridViewport,
+        pixels_per_point: f32,
+    ) -> SourceShapes {
+        SourceShapes::geometry(paint, &viewport, pixels_per_point)
+    }
+
+    ///
+    /// What a Paint is drawn as at `viewport`, including Glyphs, without a
+    /// console pass.
     ///
     /// An `egui::Context` is built here for one reason: a galley needs a font
-    /// atlas, and a Glyph is a galley. Nothing asserted through this reads a
-    /// colour *decision* — which colour `cell_visuals` gives a Cell is
-    /// `paint.rs`'s question and is answered there with no Context at all.
-    /// What is asserted here is what the shape step itself adds: the geometry,
-    /// the grouping and the stroke widths.
+    /// atlas, and a Glyph is a galley. Tests that assert nothing about a
+    /// galley use [`source_geometry`] instead.
     ///
     fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
         let ctx = egui::Context::default();
@@ -1910,7 +1959,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 8, 8, 1.0);
         let paint = painted(&frame, viewport, screen);
-        let shapes = source_shapes(&paint, viewport, 1.0);
+        let shapes = source_geometry(&paint, viewport, 1.0);
 
         assert_eq!(paint.cursor(), Some(frame.cursor()));
         // Every Cell but the Cursor's is stroked with its own border, in row
@@ -2228,7 +2277,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 20, 20, 1.0);
         let paint = painted(&frame, viewport, screen);
-        let shapes = source_shapes(&paint, viewport, 1.0);
+        let shapes = source_geometry(&paint, viewport, 1.0);
         // The owned transform scales the stroke with everything else, the way
         // the Scene's layer transform used to, so the width is asserted in the
         // Source's own points.
@@ -2416,7 +2465,7 @@ mod tests {
             let frame = orcvs.render_frame();
             let viewport = presented(screen, 8, 8, pixels_per_point);
             let paint = painted(&frame, viewport, screen);
-            let shapes = source_shapes(&paint, viewport, pixels_per_point);
+            let shapes = source_geometry(&paint, viewport, pixels_per_point);
             let runs = paint.background_runs();
 
             assert!(
@@ -2524,7 +2573,7 @@ mod tests {
         let orcvs = Orcvs::new(8, 8);
         let frame = orcvs.render_frame();
         let paint = painted(&frame, viewport, viewport.rect);
-        let shapes = source_shapes(&paint, viewport, 1.0);
+        let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
 
         assert_eq!(
@@ -2579,13 +2628,13 @@ mod tests {
     /// Both are `show_source`'s own arithmetic — the zoom is the presented Cell
     /// side over the Source's own, the device scale is the `Ui`'s — and both
     /// are handed to `SourceShapes::new` and reach the Shapes nowhere else.
-    /// Every other Shape assertion here builds a `SourceShapes` through the
-    /// `source_shapes` helper, which is given a zoom and a device scale the
-    /// test chose, so all of them still hold with either argument replaced by a
-    /// constant one at the call site. What would ship then is a Grid whose
-    /// lines and sector seams stay one Source point wide at every zoom instead
-    /// of scaling with it, and runs snapped to whole points on a screen whose
-    /// pixels are not whole points.
+    /// Every other Shape assertion here builds a `SourceShapes` through
+    /// `source_geometry` or `source_shapes`, which are given a zoom and a device
+    /// scale the test chose, so all of them still hold with either argument
+    /// replaced by a constant one at the call site. What would ship then is a
+    /// Grid whose lines and sector seams stay one Source point wide at every
+    /// zoom instead of scaling with it, and runs snapped to whole points on a
+    /// screen whose pixels are not whole points.
     ///
     /// The geometry is chosen so neither argument can be mistaken for one. A
     /// 201 point console over a 20 Cell Grid fits the Source at 0.4, and at a
@@ -2715,7 +2764,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 16, 16, 1.0);
         let paint = painted(&frame, viewport, screen);
-        let shapes = source_shapes(&paint, viewport, 1.0);
+        let shapes = source_geometry(&paint, viewport, 1.0);
         let scale = viewport.cell_scale();
 
         let mut expected = Vec::new();
