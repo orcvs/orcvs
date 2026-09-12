@@ -16,9 +16,19 @@ An earlier draft of this ticket argued the gap was free because `docs/adr/0027-r
 
 Do not renumber anything.
 
-**Blocked by:** console-testing/02 — Define Console in the glossary.
+**Blocked by:** None — can start immediately.
 
-That ticket adds the **Console** entry to `CONTEXT.md`. This effort's **Paint** entry is defined against it, so Console lands first. Do not write the Console entry here.
+An earlier draft blocked this on `console-testing/02` — Define Console in the glossary — reasoning
+that this effort's **Paint** entry is defined against the **Console** entry that ticket adds, so
+Console had to land first. That is not what happened, and the block is stale. The Paint entry landed
+on this branch in `20d2a8a` under ticket `05`, whose own `Blocked by:` line reads `03, 04` and never
+named `console-testing/02`; the text it added to `CONTEXT.md` names no Console, defining a Paint as
+"the per-Cell decision of how one Render Frame is drawn" and saying where the geometry it carries
+none of belongs. Nothing in the checklist below needs a Console glossary entry either: every item is
+about `docs/adr/0040`, and an ADR is not the glossary.
+
+`console-testing/02` still owns the **Console** entry, is still `ready-for-agent`, and specifies it
+down to its `_Avoid_` list. Do not write that entry here. It simply does not gate this ticket.
 
 **Status:** ready-for-agent
 

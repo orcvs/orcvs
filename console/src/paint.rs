@@ -28,11 +28,11 @@ use std::ops::Range;
 use egui::Color32;
 
 use orcvs::{
+    glyph::{Glyph, GlyphString},
     grid::{Grid, Position},
-    render_frame::RenderFrame,
+    render_frame::{RenderCell, RenderFrame},
 };
 
-use crate::console::CellCharacters;
 use crate::style::{PALETTE, cell_visuals, sector_line};
 
 ///
@@ -162,8 +162,13 @@ impl Paint {
 
         Self {
             grid,
-            // `RenderFrame::derive` takes one selected Position and asserts its
-            // Grid owns it, so every Render Frame marks exactly one Cell.
+            // Total, and the whole chain is in `orcvs::render_frame`:
+            // `RenderFrame`'s fields are private and `RenderFrame::derive` is
+            // its only constructor, that function calls
+            // `Grid::assert_owns(selected)` before building a single Cell, and
+            // it then derives one Cell per Position of that same Grid. So the
+            // selected Position is a Position of the Grid being walked, and
+            // exactly one Cell compares equal to it.
             cursor: cursor.expect("a Render Frame selects one of its Cells"),
             cells,
         }
@@ -248,10 +253,101 @@ impl Paint {
     }
 }
 
+///
+/// Every [`Glyph`] a Render Frame can carry, in the order
+/// [`blank_glyph_index`] gives them.
+///
+const BLANK_GLYPHS: [Glyph; 9] = [
+    Glyph::Bang,
+    Glyph::Char,
+    Glyph::Comment,
+    Glyph::Function,
+    Glyph::Highlight,
+    Glyph::Marker,
+    Glyph::Note,
+    Glyph::Number,
+    Glyph::Space,
+];
+
+///
+/// Where `glyph` sits in [`BLANK_GLYPHS`].
+///
+/// The match is exhaustive, so a `Glyph` added to the vocabulary fails to build
+/// here rather than quietly painting the wrong character.
+///
+fn blank_glyph_index(glyph: Glyph) -> usize {
+    match glyph {
+        Glyph::Bang => 0,
+        Glyph::Char => 1,
+        Glyph::Comment => 2,
+        Glyph::Function => 3,
+        Glyph::Highlight => 4,
+        Glyph::Marker => 5,
+        Glyph::Note => 6,
+        Glyph::Number => 7,
+        Glyph::Space => 8,
+    }
+}
+
+///
+/// What an empty Cell of `glyph` shows.
+///
+/// `GlyphString` is where an empty Cell's spelling is decided, so the console
+/// reads it rather than restating it — once per Render Frame for the nine
+/// Glyphs, never once per Cell.
+///
+fn blank_character(glyph: Glyph) -> char {
+    let spelling = GlyphString::new(None, glyph).to_string();
+    debug_assert_eq!(
+        spelling.chars().count(),
+        1,
+        "an empty Cell shows exactly one character"
+    );
+
+    spelling.chars().next().unwrap_or(' ')
+}
+
+///
+/// What each Cell of a Render Frame shows: its own content, or the character
+/// its Glyph spells when it holds none.
+///
+/// This is the whole of deciding what a Cell says, and it is in this layer
+/// because it needs nothing this layer does not have: a `GlyphString` and a
+/// `Glyph`, and no `egui::Context` at all. Only *drawing* that character needs
+/// one — `GlyphTable` in `console.rs` holds the galleys and nothing else — so
+/// the split is the same one the rest of this module makes, between deciding
+/// what a Cell looks like and painting it.
+///
+/// The nine blank spellings are read once, because reading one is a
+/// `GlyphString` and a `String` per call and a Grid has a thousand Cells; the
+/// table is an array of nine `char`s indexed by [`blank_glyph_index`], so
+/// building it is far cheaper than the per-Cell reads it saves.
+///
+struct CellCharacters {
+    /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
+    blanks: [char; BLANK_GLYPHS.len()],
+}
+
+impl CellCharacters {
+    /// Reads what an empty Cell of each [`Glyph`] spells.
+    fn new() -> Self {
+        Self {
+            blanks: BLANK_GLYPHS.map(blank_character),
+        }
+    }
+
+    /// The character `cell` shows.
+    fn character(&self, cell: &RenderCell) -> char {
+        cell.content()
+            .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, Paint};
-    use crate::console::CellCharacters;
+    use super::{
+        BLANK_GLYPHS, BackgroundRun, CellCharacters, CellPaint, Glyph, Paint, blank_glyph_index,
+    };
     use crate::style::{PALETTE, cell_visuals, sector_line};
     use egui::Color32;
     use orcvs::{app::Orcvs, grid::Grid};
@@ -314,7 +410,8 @@ mod tests {
 
     ///
     /// The Cell carrying no background is exactly the Cell `cell_visuals`
-    /// fills with the Source's own colour.
+    /// fills with the Source's own colour, over a Paint derived from a real
+    /// Render Frame.
     ///
     /// The comparison calls `cell_visuals` rather than restating a colour,
     /// because this is the one assertion tying the skip to the function it
@@ -333,8 +430,10 @@ mod tests {
     ///
     /// The visible half of the blink is the one Render Frame this cannot
     /// reach: a running Orcvs starts with the Cursor off and turns it on by
-    /// elapsed time alone. That arm of the condition is asserted over
-    /// `cell_visuals` itself, which needs no Render Frame at all.
+    /// elapsed time alone, with nothing public to set it. That half of the
+    /// split is `console.rs`'s
+    /// `the_skip_condition_matches_cell_visuals_in_both_blink_phases`, a truth
+    /// table over `cell_visuals` that needs no Render Frame at all.
     ///
     #[test]
     fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
@@ -495,6 +594,94 @@ mod tests {
         assert!(
             spellings.len() > 2,
             "every Cell spelled the same thing, so the table answered nothing: {spellings:?}"
+        );
+    }
+
+    ///
+    /// What an empty Cell shows is `GlyphString`'s answer, read once per Render
+    /// Frame rather than restated in the console.
+    ///
+    #[test]
+    fn a_blank_cell_shows_what_its_glyph_spells() {
+        for glyph in BLANK_GLYPHS {
+            assert_eq!(
+                BLANK_GLYPHS[blank_glyph_index(glyph)],
+                glyph,
+                "the blank table is not indexed by its own order"
+            );
+            assert_eq!(
+                super::blank_character(glyph).to_string(),
+                orcvs::glyph::GlyphString::new(None, glyph).to_string()
+            );
+        }
+        assert_eq!(super::blank_character(Glyph::Marker), '+');
+        assert_eq!(super::blank_character(Glyph::Highlight), '.');
+        assert_eq!(super::blank_character(Glyph::Space), ' ');
+    }
+
+    ///
+    /// Which character a Cell shows is answered from the Render Frame alone.
+    ///
+    /// No `egui::Context` is built here, and that is the assertion: the lookup
+    /// is a reading of `GlyphString`, not a reading of the font atlas, so the
+    /// step that decides what a Cell says is reachable without the harness the
+    /// galleys need. Every Cell of the Grid is checked against `GlyphString`'s
+    /// own answer, the written Cells for their content and the rest for the
+    /// spelling their Glyph gives an empty Cell.
+    ///
+    #[test]
+    fn a_cell_answers_its_character_with_no_context() {
+        let mut orcvs = Orcvs::new(8, 8);
+        // An Addition, whose claim reaches past the two Cells it is spelled in
+        // and leaves the operand Cells behind it empty but classified. Those
+        // are the Cells that make the blank table answer something other than
+        // the space.
+        let written = ".+";
+        for (x, character) in written.chars().enumerate() {
+            let position = orcvs.render_frame().rows()[2][x].position();
+            orcvs.select(position);
+            orcvs.write(&character.to_string());
+        }
+
+        let characters = CellCharacters::new();
+        let frame = orcvs.render_frame();
+        let mut content = String::new();
+        let mut blanks = std::collections::BTreeSet::new();
+
+        for cell in frame.rows().iter().flatten() {
+            let spelled = orcvs::glyph::GlyphString::new(
+                cell.content().map(|content| content.to_string()),
+                cell.glyph(),
+            )
+            .to_string();
+
+            assert_eq!(
+                characters.character(cell).to_string(),
+                spelled,
+                "the Cell at {:?} shows something its GlyphString does not spell",
+                cell.position()
+            );
+
+            match cell.content() {
+                Some(character) => content.push(character),
+                None => {
+                    blanks.insert(characters.character(cell));
+                }
+            }
+        }
+
+        assert_eq!(content, written, "the written Cells kept their content");
+        // A Grid whose blank Cells all spell the space would pass the loop
+        // above while telling nothing apart, so the Addition's unfilled operand
+        // slots have to be in it: `h` is what an empty Cell a signature says a
+        // Number belongs in shows.
+        assert!(
+            blanks.contains(&'h'),
+            "no unfilled operand slot reached the blank table, so it went untested: {blanks:?}"
+        );
+        assert!(
+            blanks.contains(&' '),
+            "no empty Cell reached the blank table, so it went untested: {blanks:?}"
         );
     }
 

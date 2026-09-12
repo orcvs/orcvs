@@ -130,4 +130,19 @@ Ticket `02` also owes `cargo test --workspace --doc --locked`, because `Grid`'s 
 
 Deferred to CI, and named on the `Not run` line rather than left off: `mise run check_wasm` — nothing here is platform-conditional, there is no `cfg` and no new dependency, and the merge tier compiles the WASM target anyway. The persistence arm is not owed at all; no ticket touches the feature.
 
-No benchmark is owed. The shape sequence handed to `painter.extend` is unchanged, so no path a Source reaches changes cost.
+No benchmark is owed, and no claim about cost is made in either direction. The shape *sequence*
+handed to `painter.extend` is unchanged — the same Shapes, in the same order — but the work that
+builds it is not. One pass over the Grid inside `show_source`'s loop becomes three: `Paint::derive`
+walks the Render Frame, `Paint::background_runs()` folds over the derived backgrounds, and
+`SourceShapes::new` walks the Grid again to place the geometry. Two heap allocations per Render
+Frame are new with them — the `Vec<CellPaint>` the derive collects, around a thousand entries on the
+default 40x25 Grid, and the `Vec<BackgroundRun>` the fold answers. Both are what the layering buys.
+
+There is no regression against `main` on the Shape vectors themselves: `e3480e9` restored
+`Vec::with_capacity(grid.count())` for `glyphs` beside the one `borders` already had, after review
+caught a densely written Source regrowing it by reallocation on every Render Frame.
+
+None of that is measured, and it stays that way. There is no `console` benchmark — `[[bench]]`
+appears only in `orcvs/Cargo.toml` and `lang/Cargo.toml` — and `CLAUDE.md` asks for a reproducible
+benchmark or profile before any claim about performance. So the honest statement is that the cost of
+a Render Frame is **unmeasured**: not "unchanged", and not "slower".
