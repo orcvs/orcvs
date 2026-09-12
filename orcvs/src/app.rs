@@ -46,23 +46,22 @@ pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 ///
 /// ```
 /// use orcvs::app::Orcvs;
-/// use orcvs::grid::Grid;
 ///
 /// // A running Orcvs runs: its Playback Engine is a task, and a task needs a
 /// // runtime to be spawned on, so building one is fallible and eager.
 /// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let _runtime = runtime.enter();
 ///
-/// let orcvs = Orcvs::new(16, 16).expect("a Tokio runtime");
-/// let grid = Grid::new(16, 16);
+/// let mut orcvs = Orcvs::new(16, 16).expect("a Tokio runtime");
+/// let grid = orcvs.grid();
 ///
 /// // the Grid refuses a pair outside itself, so there is no Position to select
 /// assert_eq!(grid.position(99, 99), None);
 ///
-/// // every Position `select` can be handed is one the Grid minted
+/// // every Position `select` can be handed is one this Grid minted
 /// let position = grid.position(15, 15).expect("inside the grid");
-/// assert_eq!((position.x(), position.y()), (15, 15));
-/// assert_eq!(orcvs.render_frame().rows().len(), 16);
+/// orcvs.select(position);
+/// assert_eq!(orcvs.render_frame().cursor(), position);
 /// ```
 ///
 pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
@@ -110,9 +109,10 @@ impl Orcvs {
     ///
     /// // the Source arrives whole: its Cells, and the Grid it was built from
     /// let frame = orcvs.render_frame();
-    /// assert_eq!(frame.rows().len(), 3);
-    /// assert_eq!(frame.rows()[0].len(), 6);
-    /// assert_eq!(frame.rows()[0][0].content(), Some('1'));
+    /// let grid = frame.grid();
+    /// assert_eq!(grid.rows(), 3);
+    /// assert_eq!(grid.columns(), 6);
+    /// assert_eq!(frame.at(grid.origin()).content(), Some('1'));
     /// ```
     ///
     pub fn with_source(source: Source) -> Result<Self, PlaybackStartError> {
@@ -153,8 +153,9 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     ///
     /// // the shape is the Source's, not a pair passed alongside it, and the
     /// // Cursor opens on that Grid's origin
-    /// assert_eq!(orcvs.render_frame().rows().len(), 3);
-    /// assert!(orcvs.render_frame().rows()[0][0].selected());
+    /// let frame = orcvs.render_frame();
+    /// assert_eq!(frame.grid().rows(), 3);
+    /// assert!(frame.at(frame.grid().origin()).selected());
     /// ```
     ///
     pub fn with_source_and_output_adapter(
@@ -241,6 +242,17 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 
     ///
+    /// The Grid this running Orcvs's Source occupies.
+    ///
+    /// The only thing that mints a Position [`select`](Self::select) will
+    /// accept. `Grid` is `Copy`, and the same Grid is already reachable as
+    /// `render_frame().grid()` — this answers it without deriving a Frame.
+    ///
+    pub fn grid(&self) -> Grid {
+        self.grid
+    }
+
+    ///
     /// writes s to the current cursor position
     /// triggers parse of expression
     ///
@@ -262,15 +274,6 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     fn delete(&mut self) {
         self.source.unset(self.grid.index(self.cursor.position()));
         self.cursor.select(self.grid.left(self.cursor.position()));
-    }
-
-    ///
-    /// Convert a Position into a linear index.
-    /// Total: a Position can only come from a Grid, so it is in range for the
-    /// Grid that minted it.
-    ///
-    pub fn index(&self, position: Position) -> usize {
-        self.grid.index(position).get()
     }
 
     pub fn render_frame(&self) -> RenderFrame {
@@ -616,20 +619,34 @@ mod test {
     }
 
     #[tokio::test]
-    async fn app_exposes_a_render_frame_without_leaking_its_grid_or_cursor() {
+    async fn render_frame_reflects_a_write_and_the_selection() {
         let mut app = orcvs();
         app.write("x");
 
         let frame = app.render_frame();
 
-        assert_eq!(frame.rows().len(), 1);
-        assert_eq!(frame.rows()[0].len(), 2);
-        assert_eq!(frame.rows()[0][0].content(), Some('x'));
+        assert_eq!(frame.grid().rows(), 1);
+        assert_eq!(frame.grid().columns(), 2);
+        assert_eq!(frame.at(app.grid.origin()).content(), Some('x'));
         assert_eq!(
-            frame.rows()[0][1].position(),
+            frame.at(app.grid.position(1, 0).unwrap()).position(),
             app.grid.position(1, 0).unwrap()
         );
-        assert!(frame.rows()[0][1].selected());
+        assert!(frame.at(app.grid.position(1, 0).unwrap()).selected());
+    }
+
+    ///
+    /// The Cursor is the Position `derive` was given, carried rather than found.
+    ///
+    #[tokio::test]
+    async fn render_frame_answers_the_cursor_it_was_derived_for() {
+        let mut app = Orcvs::new(4, 3).expect("the test runtime");
+        let origin = app.grid.origin();
+        assert_eq!(app.render_frame().cursor(), origin);
+
+        let moved = app.grid.position(2, 1).unwrap();
+        app.select(moved);
+        assert_eq!(app.render_frame().cursor(), moved);
     }
 
     #[tokio::test]
@@ -640,8 +657,8 @@ mod test {
         let first = app.render_frame();
         let second = app.render_frame();
 
-        assert!(first.rows()[0][0].cursor_visible());
-        assert!(second.rows()[0][0].cursor_visible());
+        assert!(first.at(app.grid.origin()).cursor_visible());
+        assert!(second.at(app.grid.origin()).cursor_visible());
         assert!(app.cursor.on);
     }
 
@@ -664,12 +681,7 @@ mod test {
 
     fn rendered(app: &Orcvs, position: crate::grid::Position) -> GlyphString {
         let frame = app.render_frame();
-        let cell = frame
-            .rows()
-            .iter()
-            .flatten()
-            .find(|cell| cell.position() == position)
-            .expect("Render Frame contains every Grid Position");
+        let cell = frame.at(position);
         GlyphString::new(
             cell.content().map(|content| content.to_string()),
             cell.glyph(),
@@ -704,20 +716,6 @@ mod test {
             self.select_or_panic(x, y);
             self.write(s);
         }
-    }
-
-    #[tokio::test]
-    async fn test_to_idx() {
-        trace();
-        let app = Orcvs::new(10, 4).expect("the test runtime");
-
-        let position = app.grid.position(0, 0).expect("inside the grid");
-        let idx = app.index(position);
-        assert_eq!(idx, 0);
-
-        let position = app.grid.position(5, 3).expect("inside the grid");
-        let idx = app.index(position);
-        assert_eq!(idx, 35);
     }
 
     #[tokio::test]
@@ -868,26 +866,17 @@ mod test {
 
         let frame = app.render_frame();
         assert_eq!(
-            frame.rows()[0]
-                .iter()
-                .map(|cell| cell.sector_left_strength().is_some())
+            (0..7)
+                .map(|x| frame.at(at(x, 0)).sector_left_strength().is_some())
                 .collect::<Vec<_>>(),
             vec![false, false, true, false, true, false, true]
         );
-        assert!(
-            frame.rows()[0]
-                .iter()
-                .all(|cell| cell.glyph() == Glyph::Space)
-        );
+        assert!((0..7).all(|x| frame.at(at(x, 0)).glyph() == Glyph::Space));
 
         app.opts.marker_spacing = MarkerSpacing::new(1).unwrap();
         let frame = app.render_frame();
-        assert_eq!(frame.rows()[0][0].sector_left_strength(), None);
-        assert!(
-            frame.rows()[0][1..]
-                .iter()
-                .all(|cell| cell.sector_left_strength().is_some())
-        );
+        assert_eq!(frame.at(at(0, 0)).sector_left_strength(), None);
+        assert!((1..7).all(|x| frame.at(at(x, 0)).sector_left_strength().is_some()));
     }
 
     ///
@@ -915,11 +904,7 @@ mod test {
         // Every Cell of the row belongs to the one Comment, so every Cell
         // carries its Glyph, the space between the two words included.
         let frame = app.render_frame();
-        assert!(
-            frame.rows()[0]
-                .iter()
-                .all(|cell| cell.glyph() == Glyph::Comment)
-        );
+        assert!((0..10).all(|x| frame.at(at(x, 0)).glyph() == Glyph::Comment));
         // And each renders what the Source holds there, no more.
         assert_eq!(
             (0..10)

@@ -33,14 +33,10 @@
 //! # Why the Cells are flat
 //!
 //! A [`Paint`] holds one `Vec<CellPaint>` in row-major order over the drawn
-//! Positions, and [`Paint::at`] indexes it by subtracting the range's own
-//! corner. `Grid::index` is deliberately not that arithmetic: it addresses a
-//! Cell of the whole Grid, and this `Vec` holds a sub-rectangle of one. This is
-//! deliberately unlike `RenderFrame`, which nests a `Vec` per row: a Render
-//! Frame's only consumer walks it in row order to paint it, and the nesting
-//! exists to serve exactly that. A Paint is asked about one Cell — what colour
-//! is the Cell at this Position — so the shape that serves it is the one the
-//! Grid already addresses Cells by.
+//! Positions. `Grid::index` is deliberately not that arithmetic: it addresses a
+//! Cell of the whole Grid, and this `Vec` holds a sub-rectangle of one. The
+//! Render Frame is flat too, over the whole Grid; the difference is only which
+//! Positions each covers.
 //!
 
 use std::ops::Range;
@@ -55,18 +51,15 @@ use orcvs::{
 
 use crate::{
     grid_viewport::VisiblePositions,
-    style::{PALETTE, cell_visuals, sector_line},
+    style::{cell_visuals, sector_line},
 };
 
 ///
 /// What one Cell of a Render Frame is drawn as.
 ///
-/// Flat, and deliberately not a `CellVisuals` alongside a filtered background.
-/// A Cell carries no background exactly where `cell_visuals` asks for the
-/// Source's own colour, and keeping the unfiltered answer beside the filtered
-/// one would make that invariant a property of this struct — where nothing
-/// exercises it — instead of a property of the derivation, which is where its
-/// subtlety lives.
+/// Flat. The background is already decided at `cell_visuals`: `None` means the
+/// panel behind the Grid has painted the Source colour, and `Some` means this
+/// Cell needs a fill of its own.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CellPaint {
@@ -127,91 +120,61 @@ impl Paint {
     ///
     pub(crate) fn derive(frame: &RenderFrame, drawn: &VisiblePositions) -> Self {
         let grid = frame.grid();
-        // Recovered in the one pass rather than searched for afterwards. The
-        // Render Frame marks the Cell it was derived for and does not answer
-        // the Position separately, so this is where it is read back.
-        let mut cursor = None;
+        // The Cursor is the Position the Render Frame was derived for. A Paint
+        // covers a viewport, so `None` here means that Position is outside the
+        // drawn range — not that the Frame selected nothing.
+        let cursor = frame.cursor();
+        let cursor = (drawn.columns.contains(&cursor.x()) && drawn.rows.contains(&cursor.y()))
+            .then_some(cursor);
         // What each Cell says, read once for the nine blank spellings and never
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
         // of `GlyphString`, and only drawing it reaches the font atlas.
         let characters = CellCharacters::new();
-        let columns = drawn.columns.clone();
-        // Sized up front. A `FlatMap` states no length, so collecting into a
-        // `Vec` would grow it by doubling across every row of a Render Frame
-        // where the drawn count is already known exactly.
+        // Sized up front. The drawn count is known exactly, so collecting into
+        // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
-        cells.extend(
-            frame.rows()[drawn.rows.clone()]
-                .iter()
-                .flat_map(|row| row[columns.clone()].iter())
-                .map(|cell| {
-                    if cell.selected() {
-                        cursor = Some(cell.position());
-                    }
-                    let visuals = cell_visuals(
-                        cell.glyph(),
-                        cell.cursor_bloom(),
-                        cell.selected(),
-                        cell.cursor_visible(),
-                    );
+        for row in drawn.rows.clone() {
+            for column in drawn.columns.clone() {
+                let position = grid
+                    .position(column, row)
+                    .expect("a drawn Position is one the visible range clamped to this Grid");
+                let cell = frame.at(position);
+                let visuals = cell_visuals(
+                    cell.glyph(),
+                    cell.cursor_bloom(),
+                    cell.selected(),
+                    cell.cursor_visible(),
+                );
 
-                    CellPaint {
-                        // A Cell is filled only where `cell_visuals` asks for
-                        // something other than the Source fill, because the panel
-                        // behind the Grid is already filled with exactly that
-                        // colour. The skip is the derivation's, not the struct's:
-                        // a `CellPaint` carrying both the filtered background and
-                        // the `CellVisuals` it came from would make this invariant
-                        // a property of the value, where nothing exercises it.
-                        //
-                        // The colours are compared rather than the conditions
-                        // behind them, so this cannot drift from `cell_visuals`.
-                        // The condition it works out to is
-                        // `cursor_visible || (!selected && bloom.is_none())`, which
-                        // reads wrong and is right: `cell_visuals` tests
-                        // `cursor_visible` *before* the bloom arm, so the Cursor's
-                        // own Cell takes the Source fill even though `cursor_bloom`
-                        // answers `Some(Core)` for it, and the blink alternates a
-                        // background and none.
-                        background: (visuals.background != PALETTE.source)
-                            .then_some(visuals.background),
-                        border: visuals.border,
-                        foreground: visuals.foreground,
-                        // A sector seam is suppressed on the Cursor's Cell, so the
-                        // Cursor is never crossed by one. It is decided here rather
-                        // than left to the step that draws it: in the loop this
-                        // replaced the rule was structural — the selected Cell took
-                        // a branch the seams were not in — and a rule that survives
-                        // only as a branch shape is a rule the next reader has to
-                        // rediscover.
-                        //
-                        // `sector_line` is pure, so the strength the Render Frame
-                        // states becomes a colour here. The stroke widths are
-                        // geometry and stay out of this layer.
-                        sector_left: (!cell.selected())
-                            .then(|| cell.sector_left_strength().map(sector_line))
-                            .flatten(),
-                        sector_top: (!cell.selected())
-                            .then(|| cell.sector_top_strength().map(sector_line))
-                            .flatten(),
-                        character: characters.character(cell),
-                    }
-                }),
-        );
+                cells.push(CellPaint {
+                    background: visuals.background,
+                    border: visuals.border,
+                    foreground: visuals.foreground,
+                    // A sector seam is suppressed on the Cursor's Cell, so the
+                    // Cursor is never crossed by one. It is decided here rather
+                    // than left to the step that draws it: in the loop this
+                    // replaced the rule was structural — the selected Cell took
+                    // a branch the seams were not in — and a rule that survives
+                    // only as a branch shape is a rule the next reader has to
+                    // rediscover.
+                    //
+                    // `sector_line` is pure, so the strength the Render Frame
+                    // states becomes a colour here. The stroke widths are
+                    // geometry and stay out of this layer.
+                    sector_left: (!cell.selected())
+                        .then(|| cell.sector_left_strength().map(sector_line))
+                        .flatten(),
+                    sector_top: (!cell.selected())
+                        .then(|| cell.sector_top_strength().map(sector_line))
+                        .flatten(),
+                    character: characters.character(cell),
+                });
+            }
+        }
 
         Self {
             grid,
             drawn: drawn.clone(),
-            // Optional because a Paint covers a viewport and the Cursor can be
-            // outside it, never because the Render Frame is vague about where
-            // the Cursor is. That chain is total and all of it is in
-            // `orcvs::render_frame`: `RenderFrame`'s fields are private and
-            // `RenderFrame::derive` is its only constructor, that function
-            // calls `Grid::assert_owns(selected)` before building a single
-            // Cell, and it then derives one Cell per Position of that same
-            // Grid. So at most one Cell in the walk above compares equal to the
-            // selected Position, and exactly one does wherever the drawn range
-            // reaches it.
             cursor,
             cells,
         }
@@ -226,17 +189,12 @@ impl Paint {
     /// corner wraps, and a wrapped offset can land back inside `cells` and
     /// answer some other Cell's paint in silence.
     ///
-    /// Production walks go through [`Self::cells`] or [`Self::background_runs`]
-    /// so they never pay this offset; callers that already hold a Position —
-    /// the colour tests among them — look up here.
+    /// Callers that already hold a Position — the colour tests among them —
+    /// look up here. Production walks go through [`Self::cells`] or
+    /// [`Self::background_runs`] so they never pay this offset, and this
+    /// lookup is compiled only for tests so it is not a shipped seam.
     ///
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Position-indexed lookup; walks use cells()/background_runs()"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn at(&self, position: Position) -> &CellPaint {
         let offset = self
             .offset(position)
@@ -253,6 +211,7 @@ impl Paint {
     /// addresses a Cell of the whole Grid where this `Vec` holds one
     /// sub-rectangle of it.
     ///
+    #[cfg(test)]
     fn offset(&self, position: Position) -> Option<usize> {
         let column = position.x().checked_sub(self.drawn.columns.start)?;
         let row = position.y().checked_sub(self.drawn.rows.start)?;
@@ -264,11 +223,10 @@ impl Paint {
     ///
     /// The drawn Positions in row order, each with what it is drawn as.
     ///
-    /// The one way to walk a Paint. It zips the Positions against the `Vec`
-    /// rather than asking [`Self::at`] for each of them, so the walk the shape
-    /// step makes on every Render Frame does no offset arithmetic at all, and
-    /// the row-major agreement between Positions and Cells is kept here rather
-    /// than restated at each caller.
+    /// The one way to walk a Paint. It zips the Positions against the `Vec`,
+    /// so the walk the shape step makes on every Render Frame does no offset
+    /// arithmetic at all, and the row-major agreement between Positions and
+    /// Cells is kept here rather than restated at each caller.
     ///
     pub(crate) fn cells(&self) -> impl Iterator<Item = (Position, &CellPaint)> {
         self.positions().zip(&self.cells)
@@ -310,10 +268,10 @@ impl Paint {
     /// Where the Cursor is, when this Paint covers it.
     ///
     /// One Position for the whole Paint rather than a flag on every Cell:
-    /// `RenderFrame::derive` takes one selected Position and asserts the Grid
-    /// owns it, so exactly one exists, and a per-Cell bool would re-open a
-    /// state the layer below has closed. `None` says the Cursor is outside the
-    /// viewport this Paint covers, not that the Render Frame selected nothing.
+    /// [`RenderFrame::cursor`] answers the Position `derive` was given, so
+    /// exactly one exists, and a per-Cell bool would re-open a state the layer
+    /// below has closed. `None` says the Cursor is outside the viewport this
+    /// Paint covers, not that the Render Frame selected nothing.
     ///
     pub(crate) fn cursor(&self) -> Option<Position> {
         self.cursor
@@ -342,9 +300,9 @@ impl Paint {
         let width = self.drawn.columns.len();
         let first_column = self.drawn.columns.start;
 
-        // Row-major slices of `cells`, not `at(Position)`: the fold already
-        // owns the drawn ranges, and re-deriving each Cell's offset through the
-        // Position mint would pay the panic path on every Cell of every frame.
+        // Row-major slices of `cells`: the fold already owns the drawn ranges,
+        // and re-deriving each Cell's offset through a Position mint would pay
+        // a lookup on every Cell of every frame.
         for (row_offset, row) in self.drawn.rows.clone().enumerate() {
             let start = row_offset * width;
             let row_cells = &self.cells[start..start + width];
@@ -521,17 +479,17 @@ mod tests {
     async fn a_cell_is_answered_at_the_position_the_grid_indexes() {
         let mut orcvs = running_orcvs(6, 4);
         for (x, character) in "#a#".chars().enumerate() {
-            orcvs.select(orcvs.render_frame().rows()[2][x + 1].position());
+            orcvs.select(orcvs.grid().position(x + 1, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
-        orcvs.select(orcvs.render_frame().rows()[1][4].position());
+        orcvs.select(orcvs.grid().position(4, 1).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let visuals = cell_visuals(
                 cell.glyph(),
                 cell.cursor_bloom(),
@@ -566,96 +524,18 @@ mod tests {
     }
 
     ///
-    /// The Cell carrying no background is exactly the Cell `cell_visuals`
-    /// fills with the Source's own colour, over a Paint derived from a real
-    /// Render Frame.
-    ///
-    /// The comparison calls `cell_visuals` rather than restating a colour,
-    /// because this is the one assertion tying the skip to the function it
-    /// must not drift from. The condition the skip works out to is
-    /// `cursor_visible || (!selected && bloom.is_none())`, which reads wrong
-    /// and is right: `cell_visuals` tests `cursor_visible` *before* its bloom
-    /// arm, so the Cursor's own Cell takes the Source fill even though
-    /// `cursor_bloom` answers `Some(Core)` for it, and the blink alternates a
-    /// background and none. Restating any of that here would let the derive
-    /// and `cell_visuals` drift apart while both still passed.
-    ///
-    /// The Grid is wide enough to carry the Cursor's whole bloom and Cells
-    /// beyond it, so the skipped Cells and the filled ones are both present;
-    /// a Grid where every Cell wanted the same thing would pass while telling
-    /// nothing apart.
-    ///
-    /// The visible half of the blink is the one Render Frame this cannot
-    /// reach: a running Orcvs starts with the Cursor off and turns it on by
-    /// elapsed time alone, with nothing public to set it. That half of the
-    /// split is `console.rs`'s
-    /// `the_skip_condition_matches_cell_visuals_in_both_blink_phases`, a truth
-    /// table over `cell_visuals` that needs no Render Frame at all.
-    ///
-    #[tokio::test]
-    async fn the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source() {
-        let mut orcvs = running_orcvs(24, 16);
-        orcvs.select(orcvs.render_frame().rows()[7][9].position());
-
-        let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-        let mut skipped = 0;
-        let mut filled = 0;
-
-        for cell in frame.rows().iter().flatten() {
-            let visuals = cell_visuals(
-                cell.glyph(),
-                cell.cursor_bloom(),
-                cell.selected(),
-                cell.cursor_visible(),
-            );
-            let background = paint.at(cell.position()).background;
-
-            assert_eq!(
-                background.is_none(),
-                visuals.background == PALETTE.source,
-                "the background at {:?}, which cell_visuals fills with {:?}",
-                cell.position(),
-                visuals.background
-            );
-            match background {
-                Some(colour) => {
-                    assert_eq!(colour, visuals.background);
-                    filled += 1;
-                }
-                None => skipped += 1,
-            }
-        }
-
-        assert!(skipped > 0, "no Cell was left to the Source fill");
-        assert!(filled > 0, "no Cell asked for a background of its own");
-    }
-
-    ///
     /// The Cursor is one Position the Paint answers, not a flag to be found by
     /// searching the Cells.
     ///
     #[tokio::test]
     async fn the_cursor_is_the_selected_position() {
         let mut orcvs = running_orcvs(9, 5);
-        let selected = orcvs.render_frame().rows()[3][6].position();
+        let selected = orcvs.grid().position(6, 3).expect("inside the grid");
         orcvs.select(selected);
 
-        let frame = orcvs.render_frame();
-        let paint = whole(&frame);
+        let paint = whole(&orcvs.render_frame());
 
         assert_eq!(paint.cursor(), Some(selected));
-        assert_eq!(
-            frame
-                .rows()
-                .iter()
-                .flatten()
-                .filter(|cell| cell.selected())
-                .map(|cell| cell.position())
-                .collect::<Vec<_>>(),
-            vec![selected],
-            "the Render Frame selects exactly the Cell the Paint calls the Cursor"
-        );
     }
 
     ///
@@ -675,14 +555,14 @@ mod tests {
     async fn seams_stand_where_the_render_frame_asks_and_never_on_the_cursor() {
         let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default marker spacing of eight.
-        let corner = orcvs.render_frame().rows()[8][8].position();
+        let corner = orcvs.grid().position(8, 8).expect("inside the grid");
         orcvs.select(corner);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
         let mut seams = 0;
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let painted = paint.at(cell.position());
 
             if cell.selected() {
@@ -726,17 +606,17 @@ mod tests {
     async fn each_cell_shows_the_character_the_table_answers() {
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
-            orcvs.select(orcvs.render_frame().rows()[2][x].position());
+            orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
-        orcvs.select(orcvs.render_frame().rows()[5][5].position());
+        orcvs.select(orcvs.grid().position(5, 5).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
         let characters = CellCharacters::new();
         let mut spellings = std::collections::BTreeSet::new();
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let shown = paint.at(cell.position()).character;
 
             assert_eq!(
@@ -795,7 +675,7 @@ mod tests {
         // the space.
         let written = ".+";
         for (x, character) in written.chars().enumerate() {
-            let position = orcvs.render_frame().rows()[2][x].position();
+            let position = orcvs.grid().position(x, 2).expect("inside the grid");
             orcvs.select(position);
             orcvs.write(&character.to_string());
         }
@@ -805,7 +685,7 @@ mod tests {
         let mut content = String::new();
         let mut blanks = std::collections::BTreeSet::new();
 
-        for cell in frame.rows().iter().flatten() {
+        for cell in frame.cells() {
             let spelled = orcvs::glyph::GlyphString::new(
                 cell.content().map(|content| content.to_string()),
                 cell.glyph(),
@@ -1033,7 +913,7 @@ mod tests {
     #[tokio::test]
     async fn a_paint_decides_the_drawn_cells_and_answers_them_unchanged() {
         let mut orcvs = running_orcvs(40, 30);
-        orcvs.select(orcvs.render_frame().rows()[10][9].position());
+        orcvs.select(orcvs.grid().position(9, 10).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let drawn = VisiblePositions {
@@ -1088,7 +968,7 @@ mod tests {
     #[tokio::test]
     async fn the_runs_a_culled_paint_answers_are_the_whole_grids_clipped_to_it() {
         let mut orcvs = running_orcvs(32, 24);
-        orcvs.select(orcvs.render_frame().rows()[11][15].position());
+        orcvs.select(orcvs.grid().position(15, 11).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let drawn = VisiblePositions {
@@ -1132,7 +1012,7 @@ mod tests {
     #[tokio::test]
     async fn the_cursor_is_answered_only_where_the_paint_covers_it() {
         let mut orcvs = running_orcvs(20, 20);
-        let selected = orcvs.render_frame().rows()[4][5].position();
+        let selected = orcvs.grid().position(5, 4).expect("inside the grid");
         orcvs.select(selected);
 
         let frame = orcvs.render_frame();

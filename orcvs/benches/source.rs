@@ -163,11 +163,9 @@ fn populated_app(cols: usize, rows: usize) -> Orcvs<InMemoryOutputAdapter> {
     // Only the Grid that owns a Position mints one, and a Render Frame is how the
     // application hands those Positions out.
     let positions = orcvs
-        .render_frame()
-        .rows()
-        .iter()
+        .grid()
+        .positions_by_row()
         .flatten()
-        .map(|cell| cell.position())
         .collect::<Vec<_>>();
 
     for (position, content) in positions.iter().zip(text.chars()) {
@@ -195,9 +193,8 @@ fn populated_app(cols: usize, rows: usize) -> Orcvs<InMemoryOutputAdapter> {
 fn occupied_cells(orcvs: &Orcvs<InMemoryOutputAdapter>) -> usize {
     orcvs
         .render_frame()
-        .rows()
+        .cells()
         .iter()
-        .flatten()
         .filter(|cell| cell.content().is_some())
         .count()
 }
