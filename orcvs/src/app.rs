@@ -602,7 +602,7 @@ mod test {
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
+    fn a_running_orcvs_is_refused_when_there_is_no_runtime_to_run_on() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
 
         let outside = Orcvs::with_output_adapter(2, 1, adapter.clone());
