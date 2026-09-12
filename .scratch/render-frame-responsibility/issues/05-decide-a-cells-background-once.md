@@ -110,26 +110,26 @@ Report whether it holds; do not treat failing to do it as failing this ticket.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `CellVisuals.background` is `Option<Color32>`. The `cursor_visible` arm and the final `else`
+- [x] `CellVisuals.background` is `Option<Color32>`. The `cursor_visible` arm and the final `else`
       arm of `cell_visuals` answer `None`.
-- [ ] `cell_visuals`'s doc comment states what `None` means and names `source_panel_frame` as the
+- [x] `cell_visuals`'s doc comment states what `None` means and names `source_panel_frame` as the
       thing that makes it true.
-- [ ] `Paint::derive` passes the background through. No comparison against `PALETTE.source`
+- [x] `Paint::derive` passes the background through. No comparison against `PALETTE.source`
       anywhere in `console/src/paint.rs`, and the seventeen-line comment at `:120-136` is gone.
-- [ ] `the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source` and
+- [x] `the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source` and
       `the_skip_condition_matches_cell_visuals_in_both_blink_phases` are deleted, not rewritten. They
       guard a drift that no longer has two places to drift between.
-- [ ] `the_omitted_background_is_the_colour_the_panel_is_filled_with` survives unchanged. The panel
+- [x] `the_omitted_background_is_the_colour_the_panel_is_filled_with` survives unchanged. The panel
       still has to be filled with the colour the Cells decline to paint, and nothing else says so.
-- [ ] `console/src/style.rs`'s existing `cell_visuals` tests assert `None` where they asserted
+- [x] `console/src/style.rs`'s existing `cell_visuals` tests assert `None` where they asserted
       `PALETTE.source`, and at least one of them says in a comment that `None` is a Cell the panel
       has already painted.
-- [ ] Nothing about what is drawn changes. Same colours, same geometry, same order, both blink
+- [x] Nothing about what is drawn changes. Same colours, same geometry, same order, both blink
       phases — and in particular the Cursor's own Cell still takes no fill on the visible half of the
       blink, which is the case the deleted truth table existed to pin.
-- [ ] The ticket reports, in its Comments, whether the single-pass `background_runs` cascade holds —
+- [x] The ticket reports, in its Comments, whether the single-pass `background_runs` cascade holds —
       and if it does, files it rather than doing it here.
 
 ## Verification
@@ -153,3 +153,8 @@ This one is independent of the seam criterion. Both modules are already in `cons
 here is not the ADR 0022 drift at all; it is the same "nothing is rewired" constraint from `20d2a8a`
 landing a new layer on top of an unchanged one. It survives on its own merits if ticket `01` is
 refused.
+
+**Cascade:** holds. With the background decided at source, runs could close during the derive walk
+and the shape step's `columns.end - 1` could go with a richer run type. Not done here — that is a
+second derivation shape against `source-paint`'s "derived, never stored" choice. Filed as
+`09-build-background-runs-in-the-derive-pass.md`.
