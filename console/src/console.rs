@@ -705,7 +705,7 @@ fn show_source(
     ui: &mut egui::Ui,
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
-    grid: GridViewport,
+    viewport: GridViewport,
     clip: Rect,
 ) -> Option<Position> {
     // The shape the Render Frame was derived from, named apart from the
@@ -730,7 +730,7 @@ fn show_source(
     // clip rect itself (`scene.rs:209`); with the container gone the Grid
     // states its own bound.
     let response = ui.interact(
-        grid.rect.intersect(clip),
+        viewport.rect.intersect(clip),
         ui.id().with("source_grid"),
         Sense::CLICK,
     );
@@ -743,7 +743,7 @@ fn show_source(
     // The scale is already in the Cell size, and the Scene used to carry it to
     // the strokes as well, so the Grid lines and sector seams take it here
     // rather than staying one Source point wide at every zoom.
-    let scale = grid.cell_size / CELL_SIZE;
+    let scale = viewport.cell_size / CELL_SIZE;
     // The device scale the background runs are snapped to; see
     // [`background_run`].
     let pixels_per_point = ui.pixels_per_point();
@@ -773,13 +773,13 @@ fn show_source(
     //
     // The bounds are the Render Frame's own Grid's, rather than a shape
     // recovered out of its rows.
-    let visible = grid.visible_positions(clip, source_grid.columns(), source_grid.rows());
+    let visible = viewport.visible_positions(clip, source_grid.columns(), source_grid.rows());
 
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive(frame, &visible);
-    let shapes = SourceShapes::new(&paint, &grid, &table, scale, pixels_per_point);
+    let shapes = SourceShapes::new(&paint, &viewport, &table, scale, pixels_per_point);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
@@ -793,7 +793,7 @@ fn show_source(
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && let Some((column, row)) =
-            grid.cell_at(pointer, source_grid.columns(), source_grid.rows())
+            viewport.cell_at(pointer, source_grid.columns(), source_grid.rows())
         && let Some(cell) = frame.rows().get(row).and_then(|row| row.get(column))
     {
         Some(cell.position())

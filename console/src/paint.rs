@@ -226,6 +226,17 @@ impl Paint {
     /// corner wraps, and a wrapped offset can land back inside `cells` and
     /// answer some other Cell's paint in silence.
     ///
+    /// Production walks go through [`Self::cells`] or [`Self::background_runs`]
+    /// so they never pay this offset; callers that already hold a Position —
+    /// the colour tests among them — look up here.
+    ///
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Position-indexed lookup; walks use cells()/background_runs()"
+        )
+    )]
     pub(crate) fn at(&self, position: Position) -> &CellPaint {
         let offset = self
             .offset(position)
@@ -328,17 +339,24 @@ impl Paint {
     ///
     pub(crate) fn background_runs(&self) -> Vec<BackgroundRun> {
         let mut runs = Vec::new();
+        let width = self.drawn.columns.len();
+        let first_column = self.drawn.columns.start;
 
-        for row in self.drawn.rows.clone() {
-            let positions = self.row(row);
+        // Row-major slices of `cells`, not `at(Position)`: the fold already
+        // owns the drawn ranges, and re-deriving each Cell's offset through the
+        // Position mint would pay the panic path on every Cell of every frame.
+        for (row_offset, row) in self.drawn.rows.clone().enumerate() {
+            let start = row_offset * width;
+            let row_cells = &self.cells[start..start + width];
             // The run so far: its colour, and the columns it covers.
             let mut open: Option<(Color32, Range<usize>)> = None;
 
-            for position in positions {
-                let background = self.at(position).background;
+            for (column_offset, cell) in row_cells.iter().enumerate() {
+                let column = first_column + column_offset;
+                let background = cell.background;
                 open = match (open, background) {
                     (Some((colour, columns)), Some(background)) if colour == background => {
-                        Some((colour, columns.start..position.x() + 1))
+                        Some((colour, columns.start..column + 1))
                     }
                     (finished, background) => {
                         if let Some((colour, columns)) = finished {
@@ -348,7 +366,7 @@ impl Paint {
                                 columns,
                             });
                         }
-                        background.map(|colour| (colour, position.x()..position.x() + 1))
+                        background.map(|colour| (colour, column..column + 1))
                     }
                 };
             }

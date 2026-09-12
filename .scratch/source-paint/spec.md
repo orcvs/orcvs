@@ -1,6 +1,6 @@
 # Let the Source Grid paint answer instead of take
 
-**Status:** resolved — every ticket is `resolved`. `02`-`06` shipped the two layers; `01` recorded them as [ADR 0040](../../docs/adr/0040-the-console-paints-from-a-value.md).
+**Status:** open — `01`–`08` are `resolved`; `09` remains `ready-for-agent`. The cull's cost claim is asserted by counting, not by a `console` benchmark. `02`-`06` shipped the two layers; `01` recorded them as [ADR 0040](../../docs/adr/0040-the-console-paints-from-a-value.md).
 
 ## Goal
 
@@ -55,7 +55,7 @@ Settled in a grilling session. Implement as written. If one is impossible or wro
 ### The value layer
 
 - `Paint` carries no geometry. No `Rect` appears in it. Cell geometry is `GridViewport::cell_rect`'s job and is tested there; a `Rect` in the value layer makes every assertion re-acquire a viewport.
-- Stored flat as `Vec<CellPaint>` plus the `Grid`, with `at(Position)` indexing through `Grid::index`. This is deliberately unlike `RenderFrame`'s `Vec<Vec<RenderCell>>`: `Paint`'s primary access is `at(Position)`, and the row nesting exists on `RenderFrame` only to serve painting. Say so in the module doc.
+- Stored flat as `Vec<CellPaint>` plus the `Grid` and the drawn ranges. **Revised by `07`:** `at(Position)` indexes by offset within that sub-rectangle — row-major from the drawn range's corner — not through `Grid::index`, which addresses a Cell of the whole Grid where this `Vec` holds only the Positions the console draws. This is deliberately unlike `RenderFrame`'s `Vec<Vec<RenderCell>>`: `Paint`'s primary access is `at(Position)`, and the row nesting exists on `RenderFrame` only to serve painting. Say so in the module doc.
 - Background runs are derived, never stored. `Paint::background_runs()` is the coalescing fold — today an inline `Option<(Color32, Rect)>` state machine flushed at two places — given a name, a home, and column ranges instead of rectangles. One stored truth, and the fold is testable with no egui at all.
 - `CellPaint` is flat: `background: Option<Color32>`, `border`, `foreground`, two seam colours, `character`. It does not hold a `CellVisuals` alongside the filtered background; holding both would make the skip invariant a property of the struct rather than of the derivation, which is where its subtlety lives. `cell_visuals()` is unchanged and called once inside the derive.
 - `Paint::cursor() -> Option<Position>`, not a `bool` on every Cell. `RenderFrame::derive` takes one `selected: Position` and calls `grid.assert_owns(selected)`, so exactly one exists; a per-Cell bool re-opens a state the layer below closed. **Revised by `07`:** the answer is optional because a Paint covers a viewport the Cursor can be outside, never because the Render Frame is vague. Growing `RenderFrame` an accessor for the selected Position to keep the answer total was considered and refused — the shape step reads the Cursor only to place one drawn Cell's border, and a Cursor that is not drawn belongs in no group.

@@ -24,7 +24,7 @@ The counting tests in `07` stay whichever way this lands. They assert the shape 
 - [ ] `mise.toml`'s `bench` task takes `--package console`. It names its packages explicitly today.
 - [ ] `.github/workflows/bench.yml` adds `console/**` to the `paths` filter of **both** the `push` and the `pull_request` trigger. The two lists are duplicated because Actions does not support YAML anchors, and the comment above them says so — a change to one that misses the other is silent.
 - [ ] That comment enumerates what each glob covers. Extend it rather than leaving `console/**` unexplained beside entries that each state their reason.
-- [ ] The merge tier's `test_persistence` runs `nextest` with `-E 'not kind(bench)'` after `e32c1ba`, so a new bench target does not return the merge queue to the hang PR #78 fixed. Confirm that is still the case rather than assuming it.
+- [x] The merge tier's `test_persistence` runs `nextest` with `-E 'not kind(bench)'` after `e32c1ba`, so a new bench target does not return the merge queue to the hang PR #78 fixed. Confirm that is still the case rather than assuming it. Confirmed on this branch and on `origin/main` (`aeac29b` / PR #78); the filter is not work this effort lands.
 
 ## Verification
 

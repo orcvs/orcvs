@@ -34,7 +34,7 @@ Nothing on screen changes. The same colours in the same geometry in the same ord
 
 The value layer is where a Cell's appearance is now tested, and the harness cost that shaped the old tests is gone with it: no test asserting what colour a Cell is constructs an `egui::Context`, a `RawInput` or a `CentralPanel`. That was the bar rather than a count, because a count invites satisfying it by merging tests.
 
-`Paint` is stored flat as a `Vec<CellPaint>` beside its `Grid` and indexed through `Grid::index`, deliberately unlike `RenderFrame`'s `Vec<Vec<RenderCell>>`. The two shapes are right for their two access patterns — `at(Position)` here, row-order iteration there — and `RenderFrame` is not flattened to match. The cost is that the two layers agree on row-major order by construction rather than by type, so a test pins that agreement.
+`Paint` is stored flat as a `Vec<CellPaint>` beside its `Grid` and the drawn ranges, and indexed by offset within that sub-rectangle — row-major from the range's corner — deliberately unlike `RenderFrame`'s `Vec<Vec<RenderCell>>` and unlike `Grid::index`, which addresses a Cell of the whole Grid. The two shapes are right for their two access patterns — `at(Position)` over the drawn Positions here, row-order iteration over the Source there — and `RenderFrame` is not flattened to match. The cost is that the drawn `Vec` and the Positions it covers agree on row-major order by construction rather than by type, so a test pins that agreement.
 
 A second consumer of the paint decision is now possible without a Render Frame being drawn, which nothing needs today. Such a consumer states which Positions it wants; there is no way to ask for a Paint without saying that.
 
