@@ -1017,7 +1017,7 @@ macro_rules! define_functions {
                 }
             }
 
-            /// Whether this Function binds operands from whole [`Value`]s.
+            /// Whether this Function binds operands from whole [`crate::Value`]s.
             ///
             /// ADR 0007's structural and Range Functions consume Sequence
             /// operands intact, and ADR 0028 requires that extraction derive
