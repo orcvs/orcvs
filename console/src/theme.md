@@ -1,6 +1,8 @@
 # Console palette
 
-The egui console uses the prototype-inspired palette declared in `style.rs`:
+This is the decided twenty-one-token console palette. `restyle-egui-console/03`
+checks a capture against these tokens. A later palette change is a documented
+change, not drift.
 
 - Page: `#0B1112` (`rgb(11, 17, 18)`)
 - Source: `#070D0D` (`rgb(7, 13, 13)`)
@@ -12,8 +14,6 @@ The egui console uses the prototype-inspired palette declared in `style.rs`:
 - Bang and error: `#FF7F87` (`rgb(255, 127, 135)`)
 - Number: `#83A6D8` (`rgb(131, 166, 216)`)
 - Note: `#AA91D6` (`rgb(170, 145, 214)`)
-- Marker: `rgba(46, 82, 72, 0.44)`
-- Highlight: `#2A5A4E` (`rgb(42, 90, 78)`)
 - Cursor focus core: fill `#0A1E1A`, line `rgba(76, 190, 156, 0.59)`
 - Cursor focus inner: fill `#091A17`, line `rgba(58, 148, 122, 0.49)`
 - Cursor focus middle: fill `#081614`, line `rgba(43, 110, 92, 0.39)`
@@ -32,6 +32,12 @@ interact with the fixed Source coordinates without random flicker. The outer
 boundary uses denser breakup, dropping roughly two thirds of its edge Cells.
 Because the hash belongs to the absolute Grid Position, each Cell's noise is
 stable while Cursor movement samples a different boundary pattern.
+
+This four-band `1 : 1 : 2 : 3` reticle is the shipped treatment. It is
+proposed, not settled. `restyle-egui-console/03` reports the capture against
+the prototype and states whether the four bands, their widths, and the edge
+breakup are kept, retuned, or dropped. A capture that matches this record
+does not by itself settle the question.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
