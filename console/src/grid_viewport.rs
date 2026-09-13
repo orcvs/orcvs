@@ -45,16 +45,15 @@ impl GridViewport {
 /// half-open row range.
 ///
 /// This is what the console shows *and one Cell more* in every direction the
-/// Grid has one, so it is not the set of Positions a viewer can see — see
-/// [`GridViewport::visible_positions`] for why the margin is there. A caller
-/// that needs only what is on screen has to narrow it; a caller drawing them
-/// does not.
+/// Grid has one, so it is not the set of Positions a viewer can see — the
+/// extra Cell is the margin seams and bloom need. A caller that needs only
+/// what is on screen has to narrow it; a caller drawing them does not.
 ///
 /// The ranges are already clamped to the Grid, so a caller walks those
 /// column and row numbers rather than bounds-checking a Position at a time.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct VisiblePositions {
+pub struct VisiblePositions {
     /// The columns to draw, left to right.
     pub(crate) columns: Range<usize>,
     /// The rows to draw, top to bottom.
@@ -62,8 +61,13 @@ pub(crate) struct VisiblePositions {
 }
 
 impl VisiblePositions {
+    /// The Positions a Paint covers: column and row ranges already clamped to a Grid.
+    pub fn new(columns: Range<usize>, rows: Range<usize>) -> Self {
+        Self { columns, rows }
+    }
+
     /// No Position at all: what a console showing none of the Grid draws.
-    pub(crate) fn empty() -> Self {
+    pub fn empty() -> Self {
         Self {
             columns: 0..0,
             rows: 0..0,
@@ -71,7 +75,7 @@ impl VisiblePositions {
     }
 
     /// How many Positions the two ranges cover between them.
-    pub(crate) fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.columns.len().saturating_mul(self.rows.len())
     }
 }

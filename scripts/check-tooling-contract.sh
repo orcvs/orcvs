@@ -316,14 +316,14 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack t
 # anything downstream reads. `--nresamples` carries its own share — roughly 2.7s of
 # each benchmark's ten seconds fell outside the configured time budget, and the
 # default bootstrap was most of it.
-assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 1 --sample-size 10 --nresamples 1000.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --package console --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 1 --sample-size 10 --nresamples 1000.$'
 # The discard run differs from the measured one in exactly one figure, and that is
 # the point of it having a task of its own: its output goes to /dev/null, so it
 # needs no measurement fidelity, but it must still execute every benchmark. The
 # contamination it exists for belongs to the binary rather than to a benchmark —
 # criterion's own per-benchmark warm-up did not settle `parse_source`, which read
 # 1,204 ns on the first run after a fresh compile against a settled 417 ns after.
-assert_toml_task_contains "$root_dir/mise.toml" 'bench_warmup' '^run = .cargo bench --package lang --package orcvs --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 0[.]1 --sample-size 10 --nresamples 1000.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'bench_warmup' '^run = .cargo bench --package lang --package orcvs --package console --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 0[.]1 --sample-size 10 --nresamples 1000.$'
 # `--quick` looks like the flag this budget wants and it would disarm the gate in
 # silence. It drops the name from each output line, and the action's `cargo` parser
 # is one regex over `test <name> ... bench: <N> ns/iter`; a line that does not match
@@ -346,9 +346,10 @@ assert_not_contains "$root_dir/mise.toml" 'cargo bench.*[-]-quick'
 # `run` line, in an existing step or a new one.
 assert_not_contains "$root_dir/.github/workflows/bench.yml" '[-]-quick'
 # The measurement is only compared when the workflow runs, so every path that can
-# move a number has to trigger it: the two benchmarked crates included.
+# move a number has to trigger it: the three benchmarked crates included.
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'orcvs/[*][*]'$"
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'console/[*][*]'$" 2
 assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench [|] tee output[.]txt$'
 # `orcvs` links ALSA through `midir` on Linux, so every bench job needs the same
 # native dependency the test workflow installs. The count is derived from the jobs
@@ -614,18 +615,23 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
   fi
 done
 
-# Criterion covers both benchmarked paths: language execution in `lang`, and
-# populated Source rendering and editing in `orcvs`. It stays a plain versioned
-# dev-dependency of exactly those two crates, so no shipped target and no other
-# crate pulls its tree in.
+# Criterion covers the three benchmarked paths: language execution in `lang`,
+# populated Source rendering and editing in `orcvs`, and Paint derivation in
+# `console`. It stays a plain versioned dev-dependency of exactly those crates,
+# so no shipped target pulls its tree in.
 assert_contains "$root_dir/lang/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
 assert_contains "$root_dir/orcvs/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
+assert_contains "$root_dir/console/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
+# `--benches` selects the library and the binary unless both set `bench = false`.
+# Either one left on hands `--output-format` to a libtest harness and fails the task.
+assert_occurs_exactly "$root_dir/console/Cargo.toml" '^bench = false$' 2
 assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_not_contains "$root_dir/Cargo.toml" '^[[:space:]]*criterion[[:space:]]*='
-assert_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*criterion([.]workspace)?[[:space:]]*='
 assert_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
 assert_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
+assert_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*criterion[.]workspace[[:space:]]*='
 assert_not_contains "$root_dir/Cargo.toml" '^\[profile\.ci\]$'
 assert_contains "$root_dir/Cargo.toml" '^tokio[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*='
 for manifest in "$root_dir/orcvs/Cargo.toml" "$root_dir/console/Cargo.toml"; do

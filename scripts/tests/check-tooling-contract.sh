@@ -103,10 +103,22 @@ test_unbenchmarked_orcvs_is_rejected() {
   assert_rejected "a benchmark workflow that ignores changes to the benchmarked orcvs crate"
 }
 
+test_unbenchmarked_console_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(      - 'console\\/\\*\\*')\$/# \$1/" "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow that ignores changes to the benchmarked console crate"
+}
+
 test_lang_only_bench_task_is_rejected() {
   make_fixture
-  perl -pi -e 's/cargo bench --package lang --package orcvs --benches/cargo bench --package lang/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/cargo bench --package lang --package orcvs --package console --benches/cargo bench --package lang/' "$fixture_dir/mise.toml"
   assert_rejected "a benchmark task that measures only the lang crate"
+}
+
+test_lang_orcvs_only_bench_task_is_rejected() {
+  make_fixture
+  perl -pi -e 's/ --package console//' "$fixture_dir/mise.toml"
+  assert_rejected "a benchmark task that omits the console crate"
 }
 
 test_defaulted_bench_budget_is_rejected() {
@@ -164,6 +176,24 @@ test_shipped_orcvs_criterion_is_rejected() {
   make_fixture
   perl -pi -e 's/^\[dev-dependencies\]$/[dependencies]/' "$fixture_dir/orcvs/Cargo.toml"
   assert_rejected "a criterion dependency that ships in the orcvs library"
+}
+
+test_missing_console_criterion_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^criterion = /# criterion = /' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a console crate without the criterion dev-dependency"
+}
+
+test_shipped_console_criterion_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^\[dev-dependencies\]$/[dependencies]/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a criterion dependency that ships in the console library"
+}
+
+test_console_bin_as_bench_is_rejected() {
+  make_fixture
+  perl -pi -e 'if ($ARGV =~ /console\/Cargo.toml/ && !$done && s/^bench = false$/# bench = false/) { $done = 1 }' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a console binary that cargo bench would run as a libtest harness"
 }
 
 test_bench_without_native_dependencies_is_rejected() {
@@ -815,9 +845,14 @@ case "${1:-all}" in
   disabled-feature-tier) test_pull_request_tier_without_the_disabled_feature_is_rejected ;;
   disabled-feature-tree) test_audit_without_the_disabled_tree_check_is_rejected ;;
   unbenchmarked-orcvs) test_unbenchmarked_orcvs_is_rejected ;;
+  unbenchmarked-console) test_unbenchmarked_console_is_rejected ;;
   lang-only-bench) test_lang_only_bench_task_is_rejected ;;
+  lang-orcvs-only-bench) test_lang_orcvs_only_bench_task_is_rejected ;;
   missing-orcvs-criterion) test_missing_orcvs_criterion_is_rejected ;;
   shipped-orcvs-criterion) test_shipped_orcvs_criterion_is_rejected ;;
+  missing-console-criterion) test_missing_console_criterion_is_rejected ;;
+  shipped-console-criterion) test_shipped_console_criterion_is_rejected ;;
+  console-bin-as-bench) test_console_bin_as_bench_is_rejected ;;
   bench-native-dependencies) test_bench_without_native_dependencies_is_rejected ;;
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
   unlocked-audit-deny) test_unlocked_audit_deny_is_rejected ;;
@@ -902,13 +937,18 @@ case "${1:-all}" in
     test_audit_without_the_disabled_tree_check_is_rejected
     test_unlocked_check_deny_is_rejected
     test_unbenchmarked_orcvs_is_rejected
+    test_unbenchmarked_console_is_rejected
     test_lang_only_bench_task_is_rejected
+    test_lang_orcvs_only_bench_task_is_rejected
     test_defaulted_bench_budget_is_rejected
     test_measuring_warmup_run_is_rejected
     test_asymmetric_bench_warmup_is_rejected
     test_quick_benchmark_output_is_rejected
     test_missing_orcvs_criterion_is_rejected
     test_shipped_orcvs_criterion_is_rejected
+    test_missing_console_criterion_is_rejected
+    test_shipped_console_criterion_is_rejected
+    test_console_bin_as_bench_is_rejected
     test_bench_without_native_dependencies_is_rejected
     test_unlocked_audit_deny_is_rejected
     test_unlocked_wasm_pack_is_rejected

@@ -4,7 +4,7 @@
 
 **Blocked by:** 07
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ### Why this is filed rather than folded into `07`
 
@@ -14,16 +14,16 @@ The counting tests in `07` stay whichever way this lands. They assert the shape 
 
 ### The measurement
 
-- [ ] `console/benches/paint.rs`, criterion, `harness = false`, with `[lib] bench = false` on the crate the way `orcvs` and `lang` already set it — `mise run bench` passes `--benches` and `--output-format bencher`, and a unit-test harness reaching that flag fails the task before criterion runs.
-- [ ] Measure `Paint::derive` at the fitted range and at a culled one, over Grid sizes wide enough to separate "follows the Source" from "follows the viewport". `orcvs/benches/source.rs`'s `FRAME_SIZES` is the existing precedent for which shapes and why; follow it rather than inventing a second set.
-- [ ] `SourceShapes::new` is the other half and needs a `GlyphTable`, which needs an `egui::Context`. Decide whether that is worth a bench at all: if the Context cost swamps what is being measured, measure `Paint::derive` and `Paint::background_runs` alone and say in the bench's own doc comment why the shape step is absent. Do not build a benchmark whose number is mostly harness.
-- [ ] The bench's doc comment states what the number is for, the way `orcvs/benches/source.rs` does throughout. The gate alerts at 150% and fails at 300%, comparing runs across hosted runners, so it cannot see a change smaller than tens of per cent — a benchmark added here is a regression alarm, not a measurement anyone reads off.
+- [x] `console/benches/paint.rs`, criterion, `harness = false`, with `[lib] bench = false` on the crate the way `orcvs` and `lang` already set it — `mise run bench` passes `--benches` and `--output-format bencher`, and a unit-test harness reaching that flag fails the task before criterion runs.
+- [x] Measure `Paint::derive` at the fitted range and at a culled one, over Grid sizes wide enough to separate "follows the Source" from "follows the viewport". `orcvs/benches/source.rs`'s `FRAME_SIZES` is the existing precedent for which shapes and why; follow it rather than inventing a second set.
+- [x] `SourceShapes::new` is the other half and needs a `GlyphTable`, which needs an `egui::Context`. Decide whether that is worth a bench at all: if the Context cost swamps what is being measured, measure `Paint::derive` and `Paint::background_runs` alone and say in the bench's own doc comment why the shape step is absent. Do not build a benchmark whose number is mostly harness.
+- [x] The bench's doc comment states what the number is for, the way `orcvs/benches/source.rs` does throughout. The gate alerts at 150% and fails at 300%, comparing runs across hosted runners, so it cannot see a change smaller than tens of per cent — a benchmark added here is a regression alarm, not a measurement anyone reads off.
 
 ### The wiring, which is the part that is easy to leave half-done
 
-- [ ] `mise.toml`'s `bench` task takes `--package console`. It names its packages explicitly today.
-- [ ] `.github/workflows/bench.yml` adds `console/**` to the `paths` filter of **both** the `push` and the `pull_request` trigger. The two lists are duplicated because Actions does not support YAML anchors, and the comment above them says so — a change to one that misses the other is silent.
-- [ ] That comment enumerates what each glob covers. Extend it rather than leaving `console/**` unexplained beside entries that each state their reason.
+- [x] `mise.toml`'s `bench` task takes `--package console`. It names its packages explicitly today.
+- [x] `.github/workflows/bench.yml` adds `console/**` to the `paths` filter of **both** the `push` and the `pull_request` trigger. The two lists are duplicated because Actions does not support YAML anchors, and the comment above them says so — a change to one that misses the other is silent.
+- [x] That comment enumerates what each glob covers. Extend it rather than leaving `console/**` unexplained beside entries that each state their reason.
 - [x] The merge tier's `test_persistence` runs `nextest` with `-E 'not kind(bench)'` after `e32c1ba`, so a new bench target does not return the merge queue to the hang PR #78 fixed. Confirm that is still the case rather than assuming it. Confirmed on this branch and on `origin/main` (`aeac29b` / PR #78); the filter is not work this effort lands.
 
 ## Verification
@@ -40,3 +40,7 @@ zizmor --offline .github/workflows
 `mise run audit_deps`, because a `[[bench]]` target and criterion as a `console` dev-dependency are a manifest and feature change.
 
 Deferred to CI and named on the `Not run` line: `mise run bench` itself. `.scratch/benchmarks/spec.md` states outright that the comparison lives in the action, so a local run produces a number that decides nothing. Run it only to confirm the target builds and criterion accepts the flags, and say that is why.
+
+## Answer
+
+`console/benches/paint.rs` measures `Paint::derive` and `Paint::background_runs` at a fitted range and a fixed 16×16 culled window, across `FRAME_SIZES`. `SourceShapes::new` is omitted: it needs a `GlyphTable` / `egui::Context`, and that harness would be the number. The first `publish` point after this merges is the series baseline; no figure is written here.

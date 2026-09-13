@@ -51,10 +51,11 @@ use orcvs::{
 };
 
 use crate::{
-    grid_viewport::VisiblePositions,
     marks::{cursor_bloom, sector_left_strength, sector_top_strength},
     style::{cell_visuals, sector_line},
 };
+
+pub use crate::grid_viewport::VisiblePositions;
 
 ///
 /// What one Cell of a Render Frame is drawn as.
@@ -82,7 +83,7 @@ pub(crate) struct CellPaint {
 /// every assertion about coalescing acquire a viewport first.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BackgroundRun {
+pub struct BackgroundRun {
     pub colour: Color32,
     pub row: usize,
     pub columns: Range<usize>,
@@ -96,7 +97,7 @@ pub(crate) struct BackgroundRun {
 /// answerable without the harness a font atlas needs.
 ///
 #[derive(Clone, Debug)]
-pub(crate) struct Paint {
+pub struct Paint {
     grid: Grid,
     /// The Positions this Paint covers: what the console draws, and one Cell
     /// more in every direction the Grid has one.
@@ -120,7 +121,7 @@ impl Paint {
     /// the rectangle its own Grid says it is, and answering an empty slice
     /// there would turn that into rows that silently go unpainted.
     ///
-    pub(crate) fn derive(frame: &RenderFrame, drawn: &VisiblePositions) -> Self {
+    pub fn derive(frame: &RenderFrame, drawn: &VisiblePositions) -> Self {
         let grid = frame.grid();
         // The Cursor is the Position the Render Frame was derived for. A Paint
         // covers a viewport, so `None` here means that Position is outside the
@@ -306,7 +307,7 @@ impl Paint {
     /// — but it would walk Cells the console does not draw, which is the cost
     /// this covers only the drawn range to avoid.
     ///
-    pub(crate) fn background_runs(&self) -> Vec<BackgroundRun> {
+    pub fn background_runs(&self) -> Vec<BackgroundRun> {
         let mut runs = Vec::new();
         let width = self.drawn.columns.len();
         let first_column = self.drawn.columns.start;

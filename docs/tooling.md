@@ -196,11 +196,13 @@ change to a checkout, so
 records the intended settings and holds the decision.
 
 A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
-in both `lang` and `orcvs` and prints them in the bencher output format. `lang` covers language
+in `lang`, `orcvs`, and `console` and prints them in the bencher output format. `lang` covers language
 execution: parsing an Expression and interpreting it. `orcvs` covers a populated Source: reading an
 unchanged revision, deriving its Render Frame, and applying an edit with the Language Map rebuild it
-forces. Each is measured over several Source sizes, so whole-map work shows as growth across the
-series rather than hiding inside one fixed size. `.github/workflows/bench.yml` runs the same command
+forces. `console` covers `Paint::derive` and `Paint::background_runs` at a fitted range and a culled
+window, so work that follows the viewport reads as a flat series. Each Source path is measured over
+several sizes, so whole-map work shows as growth across the series rather than hiding inside one
+fixed size. `.github/workflows/bench.yml` runs the same command
 in two jobs and fails either when a benchmark is more than three times slower than the previous
 stored result.
 
@@ -229,8 +231,8 @@ warm-up is not.
 The publishing job runs after a push to `main` and appends the result to the series on the
 `gh-pages` branch. The pull-request job compares against that series and stores nothing.
 Permissions are declared per job, so only the publishing job can write repository contents. Both
-triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`
-or `orcvs` performance runs no benchmark. `mise run check` does not run either.
+triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`,
+`orcvs`, or `console` performance runs no benchmark. `mise run check` does not run either.
 
 Both jobs publish a second series beside the timings, and it measures allocation rather than wall
 clock. `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` count the blocks and bytes a Tick,
@@ -292,8 +294,8 @@ standard library before any of it starts. `scripts/check-tooling-contract.sh` pi
 that no task calls `mise run miri`, and requires any workflow that does run it to carry
 `workflow_dispatch` and neither of the other two triggers.
 
-- `criterion` measures both benchmarked paths — language execution in `lang`, and populated Source
-  reading, rendering, and editing in `orcvs`; `benchmark-action/github-action-benchmark` stores and
+- `criterion` measures the three benchmarked paths — language execution in `lang`, populated Source
+  reading, rendering, and editing in `orcvs`, and Paint derivation in `console`; `benchmark-action/github-action-benchmark` stores and
   compares the results, and the same pinned action stores the allocation series beside them. The
   allocation counting itself takes no dependency at all: it is a `GlobalAlloc` forwarding to
   `System` inside each crate's `tests/allocation.rs`, which those files explain in place.
