@@ -111,25 +111,34 @@ fn inclusive_note_range(lower: Note, upper: Note) -> Result<Sequence, Error> {
 }
 
 fn build_number_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Error> {
-    let count = usize::try_from(count).map_err(|_| SequenceError::EmptyNotAllowed)?;
+    // Inclusive ranges between two u8 bounds produce a positive count no
+    // larger than 256; the conversion is checked so a future miscalculation
+    // diagnoses rather than silently truncating.
+    let count =
+        usize::try_from(count).map_err(|_| Error::Type(TypeError::Number(format!("{count}"))))?;
     let mut atoms = Vec::with_capacity(count);
     let mut value = start;
     for _ in 0..count {
-        atoms.push(Atom::Number(value as u8));
+        atoms.push(Atom::Number(number_in_range(value)?));
         value += step;
     }
     Sequence::new(atoms)
 }
 
 fn build_note_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Error> {
-    let count = usize::try_from(count).map_err(|_| SequenceError::EmptyNotAllowed)?;
+    let count =
+        usize::try_from(count).map_err(|_| Error::Type(TypeError::Number(format!("{count}"))))?;
     let mut atoms = Vec::with_capacity(count);
     let mut value = start;
     for _ in 0..count {
-        atoms.push(Atom::Note(Note::try_from(value as u8)?));
+        atoms.push(Atom::Note(Note::try_from(number_in_range(value)?)?));
         value += step;
     }
     Sequence::new(atoms)
+}
+
+fn number_in_range(value: i16) -> Result<u8, Error> {
+    u8::try_from(value).map_err(|_| Error::Type(TypeError::Number(format!("{value:02X}"))))
 }
 
 fn as_sequence_required(value: &Value) -> Result<Sequence, Error> {
@@ -239,8 +248,8 @@ fn missing_operand(expected: usize, found: usize) -> Error {
 #[cfg(test)]
 mod test {
     use crate::{
-        Anchor, Atom, Error, Function, Interpretation, Interpreter, Note, Parser, Sequence,
-        SequenceError, Tick, TickInputs, TypeError, Value,
+        Anchor, ArgumentError, Atom, Error, Function, Interpretation, Interpreter, Note, Parser,
+        Sequence, SequenceError, Tick, TickInputs, TypeError, Value,
     };
 
     fn inputs() -> TickInputs {
@@ -655,6 +664,8 @@ mod test {
             (":-0003", Function::NumberRange),
             (":#C4C5", Function::NoteRange),
             (":&:-0101:-0202", Function::Concatenate),
+            (":?00:-0103", Function::Select),
+            (":=01.+0102:-0103", Function::Replace),
         ] {
             let mut text = source.to_string();
             let atoms = Parser::from(&mut text).try_parse().unwrap();
@@ -676,5 +687,170 @@ mod test {
                 "{spelling} round-trips through TryFrom",
             );
         }
+    }
+
+    #[test]
+    fn select_and_replace_parse_round_trips_execute_through_nested_operands() {
+        assert_eq!(
+            interpret(":?00:-0103").unwrap(),
+            Interpretation::Cell(Atom::Number(0x01))
+        );
+        assert_eq!(
+            interpret(":=01.+0102:-0103").unwrap(),
+            Interpretation::Sequence(numbers([0x01, 0x03, 0x03]))
+        );
+    }
+
+    #[test]
+    fn select_declares_that_it_can_emit_bang_and_returns_a_bang_member() {
+        assert!(Function::Select.can_emit_bang());
+        let sequence = Sequence::new([Atom::Bang, Atom::Number(0x00)]).unwrap();
+        assert_eq!(
+            evaluate(
+                Function::Select,
+                &[Value::Atom(Atom::Number(0x00)), Value::Sequence(sequence)]
+            )
+            .unwrap(),
+            Interpretation::Cell(Atom::Bang)
+        );
+        assert_eq!(
+            interpret(":?00:<:=00.=0101:-0101").unwrap(),
+            Interpretation::Cell(Atom::Bang)
+        );
+    }
+
+    #[test]
+    fn reverse_and_concatenate_diagnose_atoms_where_sequences_are_required() {
+        assert!(matches!(
+            evaluate(Function::Reverse, &[Value::Atom(Atom::Number(0x0A))]),
+            Err(Error::Sequence(SequenceError::ExpectedSequence(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::Concatenate,
+                &[
+                    Value::Atom(Atom::Function(Function::SelfBangingEast)),
+                    Value::Sequence(numbers([0x0A]))
+                ]
+            ),
+            Err(Error::Sequence(SequenceError::Member(_)))
+        ));
+    }
+
+    #[test]
+    fn structural_functions_diagnose_missing_operands() {
+        assert!(matches!(
+            evaluate(Function::Reverse, &[]),
+            Err(Error::Argument(ArgumentError::Arity {
+                expected: 1,
+                found: 0
+            }))
+        ));
+        assert!(matches!(
+            evaluate(Function::Concatenate, &[Value::Sequence(numbers([0x01]))]),
+            Err(Error::Argument(ArgumentError::Arity {
+                expected: 2,
+                found: 1
+            }))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Atom(Atom::Number(0x01))
+                ]
+            ),
+            Err(Error::Argument(ArgumentError::Arity {
+                expected: 3,
+                found: 2
+            }))
+        ));
+    }
+
+    #[test]
+    fn number_range_interpret_diagnoses_a_note_operand_bound() {
+        assert!(matches!(
+            interpret(":-.^3C03"),
+            Err(Error::Type(TypeError::Number(found))) if found == "C4"
+        ));
+    }
+
+    #[test]
+    fn range_functions_diagnose_function_and_sequence_bounds() {
+        assert!(matches!(
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Function(Function::Add)),
+                    Value::Atom(Atom::Number(0x03))
+                ]
+            ),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Atom(Atom::Function(Function::Add)),
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap()))
+                ]
+            ),
+            Err(Error::Type(TypeError::Note(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Sequence(numbers([0x00, 0x01])),
+                    Value::Atom(Atom::Number(0x03))
+                ]
+            ),
+            Err(Error::Sequence(SequenceError::ExpectedAtom(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Sequence(notes([60, 61])),
+                    Value::Atom(Atom::Note(Note::try_from(62).unwrap()))
+                ]
+            ),
+            Err(Error::Sequence(SequenceError::ExpectedAtom(_)))
+        ));
+        assert!(matches!(
+            interpret(":-**0003"),
+            Err(Error::Type(TypeError::Number(found))) if found == "**"
+        ));
+        assert!(matches!(
+            interpret(":#**C4"),
+            Err(Error::Type(TypeError::Note(found))) if found == "**"
+        ));
+    }
+
+    #[test]
+    fn number_range_spans_the_full_byte_without_wrapping() {
+        let Interpretation::Sequence(sequence) = evaluate(
+            Function::NumberRange,
+            &[
+                Value::Atom(Atom::Number(0x00)),
+                Value::Atom(Atom::Number(0xFF)),
+            ],
+        )
+        .unwrap() else {
+            panic!("Number Range answers a Sequence");
+        };
+        assert_eq!(sequence.len(), 256);
+        assert_eq!(sequence.atoms().first(), Some(&Atom::Number(0x00)));
+        assert_eq!(sequence.atoms().last(), Some(&Atom::Number(0xFF)));
+        assert_eq!(
+            sequence
+                .atoms()
+                .iter()
+                .filter(|atom| matches!(atom, Atom::Number(0x00)))
+                .count(),
+            1,
+            "a wrapped range would duplicate zero"
+        );
     }
 }

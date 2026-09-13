@@ -2146,6 +2146,85 @@ mod test {
     }
 
     #[test]
+    fn a_declared_note_range_row_derives_its_own_reservation() {
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &[":#C4C7", ""]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        assert_eq!(lookup.nodes().len(), 1);
+        assert_eq!(lookup.nodes()[0].function, lang::Function::NoteRange);
+        assert_eq!(lookup.reserved(0), super::Reserved::Row);
+        assert_eq!(
+            lookup.would_reserve(0, lang::Function::NoteRange),
+            super::Reserved::Row,
+            "Note Range reserves through the end of its destination row",
+        );
+    }
+
+    #[test]
+    fn live_a_declared_number_range_that_leaves_its_row_writes_no_cell_of_it() {
+        let grid = Grid::new(16, 2);
+        let rows = [" :-000F        ", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn live_a_declared_note_range_that_leaves_its_row_writes_no_cell_of_it() {
+        // Each Note encodes as two Cells, so nine chromatic steps need eighteen
+        // and do not fit a sixteen-Cell row even from column zero.
+        let grid = Grid::new(16, 2);
+        let rows = [":#C0C8          ", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn a_select_bang_activates_an_aligned_terminal_root() {
+        // Select may return a Bang member unchanged. Scheduling trusts
+        // `can_emit_bang` to build activation edges for scalar Bang results,
+        // the same way it does for Equality's pulse.
+        let grid = Grid::new(24, 6);
+        let rows = ["", ":?00:<:=00.=0101:-0101", "", "!>007FC4", "", ""];
+        let bytes = rows
+            .iter()
+            .map(|row| format!("{row:24}"))
+            .collect::<String>();
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [(
+            grid.index(grid.position(0, 1).unwrap()),
+            vec![grid.position(0, 2).unwrap()],
+        )]
+        .into_iter()
+        .collect();
+
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
     fn replacing_a_cell_pair_function_with_number_range_changes_width() {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &[".-000003", ""]);

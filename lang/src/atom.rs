@@ -1005,16 +1005,17 @@ macro_rules! define_functions {
                 }
             }
 
+            const VALUE_OPERAND_FUNCTIONS: [Function; 6] = [
+                Function::Reverse,
+                Function::Concatenate,
+                Function::Select,
+                Function::Replace,
+                Function::NumberRange,
+                Function::NoteRange,
+            ];
+
             fn uses_value_operands(function: Function) -> bool {
-                matches!(
-                    function,
-                    Function::Reverse
-                        | Function::Concatenate
-                        | Function::Select
-                        | Function::Replace
-                        | Function::NumberRange
-                        | Function::NoteRange
-                )
+                VALUE_OPERAND_FUNCTIONS.contains(&function)
             }
 
             #[test]
@@ -1039,14 +1040,7 @@ macro_rules! define_functions {
 
             #[test]
             fn every_value_operand_function_binds_through_extract_values() {
-                for function in [
-                    Function::Reverse,
-                    Function::Concatenate,
-                    Function::Select,
-                    Function::Replace,
-                    Function::NumberRange,
-                    Function::NoteRange,
-                ] {
+                for function in VALUE_OPERAND_FUNCTIONS {
                     let mut stack = Stack::new(16);
 
                     for token in function.signature().iter().copied().rev() {
@@ -1135,7 +1129,7 @@ define_functions! {
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Scalar, Atom, false, []),
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Scalar, Atom, false, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Scalar, Atom, false, []),
-    Select => (":?", Value, Intrinsic, Scalar, Atom, false, [index: Number, sequence: Sequence]),
+    Select => (":?", Value, Intrinsic, Scalar, Atom, true, [index: Number, sequence: Sequence]),
     Subtract => (".-", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
@@ -1553,23 +1547,29 @@ mod test {
     }
 
     #[test]
-    fn exactly_the_pulse_answering_functions_declare_that_they_can_emit_bang() {
-        // Three Functions answer a Bang rather than a value: ADR 0011's
-        // Equality and ADR 0012's Delay and Euclidean. Tick scheduling trusts
-        // the declaration to decide which roots can supply activation, so the
-        // list is stated whole — a fourth Function that began answering Bang
-        // without declaring it would build no activation edge, and the
-        // neighbouring terminal root would fall silent with no diagnostic
-        // anywhere. `only_a_function_that_declares_it_ever_answers_with_bang`
-        // is the other half, checking each declaration against what the
-        // Interpreter actually answers.
+    fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
+        // ADR 0011's Equality and ADR 0012's Delay and Euclidean answer a
+        // Bang or Absence as their result. Select answers one Atom and may
+        // return a Bang member unchanged. Tick scheduling trusts the declaration
+        // to decide which roots can supply activation, so the list is stated
+        // whole — a Function that began returning Bang without declaring it
+        // would build no activation edge, and the neighbouring terminal root
+        // would fall silent with no diagnostic anywhere.
+        // `only_a_function_that_declares_it_ever_answers_with_bang` is the
+        // other half for Atom-only Functions; Select is exercised on its own
+        // path because its operands bind through ValueOperands.
         assert_eq!(
             Function::ALL
                 .iter()
                 .copied()
                 .filter(|function| function.can_emit_bang())
                 .collect::<Vec<_>>(),
-            vec![Function::Delay, Function::Equality, Function::Euclidean]
+            vec![
+                Function::Delay,
+                Function::Equality,
+                Function::Euclidean,
+                Function::Select,
+            ]
         );
     }
 
