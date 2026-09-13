@@ -1,6 +1,6 @@
 //! ADR 0009's Portal: where one interpreted result becomes Cells.
 //!
-//! A Portal is one Cell destination resolved while scheduling a Tick. It lives
+//! A Portal is one Cell destination resolved during a Tick. It lives
 //! here rather than beside the producers in `tick` because
 //! destination resolution is the question ADR 0009 expects to change: a
 //! future Cell-addressing model, an infinite canvas among them, moves a
@@ -8,6 +8,8 @@
 //! ordering, or Tick Plan commit. Keeping resolution in its own module is what
 //! makes that a change to one file rather than a change threaded through the
 //! producer that happened to hardcode "the row below the root".
+//! Reads, write admission, and Reservations share its row-fit calculation;
+//! each caller retains the policy deciding how much coverage it needs.
 //!
 //! Nothing in this module is reachable from the language crate, and nothing in
 //! it is serialized. That is the whole of CONTEXT.md's "a Portal is neither a
@@ -132,7 +134,30 @@ impl Portal {
         self.destination
     }
 
+    /// Complete coverage of a nonempty read or write, without leaving this row.
+    /// Callers supply widths from nonempty encodings, declared input types,
+    /// or Reservations. Empty results never reach a Portal.
+    pub(super) fn span(self, width: usize) -> Result<Span, PortalError> {
+        let offset = width.checked_sub(1).expect("Portal coverage is nonempty");
+        let last = self
+            .grid
+            .offset_in_row(self.destination, offset)
+            .ok_or(PortalError::CrossesRowEdge)?;
+        Ok(Span::new(
+            self.grid,
+            self.grid.index(self.destination),
+            last,
+        ))
+    }
+
     ///
+    /// All Cells from this destination through the end of its own row.
+    /// A resolved destination always has at least its own Cell remaining.
+    pub(super) fn remaining_span(self) -> Span {
+        self.span(self.grid.columns() - self.destination.x())
+            .expect("the remaining Cells of a resolved Portal fit its row")
+    }
+
     /// The write that places `encoding` at this Portal and along its row, or
     /// the reason the whole destination was refused.
     ///
@@ -153,14 +178,8 @@ impl Portal {
     ///
     pub(super) fn admit(&self, encoding: &Encoding) -> Result<SpanWrite, PortalError> {
         let content: Vec<CellContent> = encoding.content();
-        let width = content.len();
-        let last = self
-            .grid
-            .offset_in_row(self.destination, width - 1)
-            .ok_or(PortalError::CrossesRowEdge)?;
-
         Ok(SpanWrite {
-            span: Span::new(self.grid, self.grid.index(self.destination), last),
+            span: self.span(content.len())?,
             content,
         })
     }
@@ -183,6 +202,11 @@ pub(super) struct SpanWrite {
 }
 
 impl SpanWrite {
+    /// Coverage already validated by admission, independent of the Reservation.
+    pub(super) fn span(&self) -> Span {
+        self.span
+    }
+
     ///
     /// Each Cell this write covers, paired with what it receives.
     ///
@@ -198,6 +222,29 @@ impl SpanWrite {
 
 #[cfg(test)]
 mod test {
+    #[test]
+    fn remaining_portal_coverage_stops_at_its_own_row_end() {
+        for (columns, column, first, last) in
+            [(5, 0, 5, 9), (5, 2, 7, 9), (5, 4, 9, 9), (1, 0, 1, 1)]
+        {
+            let grid = Grid::new(columns, 3);
+            let portal = Portal::at(grid, grid.position(column, 1).unwrap());
+            let span = portal.remaining_span();
+            assert_eq!(span.start(), cell(grid, first));
+            assert_eq!(span.end(), cell(grid, last));
+        }
+    }
+
+    #[test]
+    fn portal_coverage_fits_the_complete_width_or_refuses_it() {
+        let grid = Grid::new(5, 3);
+        let portal = Portal::at(grid, grid.position(3, 1).unwrap());
+        let span = portal.span(2).unwrap();
+        assert_eq!(span.start(), cell(grid, 8));
+        assert_eq!(span.end(), cell(grid, 9));
+        assert_eq!(portal.span(3), Err(PortalError::CrossesRowEdge));
+    }
+
     use super::{Encoding, Portal, PortalError};
     use crate::grid::{CellIndex, Grid};
 

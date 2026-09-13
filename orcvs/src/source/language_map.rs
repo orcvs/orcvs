@@ -107,6 +107,12 @@ impl Span {
         self.end
     }
 
+    /// The existing endpoints as a half-open range for Source slicing and
+    /// relationship lookup. This does not resolve or revalidate geometry.
+    pub(super) fn range(self) -> std::ops::Range<usize> {
+        self.start.get()..self.end.get() + 1
+    }
+
     /// Every Cell index this Span covers, first to last.
     pub(super) fn indices(self) -> impl Iterator<Item = CellIndex> {
         let grid = self.grid;

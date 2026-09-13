@@ -132,17 +132,12 @@ impl Reserved {
     /// is why the callers ask for the Cells instead of matching on the variant
     /// and measuring them again.
     fn cells_from(self, grid: Grid, output: Position) -> Option<Range<usize>> {
-        let start = grid.index(output).get();
-        match self {
-            Self::Pair => {
-                grid.offset_in_row(output, SCALAR_WIDTH - 1)?;
-                Some(start..start + SCALAR_WIDTH)
-            }
-            // The row's remaining Cells, measured from the destination's own
-            // column so the count stops at the row edge rather than running on
-            // into the next row's Cells.
-            Self::Row => Some(start..start + (grid.columns() - output.x())),
-        }
+        let portal = Portal::at(grid, output);
+        let span = match self {
+            Self::Pair => portal.span(SCALAR_WIDTH).ok()?,
+            Self::Row => portal.remaining_span(),
+        };
+        Some(span.range())
     }
 
     /// Whether a result `width` Cells wide is one this reservation covers.
@@ -382,15 +377,14 @@ impl Lookup {
         })
     }
 
-    /// The relationships of the `width` Cells one admitted write actually
-    /// covers, from `output` along its row.
+    /// The relationships of the Cells an admitted write actually covers.
     ///
     /// Execution asks this rather than [`Lookup::reserved_at`] because the
     /// reservation is deliberately wider than most writes: a computation inside
     /// a `Reserved::Row` reservation that the write stopped short of was
     /// ordered after its producer and then not written over, so it must not be
-    /// suppressed. A width is what the caller has — the Cells it names are this
-    /// Grid's to number — and those Cells are always a subset of what
+    /// suppressed. The write already holds its validated coverage, and those
+    /// Cells are always a subset of what
     /// scheduling reserved: a Cell pair is exactly the scalar reservation, and
     /// a Portal refuses any encoding that leaves the destination's row.
     ///
@@ -408,12 +402,12 @@ impl Lookup {
     /// a Cell pair and asks both questions over the same two Cells.
     /// [`PortalRelationships::bang_roots`] states what the first such Function
     /// has to settle.
-    fn written_over(&self, output: Position, width: usize) -> PortalRelationships<'_> {
-        let start = self.grid.index(output).get();
+    fn written_over(&self, write: &SpanWrite) -> PortalRelationships<'_> {
+        let span = write.span();
         PortalRelationships {
             lookup: self,
-            output,
-            cells: start..start + width,
+            output: self.grid.position_at(span.start()),
+            cells: span.range(),
         }
     }
 }

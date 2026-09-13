@@ -363,13 +363,8 @@ impl<'a> Execution<'a> {
         let portal = match input.site() {
             PortalSite::OrdinaryResult => Portal::ordinary_result(self.grid, node.anchor).ok()?,
         };
-        let destination = portal.destination();
-        let first = self.grid.offset_in_row(destination, 0)?.get();
-        let last = self
-            .grid
-            .offset_in_row(destination, input.token().len() - 1)?
-            .get();
-        Some(std::str::from_utf8(&self.working[first..=last]).expect("ASCII Source"))
+        let span = portal.span(input.token().len()).ok()?;
+        Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
     }
 
     fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Value>, String> {
@@ -461,7 +456,6 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        let output = output.expect("an admitted write has a destination");
         // The Cells this write actually covers, not the Cells scheduling
         // reserved for it. The two coincide for a scalar answer and come apart
         // for a Sequence, whose reservation runs to the end of its row: a
@@ -469,7 +463,7 @@ impl<'a> Execution<'a> {
         // of was ordered after this producer and then never written over, so it
         // is neither suppressed nor replaced. Ordering is what a reservation
         // decides; what happened to a Cell is what the write decides.
-        let relationships = self.lookup.written_over(output, encoding.len());
+        let relationships = self.lookup.written_over(&write);
         // Both rules below read `value` rather than the Cells, and both are
         // therefore untouched by the width of the write: `Atom::Bang` and
         // `Atom::Function` are single Atoms by construction, so a Sequence
@@ -625,14 +619,10 @@ impl<'a> Execution<'a> {
         // The asymmetry is not carved into the write either way: per ADR 0004
         // an advancing clear covers the complete old Span and ADR 0020's
         // later-write-wins settles the Cell the two share.
-        let admitted =
-            Portal::displaced(self.grid, anchor, effect.columns, effect.rows).and_then(|portal| {
-                portal
-                    .admit(&spelling)
-                    .map(|write| (portal.destination(), write))
-            });
+        let admitted = Portal::displaced(self.grid, anchor, effect.columns, effect.rows)
+            .and_then(|portal| portal.admit(&spelling));
         let entered: Vec<usize> = match &admitted {
-            Ok((_, write)) => write
+            Ok(write) => write
                 .cells()
                 .map(|(cell, _)| cell.get())
                 .filter(|cell| !advancing || !own.contains(cell))
@@ -642,8 +632,8 @@ impl<'a> Execution<'a> {
         let empty = entered.iter().all(|cell| self.working[*cell] == b' ');
 
         match admitted {
-            Ok((destination, write)) if empty => {
-                let relationships = self.lookup.written_over(destination, spelling.len());
+            Ok(write) if empty => {
+                let relationships = self.lookup.written_over(&write);
                 if relationships.functions().any(|contact| {
                     contact
                         .subtree
