@@ -168,7 +168,7 @@ impl Paint {
     /// decides what to do with its answer, not what the answer is.
     ///
     /// The range is the console's decision, not this layer's. It comes from
-    /// [`GridViewport::visible_positions`] already clamped to the Grid, which is
+    /// `GridViewport::visible_positions` already clamped to the Grid, which is
     /// why the two slices below are indexed rather than reached through `get`:
     /// a range that outran this Render Frame would mean a Frame that is not
     /// the rectangle its own Grid says it is, and answering an empty slice
