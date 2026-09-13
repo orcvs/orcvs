@@ -566,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
         let mut orcvs = running_orcvs(24, 24);
-        // A sector corner at the default marker spacing of eight.
+        // A sector corner at the default Sector Seam spacing of eight.
         let corner = orcvs.grid().position(8, 8).expect("inside the grid");
         orcvs.select(corner);
 
