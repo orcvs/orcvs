@@ -179,7 +179,7 @@ mod test {
 
     /// Exercises Function dispatch with resolved operands in signature order.
     fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, operands, inputs())
+        Interpreter::execute_function(function, operands, inputs().into())
     }
 
     /// A terminal body, so the two spellings that share a claim can be stated
@@ -193,7 +193,7 @@ mod test {
     /// that guard rather than the Function it names. The bodies own their
     /// arity demand, so the tests that pin it reach them here.
     fn call_body(body: Terminal, operands: &[Value]) -> Result<Performance, Error> {
-        let mut ctx = Context::new(inputs(), 4);
+        let mut ctx = Context::new(inputs().into(), 4);
         for operand in operands.iter().rev() {
             ctx.stack.push(operand.clone()).unwrap();
         }
@@ -321,7 +321,7 @@ mod test {
     /// interface intentionally hides from its callers.
     #[test]
     fn test_raw_play_consumes_exactly_three_arguments() {
-        let mut ctx = Context::new(inputs(), 4);
+        let mut ctx = Context::new(inputs().into(), 4);
 
         // A fourth atom below the three arguments must survive untouched
         ctx.stack.push(Atom::Char('z')).unwrap();

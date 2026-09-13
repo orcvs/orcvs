@@ -423,10 +423,11 @@ enum Pervasion {
     /// answer instead would fix a meaning for layered rhythms that could not
     /// later be changed without breaking Source, so the operand is refused.
     ///
-    /// ADR 0012's Increment and Interpolation are the other exception this
-    /// column exists for — they state it on their own terms and are unbuilt —
-    /// and each arrives by declaring this rather than by a check written beside
-    /// its body.
+    /// ADR 0012's Increment `~+` and Interpolation `~>` are the other
+    /// exception this column exists for — they state it on their own terms,
+    /// because element identity across Ticks would need hidden state their one
+    /// visible Atom cannot hold — and each arrives by declaring this rather
+    /// than by a check written beside its body.
     Scalar,
 }
 
@@ -447,9 +448,9 @@ enum Pervasion {
 /// is declared rather than observed: a schedule is fixed before a width exists.
 #[derive(Clone, Copy)]
 enum Answer {
-    /// One Atom, whatever its operands carry. Equality is the row that declares
-    /// this today; ADR 0012's Increment and Interpolation, which refuse a
-    /// Sequence operand outright, will declare it beside `Pervasion::Scalar`.
+    /// One Atom, whatever its operands carry. Equality is the row that first
+    /// declared this; ADR 0012's Increment and Interpolation refuse a Sequence
+    /// operand outright and declare it beside `Pervasion::Scalar`.
     Atom,
     /// One answer per element, so as wide as the widest operand: an Atom for
     /// Atom operands and a Sequence of the same length for a Sequence one. This
@@ -652,9 +653,19 @@ macro_rules! unary_operands {
     ($variant:ident, [$($role:ident),*]) => {};
 }
 
+// Portal inputs are optional because most Functions read only cell operands.
+macro_rules! portal_input {
+    () => {
+        None
+    };
+    ($role:literal, Number, OrdinaryResult) => {
+        Some(crate::PortalInput::ordinary_result_number($role))
+    };
+}
+
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?])),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident at $portal_site:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -827,6 +838,13 @@ macro_rules! define_functions {
                 self.signature().is_empty()
             }
 
+            /// The Portal input resolved at Turn, after cell operand validation.
+            pub const fn portal_input(self) -> Option<crate::PortalInput> {
+                match self {
+                    $(Self::$variant => portal_input!($($portal_role, $portal_type, $portal_site)?),)+
+                }
+            }
+
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => &[$(operand_token!($operand),)*],)+
@@ -898,6 +916,12 @@ macro_rules! define_functions {
                     }
                 }
 
+                $(impl crate::portal::PortalOperands for $variant {
+                    const PORTAL: crate::PortalInput = match portal_input!($portal_role, $portal_type, $portal_site) {
+                        Some(input) => input,
+                        None => unreachable!(),
+                    };
+                })?
                 unary_operands!($variant, [$($role),*]);
             )+
         }
@@ -980,6 +1004,8 @@ define_functions! {
     Divide => ("./", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Equality => (".=", Value, Intrinsic, Pervasive, Atom, true, [left: Number, right: Number]),
     Euclidean => ("~%", Value, Intrinsic, Scalar, Atom, true, [hits: Number, steps: Number]),
+    Increment => ("~+", Value, Intrinsic, Scalar, Atom, false, [step: Number, modulus: Number], portal: "previous value": Number at OrdinaryResult),
+    Interpolation => ("~>", Value, Intrinsic, Scalar, Atom, false, [rate: Number, target: Number], portal: "previous value": Number at OrdinaryResult),
     Maximum => (".>", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
@@ -1698,6 +1724,8 @@ mod test {
                 | Function::Divide
                 | Function::Equality
                 | Function::Euclidean
+                | Function::Increment
+                | Function::Interpolation
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
@@ -1788,7 +1816,10 @@ mod test {
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => false,
-                Function::Delay | Function::Euclidean => false,
+                Function::Delay
+                | Function::Euclidean
+                | Function::Increment
+                | Function::Interpolation => false,
             };
 
             assert_eq!(function.is_pervasive(), expected, "{function:?}");
@@ -1831,7 +1862,10 @@ mod test {
                 // from. They are what the assertion below is about — an answer
                 // that does not widen, declared beside the pervasion that
                 // cannot widen.
-                Function::Delay | Function::Euclidean => (false, false),
+                Function::Delay
+                | Function::Euclidean
+                | Function::Increment
+                | Function::Interpolation => (false, false),
                 // A Source-writing Function answers an effect, so it answers no
                 // Sequence and widens over nothing. It declares the column all
                 // the same, because the column says how wide an answer is and
@@ -1873,9 +1907,9 @@ mod test {
             // The two columns are independent but not free of each other: a
             // Function that refuses a Sequence operand has none to widen from,
             // so `Elementwise` beside `Pervasion::Scalar` would declare a
-            // widening that can never happen. ADR 0012's Increment is the row
-            // that will first be able to break this, and it should fail here
-            // rather than reserve Cells for a Sequence it refuses.
+            // widening that can never happen. Increment and Interpolation are
+            // the rows that could have broken this, and they fail here rather
+            // than reserve Cells for a Sequence they refuse.
             assert!(
                 !function.widens_over_a_sequence_operand() || function.is_pervasive(),
                 "{function:?} widens over an operand it refuses",

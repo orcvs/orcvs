@@ -469,6 +469,25 @@ fn execute_tick_with_edges(c: &mut Criterion) {
     tick_series(c, "source_execute_tick_edges", edged_source_text);
 }
 
+/// Feedback binding borrows Portal Cells at Turn. Keep its full Source path
+/// measurable alongside the non-feedback Tick series; CI owns comparisons.
+fn execute_tick_with_portal_inputs(c: &mut Criterion) {
+    tick_series(c, "source_execute_tick_portal_inputs", |cols, rows| {
+        let mut text = String::with_capacity(cols * rows);
+        for row in 0..rows {
+            let mut line = String::new();
+            if row % 2 == 0 {
+                while line.len() + 8 <= cols {
+                    line.push_str(if row % 4 == 0 { "~+01FF  " } else { "~>017F  " });
+                }
+            }
+            line.extend(std::iter::repeat_n(' ', cols - line.len()));
+            text.push_str(&line);
+        }
+        text
+    });
+}
+
 fn tick_series(c: &mut Criterion, name: &str, text: fn(usize, usize) -> String) {
     let mut group = c.benchmark_group(name);
 
@@ -494,6 +513,7 @@ criterion_group!(
     edit_rebuild_valid,
     edit_rebuild_invalid,
     execute_tick,
-    execute_tick_with_edges
+    execute_tick_with_edges,
+    execute_tick_with_portal_inputs
 );
 criterion_main!(benches);

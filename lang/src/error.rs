@@ -30,18 +30,14 @@ pub enum Error {
 #[derive(Error, Debug)]
 pub enum SequenceError {
     /// A Sequence at an operand position of a Function that declares it does
-    /// not pervade. Two rows declare that: ADR 0039 keeps Delay `~*` and
+    /// not pervade. Four rows declare that: ADR 0039 keeps Delay `~*` and
     /// Euclidean `~%` scalar, because a widened pulse would have to answer
     /// something at an element that does not Bang and the Absence Marker,
     /// which is the only Atom meaning nothing, is refused as a Sequence member
-    /// by ADR 0025. ADR 0012's Increment and Interpolation are the remaining
-    /// candidates, and each of the four is refused by its declared pervasion
-    /// rather than by a check written beside it.
-    ///
-    /// A declaration is not the only thing that raises it. The scalar pop
-    /// `Stack::pop` offers outside Function evaluation raises it under the same
-    /// rule: a Sequence has no scalar reading, and answering with its first
-    /// Atom would silently discard the rest.
+    /// by ADR 0025. ADR 0012 keeps Increment `~+` and Interpolation `~>`
+    /// scalar because element identity across Ticks would need hidden state
+    /// their one visible Atom cannot hold. Each of the four is refused by its
+    /// declared pervasion rather than by a check written beside it.
     #[error("expected an Atom, found the Sequence {0:?}")]
     ExpectedAtom(String),
 
@@ -141,6 +137,52 @@ pub enum InterpretationError {
         crate::Function::Euclidean
     )]
     EuclideanOverfull { hits: u8, steps: u8 },
+
+    /// Increment handed a zero where its wrap needs a length.
+    ///
+    /// ADR 0012's `(previous + step) % modulus` has no wrap once the modulus
+    /// is zero, so Increment diagnoses rather than inventing one. The variant
+    /// is its own rather than [`InterpretationError::ZeroCycle`] because
+    /// Increment is not counting a cycle: it is wrapping a running Number, and
+    /// a Source shown "cannot count a cycle" would be told about a Function it
+    /// did not write. It is also not [`InterpretationError::ModuloByZero`]:
+    /// that names Modulo, and a Source shown two messages about one Cell pair
+    /// should not have to work out that they name one Function. `function` is
+    /// the declared Function so the message renders the Cells the Source holds.
+    #[error("{function} cannot wrap at a zero {role}")]
+    ZeroWrap {
+        function: crate::Function,
+        role: &'static str,
+    },
+
+    /// Increment or Interpolation found a previous that is not a Number.
+    ///
+    /// ADR 0012 treats an empty Portal as Number `00` and diagnoses any other
+    /// present Language Unit. Portal binding raises this after cell operand
+    /// validation, so the fault is named here rather than
+    /// as a [`crate::TypeError`] about operand Cells the Source did not write
+    /// as an operand. `function` is the declared Function and `role` names
+    /// what was read, so the message says which of the two feedback Functions
+    /// the Source wrote.
+    #[error("{function} cannot read a {role} that is not a Number")]
+    PortalInputNotNumber {
+        function: crate::Function,
+        role: &'static str,
+    },
+
+    /// Increment or Interpolation computed a Number their answer cannot hold.
+    ///
+    /// Unreachable while ADR 0012's formulas stand: Increment's result is a
+    /// remainder of a modulus that arrived as a Number, and Interpolation
+    /// moves a Number toward a Number, so both stay below `FF`. The variant
+    /// exists for the reason [`InterpretationError::ClockStepOutOfRange`]
+    /// does: a panic is ruled out under the Source write guard, and a
+    /// fallback Number would write a legal-looking answer with no trace.
+    #[error("{function} cannot answer {value} as a Number")]
+    TickNumberOutOfRange {
+        function: crate::Function,
+        value: u64,
+    },
 
     /// ADR 0028 states that an instruction answers either a value or an
     /// effect, so a Function answering an effect can stand only where nothing
