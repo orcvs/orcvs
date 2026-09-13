@@ -1,7 +1,7 @@
 use crate::{
     grid::{Grid, Position},
     opts::{HighlightSpacing, MarkerSpacing},
-    source::{SourceRevision, Token},
+    source::{Diagnostic, SourceRevision, Span, Token},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -31,6 +31,35 @@ impl RenderCell {
     }
 }
 
+///
+/// One Expression this Render Frame was derived from.
+///
+/// Carried once per Expression rather than copied onto every Cell the Span
+/// covers. The console resolves a Cell to its Expression; a diagnostic and
+/// an executability decision belong to the Expression.
+///
+#[derive(Clone, Debug)]
+pub struct RenderExpression {
+    span: Span,
+    diagnostic: Option<Diagnostic>,
+    root: Option<Position>,
+}
+
+impl RenderExpression {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn diagnostic(&self) -> Option<&Diagnostic> {
+        self.diagnostic.as_ref()
+    }
+
+    /// The first Function anchor when this is a complete executable Expression.
+    pub fn root(&self) -> Option<Position> {
+        self.root
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RenderFrame {
     grid: Grid,
@@ -39,6 +68,8 @@ pub struct RenderFrame {
     marker_spacing: MarkerSpacing,
     highlight_dot_spacing: HighlightSpacing,
     cells: Vec<RenderCell>,
+    expressions: Vec<RenderExpression>,
+    lexical_diagnostics: Vec<Diagnostic>,
 }
 
 impl RenderFrame {
@@ -59,6 +90,20 @@ impl RenderFrame {
                 token: source.token_at(position),
             })
             .collect();
+        let expressions = source
+            .language_map()
+            .expressions()
+            .map(|expression| RenderExpression {
+                span: expression.span(),
+                diagnostic: expression.diagnostic().cloned(),
+                root: expression.root(),
+            })
+            .collect();
+        let lexical_diagnostics = source
+            .language_map()
+            .lexical_diagnostics()
+            .cloned()
+            .collect();
         Self {
             grid,
             cursor: selected,
@@ -66,6 +111,8 @@ impl RenderFrame {
             marker_spacing: config.marker_spacing,
             highlight_dot_spacing: config.highlight_dot_spacing,
             cells,
+            expressions,
+            lexical_diagnostics,
         }
     }
 
@@ -139,6 +186,63 @@ impl RenderFrame {
     pub fn cells(&self) -> &[RenderCell] {
         &self.cells
     }
+
+    ///
+    /// Every Expression this Frame was derived from, in Source order.
+    ///
+    pub fn expressions(&self) -> &[RenderExpression] {
+        &self.expressions
+    }
+
+    ///
+    /// The Expression whose Span covers `position`, when one does.
+    ///
+    /// A later Expression owns the Cells its Span covers, matching
+    /// [`crate::source::LanguageMap::token_at`].
+    ///
+    pub fn expression_at(&self, position: Position) -> Option<&RenderExpression> {
+        self.grid.assert_owns(position);
+        self.expressions.iter().rev().find(|expression| {
+            expression
+                .span
+                .positions()
+                .any(|covered| covered == position)
+        })
+    }
+
+    ///
+    /// Unmatched-character diagnostics this revision established.
+    ///
+    /// Copied from the Language Map. A Cell can sit inside one of these
+    /// without sitting inside an Expression.
+    ///
+    pub fn lexical_diagnostics(&self) -> &[Diagnostic] {
+        &self.lexical_diagnostics
+    }
+
+    ///
+    /// Whether an Expression diagnostic or a lexical diagnostic covers
+    /// `position`.
+    ///
+    pub fn diagnostic_covers(&self, position: Position) -> bool {
+        self.grid.assert_owns(position);
+        let expression_diagnostic = self
+            .expression_at(position)
+            .and_then(RenderExpression::diagnostic)
+            .is_some_and(|diagnostic| diagnostic_span_covers(diagnostic, position));
+        let lexical = self
+            .lexical_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic_span_covers(diagnostic, position));
+        expression_diagnostic || lexical
+    }
+}
+
+fn diagnostic_span_covers(diagnostic: &Diagnostic, position: Position) -> bool {
+    diagnostic
+        .span()
+        .positions()
+        .any(|covered| covered == position)
 }
 
 #[cfg(test)]
@@ -370,5 +474,143 @@ mod tests {
 
         assert_eq!(frame.marker_spacing(), marker_spacing);
         assert_eq!(frame.highlight_dot_spacing(), highlight_dot_spacing);
+    }
+
+    fn write_row(source: &SourceCommander, grid: Grid, text: &str) {
+        for (index, content) in text.chars().enumerate() {
+            source.set(cell(grid, index), &content.to_string()).unwrap();
+        }
+    }
+
+    fn derive_frame(source: &SourceCommander, selected: crate::grid::Position) -> RenderFrame {
+        RenderFrame::derive(
+            source.read_revision(),
+            selected,
+            false,
+            RenderFrameConfig {
+                marker_spacing: MarkerSpacing::new(2).unwrap(),
+                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+            },
+        )
+    }
+
+    #[test]
+    fn a_parse_error_reaches_the_render_frame_for_the_expression_span() {
+        // `.+0102` is a complete Add. `.+01` is the same Function one operand
+        // short; the Language Map reports "expected a token" across that Span.
+        let complete_grid = Grid::new(6, 1);
+        let complete = SourceCommander::new(complete_grid);
+        write_row(&complete, complete_grid, ".+0102");
+        let complete_frame = derive_frame(&complete, complete_grid.origin());
+
+        for position in complete_grid.positions_by_row().flatten() {
+            assert!(
+                !complete_frame.diagnostic_covers(position),
+                "a complete Add does not diagnose Cell ({}, {})",
+                position.x(),
+                position.y()
+            );
+        }
+        assert!(
+            complete_frame
+                .expression_at(complete_grid.origin())
+                .expect("the Add covers the origin")
+                .diagnostic()
+                .is_none()
+        );
+
+        let incomplete_grid = Grid::new(4, 1);
+        let incomplete = SourceCommander::new(incomplete_grid);
+        write_row(&incomplete, incomplete_grid, ".+01");
+        let incomplete_frame = derive_frame(&incomplete, incomplete_grid.origin());
+
+        let expected = vec![
+            incomplete_grid.position(0, 0).unwrap(),
+            incomplete_grid.position(1, 0).unwrap(),
+            incomplete_grid.position(2, 0).unwrap(),
+            incomplete_grid.position(3, 0).unwrap(),
+        ];
+        let expression = incomplete_frame
+            .expression_at(incomplete_grid.origin())
+            .expect("the incomplete Add covers the origin");
+        assert_eq!(expression.span().positions().collect::<Vec<_>>(), expected);
+        let diagnostic = expression.diagnostic().expect("the incomplete Add reports");
+        assert_eq!(diagnostic.message, "expected a token");
+        assert_eq!(diagnostic.span().positions().collect::<Vec<_>>(), expected);
+        for position in expected {
+            assert!(incomplete_frame.diagnostic_covers(position));
+        }
+    }
+
+    #[test]
+    fn an_incomplete_function_is_not_executable_on_the_render_frame() {
+        // A complete Add keeps its Function root. The same spelling one
+        // operand short has no root: it will not run on the next Tick.
+        let complete_grid = Grid::new(6, 1);
+        let complete = SourceCommander::new(complete_grid);
+        write_row(&complete, complete_grid, ".+0102");
+        let complete_frame = derive_frame(&complete, complete_grid.origin());
+
+        assert_eq!(
+            complete_frame
+                .expression_at(complete_grid.origin())
+                .expect("the Add covers the origin")
+                .root(),
+            complete_grid.position(0, 0)
+        );
+
+        let incomplete_grid = Grid::new(4, 1);
+        let incomplete = SourceCommander::new(incomplete_grid);
+        write_row(&incomplete, incomplete_grid, ".+01");
+        let incomplete_frame = derive_frame(&incomplete, incomplete_grid.origin());
+
+        assert_eq!(
+            incomplete_frame
+                .expression_at(incomplete_grid.origin())
+                .expect("the incomplete Add covers the origin")
+                .root(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_lexical_diagnostic_reaches_a_cell_that_is_not_inside_an_expression() {
+        // `***`: a Bang occupies cells 0-1. The leftover `*` is unmatched and
+        // is not a Cell of that Expression; LanguageMap diagnoses it lexically
+        // on its own Cell.
+        let grid = Grid::new(3, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "***");
+        let frame = derive_frame(&source, grid.origin());
+
+        let leftover = grid.position(2, 0).unwrap();
+        let bang = frame
+            .expression_at(grid.origin())
+            .expect("the Bang covers the origin");
+        assert_eq!(
+            bang.span().positions().collect::<Vec<_>>(),
+            vec![grid.position(0, 0).unwrap(), grid.position(1, 0).unwrap(),]
+        );
+        assert!(
+            bang.span().positions().all(|position| position != leftover),
+            "the leftover Cell is not inside the Bang Expression"
+        );
+
+        let lexical = frame
+            .lexical_diagnostics()
+            .iter()
+            .find(|diagnostic| {
+                diagnostic
+                    .span()
+                    .positions()
+                    .any(|position| position == leftover)
+            })
+            .expect("a lexical diagnostic covers the leftover Cell");
+        assert_eq!(lexical.message, "invalid Language Unit character '*'");
+        assert_eq!(
+            lexical.span().positions().collect::<Vec<_>>(),
+            vec![leftover]
+        );
+        assert!(frame.diagnostic_covers(leftover));
     }
 }
