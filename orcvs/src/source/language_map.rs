@@ -3,10 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 
-use crate::{
-    glyph::Glyph,
-    grid::{CellIndex, Grid, Position},
-};
+use crate::grid::{CellIndex, Grid, Position};
 
 use super::{CellContent, Diagnostic};
 
@@ -35,9 +32,9 @@ impl LanguageMapId {
 
 /// The semantic information derived from one complete Source revision.
 ///
-/// This is the single owner of Expression Spans, parsed expressions, Glyph
-/// classifications, and diagnostics. It deliberately exposes only the
-/// semantics the current parser and row-local partition can establish.
+/// This is the single owner of Expression Spans, parsed expressions, and
+/// diagnostics. It deliberately exposes only the semantics the current
+/// parser and row-local partition can establish.
 #[derive(Clone)]
 pub struct LanguageMap {
     id: LanguageMapId,
@@ -276,15 +273,31 @@ impl LanguageMap {
             .flat_map(|row| row.lexical_diagnostics.iter())
     }
 
-    /// The semantic Glyph for the Cell at `position`, when the revision gives
-    /// that Cell a language classification.
-    pub fn glyph_at(&self, position: Position) -> Option<Glyph> {
+    ///
+    /// The Token of the Expression that covers `position`, when one does.
+    ///
+    /// A later Expression owns the Cells its Span covers, so a Cell an earlier
+    /// Expression had labelled is unread once a later Span takes it. A Cell
+    /// inside a Span that no positioned entry labelled is not a claim. An
+    /// unmatched non-space byte is not a claim either — leftover `Char` is the
+    /// Source revision's composition, not this Map's.
+    ///
+    pub fn token_at(&self, position: Position) -> Option<Token> {
         let index = self.grid.index(position).get();
-        self.rows[index / self.grid.columns()]
-            .glyphs
-            .get(index % self.grid.columns())
-            .copied()
-            .flatten()
+        let row = &self.rows[index / self.grid.columns()];
+        for expression in row.expressions.iter().rev() {
+            let span = expression.span;
+            if index < span.start().get() || index > span.end().get() {
+                continue;
+            }
+            for entry in expression.positioned() {
+                if entry.cells.contains(&index) {
+                    return Some(entry.token);
+                }
+            }
+            return None;
+        }
+        None
     }
 
     ///
@@ -312,10 +325,6 @@ impl LanguageMap {
 struct DerivedRow {
     units: Vec<LanguageUnit>,
     expressions: Vec<ExpressionEntry>,
-    /// Empty for a row the walk read no Source in; otherwise indexed by
-    /// column. Such a row must not add allocation blocks as the Grid grows
-    /// taller, which is what `derive`'s early return is for.
-    glyphs: Vec<Option<Glyph>>,
     lexical_diagnostics: Vec<Diagnostic>,
 }
 
@@ -328,9 +337,9 @@ impl DerivedRow {
         row
     }
 
-    /// Parser claims, Glyphs and diagnostics are finalized here for both full
+    /// Parser claims and diagnostics are finalized here for both full
     /// construction and incremental replacement. Source positions remain Grid
-    /// indices; only Glyph indexing and unit ranges are local to the row.
+    /// indices; only unit ranges are local to the row.
     fn derive(id: LanguageMapId, grid: Grid, row_start: usize, bytes: &[u8]) -> Self {
         let mut walk = RowWalk::default();
         walk_row(grid, row_start, bytes, &mut walk);
@@ -353,7 +362,6 @@ impl DerivedRow {
         let mut row = Self {
             units: walk.units,
             expressions: Vec::with_capacity(walk.parses.len()),
-            glyphs: vec![None; bytes.len()],
             lexical_diagnostics: walk.diagnostics,
         };
         for parse in walk.parses {
@@ -363,9 +371,6 @@ impl DerivedRow {
             // Where this Span's units sit in the partition, searched for once here
             // and then recorded on the Expression, so nothing asks again.
             let units = units_range(&row.units, grid, span);
-            // A later Expression owns its occupied Cells over any operand-slot
-            // hints emitted by an earlier Expression.
-            row.glyphs[start.get() - row_start..=end.get() - row_start].fill(None);
 
             let executable = analysis.is_complete();
             let diagnostic = analysis
@@ -383,11 +388,6 @@ impl DerivedRow {
                 .flatten()
                 .map(|(anchor, _)| anchor);
             let atoms = executable.then(|| expression.atoms()).flatten();
-            for entry in expression.positioned() {
-                for cell in entry.cells.clone() {
-                    row.glyphs[cell - row_start] = Some(Glyph::from(entry.token));
-                }
-            }
             row.expressions.push(ExpressionEntry {
                 map_id: id,
                 expression,
@@ -398,11 +398,6 @@ impl DerivedRow {
                 span,
                 units,
             });
-        }
-        for (column, byte) in bytes.iter().copied().enumerate() {
-            if byte != SPACE_BYTE && row.glyphs[column].is_none() {
-                row.glyphs[column] = Some(Glyph::Char);
-            }
         }
         row
     }
@@ -581,9 +576,9 @@ fn units_range(units: &[LanguageUnit], grid: Grid, span: Span) -> std::ops::Rang
 
 #[cfg(test)]
 mod tests {
-    use crate::{glyph::Glyph, grid::Grid};
+    use crate::grid::Grid;
 
-    use lang::{Atom, Function};
+    use lang::{Atom, Function, Token};
 
     use super::{LanguageMap, LanguageUnitKind, Span};
 
@@ -922,8 +917,8 @@ mod tests {
         // The whole claim renders as a Comment, spaces and all.
         for column in 2..8 {
             assert_eq!(
-                map.glyph_at(grid.position(column, 0).unwrap()),
-                Some(Glyph::Comment)
+                map.token_at(grid.position(column, 0).unwrap()),
+                Some(Token::Comment)
             );
         }
     }
@@ -1047,11 +1042,11 @@ mod tests {
         assert_eq!(expressions.len(), 2);
         assert_eq!(expressions[0].span().positions().count(), 6);
         assert!(expressions[0].atoms().is_some());
-        let at = |idx: usize| map.glyph_at(grid.position_at(grid.cell_index(idx).unwrap()));
-        assert_eq!(at(0), Some(Glyph::Function));
+        let at = |idx: usize| map.token_at(grid.position_at(grid.cell_index(idx).unwrap()));
+        assert_eq!(at(0), Some(Token::Function));
         // The `x` is where the next Expression begins, and a Function is what
         // begins one.
-        assert_eq!(at(7), Some(Glyph::Function));
+        assert_eq!(at(7), Some(Token::Function));
         assert_eq!(map.expression_diagnostics().count(), 1);
     }
 
@@ -1120,7 +1115,7 @@ mod tests {
                 .positions_by_row()
                 .flatten()
                 .take(4)
-                .all(|position| bangs.glyph_at(position) == Some(Glyph::Bang))
+                .all(|position| bangs.token_at(position) == Some(Token::Bang))
         );
         assert_eq!(bangs.diagnostics().count(), 0);
         assert_eq!(
@@ -1556,14 +1551,12 @@ mod property {
         ///
         /// The Expression Spans of one revision are disjoint: no Cell belongs
         /// to two of them, their start Cells ascend, none crosses a row edge,
-        /// and every one names Cells the Grid can answer for. Every Cell that
-        /// is not empty is left with a Glyph.
+        /// and every one names Cells the Grid can answer for.
         ///
         /// Disjoint, not a partition. The unit property above proves cover as
         /// well, because every Cell carries a Language Unit claim. Expression
-        /// Spans leave gaps by design, and the `Glyph::Char` fallback exists to
-        /// classify exactly those Cells no Span claimed, so there is no cover
-        /// law here to assert.
+        /// Spans leave gaps by design, and leftover `Char` is the Source
+        /// revision's composition, so there is no cover law here to assert.
         ///
         /// The unit partition property above proves the same law one index
         /// space down, and cannot stand in for this one. A Language Unit is
@@ -1580,14 +1573,6 @@ mod property {
         /// gives: `Span::indices` drops every index the Grid cannot answer for,
         /// so a Span running past the last Cell passes a Position sweep without
         /// reporting anything.
-        ///
-        /// The Glyph arm is the other half of "every Cell is accounted for".
-        /// The Map gives a Cell an Expression claimed the Glyph of its parsed
-        /// Token, and `Glyph::Char` to every other non-empty Cell, so only an
-        /// empty Cell can be left unclassified. The converse is false and is
-        /// not asserted: an empty Cell inside an Expression's claim answers
-        /// with that claim's Glyph, whether it is an operand Cell of an
-        /// arity-determined claim or a Cell of a Comment's.
         ///
         #[test]
         fn expression_spans_are_disjoint_and_name_cells_the_grid_can_answer_for(
@@ -1648,17 +1633,6 @@ mod property {
                         start + offset,
                     );
                     *claim = Some(ordinal);
-                }
-            }
-
-            for (position, byte) in grid.positions_by_row().flatten().zip(bytes.iter().copied()) {
-                if byte != SPACE_BYTE {
-                    prop_assert!(
-                        map.glyph_at(position).is_some(),
-                        "{:?} left the non-empty Cell {} unclassified",
-                        source,
-                        grid.index(position).get(),
-                    );
                 }
             }
         }
@@ -1781,7 +1755,7 @@ mod property {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod rebuild_property {
-    use super::{Glyph, Grid, LanguageMap, LanguageUnit};
+    use super::{Grid, LanguageMap, LanguageUnit};
     use proptest::prelude::*;
     use std::collections::BTreeSet;
 
@@ -1809,7 +1783,6 @@ mod rebuild_property {
     /// Everything two Maps are compared by.
     type Contents = (
         Vec<LanguageUnit>,
-        Vec<Option<Glyph>>,
         Vec<ReportedDiagnostic>,
         Vec<ReportedExpression>,
     );
@@ -1817,11 +1790,6 @@ mod rebuild_property {
     fn contents(map: &LanguageMap) -> Contents {
         (
             map.units().cloned().collect(),
-            (0..map.grid.count())
-                .map(|index| {
-                    map.glyph_at(map.grid.position_at(map.grid.cell_index(index).unwrap()))
-                })
-                .collect(),
             map.diagnostics()
                 .map(|diagnostic| {
                     (

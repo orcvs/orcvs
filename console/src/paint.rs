@@ -45,9 +45,9 @@ use std::ops::Range;
 use egui::Color32;
 
 use orcvs::{
-    glyph::{Glyph, GlyphString},
     grid::{Grid, Position},
     render_frame::{RenderCell, RenderFrame},
+    source::Token,
 };
 
 use crate::{
@@ -132,9 +132,9 @@ impl Paint {
         let cursor = (drawn.columns.contains(&frame_cursor.x())
             && drawn.rows.contains(&frame_cursor.y()))
         .then_some(frame_cursor);
-        // What each Cell says, read once for the nine blank spellings and never
+        // What each Cell says, read once for the blank spellings and never
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
-        // of `GlyphString`, and only drawing it reaches the font atlas.
+        // of the Token, and only drawing it reaches the font atlas.
         let characters = CellCharacters::new();
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
@@ -147,7 +147,7 @@ impl Paint {
                 let cell = frame.at(position);
                 let selected = position == frame_cursor;
                 let visuals = cell_visuals(
-                    cell.glyph(),
+                    cell.token(),
                     cursor_bloom(position, frame_cursor, bloom_radius),
                     selected,
                     selected && cursor_visible,
@@ -350,104 +350,100 @@ impl Paint {
 }
 
 ///
-/// Every [`Glyph`] a Render Frame can carry, in the order
-/// [`blank_glyph_index`] gives them.
+/// Every Token a Render Frame can carry, in the order
+/// [`blank_token_index`] gives them.
 ///
-const BLANK_GLYPHS: [Glyph; 9] = [
-    Glyph::Bang,
-    Glyph::Char,
-    Glyph::Comment,
-    Glyph::Function,
-    Glyph::Highlight,
-    Glyph::Marker,
-    Glyph::Note,
-    Glyph::Number,
-    Glyph::Space,
+const BLANK_TOKENS: [Option<Token>; 8] = [
+    Some(Token::Bang),
+    Some(Token::Char),
+    Some(Token::Comment),
+    Some(Token::Function),
+    Some(Token::Note),
+    Some(Token::Number),
+    Some(Token::Atom),
+    Some(Token::Sequence),
 ];
 
 ///
-/// Where `glyph` sits in [`BLANK_GLYPHS`].
+/// Where `token` sits in [`BLANK_TOKENS`], or the empty-unclaimed slot.
 ///
-/// The match is exhaustive, so a `Glyph` added to the vocabulary fails to build
+/// The match is exhaustive, so a `Token` added to the vocabulary fails to build
 /// here rather than quietly painting the wrong character.
 ///
-fn blank_glyph_index(glyph: Glyph) -> usize {
-    match glyph {
-        Glyph::Bang => 0,
-        Glyph::Char => 1,
-        Glyph::Comment => 2,
-        Glyph::Function => 3,
-        Glyph::Highlight => 4,
-        Glyph::Marker => 5,
-        Glyph::Note => 6,
-        Glyph::Number => 7,
-        Glyph::Space => 8,
+fn blank_token_index(token: Option<Token>) -> usize {
+    match token {
+        Some(Token::Bang) => 0,
+        Some(Token::Char) => 1,
+        Some(Token::Comment) => 2,
+        Some(Token::Function) => 3,
+        Some(Token::Note) => 4,
+        Some(Token::Number) => 5,
+        Some(Token::Atom) => 6,
+        Some(Token::Sequence) => 7,
+        None => 8,
     }
 }
 
 ///
-/// What an empty Cell of `glyph` shows.
+/// What an empty Cell of `token` shows.
 ///
-/// `GlyphString` is where an empty Cell's spelling is decided, so the console
-/// reads it rather than restating it — once per Render Frame for the nine
-/// Glyphs, never once per Cell.
-///
-fn blank_character(glyph: Glyph) -> char {
-    let spelling = GlyphString::new(None, glyph).to_string();
-    debug_assert_eq!(
-        spelling.chars().count(),
-        1,
-        "an empty Cell shows exactly one character"
-    );
-
-    spelling.chars().next().unwrap_or(' ')
+fn blank_character(token: Option<Token>) -> char {
+    match token {
+        Some(Token::Bang) => '*',
+        Some(Token::Char | Token::Atom | Token::Sequence) => 'c',
+        Some(Token::Comment) | None => ' ',
+        Some(Token::Function) => 'F',
+        Some(Token::Note) => 'n',
+        Some(Token::Number) => 'h',
+    }
 }
 
 ///
 /// What each Cell of a Render Frame shows: its own content, or the character
-/// its Glyph spells when it holds none.
+/// its Token spells when it holds none.
 ///
 /// This is the whole of deciding what a Cell says, and it is in this layer
-/// because it needs nothing this layer does not have: a `GlyphString` and a
-/// `Glyph`, and no `egui::Context` at all. Only *drawing* that character needs
-/// one — `GlyphTable` in `console.rs` holds the galleys and nothing else — so
-/// the split is the same one the rest of this module makes, between deciding
+/// because it needs nothing this layer does not have: a Token and no
+/// `egui::Context` at all. Only *drawing* that character needs one —
+/// `GlyphTable` in `console.rs` holds the galleys and nothing else — so the
+/// split is the same one the rest of this module makes, between deciding
 /// what a Cell looks like and painting it.
 ///
-/// The nine blank spellings are read once, because reading one is a
-/// `GlyphString` and a `String` per call and a Grid has a thousand Cells; the
-/// table is an array of nine `char`s indexed by [`blank_glyph_index`], so
-/// building it is far cheaper than the per-Cell reads it saves.
+/// The blank spellings are read once. The table is an array of `char`s indexed
+/// by [`blank_token_index`], so building it is far cheaper than the per-Cell
+/// reads it saves.
 ///
 struct CellCharacters {
-    /// The character an empty Cell shows, indexed by [`blank_glyph_index`].
-    blanks: [char; BLANK_GLYPHS.len()],
+    /// The character an empty Cell shows, indexed by [`blank_token_index`].
+    blanks: [char; BLANK_TOKENS.len() + 1],
 }
 
 impl CellCharacters {
-    /// Reads what an empty Cell of each [`Glyph`] spells.
+    /// Reads what an empty Cell of each Token spells.
     fn new() -> Self {
-        Self {
-            blanks: BLANK_GLYPHS.map(blank_character),
+        let mut blanks = [' '; BLANK_TOKENS.len() + 1];
+        for token in BLANK_TOKENS {
+            blanks[blank_token_index(token)] = blank_character(token);
         }
+        blanks[blank_token_index(None)] = blank_character(None);
+        Self { blanks }
     }
 
     /// The character `cell` shows.
     fn character(&self, cell: &RenderCell) -> char {
         cell.content()
-            .unwrap_or_else(|| self.blanks[blank_glyph_index(cell.glyph())])
+            .unwrap_or_else(|| self.blanks[blank_token_index(cell.token())])
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BLANK_GLYPHS, BackgroundRun, CellCharacters, CellPaint, Glyph, Paint, blank_glyph_index,
-    };
+    use super::{BLANK_TOKENS, BackgroundRun, CellCharacters, CellPaint, Paint, blank_token_index};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{cursor_bloom, sector_left_strength, sector_top_strength};
     use crate::style::{PALETTE, cell_visuals, sector_line};
     use egui::Color32;
+    use orcvs::source::Token;
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
     use std::ops::Range;
 
@@ -503,7 +499,7 @@ mod tests {
             let position = cell.position();
             let selected = position == cursor;
             let visuals = cell_visuals(
-                cell.glyph(),
+                cell.token(),
                 cursor_bloom(position, cursor, bloom_radius),
                 selected,
                 selected && frame.cursor_visible(),
@@ -650,36 +646,37 @@ mod tests {
     }
 
     ///
-    /// What an empty Cell shows is `GlyphString`'s answer, read once per Render
-    /// Frame rather than restated in the console.
+    /// What an empty Cell shows is the Token's blank spelling, read once per
+    /// Render Frame rather than restated per Cell.
     ///
     #[test]
-    fn a_blank_cell_shows_what_its_glyph_spells() {
-        for glyph in BLANK_GLYPHS {
+    fn a_blank_cell_shows_what_its_token_spells() {
+        for token in BLANK_TOKENS {
             assert_eq!(
-                BLANK_GLYPHS[blank_glyph_index(glyph)],
-                glyph,
+                BLANK_TOKENS[blank_token_index(token)],
+                token,
                 "the blank table is not indexed by its own order"
             );
-            assert_eq!(
-                super::blank_character(glyph).to_string(),
-                orcvs::glyph::GlyphString::new(None, glyph).to_string()
-            );
         }
-        assert_eq!(super::blank_character(Glyph::Marker), '+');
-        assert_eq!(super::blank_character(Glyph::Highlight), '.');
-        assert_eq!(super::blank_character(Glyph::Space), ' ');
+        assert_eq!(super::blank_character(Some(Token::Bang)), '*');
+        assert_eq!(super::blank_character(Some(Token::Char)), 'c');
+        assert_eq!(super::blank_character(Some(Token::Atom)), 'c');
+        assert_eq!(super::blank_character(Some(Token::Sequence)), 'c');
+        assert_eq!(super::blank_character(Some(Token::Comment)), ' ');
+        assert_eq!(super::blank_character(Some(Token::Function)), 'F');
+        assert_eq!(super::blank_character(Some(Token::Note)), 'n');
+        assert_eq!(super::blank_character(Some(Token::Number)), 'h');
+        assert_eq!(super::blank_character(None), ' ');
     }
 
     ///
     /// Which character a Cell shows is answered from the Render Frame alone.
     ///
     /// No `egui::Context` is built here, and that is the assertion: the lookup
-    /// is a reading of `GlyphString`, not a reading of the font atlas, so the
+    /// is a reading of the Token, not a reading of the font atlas, so the
     /// step that decides what a Cell says is reachable without the harness the
-    /// galleys need. Every Cell of the Grid is checked against `GlyphString`'s
-    /// own answer, the written Cells for their content and the rest for the
-    /// spelling their Glyph gives an empty Cell.
+    /// galleys need. Every Cell of the Grid is checked against the blank
+    /// spelling its Token gives an empty Cell.
     ///
     #[tokio::test]
     async fn a_cell_answers_its_character_with_no_context() {
@@ -701,16 +698,14 @@ mod tests {
         let mut blanks = std::collections::BTreeSet::new();
 
         for cell in frame.cells() {
-            let spelled = orcvs::glyph::GlyphString::new(
-                cell.content().map(|content| content.to_string()),
-                cell.glyph(),
-            )
-            .to_string();
+            let spelled = cell
+                .content()
+                .unwrap_or_else(|| super::blank_character(cell.token()));
 
             assert_eq!(
-                characters.character(cell).to_string(),
+                characters.character(cell),
                 spelled,
-                "the Cell at {:?} shows something its GlyphString does not spell",
+                "the Cell at {:?} shows something its Token does not spell",
                 cell.position()
             );
 

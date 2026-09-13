@@ -3,6 +3,7 @@ pub use cell::CellContent;
 mod encoding;
 pub mod error;
 mod language_map;
+pub use lang::Token;
 pub use language_map::{ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 mod model;
 mod portal;
@@ -52,6 +53,19 @@ impl SourceRevision {
 
     pub fn language_map(&self) -> &LanguageMap {
         &self.language_map
+    }
+
+    ///
+    /// The Token this revision answers at `position`.
+    ///
+    /// The Language Map's claim first; leftover `Char` when the Cell has
+    /// content no Expression covered; `None` when the Cell is empty and
+    /// unclaimed.
+    ///
+    pub fn token_at(&self, position: Position) -> Option<Token> {
+        self.language_map
+            .token_at(position)
+            .or_else(|| self.content_at(position).map(|_| Token::Char))
     }
 }
 
@@ -180,7 +194,7 @@ impl SourceCommander {
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceCommander, SourceError, Tick};
+    use super::{SourceCommander, SourceError, Tick, Token};
     use crate::grid::Grid;
 
     #[test]
@@ -281,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn coherent_read_pairs_every_cell_with_its_source_derived_glyph() {
+    fn coherent_read_pairs_every_cell_with_its_source_derived_token() {
         let grid = Grid::new(4, 2);
         let source = SourceCommander::new(grid);
         let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
@@ -293,8 +307,8 @@ mod tests {
         assert_eq!(read.grid(), grid);
         assert_eq!(read.content_at(grid.position(0, 0).unwrap()), Some('.'));
         assert_eq!(
-            read.language_map().glyph_at(grid.position(0, 0).unwrap()),
-            Some(crate::glyph::Glyph::Function)
+            read.token_at(grid.position(0, 0).unwrap()),
+            Some(Token::Function)
         );
         assert_eq!(read.content_at(grid.position(1, 0).unwrap()), Some('+'));
         assert!(
@@ -317,5 +331,25 @@ mod tests {
         let second = source.read_revision();
 
         assert!(std::ptr::eq(first.language_map(), second.language_map()));
+    }
+
+    #[test]
+    fn token_at_answers_none_when_the_cell_is_empty_and_unclaimed() {
+        let grid = Grid::new(16, 1);
+        let source = SourceCommander::new(grid);
+        let cell = |idx| grid.cell_index(idx).expect("inside the Grid");
+        for (index, content) in ".+0102  .-0304  ".chars().enumerate() {
+            source.set(cell(index), &content.to_string()).unwrap();
+        }
+
+        let read = source.read_revision();
+        let claimed = grid.position(0, 0).unwrap();
+        let gap = grid.position(6, 0).unwrap();
+
+        assert_eq!(read.token_at(claimed), Some(Token::Function));
+        assert_eq!(read.language_map().token_at(claimed), Some(Token::Function));
+        assert_eq!(read.content_at(gap), None);
+        assert_eq!(read.language_map().token_at(gap), None);
+        assert_eq!(read.token_at(gap), None);
     }
 }

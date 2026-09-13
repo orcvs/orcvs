@@ -1,9 +1,50 @@
-use lang::Function;
+use lang::{Function, Token};
 use orcvs::{
-    glyph::Glyph,
     grid::Grid,
     source::{LanguageMap, LanguageUnitKind, Source},
 };
+
+#[test]
+fn token_at_answers_the_claiming_expressions_token() {
+    let grid = Grid::new(6, 1);
+    let map = LanguageMap::derive(grid, ".+0102").unwrap();
+
+    assert_eq!(
+        map.token_at(grid.position(0, 0).unwrap()),
+        Some(Token::Function)
+    );
+    assert_eq!(
+        map.token_at(grid.position(2, 0).unwrap()),
+        Some(Token::Number)
+    );
+    assert_eq!(
+        map.token_at(grid.position(4, 0).unwrap()),
+        Some(Token::Number)
+    );
+}
+
+#[test]
+fn token_at_answers_none_when_no_expression_covers_the_cell() {
+    let grid = Grid::new(16, 1);
+    let map = LanguageMap::derive(grid, ".+0102  .-0304  ").unwrap();
+
+    assert_eq!(
+        map.token_at(grid.position(6, 0).unwrap()),
+        None,
+        "the gap between two Expressions is not a claim"
+    );
+    assert_eq!(map.token_at(grid.position(7, 0).unwrap()), None);
+}
+
+#[test]
+#[should_panic]
+fn token_at_refuses_a_position_minted_by_another_grid() {
+    let grid = Grid::new(4, 1);
+    let map = LanguageMap::derive(grid, ".+01").unwrap();
+    let foreign = Grid::new(4, 1).position(0, 0).expect("inside the Grid");
+
+    map.token_at(foreign);
+}
 
 #[test]
 fn truncated_operand_owns_the_available_row_tail() {
@@ -32,11 +73,11 @@ fn an_operand_claim_reaches_over_a_comment_introducer() {
     let first = map.expressions().next().unwrap();
     assert_eq!(first.span().positions().count(), 6);
     assert!(first.root().is_none());
-    // The introducer's Cells are the operand's, so they carry its Glyph.
+    // The introducer's Cells are the operand's, so they carry its Token.
     for column in 4..6 {
         assert_eq!(
-            map.glyph_at(grid.position(column, 0).unwrap()),
-            Some(Glyph::Number)
+            map.token_at(grid.position(column, 0).unwrap()),
+            Some(Token::Number)
         );
     }
 }
@@ -64,8 +105,8 @@ fn a_comment_claims_the_row_after_the_expression_that_precedes_it() {
     assert_eq!(map.diagnostics().count(), 0);
     for column in 6..10 {
         assert_eq!(
-            map.glyph_at(grid.position(column, 0).unwrap()),
-            Some(Glyph::Comment)
+            map.token_at(grid.position(column, 0).unwrap()),
+            Some(Token::Comment)
         );
     }
 }
@@ -288,23 +329,23 @@ fn source_exposes_the_current_map_and_rebuilds_hints_and_diagnostics_on_edit() {
     source.set(cell(5), "+").unwrap();
 
     assert_eq!(
-        source.language_map().glyph_at(grid.position(4, 0).unwrap()),
-        Some(Glyph::Function)
+        source.language_map().token_at(grid.position(4, 0).unwrap()),
+        Some(Token::Function)
     );
     assert_eq!(
-        source.language_map().glyph_at(grid.position(5, 0).unwrap()),
-        Some(Glyph::Function)
+        source.language_map().token_at(grid.position(5, 0).unwrap()),
+        Some(Token::Function)
     );
     assert_eq!(
-        source.language_map().glyph_at(grid.position(0, 1).unwrap()),
+        source.language_map().token_at(grid.position(0, 1).unwrap()),
         None
     );
     assert_eq!(source.language_map().diagnostics().count(), 1);
 
     source.unset(cell(5));
     assert_eq!(
-        source.language_map().glyph_at(grid.position(4, 0).unwrap()),
-        Some(Glyph::Function)
+        source.language_map().token_at(grid.position(4, 0).unwrap()),
+        Some(Token::Function)
     );
     assert_eq!(source.language_map().expressions().count(), 1);
     let diagnostic = source.language_map().diagnostics().next().unwrap();
@@ -331,24 +372,6 @@ fn expression_units_refuses_an_expression_from_another_revision() {
     let expression = first.expressions().next().unwrap();
 
     second.expression_units(expression);
-}
-
-#[test]
-#[should_panic(expected = "Position belongs to another Grid")]
-fn glyph_at_refuses_a_position_minted_by_another_grid() {
-    // `glyph_at` and its sibling `SourceRevision::content_at` sit either side
-    // of one render loop and have to teach the same rule about the same
-    // argument. Without the refusal, a Position from another Grid reads this
-    // Map's Glyph for whatever Cell the coordinates happen to land on, or
-    // `None` once they land past the end — a plausible wrong answer either way.
-    //
-    // Two Grids of the same shape, because identity is what is being tested:
-    // the coordinates are perfectly valid here, and that is the point.
-    let grid = Grid::new(4, 1);
-    let map = LanguageMap::derive(grid, ".+01").unwrap();
-    let foreign = Grid::new(4, 1).position(0, 0).expect("inside the Grid");
-
-    map.glyph_at(foreign);
 }
 
 #[test]

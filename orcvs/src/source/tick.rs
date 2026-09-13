@@ -1140,7 +1140,7 @@ fn tick_inputs(tick: Tick, root: Position) -> TickInputs {
 
 #[cfg(test)]
 mod test {
-    use lang::Value;
+    use lang::{Token, Value};
 
     use super::{Effect, Encoding, Portal, Tick, execution::ComputationState, resolve};
 
@@ -2413,8 +2413,8 @@ mod test {
             assert_eq!(
                 source
                     .language_map()
-                    .glyph_at(source.grid().position(column, 0).unwrap()),
-                Some(crate::glyph::Glyph::Comment)
+                    .token_at(source.grid().position(column, 0).unwrap()),
+                Some(Token::Comment)
             );
         }
     }
@@ -2488,8 +2488,8 @@ mod test {
         assert_eq!(
             source
                 .language_map()
-                .glyph_at(source.grid().position(4, 0).unwrap()),
-            Some(crate::glyph::Glyph::Number)
+                .token_at(source.grid().position(4, 0).unwrap()),
+            Some(Token::Number)
         );
         let (plan, source) = carried_source(Grid::new(16, 2), &[".+0102.+0304", ""], &[]);
         assert_eq!(&source.snapshot()[16..24], "03    07");
@@ -2533,8 +2533,8 @@ mod test {
             assert_eq!(
                 source
                     .language_map()
-                    .glyph_at(source.grid().position(column, 0).unwrap()),
-                Some(crate::glyph::Glyph::Function)
+                    .token_at(source.grid().position(column, 0).unwrap()),
+                Some(Token::Function)
             );
         }
     }
@@ -2557,8 +2557,8 @@ mod test {
         assert_eq!(
             source
                 .language_map()
-                .glyph_at(source.grid().position(4, 1).unwrap()),
-            Some(crate::glyph::Glyph::Number)
+                .token_at(source.grid().position(4, 1).unwrap()),
+            Some(Token::Number)
         );
         assert_eq!(source.language_map().bangs().count(), 0);
     }
@@ -3115,7 +3115,7 @@ mod test {
             let full = LanguageMap::derive(grid, &source.snapshot()).unwrap();
             proptest::prop_assert_eq!(source.language_map().units().collect::<Vec<_>>(), full.units().collect::<Vec<_>>());
             for position in grid.positions_by_row().flatten() {
-                proptest::prop_assert_eq!(source.language_map().glyph_at(position), full.glyph_at(position));
+                proptest::prop_assert_eq!(source.language_map().token_at(position), full.token_at(position));
             }
         }
 

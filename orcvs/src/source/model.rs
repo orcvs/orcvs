@@ -413,11 +413,10 @@ mod test {
     use std::ops::{Deref, DerefMut};
 
     use crate::{
-        glyph::Glyph,
         grid::{CellIndex, Grid, Position},
         source::{
             BendLsb, BendMsb, CellWrite, ControlValue, Controller, Length, MidiChannel, Note,
-            PlayCommand, Source, SourceError, Tick, TickPlan, Velocity,
+            PlayCommand, Source, SourceError, Tick, TickPlan, Token, Velocity,
             encoding::{Encoding, Rendered},
             portal::Portal,
             tick::{Effect, resolve},
@@ -480,35 +479,43 @@ mod test {
     }
 
     ///
-    /// The Glyph a Cell presents at the current revision, read the way the
-    /// console reads it.
+    /// The Token a Cell presents at the current revision, read the way the
+    /// console reads it: the Language Map's claim, else leftover `Char` when
+    /// the Cell has content.
     ///
-    fn glyph_at(source: &Source, idx: usize) -> Option<Glyph> {
+    fn token_at(source: &Source, idx: usize) -> Option<Token> {
         let cell = source.grid.cell_index(idx)?;
-        source.language_map.glyph_at(source.grid.position_at(cell))
+        let position = source.grid.position_at(cell);
+        source.language_map.token_at(position).or_else(|| {
+            source
+                .get(cell)
+                .and_then(|s| s.chars().next())
+                .filter(|c| *c != ' ')
+                .map(|_| Token::Char)
+        })
     }
 
     ///
-    /// What a Cell presents at the current revision: its content and its Glyph.
+    /// What a Cell presents at the current revision: its content and its Token.
     /// An edit is observed by reading the revision it produced, so this is what
     /// the console sees after one.
     ///
-    fn cell(source: &Source, idx: usize) -> (Option<char>, Option<Glyph>) {
+    fn cell(source: &Source, idx: usize) -> (Option<char>, Option<Token>) {
         let content = source
             .grid
             .cell_index(idx)
             .and_then(|cell| source.get(cell))
             .and_then(|s| s.chars().next())
             .filter(|c| *c != ' ');
-        (content, glyph_at(source, idx))
+        (content, token_at(source, idx))
     }
 
     ///
-    /// Every Cell's Glyph at the current revision, in Source order.
+    /// Every Cell's Token at the current revision, in Source order.
     ///
-    fn glyphs(source: &Source) -> Vec<Option<Glyph>> {
+    fn tokens(source: &Source) -> Vec<Option<Token>> {
         (0..source.grid.count())
-            .map(|idx| glyph_at(source, idx))
+            .map(|idx| token_at(source, idx))
             .collect()
     }
 
@@ -808,10 +815,10 @@ mod test {
         assert!(restored.grid.position(10, 2).is_none());
         assert_eq!(
             (0..grid.count())
-                .map(|idx| glyph_at(&restored, idx))
+                .map(|idx| token_at(&restored, idx))
                 .collect::<Vec<_>>(),
             (0..grid.count())
-                .map(|idx| glyph_at(&source, idx))
+                .map(|idx| token_at(&source, idx))
                 .collect::<Vec<_>>()
         );
 
@@ -891,14 +898,14 @@ mod test {
         // spelling the table holds, so it is refused there and classified
         // there, two Cells wide.
         src.set(at(0), ".").unwrap();
-        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 0), (Some('.'), Some(Token::Function)));
 
         // completing the `.+` Function reclassifies Cell 0 and marks the four
         // empty operand-slot Cells (two 2-wide Numbers) as Number
         src.set(at(1), "+").unwrap();
 
-        let function = |content: char| (Some(content), Some(Glyph::Function));
-        let operand_slot = (None, Some(Glyph::Number));
+        let function = |content: char| (Some(content), Some(Token::Function));
+        let operand_slot = (None, Some(Token::Number));
         assert_eq!(cell(&src, 0), function('.'));
         assert_eq!(cell(&src, 1), function('+'));
         assert_eq!(cell(&src, 2), operand_slot);
@@ -922,7 +929,7 @@ mod test {
         // hints it placed are gone
         src.unset(at(1));
 
-        assert_eq!(cell(&src, 0), (Some('.'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 0), (Some('.'), Some(Token::Function)));
         for idx in 2..=5 {
             assert_eq!(cell(&src, idx), (None, None), "Cell {idx} was not cleared");
         }
@@ -941,28 +948,28 @@ mod test {
         src.set(at(58), ".").unwrap();
         src.set(at(59), "+").unwrap();
 
-        assert_eq!(glyph_at(&src, 58), Some(Glyph::Function));
-        assert_eq!(glyph_at(&src, 59), Some(Glyph::Function));
+        assert_eq!(token_at(&src, 58), Some(Token::Function));
+        assert_eq!(token_at(&src, 59), Some(Token::Function));
         // the Function sits in the last two Cells, so its operand-slot hints
         // have nowhere to go: nothing past the row edge is classified
-        assert_eq!(glyph_at(&src, 60), None);
+        assert_eq!(token_at(&src, 60), None);
     }
 
     #[test]
-    fn test_editing_an_operand_slot_hint_restores_the_current_glyphs() {
+    fn test_editing_an_operand_slot_hint_restores_the_current_tokens() {
         let mut src = SourceUnderTest::new(Grid::new(10, 1));
         let at = src.cells();
         src.set(at(0), ".").unwrap();
         src.set(at(1), "+").unwrap();
-        assert_eq!(glyph_at(&src, 5), Some(Glyph::Number));
+        assert_eq!(token_at(&src, 5), Some(Token::Number));
 
         // The Cell is inside the Addition's claim, so writing to it fills part
         // of an operand rather than standing outside the Expression.
         src.set(at(5), "x").unwrap();
-        assert_eq!(cell(&src, 5), (Some('x'), Some(Glyph::Number)));
+        assert_eq!(cell(&src, 5), (Some('x'), Some(Token::Number)));
 
         src.unset(at(5));
-        assert_eq!(cell(&src, 5), (None, Some(Glyph::Number)));
+        assert_eq!(cell(&src, 5), (None, Some(Token::Number)));
     }
 
     #[test]
@@ -985,10 +992,10 @@ mod test {
         assert_eq!(rebuilt.snapshot(), src.snapshot());
         assert_eq!(
             (0..grid.count())
-                .map(|idx| glyph_at(&rebuilt, idx))
+                .map(|idx| token_at(&rebuilt, idx))
                 .collect::<Vec<_>>(),
             (0..grid.count())
-                .map(|idx| glyph_at(&src, idx))
+                .map(|idx| token_at(&src, idx))
                 .collect::<Vec<_>>()
         );
     }
@@ -1001,18 +1008,18 @@ mod test {
         src.set(at(8), ".").unwrap();
 
         src.set(at(9), "+").unwrap();
-        assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Function)));
-        assert_eq!(cell(&src, 9), (Some('+'), Some(Glyph::Function)));
-        assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
-        assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
+        assert_eq!(cell(&src, 8), (Some('.'), Some(Token::Function)));
+        assert_eq!(cell(&src, 9), (Some('+'), Some(Token::Function)));
+        assert_eq!(token_at(&src, 10), Some(Token::Function));
+        assert_eq!(token_at(&src, 11), Some(Token::Function));
 
         // The refused `.` owns one Cell. The empty Cell beside it belongs
         // to no Expression, and neither hint reaches the next row.
         src.unset(at(9));
-        assert_eq!(cell(&src, 8), (Some('.'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 8), (Some('.'), Some(Token::Function)));
         assert_eq!(cell(&src, 9), (None, None));
-        assert_eq!(glyph_at(&src, 10), Some(Glyph::Function));
-        assert_eq!(glyph_at(&src, 11), Some(Glyph::Function));
+        assert_eq!(token_at(&src, 10), Some(Token::Function));
+        assert_eq!(token_at(&src, 11), Some(Token::Function));
     }
 
     #[test]
@@ -1027,16 +1034,16 @@ mod test {
             src.set(at(i), &c.to_string()).unwrap();
         }
 
-        let glyphs: Vec<_> = (0..6).map(|i| glyph_at(&src, i)).collect();
+        let glyphs: Vec<_> = (0..6).map(|i| token_at(&src, i)).collect();
         assert_eq!(
             glyphs,
             vec![
-                Some(Glyph::Function),
-                Some(Glyph::Function),
-                Some(Glyph::Number),
-                Some(Glyph::Number),
-                Some(Glyph::Number),
-                Some(Glyph::Number),
+                Some(Token::Function),
+                Some(Token::Function),
+                Some(Token::Number),
+                Some(Token::Number),
+                Some(Token::Number),
+                Some(Token::Number),
             ]
         );
         assert_eq!(src.row(0), ".+0101    ");
@@ -1056,8 +1063,8 @@ mod test {
         // The two Cells are adjacent by index but sit in different rows, so
         // neither reads the other: each is the start of a Function spelling
         // its own row cannot complete, and `.+` is nowhere.
-        assert_eq!(cell(&src, 9), (Some('.'), Some(Glyph::Function)));
-        assert_eq!(cell(&src, 10), (Some('+'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 9), (Some('.'), Some(Token::Function)));
+        assert_eq!(cell(&src, 10), (Some('+'), Some(Token::Function)));
         assert!(
             src.language_map()
                 .expressions()
@@ -1141,8 +1148,8 @@ mod test {
         // that failed to parse reports the Token its position expected. That is
         // the same operand-slot hint the editing tests cover, not a claim that
         // `id` is still a Function.
-        assert_eq!(glyph_at(&src, 0), Some(Glyph::Function));
-        assert_eq!(glyph_at(&src, 1), Some(Glyph::Function));
+        assert_eq!(token_at(&src, 0), Some(Token::Function));
+        assert_eq!(token_at(&src, 1), Some(Token::Function));
     }
 
     #[test]
@@ -1185,17 +1192,17 @@ mod test {
         src.unset(at(1));
 
         // The refused `x` owns only Cell 0; the empty Cell has no hint.
-        assert_eq!(glyph_at(&src, 1), None);
-        let glyphs: Vec<_> = (2..8).map(|i| glyph_at(&src, i)).collect();
+        assert_eq!(token_at(&src, 1), None);
+        let glyphs: Vec<_> = (2..8).map(|i| token_at(&src, i)).collect();
         assert_eq!(
             glyphs,
             vec![
-                Some(Glyph::Function),
-                Some(Glyph::Function),
-                Some(Glyph::Number),
-                Some(Glyph::Number),
-                Some(Glyph::Number),
-                Some(Glyph::Number),
+                Some(Token::Function),
+                Some(Token::Function),
+                Some(Token::Number),
+                Some(Token::Number),
+                Some(Token::Number),
+                Some(Token::Number),
             ]
         );
 
@@ -1247,8 +1254,8 @@ mod test {
         // beginning with `03` is a Function spelling the table does not hold.
         // ADR 0020 expects a written result to be readable as Source rather
         // than privileged, and this is what that reads as.
-        assert_eq!(cell(&src, 10), (Some('0'), Some(Glyph::Function)));
-        assert_eq!(cell(&src, 11), (Some('3'), Some(Glyph::Function)));
+        assert_eq!(cell(&src, 10), (Some('0'), Some(Token::Function)));
+        assert_eq!(cell(&src, 11), (Some('3'), Some(Token::Function)));
     }
 
     fn assert_only_bang_display(plan: &TickPlan, grid: Grid, anchors: &[usize]) {
@@ -1998,10 +2005,10 @@ mod test {
         // classify Cells at the beginning of row 1.
         src.write(at(8), ".+");
 
-        assert_eq!(glyph_at(&src, 8), Some(Glyph::Function));
-        assert_eq!(glyph_at(&src, 9), Some(Glyph::Function));
+        assert_eq!(token_at(&src, 8), Some(Token::Function));
+        assert_eq!(token_at(&src, 9), Some(Token::Function));
         for idx in 10..14 {
-            assert_eq!(glyph_at(&src, idx), None);
+            assert_eq!(token_at(&src, idx), None);
         }
     }
 
@@ -2340,7 +2347,7 @@ mod test {
         typed.write(at(10), "0A0B0C");
 
         assert_eq!(generated.snapshot(), typed.snapshot());
-        assert_eq!(glyphs(&generated), glyphs(&typed));
+        assert_eq!(tokens(&generated), tokens(&typed));
         assert_eq!(reported(&generated), reported(&typed));
         // Six diagnostics rather than one: ADR 0033 resumes one Cell after a
         // refused spelling, so each Cell of the run is refused on its own and
@@ -2401,7 +2408,7 @@ mod test {
         let mut typed = source();
         let at = typed.cells();
         typed.write(at(10), ".+0102");
-        assert_eq!(glyphs(&generated), glyphs(&typed));
+        assert_eq!(tokens(&generated), tokens(&typed));
         assert_eq!(reported(&generated), reported(&typed));
 
         let plan = generated.execute();
