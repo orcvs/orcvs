@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789276434792,
+  "lastUpdate": 1789283275566,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -11531,6 +11531,228 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_edges/128x128",
             "value": 1482523,
             "range": "± 8042",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d309bd2f638f0a2efd7b46d3830a45780c5f4b50",
+          "message": "Merge pull request #88 from orcvs/04-add-deterministic-random\n\nAdd deterministic Random",
+          "timestamp": "2026-09-13T06:58:52Z",
+          "tree_id": "68eb95f817ddb2a703514119b4be03e736c6914e",
+          "url": "https://github.com/orcvs/orcvs/commit/d309bd2f638f0a2efd7b46d3830a45780c5f4b50"
+        },
+        "date": 1789283274669,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "parse",
+            "value": 124,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 50,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 58,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 517,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 42,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 70,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 173,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 338,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 648,
+            "range": "± 34",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 30,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 33,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 67,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/128x128",
+            "value": 118,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/256x256",
+            "value": 1441,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 3485,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 12960,
+            "range": "± 598",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 60091,
+            "range": "± 125",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/128x128",
+            "value": 329657,
+            "range": "± 9192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/256x256",
+            "value": 2100007,
+            "range": "± 9352",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 4365,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 16377,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 76109,
+            "range": "± 179",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 4418,
+            "range": "± 187",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 16245,
+            "range": "± 197",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 74223,
+            "range": "± 183",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 12646,
+            "range": "± 162",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 47774,
+            "range": "± 369",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 213585,
+            "range": "± 869",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1001312,
+            "range": "± 7050",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 8557,
+            "range": "± 68",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 50061,
+            "range": "± 543",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 247140,
+            "range": "± 15979",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1111617,
+            "range": "± 38328",
             "unit": "ns/iter"
           }
         ]
