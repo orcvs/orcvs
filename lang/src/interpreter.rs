@@ -56,11 +56,9 @@ pub struct Context {
     /// The explicit inputs ADR 0012 supplies alongside the Source Snapshot.
     ///
     /// The seam has consumers now: Clock, Delay, and Euclidean each read the
-    /// Tick from here, which is what makes an absolute Tick an input to
-    /// interpretation rather than something a Function goes looking for. The
-    /// anchor is still read by nothing — ADR 0013's Random is the Function it
-    /// is there for — but it travels in the same struct, so it arrives the day
-    /// that Function is declared rather than needing the threading rebuilt.
+    /// Tick from here, and Random reads the anchor, which is what makes those
+    /// inputs to interpretation rather than something a Function goes looking
+    /// for.
     pub inputs: TickInputs,
 }
 
@@ -152,6 +150,7 @@ impl Interpreter {
                     Function::Divide => math::divide(&mut ctx)?,
                     Function::Equality => math::equality(&mut ctx)?,
                     Function::Euclidean => tick::euclidean(&mut ctx)?,
+                    Function::Random => tick::random(&mut ctx)?,
                     Function::Maximum => math::maximum(&mut ctx)?,
                     Function::Minimum => math::minimum(&mut ctx)?,
                     Function::Modulo => math::modulo(&mut ctx)?,

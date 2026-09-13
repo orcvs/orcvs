@@ -16,6 +16,15 @@ bench = false
 
 [dependencies]
 arrayvec.workspace = true
+# ADR 0013 names ChaCha8 for Random. No workspace crate already ships a
+# deterministic portable generator, and inventing one would make native and
+# wasm32 streams a second thing to keep in step. Default features stay off:
+# `std` is only ppv-lite86 CPU detection, `serde` is a proc-macro this crate
+# does not need, and the crate has no OS-randomness feature to turn on.
+# `rand_core` 0.10 — the only required transitive — has no dependencies and
+# no `os_rng` feature. Version 0.10 matches the ADR (MSRV 1.85, MIT OR
+# Apache-2.0, no build script).
+rand_chacha = { version = "0.10.0", default-features = false }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = [
