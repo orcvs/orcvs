@@ -74,7 +74,7 @@ parse from Source. Nothing here runs at Tick time.
 **No operand-placeholder decision by default.** `02` decides it explicitly. Deleting `Glyph` alone
 would settle it by accident, which is the sequencing trap this spec exists to avoid.
 
-## What this deletes
+## What ticket `06` deletes
 
 - `orcvs::glyph::Glyph`, `GlyphString`'s blank spelling table, `GlyphString::marker()`,
   `::highlight()`, and `From<Token> for Glyph`.
@@ -92,5 +92,12 @@ and **Source** are unchanged.
 
 ## Sequencing
 
-`01` is the deletion and carries the risk; `02` and `03` are independent of each other and both
-depend on it. `03` hands off to `restyle-egui-console` rather than choosing colours.
+Retiring Glyph is expand–contract, not one deletion:
+
+- `01` — Language Map answers a Token claim.
+- `04` — Source revision composes leftover Char. Blocked by `01`.
+- `05` — Render Frame and Paint carry Tokens. Blocked by `04`.
+- `06` — Delete Glyph. Blocked by `05`.
+
+`02` and `03` are independent of each other and both depend on `06`. `03` hands off to
+`restyle-egui-console` rather than choosing colours.

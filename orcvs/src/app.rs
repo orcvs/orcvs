@@ -410,10 +410,7 @@ mod test {
     use super::Orcvs;
     use crate::opts::Bpm;
     use crate::test::trace;
-    use crate::{
-        glyph::{Glyph, GlyphString},
-        opts::DEFAULT_MARKER_SPACING,
-    };
+    use crate::{opts::DEFAULT_MARKER_SPACING, source::Token};
 
     ///
     /// An output adapter that dies on its first delivery, which is how a
@@ -679,13 +676,10 @@ mod test {
         Orcvs::new(cols, rows).expect("the test runtime")
     }
 
-    fn rendered(app: &Orcvs, position: crate::grid::Position) -> GlyphString {
+    fn rendered(app: &Orcvs, position: crate::grid::Position) -> (Option<char>, Option<Token>) {
         let frame = app.render_frame();
         let cell = frame.at(position);
-        GlyphString::new(
-            cell.content().map(|content| content.to_string()),
-            cell.glyph(),
-        )
+        (cell.content(), cell.token())
     }
 
     impl Orcvs {
@@ -731,11 +725,8 @@ mod test {
         app.set_at(0, 1, ".");
         app.set_at(1, 1, "+");
 
-        assert_eq!(
-            rendered(&app, at(0, 1)),
-            GlyphString::new(Some(".".to_string()), Glyph::Function)
-        );
-        let written = GlyphString::new(Some("+".to_string()), Glyph::Function);
+        assert_eq!(rendered(&app, at(0, 1)), (Some('.'), Some(Token::Function)));
+        let written = (Some('+'), Some(Token::Function));
         assert_eq!(rendered(&app, at(1, 1)), written);
 
         // and it is those Cells' content, not another's
@@ -767,14 +758,8 @@ mod test {
         app.set_at(1, 0, "+");
 
         // the accepted edits are observable as soon as write returns
-        assert_eq!(
-            rendered(&app, at(0, 0)),
-            GlyphString::new(Some(".".to_string()), Glyph::Function)
-        );
-        assert_eq!(
-            rendered(&app, at(1, 0)),
-            GlyphString::new(Some("+".to_string()), Glyph::Function)
-        );
+        assert_eq!(rendered(&app, at(0, 0)), (Some('.'), Some(Token::Function)));
+        assert_eq!(rendered(&app, at(1, 0)), (Some('+'), Some(Token::Function)));
     }
 
     #[tokio::test]
@@ -791,12 +776,9 @@ mod test {
         // Cell 5 is the second Cell of the Addition's second operand — ADR
         // 0033 has `.+` claim six Cells whatever they hold — so it is
         // presented as the operand it is. What this test is about is that the
-        // character survives the classification: an operand-slot Glyph never
+        // character survives the classification: an operand-slot Token never
         // renders an occupied Cell as empty.
-        assert_eq!(
-            rendered(&app, position),
-            GlyphString::new(Some("x".to_string()), Glyph::Number)
-        );
+        assert_eq!(rendered(&app, position), (Some('x'), Some(Token::Number)));
     }
 
     #[tokio::test]
@@ -839,7 +821,7 @@ mod test {
         // The refused `+` owns only Cell 0; its neighbour is empty again.
         assert_eq!(
             rendered(&app, grid.position(1, 0).expect("inside the grid")),
-            GlyphString::space()
+            (None, None)
         );
     }
 
@@ -853,19 +835,19 @@ mod test {
 
         app.select_or_panic(7, 0);
 
-        assert!((0..=2).all(|x| rendered(&app, at(x, 0)) == GlyphString::space()));
+        assert!((0..=2).all(|x| rendered(&app, at(x, 0)) == (None, None)));
     }
 
     ///
     /// A Comment claims every remaining Cell of its row, empty Cells
-    /// included, so those Cells now carry a Glyph where before they carried
-    /// none. The Glyph decides the colour and nothing else: a Comment hints
+    /// included, so those Cells now carry a Token where before they carried
+    /// none. The Token decides the colour and nothing else: a Comment hints
     /// at no spelling, so a Cell it claims renders the character the Source
     /// holds, and an empty one renders empty.
     ///
-    /// This is the distinction the `s: None` fallback draws. An empty operand
-    /// Cell renders `h` or `n` because a signature says what belongs there,
-    /// which `test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty`
+    /// An empty operand Cell renders `h` or `n` because a signature says what
+    /// belongs there, which
+    /// `test_editing_an_operand_hint_never_renders_an_occupied_cell_as_empty`
     /// pins from the other side. A Comment declares nothing, so a placeholder
     /// there would be a character the user never typed.
     ///
@@ -879,13 +861,13 @@ mod test {
         app.src("||hi there");
 
         // Every Cell of the row belongs to the one Comment, so every Cell
-        // carries its Glyph, the space between the two words included.
+        // carries its Token, the space between the two words included.
         let frame = app.render_frame();
-        assert!((0..10).all(|x| frame.at(at(x, 0)).glyph() == Glyph::Comment));
+        assert!((0..10).all(|x| frame.at(at(x, 0)).token() == Some(Token::Comment)));
         // And each renders what the Source holds there, no more.
         assert_eq!(
             (0..10)
-                .map(|x| rendered(&app, at(x, 0)).to_string())
+                .map(|x| rendered(&app, at(x, 0)).0.unwrap_or(' '))
                 .collect::<String>(),
             "||hi there",
         );
@@ -899,7 +881,7 @@ mod test {
 
         assert_eq!(
             (0..10)
-                .map(|x| rendered(&app, at(x, 0)).to_string())
+                .map(|x| rendered(&app, at(x, 0)).0.unwrap_or(' '))
                 .collect::<String>(),
             "||hi      ",
         );
@@ -912,8 +894,8 @@ mod test {
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(8, 8));
 
-        assert_eq!(rendered(&app, at(14, 10)), GlyphString::space());
-        assert_eq!(rendered(&app, at(16, 10)), GlyphString::space());
-        assert_eq!(rendered(&app, at(17, 10)), GlyphString::space());
+        assert_eq!(rendered(&app, at(14, 10)), (None, None));
+        assert_eq!(rendered(&app, at(16, 10)), (None, None));
+        assert_eq!(rendered(&app, at(17, 10)), (None, None));
     }
 }

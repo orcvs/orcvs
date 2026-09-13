@@ -2,7 +2,6 @@
 
 pub mod app;
 pub mod cursor;
-pub mod glyph;
 pub mod grid;
 pub mod midi;
 pub mod native_midi;

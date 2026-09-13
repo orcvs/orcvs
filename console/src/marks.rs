@@ -139,10 +139,7 @@ mod tests {
             cursor_bloom(grid.position(17, 7).unwrap(), selected, radius),
             None
         );
-        assert_eq!(
-            frame.at(grid.position(12, 10).unwrap()).glyph(),
-            orcvs::glyph::Glyph::Space
-        );
+        assert_eq!(frame.at(grid.position(12, 10).unwrap()).token(), None);
     }
 
     #[test]
@@ -258,13 +255,16 @@ mod tests {
         assert_eq!(sector_left_strength(at(0, 0), 1), None);
         assert!((1..7).all(|x| sector_left_strength(at(x, 0), 1).is_some()));
 
-        // Glyph half: empty Cells stay Space. Custom seam periods are not
+        // Token half: empty Cells stay unclaimed. Custom seam periods are not
         // settable from outside `orcvs`, so the spacing=2/1 pattern above is
         // pure strength arithmetic; emptiness is checked on a default Frame.
         let orcvs = orcvs::app::Orcvs::new(7, 3).expect("the test runtime");
         let frame = orcvs.render_frame();
         assert!((0..7).all(|x| {
-            frame.at(frame.grid().position(x, 0).unwrap()).glyph() == orcvs::glyph::Glyph::Space
+            frame
+                .at(frame.grid().position(x, 0).unwrap())
+                .token()
+                .is_none()
         }));
     }
 }

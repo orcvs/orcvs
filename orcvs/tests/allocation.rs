@@ -409,19 +409,11 @@ fn a_language_map_rebuild_is_bounded_independently_of_grid_size() {
     // the Grid itself rather than anything per-Cell that could be removed.
     //
     // `LanguageMap::rebuild` allocates a fixed set of collections whatever the
-    // Grid: the carried partition, the per-row bookkeeping `row_runs` builds,
-    // `glyphs` as `vec![None; bytes.len()]`, and the `Arc`. That set does not
-    // grow in number with the Grid, so the block count below is equal at every
-    // size. Their contents do: one Glyph slot per Cell and three row runs plus
-    // a walk slot per row, which is 136 bytes per row and one byte per Cell.
-    // A rebuild that produces a whole Map cannot be smaller than the Map.
-    //
-    // 2026-09-10: ADR 0035's branch replaced that set of collections. A Map
-    // now holds one `DerivedRow` per row; `row_runs` and the flat carried
-    // partition are gone, and `glyphs` is per-row rather than one
-    // `vec![None; bytes.len()]`. A row the walk read no Source in allocates
-    // nothing at all, so the equality asserted below still holds. The
-    // collections named above no longer exist; the bound does.
+    // Grid: the per-row `DerivedRow` and the `Arc`. That set does not grow in
+    // number with the Grid, so the block count below is equal at every size.
+    // A row the walk read no Source in allocates nothing at all. The per-Cell
+    // Glyph row is gone; classification is a reading of the claiming
+    // Expression.
     //
     // Measured on the calling thread.
     let mut measured = Vec::new();

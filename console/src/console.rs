@@ -372,7 +372,7 @@ fn show_diagnostics(
 /// show, less the space.
 ///
 /// `orcvs::source::CellContent` accepts exactly `0x20..=0x7e`, and every
-/// spelling `GlyphString` prints for an empty Cell is inside that range, so no
+/// spelling a Token prints for an empty Cell is inside that range, so no
 /// Cell of a Source can ask for a character outside it. The space is the one
 /// printable character deliberately left out: a Cell showing one paints no
 /// Glyph at all, and a Shape and a galley clone spent showing nothing is the
@@ -2333,7 +2333,7 @@ mod tests {
     /// the space.
     ///
     /// What a Cell shows and what colour it is are the Paint's answers, made
-    /// with no `egui::Context` and asserted against `GlyphString` and
+    /// with no `egui::Context` and asserted against the Token blank table and
     /// `cell_visuals` in `paint.rs`. What this pins is the step between: a
     /// galley per Cell that has something to say, positioned on that Cell and
     /// handed that Cell's colour rather than its neighbour's.

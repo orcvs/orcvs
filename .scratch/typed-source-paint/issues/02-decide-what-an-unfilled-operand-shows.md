@@ -3,14 +3,14 @@
 **What to build:** A decision, recorded where the vocabulary lives, about whether an operand Cell a
 Function declares but nothing fills shows a character or is painted by its declared type.
 
-**Blocked by:** 01 — Carry the Token to the Render Frame and retire the Glyph classifier.
+**Blocked by:** 06 — Delete Glyph.
 
 **Status:** needs-triage
 
 - [ ] The question is answered for all of `Number`, `Note`, `Char`, `Atom` and `Sequence` operands,
       not only the two that `GlyphString` currently spells.
-- [ ] Whichever way it goes, `GlyphString`'s remaining reason to exist is stated or the type is
-      deleted.
+- [ ] Whichever way it goes, the console blank table's remaining reason to exist is stated or the
+      table is deleted. Ticket `06` already retired GlyphString.
 - [ ] If operand slots are painted rather than spelled, `03`'s handover carries the declared-type
       colours; if they are spelled, the spelling table returns with a producer that reaches it.
 
@@ -24,8 +24,8 @@ Cell in its declared type and spell nothing.
 The reason this is a decision and not a consequence: those spellings read as deliberate
 operand-placeholder design rather than leftovers — Orca shows operand hints, and an unfilled slot
 you can see the shape of is genuinely useful while writing. Retiring them is a judgement about what
-the console should look like, which is why `01` deletes the *dead* Glyph vocabulary and leaves this
-alone.
+the console should look like, which is why `06` deletes the *dead* Glyph vocabulary and leaves this
+      alone.
 
 Note that these spellings are reached today, which is what makes this a choice between keeping a
 working feature and removing one. `LanguageMap` gives every Cell an Expression's claim covers that

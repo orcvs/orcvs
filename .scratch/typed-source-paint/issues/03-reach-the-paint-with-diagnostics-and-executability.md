@@ -4,7 +4,7 @@
 Cell covered by a parse diagnostic, and an Expression that will not execute — reach the Render
 Frame, carried once per Expression rather than copied per Cell.
 
-**Blocked by:** 01 — Carry the Token to the Render Frame and retire the Glyph classifier.
+**Blocked by:** 06 — Delete Glyph.
 
 **Status:** ready-for-agent
 

@@ -1,7 +1,7 @@
 //!
 //! The console's storage seam: the one Source revision eframe storage holds.
 //!
-//! `Source` is the only supported persistence root. The Language Map, Glyphs,
+//! `Source` is the only supported persistence root. The Language Map, Tokens,
 //! diagnostics and parsed Expressions are derived from it, so a restore
 //! rebuilds them and storage never holds them; the console itself is a runtime
 //! coordinator and is not stored either.
@@ -291,8 +291,7 @@ mod tests {
 
 #[cfg(all(test, feature = "persistence"))]
 mod stored_source_tests {
-    use orcvs::glyph::Glyph;
-    use orcvs::source::SourceCommander;
+    use orcvs::source::{SourceCommander, Token};
 
     use super::{
         InMemoryStorage, REFUSED_KEY, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
@@ -387,14 +386,12 @@ mod stored_source_tests {
         assert!(restored.grid().position(5, 2).is_some());
         assert!(restored.grid().position(6, 2).is_none());
         // The Language Map is derived, never stored: a restored Source parses
-        // its Cells again, so the Glyphs the console draws come back with it.
+        // its Cells again, so the Tokens the console draws come back with it.
         let revision = restored.read_revision();
         let grid = revision.grid();
         assert_eq!(
-            revision
-                .language_map()
-                .glyph_at(grid.position(0, 0).expect("inside the Grid")),
-            Some(Glyph::Function)
+            revision.token_at(grid.position(0, 0).expect("inside the Grid")),
+            Some(Token::Function)
         );
     }
 

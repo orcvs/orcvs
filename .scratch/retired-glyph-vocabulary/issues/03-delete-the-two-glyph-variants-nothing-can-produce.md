@@ -5,15 +5,10 @@ carry code that exists only to handle them.
 
 **Blocked by:** 02 — Retire the Marker entry from the glossary.
 
-**Status:** needs-triage
+**Status:** wontfix
 
-**Triage owes one decision, stated before the acceptance bars because it may empty them:**
-`typed-source-paint/01` is `ready-for-agent` with no unmet blockers and deletes `Glyph` outright,
-naming `GlyphString::marker()`, `GlyphString::highlight()`, `From<Token> for Glyph`, the `Display`
-spelling table, `BLANK_GLYPHS` and `blank_glyph_index` in its own acceptance lines. Every bar below
-is a strict subset of that ticket. Take this one only if the larger change is not going to land
-soon; otherwise mark this `wontfix` and note in `typed-source-paint/01` that it absorbs it. Do not
-do both.
+**Absorbed by `typed-source-paint/06`.** That ticket deletes Glyph outright. Every bar below is a
+strict subset. Do not do both.
 
 - [ ] `Glyph` (`orcvs/src/glyph.rs:38-49`) has seven variants: Bang, Char, Comment, Function, Note,
       Number, Space.
@@ -94,3 +89,7 @@ from that tree rather than from `main`. `typed-source-paint/01`'s acceptance lin
 `BLANK_GLYPHS`, `blank_glyph_index` and `GlyphTable::blanks` are deleted, and `GlyphTable::character`
 collapses to the Cell's content" — `GlyphTable` no longer holds them, `CellCharacters` does. That
 ticket's line needs the same correction whether or not this one is taken.
+
+## Resolution
+
+2026-09-13 — `wontfix`. Absorbed by `typed-source-paint/06`. Do not take this ticket.
