@@ -1,5 +1,6 @@
 pub(crate) mod math;
 pub(crate) mod numeric_conversion;
+pub(crate) mod sequence;
 pub(crate) mod tick;
 use crate::{Error, Performance, PlayCommand, atom::operands, interpreter::Context};
 

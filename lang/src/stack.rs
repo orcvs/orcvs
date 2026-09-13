@@ -51,6 +51,18 @@ pub(crate) trait Operands: Sized {
 /// inside a Tick. As a bound it is caught where it is written.
 pub(crate) trait UnaryOperands: Operands {}
 
+/// Operands bound from whole [`Value`]s rather than broadcast element Atoms.
+///
+/// ADR 0007's structural Sequence Functions and Range Functions use this seam
+/// because a Sequence operand is consumed intact.
+pub(crate) trait ValueOperands: Sized {
+    /// The Function whose signature these operands are extracted against.
+    const FUNCTION: Function;
+
+    /// Binds each declared role to its operand, in signature order.
+    fn from_values(values: &[Value]) -> Result<Self, Error>;
+}
+
 /// One element's operands, checked against a Function's signature.
 ///
 /// The field is private to this module, so holding one is proof of having been
@@ -480,6 +492,28 @@ impl Stack {
         }
 
         Broadcast::assemble(results)
+    }
+
+    /// Pops whole [`Value`]s for Functions that consume operands intact.
+    ///
+    /// ADR 0007's structural Sequence Functions and Range Functions refuse
+    /// pervasive extension, so a Sequence operand is consumed whole rather than
+    /// element-wise. [`ValueOperands::from_values`] binds each popped value to
+    /// the roles the Function declares.
+    #[inline(always)]
+    pub(crate) fn extract_values<O: ValueOperands>(&mut self) -> Result<O, Error> {
+        let expected = O::FUNCTION.signature().len();
+        let mut values: ArrayVec<Value, MAX_OPERANDS> = ArrayVec::new();
+
+        for found in 0..expected {
+            values.push(
+                self.inner
+                    .pop()
+                    .ok_or(ArgumentError::Arity { expected, found })?,
+            );
+        }
+
+        O::from_values(&values)
     }
 
     /// Performs one pervasive Terminal Output Function across the shape its

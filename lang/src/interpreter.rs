@@ -12,10 +12,8 @@ pub enum Interpretation {
     /// A Sequence value leaving evaluation intact.
     ///
     /// The Atomic Functions broadcast over a Sequence operand and answer one,
-    /// but no Source-parseable Function produces the operand yet: the
-    /// structural Sequence Functions arrive with issue 03 and the Range
-    /// Functions with issue 05, so nothing reaches this variant from Source
-    /// text today. It exists now because the whole point of the Sequence value
+    /// Structural and Range Functions reach this variant from Source text.
+    /// It exists because the whole point of the Sequence value
     /// is that it can cross Function evaluation and leave it without first
     /// becoming Source writes; adding it later would mean the consumer had
     /// already been written as though it could not.
@@ -155,6 +153,12 @@ impl Interpreter {
                     Function::Increment => tick::increment(&mut ctx)?,
                     Function::Interpolation => tick::interpolation(&mut ctx)?,
                     Function::Random => tick::random(&mut ctx)?,
+                    Function::Concatenate => functions::sequence::concatenate(&mut ctx)?,
+                    Function::NoteRange => functions::sequence::note_range(&mut ctx)?,
+                    Function::NumberRange => functions::sequence::number_range(&mut ctx)?,
+                    Function::Replace => functions::sequence::replace(&mut ctx)?,
+                    Function::Reverse => functions::sequence::reverse(&mut ctx)?,
+                    Function::Select => functions::sequence::select(&mut ctx)?,
                     Function::Maximum => math::maximum(&mut ctx)?,
                     Function::Minimum => math::minimum(&mut ctx)?,
                     Function::Modulo => math::modulo(&mut ctx)?,
@@ -778,6 +782,16 @@ mod test {
             if !function.answers_value() {
                 continue;
             }
+            if function.answers_sequence()
+                || function
+                    .signature()
+                    .iter()
+                    .any(|token| matches!(token, Token::Atom | Token::Sequence))
+            {
+                // Sequence answers and Atom/Sequence operands are exercised on
+                // their own paths rather than through this Atom-only sweep.
+                continue;
+            }
 
             let answers_bang = (0..=u8::MAX).any(|value| {
                 let mut atoms = vec![Atom::Function(function)];
@@ -939,7 +953,14 @@ mod test {
         let binary: Vec<Function> = Function::ALL
             .iter()
             .copied()
-            .filter(|function| function.answers_value() && function.signature().len() == 2)
+            .filter(|function| {
+                function.answers_value()
+                    && function.signature().len() == 2
+                    && function
+                        .signature()
+                        .iter()
+                        .all(|token| *token == Token::Number)
+            })
             .collect();
 
         let widest = Function::ALL
@@ -953,11 +974,13 @@ mod test {
         // and appending one spells trailing content the Parser rejects rather
         // than a deeper walk. The Self-Banging and Directional Bang Functions
         // are the rows this skips; every other row still carries the chain.
-        for root in Function::ALL
-            .iter()
-            .copied()
-            .filter(|root| !root.takes_no_operand())
-        {
+        for root in Function::ALL.iter().copied().filter(|root| {
+            !root.takes_no_operand()
+                && root
+                    .signature()
+                    .iter()
+                    .all(|token| !matches!(token, Token::Atom | Token::Sequence))
+        }) {
             for link in binary.iter().copied() {
                 for chain in 1..=CHAIN_LENGTH {
                     // The chain stands in the first operand, which the
@@ -1137,7 +1160,13 @@ mod property {
     fn binary_value_functions() -> Vec<Function> {
         value_functions()
             .into_iter()
-            .filter(|function| function.signature().len() == 2)
+            .filter(|function| {
+                function.signature().len() == 2
+                    && function
+                        .signature()
+                        .iter()
+                        .all(|token| *token == Token::Number)
+            })
             .collect()
     }
 
@@ -1170,6 +1199,10 @@ mod property {
     /// Source text for one operand of the declared type: a literal, a chain, or
     /// a Value Function over operands generated the same way.
     fn operand_source(token: Token, depth: u32) -> BoxedStrategy<String> {
+        if matches!(token, Token::Atom | Token::Sequence) {
+            return nested_source(depth.max(1));
+        }
+
         if depth == 0 {
             return literal_source(token);
         }

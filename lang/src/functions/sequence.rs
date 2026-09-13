@@ -1,0 +1,680 @@
+use crate::{
+    Atom, Error, Function, Note, Sequence, SequenceError, TypeError, Value, atom::operands,
+    interpreter::Context, stack::ValueOperands,
+};
+
+/// Reverse `:<`: reverse Atom order, preserving each member's type and encoding.
+#[inline(always)]
+pub fn reverse(ctx: &mut Context) -> Result<Value, Error> {
+    let operands::Reverse { sequence } = ctx.stack.extract_values::<operands::Reverse>()?;
+    let mut atoms: Vec<Atom> = sequence.atoms().to_vec();
+    atoms.reverse();
+    Ok(Sequence::new(atoms)?.into())
+}
+
+/// Concatenate `:&`: promote Atoms, stay flat, treat empty Sequence as identity.
+#[inline(always)]
+pub fn concatenate(ctx: &mut Context) -> Result<Value, Error> {
+    let operands::Concatenate { left, right } =
+        ctx.stack.extract_values::<operands::Concatenate>()?;
+    let mut atoms = left.atoms().to_vec();
+    atoms.extend_from_slice(right.atoms());
+    Ok(Sequence::new(atoms)?.into())
+}
+
+/// Select `:?`: zero-based index modulo length; empty Sequence diagnoses.
+#[inline(always)]
+pub fn select(ctx: &mut Context) -> Result<Value, Error> {
+    let operands::Select { index, sequence } = ctx.stack.extract_values::<operands::Select>()?;
+    require_non_empty(&sequence)?;
+    Ok(sequence.atoms()[wrapping_index(index, sequence.len())].into())
+}
+
+/// Replace `:=`: same-length Sequence with one Atom replaced; input unchanged.
+#[inline(always)]
+pub fn replace(ctx: &mut Context) -> Result<Value, Error> {
+    let operands::Replace {
+        index,
+        replacement,
+        sequence,
+    } = ctx.stack.extract_values::<operands::Replace>()?;
+    require_non_empty(&sequence)?;
+    let mut atoms: Vec<Atom> = sequence.atoms().to_vec();
+    let selected = wrapping_index(index, atoms.len());
+    atoms[selected] = replacement;
+    Ok(Sequence::new(atoms)?.into())
+}
+
+/// Number Range `:-`: inclusive unit-step Sequence between two Numbers.
+#[inline(always)]
+pub fn number_range(ctx: &mut Context) -> Result<Value, Error> {
+    let operands::NumberRange { lower, upper } =
+        ctx.stack.extract_values::<operands::NumberRange>()?;
+    Ok(inclusive_number_range(lower, upper)?.into())
+}
+
+/// Note Range `:#`: inclusive chromatic Sequence between two Notes.
+#[inline(always)]
+pub fn note_range(ctx: &mut Context) -> Result<Value, Error> {
+    let operands::NoteRange { lower, upper } = ctx.stack.extract_values::<operands::NoteRange>()?;
+    Ok(inclusive_note_range(lower, upper)?.into())
+}
+
+#[inline(always)]
+fn require_non_empty(sequence: &Sequence) -> Result<(), Error> {
+    if sequence.is_empty() {
+        Err(SequenceError::EmptyNotAllowed.into())
+    } else {
+        Ok(())
+    }
+}
+
+#[inline(always)]
+fn wrapping_index(index: u8, length: usize) -> usize {
+    usize::from(index) % length
+}
+
+fn inclusive_number_range(lower: u8, upper: u8) -> Result<Sequence, Error> {
+    let (start, step, count) = if lower <= upper {
+        (
+            i16::from(lower),
+            1i16,
+            i16::from(upper) - i16::from(lower) + 1,
+        )
+    } else {
+        (
+            i16::from(lower),
+            -1i16,
+            i16::from(lower) - i16::from(upper) + 1,
+        )
+    };
+    build_number_sequence(start, step, count)
+}
+
+fn inclusive_note_range(lower: Note, upper: Note) -> Result<Sequence, Error> {
+    let lower = lower.value();
+    let upper = upper.value();
+    let (start, step, count) = if lower <= upper {
+        (
+            i16::from(lower),
+            1i16,
+            i16::from(upper) - i16::from(lower) + 1,
+        )
+    } else {
+        (
+            i16::from(lower),
+            -1i16,
+            i16::from(lower) - i16::from(upper) + 1,
+        )
+    };
+    build_note_sequence(start, step, count)
+}
+
+fn build_number_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Error> {
+    let count = usize::try_from(count).map_err(|_| SequenceError::EmptyNotAllowed)?;
+    let mut atoms = Vec::with_capacity(count);
+    let mut value = start;
+    for _ in 0..count {
+        atoms.push(Atom::Number(value as u8));
+        value += step;
+    }
+    Sequence::new(atoms)
+}
+
+fn build_note_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Error> {
+    let count = usize::try_from(count).map_err(|_| SequenceError::EmptyNotAllowed)?;
+    let mut atoms = Vec::with_capacity(count);
+    let mut value = start;
+    for _ in 0..count {
+        atoms.push(Atom::Note(Note::try_from(value as u8)?));
+        value += step;
+    }
+    Sequence::new(atoms)
+}
+
+fn as_sequence_required(value: &Value) -> Result<Sequence, Error> {
+    Sequence::try_from(value.clone())
+}
+
+fn as_sequence_operand(value: &Value) -> Result<Sequence, Error> {
+    match value {
+        Value::Sequence(sequence) => Ok(sequence.clone()),
+        Value::Atom(atom) => Sequence::promote(*atom),
+    }
+}
+
+fn as_number(value: &Value) -> Result<u8, Error> {
+    match value {
+        Value::Atom(Atom::Number(number)) => Ok(*number),
+        Value::Atom(atom) => Err(TypeError::Number(atom.to_string()).into()),
+        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    }
+}
+
+fn as_note(value: &Value) -> Result<Note, Error> {
+    match value {
+        Value::Atom(Atom::Note(note)) => Ok(*note),
+        Value::Atom(atom) => Err(TypeError::Note(atom.to_string()).into()),
+        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    }
+}
+
+fn as_atom(value: &Value) -> Result<Atom, Error> {
+    match value {
+        Value::Atom(atom) => Ok(*atom),
+        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    }
+}
+
+impl ValueOperands for operands::Reverse {
+    const FUNCTION: Function = Function::Reverse;
+
+    fn from_values(values: &[Value]) -> Result<Self, Error> {
+        Ok(Self {
+            sequence: as_sequence_required(values.first().ok_or(missing_operand(1, 0))?)?,
+        })
+    }
+}
+
+impl ValueOperands for operands::Concatenate {
+    const FUNCTION: Function = Function::Concatenate;
+
+    fn from_values(values: &[Value]) -> Result<Self, Error> {
+        Ok(Self {
+            left: as_sequence_operand(values.first().ok_or(missing_operand(2, 0))?)?,
+            right: as_sequence_operand(values.get(1).ok_or(missing_operand(2, 1))?)?,
+        })
+    }
+}
+
+impl ValueOperands for operands::Select {
+    const FUNCTION: Function = Function::Select;
+
+    fn from_values(values: &[Value]) -> Result<Self, Error> {
+        Ok(Self {
+            index: as_number(values.first().ok_or(missing_operand(2, 0))?)?,
+            sequence: as_sequence_required(values.get(1).ok_or(missing_operand(2, 1))?)?,
+        })
+    }
+}
+
+impl ValueOperands for operands::Replace {
+    const FUNCTION: Function = Function::Replace;
+
+    fn from_values(values: &[Value]) -> Result<Self, Error> {
+        Ok(Self {
+            index: as_number(values.first().ok_or(missing_operand(3, 0))?)?,
+            replacement: as_atom(values.get(1).ok_or(missing_operand(3, 1))?)?,
+            sequence: as_sequence_required(values.get(2).ok_or(missing_operand(3, 2))?)?,
+        })
+    }
+}
+
+impl ValueOperands for operands::NumberRange {
+    const FUNCTION: Function = Function::NumberRange;
+
+    fn from_values(values: &[Value]) -> Result<Self, Error> {
+        Ok(Self {
+            lower: as_number(values.first().ok_or(missing_operand(2, 0))?)?,
+            upper: as_number(values.get(1).ok_or(missing_operand(2, 1))?)?,
+        })
+    }
+}
+
+impl ValueOperands for operands::NoteRange {
+    const FUNCTION: Function = Function::NoteRange;
+
+    fn from_values(values: &[Value]) -> Result<Self, Error> {
+        Ok(Self {
+            lower: as_note(values.first().ok_or(missing_operand(2, 0))?)?,
+            upper: as_note(values.get(1).ok_or(missing_operand(2, 1))?)?,
+        })
+    }
+}
+
+fn missing_operand(expected: usize, found: usize) -> Error {
+    crate::ArgumentError::Arity { expected, found }.into()
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        Anchor, Atom, Error, Function, Interpretation, Interpreter, Note, Parser, Sequence,
+        SequenceError, Tick, TickInputs, TypeError, Value,
+    };
+
+    fn inputs() -> TickInputs {
+        TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
+    }
+
+    fn interpret(source: &str) -> Result<Interpretation, Error> {
+        let mut source = source.to_string();
+        let atoms = Parser::from(&mut source).try_parse()?;
+        Interpreter::execute(&atoms, inputs())
+    }
+
+    fn evaluate(function: Function, operands: &[Value]) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(function, operands, inputs().into())
+    }
+
+    fn numbers(values: impl IntoIterator<Item = u8>) -> Sequence {
+        Sequence::new(values.into_iter().map(Atom::Number)).unwrap()
+    }
+
+    fn notes(values: impl IntoIterator<Item = u8>) -> Sequence {
+        Sequence::new(
+            values
+                .into_iter()
+                .map(|value| Atom::Note(Note::try_from(value).unwrap())),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn reverse_preserves_atom_type_and_encoding() {
+        let sequence = Sequence::new([
+            Atom::Number(0x0A),
+            Atom::Note(Note::try_from(60).unwrap()),
+            Atom::Bang,
+        ])
+        .unwrap();
+
+        assert_eq!(
+            evaluate(Function::Reverse, &[Value::Sequence(sequence.clone())]).unwrap(),
+            Interpretation::Sequence(
+                Sequence::new([
+                    Atom::Bang,
+                    Atom::Note(Note::try_from(60).unwrap()),
+                    Atom::Number(0x0A)
+                ])
+                .unwrap()
+            )
+        );
+        assert_eq!(
+            interpret(":<:-0003").unwrap(),
+            Interpretation::Sequence(numbers([0x03, 0x02, 0x01, 0x00]))
+        );
+    }
+
+    #[test]
+    fn reverse_leaves_singleton_and_empty_sequences_unchanged() {
+        let singleton = Sequence::promote(Atom::Number(0x0A)).unwrap();
+        assert_eq!(
+            evaluate(Function::Reverse, &[Value::Sequence(singleton.clone())]).unwrap(),
+            Interpretation::Sequence(singleton)
+        );
+
+        let empty = Sequence::empty();
+        assert_eq!(
+            evaluate(Function::Reverse, &[Value::Sequence(empty.clone())]).unwrap(),
+            Interpretation::Sequence(empty)
+        );
+    }
+
+    #[test]
+    fn concatenate_promotes_atoms_stays_flat_and_treats_empty_as_identity() {
+        let left = numbers([0x01, 0x02]);
+        let right = numbers([0x03]);
+
+        assert_eq!(
+            evaluate(
+                Function::Concatenate,
+                &[
+                    Value::Sequence(left.clone()),
+                    Value::Sequence(right.clone())
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x01, 0x02, 0x03]))
+        );
+
+        assert_eq!(
+            evaluate(
+                Function::Concatenate,
+                &[
+                    Value::Atom(Atom::Number(0x01)),
+                    Value::Sequence(right.clone())
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x01, 0x03]))
+        );
+
+        assert_eq!(
+            evaluate(
+                Function::Concatenate,
+                &[Value::Sequence(left), Value::Atom(Atom::Number(0x03))]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x01, 0x02, 0x03]))
+        );
+
+        let empty = Sequence::empty();
+        assert_eq!(
+            evaluate(
+                Function::Concatenate,
+                &[
+                    Value::Sequence(empty.clone()),
+                    Value::Sequence(numbers([0x01]))
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x01]))
+        );
+        assert_eq!(
+            evaluate(
+                Function::Concatenate,
+                &[
+                    Value::Sequence(numbers([0x01])),
+                    Value::Sequence(empty.clone())
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x01]))
+        );
+    }
+
+    #[test]
+    fn select_uses_a_wrapping_number_index_and_preserves_the_chosen_atom() {
+        let sequence = numbers([0x0A, 0x0B, 0x0C]);
+
+        assert_eq!(
+            evaluate(
+                Function::Select,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Sequence(sequence.clone())
+                ]
+            )
+            .unwrap(),
+            Interpretation::Cell(Atom::Number(0x0A))
+        );
+        assert_eq!(
+            evaluate(
+                Function::Select,
+                &[Value::Atom(Atom::Number(0x04)), Value::Sequence(sequence)]
+            )
+            .unwrap(),
+            Interpretation::Cell(Atom::Number(0x0B))
+        );
+    }
+
+    #[test]
+    fn select_diagnoses_empty_sequences_and_non_number_indices() {
+        assert!(matches!(
+            evaluate(
+                Function::Select,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Sequence(Sequence::empty())
+                ]
+            ),
+            Err(Error::Sequence(SequenceError::EmptyNotAllowed))
+        ));
+
+        let sequence = numbers([0x0A]);
+        assert!(matches!(
+            evaluate(
+                Function::Select,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(0).unwrap())),
+                    Value::Sequence(sequence.clone())
+                ]
+            ),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::Select,
+                &[Value::Sequence(sequence), Value::Sequence(numbers([0x0A]))]
+            ),
+            Err(Error::Sequence(SequenceError::ExpectedAtom(_)))
+        ));
+    }
+
+    #[test]
+    fn replace_returns_a_new_same_length_sequence_and_allows_a_different_replacement_type() {
+        let sequence = Sequence::new([
+            Atom::Number(0x0A),
+            Atom::Note(Note::try_from(60).unwrap()),
+            Atom::Number(0x0C),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Number(0x01)),
+                    Value::Atom(Atom::Bang),
+                    Value::Sequence(sequence.clone())
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(
+                Sequence::new([Atom::Number(0x0A), Atom::Bang, Atom::Number(0x0C),]).unwrap()
+            )
+        );
+        assert_eq!(sequence.atoms()[1], Atom::Note(Note::try_from(60).unwrap()));
+    }
+
+    #[test]
+    fn replace_diagnoses_empty_sequences_non_number_indices_and_sequence_replacements() {
+        let sequence = numbers([0x0A, 0x0B]);
+        assert!(matches!(
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Atom(Atom::Number(0x01)),
+                    Value::Sequence(Sequence::empty())
+                ]
+            ),
+            Err(Error::Sequence(SequenceError::EmptyNotAllowed))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(0).unwrap())),
+                    Value::Atom(Atom::Number(0x01)),
+                    Value::Sequence(sequence.clone())
+                ]
+            ),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Sequence(numbers([0x01])),
+                    Value::Sequence(sequence)
+                ]
+            ),
+            Err(Error::Sequence(SequenceError::ExpectedAtom(_)))
+        ));
+    }
+
+    #[test]
+    fn number_range_is_inclusive_and_respects_bound_order() {
+        assert_eq!(
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Atom(Atom::Number(0x03))
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x00, 0x01, 0x02, 0x03]))
+        );
+        assert_eq!(
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Number(0x03)),
+                    Value::Atom(Atom::Number(0x00))
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x03, 0x02, 0x01, 0x00]))
+        );
+        assert_eq!(
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Number(0x05)),
+                    Value::Atom(Atom::Number(0x05))
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x05]))
+        );
+        assert_eq!(
+            interpret(":-0003").unwrap(),
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Number(0x00)),
+                    Value::Atom(Atom::Number(0x03))
+                ]
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn note_range_preserves_note_identity_and_respects_bound_order() {
+        assert_eq!(
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap())),
+                    Value::Atom(Atom::Note(Note::try_from(62).unwrap()))
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(notes([60, 61, 62]))
+        );
+        assert_eq!(
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(62).unwrap())),
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap()))
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(notes([62, 61, 60]))
+        );
+        assert_eq!(
+            interpret(":#C4C4").unwrap(),
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap())),
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap()))
+                ]
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn range_functions_diagnose_mixed_type_and_invalid_bounds() {
+        assert!(matches!(
+            evaluate(
+                Function::NumberRange,
+                &[
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap())),
+                    Value::Atom(Atom::Number(0x03))
+                ]
+            ),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Atom(Atom::Number(0x03)),
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap()))
+                ]
+            ),
+            Err(Error::Type(TypeError::Note(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::NumberRange,
+                &[Value::Atom(Atom::Bang), Value::Atom(Atom::Number(0x03))]
+            ),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
+        assert!(matches!(
+            evaluate(
+                Function::NoteRange,
+                &[
+                    Value::Atom(Atom::Bang),
+                    Value::Atom(Atom::Note(Note::try_from(60).unwrap()))
+                ]
+            ),
+            Err(Error::Type(TypeError::Note(_)))
+        ));
+        assert!(matches!(
+            interpret(":#8080"),
+            Err(Error::Type(TypeError::Note(found))) if found == "80"
+        ));
+    }
+
+    #[test]
+    fn structural_operations_preserve_bang_type_and_encoding() {
+        let sequence = Sequence::new([Atom::Bang, Atom::Number(0x00), Atom::Bang]).unwrap();
+        assert_eq!(
+            evaluate(Function::Reverse, &[Value::Sequence(sequence.clone())]).unwrap(),
+            Interpretation::Sequence(
+                Sequence::new([Atom::Bang, Atom::Number(0x00), Atom::Bang]).unwrap()
+            )
+        );
+        assert_eq!(
+            evaluate(
+                Function::Replace,
+                &[
+                    Value::Atom(Atom::Number(0x01)),
+                    Value::Atom(Atom::Bang),
+                    Value::Sequence(sequence)
+                ]
+            )
+            .unwrap(),
+            Interpretation::Sequence(Sequence::new([Atom::Bang, Atom::Bang, Atom::Bang]).unwrap())
+        );
+    }
+
+    #[test]
+    fn every_sequence_function_parses_and_round_trips_its_spelling() {
+        for (source, function) in [
+            (":-0003", Function::NumberRange),
+            (":#C4C5", Function::NoteRange),
+            (":&:-0101:-0202", Function::Concatenate),
+        ] {
+            let mut text = source.to_string();
+            let atoms = Parser::from(&mut text).try_parse().unwrap();
+            assert_eq!(atoms[0], Atom::Function(function), "{source}");
+            assert_eq!(function.to_string(), &source[..2], "{source}");
+        }
+
+        for (spelling, function) in [
+            (":<", Function::Reverse),
+            (":?", Function::Select),
+            (":=", Function::Replace),
+            (":#", Function::NoteRange),
+            (":-", Function::NumberRange),
+        ] {
+            assert_eq!(function.to_string(), spelling);
+            assert_eq!(
+                Function::try_from(spelling).unwrap(),
+                function,
+                "{spelling} round-trips through TryFrom",
+            );
+        }
+    }
+}
