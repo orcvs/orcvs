@@ -1,8 +1,10 @@
 use crate::{
     Atom, Error, Function, InterpretationError, Value,
-    atom::operands::{Clock, Delay, Euclidean},
+    atom::operands::{Clock, Delay, Euclidean, Random},
     interpreter::Context,
 };
+use rand_chacha::ChaCha8Rng;
+use rand_chacha::rand_core::{Rng, SeedableRng};
 
 // ADR 0012's Tick-reading Functions. Each reads the absolute Tick from the
 // interpretation `Context` and nothing else: no clock, no static, no counter of
@@ -24,8 +26,10 @@ use crate::{
 // Sequence Functions make one spellable. The refusal comes from the declaration
 // alone: `Stack::broadcast` raises `ExpectedAtom` for a Sequence at any operand
 // of a Function that does not pervade, so neither body checks for one. They
-// bind through `Stack::extract`, the scalar seam; Clock answers a Number and
-// broadcasts through `Stack::apply` like every other Atomic Function.
+// bind through `Stack::extract`, the scalar seam; Clock and Random each answer
+// a Number and broadcast through `Stack::apply` like every other Atomic
+// Function. Random uses `Stack::apply_indexed` so Sequence index participates
+// in each element's stream.
 //
 // Every formula is evaluated in `u64`. The Tick is already one, and the two
 // operands are Numbers whose product is a cycle length rather than a value the
@@ -198,18 +202,109 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
     Ok(pulse((hits * phase) % steps + hits >= steps))
 }
 
+/// Random: `~? seed minimum maximum`.
+///
+/// A Number selected inclusively between normalized bounds. ADR 0013 derives
+/// each result from the explicit seed, the absolute Tick, this Function's
+/// own Position, and the zero-based Sequence index, rather than from
+/// activation history: the same Source Snapshot at the same Tick answers the
+/// same Number, a skipped activation skips that sample, and two Randoms at
+/// different Positions have independent reproducible streams.
+///
+/// The stream is a fresh ChaCha8 seeded from those four facts for every
+/// scalar result. Reversed bounds describe the same range; equal bounds
+/// return that value without asking the generator. The mapping widens the
+/// inclusive width so `00`–`FF` is 256 values rather than a wrapping 0.
+///
+/// It answers a Number, so it is pervasive like Clock: it broadcasts through
+/// `Stack::apply_indexed` and a Sequence operand answers a Sequence of
+/// draws. Sequence index participates per element so two equal bounds at
+/// different positions do not share a stream.
+#[inline(always)]
+pub fn random(ctx: &mut Context) -> Result<Value, Error> {
+    let tick = ctx.inputs.tick().get();
+    let anchor = ctx.inputs.anchor();
+    // ADR 0013 writes the coordinates as little-endian i64. The Grid mints
+    // non-negative usize that fit; this is that narrowing, not a signed
+    // Position type in lang.
+    let column = anchor.column() as i64;
+    let row = anchor.row() as i64;
+
+    ctx.stack.apply_indexed(
+        move |Random {
+                  seed,
+                  minimum,
+                  maximum,
+              }: Random,
+              index| {
+            let sequence = index as u32;
+            Ok(Atom::Number(draw(
+                seed, tick, column, row, sequence, minimum, maximum,
+            )))
+        },
+    )
+}
+
+///
+/// One scalar draw: normalize the bounds, then map the first ChaCha8 `u64`
+/// into that inclusive range.
+///
+/// Equal bounds return that value before a stream is built, because the
+/// range has one member and the word cannot choose another. Reversed bounds
+/// swap so the width is taken from the ordered pair, which is what makes
+/// `10 00` the same range as `00 10`.
+///
+fn draw(seed: u8, tick: u64, column: i64, row: i64, sequence: u32, minimum: u8, maximum: u8) -> u8 {
+    let (low, high) = if minimum <= maximum {
+        (minimum, maximum)
+    } else {
+        (maximum, minimum)
+    };
+    if low == high {
+        return low;
+    }
+
+    let word = chacha_word(seed, tick, column, row, sequence);
+    let width = u16::from(high) - u16::from(low) + 1;
+    let selected = u16::from(low) + (word % u64::from(width)) as u16;
+    // `width` is at most 256 and `low + (word % width)` is at most 255.
+    selected as u8
+}
+
+///
+/// The first `u64` of a fresh ChaCha8 stream seeded from ADR 0013's layout.
+///
+/// The 32-byte seed is zero-initialized. Byte `0` is the explicit seed;
+/// `[1, 9)` is the Tick as little-endian `u64`; `[9, 17)` and `[17, 25)` are
+/// the Function column and row as little-endian `i64`; `[25, 29)` is the
+/// Sequence index as little-endian `u32`; `[29, 32)` stay zero. A scalar
+/// call uses Sequence index `0`.
+///
+fn chacha_word(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> u64 {
+    let mut bytes = [0u8; 32];
+    bytes[0] = seed;
+    bytes[1..9].copy_from_slice(&tick.to_le_bytes());
+    bytes[9..17].copy_from_slice(&column.to_le_bytes());
+    bytes[17..25].copy_from_slice(&row.to_le_bytes());
+    bytes[25..29].copy_from_slice(&sequence.to_le_bytes());
+    ChaCha8Rng::from_seed(bytes).next_u64()
+}
+
 #[cfg(test)]
 mod test {
     use crate::{
         Anchor, Atom, Error, Function, Interpretation, Interpreter, Note, Sequence, SequenceError,
         Tick, TickInputs, TypeError, Value,
     };
+    use rand_chacha::ChaCha8Rng;
+    use rand_chacha::rand_core::{Rng, SeedableRng};
 
     /// Evaluates one Tick-reading Function at absolute Tick `tick`, with its
     /// operands in signature order.
     ///
-    /// The anchor is the Grid origin throughout: none of these three Functions
-    /// reads a Position, and ADR 0013's Random is the one that will.
+    /// The anchor is the Grid origin throughout: Clock, Delay, and Euclidean
+    /// do not read a Position. Random has its own helpers below, because it
+    /// does.
     fn evaluate(
         function: Function,
         tick: u64,
@@ -785,5 +880,261 @@ mod test {
             error.to_string(),
             r#"expected an Atom, found the Sequence "0102""#
         );
+    }
+
+    /// Evaluates Random at a stated Tick and anchor.
+    ///
+    /// The anchor is part of the stream, so these helpers take it rather than
+    /// defaulting to the origin the two-operand Tick Functions use.
+    fn evaluate_random(
+        tick: u64,
+        column: usize,
+        row: usize,
+        seed: impl Into<Value>,
+        minimum: impl Into<Value>,
+        maximum: impl Into<Value>,
+    ) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(
+            Function::Random,
+            &[seed.into(), minimum.into(), maximum.into()],
+            TickInputs::new(Tick::new(tick), Anchor::new(column, row)),
+        )
+    }
+
+    /// The Atom Random answers for one triple of Numbers.
+    fn random_answer(
+        tick: u64,
+        column: usize,
+        row: usize,
+        seed: u8,
+        minimum: u8,
+        maximum: u8,
+    ) -> Result<Atom, Error> {
+        match evaluate_random(
+            tick,
+            column,
+            row,
+            Atom::Number(seed),
+            Atom::Number(minimum),
+            Atom::Number(maximum),
+        )? {
+            Interpretation::Cell(atom) => Ok(atom),
+            other => panic!("expected a Cell result, found {other:?}"),
+        }
+    }
+
+    /// ADR 0013's 32-byte ChaCha seed, assembled here from the stated layout
+    /// rather than from the Function body.
+    fn adr_seed(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        bytes[0] = seed;
+        bytes[1..9].copy_from_slice(&tick.to_le_bytes());
+        bytes[9..17].copy_from_slice(&column.to_le_bytes());
+        bytes[17..25].copy_from_slice(&row.to_le_bytes());
+        bytes[25..29].copy_from_slice(&sequence.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn random_normalizes_reversed_bounds_and_returns_an_equal_bound() {
+        // Reversed bounds are the same range, so `10 00` answers what `00 10`
+        // answers. Equal bounds have one member and return it, which is the
+        // case a body that always asked ChaCha8 would still pass — what the
+        // test is for is the opposite, that the range is settled before the
+        // stream is.
+        assert_eq!(
+            random_answer(0, 0, 0, 0x01, 0x00, 0x10).unwrap(),
+            Atom::Number(0x02)
+        );
+        assert_eq!(
+            random_answer(0, 0, 0, 0x01, 0x10, 0x00).unwrap(),
+            Atom::Number(0x02)
+        );
+        assert_eq!(
+            random_answer(0, 0, 0, 0x01, 0x2A, 0x2A).unwrap(),
+            Atom::Number(0x2A)
+        );
+    }
+
+    #[test]
+    fn random_golden_vectors_pin_the_adr_seed_chacha8_word_and_range_mapping() {
+        // Computed independently from ADR 0013's layout plus `rand_chacha`
+        // 0.10's ChaCha8Rng, not by reading the Function body. A dependency
+        // upgrade that changes the first `u64`, or a body that writes the
+        // Tick into the column slot, fails a literal rather than agreeing
+        // with itself.
+        //
+        // Origin: seed `01`, Tick `0`, column `0`, row `0`, Sequence `0`.
+        const ORIGIN_SEED: [u8; 32] = [
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        const ORIGIN_WORD: u64 = 0x61a9_4a49_a0e9_5ecf;
+
+        assert_eq!(adr_seed(0x01, 0, 0, 0, 0), ORIGIN_SEED);
+        assert_eq!(
+            ChaCha8Rng::from_seed(ORIGIN_SEED).next_u64(),
+            ORIGIN_WORD,
+            "ChaCha8 first u64 at the origin seed"
+        );
+        // Width of `00`–`FF` is 256, not a wrapping 0. The first word's low
+        // byte is `CF`; modulo 256 is that byte, which is the accepted
+        // bias the ADR documents.
+        assert_eq!(ORIGIN_WORD % 256, 0xCF);
+        assert_eq!(
+            random_answer(0, 0, 0, 0x01, 0x00, 0xFF).unwrap(),
+            Atom::Number(0xCF)
+        );
+        // Width 17: `7037237572835827407 % 17 == 2`.
+        assert_eq!(ORIGIN_WORD % 17, 2);
+        assert_eq!(
+            random_answer(0, 0, 0, 0x01, 0x00, 0x10).unwrap(),
+            Atom::Number(0x02)
+        );
+
+        // Asymmetric Position and a non-zero Tick, so a transposition of
+        // column and row, or a Tick written as `i64`, is visible.
+        const OFFSET_SEED: [u8; 32] = [
+            0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        const OFFSET_WORD: u64 = 0x9142_5add_444f_79fb;
+
+        assert_eq!(adr_seed(0x01, 7, 3, 5, 0), OFFSET_SEED);
+        assert_eq!(ChaCha8Rng::from_seed(OFFSET_SEED).next_u64(), OFFSET_WORD);
+        assert_eq!(
+            random_answer(7, 3, 5, 0x01, 0x00, 0xFF).unwrap(),
+            Atom::Number(0xFB)
+        );
+    }
+
+    #[test]
+    fn random_sequence_index_distinguishes_broadcast_elements() {
+        // Sequence index occupies bytes `[25, 29)`. Two elements with the
+        // same bounds at the same Position would share a stream if the
+        // index were left at `0` for every one.
+        const SEQ1_SEED: [u8; 32] = [
+            0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        const SEQ1_WORD: u64 = 0x2487_bf0e_d164_dbd0;
+
+        assert_eq!(adr_seed(0x01, 7, 3, 5, 1), SEQ1_SEED);
+        assert_eq!(ChaCha8Rng::from_seed(SEQ1_SEED).next_u64(), SEQ1_WORD);
+        assert_ne!(SEQ1_WORD, 0x9142_5add_444f_79fb);
+
+        assert_eq!(
+            evaluate_random(
+                0,
+                0,
+                0,
+                Atom::Number(0x01),
+                numbers([0, 0, 0]),
+                numbers([0x10, 0x10, 0x10])
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x02, 0x0B, 0x07])),
+        );
+    }
+
+    #[test]
+    fn two_randoms_at_different_anchors_differ_and_moving_one_changes_its_stream() {
+        // Own-anchor, not Expression-root: `(3, 5)` and `(4, 5)` are two
+        // Functions, and moving one column is enough to change the stream.
+        // Identical inputs reproduce it.
+        let at_three = random_answer(7, 3, 5, 0x01, 0x00, 0xFF).unwrap();
+        let at_four = random_answer(7, 4, 5, 0x01, 0x00, 0xFF).unwrap();
+
+        assert_eq!(at_three, Atom::Number(0xFB));
+        assert_eq!(at_four, Atom::Number(0xB5));
+        assert_ne!(at_three, at_four);
+        assert_eq!(random_answer(7, 3, 5, 0x01, 0x00, 0xFF).unwrap(), at_three);
+    }
+
+    #[test]
+    fn a_note_operand_diagnoses_in_random() {
+        // All three operands are declared Number, so a Note is refused at
+        // each of them rather than converted: ADR 0021 makes the Numeric
+        // Conversion Functions the only crossing between the two numeric
+        // types.
+        let note = Atom::Note(Note::try_from(0x3C).unwrap());
+        let number = Atom::Number(0x04);
+
+        for (seed, minimum, maximum) in [
+            (note, number, number),
+            (number, note, number),
+            (number, number, note),
+            (note, note, note),
+        ] {
+            let error = evaluate_random(5, 0, 0, seed, minimum, maximum).unwrap_err();
+            assert!(
+                matches!(error, Error::Type(TypeError::Number(ref found)) if found == "C4"),
+                "~?({seed:?}, {minimum:?}, {maximum:?}) gave {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_random_broadcasts_one_draw_per_element() {
+        // Random answers a Number, so it extends element-wise like Clock: a
+        // scalar operand repeats and equal lengths pair. Sequence index is
+        // what keeps the three draws from collapsing to one stream.
+        assert_eq!(
+            evaluate_random(
+                0,
+                0,
+                0,
+                Atom::Number(0x01),
+                Atom::Number(0x00),
+                numbers([0x10, 0x10, 0x10])
+            )
+            .unwrap(),
+            Interpretation::Sequence(numbers([0x02, 0x0B, 0x07])),
+        );
+
+        for (seed, minimum, maximum) in [
+            (
+                Value::from(Atom::Number(0x01)),
+                Value::from(Atom::Number(0x00)),
+                Value::from(Sequence::empty()),
+            ),
+            (
+                Sequence::empty().into(),
+                Atom::Number(0x00).into(),
+                Atom::Number(0x10).into(),
+            ),
+            (
+                Sequence::empty().into(),
+                Sequence::empty().into(),
+                Sequence::empty().into(),
+            ),
+        ] {
+            assert_eq!(
+                evaluate_random(0, 0, 0, seed.clone(), minimum.clone(), maximum.clone()).unwrap(),
+                Interpretation::Sequence(Sequence::empty()),
+                "~? {seed:?} {minimum:?} {maximum:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_random_diagnoses_two_non_scalar_operands_of_different_lengths() {
+        assert!(matches!(
+            evaluate_random(
+                5,
+                0,
+                0,
+                Atom::Number(0x01),
+                numbers([1, 2]),
+                numbers([1, 2, 3]),
+            ),
+            Err(Error::Sequence(SequenceError::IncompatibleLengths {
+                left: 2,
+                right: 3
+            }))
+        ));
     }
 }

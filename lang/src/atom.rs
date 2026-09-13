@@ -986,6 +986,7 @@ define_functions! {
     MonophonicPlay => ("!%", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     PitchBend => ("!b", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Random => ("~?", Value, Intrinsic, Pervasive, Elementwise, false, [seed: Number, minimum: Number, maximum: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
     SelfBangingEast => (">>", SelfBangEast, Intrinsic, Scalar, Atom, false, []),
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Scalar, Atom, false, []),
@@ -1701,6 +1702,7 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
+                | Function::Random
                 | Function::Subtract => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
@@ -1769,6 +1771,7 @@ mod test {
                 | Function::MonophonicPlay
                 | Function::Multiply
                 | Function::PitchBend
+                | Function::Random
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => true,
@@ -1854,6 +1857,7 @@ mod test {
                 | Function::MonophonicPlay
                 | Function::Multiply
                 | Function::PitchBend
+                | Function::Random
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => (false, true),

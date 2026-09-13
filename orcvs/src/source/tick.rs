@@ -4090,6 +4090,70 @@ mod test {
     }
 
     #[test]
+    fn two_randoms_in_one_expression_write_different_numbers() {
+        // Two roots, same operands, different anchors. ADR 0013's streams
+        // are a function of Position, so `~?010010` at column 0 writes `02`
+        // and the one at column 9 writes `00`. A body that seeded both at
+        // the Expression — or at a shared origin — would write `02` twice.
+        let (plans, grids, _) = tick_by_tick(Grid::new(18, 2), &["~?010010 ~?010010", ""], 1);
+
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], ["~?010010 ~?010010 ", "02       00       "]);
+    }
+
+    #[test]
+    fn a_nested_random_uses_its_own_anchor_not_the_expression_root() {
+        // `.+~?010010~?010010` is the case that tells root granularity from
+        // per-Function anchors. Each Random is its own Computation with its
+        // own `node.anchor`: the left sits at column 2 and draws `0A`, the
+        // right at column 10 and draws `0F`. Their sum is `19`. Seeding both
+        // at the Add's origin would draw `02` twice and write `04`.
+        let (plans, grids, _) = tick_by_tick(Grid::new(18, 2), &[".+~?010010~?010010", ""], 1);
+
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], [".+~?010010~?010010", "19                "]);
+        assert_ne!(grids[0][1], "04                ");
+    }
+
+    #[test]
+    fn moving_a_random_changes_its_stream_and_identical_inputs_reproduce_it() {
+        // Column 0 draws `02`; shifting the same Function two Cells draws
+        // `0A`. Planning the origin Grid a second time at the same Tick
+        // writes `02` again, which is what "identical inputs reproduce"
+        // means when there is no hidden activation count.
+        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &["~?010010", ""], 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], ["~?010010  ", "02        "]);
+
+        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &["  ~?010010", ""], 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], ["  ~?010010", "  0A      "]);
+
+        let grid = Grid::new(10, 2);
+        let bytes = snapshot(grid, &["~?010010", ""]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let first = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let second = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        assert_eq!(first.0.writes, second.0.writes);
+    }
+
+    #[test]
     fn fixed_upward_portals_schedule_note_and_bang_before_midi() {
         let grid = Grid::new(16, 5);
         let rows = ["", "", "!>007FD4", "      .^3C", ".=0101"];
