@@ -172,6 +172,13 @@ cargo nextest run --workspace --profile ci --locked
 cargo nextest run --workspace --tests --no-default-features --profile ci --locked
 cargo test --workspace --doc --locked
 cargo test --workspace --doc --no-default-features --locked
+# Doctests execute examples. They do not generate rustdoc, so intra-doc lints
+# (a public item linking to a private one) are invisible until `cargo doc`
+# runs with warnings denied. Both feature sets, matching the doctest pair:
+# default features document the shipped console (persistence on); the second
+# line is the only place `orcvs`'s persistence-gated docs are generated.
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked
 '''
 
 [tasks.check_merge]
@@ -197,7 +204,6 @@ esac
 description = "Native merge-only verification gates"
 run = '''
 mise run test_persistence
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 cargo deny --locked check
 '''
 
@@ -210,7 +216,7 @@ description = "Test persistence features"
 # `--package orcvs --lib` line has no other way to reach the feature — and the
 # task keeps its meaning if the console default ever moves. What is merge-only
 # here is the case count: `check_pull_request` sets PROPTEST_CASES to 32 and this
-# runs proptest's 256-case default.
+# runs proptest's 256-case default. Rustdoc lives in `check_pull_request`.
 run = '''
 cargo check --package orcvs --lib --features persistence --locked
 cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings
@@ -229,7 +235,6 @@ cargo clippy --workspace --all-targets --features persistence --locked -- -D war
 # so a test binary that merely has "bench" in its name still runs.
 cargo nextest run --workspace --all-targets --features persistence --profile ci --locked -E 'not kind(bench)'
 cargo test --workspace --doc --features persistence --locked
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked
 '''
 
 [tasks.check_wasm]

@@ -8,12 +8,13 @@ Verification has two trigger tiers:
 
 - `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
   workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
-  and without the default features, and the native tests and doctests under both.
+  and without the default features, the native tests and doctests under both, and the rustdoc gates
+  under both feature sets.
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
   the application twice, once under each. Pull requests run the first on Linux and the second on the
   WASM job. macOS runs the native tier only during merge queue verification, pushes to `main`, and
   manual dispatch.
-- `mise run check_merge` runs the browser regression suite, the rustdoc gates, and the persistence
+- `mise run check_merge` runs the browser regression suite and the persistence
   tier at proptest's full case count. CI distributes these gates across the existing Linux and WASM
   jobs on `merge_group`, after a push to `main`, or on manual dispatch.
 
@@ -27,7 +28,10 @@ feature over — the persistence tests live in a test-only module behind a dev-d
 library build can reach them, and the pull-request tier reaches them by building all targets. The
 doctests follow the same rule: a doctest that one feature set compiles and the other does not is
 compiled by only one of them, so the tier runs `cargo test --doc` under both rather than only the
-shipped one.
+shipped one. Rustdoc follows the same rule and the same pair: doctests execute examples and do not
+generate the docs, so a public item that links to a private one is invisible until `cargo doc` runs
+with warnings denied. Each pass is about a second on a warm runner after clippy, which is why the
+gate lives here rather than in the merge leftovers it was first bundled with.
 
 `persistence` is a default feature of `console`, so "both feature sets" now means the default one and
 `--no-default-features`. The shipped binary saves the current Source revision and restores it on the
@@ -58,7 +62,7 @@ its meaning if the `console` default ever moves.
 `mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
 is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the
 merge tier is the only place the properties run at proptest's 256-case default. What is genuinely
-merge-only is the browser run, the rustdoc gates, and that full-case run.
+merge-only is the browser run and that full-case run.
 
 Its `nextest` line carries `-E 'not kind(bench)'`, and the filter is load-bearing. `--all-targets`
 includes `--benches`, and `nextest` executes a criterion benchmark as a test, where criterion falls
