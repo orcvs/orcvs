@@ -76,6 +76,6 @@ Removing the variant is real work and is not in this effort's scope: it touches 
 
 The decided dark palette is the twenty-one tokens `PALETTE` already ships. `console/src/theme.md` is the named record; `palette_tokens_match_the_decided_record` pins each `Color32` so a later colour change is a documented change. The list is page, source, grid_line, sector_line, ordinary, comment `#7A8784`, function, bang, number, note, the four bloom fill/line pairs, selection_fill, selection_stroke_rest, and selection_stroke. `marker` and `highlight` are not restored.
 
-Sector registration marks stay: they are the Marker spacing moved into geometry.
+Sector registration marks stay: they are the Sector Seam spacing moved into geometry.
 
-The Cursor focus matrix stays proposed. `restyle-egui-console/03` still has to report the captured four-band `1 : 1 : 2 : 3` reticle against the prototype and state whether the bands, their widths, and the edge breakup are kept, retuned, or dropped. A match to `theme.md` does not settle that.
+The Cursor Bloom stays proposed. `restyle-egui-console/03` still has to report the captured four-band `1 : 1 : 2 : 3` reticle against the prototype and state whether the bands, their widths, and the edge breakup are kept, retuned, or dropped. A match to `theme.md` does not settle that.
