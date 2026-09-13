@@ -249,12 +249,15 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo tes
 # doctest on an item the feature removes is compiled by no default run, so the
 # tier compiles the doctests under both.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo test --workspace --doc --no-default-features --locked$'
+# Doctests do not generate rustdoc. Both invocations used to live on the merge
+# tier, where a public-to-private intra-doc link first failed PR #81.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_merge_native$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_wasm$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run test_wasm$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^mise run test_persistence$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^cargo deny --locked check$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_merge_native' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo deny --locked check$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo tree --workspace --all-features -e features --locked$'
 # The reason `native-midi` exists is a claim about the dependency tree, and a
@@ -286,7 +289,6 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clipp
 # bracketed because the pattern reaches awk as an ERE.
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' "^cargo nextest run --workspace --all-targets --features persistence --profile ci --locked -E 'not kind[(]bench[)]'\$"
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo test --workspace --doc --features persistence --locked$'
-assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
 # `--lib` type-checks no test target, so the browser regressions compiled only
 # under `wasm-pack test` in the merge tier. Compiling the test targets here is
 # what keeps a break in them off main. The scope is the workspace rather than one
@@ -457,8 +459,8 @@ assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: rust
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
 # Counting each component pins which merge tier runs, not merely that some step
 # carries a guard: dropping the native step while adding a guard elsewhere leaves
-# the guard count at two, and rustdoc, `cargo deny` and the 256-case persistence
-# run stop reaching `main` with the contract still green.
+# the guard count at two, and `cargo deny` and the 256-case persistence run
+# stop reaching `main` with the contract still green.
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: native$' 1
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$' 1
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'run: mise run check_merge$' 2
