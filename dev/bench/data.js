@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789343605045,
+  "lastUpdate": 1789343615514,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -19057,6 +19057,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/f23fad22d2d073cdcd94d208eea1d8e1cc6f0330"
         },
         "date": 1789289345603,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 24,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture bytes",
+            "value": 816,
+            "unit": "bytes"
+          },
+          {
+            "name": "lang tick fixture written four times blocks",
+            "value": 44,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang tick fixture written four times bytes",
+            "value": 3264,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 10,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 4661,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 111,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 46003,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 10,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 5813,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 326,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 169417,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 10,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 8117,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 1110,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 647744,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "398926b96c66f7ea444dfb044c9c0b4b7b87ae6f",
+          "message": "Merge pull request #93 from orcvs/03-05-sequence-functions\n\nAdd structural and Range Sequence Functions (issues 03 & 05)",
+          "timestamp": "2026-09-13T23:40:48Z",
+          "tree_id": "bb7e22a675a01293b5cbe6e8edbd0c49a24c5fd3",
+          "url": "https://github.com/orcvs/orcvs/commit/398926b96c66f7ea444dfb044c9c0b4b7b87ae6f"
+        },
+        "date": 1789343615460,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
