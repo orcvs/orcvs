@@ -63,6 +63,45 @@ pub(crate) trait ValueOperands: Sized {
     fn from_values(values: &[Value]) -> Result<Self, Error>;
 }
 
+/// Binds a whole [`Value`] to a required [`Sequence`] operand.
+pub(crate) fn bind_sequence_required(value: &Value) -> Result<Sequence, Error> {
+    Sequence::try_from(value.clone())
+}
+
+/// Binds a whole [`Value`] to an [`AtomOrSequence`] operand, promoting Atoms.
+pub(crate) fn bind_sequence_operand(value: &Value) -> Result<Sequence, Error> {
+    match value {
+        Value::Sequence(sequence) => Ok(sequence.clone()),
+        Value::Atom(atom) => Sequence::promote(*atom),
+    }
+}
+
+/// Binds a whole [`Value`] to a [`Number`] operand.
+pub(crate) fn bind_number(value: &Value) -> Result<u8, Error> {
+    match value {
+        Value::Atom(Atom::Number(number)) => Ok(*number),
+        Value::Atom(atom) => Err(TypeError::Number(atom.to_string()).into()),
+        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    }
+}
+
+/// Binds a whole [`Value`] to a [`Note`] operand.
+pub(crate) fn bind_note(value: &Value) -> Result<Note, Error> {
+    match value {
+        Value::Atom(Atom::Note(note)) => Ok(*note),
+        Value::Atom(atom) => Err(TypeError::Note(atom.to_string()).into()),
+        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    }
+}
+
+/// Binds a whole [`Value`] to an [`Atom`] operand.
+pub(crate) fn bind_atom(value: &Value) -> Result<Atom, Error> {
+    match value {
+        Value::Atom(atom) => Ok(*atom),
+        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
+    }
+}
+
 /// One element's operands, checked against a Function's signature.
 ///
 /// The field is private to this module, so holding one is proof of having been

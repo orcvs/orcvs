@@ -1,6 +1,6 @@
 use crate::{
-    Atom, Error, Function, Note, Sequence, SequenceError, TypeError, Value, atom::operands,
-    interpreter::Context, stack::ValueOperands,
+    Atom, Error, Note, Sequence, SequenceError, TypeError, Value, atom::operands,
+    interpreter::Context,
 };
 
 /// Reverse `:<`: reverse Atom order, preserving each member's type and encoding.
@@ -74,43 +74,38 @@ fn wrapping_index(index: u8, length: usize) -> usize {
     usize::from(index) % length
 }
 
-fn inclusive_number_range(lower: u8, upper: u8) -> Result<Sequence, Error> {
-    let (start, step, count) = if lower <= upper {
-        (
-            i16::from(lower),
-            1i16,
-            i16::from(upper) - i16::from(lower) + 1,
-        )
+fn inclusive_byte_range(lower: u8, upper: u8) -> (i16, i16, i16) {
+    if lower <= upper {
+        (i16::from(lower), 1, i16::from(upper) - i16::from(lower) + 1)
     } else {
         (
             i16::from(lower),
-            -1i16,
+            -1,
             i16::from(lower) - i16::from(upper) + 1,
         )
-    };
-    build_number_sequence(start, step, count)
+    }
+}
+
+fn inclusive_number_range(lower: u8, upper: u8) -> Result<Sequence, Error> {
+    let (start, step, count) = inclusive_byte_range(lower, upper);
+    build_ranged_sequence(start, step, count, |value| {
+        Ok(Atom::Number(number_in_range(value)?))
+    })
 }
 
 fn inclusive_note_range(lower: Note, upper: Note) -> Result<Sequence, Error> {
-    let lower = lower.value();
-    let upper = upper.value();
-    let (start, step, count) = if lower <= upper {
-        (
-            i16::from(lower),
-            1i16,
-            i16::from(upper) - i16::from(lower) + 1,
-        )
-    } else {
-        (
-            i16::from(lower),
-            -1i16,
-            i16::from(lower) - i16::from(upper) + 1,
-        )
-    };
-    build_note_sequence(start, step, count)
+    let (start, step, count) = inclusive_byte_range(lower.value(), upper.value());
+    build_ranged_sequence(start, step, count, |value| {
+        Ok(Atom::Note(Note::try_from(number_in_range(value)?)?))
+    })
 }
 
-fn build_number_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Error> {
+fn build_ranged_sequence(
+    start: i16,
+    step: i16,
+    count: i16,
+    mut map: impl FnMut(i16) -> Result<Atom, Error>,
+) -> Result<Sequence, Error> {
     // Inclusive ranges between two u8 bounds produce a positive count no
     // larger than 256; the conversion is checked so a future miscalculation
     // diagnoses rather than silently truncating.
@@ -119,19 +114,7 @@ fn build_number_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, 
     let mut atoms = Vec::with_capacity(count);
     let mut value = start;
     for _ in 0..count {
-        atoms.push(Atom::Number(number_in_range(value)?));
-        value += step;
-    }
-    Sequence::new(atoms)
-}
-
-fn build_note_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Error> {
-    let count =
-        usize::try_from(count).map_err(|_| Error::Type(TypeError::Number(format!("{count}"))))?;
-    let mut atoms = Vec::with_capacity(count);
-    let mut value = start;
-    for _ in 0..count {
-        atoms.push(Atom::Note(Note::try_from(number_in_range(value)?)?));
+        atoms.push(map(value)?);
         value += step;
     }
     Sequence::new(atoms)
@@ -139,110 +122,6 @@ fn build_note_sequence(start: i16, step: i16, count: i16) -> Result<Sequence, Er
 
 fn number_in_range(value: i16) -> Result<u8, Error> {
     u8::try_from(value).map_err(|_| Error::Type(TypeError::Number(format!("{value:02X}"))))
-}
-
-fn as_sequence_required(value: &Value) -> Result<Sequence, Error> {
-    Sequence::try_from(value.clone())
-}
-
-fn as_sequence_operand(value: &Value) -> Result<Sequence, Error> {
-    match value {
-        Value::Sequence(sequence) => Ok(sequence.clone()),
-        Value::Atom(atom) => Sequence::promote(*atom),
-    }
-}
-
-fn as_number(value: &Value) -> Result<u8, Error> {
-    match value {
-        Value::Atom(Atom::Number(number)) => Ok(*number),
-        Value::Atom(atom) => Err(TypeError::Number(atom.to_string()).into()),
-        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
-    }
-}
-
-fn as_note(value: &Value) -> Result<Note, Error> {
-    match value {
-        Value::Atom(Atom::Note(note)) => Ok(*note),
-        Value::Atom(atom) => Err(TypeError::Note(atom.to_string()).into()),
-        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
-    }
-}
-
-fn as_atom(value: &Value) -> Result<Atom, Error> {
-    match value {
-        Value::Atom(atom) => Ok(*atom),
-        Value::Sequence(sequence) => Err(SequenceError::ExpectedAtom(sequence.to_string()).into()),
-    }
-}
-
-impl ValueOperands for operands::Reverse {
-    const FUNCTION: Function = Function::Reverse;
-
-    fn from_values(values: &[Value]) -> Result<Self, Error> {
-        Ok(Self {
-            sequence: as_sequence_required(values.first().ok_or(missing_operand(1, 0))?)?,
-        })
-    }
-}
-
-impl ValueOperands for operands::Concatenate {
-    const FUNCTION: Function = Function::Concatenate;
-
-    fn from_values(values: &[Value]) -> Result<Self, Error> {
-        Ok(Self {
-            left: as_sequence_operand(values.first().ok_or(missing_operand(2, 0))?)?,
-            right: as_sequence_operand(values.get(1).ok_or(missing_operand(2, 1))?)?,
-        })
-    }
-}
-
-impl ValueOperands for operands::Select {
-    const FUNCTION: Function = Function::Select;
-
-    fn from_values(values: &[Value]) -> Result<Self, Error> {
-        Ok(Self {
-            index: as_number(values.first().ok_or(missing_operand(2, 0))?)?,
-            sequence: as_sequence_required(values.get(1).ok_or(missing_operand(2, 1))?)?,
-        })
-    }
-}
-
-impl ValueOperands for operands::Replace {
-    const FUNCTION: Function = Function::Replace;
-
-    fn from_values(values: &[Value]) -> Result<Self, Error> {
-        Ok(Self {
-            index: as_number(values.first().ok_or(missing_operand(3, 0))?)?,
-            replacement: as_atom(values.get(1).ok_or(missing_operand(3, 1))?)?,
-            sequence: as_sequence_required(values.get(2).ok_or(missing_operand(3, 2))?)?,
-        })
-    }
-}
-
-impl ValueOperands for operands::NumberRange {
-    const FUNCTION: Function = Function::NumberRange;
-
-    fn from_values(values: &[Value]) -> Result<Self, Error> {
-        Ok(Self {
-            lower: as_number(values.first().ok_or(missing_operand(2, 0))?)?,
-            upper: as_number(values.get(1).ok_or(missing_operand(2, 1))?)?,
-        })
-    }
-}
-
-impl ValueOperands for operands::NoteRange {
-    const FUNCTION: Function = Function::NoteRange;
-
-    fn from_values(values: &[Value]) -> Result<Self, Error> {
-        Ok(Self {
-            lower: as_note(values.first().ok_or(missing_operand(2, 0))?)?,
-            upper: as_note(values.get(1).ok_or(missing_operand(2, 1))?)?,
-        })
-    }
-}
-
-fn missing_operand(expected: usize, found: usize) -> Error {
-    crate::ArgumentError::Arity { expected, found }.into()
 }
 
 #[cfg(test)]

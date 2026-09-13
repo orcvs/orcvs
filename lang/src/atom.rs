@@ -687,6 +687,199 @@ macro_rules! operand_bind {
     };
 }
 
+macro_rules! operand_value_bind {
+    (Number, $value:expr, $role:ident) => {
+        crate::stack::bind_number($value)
+    };
+    (Note, $value:expr, $role:ident) => {
+        crate::stack::bind_note($value)
+    };
+    (Atom, $value:expr, $role:ident) => {
+        crate::stack::bind_atom($value)
+    };
+    (Sequence, $value:expr, $role:ident) => {
+        crate::stack::bind_sequence_required($value)
+    };
+    (AtomOrSequence, $value:expr, $role:ident) => {
+        crate::stack::bind_sequence_operand($value)
+    };
+}
+
+macro_rules! value_operands_from_values {
+    ($variant:ident, [$($role:ident: $operand:ident),* $(,)?]) => {
+        impl crate::stack::ValueOperands for $variant {
+            const FUNCTION: Function = Function::$variant;
+
+            fn from_values(values: &[crate::Value]) -> Result<Self, crate::Error> {
+                use crate::ArgumentError;
+
+                const EXPECTED: usize = [$(stringify!($role),)*].len();
+                if values.len() != EXPECTED {
+                    return Err(
+                        ArgumentError::Arity {
+                            expected: EXPECTED,
+                            found: values.len(),
+                        }
+                        .into(),
+                    );
+                }
+
+                let mut values = values.iter();
+                Ok(Self {
+                    $($role: operand_value_bind!(
+                        $operand,
+                        values.next().expect("length checked"),
+                        $role
+                    )?,)*
+                })
+            }
+        }
+    };
+}
+
+// Emits a [`ValueOperands`] implementation when this row binds whole values,
+// and nothing otherwise — so the bind path is derived from the same row as
+// the role names and types rather than restated in `sequence.rs`.
+macro_rules! value_operands_impl {
+    ($variant:ident, Pervasive, $answer:ident;) => {};
+    ($variant:ident, $pervasion:ident, $answer:ident;) => {};
+    ($variant:ident, Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {};
+    ($variant:ident, Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        value_operands_when_scalar! {
+            $variant,
+            $answer,
+            [$($role: $operand),+]
+        }
+    };
+}
+
+macro_rules! value_operands_when_scalar {
+    (
+        $variant:ident,
+        Sequence,
+        [$($role:ident: Number),+ $(,)?]
+    ) => {
+        value_operands_from_values! { $variant, [$($role: Number),+] }
+    };
+    (
+        $variant:ident,
+        Sequence,
+        [$($role:ident: Note),+ $(,)?]
+    ) => {
+        value_operands_from_values! { $variant, [$($role: Note),+] }
+    };
+    ($variant:ident, $answer:ident, [$($role:ident: $operand:ident),+ $(,)?]) => {
+        has_whole_value_operand! {
+            @scan [ $( $operand ),+ ],
+            @emit
+            value_operands_from_values! {
+                $variant,
+                [ $( $role : $operand ),+ ]
+            }
+        }
+    };
+}
+
+macro_rules! has_whole_value_operand {
+    (@scan [Sequence $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        $( $body )*
+    };
+    (@scan [AtomOrSequence $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        $( $body )*
+    };
+    (@scan [Atom $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        $( $body )*
+    };
+    (@scan [$head:ident $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        has_whole_value_operand! {
+            @scan [ $($tail),* ],
+            @emit $( $body )*
+        }
+    };
+    (@scan [], @emit $( $body:tt )*) => {};
+    (@scan [Sequence $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        $yes
+    };
+    (@scan [AtomOrSequence $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        $yes
+    };
+    (@scan [Atom $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        $yes
+    };
+    (@scan [$head:ident $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        has_whole_value_operand! {
+            @scan [ $($tail),* ],
+            @yes $yes,
+            @no $no
+        }
+    };
+    (@scan [], @yes $yes:tt, @no $no:tt) => {
+        $no
+    };
+}
+
+// Invoked only from `declaration_agreement`, which is `cfg(test)`.
+#[allow(unused_macros)]
+macro_rules! value_operands_bind_test {
+    ($variant:ident, Pervasive, $answer:ident;) => {};
+    ($variant:ident, Scalar, $answer:ident;) => {};
+    ($variant:ident, Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {};
+    ($variant:ident, Scalar, Sequence; $($role:ident: Number),+ $(,)?) => {
+        value_operands_bind_test! { @run $variant }
+    };
+    ($variant:ident, Scalar, Sequence; $($role:ident: Note),+ $(,)?) => {
+        value_operands_bind_test! { @run $variant }
+    };
+    ($variant:ident, Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        has_whole_value_operand! {
+            @scan [ $( $operand ),+ ],
+            @emit value_operands_bind_test! { @run $variant }
+        }
+    };
+    (@run $variant:ident) => {
+        #[test]
+        #[allow(non_snake_case)]
+        fn $variant() {
+            let function = crate::Function::$variant;
+            let mut stack = Stack::new(16);
+
+            for token in function.signature().iter().copied().rev() {
+                stack.push(lowest_value(token)).unwrap();
+            }
+
+            assert!(
+                stack.extract_values::<super::operands::$variant>().is_ok(),
+                "{function:?} declares a token its ValueOperands bind does not read",
+            );
+        }
+    };
+}
+
+macro_rules! value_operands_enabled {
+    (Pervasive, $answer:ident;) => {
+        false
+    };
+    (Scalar, $answer:ident;) => {
+        false
+    };
+    (Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        false
+    };
+    (Scalar, Sequence; $($role:ident: Number),+ $(,)?) => {
+        true
+    };
+    (Scalar, Sequence; $($role:ident: Note),+ $(,)?) => {
+        true
+    };
+    (Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        has_whole_value_operand! {
+            @scan [ $( $operand ),+ ],
+            @yes true,
+            @no false
+        }
+    };
+}
+
 // A Function of exactly one declared role gets the `UnaryOperands` marker and
 // every other Function gets nothing, decided by which arm the role list matches
 // rather than by a second list to keep in step. The single-role arm is written
@@ -821,6 +1014,17 @@ macro_rules! define_functions {
             pub const fn can_emit_bang(self) -> bool {
                 match self {
                     $(Self::$variant => $bang,)+
+                }
+            }
+
+            /// Whether this Function binds operands from whole [`Value`]s.
+            ///
+            /// ADR 0007's structural and Range Functions consume Sequence
+            /// operands intact, and ADR 0028 requires that extraction derive
+            /// from the single declaration rather than restate operand order.
+            pub const fn binds_whole_values(self) -> bool {
+                match self {
+                    $(Self::$variant => value_operands_enabled!($pervasion, $answer; $($role: $operand),*),)+
                 }
             }
 
@@ -966,6 +1170,7 @@ macro_rules! define_functions {
                         None => unreachable!(),
                     };
                 })?
+                value_operands_impl!($variant, $pervasion, $answer; $($role: $operand),*);
                 unary_operands!($variant, [$($role),*]);
             )+
         }
@@ -982,7 +1187,7 @@ macro_rules! define_functions {
         /// that into a test failure at the moment the operand type is added.
         #[cfg(test)]
         mod declaration_agreement {
-            use crate::{Atom, Function, Note, Sequence, Stack, Token, Value};
+            use crate::{Atom, Note, Sequence, Stack, Token, Value};
 
             /// The lowest value each token can carry. Every domain declared
             /// over a token so far contains it; a domain that excluded its
@@ -1005,24 +1210,11 @@ macro_rules! define_functions {
                 }
             }
 
-            const VALUE_OPERAND_FUNCTIONS: [Function; 6] = [
-                Function::Reverse,
-                Function::Concatenate,
-                Function::Select,
-                Function::Replace,
-                Function::NumberRange,
-                Function::NoteRange,
-            ];
-
-            fn uses_value_operands(function: Function) -> bool {
-                VALUE_OPERAND_FUNCTIONS.contains(&function)
-            }
-
             #[test]
             fn every_declared_operand_binds_the_atom_its_token_accepts() {
                 $({
                     let function = crate::Function::$variant;
-                    if !uses_value_operands(function) {
+                    if !function.binds_whole_values() {
                         let mut stack = Stack::new(16);
 
                         // Pushed in reverse so extraction pops them in signature order.
@@ -1038,42 +1230,28 @@ macro_rules! define_functions {
                 })+
             }
 
+            $(value_operands_bind_test! {
+                $variant,
+                $pervasion,
+                $answer;
+                $($role: $operand),*
+            })*
+
             #[test]
-            fn every_value_operand_function_binds_through_extract_values() {
-                for function in VALUE_OPERAND_FUNCTIONS {
-                    let mut stack = Stack::new(16);
+            fn value_operands_bind_in_signature_order() {
+                let mut stack = Stack::new(16);
+                let left = Sequence::new([Atom::Number(0x01), Atom::Number(0x02)]).unwrap();
+                let right = Sequence::new([Atom::Number(0x03)]).unwrap();
 
-                    for token in function.signature().iter().copied().rev() {
-                        stack.push(lowest_value(token)).unwrap();
-                    }
+                stack.push(Value::Sequence(right)).unwrap();
+                stack.push(Value::Sequence(left.clone())).unwrap();
 
-                    let binds = match function {
-                        Function::Reverse => stack
-                            .extract_values::<super::operands::Reverse>()
-                            .is_ok(),
-                        Function::Concatenate => stack
-                            .extract_values::<super::operands::Concatenate>()
-                            .is_ok(),
-                        Function::Select => stack
-                            .extract_values::<super::operands::Select>()
-                            .is_ok(),
-                        Function::Replace => stack
-                            .extract_values::<super::operands::Replace>()
-                            .is_ok(),
-                        Function::NumberRange => stack
-                            .extract_values::<super::operands::NumberRange>()
-                            .is_ok(),
-                        Function::NoteRange => stack
-                            .extract_values::<super::operands::NoteRange>()
-                            .is_ok(),
-                        _ => unreachable!("listed above"),
-                    };
+                let operands = stack
+                    .extract_values::<super::operands::Concatenate>()
+                    .expect("Concatenate binds through generated ValueOperands");
 
-                    assert!(
-                        binds,
-                        "{function:?} declares a token its ValueOperands bind does not read",
-                    );
-                }
+                assert_eq!(operands.left.atoms(), left.atoms());
+                assert_eq!(operands.right.atoms(), [Atom::Number(0x03)]);
             }
         }
 
