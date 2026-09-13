@@ -3,6 +3,7 @@
 pub mod console;
 pub mod diagnostics;
 mod grid_viewport;
+mod marks;
 mod midi;
 mod paint;
 pub mod persistence;

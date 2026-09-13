@@ -7,8 +7,9 @@
 //! Nothing here is a `Rect`, and nothing here reads a viewport's geometry.
 //! Where a Cell *is* on screen is `GridViewport`'s arithmetic and is asserted
 //! there; a `Rect` in this layer would make every assertion about a colour
-//! acquire a viewport before it could be written. The seam strengths a Render
-//! Frame states become colours here, because `sector_line` is a pure reading of
+//! acquire a viewport before it could be written. Sector Seam strengths and
+//! Cursor Bloom bands are decided here from the Frame's Cursor and spacing
+//! answers; `sector_line` turns a strength into a colour as a pure reading of
 //! the palette, while the stroke *widths* the same seams are drawn with scale
 //! with the Cell side and so belong to the step that has one.
 //!
@@ -51,6 +52,7 @@ use orcvs::{
 
 use crate::{
     grid_viewport::VisiblePositions,
+    marks::{cursor_bloom, sector_left_strength, sector_top_strength},
     style::{cell_visuals, sector_line},
 };
 
@@ -123,9 +125,13 @@ impl Paint {
         // The Cursor is the Position the Render Frame was derived for. A Paint
         // covers a viewport, so `None` here means that Position is outside the
         // drawn range — not that the Frame selected nothing.
-        let cursor = frame.cursor();
-        let cursor = (drawn.columns.contains(&cursor.x()) && drawn.rows.contains(&cursor.y()))
-            .then_some(cursor);
+        let frame_cursor = frame.cursor();
+        let cursor_visible = frame.cursor_visible();
+        let marker_spacing = frame.marker_spacing().cells();
+        let bloom_radius = frame.highlight_dot_spacing().cells();
+        let cursor = (drawn.columns.contains(&frame_cursor.x())
+            && drawn.rows.contains(&frame_cursor.y()))
+        .then_some(frame_cursor);
         // What each Cell says, read once for the nine blank spellings and never
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
         // of `GlyphString`, and only drawing it reaches the font atlas.
@@ -139,11 +145,12 @@ impl Paint {
                     .position(column, row)
                     .expect("a drawn Position is one the visible range clamped to this Grid");
                 let cell = frame.at(position);
+                let selected = position == frame_cursor;
                 let visuals = cell_visuals(
                     cell.glyph(),
-                    cell.cursor_bloom(),
-                    cell.selected(),
-                    cell.cursor_visible(),
+                    cursor_bloom(position, frame_cursor, bloom_radius),
+                    selected,
+                    selected && cursor_visible,
                 );
 
                 cells.push(CellPaint {
@@ -158,14 +165,14 @@ impl Paint {
                     // only as a branch shape is a rule the next reader has to
                     // rediscover.
                     //
-                    // `sector_line` is pure, so the strength the Render Frame
-                    // states becomes a colour here. The stroke widths are
-                    // geometry and stay out of this layer.
-                    sector_left: (!cell.selected())
-                        .then(|| cell.sector_left_strength().map(sector_line))
+                    // `sector_line` is pure, so the strength becomes a colour
+                    // here. The stroke widths are geometry and stay out of this
+                    // layer.
+                    sector_left: (!selected)
+                        .then(|| sector_left_strength(position, marker_spacing).map(sector_line))
                         .flatten(),
-                    sector_top: (!cell.selected())
-                        .then(|| cell.sector_top_strength().map(sector_line))
+                    sector_top: (!selected)
+                        .then(|| sector_top_strength(position, marker_spacing).map(sector_line))
                         .flatten(),
                     character: characters.character(cell),
                 });
@@ -438,6 +445,7 @@ mod tests {
         BLANK_GLYPHS, BackgroundRun, CellCharacters, CellPaint, Glyph, Paint, blank_glyph_index,
     };
     use crate::grid_viewport::VisiblePositions;
+    use crate::marks::{cursor_bloom, sector_left_strength, sector_top_strength};
     use crate::style::{PALETTE, cell_visuals, sector_line};
     use egui::Color32;
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
@@ -488,15 +496,19 @@ mod tests {
         let paint = whole(&frame);
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
+        let cursor = frame.cursor();
+        let bloom_radius = frame.highlight_dot_spacing().cells();
 
         for cell in frame.cells() {
+            let position = cell.position();
+            let selected = position == cursor;
             let visuals = cell_visuals(
                 cell.glyph(),
-                cell.cursor_bloom(),
-                cell.selected(),
-                cell.cursor_visible(),
+                cursor_bloom(position, cursor, bloom_radius),
+                selected,
+                selected && frame.cursor_visible(),
             );
-            let painted = paint.at(cell.position());
+            let painted = paint.at(position);
 
             assert_eq!(
                 painted.border,
@@ -539,20 +551,20 @@ mod tests {
     }
 
     ///
-    /// Sector seams stand where the Render Frame asks for them, and nowhere on
-    /// the Cursor's own Cell.
+    /// Sector seams stand where Paint derives them, and nowhere on the Cursor's
+    /// own Cell.
     ///
     /// The suppression is the derive's, so no later step learns the rule. The
-    /// Cursor is put on a Cell the Render Frame does ask a seam of — the
-    /// corner of a sector, where the seam is at full strength — because a
-    /// Cursor parked where no seam was wanted would prove nothing.
+    /// Cursor is put on a Cell that wants a seam — the corner of a sector,
+    /// where the seam is at full strength — because a Cursor parked where no
+    /// seam was wanted would prove nothing.
     ///
     /// Everywhere else the colour is `sector_line`'s answer for the strength
-    /// the Render Frame stated. `sector_line` is pure, so the derive resolves
-    /// it here; the stroke widths are geometry and are not in this layer.
+    /// Paint computed. `sector_line` is pure, so the derive resolves it here;
+    /// the stroke widths are geometry and are not in this layer.
     ///
     #[tokio::test]
-    async fn seams_stand_where_the_render_frame_asks_and_never_on_the_cursor() {
+    async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
         let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default marker spacing of eight.
         let corner = orcvs.grid().position(8, 8).expect("inside the grid");
@@ -560,14 +572,19 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
+        let spacing = frame.marker_spacing().cells();
+        let cursor = frame.cursor();
         let mut seams = 0;
 
         for cell in frame.cells() {
-            let painted = paint.at(cell.position());
+            let position = cell.position();
+            let painted = paint.at(position);
+            let left = sector_left_strength(position, spacing);
+            let top = sector_top_strength(position, spacing);
 
-            if cell.selected() {
+            if position == cursor {
                 assert!(
-                    cell.sector_left_strength().is_some() && cell.sector_top_strength().is_some(),
+                    left.is_some() && top.is_some(),
                     "the Cursor must sit where seams are wanted for their absence to mean anything"
                 );
                 assert_eq!(painted.sector_left, None);
@@ -577,15 +594,13 @@ mod tests {
 
             assert_eq!(
                 painted.sector_left,
-                cell.sector_left_strength().map(sector_line),
-                "the left seam at {:?}",
-                cell.position()
+                left.map(sector_line),
+                "the left seam at {position:?}"
             );
             assert_eq!(
                 painted.sector_top,
-                cell.sector_top_strength().map(sector_line),
-                "the top seam at {:?}",
-                cell.position()
+                top.map(sector_line),
+                "the top seam at {position:?}"
             );
             seams += usize::from(painted.sector_left.is_some());
             seams += usize::from(painted.sector_top.is_some());
