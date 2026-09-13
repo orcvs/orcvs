@@ -1100,6 +1100,14 @@ mod test {
         // declares them, so no Source spells one.
         for function in Function::ALL.iter().copied() {
             let signature = function.signature();
+            if signature
+                .iter()
+                .any(|token| matches!(token, Token::Atom | Token::Sequence))
+            {
+                // Atom and Sequence operands round-trip through nested Functions
+                // rather than Operand Literals; see `sequence.rs`.
+                continue;
+            }
             for (slot, token) in signature.iter().copied().enumerate() {
                 for atom in every_atom_of(token) {
                     let operands: String = signature
@@ -1245,10 +1253,25 @@ mod property {
         .boxed()
     }
 
+    /// Functions whose operands are all literal-decodable. Atom and Sequence
+    /// operands bind only through nested Functions, not as Operand Literals.
+    fn literal_complete_functions() -> Vec<Function> {
+        Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| {
+                function
+                    .signature()
+                    .iter()
+                    .all(|token| !matches!(token, Token::Atom | Token::Sequence))
+            })
+            .collect()
+    }
+
     /// One Function spelled with a literal in each operand position its
     /// signature declares: the shape strict parsing accepts whole.
     fn complete_expression() -> BoxedStrategy<String> {
-        select(Function::ALL)
+        select(literal_complete_functions())
             .prop_flat_map(|function| {
                 let operands: Vec<BoxedStrategy<String>> = function
                     .signature()

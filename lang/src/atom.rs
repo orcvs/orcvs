@@ -460,16 +460,7 @@ enum Answer {
     /// holds the two columns to that.
     Elementwise,
     /// A Sequence, whatever its operands carry. No row declares this today: it
-    /// is the answer ADR 0007's Range, Reverse, Concatenate, and Replace give,
-    /// and none of the four is built. Declaring it now is what lets ADR 0036's
-    /// scheduling reserve Cells for a width nothing can yet produce, so those
-    /// Functions arrive as one table row each rather than as a scheduling
-    /// change. `expect` rather than `allow`, so the first of them turns this
-    /// attribute into the error that deletes it.
-    #[expect(
-        dead_code,
-        reason = "the Sequence Functions of ADR 0007 are unbuilt: this is the answer they will declare"
-    )]
+    /// is the answer ADR 0007's Range, Reverse, Concatenate, and Replace give.
     Sequence,
 }
 
@@ -514,6 +505,15 @@ macro_rules! operand_token {
     (Length) => {
         crate::Token::Number
     };
+    (Atom) => {
+        crate::Token::Atom
+    };
+    (Sequence) => {
+        crate::Token::Sequence
+    };
+    (AtomOrSequence) => {
+        crate::Token::Atom
+    };
 }
 
 // The domain half of a bind, for one Atom, with the bound value discarded.
@@ -524,6 +524,14 @@ macro_rules! operand_token {
 // about the same Atom. The three arms above stay the whole cost of a new
 // operand type.
 macro_rules! operand_domain {
+    (Sequence, $role:ident) => {
+        (|_: crate::Atom| -> Result<(), crate::Error> { Ok(()) })
+            as fn(crate::Atom) -> Result<(), crate::Error>
+    };
+    (AtomOrSequence, $role:ident) => {
+        (|_: crate::Atom| -> Result<(), crate::Error> { Ok(()) })
+            as fn(crate::Atom) -> Result<(), crate::Error>
+    };
     ($operand:ident, $role:ident) => {
         (|atom: crate::Atom| -> Result<(), crate::Error> {
             operand_bind!($operand, Some(atom), $role).map(|_| ())
@@ -558,6 +566,15 @@ macro_rules! operand_type {
     };
     (Length) => {
         crate::Length
+    };
+    (Atom) => {
+        crate::Atom
+    };
+    (Sequence) => {
+        crate::Sequence
+    };
+    (AtomOrSequence) => {
+        crate::Sequence
     };
 }
 
@@ -638,6 +655,227 @@ macro_rules! operand_bind {
                 stringify!($role),
                 " operand"
             )),
+        }
+    };
+    (Atom, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(atom) => Ok::<_, crate::Error>(atom),
+            _ => unreachable!(concat!(
+                "typed extraction guarantees an Atom for the ",
+                stringify!($role),
+                " operand"
+            )),
+        }
+    };
+    (Sequence, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(_) => Ok::<_, crate::Error>(crate::Sequence::empty()),
+            None => unreachable!(
+                "Sequence operands bind through ValueOperands, not atoms: {}",
+                stringify!($role)
+            ),
+        }
+    };
+    (AtomOrSequence, $operand:expr, $role:ident) => {
+        match $operand {
+            Some(_) => Ok::<_, crate::Error>(crate::Sequence::empty()),
+            None => unreachable!(
+                "AtomOrSequence operands bind through ValueOperands, not atoms: {}",
+                stringify!($role)
+            ),
+        }
+    };
+}
+
+macro_rules! operand_value_bind {
+    (Number, $value:expr, $role:ident) => {
+        crate::stack::bind_number($value)
+    };
+    (Note, $value:expr, $role:ident) => {
+        crate::stack::bind_note($value)
+    };
+    (Atom, $value:expr, $role:ident) => {
+        crate::stack::bind_atom($value)
+    };
+    (Sequence, $value:expr, $role:ident) => {
+        crate::stack::bind_sequence_required($value)
+    };
+    (AtomOrSequence, $value:expr, $role:ident) => {
+        crate::stack::bind_sequence_operand($value)
+    };
+}
+
+macro_rules! value_operands_from_values {
+    ($variant:ident, [$($role:ident: $operand:ident),* $(,)?]) => {
+        impl crate::stack::ValueOperands for $variant {
+            const FUNCTION: Function = Function::$variant;
+
+            fn from_values(values: &[crate::Value]) -> Result<Self, crate::Error> {
+                use crate::ArgumentError;
+
+                const EXPECTED: usize = [$(stringify!($role),)*].len();
+                if values.len() != EXPECTED {
+                    return Err(
+                        ArgumentError::Arity {
+                            expected: EXPECTED,
+                            found: values.len(),
+                        }
+                        .into(),
+                    );
+                }
+
+                let mut values = values.iter();
+                Ok(Self {
+                    $($role: operand_value_bind!(
+                        $operand,
+                        values.next().expect("length checked"),
+                        $role
+                    )?,)*
+                })
+            }
+        }
+    };
+}
+
+// Emits a [`ValueOperands`] implementation when this row binds whole values,
+// and nothing otherwise — so the bind path is derived from the same row as
+// the role names and types rather than restated in `sequence.rs`.
+macro_rules! value_operands_impl {
+    ($variant:ident, Pervasive, $answer:ident;) => {};
+    ($variant:ident, $pervasion:ident, $answer:ident;) => {};
+    ($variant:ident, Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {};
+    ($variant:ident, Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        value_operands_when_scalar! {
+            $variant,
+            $answer,
+            [$($role: $operand),+]
+        }
+    };
+}
+
+macro_rules! value_operands_when_scalar {
+    (
+        $variant:ident,
+        Sequence,
+        [$($role:ident: Number),+ $(,)?]
+    ) => {
+        value_operands_from_values! { $variant, [$($role: Number),+] }
+    };
+    (
+        $variant:ident,
+        Sequence,
+        [$($role:ident: Note),+ $(,)?]
+    ) => {
+        value_operands_from_values! { $variant, [$($role: Note),+] }
+    };
+    ($variant:ident, $answer:ident, [$($role:ident: $operand:ident),+ $(,)?]) => {
+        has_whole_value_operand! {
+            @scan [ $( $operand ),+ ],
+            @emit
+            value_operands_from_values! {
+                $variant,
+                [ $( $role : $operand ),+ ]
+            }
+        }
+    };
+}
+
+macro_rules! has_whole_value_operand {
+    (@scan [Sequence $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        $( $body )*
+    };
+    (@scan [AtomOrSequence $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        $( $body )*
+    };
+    (@scan [Atom $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        $( $body )*
+    };
+    (@scan [$head:ident $(, $tail:tt)*], @emit $( $body:tt )*) => {
+        has_whole_value_operand! {
+            @scan [ $($tail),* ],
+            @emit $( $body )*
+        }
+    };
+    (@scan [], @emit $( $body:tt )*) => {};
+    (@scan [Sequence $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        $yes
+    };
+    (@scan [AtomOrSequence $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        $yes
+    };
+    (@scan [Atom $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        $yes
+    };
+    (@scan [$head:ident $(, $tail:tt)*], @yes $yes:tt, @no $no:tt) => {
+        has_whole_value_operand! {
+            @scan [ $($tail),* ],
+            @yes $yes,
+            @no $no
+        }
+    };
+    (@scan [], @yes $yes:tt, @no $no:tt) => {
+        $no
+    };
+}
+
+// Invoked only from `declaration_agreement`, which is `cfg(test)`.
+#[allow(unused_macros)]
+macro_rules! value_operands_bind_test {
+    ($variant:ident, Pervasive, $answer:ident;) => {};
+    ($variant:ident, Scalar, $answer:ident;) => {};
+    ($variant:ident, Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {};
+    ($variant:ident, Scalar, Sequence; $($role:ident: Number),+ $(,)?) => {
+        value_operands_bind_test! { @run $variant }
+    };
+    ($variant:ident, Scalar, Sequence; $($role:ident: Note),+ $(,)?) => {
+        value_operands_bind_test! { @run $variant }
+    };
+    ($variant:ident, Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        has_whole_value_operand! {
+            @scan [ $( $operand ),+ ],
+            @emit value_operands_bind_test! { @run $variant }
+        }
+    };
+    (@run $variant:ident) => {
+        #[test]
+        #[allow(non_snake_case)]
+        fn $variant() {
+            let function = crate::Function::$variant;
+            let mut stack = Stack::new(16);
+
+            for token in function.signature().iter().copied().rev() {
+                stack.push(lowest_value(token)).unwrap();
+            }
+
+            assert!(
+                stack.extract_values::<super::operands::$variant>().is_ok(),
+                "{function:?} declares a token its ValueOperands bind does not read",
+            );
+        }
+    };
+}
+
+macro_rules! value_operands_enabled {
+    (Pervasive, $answer:ident;) => {
+        false
+    };
+    (Scalar, $answer:ident;) => {
+        false
+    };
+    (Pervasive, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        false
+    };
+    (Scalar, Sequence; $($role:ident: Number),+ $(,)?) => {
+        true
+    };
+    (Scalar, Sequence; $($role:ident: Note),+ $(,)?) => {
+        true
+    };
+    (Scalar, $answer:ident; $($role:ident: $operand:ident),+ $(,)?) => {
+        has_whole_value_operand! {
+            @scan [ $( $operand ),+ ],
+            @yes true,
+            @no false
         }
     };
 }
@@ -779,6 +1017,17 @@ macro_rules! define_functions {
                 }
             }
 
+            /// Whether this Function binds operands from whole [`crate::Value`]s.
+            ///
+            /// ADR 0007's structural and Range Functions consume Sequence
+            /// operands intact, and ADR 0028 requires that extraction derive
+            /// from the single declaration rather than restate operand order.
+            pub const fn binds_whole_values(self) -> bool {
+                match self {
+                    $(Self::$variant => value_operands_enabled!($pervasion, $answer; $($role: $operand),*),)+
+                }
+            }
+
             /// Whether this Function extends pervasively across a Sequence
             /// operand instead of requiring one Atom per position.
             ///
@@ -799,8 +1048,7 @@ macro_rules! define_functions {
             /// Per ADR 0036 this is one of the two questions Tick scheduling
             /// asks to decide how many Cells a result can reach, and it is the
             /// one that needs no operand: a Range answers a Sequence from two
-            /// Number bounds. No Function answers `true` today, so every
-            /// scheduled result is still as wide as its operands make it.
+            /// Number bounds.
             #[inline(always)]
             pub const fn answers_sequence(self) -> bool {
                 matches!(self.answer(), Answer::Sequence)
@@ -922,6 +1170,7 @@ macro_rules! define_functions {
                         None => unreachable!(),
                     };
                 })?
+                value_operands_impl!($variant, $pervasion, $answer; $($role: $operand),*);
                 unary_operands!($variant, [$($role),*]);
             )+
         }
@@ -938,7 +1187,7 @@ macro_rules! define_functions {
         /// that into a test failure at the moment the operand type is added.
         #[cfg(test)]
         mod declaration_agreement {
-            use crate::{Atom, Note, Stack, Token};
+            use crate::{Atom, Note, Sequence, Stack, Token, Value};
 
             /// The lowest value each token can carry. Every domain declared
             /// over a token so far contains it; a domain that excluded its
@@ -948,7 +1197,16 @@ macro_rules! define_functions {
                 match token {
                     Token::Number => Atom::Number(0),
                     Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
+                    Token::Atom => Atom::Number(0),
+                    Token::Sequence => Atom::Number(0),
                     other => panic!("no operand is declared as {other:?}"),
+                }
+            }
+
+            fn lowest_value(token: Token) -> Value {
+                match token {
+                    Token::Sequence => Sequence::new([Atom::Number(0)]).unwrap().into(),
+                    _ => lowest(token).into(),
                 }
             }
 
@@ -956,18 +1214,44 @@ macro_rules! define_functions {
             fn every_declared_operand_binds_the_atom_its_token_accepts() {
                 $({
                     let function = crate::Function::$variant;
-                    let mut stack = Stack::new(16);
+                    if !function.binds_whole_values() {
+                        let mut stack = Stack::new(16);
 
-                    // Pushed in reverse so extraction pops them in signature order.
-                    for token in function.signature().iter().copied().rev() {
-                        stack.push(lowest(token)).unwrap();
+                        // Pushed in reverse so extraction pops them in signature order.
+                        for token in function.signature().iter().copied().rev() {
+                            stack.push(lowest(token)).unwrap();
+                        }
+
+                        assert!(
+                            stack.extract::<super::operands::$variant>().is_ok(),
+                            "{function:?} declares a token its bind does not read",
+                        );
                     }
-
-                    assert!(
-                        stack.extract::<super::operands::$variant>().is_ok(),
-                        "{function:?} declares a token its bind does not read",
-                    );
                 })+
+            }
+
+            $(value_operands_bind_test! {
+                $variant,
+                $pervasion,
+                $answer;
+                $($role: $operand),*
+            })*
+
+            #[test]
+            fn value_operands_bind_in_signature_order() {
+                let mut stack = Stack::new(16);
+                let left = Sequence::new([Atom::Number(0x01), Atom::Number(0x02)]).unwrap();
+                let right = Sequence::new([Atom::Number(0x03)]).unwrap();
+
+                stack.push(Value::Sequence(right)).unwrap();
+                stack.push(Value::Sequence(left.clone())).unwrap();
+
+                let operands = stack
+                    .extract_values::<super::operands::Concatenate>()
+                    .expect("Concatenate binds through generated ValueOperands");
+
+                assert_eq!(operands.left.atoms(), left.atoms());
+                assert_eq!(operands.right.atoms(), [Atom::Number(0x03)]);
             }
         }
 
@@ -993,6 +1277,7 @@ define_functions! {
     AbsoluteDifference => (".|", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Add => (".+", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Clock => ("~.", Value, Intrinsic, Pervasive, Elementwise, false, [rate: Number, modulus: Number]),
+    Concatenate => (":&", Value, Intrinsic, Scalar, Sequence, false, [left: AtomOrSequence, right: AtomOrSequence]),
     ControlChange => ("!c", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", Value, Intrinsic, Pervasive, Elementwise, false, [value: Number]),
     ConvertToNumber => (".v", Value, Intrinsic, Pervasive, Elementwise, false, [value: Note]),
@@ -1011,13 +1296,18 @@ define_functions! {
     Modulo => (".%", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     MonophonicPlay => ("!%", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
+    NoteRange => (":#", Value, Intrinsic, Scalar, Sequence, false, [lower: Note, upper: Note]),
+    NumberRange => (":-", Value, Intrinsic, Scalar, Sequence, false, [lower: Number, upper: Number]),
     PitchBend => ("!b", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Random => ("~?", Value, Intrinsic, Pervasive, Elementwise, false, [seed: Number, minimum: Number, maximum: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    Replace => (":=", Value, Intrinsic, Scalar, Sequence, false, [index: Number, replacement: Atom, sequence: Sequence]),
+    Reverse => (":<", Value, Intrinsic, Scalar, Sequence, false, [sequence: Sequence]),
     SelfBangingEast => (">>", SelfBangEast, Intrinsic, Scalar, Atom, false, []),
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Scalar, Atom, false, []),
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Scalar, Atom, false, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Scalar, Atom, false, []),
+    Select => (":?", Value, Intrinsic, Scalar, Atom, true, [index: Number, sequence: Sequence]),
     Subtract => (".-", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, Pervasive, Elementwise, false, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
 }
@@ -1136,12 +1426,11 @@ define_replacement_changes! {
     /// schedule and from the widths a computation's children settled, and
     /// `lang` holds neither. `orcvs` composes this comparison onto
     /// [`Function::replacing`], appended last, which is where the order this
-    /// enum states is completed. No declared pair differs here in any case —
-    /// no Function answers a Sequence, which `no_function_declares_a_sequence_answer`
-    /// states here and `a_computation_over_any_function_reserves_a_cell_pair`
-    /// states in `orcvs`, so nothing derives a width wider than a Cell pair —
-    /// and the variant is stated with the other four so that one type names all
-    /// five facts.
+    /// enum states is completed. The variant is stated with the other four so
+    /// that one type names all five facts. Whether a pair reaches it is
+    /// asserted where a schedule can hold two widths that differ:
+    /// `exactly_the_sequence_answering_functions_declare_a_sequence_answer` in
+    /// this crate and the Range reservation tests in `orcvs`.
     Width => "how wide a result it reserves",
 }
 
@@ -1320,18 +1609,10 @@ mod test {
             let reached = replacement_pairs()
                 .any(|(replacement, running)| replacement.replacing(running) == Some(change));
             if change == ReplacementChange::Width {
-                // What `reached` being false says here, and all it says:
                 // `DECLARED_CHANGES` holds no `Width` row, so `replacing` would
-                // answer `None` whatever pair it were handed. That is the shape
-                // `each_named_change_is_compared_exactly_once` already states,
-                // and it is no evidence at all about whether a schedule can
-                // hold two widths that differ.
-                //
-                // That claim is asserted where it can be exercised:
-                // `no_function_declares_a_sequence_answer` below holds the half
-                // about the Function table, and
-                // `a_computation_over_any_function_reserves_a_cell_pair` in
-                // `orcvs` holds the half about the reservations a Grid derives.
+                // answer `None` whatever pair it were handed. The fifth fact is
+                // appended in `orcvs` after these four, and the Range reservation
+                // tests there hold the pairs that reach it.
                 assert!(
                     !reached,
                     "the declaration table answered a fact it does not compare",
@@ -1367,29 +1648,25 @@ mod test {
     }
 
     #[test]
-    fn no_function_declares_a_sequence_answer() {
+    fn exactly_the_sequence_answering_functions_declare_a_sequence_answer() {
         // ADR 0036 derives a reservation from declarations, so a result is
         // wider than a Cell pair only where a Function answers a Sequence or
-        // widens over an operand that is one — and a widening bottoms out in an
-        // operand that answered one. A table with no Sequence answer in it
-        // therefore derives no width wider than a Cell pair, which is why
-        // `ReplacementChange::Width` cannot be the fact a replacement differs
-        // on. This is the half of that the Function table holds;
-        // `a_computation_over_any_function_reserves_a_cell_pair` in `orcvs`
-        // holds the half about the reservations themselves.
-        //
-        // A failure here is not something breaking. It is the notice to whoever
-        // declared the first Sequence-answering Function — ADR 0007's Range is
-        // the one expected — that the width term has become reachable, and that
-        // the guard's fifth fact now needs a pair of Functions that reaches it.
-        let answering = Function::ALL
-            .iter()
-            .copied()
-            .filter(|function| function.answers_sequence())
-            .collect::<Vec<_>>();
-        assert!(
-            answering.is_empty(),
-            "{answering:?} declare a Sequence answer, so a reserved width can now differ",
+        // widens over an operand that is one. The five rows that answer a
+        // Sequence outright are declared here rather than inferred, so a sixth
+        // Function added later has to be named in this list.
+        assert_eq!(
+            Function::ALL
+                .iter()
+                .copied()
+                .filter(|function| function.answers_sequence())
+                .collect::<Vec<_>>(),
+            vec![
+                Function::Concatenate,
+                Function::NoteRange,
+                Function::NumberRange,
+                Function::Replace,
+                Function::Reverse,
+            ]
         );
     }
 
@@ -1448,23 +1725,29 @@ mod test {
     }
 
     #[test]
-    fn exactly_the_pulse_answering_functions_declare_that_they_can_emit_bang() {
-        // Three Functions answer a Bang rather than a value: ADR 0011's
-        // Equality and ADR 0012's Delay and Euclidean. Tick scheduling trusts
-        // the declaration to decide which roots can supply activation, so the
-        // list is stated whole — a fourth Function that began answering Bang
-        // without declaring it would build no activation edge, and the
-        // neighbouring terminal root would fall silent with no diagnostic
-        // anywhere. `only_a_function_that_declares_it_ever_answers_with_bang`
-        // is the other half, checking each declaration against what the
-        // Interpreter actually answers.
+    fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
+        // ADR 0011's Equality and ADR 0012's Delay and Euclidean answer a
+        // Bang or Absence as their result. Select answers one Atom and may
+        // return a Bang member unchanged. Tick scheduling trusts the declaration
+        // to decide which roots can supply activation, so the list is stated
+        // whole — a Function that began returning Bang without declaring it
+        // would build no activation edge, and the neighbouring terminal root
+        // would fall silent with no diagnostic anywhere.
+        // `only_a_function_that_declares_it_ever_answers_with_bang` is the
+        // other half for Atom-only Functions; Select is exercised on its own
+        // path because its operands bind through ValueOperands.
         assert_eq!(
             Function::ALL
                 .iter()
                 .copied()
                 .filter(|function| function.can_emit_bang())
                 .collect::<Vec<_>>(),
-            vec![Function::Delay, Function::Equality, Function::Euclidean]
+            vec![
+                Function::Delay,
+                Function::Equality,
+                Function::Euclidean,
+                Function::Select,
+            ]
         );
     }
 
@@ -1718,6 +2001,7 @@ mod test {
                 Function::AbsoluteDifference
                 | Function::Add
                 | Function::Clock
+                | Function::Concatenate
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
                 | Function::Delay
@@ -1730,7 +2014,12 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
+                | Function::NoteRange
+                | Function::NumberRange
                 | Function::Random
+                | Function::Replace
+                | Function::Reverse
+                | Function::Select
                 | Function::Subtract => (true, false, true),
                 Function::ControlChange
                 | Function::MonophonicPlay
@@ -1816,10 +2105,16 @@ mod test {
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
                 | Function::SelfBangingWest => false,
-                Function::Delay
+                Function::Concatenate
+                | Function::Delay
                 | Function::Euclidean
                 | Function::Increment
-                | Function::Interpolation => false,
+                | Function::Interpolation
+                | Function::NoteRange
+                | Function::NumberRange
+                | Function::Replace
+                | Function::Reverse
+                | Function::Select => false,
             };
 
             assert_eq!(function.is_pervasive(), expected, "{function:?}");
@@ -1866,6 +2161,12 @@ mod test {
                 | Function::Euclidean
                 | Function::Increment
                 | Function::Interpolation => (false, false),
+                Function::Select => (false, false),
+                Function::Concatenate
+                | Function::NoteRange
+                | Function::NumberRange
+                | Function::Replace
+                | Function::Reverse => (true, false),
                 // A Source-writing Function answers an effect, so it answers no
                 // Sequence and widens over nothing. It declares the column all
                 // the same, because the column says how wide an answer is and

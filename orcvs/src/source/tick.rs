@@ -2079,65 +2079,182 @@ mod test {
     }
 
     #[test]
-    fn a_computation_over_any_function_reserves_a_cell_pair() {
-        // ADR 0036 reserves a result's Cells from the Function found at each
-        // anchor, and `ReplacementChange::Width` refuses a replacement that
-        // would change that reservation. The guard compares
-        // `would_reserve(index, replacement)` against `reserved(index)`, so the
-        // term can fire only where those two can be different widths — and this
-        // is where that can be shown, because a reservation is derived from a
-        // Grid and from the widths a computation's children settled, neither of
-        // which `lang` has. `no_function_declares_a_sequence_answer` there
-        // holds the other half: no Function answers a Sequence, so nothing
-        // widens.
-        //
-        // A failure here is not something breaking. It means a Function now
-        // reaches a schedule declaring a width wider than a Cell pair, so the
-        // width term has become reachable and the guard's fifth fact is live
-        // for the first time.
-        //
-        // Both a root and the child nested in its first operand are asked,
-        // because `reserved_for` treats the two positions differently: the
-        // child is a leaf over literals with nothing to widen from, and the
-        // root owns an operand child whose settled width it reads.
-        //
-        // The premise that makes those two positions different, pinned so it
-        // cannot go quiet: some Function widens over a Sequence operand, so
-        // `reserved_for` reaches the `.any()` that reads a child's settled
-        // width. Were no Function to widen, that term would short-circuit for
-        // the root exactly as it does for the leaf, and this test would pass
-        // while asking one question twice.
+    fn a_declared_number_range_row_derives_its_own_reservation() {
+        // ADR 0036's bottom-up pass reads a Function's own declaration first.
+        // Number Range is the first built-in row that answers a Sequence, so
+        // this is the first schedule where production derives `Reserved::Row`
+        // rather than stating it through a fixture.
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &[":-0003", ""]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        assert_eq!(lookup.nodes().len(), 1);
+        assert_eq!(lookup.nodes()[0].function, lang::Function::NumberRange);
+        assert_eq!(lookup.reserved(0), super::Reserved::Row);
+        assert_eq!(
+            lookup.would_reserve(0, lang::Function::NumberRange),
+            super::Reserved::Row,
+            "the declared row reserves through the end of its destination row",
+        );
+    }
+
+    #[test]
+    fn a_pervasive_parent_widens_over_a_declared_number_range_child() {
         assert!(
-            lang::Function::ALL
-                .iter()
-                .any(|function| function.widens_over_a_sequence_operand()),
-            "no Function widens, so the root and the child are the same question",
+            lang::Function::Add.widens_over_a_sequence_operand(),
+            "the widening rule needs at least one pervasive Function",
         );
 
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &["                ", ".+:-0003"]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        assert_eq!(lookup.nodes().len(), 2);
+        let (root, child) = (0, 1);
+        assert_eq!(lookup.nodes()[child].function, lang::Function::NumberRange);
+        assert_eq!(lookup.reserved(child), super::Reserved::Row);
+        assert_eq!(
+            lookup.reserved(root),
+            super::Reserved::Row,
+            "a pervasive Function widens over an operand that reserves a row",
+        );
+        assert_eq!(
+            lookup.would_reserve(root, lang::Function::Add),
+            lookup.reserved(root),
+        );
+    }
+
+    #[test]
+    fn a_non_pervasive_parent_does_not_widen_over_a_declared_number_range_child() {
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &["                ", ".:?00:-0003"]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        assert_eq!(lookup.nodes().len(), 2);
+        let (root, child) = (0, 1);
+        assert_eq!(lookup.nodes()[root].function, lang::Function::Select);
+        assert_eq!(lookup.nodes()[child].function, lang::Function::NumberRange);
+        assert_eq!(lookup.reserved(child), super::Reserved::Row);
+        assert_eq!(
+            lookup.reserved(root),
+            super::Reserved::Pair,
+            "Select answers one Atom and does not widen over a Sequence operand",
+        );
+    }
+
+    #[test]
+    fn a_declared_note_range_row_derives_its_own_reservation() {
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &[":#C4C7", ""]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        assert_eq!(lookup.nodes().len(), 1);
+        assert_eq!(lookup.nodes()[0].function, lang::Function::NoteRange);
+        assert_eq!(lookup.reserved(0), super::Reserved::Row);
+        assert_eq!(
+            lookup.would_reserve(0, lang::Function::NoteRange),
+            super::Reserved::Row,
+            "Note Range reserves through the end of its destination row",
+        );
+    }
+
+    #[test]
+    fn live_a_declared_number_range_that_leaves_its_row_writes_no_cell_of_it() {
+        let grid = Grid::new(16, 2);
+        let rows = [" :-000F        ", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn live_a_declared_note_range_that_leaves_its_row_writes_no_cell_of_it() {
+        // Each Note encodes as two Cells, so nine chromatic steps need eighteen
+        // and do not fit a sixteen-Cell row even from column zero.
+        let grid = Grid::new(16, 2);
+        let rows = [":#C0C8          ", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.writes.is_empty(), "{:?}", plan.writes);
+        assert_eq!(source.snapshot(), snapshot(grid, &rows));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
+        );
+    }
+
+    #[test]
+    fn a_select_bang_activates_an_aligned_terminal_root() {
+        // Select may return a Bang member unchanged. Scheduling trusts
+        // `can_emit_bang` to build activation edges for scalar Bang results,
+        // the same way it does for Equality's pulse.
+        let grid = Grid::new(24, 6);
+        let rows = ["", ":?00:<:=00.=0101:-0101", "", "!>007FC4", "", ""];
+        let bytes = rows
+            .iter()
+            .map(|row| format!("{row:24}"))
+            .collect::<String>();
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let destinations = [(
+            grid.index(grid.position(0, 1).unwrap()),
+            vec![grid.position(0, 2).unwrap()],
+        )]
+        .into_iter()
+        .collect();
+
+        let (plan, _) =
+            super::plan_carrying(grid, bytes.as_bytes(), &map, Tick::ZERO, &destinations);
+
+        assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+    }
+
+    #[test]
+    fn replacing_a_cell_pair_function_with_number_range_changes_width() {
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &[".-000003", ""]);
+        let (nodes, _) = super::computations(grid, &source.shared_language_map());
+        let lookup = super::Lookup::new(grid, nodes);
+
+        assert_eq!(lookup.reserved(0), super::Reserved::Pair);
+        assert_eq!(
+            lookup.replacement_change(0, lang::Function::NumberRange, lang::Function::Subtract),
+            Some(lang::ReplacementChange::Width),
+        );
+    }
+
+    #[test]
+    fn a_scalar_computation_still_reserves_a_cell_pair() {
+        // The Range rows do not change what a purely scalar schedule derives.
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &["                ", ".+.-000003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
         let lookup = super::Lookup::new(grid, nodes);
 
-        // Parser preorder: the owning `.+` at column 0, then the `.-` nested in
-        // its first operand.
         assert_eq!(lookup.nodes().len(), 2);
         let (root, child) = (0, 1);
         assert_eq!(lookup.nodes()[child].parent, Some(root));
-
         for index in [root, child] {
             assert_eq!(
                 lookup.reserved(index),
                 super::Reserved::Pair,
                 "computation {index} settled a width wider than a Cell pair",
             );
-            for function in lang::Function::ALL.iter().copied() {
-                assert_eq!(
-                    lookup.would_reserve(index, function),
-                    super::Reserved::Pair,
-                    "{function:?} replacing computation {index} would reserve more than a Cell pair",
-                );
-            }
         }
     }
 
@@ -2424,12 +2541,9 @@ mod test {
     /// ADR 0035 moved the Comment off `#` as well as into the parse, so `#`
     /// spells nothing at all now and the collision class is gone. What this
     /// pins is that no Comment forms and the row is read one Cell at a time.
-    /// It does not pin the Note Range reading: `:#` is not in the Function
-    /// table until `sequence-values/05` lands, so `:` `#` `#` are three
-    /// characters the table does not hold, each refused its own Cell by ADR
-    /// 0018's recovery. When `:#` becomes a Function the diagnostics below
-    /// change to one refused Function, and no Comment still forms — which is
-    /// this test's claim either way.
+    /// With Note Range in the Function table, `:#` is recognised at Cells 3
+    /// and 4 and the trailing `#` alone is refused; no Comment still forms,
+    /// which is this test's claim either way.
     ///
     #[test]
     fn the_hash_collision_that_broke_the_pre_pass_holds_no_comment() {
@@ -2448,7 +2562,7 @@ mod test {
                 .filter(|diagnostic| diagnostic.message.starts_with("invalid Language Unit"))
                 .map(|diagnostic| diagnostic.start())
                 .collect::<Vec<_>>(),
-            vec![3, 4, 5]
+            vec![5]
         );
         // The Bang before them is a whole Expression and still fires, which
         // clears its own two Cells and writes nothing else. Nothing the row
@@ -2767,6 +2881,46 @@ mod test {
         assert!(plan.play_commands.is_empty());
         assert_eq!(plan.writes.len(), 6, "one Cell write per encoded Cell");
         assert_eq!(source.snapshot(), snapshot(grid, &[".+0102", "0A0B0C"]));
+    }
+
+    #[test]
+    fn live_a_declared_number_range_result_reaches_its_destination_cells() {
+        // The same complete-fit path as the stated Sequence fixtures, but the
+        // row-wide reservation is derived from Number Range's own declaration
+        // rather than stated beside the answer.
+        let grid = Grid::new(16, 2);
+        let rows = [":-0003", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(plan.writes.len(), 8, "one Cell write per encoded Cell");
+        assert_eq!(source.snapshot(), snapshot(grid, &[":-0003", "00010203"]),);
+    }
+
+    #[test]
+    fn live_a_declared_number_range_reservation_orders_computations_it_covers() {
+        // ADR 0036's reservation, observed as the ordering it buys, with a
+        // declared Range row rather than a stated Sequence answer.
+        let grid = Grid::new(16, 2);
+        let rows = ["        .+0102", ":-0005"];
+        let mut source = seeded_source(grid, &rows);
+        let (plan, states) =
+            source.execute_carrying(Tick::ZERO, &carried_destinations(grid, &[(16, 0)]));
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            turns(&states),
+            vec![Some(1), Some(0)],
+            "the Range producer in row 1 took the first Turn and the Expression \
+             it covers the second, which row-major order alone would reverse",
+        );
+        assert_eq!(plan.writes.len(), 12);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &["00010203040502", rows[1]]),
+            "the covered Expression neither executed nor kept its spelling",
+        );
     }
 
     #[test]
