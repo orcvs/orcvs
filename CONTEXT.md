@@ -257,7 +257,7 @@ The one Cell the console is editing: a Position, plus the blink state that draws
 _Avoid_: Caret, pointer, insertion point
 
 **Cursor Bloom**:
-The graded field of four bands the console draws outward from the Cursor's Cell, measured in Cells by Chebyshev distance, decided per Cell and carried on the Render Frame. It changes a Cell's background and border and never its content or its Token.
+The graded field of four bands the console draws outward from the Cursor's Cell, measured in Cells by Chebyshev distance and decided per Cell by console paint from the Render Frame's Cursor and spacing. It changes a Cell's background and border and never its content or its Token.
 _Avoid_: Highlight, glow, radial light, focus matrix
 
 **Marker**:

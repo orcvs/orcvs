@@ -14,7 +14,7 @@ the fold stays testable in isolation. A single-pass fold is a different derivati
 own trade-offs; this ticket exists so that choice can be reopened with a named acceptance bar rather
 than as a drive-by on `05`.
 
-**Blocked by:** `05`
+**Previously blocked by:** `05` (resolved)
 
 **Status:** needs-triage
 

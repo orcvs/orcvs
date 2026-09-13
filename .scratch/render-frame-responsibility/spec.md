@@ -211,15 +211,15 @@ the four `needs-triage` tickets as filed, with two settlements recorded on the t
 
 | Ticket | Status | Why |
 | --- | --- | --- |
-| `01` ADR 0041 | `ready-for-agent` | Criterion accepted. Still blocked on `source-paint/01` for the ADR number. |
+| `01` ADR 0042 | `resolved` | Criterion accepted. Landed as ADR 0042. |
 | `02` Cursor round trip | `resolved` | Mechanical, decided, no aesthetic judgement. `Position` is `Copy` and is already a parameter of `derive`. Nothing about the seam has to be settled first. |
 | `03` Flat Cells | `resolved` | Source-paint's nesting decision overruled: the consumer flattens immediately; churn is not an argument the shape is right. Blocked by `02` and `06`. |
-| `04` Move the aesthetic | `ready-for-agent` | Criterion accepted; spacings answered as (1). Still sequenced on `01`, `02`, `03`, `render-frame-derivation/01`, `retired-glyph-vocabulary/01`. |
+| `04` Move the aesthetic | `resolved` | Criterion accepted; spacings answered as (1). Still sequenced on `01`, `02`, `03`, `render-frame-derivation/01`, `retired-glyph-vocabulary/01`. |
 | `05` Background decided once | `resolved` | The core change is two `match` arms and a type; the tests that delete themselves are named. Its knock-on cascade is explicitly filed as a question, not as part of the acceptance bar. |
 | `06` `Orcvs`'s surface | `resolved` | Three small facts about the public API, each independently checkable, none of which needs the seam decision. |
 | `07` Viewport derives its inputs | `resolved` | Two parameters that can be computed from another parameter. The one trap — the name `scale` is taken — is named in the ticket. |
-| `08` Glyph placement | `ready-for-agent` | Five-of-seven Context-free tests accepted as worth the loop split; sibling helper refused. Blocked by `07` only. |
-| `09` Background runs in derive | `needs-triage` | Filed from ticket `05`'s cascade question. Blocked by `05`. |
+| `08` Glyph placement | `resolved` | Five-of-seven Context-free tests accepted as worth the loop split; sibling helper refused. Blocked by `07` only. |
+| `09` Background runs in derive | `needs-triage` | Filed from ticket `05`'s cascade question. Previously blocked by `05` (resolved). |
 
 ## Verification
 

@@ -90,6 +90,6 @@ from that tree rather than from `main`. `typed-source-paint/01`'s acceptance lin
 collapses to the Cell's content" — `GlyphTable` no longer holds them, `CellCharacters` does. That
 ticket's line needs the same correction whether or not this one is taken.
 
-## Comments
+## Resolution
 
 2026-09-13 — `wontfix`. Absorbed by `typed-source-paint/06`. Do not take this ticket.
