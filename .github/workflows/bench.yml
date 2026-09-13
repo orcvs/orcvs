@@ -7,12 +7,14 @@ on:
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. The memory series needs no entry of its own: it is measured by
+    # the Render Frame. `console/**` covers Paint derivation and the background-run
+    # fold. The memory series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
       - 'lang/**'
       - 'orcvs/**'
+      - 'console/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -23,12 +25,14 @@ on:
     # Everything that can move a measurement: the benchmarked crates, the profile and
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition. `orcvs/**` covers the Source, the Language Map, and
-    # the Render Frame. The memory series needs no entry of its own: it is measured by
+    # the Render Frame. `console/**` covers Paint derivation and the background-run
+    # fold. The memory series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
     paths:
       - 'lang/**'
       - 'orcvs/**'
+      - 'console/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'

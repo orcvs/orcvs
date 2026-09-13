@@ -14,10 +14,17 @@ workspace = true
 [lib]
 name = "console"
 path = "src/lib.rs"
+# `--benches` selects the library too, and its unit-test harness does not
+# understand criterion's arguments.
+bench = false
 
 [[bin]]
 name = "console"
 path = "src/main.rs"
+# `--benches` selects every target with `bench = true`. The binary's default
+# is that, and its libtest harness rejects `--output-format` the same way
+# the library would.
+bench = false
 
 [features]
 # Persistence ships on. `product-persistence/01` requires the *shipped*
@@ -72,6 +79,9 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
+# Same pin as `lang` and `orcvs`: already in the locked graph, needed here
+# because `Paint::derive` lives in this crate and `source-paint/09` measures it.
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 lang = { path = "../lang", version = "0.1.0" }
 # ADR 0041 makes the Playback Engine a task, so building a running Orcvs needs a
 # runtime to spawn it on and every test that builds one needs `#[tokio::test]`.
@@ -82,6 +92,10 @@ lang = { path = "../lang", version = "0.1.0" }
 # no crate enters here.
 tokio = { workspace = true, features = ["macros", "rt"] }
 
+
+[[bench]]
+name = "paint"
+harness = false
 
 [package.metadata.docs.rs]
 all-features = true

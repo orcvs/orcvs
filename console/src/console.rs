@@ -8,7 +8,7 @@ use egui::{
 
 use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
-use crate::paint::Paint;
+use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::style::{PALETTE, style};
 use orcvs::{
@@ -824,7 +824,7 @@ fn show_source(
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
-    let paint = Paint::derive(frame, &visible);
+    let paint = Paint::derive(FramePaint::new(frame, visible));
     let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
@@ -1199,7 +1199,7 @@ mod tests {
     use orcvs::render_frame::RenderFrame;
 
     use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
-    use crate::paint::Paint;
+    use crate::paint::{FramePaint, Paint};
     use crate::style::PALETTE;
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
@@ -1883,7 +1883,10 @@ mod tests {
     fn painted(frame: &RenderFrame, viewport: GridViewport, clip: Rect) -> Paint {
         let grid = frame.grid();
 
-        Paint::derive(frame, &viewport.visible_positions(clip, grid))
+        Paint::derive(FramePaint::new(
+            frame,
+            viewport.visible_positions(clip, grid),
+        ))
     }
 
     ///

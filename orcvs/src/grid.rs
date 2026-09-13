@@ -82,6 +82,15 @@ pub const DEFAULT_COL_COUNT: usize = 40;
 pub const DEFAULT_ROW_COUNT: usize = 25;
 
 ///
+/// Which Grid a value bound to one Grid came from.
+///
+/// Minted only by [`Grid::identity`]. Like a [`Position`], it names one Grid
+/// and is refused by any other.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GridIdentity(GridId);
+
+///
 /// The fixed rectangular shape a Source occupies: its column and row counts,
 /// and the valid positions within them. The Grid is the shape; the Source is
 /// the contents.
@@ -148,6 +157,22 @@ impl Grid {
             cols,
             rows,
         }
+    }
+
+    ///
+    /// Which Grid this is. Copies of a Grid share it; a newly minted Grid does not.
+    ///
+    #[inline]
+    pub fn identity(self) -> GridIdentity {
+        GridIdentity(self.id)
+    }
+
+    ///
+    /// Whether `identity` names this Grid rather than another of the same shape.
+    ///
+    #[inline]
+    pub fn owns_identity(self, identity: GridIdentity) -> bool {
+        self.id == identity.0
     }
 
     ///
@@ -523,6 +548,19 @@ mod test {
 
         assert!(copied.owns(position));
         assert_eq!(copied.index(position).get(), 1);
+    }
+
+    #[test]
+    fn test_a_grid_mints_an_identity_that_survives_copying_and_differs_from_another_grid() {
+        let grid = Grid::new(4, 2);
+        let copied = grid;
+        let other = Grid::new(4, 2);
+        let identity = grid.identity();
+
+        assert_eq!(identity, copied.identity());
+        assert_ne!(identity, other.identity());
+        assert!(grid.owns_identity(identity));
+        assert!(!other.owns_identity(identity));
     }
 
     #[test]

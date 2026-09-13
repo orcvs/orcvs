@@ -1,6 +1,6 @@
 # Let the Source Grid paint answer instead of take
 
-**Status:** open — `01`–`08` are `resolved`; `09` remains `ready-for-agent`. The cull's cost claim is asserted by counting, not by a `console` benchmark. `02`-`06` shipped the two layers; `01` recorded them as [ADR 0040](../../docs/adr/0040-the-console-paints-from-a-value.md).
+**Status:** resolved — `01`–`09` are `resolved`. The cull's cost claim is asserted by counting and timed by `console/benches/paint.rs`. `02`-`06` shipped the two layers; `01` recorded them as [ADR 0040](../../docs/adr/0040-the-console-paints-from-a-value.md).
 
 ## Goal
 
@@ -150,10 +150,9 @@ already did to the single loop they replaced. The `Vec<CellPaint>` is sized to t
 rather than to the Grid, so on a zoomed console it is a fraction of a thousand entries rather than
 a thousand, and on a Grid that resize has grown it does not follow the Grid at all.
 
-That claim is asserted by counting rather than by timing, which is what `05` did and all its surface
-allowed: `paint.rs` counts the `CellPaint`s a culled derivation builds, with no `Context` at all,
-and `console.rs` counts one stroked Cell rectangle per drawn Position and a shape total that falls
-with the zoom. It is still **unmeasured** in the sense `CLAUDE.md` means — there is no `console`
-benchmark, `[[bench]]` appears only in `orcvs/Cargo.toml` and `lang/Cargo.toml`, and no frame time
-is asserted anywhere. `09` is where that benchmark is filed; running the comparison is CI's, per
-`.scratch/benchmarks/spec.md`.
+That claim is asserted by counting and, since `09`, by timing: `paint.rs` counts the `CellPaint`s
+a culled derivation builds, with no `Context` at all, `console.rs` counts one stroked Cell
+rectangle per drawn Position and a shape total that falls with the zoom, and
+`console/benches/paint.rs` times `Paint::derive` and `Paint::background_runs` at a fitted range
+and a fixed 16×16 window across `FRAME_SIZES`. No frame time is asserted. The comparison lives
+in the action, per `.scratch/benchmarks/spec.md`.
