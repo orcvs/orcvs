@@ -260,10 +260,6 @@ _Avoid_: Caret, pointer, insertion point
 The graded field of four bands the console draws outward from the Cursor's Cell, measured in Cells by Chebyshev distance and decided per Cell by console paint from the Render Frame's Cursor and spacing. It changes a Cell's background and border and never its content or its Token.
 _Avoid_: Highlight, glow, radial light, focus matrix
 
-**Marker**:
-A purely visual mark the console draws at every marker-spacing interval of Cells in both axes, so distance across the Source can be read by eye. A Marker carries no content and belongs to no Expression; it appears only on a Cell the Source gives no Token of its own.
-_Avoid_: Guide, gridline, ruler dot
-
 **Sector Seam**:
 The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.
 _Avoid_: Marker, guide, gridline, ruler dot
