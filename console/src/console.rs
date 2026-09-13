@@ -2111,7 +2111,7 @@ mod tests {
     /// about the Shape tells them apart; what parts them is that the Cursor is
     /// painted after everything else, which is what this asserts.
     ///
-    /// The Grid is 16 Cells square because the default Marker spacing is
+    /// The Grid is 16 Cells square because the default Sector Seam spacing is
     /// eight: an 8x8 Grid asks for no sector seam at all, and an empty group
     /// would let the claims either side of it hold vacuously.
     ///
@@ -2764,7 +2764,7 @@ mod tests {
     /// are asserted in `paint.rs` with no Context at all. The seam's *width*
     /// scales with the Cell side, so it is geometry and belongs here.
     ///
-    /// The Grid is 16 Cells square because the default Marker spacing is
+    /// The Grid is 16 Cells square because the default Sector Seam spacing is
     /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
     /// it, so every seam strength in one is `None` and this would assert
     /// nothing.
@@ -3104,7 +3104,7 @@ mod tests {
     /// own comment describes.
     ///
     /// Two pans rather than one, because which seams land strictly inside the
-    /// clip is a property of the pan. The Marker spacing is 8 and a Cell is 50
+    /// clip is a property of the pan. The Sector Seam spacing is 8 and a Cell is 50
     /// points at this zoom, so one pan is chosen to put a seam column
     /// immediately inside the first drawn column and the other to put one on
     /// the last: between them a cull that is short by a Cell on any of the four
@@ -3144,7 +3144,7 @@ mod tests {
             for cell in frame.cells() {
                 let position = cell.position();
                 let rect = viewport.cell_rect(position.x(), position.y());
-                let spacing = frame.marker_spacing().cells();
+                let spacing = frame.sector_seam_spacing().cells();
                 let selected = position == frame.cursor();
 
                 for (strength, ends) in [

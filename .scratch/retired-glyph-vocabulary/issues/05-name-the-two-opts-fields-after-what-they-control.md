@@ -4,38 +4,38 @@
 is the Cursor bloom radius. Both are named for concepts the console no longer draws, and the doc
 comment on the struct states the false one outright.
 
-**Blocked by:** 01 — Name the Sector Seam and the Cursor Bloom in the glossary.
+**Blocked by:** None — every listed blocker is resolved.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `Opts` (`orcvs/src/opts.rs:18-25`) names the two fields after the concepts they configure,
+- [x] `Opts` (`orcvs/src/opts.rs:18-25`) names the two fields after the concepts they configure,
       using the glossary terms `01` settles — `sector_seam_spacing` and `cursor_bloom_radius` unless
       `01` lands different words, in which case the field names follow `01`.
-- [ ] `MarkerSpacing` (`orcvs/src/opts.rs:37`) and `HighlightSpacing` (`orcvs/src/opts.rs:40`) are
+- [x] `MarkerSpacing` (`orcvs/src/opts.rs:37`) and `HighlightSpacing` (`orcvs/src/opts.rs:40`) are
       renamed with their fields. The newtypes carry the same misnomer and renaming the field alone
       leaves `sector_seam_spacing: MarkerSpacing`, which is worse than either name on its own.
-- [ ] `DEFAULT_MARKER_SPACING` and `DEFAULT_HIGHLIGHT_DOT_SPACING` (`orcvs/src/opts.rs:4`, `:6`)
+- [x] `DEFAULT_MARKER_SPACING` and `DEFAULT_HIGHLIGHT_DOT_SPACING` (`orcvs/src/opts.rs:4`, `:6`)
       are renamed to match, keeping the values `8` and `7` exactly.
-- [ ] The struct doc comment at `orcvs/src/opts.rs:12-16` no longer says `marker_spacing` "counts
+- [x] The struct doc comment at `orcvs/src/opts.rs:12-16` no longer says `marker_spacing` "counts
       the Cells between visual markers". It says what the field now counts. The sentence it sits in —
       that nothing in the file is a Source dimension — is preserved, because that is the point the
       comment is actually making and it is still true.
-- [ ] `RenderFrameConfig` (`orcvs/src/render_frame.rs:9-12`) renames both fields with them, and
+- [x] `RenderFrameConfig` (`orcvs/src/render_frame.rs:9-12`) renames both fields with them, and
       `orcvs/src/app.rs:222-225` follows.
-- [ ] The local at `orcvs/src/render_frame.rs:151` and the parameters named `radius` through
+- [x] The local at `orcvs/src/render_frame.rs:151` and the parameters named `radius` through
       `signal_breakup` and `classify_cursor_bloom` are left alone or aligned deliberately — they are
       already truthful, which is half the evidence that the field name is not.
-- [ ] The three test names that already describe the real concept keep describing it:
+- [x] The three test names that already describe the real concept keep describing it:
       `default_cursor_field_reaches_seven_cells_from_the_cursor` (`orcvs/src/opts.rs:111`),
       `marker_spacing_accepts_only_whole_positive_cell_counts` (`orcvs/src/opts.rs:120`) and
       `highlight_spacing_accepts_only_whole_positive_cell_counts` (`orcvs/src/opts.rs:127`). The
       first is already right and must not be renamed backwards; the second and third are named for
       the old fields and are renamed with them.
-- [ ] `test_sector_edges_use_one_whole_cell_spacing_without_marker_glyphs`
+- [x] `test_sector_edges_use_one_whole_cell_spacing_without_marker_glyphs`
       (`orcvs/src/app.rs:657`) keeps its assertions unchanged. Its "without marker glyphs" clause
       may be dropped once `03` has landed, since there will be no marker Glyph to be without.
-- [ ] No default, no computed value and no rendered pixel changes. This is a rename.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package orcvs --all-targets --locked -- -D warnings`,
+- [x] No default, no computed value and no rendered pixel changes. This is a rename.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package orcvs --all-targets --locked -- -D warnings`,
       `cargo clippy --package console --all-targets --locked -- -D warnings`,
       `PROPTEST_CASES=32 cargo nextest run` on both packages, and
       `cargo test --workspace --doc --locked` pass.
@@ -117,14 +117,10 @@ word "grid"; `source-playback-engine/17`, about measuring the spacing in whole C
 `restyle-egui-console/02`, in a comment tracing where `marker_spacing` is spent. `typed-source-paint`
 — which owns the rest of the Glyph retirement — does not mention `Opts` at all.
 
-The fourth is
-`.scratch/render-frame-responsibility/issues/04-move-the-cursor-bloom-and-the-sector-seams-into-the-console.md`,
-which was being filed concurrently by another agent and which this effort has deliberately not read.
-Its path and title are all that is known here, and both say it is working on the same two concepts.
-**Read it before starting.** If it proposes moving the seam and bloom computation into `console`,
-this rename either lands first and that ticket carries the new names, or lands after and renames
-whatever fields survive the move — but it must not be done blind, because a rename and a move of the
-same fields will conflict in every one of the files counted below.
+The fourth was
+`.scratch/render-frame-responsibility/issues/04-move-the-cursor-bloom-and-the-sector-seams-into-the-console.md`.
+That ticket has resolved: bloom and seams live in `console`, and the Frame still answers the two
+spacing fields under the old names. Rename those fields here; do not reopen the crate move.
 This ticket is the only one in this effort with no overlap of any kind.
 
 **One line of prose falls with the rename.** `console/src/theme.md:41-42` says the seams preserve
@@ -133,8 +129,10 @@ repository of why the Marker was retired, so update the phrase rather than delet
 and do it here, in the change that makes it wrong, not in `04`.
 
 **Why `ready-for-agent`.** Every call site is enumerated, the compiler catches any that is not, and
-the serialisation and public-API questions are answered rather than flagged rather than left for an
-implementer to discover. The two open questions — what the concepts are called, and whether
-`render-frame-responsibility` is about to move the code — both sit behind `01`, which blocks this
-and is itself `needs-triage` precisely so that the cross-effort check happens before either ticket
-is picked up. Nothing is left for the implementer of this ticket to decide.
+the serialisation and public-API questions are answered rather than left for an implementer to
+discover. The glossary names are settled (`01` resolved); the crate move is settled. Nothing is left
+for the implementer of this ticket to decide.
+
+## Answer
+
+The two Opts fields now use the glossary names they already configured: `sector_seam_spacing` (period 8) and `cursor_bloom_radius` (radius 7), with matching newtypes, defaults, Frame accessors, and console readers. Docs in `opts.rs` and `theme.md` follow the same names. No default, computed value, or pixel changed.

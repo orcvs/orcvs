@@ -282,8 +282,8 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
             self.cursor.position(),
             self.cursor.on,
             RenderFrameConfig {
-                marker_spacing: self.opts.marker_spacing,
-                highlight_dot_spacing: self.opts.highlight_dot_spacing,
+                sector_seam_spacing: self.opts.sector_seam_spacing,
+                cursor_bloom_radius: self.opts.cursor_bloom_radius,
             },
         )
     }
@@ -410,7 +410,7 @@ mod test {
     use super::Orcvs;
     use crate::opts::Bpm;
     use crate::test::trace;
-    use crate::{opts::DEFAULT_MARKER_SPACING, source::Token};
+    use crate::{opts::DEFAULT_SECTOR_SEAM_SPACING, source::Token};
 
     ///
     /// An output adapter that dies on its first delivery, which is how a
@@ -670,8 +670,8 @@ mod test {
     }
 
     fn app() -> Orcvs {
-        let rows = 1; // * (DEFAULT_MARKER_SPACING as usize);
-        let cols = DEFAULT_MARKER_SPACING;
+        let rows = 1; // * (DEFAULT_SECTOR_SEAM_SPACING as usize);
+        let cols = DEFAULT_SECTOR_SEAM_SPACING;
 
         Orcvs::new(cols, rows).expect("the test runtime")
     }

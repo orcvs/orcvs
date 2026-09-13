@@ -157,6 +157,11 @@ impl ExpressionEntry {
         self.span
     }
 
+    /// The parse diagnostic this Expression reported, when the analysis did.
+    pub fn diagnostic(&self) -> Option<&Diagnostic> {
+        self.diagnostic.as_ref()
+    }
+
     pub(super) fn atoms(&self) -> Option<&Atoms> {
         self.atoms.as_ref()
     }
@@ -257,17 +262,19 @@ impl LanguageMap {
     /// Every parser and unmatched-character diagnostic in this revision.
     pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.expressions()
-            .filter_map(|expression| expression.diagnostic.as_ref())
+            .filter_map(ExpressionEntry::diagnostic)
             .chain(self.lexical_diagnostics())
     }
 
     #[cfg(test)]
     pub(super) fn expression_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.expressions()
-            .filter_map(|expression| expression.diagnostic.as_ref())
+        self.expressions().filter_map(ExpressionEntry::diagnostic)
     }
 
-    fn lexical_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+    /// Unmatched-character diagnostics, separate from Expression reports.
+    ///
+    /// A Cell can sit inside one of these without sitting inside an Expression.
+    pub fn lexical_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.rows
             .iter()
             .flat_map(|row| row.lexical_diagnostics.iter())

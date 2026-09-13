@@ -127,8 +127,8 @@ impl Paint {
         // drawn range — not that the Frame selected nothing.
         let frame_cursor = frame.cursor();
         let cursor_visible = frame.cursor_visible();
-        let marker_spacing = frame.marker_spacing().cells();
-        let bloom_radius = frame.highlight_dot_spacing().cells();
+        let sector_seam_spacing = frame.sector_seam_spacing().cells();
+        let bloom_radius = frame.cursor_bloom_radius().cells();
         let cursor = (drawn.columns.contains(&frame_cursor.x())
             && drawn.rows.contains(&frame_cursor.y()))
         .then_some(frame_cursor);
@@ -169,10 +169,14 @@ impl Paint {
                     // here. The stroke widths are geometry and stay out of this
                     // layer.
                     sector_left: (!selected)
-                        .then(|| sector_left_strength(position, marker_spacing).map(sector_line))
+                        .then(|| {
+                            sector_left_strength(position, sector_seam_spacing).map(sector_line)
+                        })
                         .flatten(),
                     sector_top: (!selected)
-                        .then(|| sector_top_strength(position, marker_spacing).map(sector_line))
+                        .then(|| {
+                            sector_top_strength(position, sector_seam_spacing).map(sector_line)
+                        })
                         .flatten(),
                     character: characters.character(cell),
                 });
@@ -493,7 +497,7 @@ mod tests {
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
         let cursor = frame.cursor();
-        let bloom_radius = frame.highlight_dot_spacing().cells();
+        let bloom_radius = frame.cursor_bloom_radius().cells();
 
         for cell in frame.cells() {
             let position = cell.position();
@@ -562,13 +566,13 @@ mod tests {
     #[tokio::test]
     async fn seams_stand_where_paint_asks_and_never_on_the_cursor() {
         let mut orcvs = running_orcvs(24, 24);
-        // A sector corner at the default marker spacing of eight.
+        // A sector corner at the default Sector Seam spacing of eight.
         let corner = orcvs.grid().position(8, 8).expect("inside the grid");
         orcvs.select(corner);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let spacing = frame.marker_spacing().cells();
+        let spacing = frame.sector_seam_spacing().cells();
         let cursor = frame.cursor();
         let mut seams = 0;
 
