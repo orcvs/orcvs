@@ -451,16 +451,32 @@ impl Stack {
         O: Operands,
         F: Fn(O) -> Result<Atom, Error>,
     {
+        self.apply_indexed(|operands, _index| element(operands))
+    }
+
+    /// Evaluates one pervasive Function across the shape its operands decide,
+    /// handing each element's zero-based Sequence index to `element`.
+    ///
+    /// [`Stack::apply`] is this with the index discarded: most Atomic
+    /// Functions are a statement about their operands alone. Random is the
+    /// exception ADR 0013 names — Sequence index participates in each
+    /// element's stream — and this is the same broadcast, not a second one.
+    #[inline(always)]
+    pub(crate) fn apply_indexed<O, F>(&mut self, element: F) -> Result<Value, Error>
+    where
+        O: Operands,
+        F: Fn(O, usize) -> Result<Atom, Error>,
+    {
         let broadcast = self.checked::<O>()?;
 
         if broadcast.is_scalar() {
-            return Ok(element(broadcast.bind(0)?)?.into());
+            return Ok(element(broadcast.bind(0)?, 0)?.into());
         }
 
         let mut results = Vec::with_capacity(broadcast.width());
 
         for index in 0..broadcast.width() {
-            results.push(element(broadcast.bind(index)?)?);
+            results.push(element(broadcast.bind(index)?, index)?);
         }
 
         Broadcast::assemble(results)
