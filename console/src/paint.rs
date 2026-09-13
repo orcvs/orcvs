@@ -123,6 +123,12 @@ impl Paint {
     ///
     pub fn derive(frame: &RenderFrame, drawn: &VisiblePositions) -> Self {
         let grid = frame.grid();
+        if let Some(identity) = drawn.grid() {
+            assert!(
+                grid.owns_identity(identity),
+                "VisiblePositions belong to another Grid"
+            );
+        }
         // The Cursor is the Position the Render Frame was derived for. A Paint
         // covers a viewport, so `None` here means that Position is outside the
         // drawn range — not that the Frame selected nothing.
@@ -470,10 +476,7 @@ mod tests {
 
         Paint::derive(
             frame,
-            &VisiblePositions {
-                columns: 0..grid.columns(),
-                rows: 0..grid.rows(),
-            },
+            &VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
         )
     }
 
@@ -754,10 +757,7 @@ mod tests {
 
         Paint {
             grid,
-            drawn: VisiblePositions {
-                columns: 0..grid.columns(),
-                rows: 0..grid.rows(),
-            },
+            drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
             cursor: Some(grid.origin()),
             cells: rows
                 .iter()
@@ -931,10 +931,8 @@ mod tests {
         orcvs.select(orcvs.grid().position(9, 10).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
-        let drawn = VisiblePositions {
-            columns: 12..20,
-            rows: 8..14,
-        };
+        let grid = frame.grid();
+        let drawn = VisiblePositions::for_grid(grid, 12..20, 8..14);
         let culled = Paint::derive(&frame, &drawn);
         let every = whole(&frame);
 
@@ -986,10 +984,8 @@ mod tests {
         orcvs.select(orcvs.grid().position(15, 11).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
-        let drawn = VisiblePositions {
-            columns: 10..22,
-            rows: 7..16,
-        };
+        let grid = frame.grid();
+        let drawn = VisiblePositions::for_grid(grid, 10..22, 7..16);
         let clipped = whole(&frame)
             .background_runs()
             .into_iter()
@@ -1031,14 +1027,9 @@ mod tests {
         orcvs.select(selected);
 
         let frame = orcvs.render_frame();
-        let reaching = VisiblePositions {
-            columns: 3..8,
-            rows: 2..7,
-        };
-        let past = VisiblePositions {
-            columns: 10..16,
-            rows: 12..18,
-        };
+        let grid = frame.grid();
+        let reaching = VisiblePositions::for_grid(grid, 3..8, 2..7);
+        let past = VisiblePositions::for_grid(grid, 10..16, 12..18);
 
         assert_eq!(whole(&frame).cursor(), Some(selected));
         assert_eq!(Paint::derive(&frame, &reaching).cursor(), Some(selected));
@@ -1064,5 +1055,39 @@ mod tests {
         assert_eq!(paint.cells().count(), 0);
         assert_eq!(paint.cursor(), None);
         assert_eq!(paint.background_runs(), Vec::new());
+    }
+
+    ///
+    /// Ranges past the Grid are clamped before `Paint::derive` walks them,
+    /// so an out-of-bounds request is empty or partial rather than a panic.
+    ///
+    #[tokio::test]
+    async fn a_paint_clamps_out_of_bounds_ranges_before_it_walks_them() {
+        let orcvs = running_orcvs(8, 8);
+        let frame = orcvs.render_frame();
+        let grid = frame.grid();
+        let drawn = VisiblePositions::for_grid(grid, 6..100, 2..100);
+
+        assert_eq!(drawn.columns, 6..8);
+        assert_eq!(drawn.rows, 2..8);
+
+        let paint = Paint::derive(&frame, &drawn);
+
+        assert_eq!(paint.count(), drawn.count());
+    }
+
+    ///
+    /// A Paint refuses a range minted for another Grid, even when the shape
+    /// matches the Render Frame's.
+    ///
+    #[tokio::test]
+    #[should_panic(expected = "VisiblePositions belong to another Grid")]
+    async fn a_paint_refuses_visible_positions_minted_for_another_grid() {
+        let orcvs = running_orcvs(8, 8);
+        let frame = orcvs.render_frame();
+        let other = Grid::new(8, 8);
+        let drawn = VisiblePositions::for_grid(other, 0..8, 0..8);
+
+        let _ = Paint::derive(&frame, &drawn);
     }
 }

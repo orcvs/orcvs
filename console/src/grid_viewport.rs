@@ -9,7 +9,7 @@
 use std::ops::Range;
 
 use egui::{Pos2, Rect, Vec2, emath::GuiRounding as _, emath::TSTransform};
-use orcvs::grid::Grid;
+use orcvs::grid::{Grid, GridIdentity};
 
 ///
 /// The side of one Source Cell in points, before any zoom.
@@ -54,21 +54,40 @@ impl GridViewport {
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisiblePositions {
+    /// The Grid these ranges belong to, or none when empty.
+    grid: Option<GridIdentity>,
     /// The columns to draw, left to right.
     pub(crate) columns: Range<usize>,
     /// The rows to draw, top to bottom.
     pub(crate) rows: Range<usize>,
 }
 
+fn clamp_range(range: Range<usize>, extent: usize) -> Range<usize> {
+    let start = range.start.min(extent);
+    let end = range.end.min(extent);
+
+    if start < end { start..end } else { 0..0 }
+}
+
 impl VisiblePositions {
-    /// The Positions a Paint covers: column and row ranges already clamped to a Grid.
-    pub fn new(columns: Range<usize>, rows: Range<usize>) -> Self {
-        Self { columns, rows }
+    /// The Positions a Paint covers: column and row ranges clamped to `grid`.
+    pub fn for_grid(grid: Grid, columns: Range<usize>, rows: Range<usize>) -> Self {
+        Self {
+            grid: Some(grid.identity()),
+            columns: clamp_range(columns, grid.columns()),
+            rows: clamp_range(rows, grid.rows()),
+        }
+    }
+
+    /// The Grid this range belongs to, or `None` when [`Self::empty`].
+    pub fn grid(&self) -> Option<GridIdentity> {
+        self.grid
     }
 
     /// No Position at all: what a console showing none of the Grid draws.
     pub fn empty() -> Self {
         Self {
+            grid: None,
             columns: 0..0,
             rows: 0..0,
         }
@@ -237,6 +256,7 @@ impl GridViewport {
         };
 
         VisiblePositions {
+            grid: Some(grid.identity()),
             columns: first_column.saturating_sub(1)
                 ..last_column.saturating_add(2).min(grid.columns()),
             rows: first_row.saturating_sub(1)..last_row.saturating_add(2).min(grid.rows()),
@@ -611,7 +631,8 @@ mod tests {
     ///
     #[test]
     fn the_visible_range_is_the_shown_positions_and_one_cell_more_each_way() {
-        let viewport = grid_viewport(area(800.0, 800.0), square());
+        let grid = square();
+        let viewport = grid_viewport(area(800.0, 800.0), grid);
         assert_close(viewport.cell_size, 25.0, "Cell size");
         // Deliberately not on Cell boundaries: a clip that ends exactly on one
         // would not distinguish the margin from the rounding.
@@ -620,16 +641,10 @@ mod tests {
             viewport.rect.min + Vec2::splat(290.0),
         );
 
-        let visible = viewport.visible_positions(clip, square());
+        let visible = viewport.visible_positions(clip, grid);
 
         // Columns 4 through 11 are shown, so the range runs 3 through 12.
-        assert_eq!(
-            visible,
-            VisiblePositions {
-                columns: 3..13,
-                rows: 3..13,
-            }
-        );
+        assert_eq!(visible, VisiblePositions::for_grid(grid, 3..13, 3..13));
         assert_eq!(visible.count(), 10 * 10);
 
         for row in 0..GRID {
@@ -664,17 +679,12 @@ mod tests {
     #[test]
     fn a_console_showing_the_whole_grid_ranges_over_the_whole_grid() {
         let available = area(800.0, 800.0);
-        let viewport = grid_viewport(available, square());
+        let grid = square();
+        let viewport = grid_viewport(available, grid);
 
-        let visible = viewport.visible_positions(available, square());
+        let visible = viewport.visible_positions(available, grid);
 
-        assert_eq!(
-            visible,
-            VisiblePositions {
-                columns: 0..GRID,
-                rows: 0..GRID,
-            }
-        );
+        assert_eq!(visible, VisiblePositions::for_grid(grid, 0..GRID, 0..GRID));
         assert_eq!(visible.count(), GRID * GRID);
     }
 
@@ -705,6 +715,50 @@ mod tests {
                 .visible_positions(available, square())
                 .count(),
             0
+        );
+    }
+
+    #[test]
+    fn visible_positions_minted_for_a_grid_are_owned_by_that_grid() {
+        let grid = Grid::new(10, 8);
+        let other = Grid::new(10, 8);
+        let visible = VisiblePositions::for_grid(grid, 2..6, 1..5);
+
+        assert!(grid.owns_identity(visible.grid().expect("minted for a Grid")));
+        assert!(!other.owns_identity(visible.grid().expect("minted for a Grid")));
+    }
+
+    #[test]
+    fn for_grid_clamps_out_of_bounds_ranges_to_the_grid() {
+        let grid = Grid::new(10, 8);
+
+        assert_eq!(
+            VisiblePositions::for_grid(grid, 12..20, 10..20),
+            VisiblePositions::for_grid(grid, 0..0, 0..0)
+        );
+        assert_eq!(
+            VisiblePositions::for_grid(grid, 12..20, 6..14),
+            VisiblePositions {
+                grid: Some(grid.identity()),
+                columns: 0..0,
+                rows: 6..8,
+            }
+        );
+        assert_eq!(
+            VisiblePositions::for_grid(grid, 8..15, 2..6),
+            VisiblePositions {
+                grid: Some(grid.identity()),
+                columns: 8..10,
+                rows: 2..6,
+            }
+        );
+        assert_eq!(
+            VisiblePositions::for_grid(grid, 0..10, 0..8),
+            VisiblePositions {
+                grid: Some(grid.identity()),
+                columns: 0..10,
+                rows: 0..8,
+            }
         );
     }
 

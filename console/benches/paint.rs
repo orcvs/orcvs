@@ -19,6 +19,7 @@
 use console::{Paint, VisiblePositions};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use orcvs::app::Orcvs;
+use orcvs::grid::Grid;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::RenderFrame;
 use std::hint::black_box;
@@ -118,11 +119,13 @@ fn size(kind: &str, cols: usize, rows: usize) -> BenchmarkId {
 }
 
 fn fitted(cols: usize, rows: usize) -> VisiblePositions {
-    VisiblePositions::new(0..cols, 0..rows)
+    let grid = Grid::new(cols, rows);
+    VisiblePositions::for_grid(grid, 0..cols, 0..rows)
 }
 
 fn culled(cols: usize, rows: usize) -> VisiblePositions {
-    VisiblePositions::new(0..CULLED.min(cols), 0..CULLED.min(rows))
+    let grid = Grid::new(cols, rows);
+    VisiblePositions::for_grid(grid, 0..CULLED.min(cols), 0..CULLED.min(rows))
 }
 
 fn frames() -> &'static [(usize, usize, RenderFrame)] {
