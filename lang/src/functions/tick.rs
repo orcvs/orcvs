@@ -1,6 +1,6 @@
 use crate::{
     Atom, Error, Function, InterpretationError, Value,
-    atom::operands::{Clock, Delay, Euclidean, Random},
+    atom::operands::{Clock, Delay, Euclidean, Increment, Interpolation, Random},
     interpreter::Context,
 };
 use rand_chacha::ChaCha8Rng;
@@ -15,7 +15,7 @@ use rand_chacha::rand_core::{Rng, SeedableRng};
 // Numbers, and the Tick is shared by the whole operation because an Expression
 // is evaluated at one Tick.
 //
-// Two of the three answer a pulse rather than a Number, and ADR 0039 declares
+// Two of the five answer a pulse rather than a Number, and ADR 0039 declares
 // those two Scalar: they refuse a Sequence operand rather than widening. A
 // widened pulse would need one answer per element, an element that does not
 // Bang has only the absence marker to offer, and `Sequence::new` refuses that
@@ -23,13 +23,17 @@ use rand_chacha::rand_core::{Rng, SeedableRng};
 // over the elements, and every reduction fixes a meaning for two rhythms
 // layered on one Cell that could not later be changed without breaking Source,
 // so the operand is refused instead — a refusal ADR 0039 can relax once the
-// Sequence Functions make one spellable. The refusal comes from the declaration
-// alone: `Stack::broadcast` raises `ExpectedAtom` for a Sequence at any operand
-// of a Function that does not pervade, so neither body checks for one. They
-// bind through `Stack::extract`, the scalar seam; Clock and Random each answer
-// a Number and broadcast through `Stack::apply` like every other Atomic
-// Function. Random uses `Stack::apply_indexed` so Sequence index participates
-// in each element's stream.
+// Sequence Functions make one spellable. Increment and Interpolation are
+// Scalar for a different reason, ADR 0012's: their previous is one visible
+// Atom at the ordinary result Portal, and a Sequence previous would need
+// hidden element identity their one Cell pair cannot hold. The refusal comes
+// from the declaration alone: `Stack::broadcast` raises `ExpectedAtom` for a
+// Sequence at any operand of a Function that does not pervade, so none of the
+// bodies checks for one. They bind through `Stack::extract`, the scalar
+// seam; Clock and Random each answer a Number and broadcast through
+// `Stack::apply` or `Stack::apply_indexed` like every other Atomic Function.
+// Random uses `Stack::apply_indexed` so Sequence index participates in each
+// element's stream.
 //
 // Every formula is evaluated in `u64`. The Tick is already one, and the two
 // operands are Numbers whose product is a cycle length rather than a value the
@@ -202,6 +206,87 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
     Ok(pulse((hits * phase) % steps + hits >= steps))
 }
 
+/// Increment: `~+ step modulus`.
+///
+/// The next Number of a wrap of `modulus`, advanced by `step` from the
+/// previous visible Number at the ordinary result Portal. ADR 0012 writes
+/// this as `(previous + step) % modulus`, and the addition is taken in `u64`
+/// so `FF + 02` is 257 rather than a wrapped `01` that would then take the
+/// modulus of the wrong total.
+///
+/// It is a scalar exception under ADR 0012: a Sequence at either operand is
+/// refused by cell operand binding before the Portal input is decoded.
+/// Both bindings must succeed before the formula runs.
+#[inline(always)]
+pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
+    let (Increment { step, modulus }, previous) =
+        crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portals())?;
+    let previous = previous.number();
+
+    if modulus == 0 {
+        return Err(InterpretationError::ZeroWrap {
+            function: Function::Increment,
+            role: "modulus",
+        }
+        .into());
+    }
+
+    let step = (u64::from(previous) + u64::from(step)) % u64::from(modulus);
+    let step = u8::try_from(step).map_err(|_| InterpretationError::TickNumberOutOfRange {
+        function: Function::Increment,
+        value: step,
+    })?;
+
+    Ok(Atom::Number(step).into())
+}
+
+/// Interpolation: `~> rate target`.
+///
+/// The Number one Tick closer to `target`, moving by at most `rate` and
+/// never past it. ADR 0012 spells the three orderings: below, above, and
+/// equal. Each distance is taken only in the branch whose subtraction is
+/// non-negative, so a step that would underflow is never asked, and the
+/// remaining addition or subtraction is taken in `u64` before the answer
+/// becomes a Number. Rate `00` holds because a step of nothing is still a
+/// step of at most `rate`.
+///
+/// It is a scalar exception under ADR 0012 for the reason Increment is: the
+/// previous is one Atom, and a Sequence at either operand is refused by the
+/// binding before the formula runs.
+#[inline(always)]
+pub fn interpolation(ctx: &mut Context) -> Result<Value, Error> {
+    let (Interpolation { rate, target }, previous) =
+        crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portals())?;
+    let previous = previous.number();
+
+    let previous = u64::from(previous);
+    let rate = u64::from(rate);
+    let target = u64::from(target);
+
+    let next = if previous < target {
+        if rate >= target - previous {
+            target
+        } else {
+            previous + rate
+        }
+    } else if previous > target {
+        if rate >= previous - target {
+            target
+        } else {
+            previous - rate
+        }
+    } else {
+        target
+    };
+
+    let next = u8::try_from(next).map_err(|_| InterpretationError::TickNumberOutOfRange {
+        function: Function::Interpolation,
+        value: next,
+    })?;
+
+    Ok(Atom::Number(next).into())
+}
+
 /// Random: `~? seed minimum maximum`.
 ///
 /// A Number selected inclusively between normalized bounds. ADR 0013 derives
@@ -293,28 +378,43 @@ fn chacha_word(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> u64
 #[cfg(test)]
 mod test {
     use crate::{
-        Anchor, Atom, Error, Function, Interpretation, Interpreter, Note, Sequence, SequenceError,
-        Tick, TickInputs, TypeError, Value,
+        Anchor, Atom, Error, Function, FunctionInputs, Interpretation, Interpreter, Note,
+        PortalSpellings, Sequence, SequenceError, Tick, TickInputs, TypeError, Value,
     };
     use rand_chacha::ChaCha8Rng;
     use rand_chacha::rand_core::{Rng, SeedableRng};
 
     /// Evaluates one Tick-reading Function at absolute Tick `tick`, with its
-    /// operands in signature order.
+    /// operands in signature order and an empty previous.
     ///
-    /// The anchor is the Grid origin throughout: Clock, Delay, and Euclidean
-    /// do not read a Position. Random has its own helpers below, because it
-    /// does.
+    /// Clock, Delay, and Euclidean ignore the previous; Increment and
+    /// Interpolation treat empty as Number `00`. The anchor is the Grid origin
+    /// throughout: Clock, Delay, and Euclidean do not read a Position. Random
+    /// has its own helpers below, because it does.
     fn evaluate(
         function: Function,
         tick: u64,
         left: impl Into<Value>,
         right: impl Into<Value>,
     ) -> Result<Interpretation, Error> {
+        evaluate_previous(function, tick, left, right, "  ")
+    }
+
+    /// Evaluates one feedback Function with a stated previous at the Portal.
+    fn evaluate_previous(
+        function: Function,
+        tick: u64,
+        left: impl Into<Value>,
+        right: impl Into<Value>,
+        previous: &str,
+    ) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
             &[left.into(), right.into()],
-            TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
+            FunctionInputs::with_portals(
+                TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
+                PortalSpellings::ordinary_result(Some(previous)),
+            ),
         )
     }
 
@@ -712,7 +812,13 @@ mod test {
         // that silently read a Note's byte would be a seventh crossing.
         let note = Atom::Note(Note::try_from(0x3C).unwrap());
 
-        for function in [Function::Clock, Function::Delay, Function::Euclidean] {
+        for function in [
+            Function::Clock,
+            Function::Delay,
+            Function::Euclidean,
+            Function::Increment,
+            Function::Interpolation,
+        ] {
             for (left, right) in [
                 (note, Atom::Number(0x04)),
                 (Atom::Number(0x04), note),
@@ -882,6 +988,273 @@ mod test {
         );
     }
 
+    /// The Atom `function` answers for one pair of Numbers at a stated previous.
+    fn feedback(function: Function, previous: &str, left: u8, right: u8) -> Result<Atom, Error> {
+        match evaluate_previous(
+            function,
+            0,
+            Atom::Number(left),
+            Atom::Number(right),
+            previous,
+        )? {
+            Interpretation::Cell(atom) => Ok(atom),
+            other => panic!("expected a Cell result, found {other:?}"),
+        }
+    }
+
+    #[test]
+    fn increment_advances_by_step_and_wraps_at_its_modulus() {
+        // The formula is small enough to enumerate against rather than sample:
+        // every step and modulus from `01` to `08` from every previous in the
+        // byte, which is enough wraps for every pair. The reference here is
+        // ADR 0012's expression retyped, so what the sweep pins is operand
+        // order and the width the arithmetic is done in — a step read as a
+        // modulus fails at every asymmetric pair — and not the shape of the
+        // expression itself.
+        // `increment_counts_the_literal_sequence_its_operands_name` is the
+        // independent half, written from what the operands mean.
+        for step in 1..=8u8 {
+            for modulus in 1..=8u8 {
+                for previous in 0..=u8::MAX {
+                    let expected = (u64::from(previous) + u64::from(step)) % u64::from(modulus);
+
+                    assert_eq!(
+                        feedback(
+                            Function::Increment,
+                            &format!("{previous:02X}"),
+                            step,
+                            modulus
+                        )
+                        .unwrap(),
+                        Atom::Number(u8::try_from(expected).unwrap()),
+                        "~+ {step:02X} {modulus:02X} from {previous:02X}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn increment_counts_the_literal_sequence_its_operands_name() {
+        // Hand-written wraps, one entry per Tick, read from what the operands
+        // mean rather than from the expression the body evaluates: `~+ 01 04`
+        // from `00` is `01 02 03 00` and nothing else. A body that added the
+        // modulus, or wrapped at the step, would have to land on that same
+        // sequence to pass here.
+        //
+        // Each sequence is walked three times over, which separates a wrap
+        // that begins again from a counter that keeps counting.
+        for (step, modulus, wraps) in [
+            (0x01u8, 0x04u8, &[0x01u8, 0x02, 0x03, 0x00][..]),
+            (0x02, 0x08, &[0x02, 0x04, 0x06, 0x00]),
+            (0x03, 0x05, &[0x03, 0x01, 0x04, 0x02, 0x00]),
+            (0x01, 0x01, &[0x00]),
+        ] {
+            let mut previous = "  ".to_owned();
+
+            for expected in wraps.iter().cycle().take(wraps.len() * 3) {
+                let atom = feedback(Function::Increment, &previous, step, modulus).unwrap();
+                assert_eq!(
+                    atom,
+                    Atom::Number(*expected),
+                    "~+ {step:02X} {modulus:02X} from {previous:?}"
+                );
+                previous = format!("{expected:02X}");
+            }
+        }
+    }
+
+    #[test]
+    fn increment_adds_in_a_wider_integer_before_the_modulus() {
+        // `FF + 02` is 257, which wraps a byte to `01` before the modulus
+        // would ever see it. Taking the modulus of that wrapped total at
+        // `10` would answer `01`; the wider sum answers `01` too at this
+        // pair, so the case that tells them apart is a modulus that is not
+        // a factor of the wrap: `FF + 02` modulo `0F` is `02`, and a byte
+        // add would have taken `01 % 0F`.
+        assert_eq!(
+            feedback(Function::Increment, "FF", 0x02, 0x0F).unwrap(),
+            Atom::Number(0x02)
+        );
+
+        // Empty is Number `00`, so the first increment of an unused Portal
+        // is the step itself, wrapped.
+        assert_eq!(
+            feedback(Function::Increment, "  ", 0x03, 0x08).unwrap(),
+            Atom::Number(0x03)
+        );
+    }
+
+    #[test]
+    fn increment_diagnoses_a_zero_modulus() {
+        // A wrap needs a length, so a zero modulus refuses. The diagnostic
+        // names Increment and the role rather than Modulo: a Source shown
+        // "cannot modulo by zero" would be told about a Function it did not
+        // write.
+        let error = feedback(Function::Increment, "04", 0x01, 0x00).unwrap_err();
+        assert_eq!(error.to_string(), "~+ cannot wrap at a zero modulus");
+
+        // Empty previous is `00`, and a zero step does not skip the check:
+        // `(0 + 0) % 0` is the same fault as any other pair.
+        let error = feedback(Function::Increment, "  ", 0x00, 0x00).unwrap_err();
+        assert_eq!(error.to_string(), "~+ cannot wrap at a zero modulus");
+    }
+
+    #[test]
+    fn interpolation_moves_toward_target_without_overshoot() {
+        // ADR 0012's three orderings, written as the Numbers they name
+        // rather than as the expression the body evaluates. Below steps up
+        // by at most `rate` and lands on the target rather than past it;
+        // above steps down the same way; equal is the target unchanged.
+        for (previous, rate, target, expected) in [
+            (0x00u8, 0x02u8, 0x10u8, 0x02u8),
+            (0x0E, 0x03, 0x10, 0x10),
+            (0x0F, 0x03, 0x10, 0x10),
+            (0x10, 0x03, 0x10, 0x10),
+            (0x14, 0x03, 0x10, 0x11),
+            (0x11, 0x03, 0x10, 0x10),
+            (0x02, 0xFF, 0x01, 0x01),
+            (0x00, 0xFF, 0xFF, 0xFF),
+            (0xFF, 0xFF, 0x00, 0x00),
+        ] {
+            assert_eq!(
+                feedback(
+                    Function::Interpolation,
+                    &format!("{previous:02X}"),
+                    rate,
+                    target
+                )
+                .unwrap(),
+                Atom::Number(expected),
+                "~> {rate:02X} {target:02X} from {previous:02X}"
+            );
+        }
+    }
+
+    #[test]
+    fn interpolation_holds_when_its_rate_is_zero() {
+        // Rate `00` is a step of nothing, so the current value is unchanged
+        // whether it sits below the target, above it, or on it. The hold is
+        // the formula, not a case: a body that special-cased zero would pass
+        // this too — what the test is for is the opposite, that it needs none.
+        for (previous, target) in [(0x05u8, 0x10u8), (0x80, 0x10), (0x10, 0x10)] {
+            assert_eq!(
+                feedback(
+                    Function::Interpolation,
+                    &format!("{previous:02X}"),
+                    0x00,
+                    target
+                )
+                .unwrap(),
+                Atom::Number(previous),
+                "~> 00 {target:02X} from {previous:02X}"
+            );
+        }
+
+        // Empty is Number `00`, so a hold from an unused Portal stays `00`.
+        assert_eq!(
+            feedback(Function::Interpolation, "  ", 0x00, 0x10).unwrap(),
+            Atom::Number(0x00)
+        );
+    }
+
+    #[test]
+    fn a_feedback_function_diagnoses_an_occupied_previous() {
+        // A previous that is not a Number is refused rather than converted:
+        // A Note spelling that cannot decode as a Number is supplied, and both
+        // Functions name themselves so a Source shown the message knows which
+        // of the two Cell pairs it wrote is the one that cannot read.
+        for function in [Function::Increment, Function::Interpolation] {
+            let error = feedback(function, "G4", 0x01, 0x04).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("{function} cannot read a previous value that is not a Number"),
+                "{function:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cell_operand_faults_precede_an_invalid_portal_input() {
+        for function in [Function::Increment, Function::Interpolation] {
+            let note = Atom::Note(Note::try_from(60).unwrap());
+            for (left, right) in [(note, Atom::Number(4)), (Atom::Number(1), note)] {
+                assert!(matches!(
+                    evaluate_previous(function, 0, left, right, "G4"),
+                    Err(Error::Type(TypeError::Number(_)))
+                ));
+            }
+            for (left, right) in [
+                (Value::from(numbers([1, 2])), Value::from(Atom::Number(4))),
+                (Atom::Number(1).into(), numbers([3, 4]).into()),
+            ] {
+                assert!(matches!(
+                    evaluate_previous(function, 0, left, right, "G4"),
+                    Err(Error::Sequence(SequenceError::ExpectedAtom(_)))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn a_feedback_function_refuses_a_sequence_at_either_operand_position() {
+        // ADR 0012. The previous is one Atom at the ordinary result Portal,
+        // and a Sequence operand would need hidden element identity that one
+        // Cell pair cannot hold, so the operand is refused by the declaration
+        // before either body runs — including the empty Sequence, which a
+        // body checking for members to walk would let through as an operation
+        // of nothing.
+        for function in [Function::Increment, Function::Interpolation] {
+            for (left, right, found) in [
+                (
+                    Value::from(numbers([2, 3])),
+                    Value::from(Atom::Number(0x04)),
+                    "0203",
+                ),
+                (Atom::Number(0x04).into(), numbers([2, 3]).into(), "0203"),
+                (numbers([2, 3]).into(), numbers([4, 8]).into(), "0203"),
+                (Sequence::empty().into(), Atom::Number(0x04).into(), ""),
+                (Atom::Number(0x04).into(), Sequence::empty().into(), ""),
+            ] {
+                assert!(
+                    matches!(
+                        evaluate(function, 0, left.clone(), right.clone()),
+                        Err(Error::Sequence(SequenceError::ExpectedAtom(ref rendered)))
+                            if rendered == found
+                    ),
+                    "{function:?}({left:?}, {right:?})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_feedback_function_refuses_a_sequence_before_it_reads_the_numbers_inside_it() {
+        // The refusal is settled in `Stack::broadcast`, which runs before any
+        // element binds, so a Sequence carrying a zero modulus is answered as
+        // the shape fault it is. A body that walked the members first would
+        // report the wrap and leave the Source believing a Sequence operand
+        // is admissible once its members are fixed.
+        let error =
+            evaluate(Function::Increment, 0, numbers([1, 0]), Atom::Number(0x04)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            r#"expected an Atom, found the Sequence "0100""#
+        );
+
+        let error = evaluate(
+            Function::Interpolation,
+            0,
+            Atom::Number(0x02),
+            numbers([4, 8, 0]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            r#"expected an Atom, found the Sequence "040800""#
+        );
+    }
+
     /// Evaluates Random at a stated Tick and anchor.
     ///
     /// The anchor is part of the stream, so these helpers take it rather than
@@ -897,7 +1270,7 @@ mod test {
         Interpreter::execute_function(
             Function::Random,
             &[seed.into(), minimum.into(), maximum.into()],
-            TickInputs::new(Tick::new(tick), Anchor::new(column, row)),
+            TickInputs::new(Tick::new(tick), Anchor::new(column, row)).into(),
         )
     }
 

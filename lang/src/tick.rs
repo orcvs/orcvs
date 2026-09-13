@@ -7,10 +7,11 @@
 //! identical Source Snapshot interpreted at an identical Tick produce an
 //! identical Tick Plan.
 //!
-//! Clock, Delay, and Euclidean read the Tick, and Random reads the anchor.
-//! `functions::tick` is where the seam is consumed, so severing the threading
-//! from the Playback Engine to `Interpreter::execute` now changes what a Source
-//! answers rather than nothing at all.
+//! Clock, Delay, and Euclidean read the Tick from [`FunctionInputs`]. Random
+//! reads the anchor from the same bundle. Portal spellings travel there too and
+//! bind at Turn. `functions::tick` is where the seam is consumed, so severing
+//! the threading from the Playback Engine to `Interpreter::execute` now changes
+//! what a Source answers rather than nothing at all.
 //!
 //! Nothing here derives `Default`. There is no Tick a Playback run has not
 //! reached and no Cell an evaluation is not anchored at, so a caller that
@@ -134,8 +135,7 @@ impl Anchor {
 ///
 /// Everything one evaluation is told that the Source Snapshot does not say.
 ///
-/// One struct rather than one parameter per input: the inputs ADR 0012 and ADR
-/// 0013 name are already two, and visible Portal feedback is a third. A
+/// One struct holds the non-Source inputs ADR 0012 and ADR 0013 name. A
 /// Function reaches them through the interpretation `Context` exactly as it
 /// reaches its operands, so adding an input later is a field here rather than
 /// a new parameter at every call site between the Playback Engine and the
@@ -148,7 +148,7 @@ pub struct TickInputs {
 }
 
 impl TickInputs {
-    /// The inputs for an evaluation anchored at `anchor` during `tick`.
+    /// The non-Source inputs for an evaluation anchored at `anchor` during `tick`.
     #[inline]
     #[must_use]
     pub const fn new(tick: Tick, anchor: Anchor) -> Self {

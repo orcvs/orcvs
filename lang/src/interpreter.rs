@@ -1,6 +1,6 @@
 use crate::{
-    Atom, Error, Function, InterpretationError, Performance, Sequence, SourceEffect, Stack,
-    TickInputs, Value,
+    Atom, Error, Function, FunctionInputs, InterpretationError, Performance, Sequence,
+    SourceEffect, Stack, TickInputs, Value,
     functions::{self, math, numeric_conversion, tick},
 };
 
@@ -47,23 +47,19 @@ pub enum Interpretation {
 /// What one evaluation has to work with: the operands it has resolved so far,
 /// and the explicit inputs ADR 0012 supplies alongside the Source Snapshot.
 ///
-/// A Function reaching for the Tick or its anchor takes `&mut Context` exactly
-/// as an arithmetic Function does today, so a Tick-reading Function is a new
-/// arm in `execute` rather than a new evaluation path.
+/// A Function reaching for the Tick, its anchor, or a declared Portal input
+/// takes `&mut Context` exactly as an arithmetic Function does today, so a
+/// Tick-reading Function is a new arm in `execute` rather than a new evaluation
+/// path.
 ///
-pub struct Context {
+pub struct Context<'a> {
     pub stack: Stack,
-    /// The explicit inputs ADR 0012 supplies alongside the Source Snapshot.
-    ///
-    /// The seam has consumers now: Clock, Delay, and Euclidean each read the
-    /// Tick from here, and Random reads the anchor, which is what makes those
-    /// inputs to interpretation rather than something a Function goes looking
-    /// for.
-    pub inputs: TickInputs,
+    /// Playback Tick, anchor, and any Portal spellings the Turn resolved.
+    pub inputs: FunctionInputs<'a>,
 }
 
-impl Context {
-    pub fn new(inputs: TickInputs, stack_limit: usize) -> Self {
+impl<'a> Context<'a> {
+    pub fn new(inputs: FunctionInputs<'a>, stack_limit: usize) -> Self {
         Self {
             stack: Stack::new(stack_limit),
             inputs,
@@ -84,19 +80,25 @@ impl Interpreter {
         // No Atom raises the stack depth by more than one: literals push one
         // value, and Functions pop their operands before producing one value.
         // The actual Atom count therefore bounds this Expression's peak depth.
-        Self::execute_context(atoms, Context::new(inputs, atoms.len()))
+        Self::execute_context(
+            atoms,
+            Context::new(FunctionInputs::new(inputs), atoms.len()),
+        )
     }
 
     /// Evaluates one Function with already resolved, typed inputs. Literal
     /// decoding and nested ownership belong to the caller; evaluation retains
     /// the same type, domain, absence and Sequence rules as `execute`.
+    /// Portal spellings in `inputs` borrow working Source when the Function
+    /// declares a Portal input. Functions without one ignore
+    /// [`FunctionInputs::portals`].
     ///
     /// ```
     /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Sequence, Tick, TickInputs, Value};
     /// let sequence = Sequence::new([Atom::Number(5), Atom::Number(9)]).unwrap();
     /// let answer = Interpreter::execute_function(
     ///     Function::Subtract, &[Value::Sequence(sequence), Value::Atom(Atom::Number(2))],
-    ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+    ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
     /// ).unwrap();
     /// assert_eq!(answer, Interpretation::Sequence(
     ///     Sequence::new([Atom::Number(3), Atom::Number(7)]).unwrap()));
@@ -104,7 +106,7 @@ impl Interpreter {
     pub fn execute_function(
         function: Function,
         operands: &[Value],
-        inputs: TickInputs,
+        inputs: FunctionInputs<'_>,
     ) -> Result<Interpretation, Error> {
         let expected = function.signature().len();
         if operands.len() != expected {
@@ -150,6 +152,8 @@ impl Interpreter {
                     Function::Divide => math::divide(&mut ctx)?,
                     Function::Equality => math::equality(&mut ctx)?,
                     Function::Euclidean => tick::euclidean(&mut ctx)?,
+                    Function::Increment => tick::increment(&mut ctx)?,
+                    Function::Interpolation => tick::interpolation(&mut ctx)?,
                     Function::Random => tick::random(&mut ctx)?,
                     Function::Maximum => math::maximum(&mut ctx)?,
                     Function::Minimum => math::minimum(&mut ctx)?,

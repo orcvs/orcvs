@@ -4090,6 +4090,136 @@ mod test {
     }
 
     #[test]
+    fn an_empty_portal_initialises_increment_and_interpolation_as_zero() {
+        // ADR 0012's first previous: two space cells are Number `00`, so the
+        // first Tick of an unused Portal is the step itself for Increment and
+        // the first step toward the target for Interpolation. The expected
+        // writes are literal Cells, so a body that treated empty as occupied
+        // would diagnose here rather than write.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", ""], 1);
+
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], ["~+0104", "01    "]);
+
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~>0210", ""], 1);
+
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], ["~>0210", "02    "]);
+    }
+
+    #[test]
+    fn increment_and_interpolation_advance_across_two_ticks() {
+        // Cross-Tick state is the Portal Cells and nothing else: the second
+        // Tick reads what the first wrote. Increment walks `01 02` from empty;
+        // Interpolation walks `04 08` toward `10`. A hidden counter that
+        // ignored the Portal would still pass the first Tick and fail the
+        // second once the Cells were live-edited, which the next test does.
+        let (_, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", ""], 2);
+        assert_eq!(grids[0], ["~+0104", "01    "]);
+        assert_eq!(grids[1], ["~+0104", "02    "]);
+
+        let (_, grids, _) = tick_by_tick(Grid::new(6, 2), &["~>0410", ""], 2);
+        assert_eq!(grids[0], ["~>0410", "04    "]);
+        assert_eq!(grids[1], ["~>0410", "08    "]);
+    }
+
+    #[test]
+    fn increment_reads_a_live_edited_previous_from_working_source() {
+        // Live Editing is a Source Snapshot change, not a Function-local
+        // memory: after Tick 0 writes `01`, the Portal is set to `05` and
+        // Tick 1 must wrap from that Number. A hidden previous that remembered
+        // `01` would write `02` here.
+        let grid = Grid::new(6, 2);
+        let mut source = seeded_source(grid, &["~+0108", ""]);
+        source.execute(Tick::ZERO);
+        assert_eq!(rows_of(grid, &source)[1], "01    ");
+
+        source.set(cell(grid, 6), "0").unwrap();
+        source.set(cell(grid, 7), "5").unwrap();
+        source.execute(Tick::new(1));
+
+        assert_eq!(rows_of(grid, &source)[1], "06    ");
+    }
+
+    #[test]
+    fn feedback_reads_a_portal_write_from_an_earlier_turn() {
+        // The carried output fixture places Add's answer at the feedback
+        // input. The later Turn must read `05`, not the empty Snapshot Cells.
+        for (function, expected) in [("~+0108", "06"), ("~>0208", "07")] {
+            let grid = Grid::new(14, 2);
+            let row = format!(".+0203  {function}");
+            let (plan, source) = carried_source(grid, &[&row, ""], &[(0, 22), (8, 22)]);
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+            assert_eq!(rows_of(grid, &source)[1], format!("        {expected}    "));
+        }
+    }
+
+    #[test]
+    fn increment_writes_its_current_encoding_and_leaves_a_stale_tail() {
+        // ADR 0009: an ordinary result writes only its current encoding and
+        // never clears a stale tail outside that Span. The Portal already
+        // holds `00ABCD`; Increment writes `01` and leaves `ABCD`.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["~+0104", "00ABCD"], 1);
+
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], ["~+0104  ", "01ABCD  "]);
+    }
+
+    #[test]
+    fn a_previous_that_is_not_a_number_diagnoses_and_writes_nothing() {
+        // G4 is a Note spelling that is not uppercase hex, so it cannot be
+        // read as a Number; `.+` is a Function; `0X` is invalid hex; `0 `
+        // is a truncated pair. Each diagnoses rather than converting, and
+        // none of them writes.
+        for (portal, _) in [
+            ("G4    ", "Note"),
+            (".+    ", "Function"),
+            ("0X    ", "invalid hex"),
+            ("0     ", "truncated pair"),
+        ] {
+            let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", portal], 1);
+            assert_eq!(
+                messages(&plans[0]),
+                ["~+ cannot read a previous value that is not a Number"],
+                "{portal:?}"
+            );
+            assert!(
+                plans[0].writes.is_empty(),
+                "{portal:?} wrote {:?}",
+                plans[0].writes
+            );
+            assert_eq!(grids[0][1], portal, "{portal:?} must be left as written");
+        }
+    }
+
+    #[test]
+    fn a_last_row_increment_diagnoses_rather_than_clamping_its_portal() {
+        // A root in the last row resolves no Portal. Clamping would invent a
+        // previous of `00` and write nowhere; diagnosing names the missing
+        // read instead.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["~+0104"], 1);
+
+        assert_eq!(
+            messages(&plans[0]),
+            ["~+ cannot read a previous value that is not a Number"]
+        );
+        assert!(plans[0].writes.is_empty(), "{:?}", plans[0].writes);
+        assert_eq!(grids[0], ["~+0104"]);
+    }
+
+    #[test]
     fn two_randoms_in_one_expression_write_different_numbers() {
         // Two roots, same operands, different anchors. ADR 0013's streams
         // are a function of Position, so `~?010010` at column 0 writes `02`

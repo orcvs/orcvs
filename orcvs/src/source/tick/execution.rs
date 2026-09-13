@@ -7,8 +7,8 @@
 use std::ops::ControlFlow::{self, Break, Continue};
 
 use lang::{
-    Atom, Function, Interpretation, Interpreter, SourceBundle, SourceEffect, Tick, TickInputs,
-    Value,
+    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalInput, PortalSite,
+    PortalSpellings, SourceBundle, SourceEffect, Tick, TickInputs, Value,
 };
 
 use super::{
@@ -75,10 +75,8 @@ pub(in crate::source) struct ComputationState {
     /// refused by its own prologue, or stopped by operands it could not
     /// resolve reaches no Interpreter and keeps `None`.
     ///
-    /// One slot for however many calls, because every call for a computation
-    /// is handed the same inputs: [`tick_inputs`] reads the Tick and the
-    /// node's anchor, and neither moves within a Tick. What a second call
-    /// changes is therefore the count beside this and nothing here.
+    /// One slot records the Tick and anchor of this computation. Portal Cells
+    /// are borrowed separately from working Source when its Turn binds.
     interpreted: Option<TickInputs>,
     /// How many times the Interpreter ran for this computation.
     ///
@@ -306,13 +304,14 @@ impl<'a> Execution<'a> {
         };
         let node = &self.lookup.nodes()[index];
         let function = self.states[index].function;
-        let inputs = tick_inputs(self.tick, node.anchor);
+        let tick = tick_inputs(self.tick, node.anchor);
         let result = self.operands(node, signature).and_then(|operands| {
             // Recorded beside the call rather than before it: a Turn whose
             // operands would not resolve is one the Interpreter never ran for,
             // and the record says which of the two happened.
-            self.states[index].interpreted = Some(inputs);
+            self.states[index].interpreted = Some(tick);
             self.states[index].interpretations += 1;
+            let inputs = FunctionInputs::with_portals(tick, self.portal_spellings(node, function));
             Interpreter::execute_function(function, &operands, inputs)
                 .map_err(|error| error.to_string())
         });
@@ -347,6 +346,30 @@ impl<'a> Execution<'a> {
                     !self.states[child].suppressed && self.states[child].syntax_blocked
                 })
             })
+    }
+
+    /// Borrow every declared Portal spelling from working Source.
+    fn portal_spellings(&self, node: &Computation, function: Function) -> PortalSpellings<'_> {
+        let Some(input) = function.portal_input() else {
+            return PortalSpellings::none();
+        };
+        PortalSpellings::ordinary_result(self.borrow_portal_spelling(node, input))
+    }
+
+    /// Borrow one Portal's Cells directly from working Source. A missing or
+    /// truncated site stays absent so binding diagnoses it after all cell
+    /// operands have been validated.
+    fn borrow_portal_spelling(&self, node: &Computation, input: PortalInput) -> Option<&str> {
+        let portal = match input.site() {
+            PortalSite::OrdinaryResult => Portal::ordinary_result(self.grid, node.anchor).ok()?,
+        };
+        let destination = portal.destination();
+        let first = self.grid.offset_in_row(destination, 0)?.get();
+        let last = self
+            .grid
+            .offset_in_row(destination, input.token().len() - 1)?
+            .get();
+        Some(std::str::from_utf8(&self.working[first..=last]).expect("ASCII Source"))
     }
 
     fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Value>, String> {

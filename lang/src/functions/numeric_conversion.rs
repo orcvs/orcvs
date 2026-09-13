@@ -51,7 +51,7 @@ mod test {
         Interpreter::execute_function(
             function,
             &[value.into()],
-            TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
+            TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }
 

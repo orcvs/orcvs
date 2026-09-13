@@ -414,13 +414,13 @@ impl Stack {
     /// failure `ExpectedAtom` exists to prevent, and not an invariant the types
     /// prove.
     ///
-    /// Two Functions declare themselves scalar and bind here: ADR 0039's Delay
+    /// Four Functions declare themselves scalar and bind here: ADR 0039's Delay
     /// `~*` and Euclidean `~%`, which refuse a Sequence operand because a
-    /// widened pulse has nothing to answer where an element does not Bang.
-    /// ADR 0012's Increment and Interpolation are the exception stated on its
-    /// own terms and are unbuilt; they arrive at this same seam by declaring
-    /// their pervasion, not by adding a check of their own. It is also what
-    /// `declaration_agreement` checks every Function's bind through.
+    /// widened pulse has nothing to answer where an element does not Bang, and
+    /// ADR 0012's Increment `~+` and Interpolation `~>`, which refuse one
+    /// because their previous is one visible Atom. They arrive at this seam by
+    /// declaring their pervasion, not by adding a check of their own. It is
+    /// also what `declaration_agreement` checks every Function's bind through.
     #[inline(always)]
     pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
         let broadcast = self.checked::<O>()?;
@@ -1366,13 +1366,13 @@ mod test {
 
     #[test]
     fn a_sequence_operand_is_refused_exactly_where_a_function_declares_it_does_not_pervade() {
-        // ADR 0039's Delay and Euclidean are what reach the pervasion arm of
-        // `broadcast` today, and ADR 0012's Increment and Interpolation are
-        // still unbuilt. The rule is stated over the table rather than over the
-        // two Functions that reach it, so a row that changes its answer — in
-        // either direction, as Delay and Euclidean just did — is covered by
-        // being declared, which is the discipline `declaration_agreement`
-        // already applies to the bind.
+        // ADR 0039's Delay and Euclidean and ADR 0012's Increment and
+        // Interpolation are what reach the pervasion arm of `broadcast` today.
+        // The rule is stated over the table rather than over the four Functions
+        // that reach it, so a row that changes its answer — in either
+        // direction, as Delay and Euclidean did — is covered by being
+        // declared, which is the discipline `declaration_agreement` already
+        // applies to the bind.
         //
         // `broadcast` settles arity and shape and nothing else, so a Number
         // stands at every position regardless of the Token declared there.
