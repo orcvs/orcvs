@@ -21,6 +21,9 @@
 //! [`BackgroundRun`] already answered columns rather than a rectangle for
 //! exactly this reason.
 //!
+//! A [`FramePaint`] pairs a Render Frame with those ranges at one seam:
+//! [`Paint::derive`] takes the pair, not the two values separately.
+//!
 //! # Only the Positions the console draws
 //!
 //! A Paint covers the Positions `GridViewport::visible_positions` answers and
@@ -90,6 +93,56 @@ pub struct BackgroundRun {
 }
 
 ///
+/// A Render Frame and the Positions the console draws from it, paired at one
+/// seam before [`Paint::derive`].
+///
+/// Minted only through [`Self::new`], [`Self::range`], or [`Self::whole`], which
+/// refuse a [`VisiblePositions`] minted for another Grid.
+///
+pub struct FramePaint<'a> {
+    frame: &'a RenderFrame,
+    drawn: VisiblePositions,
+}
+
+impl<'a> FramePaint<'a> {
+    ///
+    /// Pairs `frame` with `drawn` after refusing a range minted for another Grid.
+    ///
+    pub fn new(frame: &'a RenderFrame, drawn: VisiblePositions) -> Self {
+        if let Some(identity) = drawn.grid() {
+            assert!(
+                frame.grid().owns_identity(identity),
+                "VisiblePositions belong to another Grid"
+            );
+        }
+
+        Self { frame, drawn }
+    }
+
+    ///
+    /// Pairs `frame` with a column and row range clamped to its Grid.
+    ///
+    pub fn range(frame: &'a RenderFrame, columns: Range<usize>, rows: Range<usize>) -> Self {
+        Self::new(
+            frame,
+            VisiblePositions::for_grid(frame.grid(), columns, rows),
+        )
+    }
+
+    ///
+    /// Pairs `frame` with every Position its Grid holds.
+    ///
+    pub fn whole(frame: &'a RenderFrame) -> Self {
+        let grid = frame.grid();
+
+        Self::new(
+            frame,
+            VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
+        )
+    }
+}
+
+///
 /// How one Render Frame is drawn, Cell by Cell.
 ///
 /// Derived from a Render Frame and nothing else — no running Orcvs, no
@@ -108,27 +161,23 @@ pub struct Paint {
 
 impl Paint {
     ///
-    /// Reads a Render Frame and answers what each of the Cells at `drawn` is
-    /// drawn as.
+    /// Reads a paired Render Frame and drawn range and answers what each Cell
+    /// is drawn as.
     ///
     /// `cell_visuals` is called once per drawn Cell and is unchanged: this
     /// decides what to do with its answer, not what the answer is.
     ///
-    /// `drawn` is the console's decision, not this layer's. It comes from
-    /// `GridViewport::visible_positions` already clamped to the Grid, which is
+    /// The range is the console's decision, not this layer's. It comes from
+    /// [`GridViewport::visible_positions`] already clamped to the Grid, which is
     /// why the two slices below are indexed rather than reached through `get`:
     /// a range that outran this Render Frame would mean a Frame that is not
     /// the rectangle its own Grid says it is, and answering an empty slice
-    /// there would turn that into rows that silently go unpainted.
+    /// there would turn that into rows that silently go unpainted. Pairing is
+    /// checked in [`FramePaint::new`].
     ///
-    pub fn derive(frame: &RenderFrame, drawn: &VisiblePositions) -> Self {
+    pub fn derive(input: FramePaint<'_>) -> Self {
+        let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
-        if let Some(identity) = drawn.grid() {
-            assert!(
-                grid.owns_identity(identity),
-                "VisiblePositions belong to another Grid"
-            );
-        }
         // The Cursor is the Position the Render Frame was derived for. A Paint
         // covers a viewport, so `None` here means that Position is outside the
         // drawn range — not that the Frame selected nothing.
@@ -449,7 +498,10 @@ impl CellCharacters {
 
 #[cfg(test)]
 mod tests {
-    use super::{BLANK_TOKENS, BackgroundRun, CellCharacters, CellPaint, Paint, blank_token_index};
+    use super::{
+        BLANK_TOKENS, BackgroundRun, CellCharacters, CellPaint, FramePaint, Paint,
+        blank_token_index,
+    };
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{cursor_bloom, sector_left_strength, sector_top_strength};
     use crate::style::{PALETTE, cell_visuals, sector_line};
@@ -472,12 +524,7 @@ mod tests {
     /// needs no viewport to say "all of them".
     ///
     fn whole(frame: &RenderFrame) -> Paint {
-        let grid = frame.grid();
-
-        Paint::derive(
-            frame,
-            &VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
-        )
+        Paint::derive(FramePaint::whole(frame))
     }
 
     ///
@@ -933,7 +980,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let grid = frame.grid();
         let drawn = VisiblePositions::for_grid(grid, 12..20, 8..14);
-        let culled = Paint::derive(&frame, &drawn);
+        let culled = Paint::derive(FramePaint::new(&frame, drawn.clone()));
         let every = whole(&frame);
 
         assert_eq!(culled.count(), drawn.count());
@@ -1008,7 +1055,10 @@ mod tests {
             }),
             "no run reached an edge of the drawn range, which is the only place the two folds could part"
         );
-        assert_eq!(Paint::derive(&frame, &drawn).background_runs(), clipped);
+        assert_eq!(
+            Paint::derive(FramePaint::new(&frame, drawn)).background_runs(),
+            clipped
+        );
     }
 
     ///
@@ -1032,8 +1082,11 @@ mod tests {
         let past = VisiblePositions::for_grid(grid, 10..16, 12..18);
 
         assert_eq!(whole(&frame).cursor(), Some(selected));
-        assert_eq!(Paint::derive(&frame, &reaching).cursor(), Some(selected));
-        assert_eq!(Paint::derive(&frame, &past).cursor(), None);
+        assert_eq!(
+            Paint::derive(FramePaint::new(&frame, reaching)).cursor(),
+            Some(selected)
+        );
+        assert_eq!(Paint::derive(FramePaint::new(&frame, past)).cursor(), None);
     }
 
     ///
@@ -1049,7 +1102,7 @@ mod tests {
     async fn a_paint_over_no_positions_is_empty_rather_than_impossible() {
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = Paint::derive(&frame, &VisiblePositions::empty());
+        let paint = Paint::derive(FramePaint::new(&frame, VisiblePositions::empty()));
 
         assert_eq!(paint.count(), 0);
         assert_eq!(paint.cells().count(), 0);
@@ -1071,23 +1124,23 @@ mod tests {
         assert_eq!(drawn.columns, 6..8);
         assert_eq!(drawn.rows, 2..8);
 
-        let paint = Paint::derive(&frame, &drawn);
+        let paint = Paint::derive(FramePaint::new(&frame, drawn.clone()));
 
         assert_eq!(paint.count(), drawn.count());
     }
 
     ///
-    /// A Paint refuses a range minted for another Grid, even when the shape
+    /// Pairing refuses a range minted for another Grid, even when the shape
     /// matches the Render Frame's.
     ///
     #[tokio::test]
     #[should_panic(expected = "VisiblePositions belong to another Grid")]
-    async fn a_paint_refuses_visible_positions_minted_for_another_grid() {
+    async fn frame_paint_refuses_visible_positions_minted_for_another_grid() {
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
         let other = Grid::new(8, 8);
         let drawn = VisiblePositions::for_grid(other, 0..8, 0..8);
 
-        let _ = Paint::derive(&frame, &drawn);
+        let _ = FramePaint::new(&frame, drawn);
     }
 }

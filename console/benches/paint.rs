@@ -16,10 +16,9 @@
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
-use console::{Paint, VisiblePositions};
+use console::{FramePaint, Paint, VisiblePositions};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use orcvs::app::Orcvs;
-use orcvs::grid::Grid;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::RenderFrame;
 use std::hint::black_box;
@@ -118,14 +117,18 @@ fn size(kind: &str, cols: usize, rows: usize) -> BenchmarkId {
     BenchmarkId::from_parameter(format!("{kind}/{cols}x{rows}"))
 }
 
-fn fitted(cols: usize, rows: usize) -> VisiblePositions {
-    let grid = Grid::new(cols, rows);
-    VisiblePositions::for_grid(grid, 0..cols, 0..rows)
+fn fitted(frame: &RenderFrame) -> VisiblePositions {
+    let grid = frame.grid();
+    VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows())
 }
 
-fn culled(cols: usize, rows: usize) -> VisiblePositions {
-    let grid = Grid::new(cols, rows);
-    VisiblePositions::for_grid(grid, 0..CULLED.min(cols), 0..CULLED.min(rows))
+fn culled(frame: &RenderFrame) -> VisiblePositions {
+    let grid = frame.grid();
+    VisiblePositions::for_grid(
+        grid,
+        0..CULLED.min(grid.columns()),
+        0..CULLED.min(grid.rows()),
+    )
 }
 
 fn frames() -> &'static [(usize, usize, RenderFrame)] {
@@ -152,14 +155,24 @@ fn derive_paint(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_derive");
 
     for &(cols, rows, ref frame) in frames() {
-        let fitted_range = fitted(cols, rows);
-        let culled_range = culled(cols, rows);
+        let fitted_range = fitted(frame);
+        let culled_range = culled(frame);
 
         group.bench_function(size("fitted", cols, rows), |b| {
-            b.iter(|| black_box(Paint::derive(black_box(frame), black_box(&fitted_range))))
+            b.iter(|| {
+                black_box(Paint::derive(FramePaint::new(
+                    black_box(frame),
+                    black_box(fitted_range.clone()),
+                )))
+            })
         });
         group.bench_function(size("culled", cols, rows), |b| {
-            b.iter(|| black_box(Paint::derive(black_box(frame), black_box(&culled_range))))
+            b.iter(|| {
+                black_box(Paint::derive(FramePaint::new(
+                    black_box(frame),
+                    black_box(culled_range.clone()),
+                )))
+            })
         });
     }
 
@@ -178,8 +191,8 @@ fn background_runs(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_background_runs");
 
     for &(cols, rows, ref frame) in frames() {
-        let fitted_paint = Paint::derive(frame, &fitted(cols, rows));
-        let culled_paint = Paint::derive(frame, &culled(cols, rows));
+        let fitted_paint = Paint::derive(FramePaint::new(frame, fitted(frame)));
+        let culled_paint = Paint::derive(FramePaint::new(frame, culled(frame)));
 
         group.bench_function(size("fitted", cols, rows), |b| {
             b.iter(|| black_box(black_box(&fitted_paint).background_runs()))

@@ -13,4 +13,4 @@ pub mod style;
 pub mod web_startup;
 
 #[doc(inline)]
-pub use paint::{BackgroundRun, Paint, VisiblePositions};
+pub use paint::{BackgroundRun, FramePaint, Paint, VisiblePositions};
