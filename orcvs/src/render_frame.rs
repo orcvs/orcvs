@@ -1,13 +1,13 @@
 use crate::{
     grid::{Grid, Position},
-    opts::{HighlightSpacing, MarkerSpacing},
+    opts::{CursorBloomRadius, SectorSeamSpacing},
     source::{SourceRevision, Token},
 };
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RenderFrameConfig {
-    pub marker_spacing: MarkerSpacing,
-    pub highlight_dot_spacing: HighlightSpacing,
+    pub sector_seam_spacing: SectorSeamSpacing,
+    pub cursor_bloom_radius: CursorBloomRadius,
 }
 
 #[derive(Clone, Debug)]
@@ -36,8 +36,8 @@ pub struct RenderFrame {
     grid: Grid,
     cursor: Position,
     cursor_visible: bool,
-    marker_spacing: MarkerSpacing,
-    highlight_dot_spacing: HighlightSpacing,
+    sector_seam_spacing: SectorSeamSpacing,
+    cursor_bloom_radius: CursorBloomRadius,
     cells: Vec<RenderCell>,
 }
 
@@ -63,8 +63,8 @@ impl RenderFrame {
             grid,
             cursor: selected,
             cursor_visible,
-            marker_spacing: config.marker_spacing,
-            highlight_dot_spacing: config.highlight_dot_spacing,
+            sector_seam_spacing: config.sector_seam_spacing,
+            cursor_bloom_radius: config.cursor_bloom_radius,
             cells,
         }
     }
@@ -109,8 +109,8 @@ impl RenderFrame {
     /// Presentation configuration handed across so the console can draw the
     /// seams; the period itself still lives on `Opts`.
     ///
-    pub fn marker_spacing(&self) -> MarkerSpacing {
-        self.marker_spacing
+    pub fn sector_seam_spacing(&self) -> SectorSeamSpacing {
+        self.sector_seam_spacing
     }
 
     ///
@@ -119,8 +119,8 @@ impl RenderFrame {
     /// Presentation configuration handed across so the console can grade the
     /// bloom; the radius itself still lives on `Opts`.
     ///
-    pub fn highlight_dot_spacing(&self) -> HighlightSpacing {
-        self.highlight_dot_spacing
+    pub fn cursor_bloom_radius(&self) -> CursorBloomRadius {
+        self.cursor_bloom_radius
     }
 
     ///
@@ -147,7 +147,7 @@ mod tests {
 
     use crate::{
         grid::{CellIndex, Grid},
-        opts::{HighlightSpacing, MarkerSpacing},
+        opts::{CursorBloomRadius, SectorSeamSpacing},
         render_frame::{RenderFrame, RenderFrameConfig},
         source::{SourceCommander, Tick, Token},
     };
@@ -176,8 +176,8 @@ mod tests {
             selected,
             true,
             RenderFrameConfig {
-                marker_spacing: MarkerSpacing::new(2).unwrap(),
-                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+                sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
             },
         );
 
@@ -213,8 +213,8 @@ mod tests {
             grid.origin(),
             false,
             RenderFrameConfig {
-                marker_spacing: MarkerSpacing::new(2).unwrap(),
-                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+                sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
             },
         );
 
@@ -252,8 +252,8 @@ mod tests {
             grid.origin(),
             false,
             RenderFrameConfig {
-                marker_spacing: MarkerSpacing::new(2).unwrap(),
-                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+                sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
             },
         );
 
@@ -282,8 +282,8 @@ mod tests {
             grid.origin(),
             false,
             RenderFrameConfig {
-                marker_spacing: MarkerSpacing::new(1).unwrap(),
-                highlight_dot_spacing: HighlightSpacing::new(1).unwrap(),
+                sector_seam_spacing: SectorSeamSpacing::new(1).unwrap(),
+                cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
             },
         );
 
@@ -335,8 +335,8 @@ mod tests {
                 grid.origin(),
                 false,
                 RenderFrameConfig {
-                    marker_spacing: MarkerSpacing::new(8).unwrap(),
-                    highlight_dot_spacing: HighlightSpacing::new(2).unwrap(),
+                    sector_seam_spacing: SectorSeamSpacing::new(8).unwrap(),
+                    cursor_bloom_radius: CursorBloomRadius::new(2).unwrap(),
                 },
             );
             let result = (
@@ -355,20 +355,20 @@ mod tests {
     fn render_frame_answers_the_presentation_spacings_it_was_derived_with() {
         let grid = Grid::new(2, 2);
         let source = SourceCommander::new(grid);
-        let marker_spacing = MarkerSpacing::new(3).unwrap();
-        let highlight_dot_spacing = HighlightSpacing::new(5).unwrap();
+        let sector_seam_spacing = SectorSeamSpacing::new(3).unwrap();
+        let cursor_bloom_radius = CursorBloomRadius::new(5).unwrap();
 
         let frame = RenderFrame::derive(
             source.read_revision(),
             grid.origin(),
             false,
             RenderFrameConfig {
-                marker_spacing,
-                highlight_dot_spacing,
+                sector_seam_spacing,
+                cursor_bloom_radius,
             },
         );
 
-        assert_eq!(frame.marker_spacing(), marker_spacing);
-        assert_eq!(frame.highlight_dot_spacing(), highlight_dot_spacing);
+        assert_eq!(frame.sector_seam_spacing(), sector_seam_spacing);
+        assert_eq!(frame.cursor_bloom_radius(), cursor_bloom_radius);
     }
 }

@@ -121,7 +121,7 @@ mod tests {
         let selected = grid.position(9, 7).unwrap();
         orcvs.select(selected);
         let frame = orcvs.render_frame();
-        let radius = frame.highlight_dot_spacing().cells();
+        let radius = frame.cursor_bloom_radius().cells();
 
         assert_eq!(
             cursor_bloom(selected, selected, radius),

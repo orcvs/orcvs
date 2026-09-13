@@ -1,9 +1,9 @@
 use std::num::NonZeroUsize;
 
 pub const DEFAULT_FONT_SIZE: f32 = 18.0;
-pub const DEFAULT_MARKER_SPACING: usize = 8;
+pub const DEFAULT_SECTOR_SEAM_SPACING: usize = 8;
 
-pub const DEFAULT_HIGHLIGHT_DOT_SPACING: usize = 7;
+pub const DEFAULT_CURSOR_BLOOM_RADIUS: usize = 7;
 
 pub const DEFAULT_CURSOR_DELAY: u64 = 800;
 
@@ -12,15 +12,15 @@ const MAX_BPM: usize = 60_000 / 4;
 ///
 /// How the console presents and plays a Source. Nothing in this file is a
 /// Source dimension: column and row counts belong to the Grid, which is the
-/// only thing that states them. `marker_spacing` counts the Cells between
-/// visual markers; it is not a Source dimension.
+/// only thing that states them. `sector_seam_spacing` counts the Sector Seam
+/// period in Cells; it is not a Source dimension.
 ///
 #[derive(Clone, Debug)]
 pub struct Opts {
     pub bpm: Bpm,
     pub cursor_delay: u64,
-    pub highlight_dot_spacing: HighlightSpacing,
-    pub marker_spacing: MarkerSpacing,
+    pub cursor_bloom_radius: CursorBloomRadius,
+    pub sector_seam_spacing: SectorSeamSpacing,
     pub mode: Mode,
 }
 
@@ -34,12 +34,12 @@ pub enum Mode {
 pub struct Bpm(NonZeroUsize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MarkerSpacing(NonZeroUsize);
+pub struct SectorSeamSpacing(NonZeroUsize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HighlightSpacing(NonZeroUsize);
+pub struct CursorBloomRadius(NonZeroUsize);
 
-impl HighlightSpacing {
+impl CursorBloomRadius {
     pub fn new(cells: usize) -> Option<Self> {
         NonZeroUsize::new(cells).map(Self)
     }
@@ -49,7 +49,7 @@ impl HighlightSpacing {
     }
 }
 
-impl MarkerSpacing {
+impl SectorSeamSpacing {
     pub fn new(cells: usize) -> Option<Self> {
         NonZeroUsize::new(cells).map(Self)
     }
@@ -81,10 +81,10 @@ impl Opts {
         Self {
             bpm: Bpm::new(20).expect("default tempo is positive"),
             cursor_delay: DEFAULT_CURSOR_DELAY,
-            highlight_dot_spacing: HighlightSpacing::new(DEFAULT_HIGHLIGHT_DOT_SPACING)
-                .expect("default highlight spacing is positive"),
-            marker_spacing: MarkerSpacing::new(DEFAULT_MARKER_SPACING)
-                .expect("default marker spacing is positive"),
+            cursor_bloom_radius: CursorBloomRadius::new(DEFAULT_CURSOR_BLOOM_RADIUS)
+                .expect("default cursor bloom radius is positive"),
+            sector_seam_spacing: SectorSeamSpacing::new(DEFAULT_SECTOR_SEAM_SPACING)
+                .expect("default sector seam spacing is positive"),
             mode: Mode::Insert,
         }
     }
@@ -98,7 +98,7 @@ impl Default for Opts {
 
 #[cfg(test)]
 mod tests {
-    use super::{Bpm, DEFAULT_HIGHLIGHT_DOT_SPACING, HighlightSpacing, MarkerSpacing, Opts};
+    use super::{Bpm, CursorBloomRadius, DEFAULT_CURSOR_BLOOM_RADIUS, Opts, SectorSeamSpacing};
 
     #[test]
     fn bpm_accepts_only_positive_tick_rates() {
@@ -110,25 +110,31 @@ mod tests {
     #[test]
     fn default_cursor_field_reaches_seven_cells_from_the_cursor() {
         assert_eq!(
-            Opts::default().highlight_dot_spacing.cells(),
-            DEFAULT_HIGHLIGHT_DOT_SPACING
+            Opts::default().cursor_bloom_radius.cells(),
+            DEFAULT_CURSOR_BLOOM_RADIUS
         );
-        assert_eq!(DEFAULT_HIGHLIGHT_DOT_SPACING, 7);
+        assert_eq!(DEFAULT_CURSOR_BLOOM_RADIUS, 7);
     }
 
     #[test]
-    fn marker_spacing_accepts_only_whole_positive_cell_counts() {
-        assert_eq!(MarkerSpacing::new(1).map(MarkerSpacing::cells), Some(1));
-        assert_eq!(MarkerSpacing::new(8).map(MarkerSpacing::cells), Some(8));
-        assert_eq!(MarkerSpacing::new(0), None);
-    }
-
-    #[test]
-    fn highlight_spacing_accepts_only_whole_positive_cell_counts() {
+    fn sector_seam_spacing_accepts_only_whole_positive_cell_counts() {
         assert_eq!(
-            HighlightSpacing::new(2).map(HighlightSpacing::cells),
+            SectorSeamSpacing::new(1).map(SectorSeamSpacing::cells),
+            Some(1)
+        );
+        assert_eq!(
+            SectorSeamSpacing::new(8).map(SectorSeamSpacing::cells),
+            Some(8)
+        );
+        assert_eq!(SectorSeamSpacing::new(0), None);
+    }
+
+    #[test]
+    fn cursor_bloom_radius_accepts_only_whole_positive_cell_counts() {
+        assert_eq!(
+            CursorBloomRadius::new(2).map(CursorBloomRadius::cells),
             Some(2)
         );
-        assert_eq!(HighlightSpacing::new(0), None);
+        assert_eq!(CursorBloomRadius::new(0), None);
     }
 }

@@ -3144,7 +3144,7 @@ mod tests {
             for cell in frame.cells() {
                 let position = cell.position();
                 let rect = viewport.cell_rect(position.x(), position.y());
-                let spacing = frame.marker_spacing().cells();
+                let spacing = frame.sector_seam_spacing().cells();
                 let selected = position == frame.cursor();
 
                 for (strength, ends) in [

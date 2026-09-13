@@ -39,7 +39,7 @@ the midpoint between neighbouring corners with relative strengths `100, 72, 34,
 13, 13, 34, 72, 100`. The faint middle also has sparse gaps derived from each
 absolute Grid Position, so the marks feel imperfect without flicker. They
 replace the historical `+` Marker Glyphs, leaving every empty Cell visually
-empty while preserving the configured Marker spacing as geometry.
+empty while preserving the configured Sector Seam spacing as geometry.
 
 The historical base16 palette below is retained as design context; it is not the
 console's rendering source of truth.
