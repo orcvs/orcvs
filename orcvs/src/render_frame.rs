@@ -127,10 +127,10 @@ impl RenderFrame {
     }
 
     ///
-    /// The Cursor: the Position [`derive`](Self::derive) was given and asserted
+    /// The Cursor: the Position the derivation was given and asserted
     /// the Grid owns.
     ///
-    /// Carried rather than recovered. `derive` already holds the Position, and
+    /// Carried rather than recovered. The derivation already holds the Position, and
     /// `Position` is `Copy`, so keeping it costs nothing. It spares every
     /// consumer scanning the Cells for the one whose `selected` flag is set —
     /// a search whose answer the type of `&[RenderCell]` cannot state.
