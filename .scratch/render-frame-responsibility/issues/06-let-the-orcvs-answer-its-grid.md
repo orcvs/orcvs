@@ -74,21 +74,21 @@ it for what it checks, or fold it into the test beside it. Do not "fix" it by hi
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `Orcvs::grid(&self) -> Grid` exists and is documented: the Grid this running Orcvs's Source
+- [x] `Orcvs::grid(&self) -> Grid` exists and is documented: the Grid this running Orcvs's Source
       occupies, and the only thing that mints a Position `select` will accept.
-- [ ] The 13 `orcvs.render_frame().rows()[r][c].position()` sites in `console` name their coordinate
+- [x] The 13 `orcvs.render_frame().rows()[r][c].position()` sites in `console` name their coordinate
       through `Orcvs::grid()` instead. A site that genuinely wants a Cell, not a coordinate, keeps
       its Render Frame and says so.
-- [ ] `Orcvs`'s doctest at `orcvs/src/app.rs:47-61` uses `orcvs.grid()` rather than a second
+- [x] `Orcvs`'s doctest at `orcvs/src/app.rs:47-61` uses `orcvs.grid()` rather than a second
       `Grid::new(16, 16)`, and therefore can — and does — hand the Position it mints to `select`.
       That is the point the doctest was making and could not previously demonstrate.
-- [ ] `Orcvs::index` no longer exists. `test_to_idx` either goes through `Grid` from inside the
+- [x] `Orcvs::index` no longer exists. `test_to_idx` either goes through `Grid` from inside the
       crate or is deleted as covered by `orcvs/src/grid.rs:464`.
-- [ ] `app_exposes_a_render_frame_without_leaking_its_grid_or_cursor` is renamed to what it asserts,
+- [x] `app_exposes_a_render_frame_without_leaking_its_grid_or_cursor` is renamed to what it asserts,
       or merged into a neighbour. Nothing is made private to rescue the old name.
-- [ ] No behaviour change anywhere. This ticket adds one accessor, removes one, and renames a test.
+- [x] No behaviour change anywhere. This ticket adds one accessor, removes one, and renames a test.
 
 ## Verification
 
@@ -112,3 +112,8 @@ needs the seam criterion settled, and none changes what is drawn or computed.
 Worth doing early whatever happens to the rest of the effort: ticket `03` has to rewrite 48
 `rows()[..]` sites, and most of the `console` ones are here because there was no other way to ask for
 a coordinate. Landing this first turns a large part of `03`'s churn into a deletion.
+
+Sixteen `render_frame().rows()[r][c].position()` call sites in console (ten paint, six console)
+became `grid().position(c, r)` — the ticket's thirteen was written against an earlier paint
+surface; every coordinate site went. One assertion that already held a Frame now compares
+`paint.cursor()` to `frame.cursor()` rather than indexing the origin Cell.

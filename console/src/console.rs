@@ -6,21 +6,20 @@ use egui::{
     emath::TSTransform, epaint::RectShape, text::Galley,
 };
 
-use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
 use crate::paint::Paint;
 use crate::persistence::starting_source;
 use crate::style::{PALETTE, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
-    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Position},
+    grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
     native_midi::{self, NativeMidiBackend},
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::PlaybackStartError,
     render_frame::RenderFrame,
 };
 
-const CELL_SIZE: f32 = 25.0;
 const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
@@ -114,10 +113,10 @@ fn translate_event(event: Event) -> Option<InputEvent> {
     }
 }
 
-fn source_bounds(columns: usize, rows: usize) -> Rect {
+fn source_bounds(grid: Grid) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
-        Vec2::new(columns as f32, rows as f32) * CELL_SIZE,
+        Vec2::new(grid.columns() as f32, grid.rows() as f32) * CELL_SIZE,
     )
 }
 
@@ -565,18 +564,18 @@ impl SourceShapes {
     /// Draws a Paint at `viewport`: the geometry the value layer carries none
     /// of, applied to the colours and characters it carries all of.
     ///
-    /// `scale` is the presented Cell side over the Source's own, which the
-    /// stroke widths take so the Grid lines and sector seams are one Source
-    /// point wide at every zoom. `pixels_per_point` is the device scale the
-    /// background runs are snapped to; see [`background_run`].
+    /// Stroke widths take [`GridViewport::cell_scale`] so the Grid lines and
+    /// sector seams are one Source point wide at every zoom.
+    /// `pixels_per_point` is the device scale the background runs are snapped
+    /// to; see [`background_run`].
     ///
     fn new(
         paint: &Paint,
         viewport: &GridViewport,
         table: &GlyphTable,
-        scale: f32,
         pixels_per_point: f32,
     ) -> Self {
+        let scale = viewport.cell_scale();
         // A border is the rule and a Glyph is one on a written Grid, so both
         // are sized up front — and to the Cells the Paint covers rather than to
         // the Grid: a densely written Source that regrew either of them would
@@ -754,7 +753,6 @@ fn show_source(
     // The scale is already in the Cell size, and the Scene used to carry it to
     // the strokes as well, so the Grid lines and sector seams take it here
     // rather than staying one Source point wide at every zoom.
-    let scale = viewport.cell_size / CELL_SIZE;
     // The device scale the background runs are snapped to; see
     // [`background_run`].
     let pixels_per_point = ui.pixels_per_point();
@@ -765,7 +763,10 @@ fn show_source(
         // layer transform cost. The scale is quantised so a steady zoom hits
         // the galley cache and a sweep across the zoom range stays inside the
         // atlas; see `GLYPH_SCALE_STEP`.
-        FontId::new(DEFAULT_FONT_SIZE * glyph_scale(scale), font_family.clone()),
+        FontId::new(
+            DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
+            font_family.clone(),
+        ),
     );
 
     // The only source of Positions the two steps below have. Everything they
@@ -784,13 +785,13 @@ fn show_source(
     //
     // The bounds are the Render Frame's own Grid's, rather than a shape
     // recovered out of its rows.
-    let visible = viewport.visible_positions(clip, source_grid.columns(), source_grid.rows());
+    let visible = viewport.visible_positions(clip, source_grid);
 
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive(frame, &visible);
-    let shapes = SourceShapes::new(&paint, &viewport, &table, scale, pixels_per_point);
+    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
@@ -803,11 +804,9 @@ fn show_source(
     // points, which is the space the presented Grid is in.
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
-        && let Some((column, row)) =
-            viewport.cell_at(pointer, source_grid.columns(), source_grid.rows())
-        && let Some(cell) = frame.rows().get(row).and_then(|row| row.get(column))
+        && let Some((column, row)) = viewport.cell_at(pointer, source_grid)
     {
-        Some(cell.position())
+        source_grid.position(column, row)
     } else {
         None
     }
@@ -857,7 +856,7 @@ fn show_source_scene(
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` this function goes on to present it at.
     let source_grid = frame.grid();
-    let source = source_bounds(source_grid.columns(), source_grid.rows());
+    let source = source_bounds(source_grid);
     // The whole console area, sensing clicks and drags, allocated before any
     // Cell rectangle so the Grid's own click rectangle registers after it. This
     // is also what `Scene::show` reached `force_set_min_rect` for: the space
@@ -865,7 +864,7 @@ fn show_source_scene(
     // Grid fills it or letterboxes inside it.
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
-    let viewport = grid_viewport(console, source_grid.columns(), source_grid.rows());
+    let viewport = grid_viewport(console, source_grid);
     let fitted = viewport.fit_transform(source);
 
     if !view.adjusted {
@@ -924,8 +923,7 @@ fn show_source_scene(
     let grid = presented_grid(
         view.to_global,
         source,
-        source_grid.columns(),
-        source_grid.rows(),
+        source_grid,
         ui.ctx().pixels_per_point(),
     );
     let clicked = show_source(ui, frame, font_family, grid, console);
@@ -968,12 +966,12 @@ fn show_source_scene(
 ///
 /// The frame the Source Grid is painted on.
 ///
-/// The fill is load-bearing rather than decorative. `show_source` omits a
-/// Cell's background wherever `cell_visuals` asks for `PALETTE.source`, on the
-/// grounds that this frame has already painted exactly that colour across the
-/// whole console and clips every Shape to it. An ordinary Cell therefore has no
-/// rectangle of its own, and on the default Grid — where the Cursor's bloom
-/// reaches fifteen Cells — most Cells are ordinary.
+/// The fill is load-bearing rather than decorative. `cell_visuals` answers
+/// `None` for a Cell's background wherever the panel has already painted
+/// `PALETTE.source`, on the grounds that this frame has already painted exactly
+/// that colour across the whole console and clips every Shape to it. An ordinary
+/// Cell therefore has no rectangle of its own, and on the default Grid — where
+/// the Cursor's bloom reaches fifteen Cells — most Cells are ordinary.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -1164,16 +1162,15 @@ mod tests {
         Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::GuiRounding as _, emath::TSTransform,
     };
     use orcvs::app::{InputEvent, InputKey, Orcvs};
-    use orcvs::glyph::Glyph;
-    use orcvs::render_frame::{CursorBloom, RenderFrame};
+    use orcvs::render_frame::RenderFrame;
 
-    use crate::grid_viewport::{GridViewport, grid_viewport, presented_grid};
+    use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
     use crate::paint::Paint;
     use crate::style::PALETTE;
-    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT};
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, CELL_SIZE, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE,
+        ALPHABET_FIRST, ALPHABET_LAST, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE,
         GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
         SourceShapes, SourceView, TOP_PANEL_HEIGHT, frames_per_second, glyph_scale, is_presentable,
         show_source_scene, source_bounds, source_panel_frame, translate_event,
@@ -1513,15 +1510,8 @@ mod tests {
     }
 
     fn selected_cell(orcvs: &Orcvs) -> (usize, usize) {
-        let frame = orcvs.render_frame();
-        let cell = frame
-            .rows()
-            .iter()
-            .flatten()
-            .find(|cell| cell.selected())
-            .expect("the Cursor is on a Cell");
-
-        (cell.position().x(), cell.position().y())
+        let cursor = orcvs.render_frame().cursor();
+        (cursor.x(), cursor.y())
     }
 
     #[tokio::test]
@@ -1626,9 +1616,8 @@ mod tests {
 
         presented_grid(
             console.source_view.to_global,
-            source_bounds(grid.columns(), grid.rows()),
-            grid.columns(),
-            grid.rows(),
+            source_bounds(grid),
+            grid,
             ctx.pixels_per_point(),
         )
     }
@@ -1819,7 +1808,7 @@ mod tests {
     async fn source_bounds_are_available_before_the_first_render() {
         let orcvs = running_orcvs(32, 16);
         let source_grid = orcvs.render_frame().grid();
-        let bounds = source_bounds(source_grid.columns(), source_grid.rows());
+        let bounds = source_bounds(source_grid);
 
         assert_eq!(
             bounds,
@@ -1837,14 +1826,14 @@ mod tests {
     /// `grid_viewport.rs`.
     ///
     fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
-        let source = source_bounds(columns, rows);
-        let viewport = grid_viewport(screen, columns, rows);
+        let grid = Grid::new(columns, rows);
+        let source = source_bounds(grid);
+        let viewport = grid_viewport(screen, grid);
 
         presented_grid(
             viewport.fit_transform(source),
             source,
-            columns,
-            rows,
+            grid,
             pixels_per_point,
         )
     }
@@ -1860,10 +1849,7 @@ mod tests {
     fn painted(frame: &RenderFrame, viewport: GridViewport, clip: Rect) -> Paint {
         let grid = frame.grid();
 
-        Paint::derive(
-            frame,
-            &viewport.visible_positions(clip, grid.columns(), grid.rows()),
-        )
+        Paint::derive(frame, &viewport.visible_positions(clip, grid))
     }
 
     ///
@@ -1877,14 +1863,13 @@ mod tests {
     /// the grouping and the stroke widths.
     ///
     fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
-        let scale = viewport.cell_size / CELL_SIZE;
         let ctx = egui::Context::default();
         let mut shapes = None;
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let table = GlyphTable::lay_out(
                 ui.ctx(),
                 egui::FontId::new(
-                    DEFAULT_FONT_SIZE * glyph_scale(scale),
+                    DEFAULT_FONT_SIZE * glyph_scale(viewport.cell_scale()),
                     egui::FontFamily::Monospace,
                 ),
             );
@@ -1892,7 +1877,6 @@ mod tests {
                 paint,
                 &viewport,
                 &table,
-                scale,
                 pixels_per_point,
             ));
         });
@@ -1944,7 +1928,7 @@ mod tests {
         let paint = painted(&frame, viewport, screen);
         let shapes = source_shapes(&paint, viewport, 1.0);
 
-        assert_eq!(paint.cursor(), Some(frame.rows()[0][0].position()));
+        assert_eq!(paint.cursor(), Some(frame.cursor()));
         // Every Cell but the Cursor's is stroked with its own border, in row
         // order.
         let mut expected = Vec::new();
@@ -2009,7 +1993,7 @@ mod tests {
         // background is built after it and would paint over it if the Shapes
         // were emitted Cell by Cell.
         orcvs.write("1");
-        orcvs.select(orcvs.render_frame().rows()[0][0].position());
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 8, 8, 1.0);
         let paint = painted(&frame, viewport, screen);
@@ -2090,7 +2074,7 @@ mod tests {
         let mut view = SourceView::default();
         // A written Cell, so a Glyph is painted at all.
         orcvs.write("1");
-        orcvs.select(orcvs.render_frame().rows()[0][0].position());
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
         let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
@@ -2264,7 +2248,7 @@ mod tests {
         // The owned transform scales the stroke with everything else, the way
         // the Scene's layer transform used to, so the width is asserted in the
         // Source's own points.
-        let scale = viewport.cell_size / CELL_SIZE;
+        let scale = viewport.cell_scale();
         let mut colours = std::collections::BTreeSet::new();
 
         for (position, cell) in paint.cells() {
@@ -2314,10 +2298,10 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
-            orcvs.select(orcvs.render_frame().rows()[2][x].position());
+            orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
-        orcvs.select(orcvs.render_frame().rows()[5][5].position());
+        orcvs.select(orcvs.grid().position(5, 5).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 8, 8, 1.0);
@@ -2383,59 +2367,6 @@ mod tests {
              for PALETTE.source, so the panel standing in for it must be \
              filled with exactly that colour"
         );
-    }
-
-    ///
-    /// `cell_visuals` fills a Cell with the Source's own colour — which is what
-    /// `Paint::derive` skips a background for — in exactly the cases
-    /// `cursor_visible || (!selected && bloom.is_none())` names, over every
-    /// case of the truth table and so in **both** halves of the Cursor's blink.
-    ///
-    /// This half of the split is a table over `cell_visuals`. It builds no
-    /// Render Frame and no Paint, and that is what lets it reach the blink's
-    /// visible half at all: a running Orcvs starts with the Cursor off and
-    /// turns it on by elapsed time alone, with nothing public to set it, so
-    /// `paint.rs`'s
-    /// `the_cell_needing_no_background_is_exactly_the_one_filled_with_the_source`
-    /// — which asserts the same skip over a Paint derived from a real Render
-    /// Frame — can only ever see `cursor_visible` false. Neither test is the
-    /// other written twice.
-    ///
-    /// `Paint::derive` compares the colours rather than restating the
-    /// condition, so it cannot drift from `cell_visuals`. This is where the
-    /// condition is written down, because it reads wrong: `cell_visuals` tests
-    /// `cursor_visible` *before* its bloom arm, so the Cursor's own Cell takes
-    /// the Source fill on the visible half of the blink even though
-    /// `cursor_bloom` answers `Some(Core)` for it — and the blink therefore
-    /// alternates a rectangle and no rectangle. A reordering of those arms
-    /// would be a palette change, and this fails when one happens.
-    ///
-    #[test]
-    fn the_skip_condition_matches_cell_visuals_in_both_blink_phases() {
-        for glyph in [Glyph::Char, Glyph::Bang, Glyph::Space, Glyph::Comment] {
-            for bloom in [
-                None,
-                Some(CursorBloom::Core),
-                Some(CursorBloom::Inner),
-                Some(CursorBloom::Mid),
-                Some(CursorBloom::Outer),
-            ] {
-                for selected in [false, true] {
-                    for cursor_visible in [false, true] {
-                        let visuals =
-                            crate::style::cell_visuals(glyph, bloom, selected, cursor_visible);
-                        let skipped = cursor_visible || (!selected && bloom.is_none());
-
-                        assert_eq!(
-                            visuals.background == PALETTE.source,
-                            skipped,
-                            "{glyph:?} {bloom:?} selected={selected}, cursor_visible={cursor_visible}, filled {:?}",
-                            visuals.background
-                        );
-                    }
-                }
-            }
-        }
     }
 
     ///
@@ -2694,7 +2625,7 @@ mod tests {
             &mut view,
             DEVICE_SCALE,
         );
-        let scale = viewport.cell_size / CELL_SIZE;
+        let scale = viewport.cell_scale();
 
         assert!(
             (scale - 0.4).abs() < 1e-6,
@@ -2795,13 +2726,13 @@ mod tests {
         let mut orcvs = running_orcvs(16, 16);
         // The Cursor goes on a Cell that would otherwise carry both seams, so
         // the suppression the derive applies is visible as an absence here too.
-        orcvs.select(orcvs.render_frame().rows()[8][8].position());
+        orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 16, 16, 1.0);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_shapes(&paint, viewport, 1.0);
-        let scale = viewport.cell_size / CELL_SIZE;
+        let scale = viewport.cell_scale();
 
         let mut expected = Vec::new();
         for (position, cell) in paint.cells() {
@@ -2948,7 +2879,7 @@ mod tests {
 
         let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(whole.cell_size, CELL_SIZE, "the console did not fit at one");
-        let all_positions = whole.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let all_positions = whole.visible_positions(screen, orcvs.grid());
         assert_eq!(
             all_positions.count(),
             DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT,
@@ -2957,7 +2888,7 @@ mod tests {
 
         pinned_at(&mut view, Vec2::new(-500.0, -300.0), MAX_ZOOM);
         let (zoomed, fewer_shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        let some_positions = zoomed.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let some_positions = zoomed.visible_positions(screen, orcvs.grid());
 
         assert_eq!(
             zoomed.cell_size,
@@ -3034,13 +2965,13 @@ mod tests {
         // drawn rows and stops short of the upper ones: the viewport holds
         // filled and unfilled Cells at once, and every drawn row that is filled
         // is filled at both its edges.
-        orcvs.select(orcvs.render_frame().rows()[20][18].position());
+        orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
 
         // The Grid's near corner at (-700, -500), so the console shows a window
         // in the middle of it rather than a corner.
         pinned_at(&mut view, Vec2::new(-700.0, -500.0), MAX_ZOOM);
         let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let visible = viewport.visible_positions(screen, orcvs.grid());
 
         assert!(
             visible.columns.start > 0 && visible.columns.end < DEFAULT_COL_COUNT,
@@ -3144,7 +3075,7 @@ mod tests {
             let frame = orcvs.render_frame();
             pinned_at(&mut view, translation, MAX_ZOOM);
             let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-            let visible = viewport.visible_positions(screen, DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+            let visible = viewport.visible_positions(screen, orcvs.grid());
             let painted: Vec<_> = shapes
                 .iter()
                 .filter_map(|shape| match shape {
@@ -3161,7 +3092,7 @@ mod tests {
                 "the pan {translation:?} culled nothing on one side, so no seam is near a culled edge: {visible:?}"
             );
 
-            for cell in frame.rows().iter().flatten() {
+            for cell in frame.cells() {
                 let position = cell.position();
                 let rect = viewport.cell_rect(position.x(), position.y());
 

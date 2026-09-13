@@ -125,7 +125,7 @@ fn web_app_constructs_and_advances_the_cursor_without_panicking() {
 
     app.advance_cursor_blink();
 
-    assert_eq!(app.render_frame().rows().len(), 1);
+    assert_eq!(app.render_frame().grid().rows(), 1);
 }
 
 #[wasm_bindgen_test]

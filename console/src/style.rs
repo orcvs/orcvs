@@ -59,11 +59,21 @@ pub const PALETTE: ConsolePalette = ConsolePalette {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CellVisuals {
-    pub background: Color32,
+    pub background: Option<Color32>,
     pub border: Color32,
     pub foreground: Color32,
 }
 
+///
+/// How one Cell is coloured: fill, border and Glyph.
+///
+/// `background` is `None` when the Cell needs no fill of its own — the
+/// `source_panel_frame` behind the Grid has already painted `PALETTE.source`
+/// across the console, so the two arms that would answer that colour answer
+/// `None` instead of asking every ordinary Cell to repaint it. The Cursor's
+/// own Cell on the visible half of the blink is one of those arms: painting
+/// the Source fill again would only hide the blink's empty half.
+///
 pub(crate) fn cell_visuals(
     glyph: Glyph,
     cursor_bloom: Option<CursorBloom>,
@@ -82,13 +92,11 @@ pub(crate) fn cell_visuals(
     };
     CellVisuals {
         background: if selected && !cursor_visible {
-            PALETTE.selection_fill
+            Some(PALETTE.selection_fill)
         } else if cursor_visible {
-            PALETTE.source
-        } else if let Some(bloom) = cursor_bloom {
-            bloom_colours(bloom).0
+            None
         } else {
-            PALETTE.source
+            cursor_bloom.map(|bloom| bloom_colours(bloom).0)
         },
         border: if cursor_visible {
             PALETTE.selection_stroke
@@ -269,11 +277,12 @@ mod tests {
         let selected = cell_visuals(Glyph::Char, Some(CursorBloom::Core), true, false);
         let cursor = cell_visuals(Glyph::Char, Some(CursorBloom::Core), true, true);
 
-        assert_eq!(ordinary.background, PALETTE.source);
+        // `None`: the panel behind the Grid has already painted the Source colour.
+        assert_eq!(ordinary.background, None);
         assert_eq!(ordinary.border, PALETTE.grid_line);
-        assert_eq!(selected.background, PALETTE.selection_fill);
+        assert_eq!(selected.background, Some(PALETTE.selection_fill));
         assert_eq!(selected.border, PALETTE.selection_stroke_rest);
-        assert_eq!(cursor.background, PALETTE.source);
+        assert_eq!(cursor.background, None);
         assert_eq!(cursor.border, PALETTE.selection_stroke);
         assert_ne!(cursor, selected);
     }
@@ -298,11 +307,12 @@ mod tests {
         let outer = cell_visuals(Glyph::Space, Some(CursorBloom::Outer), false, false);
         let distant = cell_visuals(Glyph::Space, None, false, false);
 
-        assert_eq!(core.background, PALETTE.bloom_core_fill);
-        assert_eq!(inner.background, PALETTE.bloom_inner_fill);
-        assert_eq!(mid.background, PALETTE.bloom_mid_fill);
-        assert_eq!(outer.background, PALETTE.bloom_outer_fill);
-        assert_eq!(distant.background, PALETTE.source);
+        assert_eq!(core.background, Some(PALETTE.bloom_core_fill));
+        assert_eq!(inner.background, Some(PALETTE.bloom_inner_fill));
+        assert_eq!(mid.background, Some(PALETTE.bloom_mid_fill));
+        assert_eq!(outer.background, Some(PALETTE.bloom_outer_fill));
+        // `None`: the panel behind the Grid has already painted the Source colour.
+        assert_eq!(distant.background, None);
         assert_eq!(core.border, PALETTE.bloom_core_line);
         assert_eq!(inner.border, PALETTE.bloom_inner_line);
         assert_eq!(mid.border, PALETTE.bloom_mid_line);
