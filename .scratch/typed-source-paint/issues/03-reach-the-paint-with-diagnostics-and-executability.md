@@ -4,28 +4,28 @@
 Cell covered by a parse diagnostic, and an Expression that will not execute — reach the Render
 Frame, carried once per Expression rather than copied per Cell.
 
-**Blocked by:** 06 — Delete Glyph.
+**Blocked by:** None — every listed blocker is resolved.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The Render Frame carries the Expression Spans it derived from, with each Span's `diagnostic`
+- [x] The Render Frame carries the Expression Spans it derived from, with each Span's `diagnostic`
       and `root`. `ExpressionEntry` already holds all three; this issue exposes them rather than
       recomputing anything.
-- [ ] The facts are **not** copied onto every `RenderCell` the Span covers. A diagnostic covers a
+- [x] The facts are **not** copied onto every `RenderCell` the Span covers. A diagnostic covers a
       Span and an executability decision belongs to an Expression; per-Cell booleans would repeat
       at a finer granularity the duplication this effort removes. The console resolves a Cell to its
       Expression.
-- [ ] Lexical diagnostics reach the same path. `LanguageMap` exposes them separately from
+- [x] Lexical diagnostics reach the same path. `LanguageMap` exposes them separately from
       Expression diagnostics and they also carry Spans, so a Cell can be inside one without being
       inside an Expression at all.
-- [ ] A test asserts that a Source with a parse error paints differently from the same Source
+- [x] A test asserts that a Source with a parse error paints differently from the same Source
       without one, and that an incomplete Function paints differently from a complete one. Both
       assertions fail against today's code, which is the point of the issue.
-- [ ] No colour is chosen here. The issue hands `restyle-egui-console` a list of the
+- [x] No colour is chosen here. The issue hands `restyle-egui-console` a list of the
       classifications that now reach the paint and have no token: `Activation`, `Atom`, `Sequence`,
       diagnostic coverage, and inexecutability. That effort's `02` holds the decided record and this
       one does not edit it.
-- [ ] Until those colours are decided, the new facts change no pixel. Shipping a provisional colour
+- [x] Until those colours are decided, the new facts change no pixel. Shipping a provisional colour
       would put an undecided value into the record five issues settled.
 
 ## Comments
@@ -42,3 +42,13 @@ a live borrow across the console's whole paint, and the Render Frame exists to a
 
 `show_diagnostics` in `console.rs` is about Playback failures and is not this. Naming is going to
 collide; pick the language-side name deliberately.
+
+## Answer
+
+The Render Frame now carries one owned `RenderExpression` per Expression — `span`, `diagnostic`,
+and `root`, copied from `ExpressionEntry` — plus the Language Map's lexical diagnostics. The
+console resolves a Cell through `expression_at` (later Expression wins) and `diagnostic_covers`.
+`RenderCell` is unchanged. No colour is chosen; `cell_visuals` still does not see these facts.
+
+Handoff to `restyle-egui-console`: `Activation`, `Atom`, `Sequence`, diagnostic coverage, and
+inexecutability now reach the paint and still have no token.
