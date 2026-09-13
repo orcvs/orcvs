@@ -157,9 +157,45 @@ pub fn style() -> Style {
 
 #[cfg(test)]
 mod tests {
-    use super::{PALETTE, cell_visuals, sector_line};
+    use super::{ConsolePalette, PALETTE, cell_visuals, sector_line};
     use crate::marks::CursorBloom;
+    use egui::Color32;
     use orcvs::source::Token;
+
+    ///
+    /// `theme.md` is the decided record. These literals are that record in
+    /// `Color32` form: a later palette change fails here, and the same commit
+    /// must change the document.
+    ///
+    #[test]
+    fn palette_tokens_match_the_decided_record() {
+        assert_eq!(
+            PALETTE,
+            ConsolePalette {
+                page: Color32::from_rgb(11, 17, 18),  // #0B1112
+                source: Color32::from_rgb(7, 13, 13), // #070D0D
+                grid_line: Color32::from_rgba_unmultiplied_const(29, 55, 49, 72), // rgba(29, 55, 49, 0.28)
+                sector_line: Color32::from_rgba_unmultiplied_const(55, 101, 86, 110), // rgba(55, 101, 86, 0.43)
+                ordinary: Color32::from_rgb(165, 183, 178),                           // #A5B7B2
+                comment: Color32::from_rgb(122, 135, 132),                            // #7A8784
+                function: Color32::from_rgb(104, 224, 184),                           // #68E0B8
+                bang: Color32::from_rgb(255, 127, 135),                               // #FF7F87
+                number: Color32::from_rgb(131, 166, 216),                             // #83A6D8
+                note: Color32::from_rgb(170, 145, 214),                               // #AA91D6
+                bloom_core_fill: Color32::from_rgb(10, 30, 26),                       // #0A1E1A
+                bloom_core_line: Color32::from_rgba_unmultiplied_const(76, 190, 156, 150), // rgba(76, 190, 156, 0.59)
+                bloom_inner_fill: Color32::from_rgb(9, 26, 23), // #091A17
+                bloom_inner_line: Color32::from_rgba_unmultiplied_const(58, 148, 122, 125), // rgba(58, 148, 122, 0.49)
+                bloom_mid_fill: Color32::from_rgb(8, 22, 20), // #081614
+                bloom_mid_line: Color32::from_rgba_unmultiplied_const(43, 110, 92, 100), // rgba(43, 110, 92, 0.39)
+                bloom_outer_fill: Color32::from_rgb(8, 18, 17),                          // #081211
+                bloom_outer_line: Color32::from_rgba_unmultiplied_const(34, 78, 67, 82), // rgba(34, 78, 67, 0.32)
+                selection_fill: Color32::from_rgb(10, 42, 34),                           // #0A2A22
+                selection_stroke_rest: Color32::from_rgb(82, 195, 163),                  // #52C3A3
+                selection_stroke: Color32::from_rgb(101, 230, 190),                      // #65E6BE
+            }
+        );
+    }
 
     #[test]
     fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {
