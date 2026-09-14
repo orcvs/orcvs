@@ -251,11 +251,11 @@ impl FunctionKind {
 ///
 /// Named for the kind rather than for the Effect itself, because CONTEXT.md
 /// gives Effect to what a Producer contributes to the Tick Plan and this is a
-/// property a Function declares before any Tick runs. One variant today: it is
-/// a type of its own rather than a second arm of [`FunctionKind`] so that the
-/// Halt and Directional Bang Functions of ADR 0004 are added here, where
-/// they answer no value by construction, rather than beside `Value`, where each
-/// would have to be re-excluded at every caller.
+/// property a Function declares before any Tick runs. It is a type of its own
+/// rather than a second arm of [`FunctionKind`] so that the Halt and
+/// Directional Bang Functions of ADR 0004 are added here, where they answer
+/// no value by construction, rather than beside `Value`, where each would have
+/// to be re-excluded at every caller.
 #[derive(Clone, Copy)]
 enum EffectKind {
     /// The `!` family of ADR 0016: a Play Command delivered to the Playback
@@ -272,6 +272,9 @@ enum EffectKind {
     /// Function has, with `Portal::ordinary_result` one row south as the
     /// default. These Functions decline the default and say by how much.
     SourceWrite(crate::SourceEffect),
+    /// ADR 0006's Halt: an ordering lock on the Expression root one row south,
+    /// with no Cell write, no Play Command, and no value.
+    Halt,
 }
 
 /// The kind column of the canonical definitions, mapped to the declaration it
@@ -369,6 +372,9 @@ macro_rules! function_kind {
             spelling: Some(Function::SelfBangingEast.spelling()),
             bundle: crate::SourceBundle::Emit,
         }))
+    };
+    (Halt) => {
+        FunctionKind::Effect(EffectKind::Halt)
     };
 }
 
@@ -1007,6 +1013,17 @@ macro_rules! define_functions {
                 self.kind().source_effect()
             }
 
+            /// Whether this Function locks the Expression root one row south.
+            ///
+            /// Halt is the one Function that does. The lock is an ordering
+            /// edge rather than a Source write, so [`Function::source_effect`]
+            /// stays `None` and `orcvs` resolves the south root against the
+            /// Grid.
+            #[inline(always)]
+            pub const fn locks_root(self) -> bool {
+                matches!(self.kind(), FunctionKind::Effect(EffectKind::Halt))
+            }
+
             /// Whether this Function can return Bang, even when the current
             /// operands produce no result. Scheduling uses this declaration to
             /// wait for activation producers before deciding whether to perform.
@@ -1288,6 +1305,7 @@ define_functions! {
     Divide => ("./", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Equality => (".=", Value, Intrinsic, Pervasive, Atom, true, [left: Number, right: Number]),
     Euclidean => ("~%", Value, Intrinsic, Scalar, Atom, true, [hits: Number, steps: Number]),
+    Halt => ("*!", Halt, Bang, Scalar, Atom, false, []),
     Increment => ("~+", Value, Intrinsic, Scalar, Atom, false, [step: Number, modulus: Number], portal: "previous value": Number),
     Interpolation => ("~>", Value, Intrinsic, Scalar, Atom, false, [rate: Number, target: Number], portal: "previous value": Number),
     JumpEast => ("&>", Value, Intrinsic, Scalar, Atom, true, []),
@@ -2065,6 +2083,10 @@ mod test {
                 | Function::DirectionalBangNorth
                 | Function::DirectionalBangSouth
                 | Function::DirectionalBangWest => (false, false, false),
+                // The same activation as a Directional Bang Function — inert
+                // until Bang — and a different effect kind: a lock, not a
+                // Source write.
+                Function::Halt => (false, false, false),
             };
 
             assert_eq!(function.answers_value(), answers_value, "{function:?}");
@@ -2124,6 +2146,7 @@ mod test {
                 | Function::DirectionalBangNorth
                 | Function::DirectionalBangSouth
                 | Function::DirectionalBangWest
+                | Function::Halt
                 | Function::JumpEast
                 | Function::JumpNorth
                 | Function::JumpSouth
@@ -2206,6 +2229,7 @@ mod test {
                 | Function::DirectionalBangNorth
                 | Function::DirectionalBangSouth
                 | Function::DirectionalBangWest
+                | Function::Halt
                 | Function::SelfBangingEast
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth

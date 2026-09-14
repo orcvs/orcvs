@@ -361,6 +361,7 @@ impl<'a> Execution<'a> {
             Ok(Interpretation::Source(effect)) => {
                 return self.deliver_source_effect(index, effect);
             }
+            Ok(Interpretation::Halt) => return self.lock_south_root(index),
         }
         Continue(())
     }
@@ -865,6 +866,66 @@ impl<'a> Execution<'a> {
     }
 
     ///
+    ///
+    /// Applies Halt's lock to the Expression root one row south.
+    ///
+    /// The schedule already placed this Turn ahead of that root, so a lock
+    /// that finds it executed is a scheduler defect and rejects the Tick the
+    /// same way a late spatial write does. An empty target is a no-op; an
+    /// occupied non-root diagnoses and invents no lock. Halt itself is not
+    /// suppressed here — `opens_turn` already refused a suppressed Halt, so
+    /// reaching this arm means this Halt locks.
+    ///
+    fn lock_south_root(&mut self, index: usize) -> ControlFlow<Diagnostic> {
+        let node = &self.lookup.nodes()[index];
+        let Some(south) = self.grid.position(node.anchor.x(), node.anchor.y() + 1) else {
+            return Continue(());
+        };
+        if let Some(root) = self.lookup.root_at(south) {
+            if self
+                .lookup
+                .descendants(root)
+                .any(|descendant| self.states[descendant].attempted)
+            {
+                return Break(diagnose(
+                    node,
+                    "spatial output reached an executed computation; Tick effects rejected",
+                ));
+            }
+            for descendant in self.lookup.descendants(root) {
+                self.states[descendant].suppressed = true;
+            }
+            return Continue(());
+        }
+        if self.occupied_non_root(south) {
+            self.effects.push(Effect::Diagnose(diagnose(
+                node,
+                format!("{} target is not an Expression root", node.function),
+            )));
+        }
+        Continue(())
+    }
+
+    /// Whether the Cells one row south hold a Language Unit that is not a
+    /// root anchored there.
+    ///
+    /// Asked of the Language Map rather than working Source: Bang cleanup
+    /// clears a standalone `**` before any Turn, and a Comment never writes,
+    /// so the Snapshot is what still names an occupied non-root after those
+    /// Cells look empty.
+    fn occupied_non_root(&self, south: Position) -> bool {
+        let start = self.grid.index(south).get();
+        let east = self
+            .grid
+            .position(south.x() + 1, south.y())
+            .map_or(start, |position| self.grid.index(position).get());
+        let cells = start..=east;
+        self.map.units().any(|unit| {
+            let covered = unit.span().start().get()..=unit.span().end().get();
+            cells.clone().any(|cell| covered.contains(&cell))
+        })
+    }
+
     /// What the Cells a blocked move would have entered hold, classified the
     /// way ADR 0006 classifies contact.
     ///

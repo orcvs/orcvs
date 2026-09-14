@@ -32,6 +32,14 @@ pub enum Interpretation {
     /// because the Range Functions that would spell a Sequence operand are
     /// unbuilt.
     Play(Performance),
+    /// The lock one active Halt Function root places on the Expression root
+    /// one row south.
+    ///
+    /// It carries no destination, because this crate holds no Grid. The
+    /// consumer resolves "one row south", finds the root or diagnoses a
+    /// non-root, and applies the lock as an ordering effect rather than as a
+    /// Source write.
+    Halt,
     /// The Cells one active Source-writing Function root plans to write.
     ///
     /// It carries a displacement and a spelling rather than Positions, because
@@ -194,6 +202,7 @@ impl Interpreter {
                     // and not in what interpreting them does, which is read the
                     // declaration. ADR 0029's asymmetry lives in the activation
                     // column and the bundle, and both are settled before this.
+                    Function::Halt => return Ok(Interpretation::Halt),
                     Function::DirectionalBangEast
                     | Function::DirectionalBangNorth
                     | Function::DirectionalBangSouth
@@ -577,6 +586,20 @@ mod test {
                 "{function:?}"
             );
         }
+    }
+
+    #[test]
+    fn halt_answers_a_lock_and_not_a_value() {
+        assert_eq!(
+            Interpreter::execute(&[Atom::Function(Function::Halt)], inputs()).unwrap(),
+            Interpretation::Halt
+        );
+        assert!(!Function::Halt.answers_value());
+        assert!(!Function::Halt.can_emit_bang());
+        assert!(!Function::Halt.is_intrinsically_active());
+        assert!(Function::Halt.source_effect().is_none());
+        assert!(!Function::Halt.performs_terminal_output());
+        assert!(Function::Halt.locks_root());
     }
 
     #[test]

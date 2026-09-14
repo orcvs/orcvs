@@ -266,10 +266,11 @@ impl PortalAccess {
     /// The write sites and extra reads `function` demands at `anchor`.
     ///
     /// Nested computations hand a typed value to a parent. Terminal Output
-    /// answers Play. Neither demands a write Portal. A nested Jump still
-    /// reads the opposite Portal. A Source write states its declared bundle;
-    /// a root Jump writes at its displacement and reads the opposite Portal;
-    /// every other Value writes one row south.
+    /// answers Play. A locking root withholds a Turn. None of those demands
+    /// a write Portal. A nested Jump still reads the opposite Portal. A
+    /// Source write states its declared bundle; a root Jump writes at its
+    /// displacement and reads the opposite Portal; every other Value writes
+    /// one row south.
     ///
     pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
         if nested {
@@ -282,7 +283,7 @@ impl PortalAccess {
                 reads,
             };
         }
-        if function.performs_terminal_output() {
+        if function.performs_terminal_output() || function.locks_root() {
             return Self {
                 writes: PortalWrites::None,
                 reads: Vec::new(),
