@@ -240,6 +240,112 @@ impl eframe::Storage for InMemoryStorage {
 }
 
 ///
+/// Storage that persists a RON `HashMap<String, String>` the same way native
+/// eframe `FileStorage` does.
+///
+/// `FileStorage::from_ron_filepath` is `pub(crate)`, so a product-path test
+/// cannot construct the shipped type. This is the same file codec the native
+/// binary writes to `eframe::storage_dir("Orcvs")/app.ron` — not
+/// [`InMemoryStorage`]. Isolate every use under a unique temp directory; never
+/// write the user's Application Support path.
+///
+#[cfg(all(test, feature = "persistence", not(target_arch = "wasm32")))]
+pub(crate) struct IsolatedRonDir(std::path::PathBuf);
+
+#[cfg(all(test, feature = "persistence", not(target_arch = "wasm32")))]
+impl IsolatedRonDir {
+    pub(crate) fn new() -> Self {
+        let dir = std::env::temp_dir().join(format!(
+            "orcvs-native-persistence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("a clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("a unique temp directory");
+        Self(dir)
+    }
+
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(all(test, feature = "persistence", not(target_arch = "wasm32")))]
+impl Drop for IsolatedRonDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+///
+/// The native file codec: a RON key-value map flushed to `app.ron`.
+///
+#[cfg(all(test, feature = "persistence", not(target_arch = "wasm32")))]
+pub(crate) struct RonFileStorage {
+    path: std::path::PathBuf,
+    kv: std::collections::HashMap<String, String>,
+    dirty: bool,
+}
+
+#[cfg(all(test, feature = "persistence", not(target_arch = "wasm32")))]
+impl RonFileStorage {
+    pub(crate) fn create(dir: &std::path::Path) -> Self {
+        Self {
+            path: dir.join("app.ron"),
+            kv: std::collections::HashMap::new(),
+            dirty: false,
+        }
+    }
+
+    pub(crate) fn from_file(dir: &std::path::Path) -> Self {
+        let path = dir.join("app.ron");
+        let kv = std::fs::File::open(&path)
+            .ok()
+            .and_then(|file| ron::de::from_reader(std::io::BufReader::new(file)).ok())
+            .unwrap_or_default();
+        Self {
+            path,
+            kv,
+            dirty: false,
+        }
+    }
+}
+
+#[cfg(all(test, feature = "persistence", not(target_arch = "wasm32")))]
+impl eframe::Storage for RonFileStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.kv.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        if self.kv.get(key) != Some(&value) {
+            self.kv.insert(key.to_owned(), value);
+            self.dirty = true;
+        }
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.kv.remove(key);
+        self.dirty = true;
+    }
+
+    fn flush(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        self.dirty = false;
+        let file = std::fs::File::create(&self.path).expect("the native RON file");
+        let mut writer = std::io::BufWriter::new(file);
+        ron::Options::default()
+            .to_io_writer_pretty(&mut writer, &self.kv, ron::ser::PrettyConfig::default())
+            .expect("the native RON codec");
+        std::io::Write::flush(&mut writer).expect("the native RON file");
+    }
+}
+
+///
 /// An edited Source on a non-square Grid: a restore that read the two
 /// dimensions the wrong way round addresses different Cells than the Source
 /// that was stored, and a start that read nothing holds no Cells at all.

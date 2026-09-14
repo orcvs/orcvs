@@ -23,3 +23,10 @@ documentation results without moving the full cost onto every ordinary pull requ
       `mise run check`; this names them in the record rather than commissioning new work.
 - [ ] The published result can be consumed by visual, physical MIDI, benchmark, and final GO/NO-GO
       review without rerunning against a different commit.
+
+## Comments
+
+2026-09-14: Persistence product-path evidence for a nominated SHA lives under
+`v1-release/issues/02-prove-product-persistence-paths.md` `## Evidence`. The
+pointer is so this record can find the native and WASM proof. It is not a
+resolution of this ticket.

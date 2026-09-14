@@ -3537,6 +3537,8 @@ mod storage_tests {
     use crate::persistence::{
         InMemoryStorage, REFUSED_KEY, SOURCE_KEY, edited_source, starting_source, store,
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    use crate::persistence::{IsolatedRonDir, RonFileStorage};
 
     ///
     /// Storage holding a value no build can read back, and that value, so a
@@ -3663,6 +3665,44 @@ mod storage_tests {
             next_start.snapshot(),
             edited_source().snapshot(),
             "the next start did not open the revision the Console saved"
+        );
+    }
+
+    ///
+    /// Native FileStorage is crate-private, so this drives the same RON kv file
+    /// the binary writes to `eframe::storage_dir("Orcvs")/app.ron`. Isolate
+    /// under a unique temp directory; never write Application Support.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_console_save_restarts_from_the_native_ron_file() {
+        let dir = IsolatedRonDir::new();
+        let saved = edited_source();
+        {
+            // A Console that already holds the 6×3 revision: FileStorage
+            // cannot be constructed, so InMemoryStorage is only how this
+            // session is primed. The write under test is `App::save` into the
+            // RON file, then `flush`, which is what eframe does after save.
+            let mut primed = InMemoryStorage::default();
+            store(&mut primed, &saved);
+            let mut console = console_over(&primed);
+            let mut file = RonFileStorage::create(dir.path());
+            console.save(&mut file);
+            eframe::Storage::flush(&mut file);
+        }
+
+        let storage = RonFileStorage::from_file(dir.path());
+        let restored = starting_source(Some(&storage)).source;
+        assert_eq!(restored.snapshot(), saved.snapshot());
+        assert_eq!(restored.grid().count(), 18);
+        assert!(restored.grid().position(5, 2).is_some());
+        assert!(restored.grid().position(6, 2).is_none());
+
+        let console = console_over(&storage);
+        assert_eq!(
+            console.orcvs.source().snapshot(),
+            saved.snapshot(),
+            "Console::new did not restore the revision the native RON file held"
         );
     }
 }

@@ -520,6 +520,20 @@ mod test {
     }
 
     ///
+    /// The Language Map units of `source`, named by kind and Grid-relative
+    /// column and row. Persistence carries the shape, not Grid identity, so two
+    /// Sources that rebuilt the same Map still mint different Positions.
+    ///
+    #[cfg(feature = "persistence")]
+    fn language_map_units(source: &Source) -> Vec<(crate::source::LanguageUnitKind, usize, usize)> {
+        source
+            .language_map()
+            .units()
+            .map(|unit| (unit.kind(), unit.anchor().x(), unit.anchor().y()))
+            .collect()
+    }
+
+    ///
     /// What the current revision diagnoses, as the Cells each problem covers
     /// and what it says. Two Sources are built on Grids of their own, so their
     /// Diagnostics are never equal as values however alike they are; this is
@@ -813,16 +827,18 @@ mod test {
         assert_eq!(restored.grid.count(), 30);
         assert!(restored.grid.position(9, 2).is_some());
         assert!(restored.grid.position(10, 2).is_none());
-        assert_eq!(
-            (0..grid.count())
-                .map(|idx| token_at(&restored, idx))
-                .collect::<Vec<_>>(),
-            (0..grid.count())
-                .map(|idx| token_at(&source, idx))
-                .collect::<Vec<_>>()
-        );
+        // The Language Map and the Token each Cell presents are derived, never
+        // stored. Compare by Cell index and relative column/row: two Sources
+        // mint different Grid identities, so Position equality would fail a
+        // correct restore.
+        assert_eq!(language_map_units(&restored), language_map_units(&source));
+        assert_eq!(tokens(&restored), tokens(&source));
 
+        // The existing Add case is the executable proof: both Sources, Ticked
+        // the same way, write `03` into the result Cells.
+        source.execute(Tick::ZERO);
         restored.execute(Tick::ZERO);
+        assert_eq!(restored.snapshot(), source.snapshot());
         // A restored Source is built from a Grid of its own: persistence
         // carries the shape, not the identity, so the Cells of the Source that
         // was written are not the Cells of the Source that was read back.
@@ -834,6 +850,36 @@ mod test {
         };
         assert_eq!(restored.get(restored_cell(10)), Some("0".to_string()));
         assert_eq!(restored.get(restored_cell(11)), Some("3".to_string()));
+        assert_eq!(tokens(&restored), tokens(&source));
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_source_deserialization_rejects_a_grid_that_does_not_match_its_cells() {
+        let grid = Grid::new(6, 3);
+        let mut source = Source::new(grid);
+        for (idx, content) in ".+0102".chars().enumerate() {
+            source
+                .set(
+                    grid.cell_index(idx).expect("inside the Grid"),
+                    &content.to_string(),
+                )
+                .unwrap();
+        }
+        let encoded = serde_json::to_string(&source).unwrap();
+        assert!(
+            encoded.contains("\"cols\":6"),
+            "the stored revision names its Grid: {encoded}"
+        );
+
+        // A well-formed encoding whose Grid no longer matches the Cells beside
+        // it. The console already refuses this through eframe; this is the
+        // model Deserialize seam that refusal is built on.
+        let mismatched = encoded.replace("\"cols\":6", "\"cols\":7");
+        assert!(
+            serde_json::from_str::<Source>(&mismatched).is_err(),
+            "a Grid that no longer matches its Cells must be refused whole"
+        );
     }
 
     #[cfg(feature = "persistence")]

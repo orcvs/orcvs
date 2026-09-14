@@ -72,7 +72,21 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 log = "0.4"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Document", "Element", "HtmlCanvasElement", "Window"] }
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "Storage",
+    "Window",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# Native FileStorage writes a RON `HashMap<String, String>` to `app.ron`.
+# FileStorage itself is crate-private (`from_ron_filepath` is `pub(crate)`;
+# only `eframe::storage_dir` is re-exported), so a product-path test has to
+# speak that codec to prove the file the native binary writes. Already in the
+# locked graph through eframe/persistence. Not a shipped dependency.
+ron = "0.12"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 gloo-timers = { version = "0.4", features = ["futures"] }
