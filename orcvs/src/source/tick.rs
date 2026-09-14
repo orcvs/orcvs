@@ -14,7 +14,8 @@ use std::ops::Range;
 
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
-use super::portal::{Portal, PortalError, SpanWrite};
+pub(super) use super::portal::PortalError;
+use super::portal::{Portal, PortalAccess, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -38,11 +39,7 @@ struct Computation {
     owner: usize,
     operands: Vec<Operand>,
     syntax_valid: bool,
-    outputs: Vec<Result<Position, PortalError>>,
-    /// Cells this computation reads from working Source that are not operand
-    /// slots. A Jump reads its input Portal here so a producer that writes
-    /// those Cells is ordered before it.
-    reads: Vec<Range<usize>>,
+    portal_access: PortalAccess,
     /// How wide this computation's result may be, per ADR 0036, and the one
     /// home that fact has. A computation is built reserving the Cell pair
     /// every result reserves unless a declaration widens it, and
@@ -607,35 +604,6 @@ pub(super) fn plan(
     }
 }
 
-/// ADR 0009's refusal when a root Terminal Output Function is given a Cell
-/// destination. [`computations`] states a Source-writing Function's
-/// destination from its declaration and reads `performs_terminal_output()` before
-/// that arm, so only a test can construct this pairing today.
-#[cfg(test)]
-const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
-
-///
-/// Clears any resolved Portal on a root Terminal Output Function and diagnoses
-/// ADR 0009's refusal for test-injected destinations. [`carry`] calls this
-/// after a test names chosen ones, below the shipped [`computations`] entry
-/// point. Production refusal awaits input-driven destination assignment.
-///
-#[cfg(test)]
-fn refuse_terminal_output_portals(nodes: &mut [Computation], diagnostics: &mut Vec<Diagnostic>) {
-    let mut refusals = Vec::new();
-    for node in nodes.iter_mut() {
-        if node.parent.is_some() || !node.function.performs_terminal_output() {
-            continue;
-        }
-        if !node.outputs.iter().any(Result::is_ok) {
-            continue;
-        }
-        refusals.push(diagnose(node, REFUSED_PORTAL));
-        node.outputs.clear();
-    }
-    diagnostics.splice(0..0, refusals);
-}
-
 ///
 /// Gives each computation the Portal destinations `destinations` names for it,
 /// in place of the ordinary result position it resolved for itself.
@@ -644,34 +612,18 @@ fn refuse_terminal_output_portals(nodes: &mut [Computation], diagnostics: &mut V
 /// while it is stating them, so that a schedule can carry chosen destinations
 /// without the planning path taking a parameter or a map lookup of its own.
 ///
-/// A test needs this because no production Tick can state such a destination
-/// for a Terminal Output Function. ADR 0004's Source Function family is built
-/// now and states its destinations through [`computations`], but it states them
-/// from a declaration rather than from input, and no row declares both a
-/// displacement and Terminal Output. Carrying one is still the only way to put
-/// a destination on a Function that resolves none, which is the case ADR 0009
-/// refuses.
+/// Writes that resolved as none stay none: [`PortalAccess::carry`] cannot
+/// attach a Portal to Terminal Output or to a nested Jump. Tests that need a
+/// write site name one on a Function that already demanded some.
 ///
 #[cfg(test)]
-fn carry(
-    grid: Grid,
-    nodes: &mut [Computation],
-    diagnostics: &mut Vec<Diagnostic>,
-    destinations: &BTreeMap<CellIndex, Vec<Position>>,
-) {
+fn carry(grid: Grid, nodes: &mut [Computation], destinations: &BTreeMap<CellIndex, Vec<Position>>) {
     for node in nodes.iter_mut() {
-        let Some(outputs) = destinations.get(&grid.index(node.anchor)) else {
+        let Some(writes) = destinations.get(&grid.index(node.anchor)) else {
             continue;
         };
-        node.outputs = outputs
-            .iter()
-            .map(|output| {
-                grid.assert_owns(*output);
-                Ok(*output)
-            })
-            .collect();
+        node.portal_access.carry(grid, writes);
     }
-    refuse_terminal_output_portals(nodes, diagnostics);
 }
 
 ///
@@ -684,8 +636,8 @@ fn schedule_carrying(
     map: &LanguageMap,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) -> Result<Schedule, Vec<Diagnostic>> {
-    let (mut nodes, mut diagnostics) = computations(grid, map);
-    carry(grid, &mut nodes, &mut diagnostics, destinations);
+    let (mut nodes, diagnostics) = computations(grid, map);
+    carry(grid, &mut nodes, destinations);
     order_turns(Lookup::new(grid, nodes), diagnostics)
 }
 
@@ -771,7 +723,8 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                 continue;
             }
             for output in nodes[index]
-                .outputs
+                .portal_access
+                .write_sites()
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
             {
@@ -838,7 +791,7 @@ fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> 
 /// diagnostics its layout owes before any of them is ordered.
 ///
 /// This is everything a schedule knows before a [`Lookup`] indexes it: which
-/// Cells each computation claims, which Portal destinations it resolved, and
+/// Cells each computation claims, how each interacts with Portals, and
 /// which Expressions the row edge cut short. Every computation here reserves
 /// the Cell pair ADR 0036 gives a result nothing widens; which of them a
 /// declaration does widen, and therefore what is ordered after what, is the
@@ -863,55 +816,11 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                         .expect("parsed Function inside Grid"),
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
-                // Nested computations resolve no Portal of their own. A root
-                // Terminal Output Function has no Cell destination at all and
-                // is read before the Source-writing arm below, so a declared
-                // displacement never reaches a Function in the `!` family.
-                let outputs = if parent.is_some() || function.performs_terminal_output() {
-                    vec![]
-                } else if let Some(effect) = function.source_effect() {
-                    // ADR 0004's effect bundle, in the emission order ADR 0020
-                    // resolves it by. The declared bundle says how many Portals
-                    // that is: an `Advance` clears the Cells the producer
-                    // stands in before it writes, and both are reserved because
-                    // a clear is a write — scheduling makes its dependency
-                    // edges from every Cell a producer reaches, and a clear
-                    // reaching a computation that already ran is the ordering
-                    // defect execution rejects a Tick for. An `Emit` plans
-                    // nothing at its own Cells, so it reserves only the one it
-                    // writes.
-                    //
-                    // The displacement is read from the declaration here and
-                    // answered again by the Interpreter at the Turn. That is
-                    // the relationship ADR 0036 already has between a
-                    // reservation and the write it orders: a schedule is fixed
-                    // before any Function evaluates, so it reads what the
-                    // Function declares, and the admitted write is the answer
-                    // arriving inside what was reserved for it.
-                    let destination = Portal::displaced(grid, anchor, effect.columns, effect.rows)
-                        .map(|portal| portal.destination());
-                    match effect.bundle {
-                        SourceBundle::Advance => vec![Ok(anchor), destination],
-                        SourceBundle::Emit => vec![destination],
-                    }
-                } else if let Some((columns, rows)) = function.output_displacement() {
-                    vec![
-                        Portal::displaced(grid, anchor, columns, rows)
-                            .map(|portal| portal.destination()),
-                    ]
-                } else {
-                    vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())]
-                };
-                let reads = function
-                    .output_displacement()
-                    .and_then(|(columns, rows)| {
-                        Portal::displaced(grid, anchor, -columns, -rows)
-                            .ok()?
-                            .span(SCALAR_WIDTH)
-                            .ok()
-                            .map(|span| vec![span.range()])
-                    })
-                    .unwrap_or_default();
+                // Nested computations write no Portal of their own. A nested
+                // Jump still reads the opposite Portal. A root Terminal Output
+                // Function has no Cell destination at all: Play is an Effect,
+                // not a Portal.
+                let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {
                     anchor,
                     span: expression.span(),
@@ -920,8 +829,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                     owner,
                     operands: vec![],
                     syntax_valid: true,
-                    outputs,
-                    reads,
+                    portal_access,
                     // ADR 0036 reserves a Cell pair for every result no
                     // declaration widens, so this is the reservation itself
                     // and not a placeholder. Which computations a declaration
@@ -988,7 +896,8 @@ fn order_turns(
             continue;
         }
         for output in node
-            .outputs
+            .portal_access
+            .write_sites()
             .iter()
             .filter_map(|output| output.as_ref().ok())
         {
@@ -1075,13 +984,14 @@ fn order_turns(
     // often an operand Span, so they cannot sit in `literals`; the edge is
     // the same fact `literal_consumers` records for a declared operand.
     for (consumer, node) in nodes.iter().enumerate() {
-        for read in &node.reads {
+        for read in node.portal_access.read_spans() {
             for (producer, source) in nodes.iter().enumerate() {
                 if producer == consumer || !active[source.owner] {
                     continue;
                 }
                 for output in source
-                    .outputs
+                    .portal_access
+                    .write_sites()
                     .iter()
                     .filter_map(|output| output.as_ref().ok())
                 {
@@ -1867,6 +1777,20 @@ mod test {
     }
 
     #[test]
+    fn a_nested_jump_reads_a_same_tick_write_at_its_input_portal() {
+        // Nested `&^` writes no Cell, but it still reads the Portal one row
+        // south. The root Jump lands `01` there this Tick; without that read
+        // span the nested Jump would run first and add empty Source to `01`.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
+        assert_eq!(grids[0], [".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
     fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
         // Increment reads and writes its ordinary result. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
@@ -2056,13 +1980,10 @@ mod test {
         );
     }
 
-    /// [`refuse_terminal_output_portals`] splices refusals in front of the
-    /// diagnostics it was handed, and this states the order that produces. The
-    /// fixture earns both a refused Portal and a row-edge layout diagnostic
-    /// from [`computations`], so the refusal arriving first is the splice and
-    /// nothing else.
+    /// Naming a Cell for a silent Terminal Output Function cannot mint a
+    /// Portal. The Tick's only diagnostic is the row-edge layout `.+01` owes.
     #[test]
-    fn a_refused_portal_is_diagnosed_before_the_row_edge_layout_it_shares_a_tick_with() {
+    fn a_carried_destination_on_terminal_output_does_not_displace_row_edge_layout() {
         let grid = Grid::new(16, 4);
         let rows = ["!>007FC4", "", "", "            .+01"];
 
@@ -2073,10 +1994,7 @@ mod test {
                 .iter()
                 .map(|diagnostic| diagnostic.message.as_str())
                 .collect::<Vec<_>>(),
-            vec![
-                "a Terminal Output Function cannot have a Portal",
-                "Expression layout crosses the row edge",
-            ]
+            vec!["Expression layout crosses the row edge"]
         );
     }
 
@@ -2417,44 +2335,22 @@ mod test {
             .expect("Terminal Output Function in schedule");
 
         assert!(
-            self_banging.outputs.iter().any(Result::is_ok),
+            self_banging
+                .portal_access
+                .write_sites()
+                .iter()
+                .any(Result::is_ok),
             "a declared Source write states its Portal in computations",
         );
         assert!(
-            terminal.outputs.is_empty(),
+            !terminal.portal_access.writes_cells(),
             "a Terminal Output Function acquires no Portal",
         );
         assert!(
-            !diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message == super::REFUSED_PORTAL),
-            "no refusal when only Source-writing Functions state destinations",
-        );
-    }
-
-    #[test]
-    fn a_test_injected_terminal_output_portal_is_refused() {
-        // Production input cannot assign a Terminal Output Function a Portal.
-        // Inject one after [`computations`] returns to cover ADR 0009's
-        // test-only refusal without claiming production-path coverage.
-        let grid = Grid::new(16, 2);
-        let source = seeded_source(grid, &["!>007FC4", ""]);
-        let (mut nodes, mut diagnostics) = super::computations(grid, &source.shared_language_map());
-        let terminal = nodes
-            .iter()
-            .position(|node| node.function == lang::Function::RawPlay)
-            .expect("Terminal Output Function in schedule");
-        nodes[terminal].outputs = vec![Ok(grid.position(0, 1).unwrap())];
-
-        super::refuse_terminal_output_portals(&mut nodes, &mut diagnostics);
-
-        assert!(nodes[terminal].outputs.is_empty());
-        assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.message.as_str())
-                .collect::<Vec<_>>(),
-            vec![super::REFUSED_PORTAL],
+                .all(|diagnostic| !diagnostic.message.contains("Portal")),
+            "no refusal when only Source-writing Functions state destinations",
         );
     }
 
@@ -3824,19 +3720,24 @@ mod test {
 
     #[test]
     fn live_child_write_survives_parent_failure_and_rejected_portal_keeps_typed_answer() {
+        // Nested `.x` is silent: it answers 0C to `./` and writes no Cell.
+        // Carry cannot mint a Portal onto it. The sibling `.+` is a root, so
+        // it still writes after the parent divides by zero.
         let (plan, source) = carried_source(
             Grid::new(16, 4),
             &["./.x030400", ".+0001", "", ""],
             &[(0, 48), (2, 18), (16, 52)],
         );
-        assert_eq!(&source.snapshot()[18..20], "0C");
+        assert_eq!(&source.snapshot()[18..20], "00");
         assert_eq!(&source.snapshot()[48..50], "  ");
-        assert_eq!(&source.snapshot()[52..54], "0D");
+        assert_eq!(&source.snapshot()[52..54], "01");
         assert!(
             plan.diagnostics
                 .iter()
                 .any(|d| d.message == "cannot divide by zero")
         );
+        // The nested multiply still supplies 0C, so `.+` writes 0E. Naming a
+        // Cell for that nested Function does not create a row-edge write.
         let (plan, source) =
             carried_source(Grid::new(16, 2), &[".+02.x0304", ""], &[(0, 16), (4, 31)]);
         assert_eq!(&source.snapshot()[16..18], "0E");
@@ -3844,7 +3745,9 @@ mod test {
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|d| d.message.contains("crosses the row edge"))
+                .all(|d| !d.message.contains("crosses the row edge")),
+            "{:?}",
+            plan.diagnostics
         );
     }
 
@@ -3885,7 +3788,9 @@ mod test {
     }
 
     #[test]
-    fn live_inactive_ownership_and_a_refused_terminal_portal_are_independent() {
+    fn live_inactive_ownership_and_silent_terminal_output_are_independent() {
+        // Carrying a Cell onto `!>` cannot mint a Portal. Nested `.^80` still
+        // supplies no Note, so this Expression neither plays nor writes.
         let (plan, interpreted, source) = carried_tick(
             Grid::new(16, 3),
             &["!>007F.^80", "", ""],
@@ -3894,8 +3799,13 @@ mod test {
         assert!(plan.writes.is_empty());
         assert!(plan.play_commands.is_empty());
         assert_eq!(interpreted.len(), 0);
-        assert_eq!(plan.diagnostics.len(), 1);
-        assert!(plan.diagnostics[0].message.contains("cannot have a Portal"));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("Portal")),
+            "{:?}",
+            plan.diagnostics
+        );
         assert_eq!(&source.snapshot()[16..32], "                ");
         let (plan, _) = carried_source(
             Grid::new(16, 4),
@@ -3903,8 +3813,13 @@ mod test {
             &[(0, 34), (32, 16)],
         );
         assert_eq!(plan.play_commands, vec![raw(0, 0x7F, 60)]);
-        assert_eq!(plan.diagnostics.len(), 1);
-        assert!(plan.diagnostics[0].message.contains("cannot have a Portal"));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("Portal")),
+            "{:?}",
+            plan.diagnostics
+        );
     }
 
     #[test]
@@ -3954,7 +3869,7 @@ mod test {
         );
         assert_eq!(&source.snapshot()[..10], ".x02.x0304");
         assert_eq!(&source.snapshot()[48..50], "18");
-        assert_eq!(&source.snapshot()[52..54], "0D");
+        assert_eq!(&source.snapshot()[52..54], "01");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         let (plan, source) = replaced_source(
             Grid::new(16, 3),
@@ -4178,15 +4093,17 @@ mod test {
 
     #[test]
     fn nested_computation_returns_and_projects_once() {
+        // Nested `.x` answers 0C to `.+` and writes no Cell. Naming one for it
+        // cannot mint a Portal; the sibling `.+0101` keeps its own literals.
         let grid = Grid::new(16, 4);
         let (plan, interpreted, source) = carried_tick(
             grid,
             &[".+02.x0304", ".+0101", "", ""],
             &[(0, 48), (4, 18), (16, 52)],
         );
-        assert_eq!(&source.snapshot()[18..20], "0C");
+        assert_eq!(&source.snapshot()[18..20], "01");
         assert_eq!(&source.snapshot()[48..50], "0E");
-        assert_eq!(&source.snapshot()[52..54], "0D");
+        assert_eq!(&source.snapshot()[52..54], "02");
         assert_eq!(&source.snapshot()[..10], ".+02.x0304");
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
