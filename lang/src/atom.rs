@@ -253,7 +253,7 @@ impl FunctionKind {
 /// gives Effect to what a Producer contributes to the Tick Plan and this is a
 /// property a Function declares before any Tick runs. One variant today: it is
 /// a type of its own rather than a second arm of [`FunctionKind`] so that the
-/// Halt, Directional Bang, and Jump Functions of ADR 0004 are added here, where
+/// Halt and Directional Bang Functions of ADR 0004 are added here, where
 /// they answer no value by construction, rather than beside `Value`, where each
 /// would have to be re-excluded at every caller.
 #[derive(Clone, Copy)]
@@ -293,7 +293,7 @@ macro_rules! function_kind {
     // taking arguments: the kind column of the table is a single identifier,
     // and this macro is already "the one place a new effect is related to the
     // value-or-effect rule". Declaring the whole effect here keeps the table to
-    // one column per property and gives the eight of them one home.
+    // one column per property and gives every Source-writing row one home.
     //
     // The two groups are written as one block on purpose. Each `SelfBang` arm
     // sits beside the `Bang` arm that emits it, and the pair differs in the
@@ -310,7 +310,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-            spelling: Function::SelfBangingNorth.spelling(),
+            spelling: Some(Function::SelfBangingNorth.spelling()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -318,7 +318,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: -1,
-            spelling: Function::SelfBangingNorth.spelling(),
+            spelling: Some(Function::SelfBangingNorth.spelling()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -326,7 +326,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-            spelling: Function::SelfBangingSouth.spelling(),
+            spelling: Some(Function::SelfBangingSouth.spelling()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -334,7 +334,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 0,
             rows: 1,
-            spelling: Function::SelfBangingSouth.spelling(),
+            spelling: Some(Function::SelfBangingSouth.spelling()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -342,7 +342,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -1,
             rows: 0,
-            spelling: Function::SelfBangingWest.spelling(),
+            spelling: Some(Function::SelfBangingWest.spelling()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -350,7 +350,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: -2,
             rows: 0,
-            spelling: Function::SelfBangingWest.spelling(),
+            spelling: Some(Function::SelfBangingWest.spelling()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -358,7 +358,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 1,
             rows: 0,
-            spelling: Function::SelfBangingEast.spelling(),
+            spelling: Some(Function::SelfBangingEast.spelling()),
             bundle: crate::SourceBundle::Advance,
         }))
     };
@@ -366,7 +366,7 @@ macro_rules! function_kind {
         FunctionKind::Effect(EffectKind::SourceWrite(crate::SourceEffect {
             columns: 2,
             rows: 0,
-            spelling: Function::SelfBangingEast.spelling(),
+            spelling: Some(Function::SelfBangingEast.spelling()),
             bundle: crate::SourceBundle::Emit,
         }))
     };
@@ -896,14 +896,14 @@ macro_rules! portal_input {
     () => {
         None
     };
-    ($role:literal, Number, OrdinaryResult) => {
-        Some(crate::PortalInput::ordinary_result_number($role))
+    ($role:literal, Number) => {
+        Some(crate::PortalInput::number($role))
     };
 }
 
 // #[derive(serde::Deserialize, serde::Serialize)]
 macro_rules! define_functions {
-    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident at $portal_site:ident)?)),+ $(,)?) => {
+    ($($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $pervasion:ident, $answer:ident, $bang:literal, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)?)),+ $(,)?) => {
         $(const _: () = assert!(
             $spelling.len() == 2 && $spelling.is_ascii(),
             "a Function spelling must be exactly two ASCII Cells",
@@ -986,7 +986,7 @@ macro_rules! define_functions {
             /// gives a Source-writing Function a validated write bundle and
             /// ADR 0009 lets it resolve multiple Portals, so a gate that
             /// refused a Portal to every Function answering an effect would
-            /// deny the Halt, Directional Bang, and Jump Functions their
+            /// deny the Halt and Directional Bang Functions their
             /// destinations. Ask [`Function::answers_value`] instead wherever
             /// the rule is that nothing consumes the answer.
             #[inline(always)]
@@ -999,10 +999,9 @@ macro_rules! define_functions {
             ///
             /// `orcvs` resolves the displacement against the Grid, because
             /// ADR 0009 keeps destination resolution there and this crate holds
-            /// no Grid. It is read before the Tick, to reserve the Cells the
-            /// bundle can reach, and answered again as the interpretation:
-            /// these Functions take no operand and read no Context, so the
-            /// whole of the effect is declared here.
+            /// no Grid. Advance and Emit declare the whole write: scheduling
+            /// reserves the displaced Span, and the Interpreter answers the
+            /// same declaration.
             #[inline(always)]
             pub const fn source_effect(self) -> Option<crate::SourceEffect> {
                 self.kind().source_effect()
@@ -1089,7 +1088,7 @@ macro_rules! define_functions {
             /// The Portal input resolved at Turn, after cell operand validation.
             pub const fn portal_input(self) -> Option<crate::PortalInput> {
                 match self {
-                    $(Self::$variant => portal_input!($($portal_role, $portal_type, $portal_site)?),)+
+                    $(Self::$variant => portal_input!($($portal_role, $portal_type)?),)+
                 }
             }
 
@@ -1165,7 +1164,7 @@ macro_rules! define_functions {
                 }
 
                 $(impl crate::portal::PortalOperands for $variant {
-                    const PORTAL: crate::PortalInput = match portal_input!($portal_role, $portal_type, $portal_site) {
+                    const PORTAL: crate::PortalInput = match portal_input!($portal_role, $portal_type) {
                         Some(input) => input,
                         None => unreachable!(),
                     };
@@ -1289,8 +1288,12 @@ define_functions! {
     Divide => ("./", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Equality => (".=", Value, Intrinsic, Pervasive, Atom, true, [left: Number, right: Number]),
     Euclidean => ("~%", Value, Intrinsic, Scalar, Atom, true, [hits: Number, steps: Number]),
-    Increment => ("~+", Value, Intrinsic, Scalar, Atom, false, [step: Number, modulus: Number], portal: "previous value": Number at OrdinaryResult),
-    Interpolation => ("~>", Value, Intrinsic, Scalar, Atom, false, [rate: Number, target: Number], portal: "previous value": Number at OrdinaryResult),
+    Increment => ("~+", Value, Intrinsic, Scalar, Atom, false, [step: Number, modulus: Number], portal: "previous value": Number),
+    Interpolation => ("~>", Value, Intrinsic, Scalar, Atom, false, [rate: Number, target: Number], portal: "previous value": Number),
+    JumpEast => ("&>", Value, Intrinsic, Scalar, Atom, true, []),
+    JumpNorth => ("&^", Value, Intrinsic, Scalar, Atom, true, []),
+    JumpSouth => ("&v", Value, Intrinsic, Scalar, Atom, true, []),
+    JumpWest => ("&<", Value, Intrinsic, Scalar, Atom, true, []),
     Maximum => (".>", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Minimum => (".<", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
     Modulo => (".%", Value, Intrinsic, Pervasive, Elementwise, false, [left: Number, right: Number]),
@@ -1466,8 +1469,21 @@ impl Function {
         }),
         (ReplacementChange::Write, |replacement, running| {
             replacement.source_effect() != running.source_effect()
+                || replacement.output_displacement() != running.output_displacement()
         }),
     ];
+
+    /// How far this Function's output Portal sits from its anchor when that
+    /// Portal is not the ordinary result one row south.
+    pub const fn output_displacement(self) -> Option<(i16, i16)> {
+        match self {
+            Self::JumpEast => Some((2, 0)),
+            Self::JumpWest => Some((-2, 0)),
+            Self::JumpNorth => Some((0, -1)),
+            Self::JumpSouth => Some((0, 1)),
+            _ => None,
+        }
+    }
 
     /// Which declared fact this Function changes about `running`, the Function
     /// a computation is running, or `None` where it changes none of them.
@@ -1672,11 +1688,11 @@ mod test {
 
     #[test]
     fn every_source_writing_function_declares_the_effect_its_spelling_names() {
-        // The eight effects live in `function_kind!`, so this is the test that
-        // keeps that macro in step with the spellings. It is exhaustive over
-        // the Source-writing rows rather than a list, so a ninth is drawn the
-        // day it is declared, the way `Function::ALL` keeps every other sweep
-        // honest.
+        // The Source-writing effects live in `function_kind!`, so this is the
+        // test that keeps that macro in step with the spellings. It is
+        // exhaustive over the Source-writing rows rather than a list, so a
+        // later row is drawn the day it is declared, the way `Function::ALL`
+        // keeps every other sweep honest.
         //
         // The pairs are stated together because the pairing is the design.
         // `*^` and `^^` write `^^` and differ in two declared things: the
@@ -1693,14 +1709,14 @@ mod test {
             };
             seen += 1;
             let (columns, rows, spelling, bundle) = match function.spelling() {
-                "^^" => (0, -1, "^^", crate::SourceBundle::Advance),
-                "vv" => (0, 1, "vv", crate::SourceBundle::Advance),
-                "<<" => (-1, 0, "<<", crate::SourceBundle::Advance),
-                ">>" => (1, 0, ">>", crate::SourceBundle::Advance),
-                "*^" => (0, -1, "^^", crate::SourceBundle::Emit),
-                "*v" => (0, 1, "vv", crate::SourceBundle::Emit),
-                "*<" => (-2, 0, "<<", crate::SourceBundle::Emit),
-                "*>" => (2, 0, ">>", crate::SourceBundle::Emit),
+                "^^" => (0, -1, Some("^^"), crate::SourceBundle::Advance),
+                "vv" => (0, 1, Some("vv"), crate::SourceBundle::Advance),
+                "<<" => (-1, 0, Some("<<"), crate::SourceBundle::Advance),
+                ">>" => (1, 0, Some(">>"), crate::SourceBundle::Advance),
+                "*^" => (0, -1, Some("^^"), crate::SourceBundle::Emit),
+                "*v" => (0, 1, Some("vv"), crate::SourceBundle::Emit),
+                "*<" => (-2, 0, Some("<<"), crate::SourceBundle::Emit),
+                "*>" => (2, 0, Some(">>"), crate::SourceBundle::Emit),
                 other => panic!("{other} declares a Source write with no stated effect"),
             };
             assert_eq!(
@@ -1746,6 +1762,10 @@ mod test {
                 Function::Delay,
                 Function::Equality,
                 Function::Euclidean,
+                Function::JumpEast,
+                Function::JumpNorth,
+                Function::JumpSouth,
+                Function::JumpWest,
                 Function::Select,
             ]
         );
@@ -2010,6 +2030,10 @@ mod test {
                 | Function::Euclidean
                 | Function::Increment
                 | Function::Interpolation
+                | Function::JumpEast
+                | Function::JumpNorth
+                | Function::JumpSouth
+                | Function::JumpWest
                 | Function::Maximum
                 | Function::Minimum
                 | Function::Modulo
@@ -2092,15 +2116,18 @@ mod test {
                 | Function::RawPlay
                 | Function::Subtract
                 | Function::TimedPlay => true,
-                // The Source-writing Functions declare no operand, so there is
-                // no operand for pervasion to widen over. They are `Scalar` for
-                // the reason ADR 0039's two pulses are not: those refuse a
-                // Sequence they could have been handed, while these are never
-                // handed anything.
+                // Functions that declare no operand have nothing for pervasion
+                // to widen over. They are `Scalar` for the reason ADR 0039's
+                // two pulses are not: those refuse a Sequence they could have
+                // been handed, while these are never handed anything.
                 Function::DirectionalBangEast
                 | Function::DirectionalBangNorth
                 | Function::DirectionalBangSouth
                 | Function::DirectionalBangWest
+                | Function::JumpEast
+                | Function::JumpNorth
+                | Function::JumpSouth
+                | Function::JumpWest
                 | Function::SelfBangingEast
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
@@ -2160,7 +2187,11 @@ mod test {
                 Function::Delay
                 | Function::Euclidean
                 | Function::Increment
-                | Function::Interpolation => (false, false),
+                | Function::Interpolation
+                | Function::JumpEast
+                | Function::JumpNorth
+                | Function::JumpSouth
+                | Function::JumpWest => (false, false),
                 Function::Select => (false, false),
                 Function::Concatenate
                 | Function::NoteRange
@@ -2225,6 +2256,10 @@ mod test {
         assert_eq!(Atom::Function(Function::SelfBangingSouth).to_string(), "vv");
         assert_eq!(Atom::Function(Function::SelfBangingWest).to_string(), "<<");
         assert_eq!(Atom::Function(Function::SelfBangingEast).to_string(), ">>");
+        assert_eq!(Atom::Function(Function::JumpNorth).to_string(), "&^");
+        assert_eq!(Atom::Function(Function::JumpSouth).to_string(), "&v");
+        assert_eq!(Atom::Function(Function::JumpWest).to_string(), "&<");
+        assert_eq!(Atom::Function(Function::JumpEast).to_string(), "&>");
     }
 
     #[test]

@@ -52,7 +52,7 @@ pub enum Interpretation {
 ///
 pub struct Context<'a> {
     pub stack: Stack,
-    /// Playback Tick, anchor, and any Portal spellings the Turn resolved.
+    /// Playback Tick, anchor, and working Source at any Portal the Turn resolved.
     pub inputs: FunctionInputs<'a>,
 }
 
@@ -87,9 +87,8 @@ impl Interpreter {
     /// Evaluates one Function with already resolved, typed inputs. Literal
     /// decoding and nested ownership belong to the caller; evaluation retains
     /// the same type, domain, absence and Sequence rules as `execute`.
-    /// Portal spellings in `inputs` borrow working Source when the Function
-    /// declares a Portal input. Functions without one ignore
-    /// [`FunctionInputs::portals`].
+    /// [`FunctionInputs::portal_source`] borrows working Source when the
+    /// Function declares a Portal input. Functions without one ignore it.
     ///
     /// ```
     /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Sequence, Tick, TickInputs, Value};
@@ -152,6 +151,10 @@ impl Interpreter {
                     Function::Euclidean => tick::euclidean(&mut ctx)?,
                     Function::Increment => tick::increment(&mut ctx)?,
                     Function::Interpolation => tick::interpolation(&mut ctx)?,
+                    Function::JumpEast
+                    | Function::JumpNorth
+                    | Function::JumpSouth
+                    | Function::JumpWest => functions::jump::jump(&mut ctx, *fun)?,
                     Function::Random => tick::random(&mut ctx)?,
                     Function::Concatenate => functions::sequence::concatenate(&mut ctx)?,
                     Function::NoteRange => functions::sequence::note_range(&mut ctx)?,
@@ -783,13 +786,15 @@ mod test {
                 continue;
             }
             if function.answers_sequence()
+                || function.output_displacement().is_some()
                 || function
                     .signature()
                     .iter()
                     .any(|token| matches!(token, Token::Atom | Token::Sequence))
             {
-                // Sequence answers and Atom/Sequence operands are exercised on
-                // their own paths rather than through this Atom-only sweep.
+                // Sequence answers, Portal-read answers, and Atom/Sequence
+                // operands are exercised on their own paths rather than
+                // through this Atom-only sweep.
                 continue;
             }
 

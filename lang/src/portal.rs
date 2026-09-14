@@ -8,32 +8,21 @@ use crate::{
     Atom, Error, Function, InterpretationError, Stack, TickInputs, Token, stack::Operands,
 };
 
-/// The site a Function reads. Grid geometry remains the Source owner's concern.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PortalSite {
-    OrdinaryResult,
-}
-
 /// One Portal input declaration, beside the Function's cell operands.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PortalInput {
-    site: PortalSite,
     token: Token,
     role: &'static str,
 }
 
 impl PortalInput {
-    pub(crate) const fn ordinary_result_number(role: &'static str) -> Self {
+    pub(crate) const fn number(role: &'static str) -> Self {
         Self {
-            site: PortalSite::OrdinaryResult,
             token: Token::Number,
             role,
         }
     }
 
-    pub const fn site(self) -> PortalSite {
-        self.site
-    }
     pub const fn token(self) -> Token {
         self.token
     }
@@ -42,40 +31,32 @@ impl PortalInput {
     }
 }
 
-/// Spellings borrowed from working Source for declared Portal inputs.
-///
-/// One field per [`PortalSite`] today; extend here when `@<` and displaced
-/// reads arrive rather than adding parallel parameters at the Turn seam.
+/// Working Source at a Portal, borrowed for one Function evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PortalSpellings<'a> {
-    ordinary_result: Option<&'a str>,
+pub struct PortalSource<'a> {
+    cells: Option<&'a str>,
 }
 
-impl<'a> PortalSpellings<'a> {
+impl<'a> PortalSource<'a> {
     /// No Portal Cells were supplied.
     #[inline]
     #[must_use]
     pub const fn none() -> Self {
-        Self {
-            ordinary_result: None,
-        }
+        Self { cells: None }
     }
 
-    /// The spelling at the ordinary result Portal, when the site resolved.
+    /// The Cells at the Function's Portal, when they resolved.
     #[inline]
     #[must_use]
-    pub const fn ordinary_result(spelling: Option<&'a str>) -> Self {
-        Self {
-            ordinary_result: spelling,
-        }
+    pub const fn from_cells(cells: Option<&'a str>) -> Self {
+        Self { cells }
     }
 
+    /// The Cells at the Function's Portal.
     #[inline]
     #[must_use]
-    pub fn spelling(self, site: PortalSite) -> Option<&'a str> {
-        match site {
-            PortalSite::OrdinaryResult => self.ordinary_result,
-        }
+    pub fn cells(self) -> Option<&'a str> {
+        self.cells
     }
 }
 
@@ -83,7 +64,7 @@ impl<'a> PortalSpellings<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FunctionInputs<'a> {
     tick: TickInputs,
-    portals: PortalSpellings<'a>,
+    portal_source: PortalSource<'a>,
 }
 
 impl<'a> FunctionInputs<'a> {
@@ -93,15 +74,18 @@ impl<'a> FunctionInputs<'a> {
     pub fn new(tick: TickInputs) -> Self {
         Self {
             tick,
-            portals: PortalSpellings::none(),
+            portal_source: PortalSource::none(),
         }
     }
 
-    /// Tick, anchor, and borrowed Portal spellings from working Source.
+    /// Tick, anchor, and working Source at the Function's Portal.
     #[inline]
     #[must_use]
-    pub const fn with_portals(tick: TickInputs, portals: PortalSpellings<'a>) -> Self {
-        Self { tick, portals }
+    pub const fn with_portal_source(tick: TickInputs, portal_source: PortalSource<'a>) -> Self {
+        Self {
+            tick,
+            portal_source,
+        }
     }
 
     /// The absolute Tick this evaluation belongs to.
@@ -118,11 +102,11 @@ impl<'a> FunctionInputs<'a> {
         self.tick.anchor()
     }
 
-    /// Borrowed Portal spellings supplied by the Turn.
+    /// Working Source at the Function's Portal, supplied by the Turn.
     #[inline]
     #[must_use]
-    pub const fn portals(self) -> PortalSpellings<'a> {
-        self.portals
+    pub const fn portal_source(self) -> PortalSource<'a> {
+        self.portal_source
     }
 }
 
@@ -139,24 +123,24 @@ pub(crate) trait PortalOperands: Operands {
 }
 
 /// A Number decoded from a declared Portal input. Its private field prevents
-/// formulas from accepting an unchecked spelling.
+/// formulas from accepting unchecked Cells.
 pub(crate) struct PortalNumber(u8);
 
 impl PortalNumber {
     pub(crate) fn bind(
         function: Function,
         input: PortalInput,
-        spellings: PortalSpellings<'_>,
+        source: PortalSource<'_>,
     ) -> Result<Self, Error> {
         let invalid = || InterpretationError::PortalInputNotNumber {
             function,
             role: input.role(),
         };
-        let spelling = spellings.spelling(input.site()).ok_or_else(invalid)?;
-        if spelling.len() == input.token().len() && spelling.bytes().all(|cell| cell == b' ') {
+        let cells = source.cells().ok_or_else(invalid)?;
+        if cells.len() == input.token().len() && cells.bytes().all(|cell| cell == b' ') {
             return Ok(Self(0));
         }
-        match input.token().decode(spelling) {
+        match input.token().decode(cells) {
             Ok(Atom::Number(number)) => Ok(Self(number)),
             _ => Err(invalid().into()),
         }
@@ -171,19 +155,19 @@ impl PortalNumber {
 #[inline(always)]
 pub(crate) fn bind_operands<O: PortalOperands>(
     stack: &mut Stack,
-    spellings: PortalSpellings<'_>,
+    source: PortalSource<'_>,
 ) -> Result<(O, PortalNumber), Error> {
     let operands = stack.extract::<O>()?;
-    let portal = PortalNumber::bind(O::FUNCTION, O::PORTAL, spellings)?;
+    let portal = PortalNumber::bind(O::FUNCTION, O::PORTAL, source)?;
     Ok((operands, portal))
 }
 
 #[cfg(test)]
 mod test {
-    use super::{PortalInput, PortalNumber, PortalSpellings};
+    use super::{PortalInput, PortalNumber, PortalSource};
     use crate::{Error, Function, InterpretationError};
 
-    const INPUT: PortalInput = PortalInput::ordinary_result_number("previous value");
+    const INPUT: PortalInput = PortalInput::number("previous value");
 
     #[test]
     fn empty_portal_cells_initialize_as_number_zero() {
@@ -191,7 +175,7 @@ mod test {
             PortalNumber::bind(
                 Function::Increment,
                 INPUT,
-                PortalSpellings::ordinary_result(Some("  "))
+                PortalSource::from_cells(Some("  "))
             )
             .unwrap()
             .number(),
@@ -205,7 +189,7 @@ mod test {
             PortalNumber::bind(
                 Function::Increment,
                 INPUT,
-                PortalSpellings::ordinary_result(Some("0A"))
+                PortalSource::from_cells(Some("0A"))
             )
             .unwrap()
             .number(),
@@ -216,7 +200,7 @@ mod test {
     #[test]
     fn a_missing_portal_site_diagnoses() {
         assert!(matches!(
-            PortalNumber::bind(Function::Increment, INPUT, PortalSpellings::none()),
+            PortalNumber::bind(Function::Increment, INPUT, PortalSource::none()),
             Err(Error::Interpretation(
                 InterpretationError::PortalInputNotNumber {
                     function: Function::Increment,
@@ -232,7 +216,7 @@ mod test {
             PortalNumber::bind(
                 Function::Increment,
                 INPUT,
-                PortalSpellings::ordinary_result(Some("G4"))
+                PortalSource::from_cells(Some("G4"))
             ),
             Err(Error::Interpretation(
                 InterpretationError::PortalInputNotNumber {

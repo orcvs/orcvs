@@ -8,8 +8,8 @@
 //! identical Tick Plan.
 //!
 //! Clock, Delay, and Euclidean read the Tick from [`FunctionInputs`]. Random
-//! reads the anchor from the same bundle. Portal spellings travel there too and
-//! bind at Turn. `functions::tick` is where the seam is consumed, so severing
+//! reads the anchor from the same bundle. Working Source at a Portal travels
+//! there too and binds at Turn. `functions::tick` is where the seam is consumed, so severing
 //! the threading from the Playback Engine to `Interpreter::execute` now changes
 //! what a Source answers rather than nothing at all.
 //!

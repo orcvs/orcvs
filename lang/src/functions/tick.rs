@@ -220,7 +220,7 @@ pub fn euclidean(ctx: &mut Context) -> Result<Value, Error> {
 #[inline(always)]
 pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
     let (Increment { step, modulus }, previous) =
-        crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portals())?;
+        crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portal_source())?;
     let previous = previous.number();
 
     if modulus == 0 {
@@ -256,7 +256,7 @@ pub fn increment(ctx: &mut Context) -> Result<Value, Error> {
 #[inline(always)]
 pub fn interpolation(ctx: &mut Context) -> Result<Value, Error> {
     let (Interpolation { rate, target }, previous) =
-        crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portals())?;
+        crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portal_source())?;
     let previous = previous.number();
 
     let previous = u64::from(previous);
@@ -379,7 +379,7 @@ fn chacha_word(seed: u8, tick: u64, column: i64, row: i64, sequence: u32) -> u64
 mod test {
     use crate::{
         Anchor, Atom, Error, Function, FunctionInputs, Interpretation, Interpreter, Note,
-        PortalSpellings, Sequence, SequenceError, Tick, TickInputs, TypeError, Value,
+        PortalSource, Sequence, SequenceError, Tick, TickInputs, TypeError, Value,
     };
     use rand_chacha::ChaCha8Rng;
     use rand_chacha::rand_core::{Rng, SeedableRng};
@@ -411,9 +411,9 @@ mod test {
         Interpreter::execute_function(
             function,
             &[left.into(), right.into()],
-            FunctionInputs::with_portals(
+            FunctionInputs::with_portal_source(
                 TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
-                PortalSpellings::ordinary_result(Some(previous)),
+                PortalSource::from_cells(Some(previous)),
             ),
         )
     }
