@@ -740,8 +740,9 @@ mod product_path {
     #[wasm_bindgen_test]
     fn a_malformed_local_storage_revision_is_refused_and_starts_the_default_grid() {
         clear_orcvs_keys();
+        let refused = "not a stored Source";
         window_local_storage()
-            .set_item(console::persistence::SOURCE_KEY, "not a stored Source")
+            .set_item(console::persistence::SOURCE_KEY, refused)
             .expect("localStorage accepts the refused value");
 
         let storage = BrowserStorage;
@@ -752,6 +753,16 @@ mod product_path {
             DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT
         );
         assert!(started.snapshot().bytes().all(|byte| byte == b' '));
+        // A Console that never read storage would also start empty and save
+        // an empty Grid. Moving the refused payload aside is the half that
+        // proves the start was a refusal, not an absent key.
+        assert_eq!(
+            window_local_storage()
+                .get_item(console::persistence::REFUSED_KEY)
+                .expect("localStorage is readable")
+                .as_deref(),
+            Some(refused)
+        );
 
         clear_orcvs_keys();
     }

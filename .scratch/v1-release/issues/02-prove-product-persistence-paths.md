@@ -100,7 +100,8 @@ WASM product path (`console/tests/wasm.rs` `product_path`):
   constructs a fresh `CreationContext` over the same localStorage, and asserts Grid, Cells,
   and `Token::Function` at the Add root.
 - `a_malformed_local_storage_revision_is_refused_and_starts_the_default_grid` — a malformed
-  `orcvs_source` in real localStorage is refused and starts the default Grid.
+  `orcvs_source` in real localStorage is refused, starts the default Grid, and the first
+  save moves the refused payload to `orcvs_source_refused`.
 
 ### Native binary procedure (host integration; needs a display)
 
@@ -139,6 +140,7 @@ section — not invent a SHA here. A pointer sits under
 
 2026-09-14: Claimed and resolved on `02-prove-product-persistence-paths`. This is a proof
 ticket: `product-persistence/01` already wired `Source` through eframe storage. `ron` was
-added as a native-only console dev-dependency so the FileStorage-format test can speak the
-codec FileStorage itself does not expose. `web-sys` gained the `Storage` feature so the
-WASM proof can call `window.localStorage`.
+  added as a native-only console dev-dependency so the FileStorage-format test can speak the
+  codec FileStorage itself does not expose. `web-sys` `Storage` is a wasm32 dev-dependency
+  so the WASM proof can call `window.localStorage` without shipping that feature on the
+  application binary.

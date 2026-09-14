@@ -76,7 +76,6 @@ web-sys = { version = "0.3", features = [
     "Document",
     "Element",
     "HtmlCanvasElement",
-    "Storage",
     "Window",
 ] }
 
@@ -91,6 +90,9 @@ ron = "0.12"
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 gloo-timers = { version = "0.4", features = ["futures"] }
 wasm-bindgen-test = "0.3"
+# Test-only: `product_path` drives `window.localStorage`, which is the
+# shipped WASM backend. The application binary never names this feature.
+web-sys = { version = "0.3", features = ["Storage"] }
 
 [dev-dependencies]
 # Same pin as `lang` and `orcvs`: already in the locked graph, needed here
