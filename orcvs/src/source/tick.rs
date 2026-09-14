@@ -39,6 +39,10 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     outputs: Vec<Result<Position, PortalError>>,
+    /// Cells this computation reads from working Source that are not operand
+    /// slots. A Jump reads its input Portal here so a producer that writes
+    /// those Cells is ordered before it.
+    reads: Vec<Range<usize>>,
     /// How wide this computation's result may be, per ADR 0036, and the one
     /// home that fact has. A computation is built reserving the Cell pair
     /// every result reserves unless a declaration widens it, and
@@ -237,6 +241,10 @@ impl Lookup {
                     });
                 }
             }
+            // Jump input Cells are recorded on the computation and become
+            // dependency edges in `order_turns`. They are not literal claims:
+            // an aligned input often overlaps an operand Span, and `Claims`
+            // are disjoint.
         }
         // Nodes retain the Parser's depth-first preorder. Every subtree is a
         // contiguous range, including its root, even with missing operands.
@@ -779,7 +787,16 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                     .then(|| relationships.contacted_roots())
                     .into_iter()
                     .flatten();
-                for index in banged.chain(contacted).collect::<Vec<_>>() {
+                // A Jump writes Bang through its output Portal. A root at
+                // that Portal is activated without a write; neighbours of
+                // an empty `**` write are the ordinary `bang_roots`.
+                let landed = function
+                    .output_displacement()
+                    .is_some()
+                    .then(|| relationships.contacted_roots())
+                    .into_iter()
+                    .flatten();
+                for index in banged.chain(contacted).chain(landed).collect::<Vec<_>>() {
                     if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
                         pending.push(index);
@@ -877,9 +894,24 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                         SourceBundle::Advance => vec![Ok(anchor), destination],
                         SourceBundle::Emit => vec![destination],
                     }
+                } else if let Some((columns, rows)) = function.output_displacement() {
+                    vec![
+                        Portal::displaced(grid, anchor, columns, rows)
+                            .map(|portal| portal.destination()),
+                    ]
                 } else {
                     vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())]
                 };
+                let reads = function
+                    .output_displacement()
+                    .and_then(|(columns, rows)| {
+                        Portal::displaced(grid, anchor, -columns, -rows)
+                            .ok()?
+                            .span(SCALAR_WIDTH)
+                            .ok()
+                            .map(|span| vec![span.range()])
+                    })
+                    .unwrap_or_default();
                 nodes.push(Computation {
                     anchor,
                     span: expression.span(),
@@ -889,6 +921,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                     operands: vec![],
                     syntax_valid: true,
                     outputs,
+                    reads,
                     // ADR 0036 reserves a Cell pair for every result no
                     // declaration widens, so this is the reservation itself
                     // and not a placeholder. Which computations a declaration
@@ -1033,6 +1066,31 @@ fn order_turns(
                         for consumer in lookup.descendants(owner) {
                             order_after(consumer);
                         }
+                    }
+                }
+            }
+        }
+    }
+    // A Jump reads working Source at its input Portal. Those Cells are
+    // often an operand Span, so they cannot sit in `literals`; the edge is
+    // the same fact `literal_consumers` records for a declared operand.
+    for (consumer, node) in nodes.iter().enumerate() {
+        for read in &node.reads {
+            for (producer, source) in nodes.iter().enumerate() {
+                if producer == consumer || !active[source.owner] {
+                    continue;
+                }
+                for output in source
+                    .outputs
+                    .iter()
+                    .filter_map(|output| output.as_ref().ok())
+                {
+                    if lookup
+                        .reserved(producer)
+                        .cells_from(grid, *output)
+                        .is_some_and(|cells| cells.start < read.end && read.start < cells.end)
+                    {
+                        edges.insert((producer, consumer));
                     }
                 }
             }
@@ -1562,6 +1620,266 @@ mod test {
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
+    }
+
+    #[test]
+    fn a_single_east_jump_relays_one_aligned_language_unit() {
+        // `&>` reads the aligned two-Cell unit at its input Portal and writes
+        // that unit through its output Portal.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 1), &["01&>    "], 1);
+        assert_eq!(grids[0], ["01&>01  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn each_jump_direction_relays_one_aligned_language_unit() {
+        let (_, north, _) = tick_by_tick(Grid::new(2, 3), &["  ", "&^", "01"], 1);
+        assert_eq!(north[0], ["01", "&^", "01"]);
+
+        let (_, south, _) = tick_by_tick(Grid::new(2, 3), &["01", "&v", "  "], 1);
+        assert_eq!(south[0], ["01", "&v", "01"]);
+
+        let (_, west, _) = tick_by_tick(Grid::new(8, 1), &["    &<01"], 1);
+        assert_eq!(west[0], ["  01&<01"]);
+    }
+
+    #[test]
+    fn consecutive_jumps_compose_through_overlapping_portals() {
+        // Each Jump's output Portal is its own displacement. Two touching
+        // east Jumps overlap: the first writes onto the second and suppresses
+        // it, the same way any Source write covering a Function does.
+        let (plans, grids, _) = tick_by_tick(Grid::new(10, 1), &["01&>&>    "], 1);
+        assert_eq!(grids[0], ["01&>01    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        let (_, north, _) = tick_by_tick(Grid::new(2, 4), &["  ", "&^", "&^", "01"], 1);
+        assert_eq!(north[0], ["  ", "01", "&^", "01"]);
+
+        let (_, south, _) = tick_by_tick(Grid::new(2, 4), &["01", "&v", "&v", "  "], 1);
+        assert_eq!(south[0], ["01", "&v", "01", "  "]);
+
+        let (_, west, _) = tick_by_tick(Grid::new(10, 1), &["    &<&<01"], 1);
+        assert_eq!(west[0], ["    01&<01"]);
+    }
+
+    #[test]
+    fn each_jump_uses_its_own_portals() {
+        // A space between two `&>` is each Function's own Portals: the first
+        // writes into the gap; the second reads that write and writes past
+        // itself.
+        let (_, gap, _) = tick_by_tick(Grid::new(12, 1), &["01&>  &>    "], 1);
+        assert_eq!(gap[0], ["01&>01&>01  "]);
+
+        // `&v` sits on `&>`'s output Portal, so the east Jump writes onto it.
+        let (_, split, _) = tick_by_tick(Grid::new(8, 1), &["01&>&v  "], 1);
+        assert_eq!(split[0], ["01&>01  "]);
+    }
+
+    #[test]
+    fn a_jump_overwrites_an_occupied_destination() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["01&>xx"], 1);
+        assert_eq!(grids[0], ["01&>01"]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_empty_jump_input_clears_the_destination() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["  &>xx"], 1);
+        assert_eq!(grids[0], ["  &>  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_partial_jump_input_diagnoses_and_writes_nothing() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 1), &["0 &>xx"], 1);
+        assert_eq!(grids[0], ["0 &>xx"]);
+        assert_eq!(messages(&plans[0]), vec!["&> has partial or invalid input"]);
+    }
+
+    #[test]
+    fn a_jump_does_not_transport_an_incomplete_language_unit() {
+        // Cells 3–4 of `.+0102` are the last Cell of `01` and the first of
+        // `02`: a slice across two Language Units, not one unit to copy.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 3), &[".+0102", "   &v", ""], 1);
+        assert_eq!(grids[0], [".+0102  ", "03 &v   ", "        "]);
+        assert_eq!(messages(&plans[0]), vec!["&v has partial or invalid input"]);
+    }
+
+    #[test]
+    fn a_jump_does_not_transport_a_sequence() {
+        // `:-0001` writes `0001` on the row below. The Jump's input is the
+        // first Atom of that Sequence, not a Language Unit of its own.
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &[":-0001", "    &>"], 1);
+        assert_eq!(grids[0][0], ":-0001  ");
+        assert_eq!(grids[0][1], "0001&>  ");
+        assert_eq!(messages(&plans[0]), vec!["&> has partial or invalid input"]);
+    }
+
+    #[test]
+    fn a_jump_treats_empty_cells_past_a_sequence_write_as_empty_input() {
+        // `:-0001` writes `0001` and reserves the rest of the destination row.
+        // The Jump's aligned input sits in that reserved tail — empty, past
+        // the admitted write — so it is ordinary empty input, not Sequence
+        // transport.
+        let (plans, grids, _) = tick_by_tick(Grid::new(12, 2), &[":-0001", "      &>xx"], 1);
+        assert_eq!(grids[0][0], ":-0001      ");
+        assert_eq!(grids[0][1], "0001  &>    ");
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_jump_copies_a_language_unit_past_a_sequence_write() {
+        // `:-0001` writes `0001` and reserves the rest of the destination row.
+        // The Jump's input is the Number `01` sitting in that reserved tail,
+        // not a member of the Sequence the Range wrote.
+        let (plans, grids, _) = tick_by_tick(Grid::new(12, 2), &[":-0001", "    01&>xx"], 1);
+        assert_eq!(grids[0][0], ":-0001      ");
+        assert_eq!(grids[0][1], "000101&>01  ");
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_out_of_grid_jump_destination_diagnoses_and_writes_nothing() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(4, 1), &["01&>"], 1);
+        assert_eq!(grids[0], ["01&>"]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec![r#"result "01" falls outside the Grid"#]
+        );
+    }
+
+    #[test]
+    fn a_relayed_bang_writes_into_empty_source() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &[".=0101", "  &>"], 1);
+        assert_eq!(grids[0], [".=0101    ", "**&>**    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_relayed_bang_activates_a_neighbour_of_empty_source() {
+        // `**` written into empty Source is ordinary Bang output: a MIDI
+        // south of that write sounds this Tick.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::new(12, 3), &[".=0101", "  &>", "    !>007FC4"], 1);
+        assert_eq!(grids[0][1], "**&>**      ");
+        assert_eq!(plans[0].play_commands.len(), 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_relayed_bang_activates_a_root() {
+        // Equality Bangs on every Tick; the Jump relays that Bang onto Raw
+        // Play. The Play Command is the evidence the root was activated
+        // without its Source being overwritten.
+        let (plans, grids, _) = tick_by_tick(Grid::new(12, 2), &[".=0101", "  &>!>007FC4"], 1);
+        assert_eq!(grids[0], [".=0101      ", "**&>!>007FC4"]);
+        assert_eq!(plans[0].play_commands.len(), 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_relayed_bang_activates_a_root_above_the_jump() {
+        // MIDI sits at the earliest Position. A North Jump below it relays
+        // Bang onto that root, so the Play Command is also the evidence that
+        // the schedule ordered the Jump first.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::new(10, 3), &["!>007FC4", "&^  .=0101", "  &<"], 1);
+        assert_eq!(grids[0][0], "!>007FC4  ");
+        assert_eq!(plans[0].play_commands.len(), 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_relayed_bang_on_an_occupied_non_root_diagnoses_and_writes_nothing() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(10, 2), &[".=0101", "  &>xx"], 1);
+        assert_eq!(grids[0], [".=0101    ", "**&>xx    "]);
+        assert_eq!(
+            messages(&plans[0]),
+            vec!["&> cannot activate an occupied non-root"]
+        );
+    }
+
+    #[test]
+    fn a_copied_function_is_not_actionable_until_the_next_snapshot() {
+        // `>>` copied this Tick is in the Grid but not in the Snapshot the
+        // schedule was built from, so it first moves on the following Tick.
+        // Delay Bangs once; `*>` emits `>>`; the Jump copies that spelling.
+        // The copy sits at columns 8–9 on this Tick. If it were actionable
+        // from the Snapshot that wrote it, it would already have moved to 9.
+        let (plans, grids, _) = tick_by_tick(Grid::new(16, 2), &["~*0401", "  *>  &>"], 1);
+        assert_eq!(grids[0][1], "***>>>&>>>      ");
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn a_jump_below_its_consumer_reaches_it_the_same_tick() {
+        // Backward routing is ordinary: the Jump is below Addition and still
+        // supplies `02` in time for `03` to be written this Tick.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 3), &[".+  02", "  &^", "  01"], 1);
+        assert_eq!(grids[0], [".+0102", "03&^  ", "  01  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
+        // Increment reads and writes its ordinary result. A Jump that copies
+        // that Cell pair back onto Increment's operand closes a cycle.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", "&^"], 1);
+        assert_eq!(grids[0], ["~+0104", "&^    "]);
+        assert!(
+            plans[0]
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("same-Tick dependency cycle")),
+            "{:?}",
+            plans[0].diagnostics
+        );
     }
 
     #[test]

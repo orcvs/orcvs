@@ -17,7 +17,7 @@ pub use error::{ArgumentError, Error, InterpretationError, SequenceError, Syntax
 pub use expression::{Expression, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
-pub use portal::{FunctionInputs, PortalInput, PortalSite, PortalSpellings};
+pub use portal::{FunctionInputs, PortalInput, PortalSource};
 pub use sequence::{Sequence, Value};
 pub use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};
@@ -187,12 +187,8 @@ impl<'a> IntoIterator for &'a Performance {
 /// property every Function has, with the ordinary result position one row south
 /// as the default one. A Function carrying this declines that default.
 ///
-/// Every producer today declares the whole of it, so this is read twice for one
-/// declaration: once by scheduling, which needs the destinations before any
-/// Function evaluates, and once as the Interpreter's answer. Issue 04's Jump
-/// relays a spelling read from Source rather than a fixed one, and it is the
-/// first producer for which the two readings differ; the type is widened when
-/// that caller arrives to shape it, rather than guessed at now.
+/// Scheduling still reads the displacement and the bundle before any Function
+/// evaluates, so it can reserve destinations.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SourceEffect {
     /// Cells to displace horizontally, positive to the east.
@@ -200,7 +196,7 @@ pub struct SourceEffect {
     /// Rows to displace vertically, positive to the south.
     pub rows: i16,
     /// The characters written at the displaced Span.
-    pub spelling: &'static str,
+    pub spelling: Option<&'static str>,
     /// Which of ADR 0004's bundles this effect plans.
     pub bundle: SourceBundle,
 }

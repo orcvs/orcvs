@@ -93,7 +93,7 @@ The Source Function `*!`. When active, it establishes a dependency that locks th
 _Avoid_: Stop Function, control phase, retroactive suppression
 
 **Jump Function**:
-One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It copies exactly one aligned two-Cell Language Unit from the side opposite its direction to the far side of a consecutive chain with the same spelling. The chain head is the member adjacent to the input; only the head relays, while later members produce no effect. Horizontal members have touching Spans with anchors two columns apart; vertical members share an anchor column on adjacent rows. A gap, misalignment, or different spelling ends the chain. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Span. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump participates in the dependency schedule, and its Bang output can activate a root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
+One of the directional Address Functions `&^`, `&v`, `&<`, and `&>`. It is a Function that answers a value: it reads one aligned two-Cell Language Unit at the Portal opposite its output and writes that value through its output Portal. East and west displace two columns; north and south one row. Consecutive Jumps compose through those Portals; when one output covers the next Function, the first write suppresses it. Empty aligned input clears the two-Cell destination. Partial or invalid input diagnoses and writes nothing. An ordinary output atomically overwrites its complete destination Span. A Bang output activates an Expression root without overwriting it, writes `**` into an empty destination, and diagnoses at an occupied non-root or out-of-Grid destination. Jump participates in the dependency schedule, and its Bang output can activate a root in the same Tick. A Jump does not transport a Sequence or part of a Language Unit.
 _Avoid_: Jumper, Jymper, Sequence transport
 
 **Number**:
@@ -169,7 +169,7 @@ The Sequence Function `:=`. It uses a zero-based Number index modulo the length 
 _Avoid_: Push Function, Sequence replacement operand, mutation
 
 **Portal**:
-One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. It carries an ordinary Atom or intact Sequence result, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Portal spellings travel in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
+One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. It carries an ordinary Atom or intact Sequence result, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
 _Avoid_: Port, address value, output coordinate
 
 **Comment**:

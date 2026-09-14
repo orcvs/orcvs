@@ -7,8 +7,8 @@
 use std::ops::ControlFlow::{self, Break, Continue};
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalInput, PortalSite,
-    PortalSpellings, SourceBundle, SourceEffect, Tick, TickInputs, Value,
+    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalInput, PortalSource,
+    SourceBundle, SourceEffect, Tick, TickInputs, Value,
 };
 
 use super::{
@@ -141,6 +141,37 @@ impl ComputationState {
     }
 }
 
+/// What a Jump's input Portal holds, before the Interpreter answers an Atom.
+///
+/// Empty and Bang are values. A complete aligned unit is one too. Anything
+/// else — a partial pair, a slice across two units, a Sequence member — is
+/// not supplied to the Interpreter.
+enum JumpInput {
+    Empty,
+    Bang,
+    Unit,
+    Invalid,
+}
+
+fn spans_overlap(left: std::ops::Range<usize>, right: std::ops::Range<usize>) -> bool {
+    left.start < right.end && right.start < left.end
+}
+
+fn jump_unit_from_cells(cells: &[u8]) -> JumpInput {
+    let spelling = std::str::from_utf8(cells).expect("ASCII Source");
+    if spelling == "**" {
+        return JumpInput::Bang;
+    }
+    if lang::Function::try_from(spelling).is_ok()
+        || lang::to_atom_num(spelling).is_ok()
+        || lang::to_atom_note(spelling).is_ok()
+    {
+        JumpInput::Unit
+    } else {
+        JumpInput::Invalid
+    }
+}
+
 ///
 /// What a blocked Self-Banging move ran into.
 ///
@@ -181,6 +212,9 @@ struct Execution<'a> {
     lookup: &'a Lookup,
     states: Vec<ComputationState>,
     effects: Vec<Effect>,
+    /// Admitted Sequence write ranges, recorded as each write is applied.
+    /// Jump-input membership asks this rather than [`super::Reserved::Row`].
+    sequence_writes: Vec<std::ops::Range<usize>>,
 }
 
 impl<'a> Execution<'a> {
@@ -223,6 +257,7 @@ impl<'a> Execution<'a> {
                 })
                 .collect(),
             effects: diagnostics.into_iter().map(Effect::Diagnose).collect(),
+            sequence_writes: Vec::new(),
         };
         // Source content rather than an answer, so it is stated here rather than
         // rendered: a Bang occupies two Cells and clearing it writes two spaces.
@@ -311,7 +346,8 @@ impl<'a> Execution<'a> {
             // and the record says which of the two happened.
             self.states[index].interpreted = Some(tick);
             self.states[index].interpretations += 1;
-            let inputs = FunctionInputs::with_portals(tick, self.portal_spellings(node, function));
+            let inputs =
+                FunctionInputs::with_portal_source(tick, self.portal_source(node, function));
             Interpreter::execute_function(function, &operands, inputs)
                 .map_err(|error| error.to_string())
         });
@@ -348,23 +384,41 @@ impl<'a> Execution<'a> {
             })
     }
 
-    /// Borrow every declared Portal spelling from working Source.
-    fn portal_spellings(&self, node: &Computation, function: Function) -> PortalSpellings<'_> {
-        let Some(input) = function.portal_input() else {
-            return PortalSpellings::none();
-        };
-        PortalSpellings::ordinary_result(self.borrow_portal_spelling(node, input))
+    /// Borrow working Source at the Function's Portal.
+    fn portal_source(&self, node: &Computation, function: Function) -> PortalSource<'_> {
+        if let Some(input) = function.portal_input() {
+            return PortalSource::from_cells(self.borrow_portal_cells(node, input));
+        }
+        if function.output_displacement().is_some() {
+            return PortalSource::from_cells(self.borrow_jump_input(node, function));
+        }
+        PortalSource::none()
     }
 
     /// Borrow one Portal's Cells directly from working Source. A missing or
     /// truncated site stays absent so binding diagnoses it after all cell
     /// operands have been validated.
-    fn borrow_portal_spelling(&self, node: &Computation, input: PortalInput) -> Option<&str> {
-        let portal = match input.site() {
-            PortalSite::OrdinaryResult => Portal::ordinary_result(self.grid, node.anchor).ok()?,
-        };
+    fn borrow_portal_cells(&self, node: &Computation, input: PortalInput) -> Option<&str> {
+        let portal = Portal::ordinary_result(self.grid, node.anchor).ok()?;
         let span = portal.span(input.token().len()).ok()?;
         Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
+    }
+
+    /// The Cells a Jump reads, when they are one complete aligned unit.
+    ///
+    /// Invalid, partial, and Sequence input stay absent so the Interpreter
+    /// diagnoses rather than answering an Atom that was never a Language Unit.
+    fn borrow_jump_input(&self, node: &Computation, function: Function) -> Option<&str> {
+        let (columns, rows) = function.output_displacement()?;
+        let portal = Portal::displaced(self.grid, node.anchor, -columns, -rows).ok()?;
+        let span = portal.span(super::SCALAR_WIDTH).ok()?;
+        let cells = &self.working[span.range()];
+        match self.classify_jump_input(span.range(), cells) {
+            JumpInput::Invalid => None,
+            JumpInput::Empty | JumpInput::Bang | JumpInput::Unit => {
+                Some(std::str::from_utf8(cells).expect("ASCII Source"))
+            }
+        }
     }
 
     fn operands(&self, node: &Computation, signature: lang::Tokens) -> Result<Vec<Value>, String> {
@@ -410,7 +464,19 @@ impl<'a> Execution<'a> {
         // so ADR 0007's complete-fit rule and ADR 0020's Cell-wise conflict
         // resolution are inherited rather than restated for a second width.
         let encoding = match Encoding::render(&value) {
-            Ok(Rendered::Nothing) => return Continue(()),
+            Ok(Rendered::Nothing) => {
+                // A Jump answers Empty when its input is two spaces. That is a
+                // clear of the reserved output Portal, not an omitted write.
+                if self.states[index].function.output_displacement().is_some()
+                    && !node.outputs.is_empty()
+                {
+                    let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
+                    for output in &node.outputs {
+                        self.deliver_output(index, &Value::Atom(Atom::Empty), &cleared, *output)?;
+                    }
+                }
+                return Continue(());
+            }
             Ok(Rendered::Cells(encoding)) => encoding,
             Err(reason) => {
                 if !node.outputs.is_empty() {
@@ -446,7 +512,35 @@ impl<'a> Execution<'a> {
         output: Result<Position, PortalError>,
     ) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
-        let write = match output.and_then(|output| Portal::at(self.grid, output).admit(encoding)) {
+        let destination = match output {
+            Ok(destination) => destination,
+            Err(reason) => {
+                self.effects.push(Effect::Diagnose(diagnose(
+                    node,
+                    portal_message(reason, encoding),
+                )));
+                return Continue(());
+            }
+        };
+        if *value == Value::Atom(Atom::Bang)
+            && self.states[index].function.output_displacement().is_some()
+        {
+            if let Some(root) = self.lookup.root_at(destination) {
+                self.states[root].activated = true;
+                return Continue(());
+            }
+            if let Ok(span) = Portal::at(self.grid, destination).span(super::SCALAR_WIDTH)
+                && self.working[span.range()].iter().any(|&byte| byte != b' ')
+            {
+                let producer = self.states[index].function;
+                self.effects.push(Effect::Diagnose(diagnose(
+                    node,
+                    format!("{producer} cannot activate an occupied non-root"),
+                )));
+                return Continue(());
+            }
+        }
+        let write = match Portal::at(self.grid, destination).admit(encoding) {
             Ok(write) => write,
             Err(reason) => {
                 self.effects.push(Effect::Diagnose(diagnose(
@@ -541,6 +635,9 @@ impl<'a> Execution<'a> {
                 self.states[descendant].suppressed = true;
             }
         }
+        if matches!(value, Value::Sequence(_)) {
+            self.sequence_writes.push(write.span().range());
+        }
         self.write(write);
         Continue(())
     }
@@ -589,8 +686,12 @@ impl<'a> Execution<'a> {
     ) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
         let anchor = node.anchor;
-        let spelling = Encoding::literal(effect.spelling)
-            .expect("a Function spelling is printable ASCII Cells");
+        let spelling = Encoding::literal(
+            effect
+                .spelling
+                .expect("an Advance or Emit declares the Function it writes"),
+        )
+        .expect("a Function spelling is printable ASCII Cells");
         // What stands in the Source, which is not always what gets written. A
         // Self-Banging Function writes its own spelling and the two agree; a
         // Directional Bang Function writes the Function it emits, and only this
@@ -709,11 +810,58 @@ impl<'a> Execution<'a> {
                 node,
                 format!(
                     "{producer} has no empty destination inside the Grid for {}",
-                    effect.spelling
+                    effect
+                        .spelling
+                        .expect("an Emit declares the Function it writes"),
                 ),
             ))),
         }
         Continue(())
+    }
+
+    fn classify_jump_input(&self, range: std::ops::Range<usize>, cells: &[u8]) -> JumpInput {
+        if cells.iter().all(|&byte| byte == b' ') {
+            return JumpInput::Empty;
+        }
+        if cells == b"**" {
+            return JumpInput::Bang;
+        }
+        if cells.contains(&b' ') {
+            return JumpInput::Invalid;
+        }
+        let covering: Vec<_> = self
+            .map
+            .units()
+            .filter(|unit| spans_overlap(unit.span().range(), range.clone()))
+            .collect();
+        match covering.as_slice() {
+            [unit] if unit.span().range() == range => {
+                if self.sequence_covers(range.clone()) {
+                    JumpInput::Invalid
+                } else {
+                    jump_unit_from_cells(cells)
+                }
+            }
+            [] => {
+                if self.sequence_covers(range) {
+                    JumpInput::Invalid
+                } else {
+                    jump_unit_from_cells(cells)
+                }
+            }
+            _ => JumpInput::Invalid,
+        }
+    }
+
+    /// Whether `cells` sit entirely inside an admitted Sequence write.
+    ///
+    /// Membership is the write, not the reservation: [`super::Reserved::Row`]
+    /// runs to the end of the destination row, and a short encoding leaves the
+    /// tail empty of Sequence members.
+    fn sequence_covers(&self, cells: std::ops::Range<usize>) -> bool {
+        self.sequence_writes
+            .iter()
+            .any(|written| written.start <= cells.start && cells.end <= written.end)
     }
 
     ///
@@ -773,17 +921,13 @@ impl<'a> Execution<'a> {
 
 /// Why a destination refused the value sent to it.
 ///
-/// `OutsideGrid` has no live path and is not a gap in the coverage. The only
-/// producer of it is `Portal::displaced`, and the only caller of that at a Turn
-/// is `deliver_source_effect`, which by ADR 0006 answers an out-of-Grid
-/// displacement with `**` and no diagnostic rather than a message. This
-/// function is reached only from `deliver_output`, which a Source-writing
-/// Function never enters because it answers `Interpretation::Source`; the
-/// refusals that do arrive here come from `Portal::at(..).admit(..)`, which
-/// resolves inside the Grid by construction and so can only answer
-/// `BelowSource` or `CrossesRowEdge`. The arm is kept because the match is
-/// exhaustive over `PortalError` and ADR 0028 rules out a panic inside Tick
-/// planning, which are the only two alternatives to stating it.
+/// `OutsideGrid` is live for a Jump whose reserved output Portal left the
+/// Grid. Advance and Emit still answer an out-of-Grid displacement with `**`
+/// and no diagnostic, so they never reach this function. The other refusals
+/// come from `Portal::at(..).admit(..)`, which resolves inside the Grid by
+/// construction and so can only answer `BelowSource` or `CrossesRowEdge`.
+/// The match is exhaustive over `PortalError` because ADR 0028 rules out a
+/// panic inside Tick planning.
 fn portal_message(reason: PortalError, encoding: &Encoding) -> String {
     let encoding = encoding.to_string();
     match reason {

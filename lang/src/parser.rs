@@ -934,6 +934,10 @@ mod test {
             ("vv", Function::SelfBangingSouth),
             ("<<", Function::SelfBangingWest),
             (">>", Function::SelfBangingEast),
+            ("&^", Function::JumpNorth),
+            ("&v", Function::JumpSouth),
+            ("&<", Function::JumpWest),
+            ("&>", Function::JumpEast),
         ] {
             assert_eq!(
                 try_parse(&mut source.to_owned()).unwrap().as_slice(),
