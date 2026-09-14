@@ -15,7 +15,7 @@ use std::ops::Range;
 
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
-pub(super) use super::portal::PortalError;
+pub(super) use super::portal::{Occupancy, PortalError, PortalUnit, occupancy_of};
 use super::portal::{Portal, PortalAccess, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};

@@ -9,8 +9,10 @@
 //! ordering, or Tick Plan commit. Keeping resolution in its own module is what
 //! makes that a change to one file rather than a change threaded through the
 //! producer that happened to hardcode "the row below the root".
-//! Reads, write admission, and Reservations share its row-fit calculation;
-//! each caller retains the policy deciding how much coverage it needs.
+//! Reads, write admission, Reservations, occupancy, and Jump's Language Unit
+//! share its row-fit calculation; each caller retains the policy deciding how
+//! much coverage it needs, and whether an occupied Portal diagnoses, activates,
+//! locks, copies, or stays silent.
 //!
 //! Nothing in this module is reachable from the language crate, and nothing in
 //! it is serialized. That is the whole of CONTEXT.md's "a Portal is neither a
@@ -28,7 +30,7 @@ use crate::grid::{CellIndex, Grid, Position};
 
 use super::CellContent;
 use super::encoding::Encoding;
-use super::language_map::Span;
+use super::language_map::{LanguageMap, LanguageUnitKind, Span};
 
 /// The Cell pair an Atom occupies. Jump reads that pair at the opposite
 /// Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
@@ -64,6 +66,52 @@ fn named_portal(grid: Grid, root: Position, coords: PortalCoords) -> Result<Port
 pub(super) struct Portal {
     grid: Grid,
     destination: Position,
+}
+
+///
+/// What Language Units occupy Cells at a resolved destination.
+///
+/// Occupancy is a fact about the Source Snapshot's Language Map, not about
+/// working Source: Bang cleanup clears a standalone `**` before any Turn, and
+/// a Comment never writes, so the Map still names an occupied non-root after
+/// those Cells look empty. Working Source vacancy is [`Portal::occupied_in`].
+///
+/// ADR 0006 and CONTEXT.md keep diagnose-versus-silent with the producer.
+/// Halt, Jump Bang, and a blocked Self-Banging move each read this answer and
+/// apply their own policy.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Occupancy {
+    /// No Language Unit overlaps the Cells.
+    Empty,
+    /// One Language Unit covers every Cell, and it is an Expression root.
+    Root(usize),
+    /// One Language Unit covers every Cell, and it is not a root.
+    NonRoot,
+    /// A Language Unit is met across its edge.
+    Partial,
+}
+
+///
+/// The Language Unit occupying a Portal's two Cells, as Jump copies it.
+///
+/// Occupancy is the Snapshot Map. This is working Source at the Portal,
+/// aligned against that Map and against admitted Sequence writes: Empty and
+/// Bang are values even when the Map still names a cleaned unit; a complete
+/// aligned unit is one too; a partial pair, a slice across two units, a
+/// Comment, or a Sequence member is not. Decoding the admitted spelling is
+/// the Interpreter's.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PortalUnit {
+    /// Two space Cells. A cleaned standalone Bang is Empty here.
+    Empty,
+    /// Working Source holds `**`.
+    Bang,
+    /// One complete aligned unit Jump may copy. The Interpreter decodes it.
+    Unit,
+    /// Not one Language Unit Jump may copy.
+    Invalid,
 }
 
 ///
@@ -175,6 +223,91 @@ impl Portal {
             .expect("the remaining Cells of a resolved Portal fit its row")
     }
 
+    ///
+    /// Language-Map occupancy of up to `width` Cells from this destination.
+    ///
+    /// A destination in the last column still answers the one Cell it holds,
+    /// so occupancy is not refused at the row edge the way a two-Cell write
+    /// is. Halt asks this of a Portal that resolved; the root it locks is a
+    /// separate question about whether an Expression root is anchored at the
+    /// destination itself.
+    ///
+    pub(super) fn occupancy(
+        self,
+        map: &LanguageMap,
+        width: usize,
+        root_at: impl Fn(Position) -> Option<usize>,
+    ) -> Occupancy {
+        occupancy_of(map, &self.cells_along_row(width), root_at)
+    }
+
+    ///
+    /// Whether any of `width` Cells from this destination holds a non-space
+    /// in working Source.
+    ///
+    /// A span that cannot fit answers false: the write path refuses the row
+    /// edge itself. Jump Bang asks this after a root at the destination has
+    /// already been offered activation, which is why a cleaned standalone
+    /// Bang — empty in working Source, still a unit on the Map — writes
+    /// rather than diagnosing.
+    ///
+    pub(super) fn occupied_in(self, working: &[u8], width: usize) -> bool {
+        self.span(width)
+            .ok()
+            .is_some_and(|span| working[span.range()].iter().any(|&byte| byte != b' '))
+    }
+
+    ///
+    /// The Language Unit Jump may copy from `width` Cells of working Source.
+    ///
+    /// `sequence_covers` is the Tick's admitted Sequence writes: membership
+    /// is the write, not the reservation. A same-Tick scalar that lands in a
+    /// reserved tail is a unit of its own; a Sequence member is not.
+    ///
+    pub(super) fn language_unit(
+        self,
+        working: &[u8],
+        map: &LanguageMap,
+        width: usize,
+        sequence_covers: impl Fn(std::ops::Range<usize>) -> bool,
+    ) -> PortalUnit {
+        let Ok(span) = self.span(width) else {
+            return PortalUnit::Invalid;
+        };
+        let range = span.range();
+        let cells = &working[range.clone()];
+        if cells.iter().all(|&byte| byte == b' ') {
+            return PortalUnit::Empty;
+        }
+        if cells == b"**" {
+            return PortalUnit::Bang;
+        }
+        if cells.contains(&b' ') || sequence_covers(range.clone()) {
+            return PortalUnit::Invalid;
+        }
+        let covering: Vec<_> = map
+            .units()
+            .filter(|unit| spans_overlap(unit.span().range(), range.clone()))
+            .collect();
+        match covering.as_slice() {
+            [unit] if unit.span().range() == range => match unit.kind() {
+                LanguageUnitKind::Comment => PortalUnit::Invalid,
+                LanguageUnitKind::Bang
+                | LanguageUnitKind::Function(_)
+                | LanguageUnitKind::OperandLiteral => PortalUnit::Unit,
+            },
+            [] => PortalUnit::Unit,
+            _ => PortalUnit::Invalid,
+        }
+    }
+
+    /// Cells from this destination along its row, at most `width` of them.
+    fn cells_along_row(self, width: usize) -> Vec<usize> {
+        let start = self.grid.index(self.destination).get();
+        let available = self.grid.columns() - self.destination.x();
+        (start..start + width.min(available)).collect()
+    }
+
     /// The write that places `encoding` at this Portal and along its row, or
     /// the reason the whole destination was refused.
     ///
@@ -200,6 +333,46 @@ impl Portal {
             content,
         })
     }
+}
+
+///
+/// Occupancy of arbitrary Cells, as a blocked move's newly entered Cells.
+///
+/// ADR 0006 classifies contact against every Language Unit rather than
+/// against the computations alone: a Comment and a standalone Bang each
+/// occupy Cells and neither is scheduled. `root_at` is the Lookup question
+/// that tells a complete covering unit from an Expression root; this module
+/// holds no Lookup.
+///
+pub(super) fn occupancy_of(
+    map: &LanguageMap,
+    cells: &[usize],
+    root_at: impl Fn(Position) -> Option<usize>,
+) -> Occupancy {
+    let mut partial = false;
+    for unit in map.units() {
+        let covered = unit.span().start().get()..=unit.span().end().get();
+        if !cells.iter().any(|cell| covered.contains(cell)) {
+            continue;
+        }
+        if !cells.iter().all(|cell| covered.contains(cell)) {
+            partial = true;
+            continue;
+        }
+        return match root_at(unit.anchor()) {
+            Some(root) => Occupancy::Root(root),
+            None => Occupancy::NonRoot,
+        };
+    }
+    if partial {
+        Occupancy::Partial
+    } else {
+        Occupancy::Empty
+    }
+}
+
+fn spans_overlap(left: std::ops::Range<usize>, right: std::ops::Range<usize>) -> bool {
+    left.start < right.end && right.start < left.end
 }
 
 ///
@@ -399,7 +572,10 @@ mod test {
         assert_eq!(portal.span(3), Err(PortalError::CrossesRowEdge));
     }
 
-    use super::{Encoding, Portal, PortalAccess, PortalError};
+    use super::{
+        Encoding, LanguageMap, Occupancy, Portal, PortalAccess, PortalError, PortalUnit,
+        occupancy_of,
+    };
     use crate::grid::{CellIndex, Grid};
 
     #[test]
@@ -421,6 +597,10 @@ mod test {
     ///
     fn cell(grid: Grid, idx: usize) -> CellIndex {
         grid.cell_index(idx).expect("inside the Grid")
+    }
+
+    fn unit(portal: Portal, working: &[u8], map: &LanguageMap, sequence: bool) -> PortalUnit {
+        portal.language_unit(working, map, 2, |_| sequence)
     }
 
     ///
@@ -630,5 +810,173 @@ mod test {
         assert!(!access.writes_cells());
         assert!(access.write_sites().is_empty());
         assert_eq!(access.read_spans(), &[expected]);
+    }
+
+    #[test]
+    fn occupancy_of_empty_cells_is_empty() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let portal = Portal::at(grid, grid.position(6, 0).unwrap());
+        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Empty);
+    }
+
+    #[test]
+    fn occupancy_of_a_complete_non_root_is_non_root() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let portal = Portal::at(grid, grid.position(2, 0).unwrap());
+        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
+    }
+
+    #[test]
+    fn occupancy_of_a_complete_root_is_root() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let root = grid.position(0, 0).unwrap();
+        let portal = Portal::at(grid, root);
+        assert_eq!(
+            portal.occupancy(&map, 2, |anchor| (anchor == root).then_some(0)),
+            Occupancy::Root(0)
+        );
+    }
+
+    #[test]
+    fn occupancy_across_two_units_is_partial() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let portal = Portal::at(grid, grid.position(3, 0).unwrap());
+        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::Partial);
+    }
+
+    #[test]
+    fn one_entered_cell_of_a_root_is_complete_root_contact() {
+        // A horizontal move enters one Cell. The root whose Span holds that
+        // Cell is anchored two columns west, which is ADR 0006's east-anchor
+        // geometry rather than a root that begins at the entered Cell.
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let root = grid.position(0, 0).unwrap();
+        assert_eq!(
+            occupancy_of(&map, &[1], |anchor| (anchor == root).then_some(0)),
+            Occupancy::Root(0)
+        );
+    }
+
+    #[test]
+    fn last_column_occupancy_covers_the_one_cell_it_holds() {
+        let grid = Grid::new(4, 1);
+        let map = LanguageMap::build(grid, b"  >>");
+        let root = grid.position(2, 0).unwrap();
+        let portal = Portal::at(grid, grid.position(3, 0).unwrap());
+        assert_eq!(
+            portal.occupancy(&map, 2, |anchor| (anchor == root).then_some(0)),
+            Occupancy::Root(0)
+        );
+    }
+
+    #[test]
+    fn occupied_in_answers_working_source_spaces() {
+        let grid = Grid::new(4, 1);
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert!(!portal.occupied_in(b"    ", 2));
+        assert!(portal.occupied_in(b"x   ", 2));
+        assert!(portal.occupied_in(b" x  ", 2));
+        let last = Portal::at(grid, grid.position(3, 0).unwrap());
+        assert!(!last.occupied_in(b"   x", 2));
+    }
+
+    #[test]
+    fn language_unit_of_empty_working_cells_is_empty() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let portal = Portal::at(grid, grid.position(6, 0).unwrap());
+        assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Empty);
+    }
+
+    #[test]
+    fn language_unit_of_a_cleaned_bang_is_empty() {
+        // Occupancy still names the Map unit. Jump copies working Source, so
+        // a cleaned standalone Bang is Empty rather than Invalid.
+        let grid = Grid::new(4, 1);
+        let map = LanguageMap::build(grid, b"**  ");
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert_eq!(portal.occupancy(&map, 2, |_| None), Occupancy::NonRoot);
+        assert_eq!(unit(portal, b"    ", &map, false), PortalUnit::Empty);
+    }
+
+    #[test]
+    fn language_unit_of_working_bang_is_bang() {
+        let grid = Grid::new(4, 1);
+        let map = LanguageMap::build(grid, b"**  ");
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert_eq!(unit(portal, b"**  ", &map, false), PortalUnit::Bang);
+    }
+
+    #[test]
+    fn language_unit_of_a_complete_aligned_unit_is_unit() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let portal = Portal::at(grid, grid.position(2, 0).unwrap());
+        assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Unit);
+    }
+
+    #[test]
+    fn language_unit_across_two_units_is_invalid() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b".+0102  ");
+        let portal = Portal::at(grid, grid.position(3, 0).unwrap());
+        assert_eq!(unit(portal, b".+0102  ", &map, false), PortalUnit::Invalid);
+    }
+
+    #[test]
+    fn language_unit_of_a_partial_pair_is_invalid() {
+        let grid = Grid::new(6, 1);
+        let map = LanguageMap::build(grid, b"0 &>xx");
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert_eq!(unit(portal, b"0 &>xx", &map, false), PortalUnit::Invalid);
+    }
+
+    #[test]
+    fn language_unit_inside_a_sequence_write_is_invalid() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b"        ");
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert_eq!(unit(portal, b"0001    ", &map, true), PortalUnit::Invalid);
+    }
+
+    #[test]
+    fn language_unit_past_a_sequence_write_is_the_working_cells() {
+        let grid = Grid::new(8, 1);
+        let map = LanguageMap::build(grid, b"        ");
+        let empty = Portal::at(grid, grid.position(4, 0).unwrap());
+        assert_eq!(unit(empty, b"0001    ", &map, false), PortalUnit::Empty);
+        let number = Portal::at(grid, grid.position(4, 0).unwrap());
+        assert_eq!(unit(number, b"000101  ", &map, false), PortalUnit::Unit);
+    }
+
+    #[test]
+    fn language_unit_of_a_comment_is_invalid() {
+        let grid = Grid::new(2, 1);
+        let map = LanguageMap::build(grid, b"||");
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert_eq!(unit(portal, b"||", &map, false), PortalUnit::Invalid);
+    }
+
+    #[test]
+    fn language_unit_alignment_does_not_decode_the_spelling() {
+        // "xx" is not an Atom. The Portal still admits the aligned pair; jump()
+        // is the decoder that diagnoses it.
+        let grid = Grid::new(4, 1);
+        let map = LanguageMap::build(grid, b"    ");
+        let portal = Portal::at(grid, grid.position(0, 0).unwrap());
+        assert_eq!(unit(portal, b"xx  ", &map, false), PortalUnit::Unit);
+    }
+
+    #[test]
+    fn language_unit_that_cannot_fit_is_invalid() {
+        let grid = Grid::new(4, 1);
+        let map = LanguageMap::build(grid, b"   x");
+        let portal = Portal::at(grid, grid.position(3, 0).unwrap());
+        assert_eq!(unit(portal, b"   x", &map, false), PortalUnit::Invalid);
     }
 }

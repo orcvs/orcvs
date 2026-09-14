@@ -5,9 +5,11 @@ use crate::{
 
 /// The Language Unit at a Jump's input Portal.
 ///
-/// The Turn supplies the Cells. Empty and Bang are values; any other complete
-/// two-Cell unit is the Atom those Cells spell. A missing or invalid site is
-/// diagnosed here rather than delivered as a write.
+/// The Turn supplies Cells only after the Portal has classified them as one
+/// complete aligned unit. Empty and Bang are values; any other admitted
+/// two-Cell unit is the Atom those Cells spell. Alignment, Sequence
+/// membership, and partial Spans never reach here. A missing or invalid
+/// spelling is diagnosed rather than delivered as a write.
 pub fn jump(ctx: &mut Context, function: Function) -> Result<Value, Error> {
     let cells = ctx
         .inputs
@@ -46,6 +48,8 @@ mod test {
         TickInputs, interpreter::Context,
     };
 
+    // Decode admitted Portal Cells. Alignment, Sequence membership, and
+    // partial Spans are classified at the Portal, not here.
     fn evaluate(function: Function, cells: Option<&str>) -> Result<crate::Value, crate::Error> {
         let mut ctx = Context::new(
             FunctionInputs::with_portal_source(

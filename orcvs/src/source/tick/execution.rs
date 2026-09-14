@@ -12,8 +12,9 @@ use lang::{
 };
 
 use super::{
-    Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Portal, PortalError,
-    Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan, diagnose, resolve, tick_inputs,
+    Computation, Diagnostic, Effect, Encoding, Grid, LanguageMap, Lookup, Occupancy, Portal,
+    PortalError, PortalUnit, Position, RenderError, Rendered, Schedule, SpanWrite, TickPlan,
+    diagnose, occupancy_of, resolve, tick_inputs,
 };
 
 ///
@@ -141,73 +142,15 @@ impl ComputationState {
     }
 }
 
-/// What a Jump's input Portal holds, before the Interpreter answers an Atom.
-///
-/// Empty and Bang are values. A complete aligned unit is one too. Anything
-/// else — a partial pair, a slice across two units, a Sequence member — is
-/// not supplied to the Interpreter.
-enum JumpInput {
-    Empty,
-    Bang,
-    Unit,
-    Invalid,
-}
-
-fn spans_overlap(left: std::ops::Range<usize>, right: std::ops::Range<usize>) -> bool {
-    left.start < right.end && right.start < left.end
-}
-
-fn jump_unit_from_cells(cells: &[u8]) -> JumpInput {
-    let spelling = std::str::from_utf8(cells).expect("ASCII Source");
-    if spelling == "**" {
-        return JumpInput::Bang;
-    }
-    if lang::Function::try_from(spelling).is_ok()
-        || lang::to_atom_num(spelling).is_ok()
-        || lang::to_atom_note(spelling).is_ok()
-    {
-        JumpInput::Unit
-    } else {
-        JumpInput::Invalid
-    }
-}
-
-///
-/// What a blocked Self-Banging move ran into.
-///
-/// ADR 0006 gives a refused move three outcomes beyond the `**` every refusal
-/// displays, and they are three rather than two because a Language Unit can be
-/// met completely or across its edge: "Complete aligned root contact also
-/// directly delivers Bang activation ... Partial Language Unit contact
-/// diagnoses and delivers nothing. Complete non-root contact adds no collision
-/// diagnostic."
-enum Contact {
-    /// One complete Expression root covers every newly entered Cell, which is
-    /// the alignment ADR 0006 activates on. A vertical move meets the root's
-    /// whole Span; a horizontal one meets the single Cell it enters, which is
-    /// the Cell of the root anchored two columns away.
-    Root(usize),
-    /// A Language Unit is met across its edge. The move is blocked and nothing
-    /// is delivered, and the misalignment is diagnosed because it is the one
-    /// outcome a Source author cannot read off the `**` alone.
-    Partial,
-    /// Nothing more to say: either one complete Language Unit that is no root
-    /// stands there, or the Cells hold characters the Parser established no
-    /// unit from. The two are one outcome and are not told apart, because
-    /// ADR 0006 asks for a diagnostic in neither.
-    Silent,
-}
-
 struct Execution<'a> {
     grid: Grid,
     original: &'a [u8],
     working: Vec<u8>,
     tick: Tick,
-    /// The Language Units of the Source Snapshot, retained for the one question
-    /// the [`Lookup`] cannot answer: what a Self-Banging Function's move ran
-    /// into. A `Lookup` indexes Expressions, so a Comment and a standalone Bang
-    /// are absent from it, and ADR 0006 classifies contact against every
-    /// Language Unit rather than against the computations alone.
+    /// The Language Units of the Source Snapshot, retained for occupancy and
+    /// Jump's Language Unit at a Portal. A `Lookup` indexes Expressions, so a
+    /// Comment and a standalone Bang are absent from it, and those questions
+    /// classify every Language Unit rather than the computations alone.
     map: &'a LanguageMap,
     lookup: &'a Lookup,
     states: Vec<ComputationState>,
@@ -416,12 +359,15 @@ impl<'a> Execution<'a> {
     /// diagnoses rather than answering an Atom that was never a Language Unit.
     fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
         let portal = super::resolve_portal(self.grid, node.anchor, coords).ok()?;
-        let span = portal.span(super::SCALAR_WIDTH).ok()?;
-        let cells = &self.working[span.range()];
-        match self.classify_jump_input(span.range(), cells) {
-            JumpInput::Invalid => None,
-            JumpInput::Empty | JumpInput::Bang | JumpInput::Unit => {
-                Some(std::str::from_utf8(cells).expect("ASCII Source"))
+        match portal.language_unit(&self.working, self.map, super::SCALAR_WIDTH, |range| {
+            self.sequence_covers(range)
+        }) {
+            PortalUnit::Invalid => None,
+            PortalUnit::Empty | PortalUnit::Bang | PortalUnit::Unit => {
+                let span = portal
+                    .span(super::SCALAR_WIDTH)
+                    .expect("an admitted unit fitted its row");
+                Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
             }
         }
     }
@@ -530,9 +476,7 @@ impl<'a> Execution<'a> {
                 self.states[root].activated = true;
                 return Continue(());
             }
-            if let Ok(span) = Portal::at(self.grid, destination).span(super::SCALAR_WIDTH)
-                && self.working[span.range()].iter().any(|&byte| byte != b' ')
-            {
+            if Portal::at(self.grid, destination).occupied_in(&self.working, super::SCALAR_WIDTH) {
                 let producer = self.states[index].function;
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
@@ -783,17 +727,17 @@ impl<'a> Execution<'a> {
                     .admit(&bang)
                     .expect("a Function standing in the Source fits its own Span");
                 self.write(display);
-                match self.contact(&entered) {
+                match occupancy_of(self.map, &entered, |anchor| self.lookup.root_at(anchor)) {
                     // ADR 0006: "Complete aligned root contact also directly
                     // delivers Bang activation." The schedule ordered this
                     // producer ahead of every root its Portal could reach, so
                     // the contacted root's Turn is still ahead of it.
-                    Contact::Root(root) => self.states[root].activated = true,
-                    Contact::Partial => self.effects.push(Effect::Diagnose(diagnose(
+                    Occupancy::Root(root) => self.states[root].activated = true,
+                    Occupancy::Partial => self.effects.push(Effect::Diagnose(diagnose(
                         node,
                         format!("{producer} contacts part of a Language Unit"),
                     ))),
-                    Contact::Silent => {}
+                    Occupancy::Empty | Occupancy::NonRoot => {}
                 }
             }
             // An emitting Function stays where it is, so it has no Cells of its
@@ -818,40 +762,6 @@ impl<'a> Execution<'a> {
             ))),
         }
         Continue(())
-    }
-
-    fn classify_jump_input(&self, range: std::ops::Range<usize>, cells: &[u8]) -> JumpInput {
-        if cells.iter().all(|&byte| byte == b' ') {
-            return JumpInput::Empty;
-        }
-        if cells == b"**" {
-            return JumpInput::Bang;
-        }
-        if cells.contains(&b' ') {
-            return JumpInput::Invalid;
-        }
-        let covering: Vec<_> = self
-            .map
-            .units()
-            .filter(|unit| spans_overlap(unit.span().range(), range.clone()))
-            .collect();
-        match covering.as_slice() {
-            [unit] if unit.span().range() == range => {
-                if self.sequence_covers(range.clone()) {
-                    JumpInput::Invalid
-                } else {
-                    jump_unit_from_cells(cells)
-                }
-            }
-            [] => {
-                if self.sequence_covers(range) {
-                    JumpInput::Invalid
-                } else {
-                    jump_unit_from_cells(cells)
-                }
-            }
-            _ => JumpInput::Invalid,
-        }
     }
 
     /// Whether `cells` sit entirely inside an admitted Sequence write.
@@ -906,66 +816,24 @@ impl<'a> Execution<'a> {
             }
             return Continue(());
         }
-        if self.occupied_non_root(target) {
+        // Asked of the Language Map rather than working Source: Bang cleanup
+        // clears a standalone `**` before any Turn, and a Comment never writes,
+        // so the Snapshot is what still names an occupied non-root after those
+        // Cells look empty. A root anchored at the destination was already
+        // offered the lock; Occupancy::Root here is a covering root that is
+        // not aligned with this Portal, and Halt diagnoses it with the rest.
+        if !matches!(
+            portal.occupancy(self.map, super::SCALAR_WIDTH, |anchor| {
+                self.lookup.root_at(anchor)
+            }),
+            Occupancy::Empty
+        ) {
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
                 format!("{} target is not an Expression root", node.function),
             )));
         }
         Continue(())
-    }
-
-    /// Whether the Cells one row south hold a Language Unit that is not a
-    /// root anchored there.
-    ///
-    /// Asked of the Language Map rather than working Source: Bang cleanup
-    /// clears a standalone `**` before any Turn, and a Comment never writes,
-    /// so the Snapshot is what still names an occupied non-root after those
-    /// Cells look empty.
-    fn occupied_non_root(&self, south: Position) -> bool {
-        let start = self.grid.index(south).get();
-        let east = self
-            .grid
-            .position(south.x() + 1, south.y())
-            .map_or(start, |position| self.grid.index(position).get());
-        let cells = start..=east;
-        self.map.units().any(|unit| {
-            let covered = unit.span().start().get()..=unit.span().end().get();
-            cells.clone().any(|cell| covered.contains(&cell))
-        })
-    }
-
-    /// What the Cells a blocked move would have entered hold, classified the
-    /// way ADR 0006 classifies contact.
-    ///
-    /// It is asked of the Language Map and not of the [`Lookup`] because a
-    /// Language Unit is not always a computation: a Comment and a standalone
-    /// Bang each occupy Cells and neither is scheduled. The Map is the Source
-    /// Snapshot's, which is where every other geometric question in this file
-    /// is settled; whether those Cells are still occupied is a question about
-    /// working Source and is answered before this one is asked.
-    ///
-    fn contact(&self, entered: &[usize]) -> Contact {
-        let mut touched = false;
-        for unit in self.map.units() {
-            let covered = unit.span().start().get()..=unit.span().end().get();
-            if !entered.iter().any(|cell| covered.contains(cell)) {
-                continue;
-            }
-            if !entered.iter().all(|cell| covered.contains(cell)) {
-                touched = true;
-                continue;
-            }
-            return match self.lookup.root_at(unit.anchor()) {
-                Some(root) => Contact::Root(root),
-                None => Contact::Silent,
-            };
-        }
-        if touched {
-            Contact::Partial
-        } else {
-            Contact::Silent
-        }
     }
 
     /// Applying a write and recording its Effect are one operation, including
