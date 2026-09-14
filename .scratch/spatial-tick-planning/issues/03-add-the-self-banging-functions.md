@@ -104,7 +104,7 @@ ADR 0029 makes Sequence membership ask the declared kind of a Function.
 - [x] Self-Banging Functions stay root-only Source effects. They are not operands, runtime values, or
       Sequence members.
 
-- [ ] Stated destinations reach `computations` without a Terminal Output Function acquiring one:
+- [x] Stated destinations reach `computations` without a Terminal Output Function acquiring one:
       ADR 0009's refusal is raised in shipped code and covered by a test of its own, not by the
       `#[cfg(test)]` `carry` helper.
 

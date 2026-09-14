@@ -599,16 +599,33 @@ pub(super) fn plan(
     }
 }
 
-/// ADR 0009's refusal. Only [`carry`] raises it, because only a carried
-/// schedule can name a destination for a Terminal Output Function. The
-/// destinations [`computations`] resolves are the ordinary result position a
-/// root resolves for itself and, since the Source-writing Functions arrived,
-/// the displaced destination a row declares — and the
-/// `performs_terminal_output()` gate is read before either, so neither reaches
-/// a Function this refusal is about. Statement order is what holds the rule in
-/// shipped code; this constant holds it in the carried schedule.
-#[cfg(test)]
+/// ADR 0009's refusal when a root Terminal Output Function is given a Cell
+/// destination. [`computations`] states a Source-writing Function's
+/// destination from its declaration and reads `performs_terminal_output()` before
+/// that arm, so no row today reaches this with a resolved Portal. The refusal
+/// is still raised in shipped code so a later row that names input cannot admit
+/// the pairing silently, and so [`carry`] and [`computations`] share one rule.
 const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
+
+///
+/// Clears any resolved Portal on a root Terminal Output Function and diagnoses
+/// ADR 0009's refusal. [`computations`] calls this after stating destinations;
+/// [`carry`] calls it after a test names chosen ones.
+///
+fn refuse_terminal_output_portals(nodes: &mut [Computation], diagnostics: &mut Vec<Diagnostic>) {
+    let mut refusals = Vec::new();
+    for node in nodes.iter_mut() {
+        if node.parent.is_some() || !node.function.performs_terminal_output() {
+            continue;
+        }
+        if !node.outputs.iter().any(Result::is_ok) {
+            continue;
+        }
+        refusals.push(diagnose(node, REFUSED_PORTAL));
+        node.outputs.clear();
+    }
+    diagnostics.splice(0..0, refusals);
+}
 
 ///
 /// Gives each computation the Portal destinations `destinations` names for it,
@@ -633,19 +650,10 @@ fn carry(
     diagnostics: &mut Vec<Diagnostic>,
     destinations: &BTreeMap<CellIndex, Vec<Position>>,
 ) {
-    let mut refusals = Vec::new();
     for node in nodes.iter_mut() {
         let Some(outputs) = destinations.get(&grid.index(node.anchor)) else {
             continue;
         };
-        // The gate [`computations`] applies, applied to the same question: a
-        // Terminal Output Function has no Cell destination at all, so naming
-        // one for it is the error rather than the destination. It resolved no
-        // destination while it was stated, and keeps none here.
-        if node.function.performs_terminal_output() {
-            refusals.push(diagnose(node, REFUSED_PORTAL));
-            continue;
-        }
         node.outputs = outputs
             .iter()
             .map(|output| {
@@ -654,11 +662,7 @@ fn carry(
             })
             .collect();
     }
-    // [`computations`] raises no refusal of its own — it resolves a Terminal
-    // Output Function no destination to refuse — so everything it handed here
-    // is a layout diagnostic from the walk that follows its resolution, and
-    // these refusals belong in front of it.
-    diagnostics.splice(0..0, refusals);
+    refuse_terminal_output_portals(nodes, diagnostics);
 }
 
 ///
@@ -841,14 +845,12 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                         .expect("parsed Function inside Grid"),
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
-                // The one gate that means Terminal Output rather than
-                // "answers an effect": a Terminal Output Function has no Cell
-                // destination at all, while ADR 0004 gives a Source-writing
-                // Function a validated write bundle and ADR 0009 lets it
-                // resolve multiple Portals. Asking the wide question here
-                // would deny the Halt, Directional Bang, and Jump Functions a
-                // Portal they are entitled to.
-                let outputs = if function.performs_terminal_output() || parent.is_some() {
+                // Nested computations resolve no Portal of their own. A root
+                // Terminal Output Function has no Cell destination at all and
+                // is read before the Source-writing arm below, so a declared
+                // displacement never reaches a Function in the `!` family.
+                // ADR 0009's refusal runs once every destination is stated.
+                let outputs = if parent.is_some() || function.performs_terminal_output() {
                     vec![]
                 } else if let Some(effect) = function.source_effect() {
                     // ADR 0004's effect bundle, in the emission order ADR 0020
@@ -929,6 +931,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             diagnostics.push(diagnose(node, "Expression layout crosses the row edge"));
         }
     }
+    refuse_terminal_output_portals(&mut nodes, &mut diagnostics);
     (nodes, diagnostics)
 }
 
@@ -1736,11 +1739,11 @@ mod test {
         );
     }
 
-    /// `carry` splices its refusals in front of the diagnostics it was handed,
-    /// and this states the order that produces. The fixture earns both a
-    /// refused Portal, which only `carry` raises, and a row-edge layout
-    /// diagnostic, which `computations` raised before `carry` ran — so the
-    /// refusal arriving first is the splice and nothing else.
+    /// [`refuse_terminal_output_portals`] splices refusals in front of the
+    /// diagnostics it was handed, and this states the order that produces. The
+    /// fixture earns both a refused Portal and a row-edge layout diagnostic
+    /// from [`computations`], so the refusal arriving first is the splice and
+    /// nothing else.
     #[test]
     fn a_refused_portal_is_diagnosed_before_the_row_edge_layout_it_shares_a_tick_with() {
         let grid = Grid::new(16, 4);
@@ -2075,6 +2078,67 @@ mod test {
             lookup.would_reserve(child, lookup.nodes()[child].function),
             super::Reserved::Pair,
             "a stated width is not a declared one, and re-deriving it narrows it away"
+        );
+    }
+
+    #[test]
+    fn stated_destinations_reach_computations_without_a_terminal_output_portal() {
+        // A Self-Banging Function states its displaced destination from its
+        // declaration; a Terminal Output Function resolves none. The two share
+        // a schedule through [`computations`], not through [`carry`].
+        let grid = Grid::new(16, 3);
+        let source = seeded_source(grid, &["^^", "", "!>007FC4"]);
+        let (nodes, diagnostics) = super::computations(grid, &source.shared_language_map());
+
+        let self_banging = nodes
+            .iter()
+            .find(|node| node.function == lang::Function::SelfBangingNorth)
+            .expect("Self-Banging Function in schedule");
+        let terminal = nodes
+            .iter()
+            .find(|node| node.function == lang::Function::RawPlay)
+            .expect("Terminal Output Function in schedule");
+
+        assert!(
+            self_banging.outputs.iter().any(Result::is_ok),
+            "a declared Source write states its Portal in computations",
+        );
+        assert!(
+            terminal.outputs.is_empty(),
+            "a Terminal Output Function acquires no Portal",
+        );
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message == super::REFUSED_PORTAL),
+            "no refusal when only Source-writing Functions state destinations",
+        );
+    }
+
+    #[test]
+    fn a_terminal_output_function_cannot_acquire_a_stated_portal() {
+        // ADR 0009's refusal lives in shipped code so a row that later lets
+        // input name a destination cannot admit the pairing silently. This
+        // drives [`refuse_terminal_output_portals`] through [`computations`],
+        // not through [`carry`].
+        let grid = Grid::new(16, 2);
+        let source = seeded_source(grid, &["!>007FC4", ""]);
+        let (mut nodes, mut diagnostics) = super::computations(grid, &source.shared_language_map());
+        let terminal = nodes
+            .iter()
+            .position(|node| node.function == lang::Function::RawPlay)
+            .expect("Terminal Output Function in schedule");
+        nodes[terminal].outputs = vec![Ok(grid.position(0, 1).unwrap())];
+
+        super::refuse_terminal_output_portals(&mut nodes, &mut diagnostics);
+
+        assert!(nodes[terminal].outputs.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>(),
+            vec![super::REFUSED_PORTAL],
         );
     }
 
