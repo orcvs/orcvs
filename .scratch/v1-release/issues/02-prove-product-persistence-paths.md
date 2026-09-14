@@ -35,7 +35,8 @@ links this Evidence section for the nominated SHA — none is nominated yet.
 
 Toolchain: `rust-toolchain.toml` pins `1.98.1`.
 
-SHA: filled after the landing commit(s) on `02-prove-product-persistence-paths`.
+SHA: `2c3f111c93077ce99872f90d98b06b66433324e2` on `02-prove-product-persistence-paths`
+(this Evidence SHA-fill is a follow-up commit on the same branch).
 
 ### Commands `v1-release/03` reruns
 
