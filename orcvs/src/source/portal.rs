@@ -266,11 +266,11 @@ impl PortalAccess {
     /// The write sites and extra reads `function` demands at `anchor`.
     ///
     /// Nested computations hand a typed value to a parent. Terminal Output
-    /// answers Play. A locking root withholds a Turn. None of those demands
-    /// a write Portal. A nested Jump still reads the opposite Portal. A
-    /// Source write states its declared bundle; a root Jump writes at its
-    /// displacement and reads the opposite Portal; every other Value writes
-    /// one row south.
+    /// answers Play. Neither demands a write Portal. A locking root reserves
+    /// its declared Portal so the south root is ordered after it, and writes
+    /// no Cell. A nested Jump still reads the opposite Portal. A Source write
+    /// states its declared bundle; a root Jump writes at its displacement and
+    /// reads the opposite Portal; every other Value writes one row south.
     ///
     pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
         if nested {
@@ -283,9 +283,18 @@ impl PortalAccess {
                 reads,
             };
         }
-        if function.performs_terminal_output() || function.locks_root() {
+        if function.performs_terminal_output() {
             return Self {
                 writes: PortalWrites::None,
+                reads: Vec::new(),
+            };
+        }
+        if let Some(lock) = function.lock_effect() {
+            return Self {
+                writes: PortalWrites::Sites(vec![
+                    Portal::displaced(grid, anchor, lock.columns, lock.rows)
+                        .map(|portal| portal.destination()),
+                ]),
                 reads: Vec::new(),
             };
         }

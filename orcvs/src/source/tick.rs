@@ -781,29 +781,25 @@ fn advances(function: Function) -> bool {
     )
 }
 
-/// The Expression root whose anchor is one row directly south of `anchor`.
-///
-/// Halt's lock is this geometry and no other. An empty cell, a cell past the
-/// last row, and an occupied non-root each fail this question; execution
-/// tells those three apart against the Language Map after Halt's Turn.
-fn south_root(lookup: &Lookup, anchor: Position) -> Option<usize> {
-    lookup
-        .grid
-        .position(anchor.x(), anchor.y() + 1)
-        .and_then(|south| lookup.root_at(south))
+/// The Expression root a locking Function's Portal names.
+fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
+    let node = &lookup.nodes()[locker];
+    let lock = node.function.lock_effect()?;
+    Portal::displaced(lookup.grid, node.anchor, lock.columns, lock.rows)
+        .ok()
+        .and_then(|portal| lookup.root_at(portal.destination()))
 }
 
-/// Whether `halt` is a Halt root whose lock names `producer`.
+/// Whether `locker` is a locking root whose Portal names `producer`.
 ///
-/// A planned write or Bang from that producer onto Halt is not a second
-/// ordering edge: the lock already withholds the Turn that would have
-/// produced it.
-fn halt_locks(lookup: &Lookup, halt: usize, producer: usize) -> bool {
-    let node = &lookup.nodes()[halt];
+/// A planned write or Bang from that producer onto the locker is not a
+/// second ordering edge: the lock already withholds the Turn that would
+/// have produced it.
+fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
+    let node = &lookup.nodes()[locker];
     node.parent.is_none()
-        && node.function.locks_root()
-        && south_root(lookup, node.anchor)
-            .is_some_and(|south| lookup.descendants(south).any(|index| index == producer))
+        && lock_target_root(lookup, locker)
+            .is_some_and(|target| lookup.descendants(target).any(|index| index == producer))
 }
 
 fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
@@ -844,8 +840,8 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 // Nested computations write no Portal of their own. A nested
                 // Jump still reads the opposite Portal. A root Terminal Output
                 // Function has no Cell destination at all: Play is an Effect,
-                // not a Portal. A locking root writes none either: the lock is
-                // an Effect, not a destination.
+                // not a Portal. A locking root reserves its declared Portal
+                // and writes no Cell.
                 let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {
                     anchor,
@@ -963,7 +959,7 @@ fn order_turns(
                 if (may_stop_short || clears_its_own_span) && consumer == index {
                     return;
                 }
-                if halt_locks(&lookup, consumer, index) {
+                if lock_covers(&lookup, consumer, index) {
                     return;
                 }
                 edges.insert((index, consumer));
@@ -1006,14 +1002,6 @@ fn order_turns(
                         }
                     }
                 }
-            }
-        }
-        if node.parent.is_none()
-            && node.function.locks_root()
-            && let Some(south) = south_root(&lookup, node.anchor)
-        {
-            for consumer in lookup.descendants(south) {
-                edges.insert((index, consumer));
             }
         }
     }
@@ -2235,6 +2223,25 @@ mod test {
         );
 
         assert_eq!(grids[0], [".=0101      ", "***!  .=0202", "  *^  **    "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_active_halt_locks_a_south_root_that_would_jump_onto_it() {
+        // `&^` is intrinsically active and overwrites occupied Cells. Its
+        // output Portal is Halt. The lock wins: the Tick is ordered, Halt
+        // stays, and `01` is not copied onto it.
+        let (plans, grids, _) = tick_by_tick(
+            Grid::new(8, 4),
+            &[".=0101  ", "  *!    ", "  &^    ", "  01    "],
+            1,
+        );
+
+        assert_eq!(grids[0], [".=0101  ", "***!    ", "  &^    ", "  01    "]);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",

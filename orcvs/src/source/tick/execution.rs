@@ -7,8 +7,8 @@
 use std::ops::ControlFlow::{self, Break, Continue};
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalInput, PortalSource,
-    SourceBundle, SourceEffect, Tick, TickInputs, Value,
+    Atom, Function, FunctionInputs, Interpretation, Interpreter, LockEffect, PortalInput,
+    PortalSource, SourceBundle, SourceEffect, Tick, TickInputs, Value,
 };
 
 use super::{
@@ -361,7 +361,7 @@ impl<'a> Execution<'a> {
             Ok(Interpretation::Source(effect)) => {
                 return self.deliver_source_effect(index, effect);
             }
-            Ok(Interpretation::Halt) => return self.lock_south_root(index),
+            Ok(Interpretation::Lock(lock)) => return self.lock_portal(index, lock),
         }
         Continue(())
     }
@@ -867,7 +867,7 @@ impl<'a> Execution<'a> {
 
     ///
     ///
-    /// Applies Halt's lock to the Expression root one row south.
+    /// Applies a lock to the Expression root at the declared Portal.
     ///
     /// The schedule already placed this Turn ahead of that root, so a lock
     /// that finds it executed is a scheduler defect and rejects the Tick the
@@ -876,12 +876,13 @@ impl<'a> Execution<'a> {
     /// suppressed here — `opens_turn` already refused a suppressed Halt, so
     /// reaching this arm means this Halt locks.
     ///
-    fn lock_south_root(&mut self, index: usize) -> ControlFlow<Diagnostic> {
+    fn lock_portal(&mut self, index: usize, lock: LockEffect) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
-        let Some(south) = self.grid.position(node.anchor.x(), node.anchor.y() + 1) else {
+        let Ok(portal) = Portal::displaced(self.grid, node.anchor, lock.columns, lock.rows) else {
             return Continue(());
         };
-        if let Some(root) = self.lookup.root_at(south) {
+        let target = portal.destination();
+        if let Some(root) = self.lookup.root_at(target) {
             if self
                 .lookup
                 .descendants(root)
@@ -897,7 +898,7 @@ impl<'a> Execution<'a> {
             }
             return Continue(());
         }
-        if self.occupied_non_root(south) {
+        if self.occupied_non_root(target) {
             self.effects.push(Effect::Diagnose(diagnose(
                 node,
                 format!("{} target is not an Expression root", node.function),

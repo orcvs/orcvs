@@ -738,7 +738,7 @@ mod test {
             Interpretation::Source(effect) => {
                 panic!("{effect:?} is a Source effect and not a stated answer")
             }
-            Interpretation::Halt => panic!("Halt is a lock and not a stated answer"),
+            Interpretation::Lock(_) => panic!("a lock is not a stated answer"),
         };
         // The rule for what an answer becomes in Cells is production's, called
         // here rather than restated: these tests state an answer because no

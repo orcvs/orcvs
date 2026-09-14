@@ -201,6 +201,20 @@ pub struct SourceEffect {
     pub bundle: SourceBundle,
 }
 
+/// The Portal one locking Function names, as a displacement from its anchor.
+///
+/// Same seam as [`SourceEffect`]: `lang` answers how far from the producer,
+/// and `orcvs` turns that into a Position. There is no spelling and no bundle,
+/// because a lock writes nothing — it withholds the Expression root anchored
+/// at that Portal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LockEffect {
+    /// Cells to displace horizontally, positive to the east.
+    pub columns: i16,
+    /// Rows to displace vertically, positive to the south.
+    pub rows: i16,
+}
+
 /// Which of ADR 0004's validated effect bundles a Source-writing Function
 /// plans.
 ///

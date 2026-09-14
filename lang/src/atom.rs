@@ -245,6 +245,13 @@ impl FunctionKind {
             _ => None,
         }
     }
+
+    const fn lock_effect(self) -> Option<crate::LockEffect> {
+        match self {
+            Self::Effect(EffectKind::Lock(effect)) => Some(effect),
+            _ => None,
+        }
+    }
 }
 
 /// Which effect a Function that answers an effect performs.
@@ -272,9 +279,10 @@ enum EffectKind {
     /// Function has, with `Portal::ordinary_result` one row south as the
     /// default. These Functions decline the default and say by how much.
     SourceWrite(crate::SourceEffect),
-    /// ADR 0006's Halt: an ordering lock on the Expression root one row south,
-    /// with no Cell write, no Play Command, and no value.
-    Halt,
+    /// A root lock through one Portal, with no Cell write, no Play Command,
+    /// and no value. The displacement is the Portal: ordinary result is one
+    /// row south, and Halt names that default.
+    Lock(crate::LockEffect),
 }
 
 /// The kind column of the canonical definitions, mapped to the declaration it
@@ -374,7 +382,10 @@ macro_rules! function_kind {
         }))
     };
     (Halt) => {
-        FunctionKind::Effect(EffectKind::Halt)
+        FunctionKind::Effect(EffectKind::Lock(crate::LockEffect {
+            columns: 0,
+            rows: 1,
+        }))
     };
 }
 
@@ -1013,15 +1024,22 @@ macro_rules! define_functions {
                 self.kind().source_effect()
             }
 
-            /// Whether this Function locks the Expression root one row south.
+            /// The root lock this Function performs, or `None` for a Function
+            /// that performs none.
             ///
-            /// Halt is the one Function that does. The lock is an ordering
-            /// edge rather than a Source write, so [`Function::source_effect`]
-            /// stays `None` and `orcvs` resolves the south root against the
-            /// Grid.
+            /// The lock is an ordering edge rather than a Source write, so
+            /// [`Function::source_effect`] stays `None`. `orcvs` resolves the
+            /// displacement against the Grid.
+            #[inline(always)]
+            pub const fn lock_effect(self) -> Option<crate::LockEffect> {
+                self.kind().lock_effect()
+            }
+
+            /// Whether this Function locks the Expression root at its lock
+            /// Portal.
             #[inline(always)]
             pub const fn locks_root(self) -> bool {
-                matches!(self.kind(), FunctionKind::Effect(EffectKind::Halt))
+                self.lock_effect().is_some()
             }
 
             /// Whether this Function can return Bang, even when the current
