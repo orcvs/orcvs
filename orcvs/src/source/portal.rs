@@ -1,14 +1,14 @@
 //! ADR 0009's Portal: where one interpreted result becomes Cells.
 //!
-//! A Portal is one Cell destination resolved during a Tick. [`Destinations`] is
-//! whether a computation writes any, and which. Both live here rather than
-//! beside the producers in `tick` because destination resolution is the
-//! question ADR 0009 expects to change: a future Cell-addressing model, an
-//! infinite canvas among them, moves a result somewhere else without touching
-//! Function evaluation, effect ordering, or Tick Plan commit. Keeping
-//! resolution in its own module is what makes that a change to one file rather
-//! than a change threaded through the producer that happened to hardcode "the
-//! row below the root".
+//! A Portal is one Cell destination resolved during a Tick. [`PortalAccess`] is
+//! how one computation interacts with Portals: whether it writes any, and which
+//! extra Cells it reads. Both live here rather than beside the producers in
+//! `tick` because destination resolution is the question ADR 0009 expects to
+//! change: a future Cell-addressing model, an infinite canvas among them, moves
+//! a result somewhere else without touching Function evaluation, effect
+//! ordering, or Tick Plan commit. Keeping resolution in its own module is what
+//! makes that a change to one file rather than a change threaded through the
+//! producer that happened to hardcode "the row below the root".
 //! Reads, write admission, and Reservations share its row-fit calculation;
 //! each caller retains the policy deciding how much coverage it needs.
 //!
@@ -30,8 +30,8 @@ use super::CellContent;
 use super::encoding::Encoding;
 use super::language_map::Span;
 
-/// The Cell pair an Atom occupies. Jump Destinations read that pair at the
-/// opposite Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
+/// The Cell pair an Atom occupies. Jump reads that pair at the opposite
+/// Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
 const PAIR_WIDTH: usize = 2;
 
 ///
@@ -230,36 +230,63 @@ impl SpanWrite {
 }
 
 ///
-/// The Cell write sites one computation resolves, or silence.
+/// How one computation interacts with Portals: the Cells it writes, and the
+/// extra Cells it reads.
 ///
-/// A Portal is one Cell. Destinations is whether this computation writes any,
-/// and which. Terminal Output answers Play, not a Cell, so it is silence —
-/// and silence is a kind, so [`Self::carry`] cannot mint a site the resolve
-/// step refused. Empty-vec silence was the leak: a test helper could stuff a
-/// Portal onto `!>`. Play stays an Effect; it is not a Portal.
+/// A Portal is one Cell. [`PortalWrites`] is whether this computation writes
+/// any, and which. Reads are independent of that: a nested Jump writes nothing
+/// and still reads the opposite Portal, so a producer of those Cells is ordered
+/// first.
+///
+/// Terminal Output answers Play, not a Cell, so its writes are [`PortalWrites::None`]
+/// — a kind, so [`Self::carry`] cannot mint a site the resolve step refused.
+/// Empty-vec silence was the leak: a test helper could stuff a Portal onto
+/// `!>`. Play stays an Effect; it is not a Portal.
 ///
 #[derive(Clone, Debug, PartialEq)]
-pub(super) enum Destinations {
-    Silent,
-    Writing {
-        writes: Vec<Result<Position, PortalError>>,
-        reads: Vec<Range<usize>>,
-    },
+pub(super) struct PortalAccess {
+    writes: PortalWrites,
+    reads: Vec<Range<usize>>,
 }
 
-impl Destinations {
+///
+/// Whether a computation writes Cells, and which.
+///
+/// [`PortalWrites::None`] is a kind, not an empty site list. An empty list can
+/// be stuffed; none cannot.
+///
+#[derive(Clone, Debug, PartialEq)]
+enum PortalWrites {
+    None,
+    Sites(Vec<Result<Position, PortalError>>),
+}
+
+impl PortalAccess {
     ///
-    /// The write sites and extra reads `function` demands at `anchor`, or
-    /// silence when it writes no Cell.
+    /// The write sites and extra reads `function` demands at `anchor`.
     ///
     /// Nested computations hand a typed value to a parent. Terminal Output
-    /// answers Play. Neither demands a Portal. A Source write states its
-    /// declared bundle; a Jump writes at its displacement and reads the
-    /// opposite Portal; every other Value writes one row south.
+    /// answers Play. Neither demands a write Portal. A nested Jump still
+    /// reads the opposite Portal. A Source write states its declared bundle;
+    /// a root Jump writes at its displacement and reads the opposite Portal;
+    /// every other Value writes one row south.
     ///
     pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
-        if nested || function.performs_terminal_output() {
-            return Self::Silent;
+        if nested {
+            let reads = function
+                .output_displacement()
+                .map(|(columns, rows)| Self::opposite_reads(grid, anchor, columns, rows))
+                .unwrap_or_default();
+            return Self {
+                writes: PortalWrites::None,
+                reads,
+            };
+        }
+        if function.performs_terminal_output() {
+            return Self {
+                writes: PortalWrites::None,
+                reads: Vec::new(),
+            };
         }
         if let Some(effect) = function.source_effect() {
             // ADR 0004's effect bundle, in the emission order ADR 0020
@@ -273,8 +300,8 @@ impl Destinations {
                 SourceBundle::Advance => vec![Ok(anchor), destination],
                 SourceBundle::Emit => vec![destination],
             };
-            return Self::Writing {
-                writes,
+            return Self {
+                writes: PortalWrites::Sites(writes),
                 reads: Vec::new(),
             };
         }
@@ -282,49 +309,54 @@ impl Destinations {
             let writes = vec![
                 Portal::displaced(grid, anchor, columns, rows).map(|portal| portal.destination()),
             ];
-            let reads = Portal::displaced(grid, anchor, -columns, -rows)
-                .ok()
-                .and_then(|portal| portal.span(PAIR_WIDTH).ok())
-                .map(|span| vec![span.range()])
-                .unwrap_or_default();
-            return Self::Writing { writes, reads };
+            return Self {
+                writes: PortalWrites::Sites(writes),
+                reads: Self::opposite_reads(grid, anchor, columns, rows),
+            };
         }
-        Self::Writing {
-            writes: vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())],
+        Self {
+            writes: PortalWrites::Sites(vec![
+                Portal::ordinary_result(grid, anchor).map(|portal| portal.destination()),
+            ]),
             reads: Vec::new(),
         }
     }
 
+    fn opposite_reads(grid: Grid, anchor: Position, columns: i16, rows: i16) -> Vec<Range<usize>> {
+        Portal::displaced(grid, anchor, -columns, -rows)
+            .ok()
+            .and_then(|portal| portal.span(PAIR_WIDTH).ok())
+            .map(|span| vec![span.range()])
+            .unwrap_or_default()
+    }
+
     pub(super) fn writes_cells(&self) -> bool {
-        matches!(self, Self::Writing { .. })
+        matches!(self.writes, PortalWrites::Sites(_))
     }
 
     pub(super) fn write_sites(&self) -> &[Result<Position, PortalError>] {
-        match self {
-            Self::Silent => &[],
-            Self::Writing { writes, .. } => writes,
+        match &self.writes {
+            PortalWrites::None => &[],
+            PortalWrites::Sites(writes) => writes,
         }
     }
 
     pub(super) fn read_spans(&self) -> &[Range<usize>] {
-        match self {
-            Self::Silent => &[],
-            Self::Writing { reads, .. } => reads,
-        }
+        &self.reads
     }
 
     ///
     /// Restates write sites a test named, only when this value already demanded
     /// some.
     ///
-    /// A silent Destinations stays silent. That is the whole of the helper:
-    /// it cannot attach a Portal to Terminal Output.
+    /// [`PortalWrites::None`] stays none. That is the whole of the helper: it
+    /// cannot attach a Portal to Terminal Output or to a nested Jump.
     ///
     #[cfg(test)]
     pub(super) fn carry(&mut self, grid: Grid, writes: &[Position]) {
-        match self {
-            Self::Silent => {}
-            Self::Writing { writes: sites, .. } => {
+        match &mut self.writes {
+            PortalWrites::None => {}
+            PortalWrites::Sites(sites) => {
                 *sites = writes
                     .iter()
                     .map(|output| {
@@ -362,7 +394,7 @@ mod test {
         assert_eq!(portal.span(3), Err(PortalError::CrossesRowEdge));
     }
 
-    use super::{Destinations, Encoding, Portal, PortalError};
+    use super::{Encoding, Portal, PortalAccess, PortalError};
     use crate::grid::{CellIndex, Grid};
 
     #[test]
@@ -563,15 +595,35 @@ mod test {
 
     #[test]
     fn a_root_terminal_output_function_resolves_silent_after_carry() {
-        // Terminal Output answers Play, not a Cell write. Destinations is Cell
-        // geometry only: a root `!>` never demands a write site, and carry
-        // cannot mint one. Empty-vec silence was the leak — it could be stuffed.
+        // Terminal Output answers Play, not a Cell write. PortalAccess is how
+        // a computation interacts with Portals: a root `!>` never demands a
+        // write site, and carry cannot mint one. Empty-vec silence was the
+        // leak — it could be stuffed.
         let grid = Grid::new(8, 2);
         let anchor = grid.position(0, 0).expect("inside the Grid");
         let elsewhere = grid.position(0, 1).expect("inside the Grid");
-        let mut destinations = Destinations::resolve(grid, anchor, lang::Function::RawPlay, false);
-        destinations.carry(grid, &[elsewhere]);
-        assert!(!destinations.writes_cells());
-        assert_eq!(destinations.write_sites().len(), 0);
+        let mut access = PortalAccess::resolve(grid, anchor, lang::Function::RawPlay, false);
+        access.carry(grid, &[elsewhere]);
+        assert!(!access.writes_cells());
+        assert_eq!(access.write_sites().len(), 0);
+    }
+
+    #[test]
+    fn a_nested_jump_keeps_its_input_portal_read_and_writes_no_cell() {
+        // Nested Jump answers a value to its parent and writes no Cell. The
+        // opposite Portal is still a read, so a producer of those Cells is
+        // ordered first. Carry cannot mint a write the resolve step refused.
+        let grid = Grid::new(8, 2);
+        let anchor = grid.position(2, 0).expect("inside the Grid");
+        let input = grid.position(2, 1).expect("inside the Grid");
+        let expected = Portal::at(grid, input)
+            .span(2)
+            .expect("the input Portal fits the row")
+            .range();
+        let mut access = PortalAccess::resolve(grid, anchor, lang::Function::JumpNorth, true);
+        access.carry(grid, &[input]);
+        assert!(!access.writes_cells());
+        assert!(access.write_sites().is_empty());
+        assert_eq!(access.read_spans(), &[expected]);
     }
 }

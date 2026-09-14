@@ -15,7 +15,7 @@ use std::ops::Range;
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
 pub(super) use super::portal::PortalError;
-use super::portal::{Destinations, Portal, SpanWrite};
+use super::portal::{Portal, PortalAccess, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -39,7 +39,7 @@ struct Computation {
     owner: usize,
     operands: Vec<Operand>,
     syntax_valid: bool,
-    destinations: Destinations,
+    portal_access: PortalAccess,
     /// How wide this computation's result may be, per ADR 0036, and the one
     /// home that fact has. A computation is built reserving the Cell pair
     /// every result reserves unless a declaration widens it, and
@@ -612,9 +612,9 @@ pub(super) fn plan(
 /// while it is stating them, so that a schedule can carry chosen destinations
 /// without the planning path taking a parameter or a map lookup of its own.
 ///
-/// A silent Destinations stays silent: [`Destinations::carry`] cannot attach a
-/// Portal to Terminal Output. Tests that need a write site name one on a
-/// Function that already demanded some.
+/// Writes that resolved as none stay none: [`PortalAccess::carry`] cannot
+/// attach a Portal to Terminal Output or to a nested Jump. Tests that need a
+/// write site name one on a Function that already demanded some.
 ///
 #[cfg(test)]
 fn carry(grid: Grid, nodes: &mut [Computation], destinations: &BTreeMap<CellIndex, Vec<Position>>) {
@@ -622,7 +622,7 @@ fn carry(grid: Grid, nodes: &mut [Computation], destinations: &BTreeMap<CellInde
         let Some(writes) = destinations.get(&grid.index(node.anchor)) else {
             continue;
         };
-        node.destinations.carry(grid, writes);
+        node.portal_access.carry(grid, writes);
     }
 }
 
@@ -723,7 +723,7 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                 continue;
             }
             for output in nodes[index]
-                .destinations
+                .portal_access
                 .write_sites()
                 .iter()
                 .filter_map(|output| output.as_ref().ok())
@@ -791,7 +791,7 @@ fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> 
 /// diagnostics its layout owes before any of them is ordered.
 ///
 /// This is everything a schedule knows before a [`Lookup`] indexes it: which
-/// Cells each computation claims, which Portal destinations it resolved, and
+/// Cells each computation claims, how each interacts with Portals, and
 /// which Expressions the row edge cut short. Every computation here reserves
 /// the Cell pair ADR 0036 gives a result nothing widens; which of them a
 /// declaration does widen, and therefore what is ordered after what, is the
@@ -816,10 +816,11 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                         .expect("parsed Function inside Grid"),
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
-                // Nested computations resolve no Portal of their own. A root
-                // Terminal Output Function has no Cell destination at all:
-                // Play is an Effect, not a Portal.
-                let destinations = Destinations::resolve(grid, anchor, function, parent.is_some());
+                // Nested computations write no Portal of their own. A nested
+                // Jump still reads the opposite Portal. A root Terminal Output
+                // Function has no Cell destination at all: Play is an Effect,
+                // not a Portal.
+                let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {
                     anchor,
                     span: expression.span(),
@@ -828,7 +829,7 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                     owner,
                     operands: vec![],
                     syntax_valid: true,
-                    destinations,
+                    portal_access,
                     // ADR 0036 reserves a Cell pair for every result no
                     // declaration widens, so this is the reservation itself
                     // and not a placeholder. Which computations a declaration
@@ -895,7 +896,7 @@ fn order_turns(
             continue;
         }
         for output in node
-            .destinations
+            .portal_access
             .write_sites()
             .iter()
             .filter_map(|output| output.as_ref().ok())
@@ -983,13 +984,13 @@ fn order_turns(
     // often an operand Span, so they cannot sit in `literals`; the edge is
     // the same fact `literal_consumers` records for a declared operand.
     for (consumer, node) in nodes.iter().enumerate() {
-        for read in node.destinations.read_spans() {
+        for read in node.portal_access.read_spans() {
             for (producer, source) in nodes.iter().enumerate() {
                 if producer == consumer || !active[source.owner] {
                     continue;
                 }
                 for output in source
-                    .destinations
+                    .portal_access
                     .write_sites()
                     .iter()
                     .filter_map(|output| output.as_ref().ok())
@@ -1776,6 +1777,20 @@ mod test {
     }
 
     #[test]
+    fn a_nested_jump_reads_a_same_tick_write_at_its_input_portal() {
+        // Nested `&^` writes no Cell, but it still reads the Portal one row
+        // south. The root Jump lands `01` there this Tick; without that read
+        // span the nested Jump would run first and add empty Source to `01`.
+        let (plans, grids, _) = tick_by_tick(Grid::new(6, 4), &[".+&^01", "", "  &^", "  01"], 1);
+        assert_eq!(grids[0], [".+&^01", "0201  ", "  &^  ", "  01  "]);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
     fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
         // Increment reads and writes its ordinary result. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
@@ -2321,14 +2336,14 @@ mod test {
 
         assert!(
             self_banging
-                .destinations
+                .portal_access
                 .write_sites()
                 .iter()
                 .any(Result::is_ok),
             "a declared Source write states its Portal in computations",
         );
         assert!(
-            !terminal.destinations.writes_cells(),
+            !terminal.portal_access.writes_cells(),
             "a Terminal Output Function acquires no Portal",
         );
         assert!(
