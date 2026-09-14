@@ -220,6 +220,64 @@ impl SpanWrite {
     }
 }
 
+///
+/// The Cell write sites one computation resolves, or silence.
+///
+/// A Portal is one Cell. Destinations is whether this computation writes any.
+/// Terminal Output answers Play, not a Cell, so it is silence — and silence is
+/// a kind, so [`Self::carry`] cannot mint a site the resolve step refused.
+/// Empty-vec silence was the leak: a test helper could stuff a Portal onto
+/// `!>`. Play stays an Effect; it is not a Portal.
+///
+#[allow(dead_code)] // Tick Plan will resolve through this type; this slice only pins silence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Destinations {
+    Silent,
+}
+
+#[allow(dead_code)] // Same slice: methods exist so the silence test can name them.
+impl Destinations {
+    pub(super) fn resolve(
+        _grid: Grid,
+        _anchor: Position,
+        _function: lang::Function,
+        _nested: bool,
+    ) -> Self {
+        Self::Silent
+    }
+
+    pub(super) fn writes_cells(&self) -> bool {
+        match self {
+            Self::Silent => false,
+        }
+    }
+
+    pub(super) fn write_sites(&self) -> impl Iterator<Item = Result<Position, PortalError>> {
+        match self {
+            Self::Silent => core::iter::empty(),
+        }
+    }
+
+    ///
+    /// Restates write sites a test named, only when this value already demanded
+    /// some.
+    ///
+    /// A silent Destinations stays silent. That is the whole of the helper:
+    /// it cannot attach a Portal to Terminal Output.
+    ///
+    #[cfg(test)]
+    pub(super) fn carry(
+        &mut self,
+        _grid: Grid,
+        _writes: &[Position],
+        _diagnostics: &mut Vec<super::Diagnostic>,
+    ) {
+        match self {
+            Self::Silent => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     #[test]
@@ -245,7 +303,7 @@ mod test {
         assert_eq!(portal.span(3), Err(PortalError::CrossesRowEdge));
     }
 
-    use super::{Encoding, Portal, PortalError};
+    use super::{Destinations, Encoding, Portal, PortalError};
     use crate::grid::{CellIndex, Grid};
 
     #[test]
@@ -442,5 +500,19 @@ mod test {
             admitted(&portal, "0A0B0C0D").map(|write| write.cells().count()),
             Ok(8)
         );
+    }
+
+    #[test]
+    fn a_root_terminal_output_function_resolves_silent_after_carry() {
+        // Terminal Output answers Play, not a Cell write. Destinations is Cell
+        // geometry only: a root `!>` never demands a write site, and carry
+        // cannot mint one. Empty-vec silence was the leak — it could be stuffed.
+        let grid = Grid::new(8, 2);
+        let anchor = grid.position(0, 0).expect("inside the Grid");
+        let elsewhere = grid.position(0, 1).expect("inside the Grid");
+        let mut destinations = Destinations::resolve(grid, anchor, lang::Function::RawPlay, false);
+        destinations.carry(grid, &[elsewhere], &mut Vec::new());
+        assert!(!destinations.writes_cells());
+        assert_eq!(destinations.write_sites().count(), 0);
     }
 }
