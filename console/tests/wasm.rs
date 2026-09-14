@@ -628,3 +628,142 @@ mod refused_revision {
         assert!(started.snapshot().bytes().all(|byte| byte == b' '));
     }
 }
+
+///
+/// The shipped WASM backend is eframe `LocalStorage`: a thin wrapper over
+/// `window.localStorage` with the raw key `orcvs_source`. These tests drive
+/// that backend, not a custom in-memory stand-in.
+///
+#[cfg(feature = "persistence")]
+mod product_path {
+    use console::console::Console;
+    use eframe::App as _;
+    use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
+    use orcvs::source::{Source, Token};
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    ///
+    /// eframe `LocalStorage` is this wrapper: every get, set, and remove
+    /// reaches `window.localStorage` under the raw key.
+    ///
+    struct BrowserStorage;
+
+    fn window_local_storage() -> web_sys::Storage {
+        web_sys::window()
+            .expect("a Window")
+            .local_storage()
+            .expect("localStorage is accessible")
+            .expect("localStorage is present")
+    }
+
+    fn clear_orcvs_keys() {
+        let storage = window_local_storage();
+        let _ = storage.remove_item(console::persistence::SOURCE_KEY);
+        let _ = storage.remove_item(console::persistence::REFUSED_KEY);
+    }
+
+    impl eframe::Storage for BrowserStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            window_local_storage().get_item(key).ok().flatten()
+        }
+
+        fn set_string(&mut self, key: &str, value: String) {
+            let _ = window_local_storage().set_item(key, &value);
+        }
+
+        fn remove_string(&mut self, key: &str) {
+            let _ = window_local_storage().remove_item(key);
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    fn console_over(storage: &dyn eframe::Storage) -> Console {
+        let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        cc.storage = Some(storage);
+        Console::new(&cc).expect("browser playback does not require a Tokio runtime")
+    }
+
+    fn edited_source() -> Source {
+        let grid = Grid::new(6, 3);
+        let mut source = Source::new(grid);
+        for (index, content) in ".+0102".chars().enumerate() {
+            source
+                .set(
+                    grid.cell_index(index).expect("inside the Grid"),
+                    &content.to_string(),
+                )
+                .expect("a Cell the Source accepts");
+        }
+        source
+    }
+
+    fn saved_revision(console: &mut Console) -> Source {
+        let mut storage = BrowserStorage;
+        console.save(&mut storage);
+        eframe::get_value(&storage, console::persistence::SOURCE_KEY)
+            .expect("the console saved a revision")
+    }
+
+    #[wasm_bindgen_test]
+    fn a_console_save_restarts_from_the_browser_local_storage() {
+        clear_orcvs_keys();
+
+        let saved = edited_source();
+        {
+            let mut storage = BrowserStorage;
+            eframe::set_value(&mut storage, console::persistence::SOURCE_KEY, &saved);
+            let mut console = console_over(&storage);
+            console.save(&mut storage);
+        }
+
+        let storage = BrowserStorage;
+        let mut console = console_over(&storage);
+        let restored = saved_revision(&mut console);
+        assert_eq!(restored.snapshot(), saved.snapshot());
+        assert_eq!(restored.grid().count(), 18);
+        assert!(restored.grid().position(5, 2).is_some());
+        assert!(restored.grid().position(6, 2).is_none());
+        let add = restored
+            .grid()
+            .position(0, 0)
+            .expect("the Add root is inside the Grid");
+        assert_eq!(
+            restored.language_map().token_at(add),
+            Some(Token::Function),
+            "a restore rebuilds the Token the console draws at the Add root"
+        );
+
+        clear_orcvs_keys();
+    }
+
+    #[wasm_bindgen_test]
+    fn a_malformed_local_storage_revision_is_refused_and_starts_the_default_grid() {
+        clear_orcvs_keys();
+        let refused = "not a stored Source";
+        window_local_storage()
+            .set_item(console::persistence::SOURCE_KEY, refused)
+            .expect("localStorage accepts the refused value");
+
+        let storage = BrowserStorage;
+        let mut console = console_over(&storage);
+        let started = saved_revision(&mut console);
+        assert_eq!(
+            started.grid().count(),
+            DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT
+        );
+        assert!(started.snapshot().bytes().all(|byte| byte == b' '));
+        // A Console that never read storage would also start empty and save
+        // an empty Grid. Moving the refused payload aside is the half that
+        // proves the start was a refusal, not an absent key.
+        assert_eq!(
+            window_local_storage()
+                .get_item(console::persistence::REFUSED_KEY)
+                .expect("localStorage is readable")
+                .as_deref(),
+            Some(refused)
+        );
+
+        clear_orcvs_keys();
+    }
+}
