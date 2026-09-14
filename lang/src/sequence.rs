@@ -384,6 +384,33 @@ mod test {
     }
 
     #[test]
+    fn halt_is_refused_as_a_sequence_member_by_its_declared_kind() {
+        // ADR 0029: Halt answers an effect, so Sequence::new refuses it by
+        // that kind rather than by the `*!` spelling. The sweep below covers
+        // every effect Function the same way; this names Halt so a regression
+        // that re-specialised membership on spelling fails here first.
+        assert!(!Function::Halt.answers_value());
+        assert!(!Function::Halt.can_emit_bang());
+        assert!(!Function::Halt.is_intrinsically_active());
+        assert!(Function::Halt.source_effect().is_none());
+        assert!(!Function::Halt.performs_terminal_output());
+
+        let atom = Atom::Function(Function::Halt);
+        for result in [
+            Sequence::promote(atom),
+            Sequence::new([atom]),
+            Sequence::new([Atom::Number(0), atom]),
+        ] {
+            let error = result.unwrap_err();
+            assert!(
+                matches!(&error, Error::Sequence(SequenceError::Member(found))
+                    if found == "*!"),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_function_that_answers_an_effect_is_rejected_as_a_member_and_through_promotion() {
         // Driven from `Function::ALL` rather than from a list of spellings, so
         // ADR 0029's rule is exercised as it is written: an effect Function

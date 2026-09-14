@@ -938,6 +938,7 @@ mod test {
             ("&v", Function::JumpSouth),
             ("&<", Function::JumpWest),
             ("&>", Function::JumpEast),
+            ("*!", Function::Halt),
         ] {
             assert_eq!(
                 try_parse(&mut source.to_owned()).unwrap().as_slice(),

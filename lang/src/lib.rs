@@ -201,6 +201,27 @@ pub struct SourceEffect {
     pub bundle: SourceBundle,
 }
 
+/// Coordinates of one Portal a Function names, relative to its anchor.
+///
+/// Same seam as [`SourceEffect`]: `lang` answers how far from the producer,
+/// and `orcvs` turns that into a Position. A Function that does not name other
+/// coordinates uses one row south, `{ columns: 0, rows: 1 }`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PortalCoords {
+    /// Cells to displace horizontally, positive to the east.
+    pub columns: i16,
+    /// Rows to displace vertically, positive to the south.
+    pub rows: i16,
+}
+
+impl PortalCoords {
+    /// One row south of the Function's anchor.
+    pub const SOUTH: Self = Self {
+        columns: 0,
+        rows: 1,
+    };
+}
+
 /// Which of ADR 0004's validated effect bundles a Source-writing Function
 /// plans.
 ///

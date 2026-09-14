@@ -14,7 +14,7 @@ use std::ops::Range;
 
 use super::encoding::{Encoding, RenderError, Rendered};
 use super::language_map::{LanguageMap, Span};
-pub(super) use super::portal::PortalError;
+pub(super) use super::portal::{Occupancy, PortalError, PortalUnit, occupancy_of};
 use super::portal::{Portal, PortalAccess, SpanWrite};
 use super::{CellContent, CellWrite, Diagnostic, Performance, TickPlan};
 use crate::grid::{CellIndex, Grid, Position};
@@ -24,6 +24,8 @@ pub(super) enum Effect {
     Write(SpanWrite),
     Play(Performance),
     Diagnose(Diagnostic),
+    /// Withholds the Expression root at this anchor. Not a Cell write.
+    Lock(Position),
 }
 
 struct Operand {
@@ -88,6 +90,47 @@ impl Claims {
     }
 }
 
+/// Write reservations, bucketed by row.
+///
+/// [`Claims`] requires disjoint ranges. Producer destinations do not: two
+/// Portals may name the same Cells, and a row reservation covers every Pair
+/// that lands in its tail. A Span never leaves its row, so each Input Portal
+/// read searches only the writes that share it — naming an Input Portal on
+/// every Increment must not scan every other root.
+struct WriteClaims {
+    columns: usize,
+    by_row: Vec<Vec<Claim>>,
+}
+
+impl WriteClaims {
+    fn new(grid: Grid, claims: Vec<Claim>) -> Self {
+        let columns = grid.columns();
+        let mut by_row: Vec<Vec<Claim>> = (0..grid.rows()).map(|_| Vec::new()).collect();
+        for claim in claims {
+            if claim.cells.is_empty() {
+                continue;
+            }
+            let row = claim.cells.start / columns;
+            debug_assert!(
+                claim.cells.end <= (row + 1) * columns,
+                "a Span stays in one row"
+            );
+            by_row[row].push(claim);
+        }
+        Self { columns, by_row }
+    }
+
+    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = usize> + '_ {
+        let row = cells.start / self.columns;
+        self.by_row
+            .get(row)
+            .into_iter()
+            .flatten()
+            .filter(move |claim| claim.cells.start < cells.end && cells.start < claim.cells.end)
+            .map(|claim| claim.node)
+    }
+}
+
 struct Lookup {
     /// The Grid whose Cell numbering every Claim and subtree range below is
     /// stated in. Owning it keeps a query from restating a Position in another
@@ -100,6 +143,8 @@ struct Lookup {
     functions: Claims,
     literals: Claims,
     operands: Claims,
+    /// Destination Cells each producer reserved, including overlapping writes.
+    writes: WriteClaims,
     subtree_ends: Vec<usize>,
 }
 
@@ -251,12 +296,26 @@ impl Lookup {
             }
         }
         derive_reservations(&mut nodes);
+        let mut writes = Vec::new();
+        for (index, node) in nodes.iter().enumerate() {
+            for output in node
+                .portal_access
+                .write_sites()
+                .iter()
+                .filter_map(|output| output.as_ref().ok())
+            {
+                if let Some(cells) = node.reserved.cells_from(grid, *output) {
+                    writes.push(Claim { cells, node: index });
+                }
+            }
+        }
         let lookup = Self {
             grid,
             nodes,
             functions: Claims::new(functions),
             literals: Claims::new(literals),
             operands: Claims::new(operands),
+            writes: WriteClaims::new(grid, writes),
             subtree_ends,
         };
         // The agreement [`Lookup::would_reserve`] is a hypothesis against:
@@ -606,7 +665,7 @@ pub(super) fn plan(
 
 ///
 /// Gives each computation the Portal destinations `destinations` names for it,
-/// in place of the ordinary result position it resolved for itself.
+/// in place of the default Portal one row south that it resolved for itself.
 ///
 /// Done to the computations once [`computations`] has stated them rather than
 /// while it is stating them, so that a schedule can carry chosen destinations
@@ -645,7 +704,7 @@ fn schedule_carrying(
 /// Plans one Tick against a schedule carrying `destinations`.
 ///
 /// [`plan`] for a Tick whose destinations a test states, rather than the
-/// ordinary result positions its roots resolve for themselves.
+/// default Portal one row south that its roots resolve for themselves.
 ///
 #[cfg(test)]
 pub(super) fn plan_carrying(
@@ -679,6 +738,7 @@ fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::Comput
             writes: vec![],
             play_commands: vec![],
             diagnostics,
+            locks: vec![],
         },
         vec![],
     )
@@ -744,8 +804,7 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                 // that Portal is activated without a write; neighbours of
                 // an empty `**` write are the ordinary `bang_roots`.
                 let landed = function
-                    .output_displacement()
-                    .is_some()
+                    .copies_language_unit()
                     .then(|| relationships.contacted_roots())
                     .into_iter()
                     .flatten();
@@ -779,6 +838,30 @@ fn advances(function: Function) -> bool {
             ..
         })
     )
+}
+
+/// The Expression root a locking Function's Portal names.
+fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
+    let node = &lookup.nodes()[locker];
+    if !node.function.locks_root() {
+        return None;
+    }
+    let coords = node.function.output_portal()?;
+    Portal::named(lookup.grid, node.anchor, coords)
+        .ok()
+        .and_then(|portal| lookup.root_at(portal.destination()))
+}
+
+/// Whether `locker` is a locking root whose Portal names `producer`.
+///
+/// A planned write or Bang from that producer onto the locker is not a
+/// second ordering edge: the lock already withholds the Turn that would
+/// have produced it.
+fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
+    let node = &lookup.nodes()[locker];
+    node.parent.is_none()
+        && lock_target_root(lookup, locker)
+            .is_some_and(|target| lookup.descendants(target).any(|index| index == producer))
 }
 
 fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
@@ -817,9 +900,10 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
                 // Nested computations write no Portal of their own. A nested
-                // Jump still reads the opposite Portal. A root Terminal Output
+                // Jump still reads its Input Portal. A root Terminal Output
                 // Function has no Cell destination at all: Play is an Effect,
-                // not a Portal.
+                // not a Portal. A locking root reserves its Output Portal
+                // and writes no Cell.
                 let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {
                     anchor,
@@ -937,6 +1021,9 @@ fn order_turns(
                 if (may_stop_short || clears_its_own_span) && consumer == index {
                     return;
                 }
+                if lock_covers(&lookup, consumer, index) {
+                    return;
+                }
                 edges.insert((index, consumer));
             };
             for contact in relationships.functions() {
@@ -980,29 +1067,18 @@ fn order_turns(
             }
         }
     }
-    // A Jump reads working Source at its input Portal. Those Cells are
-    // often an operand Span, so they cannot sit in `literals`; the edge is
-    // the same fact `literal_consumers` records for a declared operand.
+    // An Input Portal reads working Source. Those Cells are often an operand
+    // Span, so they cannot sit in `literals`; the edge is the same fact
+    // `literal_consumers` records for a declared operand. The producers that
+    // write them are indexed: naming an Input Portal on every Increment must
+    // not scan every other root.
     for (consumer, node) in nodes.iter().enumerate() {
         for read in node.portal_access.read_spans() {
-            for (producer, source) in nodes.iter().enumerate() {
-                if producer == consumer || !active[source.owner] {
+            for producer in lookup.writes.touching(read.clone()) {
+                if producer == consumer || !active[nodes[producer].owner] {
                     continue;
                 }
-                for output in source
-                    .portal_access
-                    .write_sites()
-                    .iter()
-                    .filter_map(|output| output.as_ref().ok())
-                {
-                    if lookup
-                        .reserved(producer)
-                        .cells_from(grid, *output)
-                        .is_some_and(|cells| cells.start < read.end && read.start < cells.end)
-                    {
-                        edges.insert((producer, consumer));
-                    }
-                }
+                edges.insert((producer, consumer));
             }
         }
     }
@@ -1057,6 +1133,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     let mut writes: BTreeMap<CellIndex, CellContent> = BTreeMap::new();
     let mut play_commands = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut locks = Vec::new();
 
     for effect in effects {
         match effect {
@@ -1074,6 +1151,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
             // Engine does not deliver.
             Effect::Play(performance) => play_commands.extend(&performance),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
+            Effect::Lock(root) => locks.push(root),
         }
     }
 
@@ -1086,6 +1164,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
             .collect(),
         play_commands,
         diagnostics,
+        locks,
     }
 }
 
@@ -1132,6 +1211,57 @@ mod test {
                 .unwrap();
         }
         source
+    }
+
+    #[test]
+    fn write_claims_answer_overlapping_reservations() {
+        let claims = super::WriteClaims::new(
+            Grid::new(8, 1),
+            vec![
+                super::Claim {
+                    cells: 0..4,
+                    node: 0,
+                },
+                super::Claim {
+                    cells: 2..6,
+                    node: 1,
+                },
+            ],
+        );
+        assert_eq!(claims.touching(2..4).collect::<Vec<_>>(), vec![0, 1]);
+    }
+
+    #[test]
+    fn write_claims_skip_a_nested_short_span() {
+        let claims = super::WriteClaims::new(
+            Grid::new(20, 1),
+            vec![
+                super::Claim {
+                    cells: 0..20,
+                    node: 0,
+                },
+                super::Claim {
+                    cells: 1..3,
+                    node: 1,
+                },
+            ],
+        );
+        assert_eq!(claims.touching(10..12).collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[test]
+    fn write_claims_on_a_dense_row_touch_only_the_covering_write() {
+        let claims = super::WriteClaims::new(
+            Grid::new(64, 1),
+            (0..8)
+                .map(|index| super::Claim {
+                    cells: index * 8..index * 8 + 2,
+                    node: index,
+                })
+                .collect(),
+        );
+        assert_eq!(claims.touching(16..18).collect::<Vec<_>>(), vec![2]);
+        assert!(claims.touching(18..20).next().is_none());
     }
 
     ///
@@ -1792,7 +1922,7 @@ mod test {
 
     #[test]
     fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
-        // Increment reads and writes its ordinary result. A Jump that copies
+        // Increment reads and writes one row south. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
         let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", "&^"], 1);
         assert_eq!(grids[0], ["~+0104", "&^    "]);
@@ -1977,6 +2107,380 @@ mod test {
                 "a Function that answers an effect is valid only at the root of an Expression",
                 "nested computation at column 2, row 0 supplied no typed result",
             ]
+        );
+    }
+
+    #[test]
+    fn an_active_halt_locks_the_complete_root_one_row_south() {
+        // CONTEXT.md: when Halt is active it "establishes a dependency that
+        // locks the Expression root directly south before that root can
+        // execute." Equality Bangs every Tick; its result sits two columns west
+        // of `*!`, which is ADR 0006's horizontal activation geometry. The Add
+        // one row south of Halt is intrinsically active, so the lock is the
+        // only reason it contributes no `07` and its Source is unchanged.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(8, 4),
+            &[".=0101  ", "  *!    ", "  .+0304", "        "],
+            1,
+        );
+
+        assert_eq!(grids[0], [".=0101  ", "***!    ", "  .+0304", "        "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert!(plans[0].play_commands.is_empty());
+    }
+
+    #[test]
+    fn an_inert_halt_does_not_lock_and_the_south_root_runs() {
+        // "When active" is load-bearing: an unactivated `*!` establishes no
+        // lock. The Add one row south is intrinsically active, so it writes
+        // `07` the way it would if Halt were absent.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::new(8, 3), &["*!      ", ".+0304  ", "        "], 1);
+
+        assert_eq!(grids[0], ["*!      ", ".+0304  ", "07      "]);
+        assert!(plans[0].locks.is_empty(), "{:?}", plans[0].locks);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn a_stale_bang_does_not_activate_halt() {
+        // Prior `**` is display, not a new activation. Delay Bangs on Tick 0
+        // (a multiple of its cycle) and not on Tick 1, so Tick 0 locks the
+        // Add and Tick 1 clears that display with Halt inert, and the Add
+        // runs.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(8, 4),
+            &["~*0201  ", "  *!    ", "  .+0304", "        "],
+            2,
+        );
+
+        assert_eq!(grids[0], ["~*0201  ", "***!    ", "  .+0304", "        "]);
+        assert_eq!(grids[1], ["~*0201  ", "  *!    ", "  .+0304", "  07    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(plans[1].locks.is_empty(), "{:?}", plans[1].locks);
+        for plan in &plans {
+            assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        }
+    }
+
+    #[test]
+    fn an_empty_halt_target_is_a_noop() {
+        // Off the last row, and an empty row that exists: neither diagnoses
+        // and neither invents a lock.
+        let last_row = tick_by_tick(Grid::new(8, 2), &[".=0101  ", "  *!    "], 1);
+        assert_eq!(last_row.1[0], [".=0101  ", "***!    "]);
+        assert!(last_row.0[0].locks.is_empty(), "{:?}", last_row.0[0].locks);
+        assert!(
+            last_row.0[0].diagnostics.is_empty(),
+            "{:?}",
+            last_row.0[0].diagnostics
+        );
+
+        let empty_row = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "        "], 1);
+        assert_eq!(empty_row.1[0], [".=0101  ", "***!    ", "        "]);
+        assert!(
+            empty_row.0[0].locks.is_empty(),
+            "{:?}",
+            empty_row.0[0].locks
+        );
+        assert!(
+            empty_row.0[0].diagnostics.is_empty(),
+            "{:?}",
+            empty_row.0[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_occupied_non_root_halt_target_diagnoses() {
+        // Comment, Bang display, and an operand Cell are each occupied and
+        // none is a root anchored one row south. Halt diagnoses and invents
+        // no lock — the Add whose operand sits south of Halt still writes.
+        let comment = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  ||    "], 1);
+        assert_eq!(comment.1[0], [".=0101  ", "***!    ", "  ||    "]);
+        assert!(comment.0[0].locks.is_empty(), "{:?}", comment.0[0].locks);
+        assert_eq!(
+            messages(&comment.0[0]),
+            vec!["*! target is not an Expression root"]
+        );
+
+        let bang = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  **    "], 1);
+        assert_eq!(bang.1[0], [".=0101  ", "***!    ", "        "]);
+        assert!(bang.0[0].locks.is_empty(), "{:?}", bang.0[0].locks);
+        assert_eq!(
+            messages(&bang.0[0]),
+            vec!["*! target is not an Expression root"]
+        );
+
+        let operand = tick_by_tick(
+            Grid::new(8, 4),
+            &[".=0101  ", "  *!    ", ".+0304  ", "        "],
+            1,
+        );
+        assert_eq!(
+            operand.1[0],
+            [".=0101  ", "***!    ", ".+0304  ", "07      "]
+        );
+        assert!(operand.0[0].locks.is_empty(), "{:?}", operand.0[0].locks);
+        assert_eq!(
+            messages(&operand.0[0]),
+            vec!["*! target is not an Expression root"]
+        );
+    }
+
+    #[test]
+    fn a_suppressed_halt_does_not_lock_its_own_target() {
+        // Two-row Halt stack: A locks B, and B therefore does not lock the
+        // Add below it. The Add writes `07`.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(8, 5),
+            &[".=0101  ", "  *!    ", "  *!    ", "  .+0304", "        "],
+            1,
+        );
+
+        assert_eq!(
+            grids[0],
+            [".=0101  ", "***!    ", "  *!    ", "  .+0304", "  07    "]
+        );
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn halt_precedes_its_south_root_by_a_lock_edge() {
+        // Halt is always above its target, so Position alone would put it
+        // first once it is ready. The edge is what keeps the target from
+        // running while Halt is still waiting on activation: Equality and
+        // the Add are both ready at the start of the Tick, Equality is first
+        // by Position, and without the lock the Add would take the next Turn
+        // before Halt became ready. An independent Add on Halt's row still
+        // runs — it is not the south root.
+        //
+        // A Halt whose Position is after its target cannot be spelled: the
+        // target is one row south. A Bang producer after both Halt and that
+        // target also cannot activate Halt under ADR 0006's cardinal
+        // geometry — the default Portal is one row south, so a producer
+        // after the target writes a Bang that cannot touch Halt. The lock
+        // that would reach an already-executed root is therefore
+        // inexpressible; the existing late-write reject path still holds.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(14, 4),
+            &[
+                ".=0101  .+0901",
+                "  *!          ",
+                "  .+0304      ",
+                "              ",
+            ],
+            1,
+        );
+
+        assert_eq!(
+            grids[0],
+            [
+                ".=0101  .+0901",
+                "***!    0A    ",
+                "  .+0304      ",
+                "              "
+            ]
+        );
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+
+        let grid = Grid::new(8, 4);
+        let bytes = snapshot(grid, &[".=0101  ", "  *!    ", "  .+0304", "        "]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let (_, states) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+        let order = turns(&states);
+        // Parser preorder: Equality, Halt, Add.
+        assert_eq!(order, vec![Some(0), Some(1), Some(2)]);
+        assert!(
+            order[1] < order[2],
+            "Halt's Turn precedes the south root: {order:?}"
+        );
+    }
+
+    #[test]
+    fn an_active_halt_locks_a_south_root_that_would_advance_onto_it() {
+        // Halt's lock withholds the south root's Turn, including a Self-Banging
+        // North whose Advance names Halt's Cells. The lock edge wins: the Tick
+        // is ordered, `^^` stays, and it does not become `**`.
+        let (plans, grids, source) =
+            tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  ^^    "], 1);
+
+        assert_eq!(grids[0], [".=0101  ", "***!    ", "  ^^    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_active_halt_locks_a_south_root_that_would_emit_onto_it() {
+        // `*^` is Bang-activated, so a second Equality wakes it from the east.
+        // Its north emission names Halt's Cells. The lock edge wins: the Tick
+        // is ordered, `*^` stays, and it does not emit `^^`.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(12, 3),
+            &[".=0101      ", "  *!  .=0202", "  *^        "],
+            1,
+        );
+
+        assert_eq!(grids[0], [".=0101      ", "***!  .=0202", "  *^  **    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn an_active_halt_locks_a_south_root_that_would_jump_onto_it() {
+        // `&^` is intrinsically active and overwrites occupied Cells. Its
+        // output Portal is Halt. The lock wins: the Tick is ordered, Halt
+        // stays, and `01` is not copied onto it.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(8, 4),
+            &[".=0101  ", "  *!    ", "  &^    ", "  01    "],
+            1,
+        );
+
+        assert_eq!(grids[0], [".=0101  ", "***!    ", "  &^    ", "  01    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn multiple_halts_and_activations_follow_dependency_order() {
+        // Two independent Halt columns. Each Equality activates the Halt
+        // two columns east; Position breaks the tie between the two
+        // Equalities and then between the two Halts. Both Adds stay locked.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(16, 4),
+            &[
+                ".=0101  .=0202",
+                "  *!      *!  ",
+                "  .+0102  .+0304",
+                "                ",
+            ],
+            1,
+        );
+
+        assert_eq!(
+            grids[0],
+            [
+                ".=0101  .=0202  ",
+                "***!    ***!    ",
+                "  .+0102  .+0304",
+                "                "
+            ]
+        );
+        assert_eq!(
+            plans[0].locks,
+            vec![
+                source.grid().position(2, 2).expect("inside the Grid"),
+                source.grid().position(10, 2).expect("inside the Grid"),
+            ]
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+    }
+
+    #[test]
+    fn halt_is_interpreted_once_per_tick() {
+        // Equality Bangs from the west and `<<` contacts from the east.
+        // Two activation paths, one Turn: a second visit would have
+        // doubled Halt's interpretation count.
+        let grid = Grid::new(8, 4);
+        let bytes = snapshot(grid, &[".=0101  ", "  *!<<  ", "  .+0304", "        "]);
+        let map = LanguageMap::build(grid, bytes.as_bytes());
+        let (plan, states) = super::plan(grid, bytes.as_bytes(), &map, Tick::ZERO);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            plan.locks,
+            vec![grid.position(2, 2).expect("inside the Grid")]
+        );
+        assert_eq!(
+            states
+                .iter()
+                .map(ComputationState::interpretations)
+                .collect::<Vec<_>>(),
+            vec![1, 1, 1, 0],
+            "Equality, Halt once, <<, locked Add never"
+        );
+    }
+
+    #[test]
+    fn an_active_halt_withholds_a_terminal_root() {
+        // The complete target Expression contributes no effects: a locked
+        // Raw Play emits no Play Command, and its Source is unchanged.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(10, 3),
+            &[".=0101    ", "  *!      ", "  !>007FC4"],
+            1,
+        );
+
+        assert_eq!(grids[0], [".=0101    ", "***!      ", "  !>007FC4"]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(
+            plans[0].play_commands.is_empty(),
+            "{:?}",
+            plans[0].play_commands
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
         );
     }
 

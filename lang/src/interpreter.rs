@@ -32,6 +32,12 @@ pub enum Interpretation {
     /// because the Range Functions that would spell a Sequence operand are
     /// unbuilt.
     Play(Performance),
+    /// The lock one active locking Function root places on the Expression
+    /// root at its Output Portal.
+    ///
+    /// The Portal lives on the Function, not on this answer: ADR 0009 keeps
+    /// destination resolution in `orcvs` and this crate holds no Grid.
+    Lock,
     /// The Cells one active Source-writing Function root plans to write.
     ///
     /// It carries a displacement and a spelling rather than Positions, because
@@ -139,6 +145,18 @@ impl Interpreter {
                 Atom::Function(fun) if !fun.answers_value() && index != 0 => {
                     return Err(InterpretationError::NestedEffectFunction.into());
                 }
+                Atom::Function(fun) if fun.locks_root() => {
+                    return Ok(Interpretation::Lock);
+                }
+                Atom::Function(fun) if let Some(effect) = fun.source_effect() => {
+                    // The Source-writing Functions take no operand and read no
+                    // Context: the whole of the effect is declared in the
+                    // table, so this arm reads the declaration rather than
+                    // repeating eight offsets and two bundles. ADR 0029's
+                    // asymmetry lives in the activation column and the bundle,
+                    // and both are settled before this.
+                    return Ok(Interpretation::Source(effect));
+                }
                 Atom::Function(fun) => match fun {
                     Function::AbsoluteDifference => math::absolute_difference(&mut ctx)?,
                     Function::Add => math::add(&mut ctx)?,
@@ -182,19 +200,8 @@ impl Interpreter {
                     Function::TimedPlay => {
                         return Ok(Interpretation::Play(functions::timed_play(&mut ctx)?));
                     }
-                    // The Source-writing Functions take no operand and read no
-                    // Context: the whole of the effect is declared in the
-                    // table, so the arm reads the declaration rather than
-                    // repeating eight offsets and two bundles here. A Function
-                    // whose kind carries no Source write cannot reach this arm,
-                    // which is what `expect` states.
-                    //
-                    // One arm for both groups, and it is not a case the two
-                    // share by coincidence: they differ in what they declare
-                    // and not in what interpreting them does, which is read the
-                    // declaration. ADR 0029's asymmetry lives in the activation
-                    // column and the bundle, and both are settled before this.
-                    Function::DirectionalBangEast
+                    Function::Halt
+                    | Function::DirectionalBangEast
                     | Function::DirectionalBangNorth
                     | Function::DirectionalBangSouth
                     | Function::DirectionalBangWest
@@ -202,10 +209,9 @@ impl Interpreter {
                     | Function::SelfBangingNorth
                     | Function::SelfBangingSouth
                     | Function::SelfBangingWest => {
-                        return Ok(Interpretation::Source(
-                            fun.source_effect()
-                                .expect("a Source-writing Function declares a Source write"),
-                        ));
+                        unreachable!(
+                            "{fun} returns as a lock or Source write before the value match"
+                        )
                     }
                 },
                 atom => (*atom).into(),
@@ -580,6 +586,46 @@ mod test {
     }
 
     #[test]
+    fn halt_locks_at_its_output_portal() {
+        // Halt names no coordinates: its Output Portal is one row south, the
+        // same Portal Add writes. The lock is the Effect, not a second geometry.
+        assert_eq!(
+            Function::Halt.output_portal(),
+            Some(crate::PortalCoords::SOUTH)
+        );
+        assert_eq!(Function::Halt.input_portal(), None);
+        assert!(Function::Halt.locks_root());
+        assert_eq!(
+            Interpreter::execute(&[Atom::Function(Function::Halt)], inputs()).unwrap(),
+            Interpretation::Lock
+        );
+        assert!(!Function::Halt.answers_value());
+        assert!(!Function::Halt.can_emit_bang());
+        assert!(!Function::Halt.is_intrinsically_active());
+        assert!(Function::Halt.source_effect().is_none());
+        assert!(!Function::Halt.performs_terminal_output());
+    }
+
+    #[test]
+    fn locking_and_source_writing_functions_are_interpreted_from_their_kind() {
+        for function in Function::ALL {
+            if function.locks_root() {
+                assert_eq!(
+                    Interpreter::execute(&[Atom::Function(*function)], inputs()).unwrap(),
+                    Interpretation::Lock,
+                    "{function:?}"
+                );
+            } else if let Some(effect) = function.source_effect() {
+                assert_eq!(
+                    Interpreter::execute(&[Atom::Function(*function)], inputs()).unwrap(),
+                    Interpretation::Source(effect),
+                    "{function:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn explicit_numeric_conversions_have_fixed_result_types() {
         // `.v` is the identity over Numbers across the whole byte domain, not
         // only the MIDI part of it. A Number reaches this Function from nested
@@ -786,7 +832,7 @@ mod test {
                 continue;
             }
             if function.answers_sequence()
-                || function.output_displacement().is_some()
+                || function.input_portal().is_some()
                 || function
                     .signature()
                     .iter()
