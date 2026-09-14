@@ -22,7 +22,7 @@
 
 use std::ops::Range;
 
-use lang::{Function, SourceBundle};
+use lang::{Function, PortalCoords, SourceBundle};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -33,6 +33,14 @@ use super::language_map::Span;
 /// The Cell pair an Atom occupies. Jump reads that pair at the opposite
 /// Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
 const PAIR_WIDTH: usize = 2;
+
+fn named_portal(grid: Grid, root: Position, coords: PortalCoords) -> Result<Portal, PortalError> {
+    if coords == PortalCoords::SOUTH {
+        Portal::ordinary_result(grid, root)
+    } else {
+        Portal::displaced(grid, root, coords.columns, coords.rows)
+    }
+}
 
 ///
 /// One Cell destination resolved while interpreting a Source Snapshot.
@@ -266,18 +274,17 @@ impl PortalAccess {
     /// The write sites and extra reads `function` demands at `anchor`.
     ///
     /// Nested computations hand a typed value to a parent. Terminal Output
-    /// answers Play. Neither demands a write Portal. A locking root reserves
-    /// its declared Portal so the south root is ordered after it, and writes
-    /// no Cell. A nested Jump still reads the opposite Portal. A Source write
-    /// states its declared bundle; a root Jump writes at its displacement and
-    /// reads the opposite Portal; every other Value writes one row south.
+    /// answers Play. Neither demands a write Portal. A locking root and every
+    /// other Value name their Output Portal on the Function; Jump and the
+    /// feedback Functions also name an Input Portal. A nested Jump still
+    /// reads that Input Portal. A Source write states its declared bundle.
     ///
     pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
+        let reads = function
+            .input_portal()
+            .map(|coords| Self::portal_reads(grid, anchor, coords))
+            .unwrap_or_default();
         if nested {
-            let reads = function
-                .output_displacement()
-                .map(|(columns, rows)| Self::opposite_reads(grid, anchor, columns, rows))
-                .unwrap_or_default();
             return Self {
                 writes: PortalWrites::None,
                 reads,
@@ -286,15 +293,6 @@ impl PortalAccess {
         if function.performs_terminal_output() {
             return Self {
                 writes: PortalWrites::None,
-                reads: Vec::new(),
-            };
-        }
-        if let Some(lock) = function.lock_effect() {
-            return Self {
-                writes: PortalWrites::Sites(vec![
-                    Portal::displaced(grid, anchor, lock.columns, lock.rows)
-                        .map(|portal| portal.destination()),
-                ]),
                 reads: Vec::new(),
             };
         }
@@ -315,25 +313,22 @@ impl PortalAccess {
                 reads: Vec::new(),
             };
         }
-        if let Some((columns, rows)) = function.output_displacement() {
-            let writes = vec![
-                Portal::displaced(grid, anchor, columns, rows).map(|portal| portal.destination()),
-            ];
+        if let Some(coords) = function.output_portal() {
             return Self {
-                writes: PortalWrites::Sites(writes),
-                reads: Self::opposite_reads(grid, anchor, columns, rows),
+                writes: PortalWrites::Sites(vec![
+                    named_portal(grid, anchor, coords).map(|portal| portal.destination()),
+                ]),
+                reads,
             };
         }
         Self {
-            writes: PortalWrites::Sites(vec![
-                Portal::ordinary_result(grid, anchor).map(|portal| portal.destination()),
-            ]),
-            reads: Vec::new(),
+            writes: PortalWrites::None,
+            reads,
         }
     }
 
-    fn opposite_reads(grid: Grid, anchor: Position, columns: i16, rows: i16) -> Vec<Range<usize>> {
-        Portal::displaced(grid, anchor, -columns, -rows)
+    fn portal_reads(grid: Grid, anchor: Position, coords: PortalCoords) -> Vec<Range<usize>> {
+        named_portal(grid, anchor, coords)
             .ok()
             .and_then(|portal| portal.span(PAIR_WIDTH).ok())
             .map(|span| vec![span.range()])

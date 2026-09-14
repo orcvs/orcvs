@@ -7,7 +7,8 @@
 pub(super) mod execution;
 
 use lang::{
-    Anchor, Atom, Function, ReplacementChange, SourceBundle, SourceEffect, Tick, TickInputs,
+    Anchor, Atom, Function, PortalCoords, ReplacementChange, SourceBundle, SourceEffect, Tick,
+    TickInputs,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -743,12 +744,11 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                 // A Jump writes Bang through its output Portal. A root at
                 // that Portal is activated without a write; neighbours of
                 // an empty `**` write are the ordinary `bang_roots`.
-                let landed = function
-                    .output_displacement()
-                    .is_some()
-                    .then(|| relationships.contacted_roots())
-                    .into_iter()
-                    .flatten();
+                let landed = (function.input_portal().is_some()
+                    && function.portal_input().is_none())
+                .then(|| relationships.contacted_roots())
+                .into_iter()
+                .flatten();
                 for index in banged.chain(contacted).chain(landed).collect::<Vec<_>>() {
                     if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
@@ -781,11 +781,31 @@ fn advances(function: Function) -> bool {
     )
 }
 
+/// Resolve a Function-named Portal against the Grid.
+///
+/// One row south is the default Portal: leaving the Grid there is the row
+/// below, not a displacement the Source wrote. Any other coordinates use the
+/// same displaced resolution Jump already takes.
+pub(super) fn resolve_portal(
+    grid: Grid,
+    root: Position,
+    coords: PortalCoords,
+) -> Result<Portal, PortalError> {
+    if coords == PortalCoords::SOUTH {
+        Portal::ordinary_result(grid, root)
+    } else {
+        Portal::displaced(grid, root, coords.columns, coords.rows)
+    }
+}
+
 /// The Expression root a locking Function's Portal names.
 fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
     let node = &lookup.nodes()[locker];
-    let lock = node.function.lock_effect()?;
-    Portal::displaced(lookup.grid, node.anchor, lock.columns, lock.rows)
+    if !node.function.locks_root() {
+        return None;
+    }
+    let coords = node.function.output_portal()?;
+    resolve_portal(lookup.grid, node.anchor, coords)
         .ok()
         .and_then(|portal| lookup.root_at(portal.destination()))
 }
@@ -838,9 +858,9 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 );
                 let owner = parent.map_or(index, |parent: usize| nodes[parent].owner);
                 // Nested computations write no Portal of their own. A nested
-                // Jump still reads the opposite Portal. A root Terminal Output
+                // Jump still reads its Input Portal. A root Terminal Output
                 // Function has no Cell destination at all: Play is an Effect,
-                // not a Portal. A locking root reserves its declared Portal
+                // not a Portal. A locking root reserves its Output Portal
                 // and writes no Cell.
                 let portal_access = PortalAccess::resolve(grid, anchor, function, parent.is_some());
                 nodes.push(Computation {

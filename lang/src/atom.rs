@@ -246,11 +246,8 @@ impl FunctionKind {
         }
     }
 
-    const fn lock_effect(self) -> Option<crate::LockEffect> {
-        match self {
-            Self::Effect(EffectKind::Lock(effect)) => Some(effect),
-            _ => None,
-        }
+    const fn locks_root(self) -> bool {
+        matches!(self, Self::Effect(EffectKind::Lock))
     }
 }
 
@@ -276,13 +273,12 @@ enum EffectKind {
     /// one. The displacement is a whole-Cell offset rather than a named
     /// direction: ADR 0006 states this geometry in coordinates already, north
     /// `(x, y-1)` and west `(x-2, y)`, and a Portal is an output property every
-    /// Function has, with `Portal::ordinary_result` one row south as the
-    /// default. These Functions decline the default and say by how much.
+    /// Function has, with one row south as the default. These Functions decline
+    /// the default and say by how much.
     SourceWrite(crate::SourceEffect),
     /// A root lock through one Portal, with no Cell write, no Play Command,
-    /// and no value. The displacement is the Portal: ordinary result is one
-    /// row south, and Halt names that default.
-    Lock(crate::LockEffect),
+    /// and no value. The Portal is the Function's Output Portal.
+    Lock,
 }
 
 /// The kind column of the canonical definitions, mapped to the declaration it
@@ -382,10 +378,7 @@ macro_rules! function_kind {
         }))
     };
     (Halt) => {
-        FunctionKind::Effect(EffectKind::Lock(crate::LockEffect {
-            columns: 0,
-            rows: 1,
-        }))
+        FunctionKind::Effect(EffectKind::Lock)
     };
 }
 
@@ -1024,22 +1017,11 @@ macro_rules! define_functions {
                 self.kind().source_effect()
             }
 
-            /// The root lock this Function performs, or `None` for a Function
-            /// that performs none.
-            ///
-            /// The lock is an ordering edge rather than a Source write, so
-            /// [`Function::source_effect`] stays `None`. `orcvs` resolves the
-            /// displacement against the Grid.
-            #[inline(always)]
-            pub const fn lock_effect(self) -> Option<crate::LockEffect> {
-                self.kind().lock_effect()
-            }
-
-            /// Whether this Function locks the Expression root at its lock
+            /// Whether this Function locks the Expression root at its Output
             /// Portal.
             #[inline(always)]
             pub const fn locks_root(self) -> bool {
-                self.lock_effect().is_some()
+                self.kind().locks_root()
             }
 
             /// Whether this Function can return Bang, even when the current
@@ -1505,18 +1487,59 @@ impl Function {
         }),
         (ReplacementChange::Write, |replacement, running| {
             replacement.source_effect() != running.source_effect()
-                || replacement.output_displacement() != running.output_displacement()
+                || replacement.output_portal() != running.output_portal()
+                || replacement.input_portal() != running.input_portal()
         }),
     ];
 
-    /// How far this Function's output Portal sits from its anchor when that
-    /// Portal is not the ordinary result one row south.
-    pub const fn output_displacement(self) -> Option<(i16, i16)> {
+    /// The Output Portal this Function names, or `None` when it names none.
+    ///
+    /// Terminal Output and Source-writing Functions name none here: the former
+    /// has no Cell destination, and the latter keeps its destinations on
+    /// [`Function::source_effect`] this slice. Every other Function names one
+    /// row south unless it is a Jump, which names the Portal its direction
+    /// writes through.
+    pub const fn output_portal(self) -> Option<crate::PortalCoords> {
+        if self.performs_terminal_output() || self.source_effect().is_some() {
+            return None;
+        }
+        Some(match self {
+            Self::JumpEast => crate::PortalCoords {
+                columns: 2,
+                rows: 0,
+            },
+            Self::JumpWest => crate::PortalCoords {
+                columns: -2,
+                rows: 0,
+            },
+            Self::JumpNorth => crate::PortalCoords {
+                columns: 0,
+                rows: -1,
+            },
+            _ => crate::PortalCoords::SOUTH,
+        })
+    }
+
+    /// The Input Portal this Function names, or `None` when it names none.
+    ///
+    /// Jump names the Portal opposite its Output Portal. Increment and
+    /// Interpolation name one row south, the same site as their Output Portal.
+    pub const fn input_portal(self) -> Option<crate::PortalCoords> {
         match self {
-            Self::JumpEast => Some((2, 0)),
-            Self::JumpWest => Some((-2, 0)),
-            Self::JumpNorth => Some((0, -1)),
-            Self::JumpSouth => Some((0, 1)),
+            Self::JumpEast => Some(crate::PortalCoords {
+                columns: -2,
+                rows: 0,
+            }),
+            Self::JumpWest => Some(crate::PortalCoords {
+                columns: 2,
+                rows: 0,
+            }),
+            Self::JumpNorth => Some(crate::PortalCoords::SOUTH),
+            Self::JumpSouth => Some(crate::PortalCoords {
+                columns: 0,
+                rows: -1,
+            }),
+            _ if self.portal_input().is_some() => Some(crate::PortalCoords::SOUTH),
             _ => None,
         }
     }
@@ -1804,6 +1827,96 @@ mod test {
                 Function::JumpWest,
                 Function::Select,
             ]
+        );
+    }
+
+    #[test]
+    fn every_function_names_its_portals() {
+        use crate::PortalCoords;
+
+        for function in Function::ALL.iter().copied() {
+            let output = function.output_portal();
+            let input = function.input_portal();
+            match function {
+                Function::JumpEast => {
+                    assert_eq!(
+                        output,
+                        Some(PortalCoords {
+                            columns: 2,
+                            rows: 0
+                        })
+                    );
+                    assert_eq!(
+                        input,
+                        Some(PortalCoords {
+                            columns: -2,
+                            rows: 0
+                        })
+                    );
+                }
+                Function::JumpWest => {
+                    assert_eq!(
+                        output,
+                        Some(PortalCoords {
+                            columns: -2,
+                            rows: 0
+                        })
+                    );
+                    assert_eq!(
+                        input,
+                        Some(PortalCoords {
+                            columns: 2,
+                            rows: 0
+                        })
+                    );
+                }
+                Function::JumpNorth => {
+                    assert_eq!(
+                        output,
+                        Some(PortalCoords {
+                            columns: 0,
+                            rows: -1
+                        })
+                    );
+                    assert_eq!(input, Some(PortalCoords::SOUTH));
+                }
+                Function::JumpSouth => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH));
+                    assert_eq!(
+                        input,
+                        Some(PortalCoords {
+                            columns: 0,
+                            rows: -1
+                        })
+                    );
+                }
+                Function::Increment | Function::Interpolation => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, Some(PortalCoords::SOUTH));
+                }
+                Function::Halt => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH));
+                    assert_eq!(input, None);
+                    assert!(function.locks_root());
+                }
+                _ if function.performs_terminal_output() || function.source_effect().is_some() => {
+                    assert_eq!(output, None, "{function:?}");
+                    assert_eq!(input, None, "{function:?}");
+                }
+                _ => {
+                    assert_eq!(output, Some(PortalCoords::SOUTH), "{function:?}");
+                    assert_eq!(input, None, "{function:?}");
+                    assert!(!function.locks_root(), "{function:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn increment_replacing_add_is_a_write() {
+        assert_eq!(
+            Function::Increment.replacing(Function::Add),
+            Some(ReplacementChange::Write)
         );
     }
 

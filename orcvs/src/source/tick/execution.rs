@@ -7,7 +7,7 @@
 use std::ops::ControlFlow::{self, Break, Continue};
 
 use lang::{
-    Atom, Function, FunctionInputs, Interpretation, Interpreter, LockEffect, PortalInput,
+    Atom, Function, FunctionInputs, Interpretation, Interpreter, PortalCoords, PortalInput,
     PortalSource, SourceBundle, SourceEffect, Tick, TickInputs, Value,
 };
 
@@ -361,7 +361,7 @@ impl<'a> Execution<'a> {
             Ok(Interpretation::Source(effect)) => {
                 return self.deliver_source_effect(index, effect);
             }
-            Ok(Interpretation::Lock(lock)) => return self.lock_portal(index, lock),
+            Ok(Interpretation::Lock) => return self.lock_portal(index),
         }
         Continue(())
     }
@@ -385,22 +385,27 @@ impl<'a> Execution<'a> {
             })
     }
 
-    /// Borrow working Source at the Function's Portal.
+    /// Borrow working Source at the Function's Input Portal.
     fn portal_source(&self, node: &Computation, function: Function) -> PortalSource<'_> {
+        let Some(coords) = function.input_portal() else {
+            return PortalSource::none();
+        };
         if let Some(input) = function.portal_input() {
-            return PortalSource::from_cells(self.borrow_portal_cells(node, input));
+            return PortalSource::from_cells(self.borrow_portal_cells(node, coords, input));
         }
-        if function.output_displacement().is_some() {
-            return PortalSource::from_cells(self.borrow_jump_input(node, function));
-        }
-        PortalSource::none()
+        PortalSource::from_cells(self.borrow_jump_input(node, coords))
     }
 
     /// Borrow one Portal's Cells directly from working Source. A missing or
     /// truncated site stays absent so binding diagnoses it after all cell
     /// operands have been validated.
-    fn borrow_portal_cells(&self, node: &Computation, input: PortalInput) -> Option<&str> {
-        let portal = Portal::ordinary_result(self.grid, node.anchor).ok()?;
+    fn borrow_portal_cells(
+        &self,
+        node: &Computation,
+        coords: PortalCoords,
+        input: PortalInput,
+    ) -> Option<&str> {
+        let portal = super::resolve_portal(self.grid, node.anchor, coords).ok()?;
         let span = portal.span(input.token().len()).ok()?;
         Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
     }
@@ -409,9 +414,8 @@ impl<'a> Execution<'a> {
     ///
     /// Invalid, partial, and Sequence input stay absent so the Interpreter
     /// diagnoses rather than answering an Atom that was never a Language Unit.
-    fn borrow_jump_input(&self, node: &Computation, function: Function) -> Option<&str> {
-        let (columns, rows) = function.output_displacement()?;
-        let portal = Portal::displaced(self.grid, node.anchor, -columns, -rows).ok()?;
+    fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
+        let portal = super::resolve_portal(self.grid, node.anchor, coords).ok()?;
         let span = portal.span(super::SCALAR_WIDTH).ok()?;
         let cells = &self.working[span.range()];
         match self.classify_jump_input(span.range(), cells) {
@@ -468,9 +472,7 @@ impl<'a> Execution<'a> {
             Ok(Rendered::Nothing) => {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
-                if self.states[index].function.output_displacement().is_some()
-                    && node.portal_access.writes_cells()
-                {
+                if self.copies_language_unit(index) && node.portal_access.writes_cells() {
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     for output in node.portal_access.write_sites() {
                         self.deliver_output(index, &Value::Atom(Atom::Empty), &cleared, *output)?;
@@ -523,9 +525,7 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        if *value == Value::Atom(Atom::Bang)
-            && self.states[index].function.output_displacement().is_some()
-        {
+        if *value == Value::Atom(Atom::Bang) && self.copies_language_unit(index) {
             if let Some(root) = self.lookup.root_at(destination) {
                 self.states[root].activated = true;
                 return Continue(());
@@ -865,9 +865,14 @@ impl<'a> Execution<'a> {
             .any(|written| written.start <= cells.start && cells.end <= written.end)
     }
 
+    fn copies_language_unit(&self, index: usize) -> bool {
+        let function = self.states[index].function;
+        function.input_portal().is_some() && function.portal_input().is_none()
+    }
+
     ///
     ///
-    /// Applies a lock to the Expression root at the declared Portal.
+    /// Applies a lock to the Expression root at the Function's Output Portal.
     ///
     /// The schedule already placed this Turn ahead of that root, so a lock
     /// that finds it executed is a scheduler defect and rejects the Tick the
@@ -876,9 +881,12 @@ impl<'a> Execution<'a> {
     /// suppressed here — `opens_turn` already refused a suppressed Halt, so
     /// reaching this arm means this Halt locks.
     ///
-    fn lock_portal(&mut self, index: usize, lock: LockEffect) -> ControlFlow<Diagnostic> {
+    fn lock_portal(&mut self, index: usize) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
-        let Ok(portal) = Portal::displaced(self.grid, node.anchor, lock.columns, lock.rows) else {
+        let Some(coords) = node.function.output_portal() else {
+            return Continue(());
+        };
+        let Ok(portal) = super::resolve_portal(self.grid, node.anchor, coords) else {
             return Continue(());
         };
         let target = portal.destination();

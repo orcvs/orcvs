@@ -33,14 +33,11 @@ pub enum Interpretation {
     /// unbuilt.
     Play(Performance),
     /// The lock one active locking Function root places on the Expression
-    /// root at a declared Portal.
+    /// root at its Output Portal.
     ///
-    /// It carries a displacement rather than a Position, because ADR 0009
-    /// keeps destination resolution in `orcvs` and this crate holds no Grid.
-    /// The consumer turns the offset into a Portal, finds the root or
-    /// diagnoses a non-root, and applies the lock as an ordering effect
-    /// rather than as a Source write.
-    Lock(crate::LockEffect),
+    /// The Portal lives on the Function, not on this answer: ADR 0009 keeps
+    /// destination resolution in `orcvs` and this crate holds no Grid.
+    Lock,
     /// The Cells one active Source-writing Function root plans to write.
     ///
     /// It carries a displacement and a spelling rather than Positions, because
@@ -204,10 +201,7 @@ impl Interpreter {
                     // declaration. ADR 0029's asymmetry lives in the activation
                     // column and the bundle, and both are settled before this.
                     Function::Halt => {
-                        return Ok(Interpretation::Lock(
-                            fun.lock_effect()
-                                .expect("a locking Function declares a lock"),
-                        ));
+                        return Ok(Interpretation::Lock);
                     }
                     Function::DirectionalBangEast
                     | Function::DirectionalBangNorth
@@ -595,18 +589,18 @@ mod test {
     }
 
     #[test]
-    fn halt_answers_a_lock_through_the_ordinary_result_portal() {
-        // Ordinary result is one row south. Halt names that Portal as a lock,
-        // not a write: no spelling, no bundle, same displacement Source-writing
-        // Functions decline the default to set.
-        let lock = crate::LockEffect {
-            columns: 0,
-            rows: 1,
-        };
-        assert_eq!(Function::Halt.lock_effect(), Some(lock));
+    fn halt_locks_at_its_output_portal() {
+        // Halt names no coordinates: its Output Portal is one row south, the
+        // same Portal Add writes. The lock is the Effect, not a second geometry.
+        assert_eq!(
+            Function::Halt.output_portal(),
+            Some(crate::PortalCoords::SOUTH)
+        );
+        assert_eq!(Function::Halt.input_portal(), None);
+        assert!(Function::Halt.locks_root());
         assert_eq!(
             Interpreter::execute(&[Atom::Function(Function::Halt)], inputs()).unwrap(),
-            Interpretation::Lock(lock)
+            Interpretation::Lock
         );
         assert!(!Function::Halt.answers_value());
         assert!(!Function::Halt.can_emit_bang());
@@ -822,7 +816,7 @@ mod test {
                 continue;
             }
             if function.answers_sequence()
-                || function.output_displacement().is_some()
+                || function.input_portal().is_some()
                 || function
                     .signature()
                     .iter()

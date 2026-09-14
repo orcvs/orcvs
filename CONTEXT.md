@@ -73,7 +73,7 @@ A named Orcvs language operation evaluated within an Expression. A Function may 
 _Avoid_: Operator, command
 
 **Source Function**:
-A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond the ordinary result position. Its reads observe current-Tick values supplied by its scheduled dependencies, and its writes pass through Portals.
+A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond its Output Portal. Its reads observe current-Tick values supplied by its scheduled dependencies, and its writes pass through Portals.
 _Avoid_: Spatial operator, grid function
 
 **Bang**:
@@ -125,11 +125,11 @@ The Tick-family Function `~%`, which answers a Bang on the Ticks a Euclidean rhy
 _Avoid_: Euclidean algorithm, pattern table, rhythm string, step sequencer
 
 **Increment Function**:
-The Tick-family Function `~+`, which answers `(previous + step) % modulus` as a Number. Both operands are Numbers: `step` is how far to advance and `modulus` is where the count wraps. Its Number Portal input reads the ordinary result Portal in working Source at its Turn, including earlier same-Tick writes: empty Cells supply the initial Number `00`, and any other present Language Unit diagnoses. The addition and the modulus are taken in an integer wider than a byte before the answer becomes a Number, so `FF + 02` cannot wrap before the modulus is applied. A zero modulus diagnoses under a message naming the Function and the operand rather than reusing Division's or Modulo's. It is a scalar exception to pervasive extension under ADR 0012: a Sequence at either operand, or a Sequence Portal input, diagnoses rather than widening, because element identity across Ticks would need hidden state their one visible Atom cannot hold.
+The Tick-family Function `~+`, which answers `(previous + step) % modulus` as a Number. Both operands are Numbers: `step` is how far to advance and `modulus` is where the count wraps. Its Input Portal and Output Portal are the same site, one row south of the Function: the Number input reads that Portal in working Source at its Turn, including earlier same-Tick writes; empty Cells supply the initial Number `00`, and any other present Language Unit diagnoses. The addition and the modulus are taken in an integer wider than a byte before the answer becomes a Number, so `FF + 02` cannot wrap before the modulus is applied. A zero modulus diagnoses under a message naming the Function and the operand rather than reusing Division's or Modulo's. It is a scalar exception to pervasive extension under ADR 0012: a Sequence at either operand, or a Sequence Portal input, diagnoses rather than widening, because element identity across Ticks would need hidden state their one visible Atom cannot hold.
 _Avoid_: Counter, accumulator, hidden state, +=
 
 **Interpolation Function**:
-The Tick-family Function `~>`, which moves a Number toward a target by at most `rate` and never overshoots. Both operands are Numbers: `rate` is the farthest one Tick may travel and `target` is the value it is moving toward. Its Number Portal input reads the ordinary result Portal in working Source at its Turn, including earlier same-Tick writes: empty Cells supply the initial Number `00`, and any other present Language Unit diagnoses. When below the target it steps up by `rate` or lands on the target; when above it steps down the same way; when equal it returns the target unchanged. Each distance is calculated only in the branch whose subtraction is non-negative, and the remaining step is taken in an integer wider than a byte. Rate `00` holds the current value. Like the Increment Function it is a scalar exception under ADR 0012 and refuses a Sequence operand or a Sequence Portal input.
+The Tick-family Function `~>`, which moves a Number toward a target by at most `rate` and never overshoots. Both operands are Numbers: `rate` is the farthest one Tick may travel and `target` is the value it is moving toward. Its Input Portal and Output Portal are the same site, one row south of the Function: the Number input reads that Portal in working Source at its Turn, including earlier same-Tick writes; empty Cells supply the initial Number `00`, and any other present Language Unit diagnoses. When below the target it steps up by `rate` or lands on the target; when above it steps down the same way; when equal it returns the target unchanged. Each distance is calculated only in the branch whose subtraction is non-negative, and the remaining step is taken in an integer wider than a byte. Rate `00` holds the current value. Like the Increment Function it is a scalar exception under ADR 0012 and refuses a Sequence operand or a Sequence Portal input.
 _Avoid_: Lerp, tween, easing, filter, glide
 
 **Random Function**:
@@ -169,8 +169,8 @@ The Sequence Function `:=`. It uses a zero-based Number index modulo the length 
 _Avoid_: Push Function, Sequence replacement operand, mutation
 
 **Portal**:
-One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. It carries an ordinary Atom or intact Sequence result, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
-_Avoid_: Port, address value, output coordinate
+One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. When a Function does not name other coordinates, that Portal is one row south of the Function's anchor. It carries an Atom or intact Sequence, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
+_Avoid_: Port, address value, output coordinate, ordinary result
 
 **Comment**:
 The Language Unit the Parser establishes at the two-Cell introducer `||`, claiming every remaining Cell of its row. It records a Token and no Atom, which excludes it from evaluation: it answers no value, performs no effect, and is never scheduled. `||` opens a Comment only where a new Expression could start; inside a Function's arity-determined claim it is an operand Cell that fails to bind and diagnoses. One `|` alone is incomplete or invalid Source rather than a Comment.
