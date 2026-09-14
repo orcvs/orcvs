@@ -7,8 +7,7 @@
 pub(super) mod execution;
 
 use lang::{
-    Anchor, Atom, Function, PortalCoords, ReplacementChange, SourceBundle, SourceEffect, Tick,
-    TickInputs,
+    Anchor, Atom, Function, ReplacementChange, SourceBundle, SourceEffect, Tick, TickInputs,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -89,6 +88,47 @@ impl Claims {
     }
 }
 
+/// Write reservations, bucketed by row.
+///
+/// [`Claims`] requires disjoint ranges. Producer destinations do not: two
+/// Portals may name the same Cells, and a row reservation covers every Pair
+/// that lands in its tail. A Span never leaves its row, so each Input Portal
+/// read searches only the writes that share it — naming an Input Portal on
+/// every Increment must not scan every other root.
+struct WriteClaims {
+    columns: usize,
+    by_row: Vec<Vec<Claim>>,
+}
+
+impl WriteClaims {
+    fn new(grid: Grid, claims: Vec<Claim>) -> Self {
+        let columns = grid.columns();
+        let mut by_row: Vec<Vec<Claim>> = (0..grid.rows()).map(|_| Vec::new()).collect();
+        for claim in claims {
+            if claim.cells.is_empty() {
+                continue;
+            }
+            let row = claim.cells.start / columns;
+            debug_assert!(
+                claim.cells.end <= (row + 1) * columns,
+                "a Span stays in one row"
+            );
+            by_row[row].push(claim);
+        }
+        Self { columns, by_row }
+    }
+
+    fn touching(&self, cells: Range<usize>) -> impl Iterator<Item = usize> + '_ {
+        let row = cells.start / self.columns;
+        self.by_row
+            .get(row)
+            .into_iter()
+            .flatten()
+            .filter(move |claim| claim.cells.start < cells.end && cells.start < claim.cells.end)
+            .map(|claim| claim.node)
+    }
+}
+
 struct Lookup {
     /// The Grid whose Cell numbering every Claim and subtree range below is
     /// stated in. Owning it keeps a query from restating a Position in another
@@ -101,6 +141,8 @@ struct Lookup {
     functions: Claims,
     literals: Claims,
     operands: Claims,
+    /// Destination Cells each producer reserved, including overlapping writes.
+    writes: WriteClaims,
     subtree_ends: Vec<usize>,
 }
 
@@ -252,12 +294,26 @@ impl Lookup {
             }
         }
         derive_reservations(&mut nodes);
+        let mut writes = Vec::new();
+        for (index, node) in nodes.iter().enumerate() {
+            for output in node
+                .portal_access
+                .write_sites()
+                .iter()
+                .filter_map(|output| output.as_ref().ok())
+            {
+                if let Some(cells) = node.reserved.cells_from(grid, *output) {
+                    writes.push(Claim { cells, node: index });
+                }
+            }
+        }
         let lookup = Self {
             grid,
             nodes,
             functions: Claims::new(functions),
             literals: Claims::new(literals),
             operands: Claims::new(operands),
+            writes: WriteClaims::new(grid, writes),
             subtree_ends,
         };
         // The agreement [`Lookup::would_reserve`] is a hypothesis against:
@@ -607,7 +663,7 @@ pub(super) fn plan(
 
 ///
 /// Gives each computation the Portal destinations `destinations` names for it,
-/// in place of the ordinary result position it resolved for itself.
+/// in place of the default Portal one row south that it resolved for itself.
 ///
 /// Done to the computations once [`computations`] has stated them rather than
 /// while it is stating them, so that a schedule can carry chosen destinations
@@ -646,7 +702,7 @@ fn schedule_carrying(
 /// Plans one Tick against a schedule carrying `destinations`.
 ///
 /// [`plan`] for a Tick whose destinations a test states, rather than the
-/// ordinary result positions its roots resolve for themselves.
+/// default Portal one row south that its roots resolve for themselves.
 ///
 #[cfg(test)]
 pub(super) fn plan_carrying(
@@ -744,11 +800,11 @@ fn active_roots(lookup: &Lookup) -> Vec<bool> {
                 // A Jump writes Bang through its output Portal. A root at
                 // that Portal is activated without a write; neighbours of
                 // an empty `**` write are the ordinary `bang_roots`.
-                let landed = (function.input_portal().is_some()
-                    && function.portal_input().is_none())
-                .then(|| relationships.contacted_roots())
-                .into_iter()
-                .flatten();
+                let landed = function
+                    .copies_language_unit()
+                    .then(|| relationships.contacted_roots())
+                    .into_iter()
+                    .flatten();
                 for index in banged.chain(contacted).chain(landed).collect::<Vec<_>>() {
                     if !nodes[index].function.is_intrinsically_active() && !active[index] {
                         active[index] = true;
@@ -781,23 +837,6 @@ fn advances(function: Function) -> bool {
     )
 }
 
-/// Resolve a Function-named Portal against the Grid.
-///
-/// One row south is the default Portal: leaving the Grid there is the row
-/// below, not a displacement the Source wrote. Any other coordinates use the
-/// same displaced resolution Jump already takes.
-pub(super) fn resolve_portal(
-    grid: Grid,
-    root: Position,
-    coords: PortalCoords,
-) -> Result<Portal, PortalError> {
-    if coords == PortalCoords::SOUTH {
-        Portal::ordinary_result(grid, root)
-    } else {
-        Portal::displaced(grid, root, coords.columns, coords.rows)
-    }
-}
-
 /// The Expression root a locking Function's Portal names.
 fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
     let node = &lookup.nodes()[locker];
@@ -805,7 +844,7 @@ fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
         return None;
     }
     let coords = node.function.output_portal()?;
-    resolve_portal(lookup.grid, node.anchor, coords)
+    Portal::named(lookup.grid, node.anchor, coords)
         .ok()
         .and_then(|portal| lookup.root_at(portal.destination()))
 }
@@ -1025,29 +1064,18 @@ fn order_turns(
             }
         }
     }
-    // A Jump reads working Source at its input Portal. Those Cells are
-    // often an operand Span, so they cannot sit in `literals`; the edge is
-    // the same fact `literal_consumers` records for a declared operand.
+    // An Input Portal reads working Source. Those Cells are often an operand
+    // Span, so they cannot sit in `literals`; the edge is the same fact
+    // `literal_consumers` records for a declared operand. The producers that
+    // write them are indexed: naming an Input Portal on every Increment must
+    // not scan every other root.
     for (consumer, node) in nodes.iter().enumerate() {
         for read in node.portal_access.read_spans() {
-            for (producer, source) in nodes.iter().enumerate() {
-                if producer == consumer || !active[source.owner] {
+            for producer in lookup.writes.touching(read.clone()) {
+                if producer == consumer || !active[nodes[producer].owner] {
                     continue;
                 }
-                for output in source
-                    .portal_access
-                    .write_sites()
-                    .iter()
-                    .filter_map(|output| output.as_ref().ok())
-                {
-                    if lookup
-                        .reserved(producer)
-                        .cells_from(grid, *output)
-                        .is_some_and(|cells| cells.start < read.end && read.start < cells.end)
-                    {
-                        edges.insert((producer, consumer));
-                    }
-                }
+                edges.insert((producer, consumer));
             }
         }
     }
@@ -1177,6 +1205,57 @@ mod test {
                 .unwrap();
         }
         source
+    }
+
+    #[test]
+    fn write_claims_answer_overlapping_reservations() {
+        let claims = super::WriteClaims::new(
+            Grid::new(8, 1),
+            vec![
+                super::Claim {
+                    cells: 0..4,
+                    node: 0,
+                },
+                super::Claim {
+                    cells: 2..6,
+                    node: 1,
+                },
+            ],
+        );
+        assert_eq!(claims.touching(2..4).collect::<Vec<_>>(), vec![0, 1]);
+    }
+
+    #[test]
+    fn write_claims_skip_a_nested_short_span() {
+        let claims = super::WriteClaims::new(
+            Grid::new(20, 1),
+            vec![
+                super::Claim {
+                    cells: 0..20,
+                    node: 0,
+                },
+                super::Claim {
+                    cells: 1..3,
+                    node: 1,
+                },
+            ],
+        );
+        assert_eq!(claims.touching(10..12).collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[test]
+    fn write_claims_on_a_dense_row_touch_only_the_covering_write() {
+        let claims = super::WriteClaims::new(
+            Grid::new(64, 1),
+            (0..8)
+                .map(|index| super::Claim {
+                    cells: index * 8..index * 8 + 2,
+                    node: index,
+                })
+                .collect(),
+        );
+        assert_eq!(claims.touching(16..18).collect::<Vec<_>>(), vec![2]);
+        assert!(claims.touching(18..20).next().is_none());
     }
 
     ///
@@ -1837,7 +1916,7 @@ mod test {
 
     #[test]
     fn a_jump_that_closes_a_same_tick_cycle_rejects_the_tick() {
-        // Increment reads and writes its ordinary result. A Jump that copies
+        // Increment reads and writes one row south. A Jump that copies
         // that Cell pair back onto Increment's operand closes a cycle.
         let (plans, grids, _) = tick_by_tick(Grid::new(6, 2), &["~+0104", "&^"], 1);
         assert_eq!(grids[0], ["~+0104", "&^    "]);
@@ -2172,7 +2251,7 @@ mod test {
         // A Halt whose Position is after its target cannot be spelled: the
         // target is one row south. A Bang producer after both Halt and that
         // target also cannot activate Halt under ADR 0006's cardinal
-        // geometry — ordinary results land one row south, so a producer
+        // geometry — the default Portal is one row south, so a producer
         // after the target writes a Bang that cannot touch Halt. The lock
         // that would reach an already-executed root is therefore
         // inexpressible; the existing late-write reject path still holds.

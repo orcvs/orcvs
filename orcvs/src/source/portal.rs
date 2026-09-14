@@ -36,14 +36,6 @@ use super::language_map::{LanguageMap, LanguageUnitKind, Span};
 /// Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
 const PAIR_WIDTH: usize = 2;
 
-fn named_portal(grid: Grid, root: Position, coords: PortalCoords) -> Result<Portal, PortalError> {
-    if coords == PortalCoords::SOUTH {
-        Portal::ordinary_result(grid, root)
-    } else {
-        Portal::displaced(grid, root, coords.columns, coords.rows)
-    }
-}
-
 ///
 /// One Cell destination resolved while interpreting a Source Snapshot.
 ///
@@ -128,8 +120,8 @@ pub(super) enum PortalUnit {
 /// refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PortalError {
-    /// There is no row below the producer's root, so no ordinary result
-    /// destination exists at all.
+    /// There is no row below the producer's root, so no default Portal
+    /// exists at all.
     BelowSource,
     /// The declared displacement lands outside the Grid, so the destination
     /// this Function asked for does not exist. It is [`PortalError::BelowSource`]
@@ -143,15 +135,33 @@ pub(super) enum PortalError {
 
 impl Portal {
     ///
-    /// The Portal an ordinary result passes through: the Cell below `root`, in
-    /// `root`'s own column.
+    /// The Portal `coords` name relative to `root`.
+    ///
+    /// One row south is the default Portal: leaving the Grid there is the row
+    /// below, not a displacement the Source wrote. Any other coordinates use
+    /// the same displaced resolution Jump already takes.
+    ///
+    pub(super) fn named(
+        grid: Grid,
+        root: Position,
+        coords: PortalCoords,
+    ) -> Result<Self, PortalError> {
+        if coords == PortalCoords::SOUTH {
+            Self::south_of(grid, root)
+        } else {
+            Self::displaced(grid, root, coords.columns, coords.rows)
+        }
+    }
+
+    ///
+    /// The default Portal: one row south of `root`, in `root`'s own column.
     ///
     /// A root in the last row resolves no Portal rather than a clamped one.
     /// Clamping would put a result in a Cell the Source never asked for, and a
     /// destination that does not exist is exactly what ADR 0009 wants reported
     /// — the caller diagnoses at the root and plans nothing.
     ///
-    pub(super) fn ordinary_result(grid: Grid, root: Position) -> Result<Self, PortalError> {
+    pub(super) fn south_of(grid: Grid, root: Position) -> Result<Self, PortalError> {
         grid.below(root)
             .map(|destination| Self::at(grid, destination))
             .ok_or(PortalError::BelowSource)
@@ -161,14 +171,14 @@ impl Portal {
     /// The Portal `columns` Cells east and `rows` Cells south of `root`.
     ///
     /// The destination a Function declaring its own Portal offset resolves,
-    /// where [`Portal::ordinary_result`] is the destination every other
-    /// Function takes. ADR 0006 states this geometry in coordinates — north
+    /// where [`Portal::south_of`] is the destination every other Function
+    /// takes. ADR 0006 states this geometry in coordinates — north
     /// `(x, y-1)`, west `(x-2, y)` — and ADR 0009 keeps the resolution here,
     /// so the language crate answers a displacement and never a Position.
     ///
     /// A displacement leaving the Grid resolves no Portal, for the reason
-    /// `ordinary_result` resolves none below the last row: the caller
-    /// diagnoses at the root and plans nothing.
+    /// `south_of` resolves none below the last row: the caller diagnoses at
+    /// the root and plans nothing.
     ///
     pub(super) fn displaced(
         grid: Grid,
@@ -489,7 +499,7 @@ impl PortalAccess {
         if let Some(coords) = function.output_portal() {
             return Self {
                 writes: PortalWrites::Sites(vec![
-                    named_portal(grid, anchor, coords).map(|portal| portal.destination()),
+                    Portal::named(grid, anchor, coords).map(|portal| portal.destination()),
                 ]),
                 reads,
             };
@@ -501,7 +511,7 @@ impl PortalAccess {
     }
 
     fn portal_reads(grid: Grid, anchor: Position, coords: PortalCoords) -> Vec<Range<usize>> {
-        named_portal(grid, anchor, coords)
+        Portal::named(grid, anchor, coords)
             .ok()
             .and_then(|portal| portal.span(PAIR_WIDTH).ok())
             .map(|span| vec![span.range()])
@@ -626,17 +636,17 @@ mod test {
     }
 
     #[test]
-    fn an_ordinary_result_passes_through_the_portal_below_its_root() {
-        // ADR 0009's ordinary result destination, stated as the Cells it
-        // reaches. The Grid is ten wide and the root sits at column 3 of row
-        // 0, so the destination Cells are asymmetric in both coordinates: a
-        // Portal that kept the root's own Cell, dropped to the row below but
-        // reset to column 0, or transposed the two coordinates lands somewhere
-        // other than 13 and 14.
+    fn the_default_portal_is_one_row_south_of_the_root() {
+        // The default Portal CONTEXT.md names: one row south of the root, in
+        // the root's own column. The Grid is ten wide and the root sits at
+        // column 3 of row 0, so the destination Cells are asymmetric in both
+        // coordinates: a Portal that kept the root's own Cell, dropped to the
+        // row below but reset to column 0, or transposed the two coordinates
+        // lands somewhere other than 13 and 14.
         let grid = Grid::new(10, 3);
         let root = grid.position(3, 0).expect("inside the Grid");
 
-        let portal = Portal::ordinary_result(grid, root).expect("a row below the root");
+        let portal = Portal::south_of(grid, root).expect("a row below the root");
 
         assert_eq!(
             placed(&portal, "03"),
@@ -665,7 +675,7 @@ mod test {
 
     #[test]
     fn a_displacement_off_the_grid_resolves_no_portal_at_all() {
-        // The refusal `ordinary_result` gives the last row, generalised to
+        // The refusal `south_of` gives the last row, generalised to
         // every edge a declared offset can reach. Each of these is outside the
         // Grid in one coordinate, and none of them is clamped to the edge Cell
         // beside it: a destination that does not exist is what ADR 0009 wants
@@ -708,7 +718,7 @@ mod test {
         let last_row = grid.position(0, 1).expect("inside the Grid");
 
         assert_eq!(
-            Portal::ordinary_result(grid, last_row).err(),
+            Portal::south_of(grid, last_row).err(),
             Some(PortalError::BelowSource)
         );
     }
@@ -736,13 +746,13 @@ mod test {
 
     #[test]
     fn a_whole_sequence_encoding_passes_through_one_portal_as_one_write() {
-        // ADR 0007: an intact Sequence is one ordinary result through one
-        // Portal, not a batch of Cell writes. A six-Cell encoding is therefore
-        // admitted by the same call a two-Cell Atom uses, and lands on six
-        // consecutive Cells of the destination row in encoding order.
+        // ADR 0007: an intact Sequence passes through one Portal, not a batch
+        // of Cell writes. A six-Cell encoding is therefore admitted by the
+        // same call a two-Cell Atom uses, and lands on six consecutive Cells
+        // of the destination row in encoding order.
         let grid = Grid::new(10, 3);
         let root = grid.position(0, 0).expect("inside the Grid");
-        let portal = Portal::ordinary_result(grid, root).expect("a row below the root");
+        let portal = Portal::south_of(grid, root).expect("a row below the root");
 
         assert_eq!(
             placed(&portal, "0A0B0C"),
@@ -766,7 +776,7 @@ mod test {
         // than its first four Atoms.
         let grid = Grid::new(10, 3);
         let root = grid.position(2, 0).expect("inside the Grid");
-        let portal = Portal::ordinary_result(grid, root).expect("a row below the root");
+        let portal = Portal::south_of(grid, root).expect("a row below the root");
 
         assert_eq!(
             admitted(&portal, "0A0B0C0D0E").err(),

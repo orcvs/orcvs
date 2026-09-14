@@ -1544,6 +1544,15 @@ impl Function {
         }
     }
 
+    /// Whether this Function copies a Language Unit from its Input Portal.
+    ///
+    /// Jump names an Input Portal and binds no typed Portal input. Increment
+    /// and Interpolation name the same south site as a Number Portal input, so
+    /// they are not this: the Cells they read are a value, not a Language Unit.
+    pub const fn copies_language_unit(self) -> bool {
+        self.input_portal().is_some() && self.portal_input().is_none()
+    }
+
     /// Which declared fact this Function changes about `running`, the Function
     /// a computation is running, or `None` where it changes none of them.
     ///

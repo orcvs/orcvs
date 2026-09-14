@@ -320,8 +320,8 @@ impl Source {
 
     ///
     /// Runs one Tick against a schedule carrying `destinations`, rather than
-    /// against the ordinary result positions its computations resolve for
-    /// themselves, and reports the execution states [`Source::execute`]
+    /// against the default Portal one row south that its computations resolve
+    /// for themselves, and reports the execution states [`Source::execute`]
     /// discards.
     ///
     #[cfg(test)]
@@ -733,7 +733,7 @@ mod test {
             Interpretation::Sequence(sequence) => Value::from(sequence),
             // A Source effect is not an answer this seam delivers. It writes
             // its own Cells at Portals it resolves, so there is no value to
-            // encode and no ordinary result destination to admit one through;
+            // encode and no default Portal to admit one through;
             // `tick::execution` owns that bundle and the Tick tests drive it.
             Interpretation::Source(effect) => {
                 panic!("{effect:?} is a Source effect and not a stated answer")
@@ -748,7 +748,7 @@ mod test {
         let Rendered::Cells(encoding) = rendered else {
             return resolve(Vec::new());
         };
-        let write = Portal::ordinary_result(grid, root)
+        let write = Portal::south_of(grid, root)
             .and_then(|portal| portal.admit(&encoding))
             .expect("these answers are stated to fit their destination");
         resolve(vec![Effect::Write(write)])

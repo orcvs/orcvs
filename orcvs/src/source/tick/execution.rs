@@ -348,7 +348,7 @@ impl<'a> Execution<'a> {
         coords: PortalCoords,
         input: PortalInput,
     ) -> Option<&str> {
-        let portal = super::resolve_portal(self.grid, node.anchor, coords).ok()?;
+        let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
         let span = portal.span(input.token().len()).ok()?;
         Some(std::str::from_utf8(&self.working[span.range()]).expect("ASCII Source"))
     }
@@ -358,7 +358,7 @@ impl<'a> Execution<'a> {
     /// Invalid, partial, and Sequence input stay absent so the Interpreter
     /// diagnoses rather than answering an Atom that was never a Language Unit.
     fn borrow_jump_input(&self, node: &Computation, coords: PortalCoords) -> Option<&str> {
-        let portal = super::resolve_portal(self.grid, node.anchor, coords).ok()?;
+        let portal = Portal::named(self.grid, node.anchor, coords).ok()?;
         match portal.language_unit(&self.working, self.map, super::SCALAR_WIDTH, |range| {
             self.sequence_covers(range)
         }) {
@@ -418,7 +418,9 @@ impl<'a> Execution<'a> {
             Ok(Rendered::Nothing) => {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
-                if self.copies_language_unit(index) && node.portal_access.writes_cells() {
+                if self.states[index].function.copies_language_unit()
+                    && node.portal_access.writes_cells()
+                {
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
                     for output in node.portal_access.write_sites() {
                         self.deliver_output(index, &Value::Atom(Atom::Empty), &cleared, *output)?;
@@ -471,7 +473,7 @@ impl<'a> Execution<'a> {
                 return Continue(());
             }
         };
-        if *value == Value::Atom(Atom::Bang) && self.copies_language_unit(index) {
+        if *value == Value::Atom(Atom::Bang) && self.states[index].function.copies_language_unit() {
             if let Some(root) = self.lookup.root_at(destination) {
                 self.states[root].activated = true;
                 return Continue(());
@@ -775,11 +777,6 @@ impl<'a> Execution<'a> {
             .any(|written| written.start <= cells.start && cells.end <= written.end)
     }
 
-    fn copies_language_unit(&self, index: usize) -> bool {
-        let function = self.states[index].function;
-        function.input_portal().is_some() && function.portal_input().is_none()
-    }
-
     ///
     ///
     /// Applies a lock to the Expression root at the Function's Output Portal.
@@ -796,7 +793,7 @@ impl<'a> Execution<'a> {
         let Some(coords) = node.function.output_portal() else {
             return Continue(());
         };
-        let Ok(portal) = super::resolve_portal(self.grid, node.anchor, coords) else {
+        let Ok(portal) = Portal::named(self.grid, node.anchor, coords) else {
             return Continue(());
         };
         let target = portal.destination();
