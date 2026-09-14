@@ -14,6 +14,8 @@ Integrate performative spatial behavior with the dependency-ordered Tick contrac
 4. `issues/06-add-the-directional-bang-functions.md`
 5. `issues/04-add-directional-jump-chains.md`
 6. `issues/05-add-halt-root-locking.md`
+7. `issues/09-raise-the-terminal-output-portal-refusal-in-shipped-code.md` — extracted from 03;
+   blocked until input can name a destination for a Terminal Output Function.
 
 ## Historical required behavior — superseded by ADR 0032
 
