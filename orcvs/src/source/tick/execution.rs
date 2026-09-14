@@ -468,10 +468,10 @@ impl<'a> Execution<'a> {
                 // A Jump answers Empty when its input is two spaces. That is a
                 // clear of the reserved output Portal, not an omitted write.
                 if self.states[index].function.output_displacement().is_some()
-                    && !node.outputs.is_empty()
+                    && node.destinations.writes_cells()
                 {
                     let cleared = Encoding::literal("  ").expect("a space is a printable Cell");
-                    for output in &node.outputs {
+                    for output in node.destinations.write_sites() {
                         self.deliver_output(index, &Value::Atom(Atom::Empty), &cleared, *output)?;
                     }
                 }
@@ -479,7 +479,7 @@ impl<'a> Execution<'a> {
             }
             Ok(Rendered::Cells(encoding)) => encoding,
             Err(reason) => {
-                if !node.outputs.is_empty() {
+                if node.destinations.writes_cells() {
                     self.effects
                         .push(Effect::Diagnose(diagnose(node, render_message(reason))));
                 }
@@ -490,7 +490,7 @@ impl<'a> Execution<'a> {
         // answer could not be a Sequence, so any other width from one would
         // write Cells no dependency edge names.
         if !self.lookup.reserved(index).admits_width(encoding.len()) {
-            if !node.outputs.is_empty() {
+            if node.destinations.writes_cells() {
                 self.effects.push(Effect::Diagnose(diagnose(
                     node,
                     "result is not a scalar Cell pair",
@@ -498,7 +498,7 @@ impl<'a> Execution<'a> {
             }
             return Continue(());
         }
-        for output in &node.outputs {
+        for output in node.destinations.write_sites() {
             self.deliver_output(index, &value, &encoding, *output)?;
         }
         Continue(())
@@ -1018,8 +1018,8 @@ pub(super) mod stated {
         reservations: &[(CellIndex, Reserved)],
         answers: &[(CellIndex, Value)],
     ) -> (TickPlan, Vec<ComputationState>) {
-        let (mut nodes, mut diagnostics) = computations(grid, map);
-        carry(grid, &mut nodes, &mut diagnostics, destinations);
+        let (mut nodes, diagnostics) = computations(grid, map);
+        carry(grid, &mut nodes, destinations);
         let mut lookup = Lookup::new(grid, nodes);
         // Every fixture error the schedule can be asked about is asked here,
         // before an order exists. A Source with a cycle answers `Err` from

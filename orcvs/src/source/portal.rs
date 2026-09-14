@@ -1,13 +1,14 @@
 //! ADR 0009's Portal: where one interpreted result becomes Cells.
 //!
-//! A Portal is one Cell destination resolved during a Tick. It lives
-//! here rather than beside the producers in `tick` because
-//! destination resolution is the question ADR 0009 expects to change: a
-//! future Cell-addressing model, an infinite canvas among them, moves a
-//! result somewhere else without touching Function evaluation, effect
-//! ordering, or Tick Plan commit. Keeping resolution in its own module is what
-//! makes that a change to one file rather than a change threaded through the
-//! producer that happened to hardcode "the row below the root".
+//! A Portal is one Cell destination resolved during a Tick. [`Destinations`] is
+//! whether a computation writes any, and which. Both live here rather than
+//! beside the producers in `tick` because destination resolution is the
+//! question ADR 0009 expects to change: a future Cell-addressing model, an
+//! infinite canvas among them, moves a result somewhere else without touching
+//! Function evaluation, effect ordering, or Tick Plan commit. Keeping
+//! resolution in its own module is what makes that a change to one file rather
+//! than a change threaded through the producer that happened to hardcode "the
+//! row below the root".
 //! Reads, write admission, and Reservations share its row-fit calculation;
 //! each caller retains the policy deciding how much coverage it needs.
 //!
@@ -19,11 +20,19 @@
 //! file because `PersistedSource` carries a Grid and character Cells and this
 //! type is not among them.
 
+use std::ops::Range;
+
+use lang::{Function, SourceBundle};
+
 use crate::grid::{CellIndex, Grid, Position};
 
 use super::CellContent;
 use super::encoding::Encoding;
 use super::language_map::Span;
+
+/// The Cell pair an Atom occupies. Jump Destinations read that pair at the
+/// opposite Portal; Tick reservations use the same width as `SCALAR_WIDTH`.
+const PAIR_WIDTH: usize = 2;
 
 ///
 /// One Cell destination resolved while interpreting a Source Snapshot.
@@ -223,38 +232,84 @@ impl SpanWrite {
 ///
 /// The Cell write sites one computation resolves, or silence.
 ///
-/// A Portal is one Cell. Destinations is whether this computation writes any.
-/// Terminal Output answers Play, not a Cell, so it is silence — and silence is
-/// a kind, so [`Self::carry`] cannot mint a site the resolve step refused.
-/// Empty-vec silence was the leak: a test helper could stuff a Portal onto
-/// `!>`. Play stays an Effect; it is not a Portal.
+/// A Portal is one Cell. Destinations is whether this computation writes any,
+/// and which. Terminal Output answers Play, not a Cell, so it is silence —
+/// and silence is a kind, so [`Self::carry`] cannot mint a site the resolve
+/// step refused. Empty-vec silence was the leak: a test helper could stuff a
+/// Portal onto `!>`. Play stays an Effect; it is not a Portal.
 ///
-#[allow(dead_code)] // Tick Plan will resolve through this type; this slice only pins silence.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Destinations {
     Silent,
+    Writing {
+        writes: Vec<Result<Position, PortalError>>,
+        reads: Vec<Range<usize>>,
+    },
 }
 
-#[allow(dead_code)] // Same slice: methods exist so the silence test can name them.
 impl Destinations {
-    pub(super) fn resolve(
-        _grid: Grid,
-        _anchor: Position,
-        _function: lang::Function,
-        _nested: bool,
-    ) -> Self {
-        Self::Silent
-    }
-
-    pub(super) fn writes_cells(&self) -> bool {
-        match self {
-            Self::Silent => false,
+    ///
+    /// The write sites and extra reads `function` demands at `anchor`, or
+    /// silence when it writes no Cell.
+    ///
+    /// Nested computations hand a typed value to a parent. Terminal Output
+    /// answers Play. Neither demands a Portal. A Source write states its
+    /// declared bundle; a Jump writes at its displacement and reads the
+    /// opposite Portal; every other Value writes one row south.
+    ///
+    pub(super) fn resolve(grid: Grid, anchor: Position, function: Function, nested: bool) -> Self {
+        if nested || function.performs_terminal_output() {
+            return Self::Silent;
+        }
+        if let Some(effect) = function.source_effect() {
+            // ADR 0004's effect bundle, in the emission order ADR 0020
+            // resolves it by. An `Advance` clears the Cells the producer
+            // stands in before it writes; an `Emit` plans nothing at its own
+            // Cells. The displacement is read from the declaration here and
+            // answered again by the Interpreter at the Turn.
+            let destination = Portal::displaced(grid, anchor, effect.columns, effect.rows)
+                .map(|portal| portal.destination());
+            let writes = match effect.bundle {
+                SourceBundle::Advance => vec![Ok(anchor), destination],
+                SourceBundle::Emit => vec![destination],
+            };
+            return Self::Writing {
+                writes,
+                reads: Vec::new(),
+            };
+        }
+        if let Some((columns, rows)) = function.output_displacement() {
+            let writes = vec![
+                Portal::displaced(grid, anchor, columns, rows).map(|portal| portal.destination()),
+            ];
+            let reads = Portal::displaced(grid, anchor, -columns, -rows)
+                .ok()
+                .and_then(|portal| portal.span(PAIR_WIDTH).ok())
+                .map(|span| vec![span.range()])
+                .unwrap_or_default();
+            return Self::Writing { writes, reads };
+        }
+        Self::Writing {
+            writes: vec![Portal::ordinary_result(grid, anchor).map(|portal| portal.destination())],
+            reads: Vec::new(),
         }
     }
 
-    pub(super) fn write_sites(&self) -> impl Iterator<Item = Result<Position, PortalError>> {
+    pub(super) fn writes_cells(&self) -> bool {
+        matches!(self, Self::Writing { .. })
+    }
+
+    pub(super) fn write_sites(&self) -> &[Result<Position, PortalError>] {
         match self {
-            Self::Silent => core::iter::empty(),
+            Self::Silent => &[],
+            Self::Writing { writes, .. } => writes,
+        }
+    }
+
+    pub(super) fn read_spans(&self) -> &[Range<usize>] {
+        match self {
+            Self::Silent => &[],
+            Self::Writing { reads, .. } => reads,
         }
     }
 
@@ -266,14 +321,18 @@ impl Destinations {
     /// it cannot attach a Portal to Terminal Output.
     ///
     #[cfg(test)]
-    pub(super) fn carry(
-        &mut self,
-        _grid: Grid,
-        _writes: &[Position],
-        _diagnostics: &mut Vec<super::Diagnostic>,
-    ) {
+    pub(super) fn carry(&mut self, grid: Grid, writes: &[Position]) {
         match self {
             Self::Silent => {}
+            Self::Writing { writes: sites, .. } => {
+                *sites = writes
+                    .iter()
+                    .map(|output| {
+                        grid.assert_owns(*output);
+                        Ok(*output)
+                    })
+                    .collect();
+            }
         }
     }
 }
@@ -511,8 +570,8 @@ mod test {
         let anchor = grid.position(0, 0).expect("inside the Grid");
         let elsewhere = grid.position(0, 1).expect("inside the Grid");
         let mut destinations = Destinations::resolve(grid, anchor, lang::Function::RawPlay, false);
-        destinations.carry(grid, &[elsewhere], &mut Vec::new());
+        destinations.carry(grid, &[elsewhere]);
         assert!(!destinations.writes_cells());
-        assert_eq!(destinations.write_sites().count(), 0);
+        assert_eq!(destinations.write_sites().len(), 0);
     }
 }
