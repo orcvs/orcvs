@@ -748,7 +748,7 @@ mod test {
         let Rendered::Cells(encoding) = rendered else {
             return resolve(Vec::new());
         };
-        let write = Portal::south_of(grid, root)
+        let write = Portal::below(grid, root)
             .and_then(|portal| portal.admit(&encoding))
             .expect("these answers are stated to fit their destination");
         resolve(vec![Effect::Write(write)])

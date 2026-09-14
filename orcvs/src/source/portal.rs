@@ -137,7 +137,7 @@ impl Portal {
     ///
     /// The Portal `coords` name relative to `root`.
     ///
-    /// One row south is the default Portal: leaving the Grid there is the row
+    /// The row below is the default Portal: leaving the Grid there is the row
     /// below, not a displacement the Source wrote. Any other coordinates use
     /// the same displaced resolution Jump already takes.
     ///
@@ -147,21 +147,21 @@ impl Portal {
         coords: PortalCoords,
     ) -> Result<Self, PortalError> {
         if coords == PortalCoords::SOUTH {
-            Self::south_of(grid, root)
+            Self::below(grid, root)
         } else {
             Self::displaced(grid, root, coords.columns, coords.rows)
         }
     }
 
     ///
-    /// The default Portal: one row south of `root`, in `root`'s own column.
+    /// The default Portal: the row below `root`, in `root`'s own column.
     ///
     /// A root in the last row resolves no Portal rather than a clamped one.
     /// Clamping would put a result in a Cell the Source never asked for, and a
     /// destination that does not exist is exactly what ADR 0009 wants reported
     /// — the caller diagnoses at the root and plans nothing.
     ///
-    pub(super) fn south_of(grid: Grid, root: Position) -> Result<Self, PortalError> {
+    pub(super) fn below(grid: Grid, root: Position) -> Result<Self, PortalError> {
         grid.below(root)
             .map(|destination| Self::at(grid, destination))
             .ok_or(PortalError::BelowSource)
@@ -171,13 +171,13 @@ impl Portal {
     /// The Portal `columns` Cells east and `rows` Cells south of `root`.
     ///
     /// The destination a Function declaring its own Portal offset resolves,
-    /// where [`Portal::south_of`] is the destination every other Function
+    /// where [`Portal::below`] is the destination every other Function
     /// takes. ADR 0006 states this geometry in coordinates — north
     /// `(x, y-1)`, west `(x-2, y)` — and ADR 0009 keeps the resolution here,
     /// so the language crate answers a displacement and never a Position.
     ///
     /// A displacement leaving the Grid resolves no Portal, for the reason
-    /// `south_of` resolves none below the last row: the caller diagnoses at
+    /// `below` resolves none below the last row: the caller diagnoses at
     /// the root and plans nothing.
     ///
     pub(super) fn displaced(
@@ -636,9 +636,9 @@ mod test {
     }
 
     #[test]
-    fn the_default_portal_is_one_row_south_of_the_root() {
-        // The default Portal CONTEXT.md names: one row south of the root, in
-        // the root's own column. The Grid is ten wide and the root sits at
+    fn the_default_portal_is_below_the_root() {
+        // The default Portal: the row below the root, in the root's own
+        // column. The Grid is ten wide and the root sits at
         // column 3 of row 0, so the destination Cells are asymmetric in both
         // coordinates: a Portal that kept the root's own Cell, dropped to the
         // row below but reset to column 0, or transposed the two coordinates
@@ -646,7 +646,7 @@ mod test {
         let grid = Grid::new(10, 3);
         let root = grid.position(3, 0).expect("inside the Grid");
 
-        let portal = Portal::south_of(grid, root).expect("a row below the root");
+        let portal = Portal::below(grid, root).expect("a row below the root");
 
         assert_eq!(
             placed(&portal, "03"),
@@ -675,7 +675,7 @@ mod test {
 
     #[test]
     fn a_displacement_off_the_grid_resolves_no_portal_at_all() {
-        // The refusal `south_of` gives the last row, generalised to
+        // The refusal `below` gives the last row, generalised to
         // every edge a declared offset can reach. Each of these is outside the
         // Grid in one coordinate, and none of them is clamped to the edge Cell
         // beside it: a destination that does not exist is what ADR 0009 wants
@@ -718,7 +718,7 @@ mod test {
         let last_row = grid.position(0, 1).expect("inside the Grid");
 
         assert_eq!(
-            Portal::south_of(grid, last_row).err(),
+            Portal::below(grid, last_row).err(),
             Some(PortalError::BelowSource)
         );
     }
@@ -752,7 +752,7 @@ mod test {
         // of the destination row in encoding order.
         let grid = Grid::new(10, 3);
         let root = grid.position(0, 0).expect("inside the Grid");
-        let portal = Portal::south_of(grid, root).expect("a row below the root");
+        let portal = Portal::below(grid, root).expect("a row below the root");
 
         assert_eq!(
             placed(&portal, "0A0B0C"),
@@ -776,7 +776,7 @@ mod test {
         // than its first four Atoms.
         let grid = Grid::new(10, 3);
         let root = grid.position(2, 0).expect("inside the Grid");
-        let portal = Portal::south_of(grid, root).expect("a row below the root");
+        let portal = Portal::below(grid, root).expect("a row below the root");
 
         assert_eq!(
             admitted(&portal, "0A0B0C0D0E").err(),
