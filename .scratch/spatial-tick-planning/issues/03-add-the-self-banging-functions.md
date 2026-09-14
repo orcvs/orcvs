@@ -107,6 +107,9 @@ ADR 0029 makes Sequence membership ask the declared kind of a Function.
 - [ ] Stated destinations reach `computations` without a Terminal Output Function acquiring one:
       ADR 0009's refusal is raised in shipped code and covered by a test of its own, not by the
       `#[cfg(test)]` `carry` helper.
+      Blocked until real input can assign destinations: current Source-writing Functions state
+      them from declarations, and Terminal Output Functions always receive an empty destination
+      list. Injected destinations cover the refusal only in tests.
 
 ### Tests
 
