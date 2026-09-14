@@ -2924,6 +2924,82 @@ mod test {
     }
 
     #[test]
+    fn live_a_declared_note_range_result_reaches_its_destination_cells() {
+        // The Number Range happy path above, repeated for Note Range: each Note
+        // encodes as two Cells and the complete Sequence must fit the row.
+        // Bounds are chromatic by MIDI value, so C4–D4 is three semitones.
+        let grid = Grid::new(16, 2);
+        let rows = [":#C4D4", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert!(plan.play_commands.is_empty());
+        assert_eq!(plan.writes.len(), 6, "one Cell write per encoded Cell");
+        assert_eq!(source.snapshot(), snapshot(grid, &[":#C4D4", "C4c4D4"]),);
+    }
+
+    #[test]
+    fn live_a_declared_note_range_reservation_orders_computations_it_covers() {
+        let grid = Grid::new(16, 2);
+        let rows = ["        .+0102", ":#C4F4"];
+        let mut source = seeded_source(grid, &rows);
+        let (plan, states) =
+            source.execute_carrying(Tick::ZERO, &carried_destinations(grid, &[(16, 0)]));
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(
+            turns(&states),
+            vec![Some(1), Some(0)],
+            "Note Range reserves and orders the row the same way Number Range does",
+        );
+        assert_eq!(plan.writes.len(), 12);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &["C4c4D4d4E4F402", rows[1]]),
+            "the covered Expression neither executed nor kept its spelling",
+        );
+    }
+
+    #[test]
+    fn live_a_declared_reverse_result_reaches_its_destination_cells() {
+        let grid = Grid::new(16, 2);
+        let rows = [":<:-0003", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 8);
+        assert_eq!(source.snapshot(), snapshot(grid, &[":<:-0003", "03020100"]),);
+    }
+
+    #[test]
+    fn live_a_declared_concatenate_result_reaches_its_destination_cells() {
+        let grid = Grid::new(16, 2);
+        let rows = [":&:-0101:-0202", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 4);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &[":&:-0101:-0202", "0102"]),
+        );
+    }
+
+    #[test]
+    fn live_a_declared_replace_result_reaches_its_destination_cells() {
+        let grid = Grid::new(16, 2);
+        let rows = [":=01.+0102:-0103", ""];
+        let (plan, source) = carried_source(grid, &rows, &[]);
+
+        assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.writes.len(), 6);
+        assert_eq!(
+            source.snapshot(),
+            snapshot(grid, &[":=01.+0102:-0103", "010303"]),
+        );
+    }
+
+    #[test]
     fn live_a_sequence_result_that_leaves_its_row_writes_no_cell_of_it() {
         // ADR 0007's complete-fit rule, which ADR 0009's Portal enforces, for a
         // Sequence exactly as for a scalar: no Span reaches past the row it
