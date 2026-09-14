@@ -8,7 +8,7 @@ dependency model before adding its effects.
 
 **Blocked by:** 02 — Add Source Bang activation and expiry; grid-boundedness/01 — Decide whether the Grid's edge is a language concept.
 
-**Status:** claimed
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -35,3 +35,7 @@ dependency model before adding its effects.
 
 Consecutive same-direction Jumps are ordinary Portal composition, not a chain with one
 relaying head. ADR 0014's Jump geometry now states each Function's own Portals.
+
+2026-09-15: Merged to `main` as PR #98 (`87fc793`). Implementation is on `main`; this ticket is
+the acceptance record, not further Jump work. Halt (05) may still deepen Portal occupancy and
+Language Unit classification without reopening this issue.

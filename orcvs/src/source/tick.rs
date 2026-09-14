@@ -24,6 +24,8 @@ pub(super) enum Effect {
     Write(SpanWrite),
     Play(Performance),
     Diagnose(Diagnostic),
+    /// Withholds the Expression root at this anchor. Not a Cell write.
+    Lock(Position),
 }
 
 struct Operand {
@@ -736,6 +738,7 @@ fn unscheduled(diagnostics: Vec<Diagnostic>) -> (TickPlan, Vec<execution::Comput
             writes: vec![],
             play_commands: vec![],
             diagnostics,
+            locks: vec![],
         },
         vec![],
     )
@@ -1130,6 +1133,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     let mut writes: BTreeMap<CellIndex, CellContent> = BTreeMap::new();
     let mut play_commands = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut locks = Vec::new();
 
     for effect in effects {
         match effect {
@@ -1147,6 +1151,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
             // Engine does not deliver.
             Effect::Play(performance) => play_commands.extend(&performance),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
+            Effect::Lock(root) => locks.push(root),
         }
     }
 
@@ -1159,6 +1164,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
             .collect(),
         play_commands,
         diagnostics,
+        locks,
     }
 }
 
@@ -2112,13 +2118,17 @@ mod test {
         // of `*!`, which is ADR 0006's horizontal activation geometry. The Add
         // one row south of Halt is intrinsically active, so the lock is the
         // only reason it contributes no `07` and its Source is unchanged.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(8, 4),
             &[".=0101  ", "  *!    ", "  .+0304", "        "],
             1,
         );
 
         assert_eq!(grids[0], [".=0101  ", "***!    ", "  .+0304", "        "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2136,6 +2146,7 @@ mod test {
             tick_by_tick(Grid::new(8, 3), &["*!      ", ".+0304  ", "        "], 1);
 
         assert_eq!(grids[0], ["*!      ", ".+0304  ", "07      "]);
+        assert!(plans[0].locks.is_empty(), "{:?}", plans[0].locks);
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2149,7 +2160,7 @@ mod test {
         // (a multiple of its cycle) and not on Tick 1, so Tick 0 locks the
         // Add and Tick 1 clears that display with Halt inert, and the Add
         // runs.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(8, 4),
             &["~*0201  ", "  *!    ", "  .+0304", "        "],
             2,
@@ -2157,6 +2168,11 @@ mod test {
 
         assert_eq!(grids[0], ["~*0201  ", "***!    ", "  .+0304", "        "]);
         assert_eq!(grids[1], ["~*0201  ", "  *!    ", "  .+0304", "  07    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
+        assert!(plans[1].locks.is_empty(), "{:?}", plans[1].locks);
         for plan in &plans {
             assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         }
@@ -2168,6 +2184,7 @@ mod test {
         // and neither invents a lock.
         let last_row = tick_by_tick(Grid::new(8, 2), &[".=0101  ", "  *!    "], 1);
         assert_eq!(last_row.1[0], [".=0101  ", "***!    "]);
+        assert!(last_row.0[0].locks.is_empty(), "{:?}", last_row.0[0].locks);
         assert!(
             last_row.0[0].diagnostics.is_empty(),
             "{:?}",
@@ -2176,6 +2193,11 @@ mod test {
 
         let empty_row = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "        "], 1);
         assert_eq!(empty_row.1[0], [".=0101  ", "***!    ", "        "]);
+        assert!(
+            empty_row.0[0].locks.is_empty(),
+            "{:?}",
+            empty_row.0[0].locks
+        );
         assert!(
             empty_row.0[0].diagnostics.is_empty(),
             "{:?}",
@@ -2190,6 +2212,7 @@ mod test {
         // no lock — the Add whose operand sits south of Halt still writes.
         let comment = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  ||    "], 1);
         assert_eq!(comment.1[0], [".=0101  ", "***!    ", "  ||    "]);
+        assert!(comment.0[0].locks.is_empty(), "{:?}", comment.0[0].locks);
         assert_eq!(
             messages(&comment.0[0]),
             vec!["*! target is not an Expression root"]
@@ -2197,6 +2220,7 @@ mod test {
 
         let bang = tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  **    "], 1);
         assert_eq!(bang.1[0], [".=0101  ", "***!    ", "        "]);
+        assert!(bang.0[0].locks.is_empty(), "{:?}", bang.0[0].locks);
         assert_eq!(
             messages(&bang.0[0]),
             vec!["*! target is not an Expression root"]
@@ -2211,6 +2235,7 @@ mod test {
             operand.1[0],
             [".=0101  ", "***!    ", ".+0304  ", "07      "]
         );
+        assert!(operand.0[0].locks.is_empty(), "{:?}", operand.0[0].locks);
         assert_eq!(
             messages(&operand.0[0]),
             vec!["*! target is not an Expression root"]
@@ -2221,7 +2246,7 @@ mod test {
     fn a_suppressed_halt_does_not_lock_its_own_target() {
         // Two-row Halt stack: A locks B, and B therefore does not lock the
         // Add below it. The Add writes `07`.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(8, 5),
             &[".=0101  ", "  *!    ", "  *!    ", "  .+0304", "        "],
             1,
@@ -2230,6 +2255,10 @@ mod test {
         assert_eq!(
             grids[0],
             [".=0101  ", "***!    ", "  *!    ", "  .+0304", "  07    "]
+        );
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
         );
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -2255,7 +2284,7 @@ mod test {
         // after the target writes a Bang that cannot touch Halt. The lock
         // that would reach an already-executed root is therefore
         // inexpressible; the existing late-write reject path still holds.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(14, 4),
             &[
                 ".=0101  .+0901",
@@ -2274,6 +2303,10 @@ mod test {
                 "  .+0304      ",
                 "              "
             ]
+        );
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
         );
         assert!(
             plans[0].diagnostics.is_empty(),
@@ -2299,10 +2332,14 @@ mod test {
         // Halt's lock withholds the south root's Turn, including a Self-Banging
         // North whose Advance names Halt's Cells. The lock edge wins: the Tick
         // is ordered, `^^` stays, and it does not become `**`.
-        let (plans, grids, _) =
+        let (plans, grids, source) =
             tick_by_tick(Grid::new(8, 3), &[".=0101  ", "  *!    ", "  ^^    "], 1);
 
         assert_eq!(grids[0], [".=0101  ", "***!    ", "  ^^    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2315,13 +2352,17 @@ mod test {
         // `*^` is Bang-activated, so a second Equality wakes it from the east.
         // Its north emission names Halt's Cells. The lock edge wins: the Tick
         // is ordered, `*^` stays, and it does not emit `^^`.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(12, 3),
             &[".=0101      ", "  *!  .=0202", "  *^        "],
             1,
         );
 
         assert_eq!(grids[0], [".=0101      ", "***!  .=0202", "  *^  **    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2334,13 +2375,17 @@ mod test {
         // `&^` is intrinsically active and overwrites occupied Cells. Its
         // output Portal is Halt. The lock wins: the Tick is ordered, Halt
         // stays, and `01` is not copied onto it.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(8, 4),
             &[".=0101  ", "  *!    ", "  &^    ", "  01    "],
             1,
         );
 
         assert_eq!(grids[0], [".=0101  ", "***!    ", "  &^    ", "  01    "]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
         assert!(
             plans[0].diagnostics.is_empty(),
             "{:?}",
@@ -2353,7 +2398,7 @@ mod test {
         // Two independent Halt columns. Each Equality activates the Halt
         // two columns east; Position breaks the tie between the two
         // Equalities and then between the two Halts. Both Adds stay locked.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(16, 4),
             &[
                 ".=0101  .=0202",
@@ -2371,6 +2416,13 @@ mod test {
                 "***!    ***!    ",
                 "  .+0102  .+0304",
                 "                "
+            ]
+        );
+        assert_eq!(
+            plans[0].locks,
+            vec![
+                source.grid().position(2, 2).expect("inside the Grid"),
+                source.grid().position(10, 2).expect("inside the Grid"),
             ]
         );
         assert!(
@@ -2392,6 +2444,10 @@ mod test {
 
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(
+            plan.locks,
+            vec![grid.position(2, 2).expect("inside the Grid")]
+        );
+        assert_eq!(
             states
                 .iter()
                 .map(ComputationState::interpretations)
@@ -2405,13 +2461,17 @@ mod test {
     fn an_active_halt_withholds_a_terminal_root() {
         // The complete target Expression contributes no effects: a locked
         // Raw Play emits no Play Command, and its Source is unchanged.
-        let (plans, grids, _) = tick_by_tick(
+        let (plans, grids, source) = tick_by_tick(
             Grid::new(10, 3),
             &[".=0101    ", "  *!      ", "  !>007FC4"],
             1,
         );
 
         assert_eq!(grids[0], [".=0101    ", "***!      ", "  !>007FC4"]);
+        assert_eq!(
+            plans[0].locks,
+            vec![source.grid().position(2, 2).expect("inside the Grid")]
+        );
         assert!(
             plans[0].play_commands.is_empty(),
             "{:?}",

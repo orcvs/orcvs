@@ -811,6 +811,8 @@ impl<'a> Execution<'a> {
             for descendant in self.lookup.descendants(root) {
                 self.states[descendant].suppressed = true;
             }
+            self.effects
+                .push(Effect::Lock(self.lookup.nodes()[root].anchor));
             return Continue(());
         }
         // Asked of the Language Map rather than working Source: Bang cleanup

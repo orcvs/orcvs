@@ -2,7 +2,7 @@ use lang::Tick;
 use std::{fmt, sync::Arc};
 use tracing::debug;
 
-use crate::grid::{CellIndex, Grid};
+use crate::grid::{CellIndex, Grid, Position};
 
 use std::collections::BTreeSet;
 
@@ -116,11 +116,18 @@ pub use lang::{
     PlayCommand, Velocity,
 };
 
+/// The publishable outcome of one Tick: Cell writes, Play Commands, diagnostics,
+/// and the Expression roots this Tick locked.
+///
+/// A lock is an Effect, not a write. It names the withheld root so a reader of
+/// the plan does not infer the lock from an unchanged Grid.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickPlan {
     pub writes: Vec<CellWrite>,
     pub play_commands: Vec<PlayCommand>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Expression-root anchors this Tick locked, in producer order.
+    pub locks: Vec<Position>,
 }
 
 ///
@@ -738,7 +745,13 @@ mod test {
             Interpretation::Source(effect) => {
                 panic!("{effect:?} is a Source effect and not a stated answer")
             }
-            Interpretation::Lock => panic!("a lock is not a stated answer"),
+            Interpretation::Lock => {
+                return resolve(
+                    Portal::below(grid, root)
+                        .map(|portal| vec![Effect::Lock(portal.destination())])
+                        .unwrap_or_default(),
+                );
+            }
         };
         // The rule for what an answer becomes in Cells is production's, called
         // here rather than restated: these tests state an answer because no
@@ -2476,6 +2489,23 @@ mod test {
         let plan = plan_result(grid, root, Interpretation::Sequence(Sequence::empty()));
         src.commit_tick(&plan);
         assert_eq!(src.snapshot(), before);
+        assert!(plan.writes.is_empty());
+        assert!(plan.diagnostics.is_empty());
+        assert!(plan.play_commands.is_empty());
+        assert!(plan.locks.is_empty());
+    }
+
+    #[test]
+    fn a_stated_lock_names_the_root_below_and_writes_no_cell() {
+        let mut src = source();
+        let grid = src.grid;
+        let halt = grid.position(0, 0).unwrap();
+        let below = grid.position(0, 1).unwrap();
+        let before = src.snapshot();
+        let plan = plan_result(grid, halt, Interpretation::Lock);
+        src.commit_tick(&plan);
+        assert_eq!(src.snapshot(), before);
+        assert_eq!(plan.locks, vec![below]);
         assert!(plan.writes.is_empty());
         assert!(plan.diagnostics.is_empty());
         assert!(plan.play_commands.is_empty());
