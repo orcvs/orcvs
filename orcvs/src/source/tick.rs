@@ -602,16 +602,17 @@ pub(super) fn plan(
 /// ADR 0009's refusal when a root Terminal Output Function is given a Cell
 /// destination. [`computations`] states a Source-writing Function's
 /// destination from its declaration and reads `performs_terminal_output()` before
-/// that arm, so no row today reaches this with a resolved Portal. The refusal
-/// is still raised in shipped code so a later row that names input cannot admit
-/// the pairing silently, and so [`carry`] and [`computations`] share one rule.
+/// that arm, so only a test can construct this pairing today.
+#[cfg(test)]
 const REFUSED_PORTAL: &str = "a Terminal Output Function cannot have a Portal";
 
 ///
 /// Clears any resolved Portal on a root Terminal Output Function and diagnoses
-/// ADR 0009's refusal. [`computations`] calls this after stating destinations;
-/// [`carry`] calls it after a test names chosen ones.
+/// ADR 0009's refusal for test-injected destinations. [`carry`] calls this
+/// after a test names chosen ones, below the shipped [`computations`] entry
+/// point. Production refusal awaits input-driven destination assignment.
 ///
+#[cfg(test)]
 fn refuse_terminal_output_portals(nodes: &mut [Computation], diagnostics: &mut Vec<Diagnostic>) {
     let mut refusals = Vec::new();
     for node in nodes.iter_mut() {
@@ -849,7 +850,6 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
                 // Terminal Output Function has no Cell destination at all and
                 // is read before the Source-writing arm below, so a declared
                 // displacement never reaches a Function in the `!` family.
-                // ADR 0009's refusal runs once every destination is stated.
                 let outputs = if parent.is_some() || function.performs_terminal_output() {
                     vec![]
                 } else if let Some(effect) = function.source_effect() {
@@ -931,7 +931,6 @@ fn computations(grid: Grid, map: &LanguageMap) -> (Vec<Computation>, Vec<Diagnos
             diagnostics.push(diagnose(node, "Expression layout crosses the row edge"));
         }
     }
-    refuse_terminal_output_portals(&mut nodes, &mut diagnostics);
     (nodes, diagnostics)
 }
 
@@ -2116,11 +2115,10 @@ mod test {
     }
 
     #[test]
-    fn a_terminal_output_function_cannot_acquire_a_stated_portal() {
-        // ADR 0009's refusal lives in shipped code so a row that later lets
-        // input name a destination cannot admit the pairing silently. This
-        // drives [`refuse_terminal_output_portals`] through [`computations`],
-        // not through [`carry`].
+    fn a_test_injected_terminal_output_portal_is_refused() {
+        // Production input cannot assign a Terminal Output Function a Portal.
+        // Inject one after [`computations`] returns to cover ADR 0009's
+        // test-only refusal without claiming production-path coverage.
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &["!>007FC4", ""]);
         let (mut nodes, mut diagnostics) = super::computations(grid, &source.shared_language_map());
