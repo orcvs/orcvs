@@ -1,5 +1,9 @@
 use tokio::sync::watch;
 
+mod selection;
+pub(crate) use selection::MidiRequest;
+pub use selection::{MidiDestinations, MidiSelectionHandle};
+
 use crate::playback::{OutputAdapter, OutputAdapterError, OutputCommand};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,37 +81,6 @@ impl MidiSelection {
     }
 }
 
-///
-/// What an output adapter publishes about its MIDI destinations: the ones the
-/// last discovery found, or the failure it reported, and the one the adapter is
-/// connected to.
-///
-/// One value rather than two channels, because the console reads both while
-/// drawing one frame and a menu drawn from two channels can show a checkmark
-/// against a row the other channel has already withdrawn. ADR 0041 has the
-/// engine's task own the adapter, so this is the whole of what a caller can see
-/// of it without asking.
-///
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MidiDestinations {
-    pub discovered: Result<Vec<MidiDestination>, MidiError>,
-    pub selected: Option<MidiDestinationId>,
-}
-
-impl Default for MidiDestinations {
-    ///
-    /// What an adapter publishes before anything has asked it to look: no
-    /// destinations found, because none have been looked for, and none
-    /// selected.
-    ///
-    fn default() -> Self {
-        Self {
-            discovered: Ok(Vec::new()),
-            selected: None,
-        }
-    }
-}
-
 pub struct MidiOutputAdapter<B> {
     backend: B,
     connection: Option<Box<dyn MidiConnection>>,
@@ -128,6 +101,10 @@ pub struct MidiOutputAdapter<B> {
 }
 
 impl<B: MidiBackend> MidiOutputAdapter<B> {
+    pub(crate) fn published_destinations(&self) -> watch::Receiver<MidiDestinations> {
+        self.destinations.subscribe()
+    }
+
     pub fn new(backend: B) -> Self {
         Self {
             backend,
@@ -301,19 +278,13 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
         self.send_safety_reset()
             .map_err(|error| OutputAdapterError::new(error.message))
     }
-
-    fn published_destinations(&self) -> watch::Receiver<MidiDestinations> {
-        self.destinations.subscribe()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
-    use crate::playback::{
-        MidiSelectionHandle, OutputAdapter, OutputCommand, PlaybackDiagnostic, PlaybackEngine,
-    };
+    use crate::playback::{OutputAdapter, OutputCommand, PlaybackDiagnostic, PlaybackEngine};
 
     use crate::source::{
         BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Velocity,
@@ -323,11 +294,29 @@ mod tests {
     /// One Playback Engine over `adapter`, whose task is spawned on the test's
     /// own runtime.
     ///
+    struct MidiPlayback {
+        playback: PlaybackEngine,
+        selection: MidiSelectionHandle,
+    }
+
+    impl std::ops::Deref for MidiPlayback {
+        type Target = PlaybackEngine;
+
+        fn deref(&self) -> &Self::Target {
+            &self.playback
+        }
+    }
+
     fn engine<B: MidiBackend + 'static>(
         source: SourceCommander,
         adapter: MidiOutputAdapter<B>,
-    ) -> PlaybackEngine<MidiOutputAdapter<B>> {
-        PlaybackEngine::new(source, adapter).expect("the test runtime")
+    ) -> MidiPlayback {
+        let (playback, selection) =
+            PlaybackEngine::with_midi_output_adapter(source, adapter).expect("the test runtime");
+        MidiPlayback {
+            playback,
+            selection,
+        }
     }
 
     ///
@@ -338,11 +327,9 @@ mod tests {
     /// call sites and nothing else ever called it, which is a seam cut into
     /// shipped code for a test to reach through.
     ///
-    fn select<B: MidiBackend + 'static>(
-        playback: &PlaybackEngine<MidiOutputAdapter<B>>,
-        destination_id: &MidiDestinationId,
-    ) {
-        MidiSelectionHandle::new(playback)
+    fn select(playback: &MidiPlayback, destination_id: &MidiDestinationId) {
+        playback
+            .selection
             .select(destination_id)
             .expect("a running Orcvs");
     }

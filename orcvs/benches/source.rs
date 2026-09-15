@@ -155,7 +155,7 @@ fn benchmark_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
-fn populated_app(cols: usize, rows: usize) -> Orcvs<InMemoryOutputAdapter> {
+fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
     let _runtime = benchmark_runtime().enter();
     let mut orcvs = Orcvs::with_output_adapter(cols, rows, InMemoryOutputAdapter::default())
         .expect("a benchmark runtime");
@@ -190,7 +190,7 @@ fn populated_app(cols: usize, rows: usize) -> Orcvs<InMemoryOutputAdapter> {
     orcvs
 }
 
-fn occupied_cells(orcvs: &Orcvs<InMemoryOutputAdapter>) -> usize {
+fn occupied_cells(orcvs: &Orcvs<()>) -> usize {
     orcvs
         .render_frame()
         .cells()

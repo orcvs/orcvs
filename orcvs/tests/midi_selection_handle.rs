@@ -44,7 +44,7 @@ impl MidiConnection for FakeConnection {
 #[tokio::test(start_paused = true)]
 async fn selected_destination_receives_playback_from_the_running_orcvs() {
     let state = Arc::new(Mutex::new(FakeState::default()));
-    let mut orcvs = Orcvs::with_output_adapter(
+    let mut orcvs = Orcvs::with_midi_output_adapter(
         10,
         3,
         MidiOutputAdapter::new(FakeBackend {
@@ -63,7 +63,9 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
         vec![MidiDestination::new("studio", "Studio Synth")]
     );
     midi.select(&MidiDestinationId::new("studio")).unwrap();
-    tokio::task::yield_now().await;
+    // Acceptance is not completion. Selection and Start must retain their
+    // order without giving the task a turn between these requests.
+    assert_eq!(midi.selected_destination_id().unwrap(), None);
     for content in ".=0101".chars() {
         orcvs.write(&content.to_string());
     }
@@ -79,15 +81,55 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
     tokio::task::yield_now().await;
 
     assert_eq!(
+        midi.selected_destination_id().unwrap(),
+        Some(MidiDestinationId::new("studio"))
+    );
+    assert_eq!(
         state.lock().unwrap().messages.last(),
         Some(&vec![0x90, 60, 0x7f])
     );
 }
 
 #[tokio::test(start_paused = true)]
+async fn selection_observations_become_unavailable_as_soon_as_the_owner_is_dropped() {
+    let orcvs = Orcvs::with_midi_output_adapter(
+        10,
+        2,
+        MidiOutputAdapter::new(FakeBackend {
+            state: Arc::new(Mutex::new(FakeState::default())),
+        }),
+    )
+    .expect("the test runtime");
+    let midi = orcvs.midi_selection_handle();
+    midi.refresh_destinations().unwrap();
+    midi.select(&MidiDestinationId::new("studio")).unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(
+        midi.destinations().unwrap(),
+        vec![MidiDestination::new("studio", "Studio Synth")]
+    );
+    assert_eq!(
+        midi.selected_destination_id().unwrap(),
+        Some(MidiDestinationId::new("studio"))
+    );
+
+    let surviving_selection = midi.clone();
+    drop(midi);
+    drop(orcvs);
+    // No yield: ownership has ended even though the task has not yet observed
+    // its closed request queue and shut down destination publication.
+    let observations = (
+        surviving_selection.destinations(),
+        surviving_selection.selected_destination_id(),
+    );
+    let unavailable = MidiError::new("running Orcvs is no longer available");
+    assert_eq!(observations, (Err(unavailable.clone()), Err(unavailable)));
+}
+
+#[tokio::test(start_paused = true)]
 async fn selection_handle_cannot_outlive_the_running_orcvs() {
     let state = Arc::new(Mutex::new(FakeState::default()));
-    let mut orcvs = Orcvs::with_output_adapter(
+    let mut orcvs = Orcvs::with_midi_output_adapter(
         10,
         2,
         MidiOutputAdapter::new(FakeBackend {

@@ -18,7 +18,7 @@ use crate::style::{PALETTE, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
-    native_midi::{self, NativeMidiBackend},
+    native_midi,
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::PlaybackStartError,
     render_frame::RenderFrame,
@@ -266,7 +266,7 @@ pub struct Console {
     /// this target. The console never asks what target it is on: a target with
     /// no native backend answers an empty destination list here, and
     /// `native_midi::AVAILABLE` says whether the menu presenting it exists.
-    midi: MidiDeviceSelection<NativeMidiBackend>,
+    midi: MidiDeviceSelection,
     font_family: egui::FontFamily,
     source_view: SourceView,
     diagnostics_open: bool,

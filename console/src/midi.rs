@@ -1,10 +1,10 @@
-use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId};
-use orcvs::playback::{MidiSelectionHandle, PlaybackDiagnostic};
+use orcvs::midi::{MidiDestination, MidiDestinationId, MidiSelectionHandle};
+use orcvs::playback::PlaybackDiagnostic;
 
 use crate::diagnostics::failure_message;
 
-pub(crate) struct MidiDeviceSelection<B: MidiBackend> {
-    selection: MidiSelectionHandle<B>,
+pub(crate) struct MidiDeviceSelection {
+    selection: MidiSelectionHandle,
     destinations: Vec<MidiDestination>,
     status: Option<String>,
     ///
@@ -20,8 +20,8 @@ pub(crate) struct MidiDeviceSelection<B: MidiBackend> {
     reported_discovery_failure: Option<String>,
 }
 
-impl<B: MidiBackend + 'static> MidiDeviceSelection<B> {
-    pub(crate) fn new(selection: MidiSelectionHandle<B>) -> Self {
+impl MidiDeviceSelection {
+    pub(crate) fn new(selection: MidiSelectionHandle) -> Self {
         Self {
             selection,
             destinations: Vec::new(),
@@ -116,7 +116,6 @@ mod tests {
         MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError,
         MidiOutputAdapter,
     };
-    use orcvs::native_midi::NativeMidiBackend;
     use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic};
 
     use super::MidiDeviceSelection;
@@ -151,8 +150,8 @@ mod tests {
     /// What the console does, with nothing target-specific in it. The console
     /// takes a default running Orcvs and asks it for a selection over whatever
     /// backend `orcvs` decided this target has; it never names the operating
-    /// systems that carry one. Naming `NativeMidiBackend` is the whole
-    /// assertion — it compiles on a target with no native backend exactly as
+    /// systems that carry one. The backend-free selection type compiles on a
+    /// target with no native backend exactly as
     /// it does on one with a native backend, so the console has no flag to keep
     /// in sync. What follows states the selection a console opens with, which
     /// no device has been chosen for yet and so asks the backend nothing.
@@ -161,17 +160,14 @@ mod tests {
     async fn the_console_selection_comes_from_a_default_running_orcvs() {
         let orcvs = Orcvs::new(1, 1).expect("the test runtime");
 
-        let mut midi: MidiDeviceSelection<NativeMidiBackend> =
-            MidiDeviceSelection::new(orcvs.midi_selection_handle());
+        let mut midi: MidiDeviceSelection = MidiDeviceSelection::new(orcvs.midi_selection_handle());
 
         assert_eq!(midi.selected_destination_id(), None);
         assert_eq!(midi.status(), None);
     }
 
-    fn selection_for<B: MidiBackend + 'static>(
-        backend: B,
-    ) -> (Orcvs<MidiOutputAdapter<B>>, MidiDeviceSelection<B>) {
-        let orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new(backend))
+    fn selection_for<B: MidiBackend + 'static>(backend: B) -> (Orcvs, MidiDeviceSelection) {
+        let orcvs = Orcvs::with_midi_output_adapter(1, 1, MidiOutputAdapter::new(backend))
             .expect("the test runtime");
         let midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
         (orcvs, midi)
