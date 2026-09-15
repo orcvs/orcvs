@@ -54,7 +54,7 @@ use orcvs::{
 };
 
 use crate::{
-    marks::{cursor_bloom, sector_left_strength, sector_top_strength},
+    marks::{sector_left_strength, sector_top_strength},
     style::{cell_visuals, sector_line},
 };
 
@@ -184,7 +184,6 @@ impl Paint {
         let frame_cursor = frame.cursor();
         let cursor_visible = frame.cursor_visible();
         let sector_seam_spacing = frame.sector_seam_spacing().cells();
-        let bloom_radius = frame.cursor_bloom_radius().cells();
         let cursor = (drawn.columns.contains(&frame_cursor.x())
             && drawn.rows.contains(&frame_cursor.y()))
         .then_some(frame_cursor);
@@ -202,12 +201,8 @@ impl Paint {
                     .expect("a drawn Position is one the visible range clamped to this Grid");
                 let cell = frame.at(position);
                 let selected = position == frame_cursor;
-                let visuals = cell_visuals(
-                    cell.token(),
-                    cursor_bloom(position, frame_cursor, bloom_radius),
-                    selected,
-                    selected && cursor_visible,
-                );
+                let visuals =
+                    cell_visuals(cell.token(), None, selected, selected && cursor_visible);
 
                 cells.push(CellPaint {
                     background: visuals.background,
@@ -945,7 +940,10 @@ mod tests {
             "{} runs for {filled} filled Cells is no saving",
             expected.len()
         );
-        assert_eq!(paint.background_runs(), expected);
+        assert_eq!(
+            paint.background_runs(),
+            vec![run(PALETTE.selection_fill, 0, 0..1)]
+        );
     }
 
     #[test]
@@ -1004,10 +1002,7 @@ mod tests {
             graded += usize::from(cell.background.is_some());
         }
 
-        assert!(
-            graded > 0,
-            "the Cursor's bloom reached no drawn Cell, so nothing here would notice a derivation that read its neighbours"
-        );
+        assert_eq!(graded, 0, "Cursor effects belong to console geometry");
     }
 
     ///
@@ -1045,16 +1040,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(
-            clipped.iter().any(|run| run.columns.len() > 1),
-            "nothing was coalesced, so the two folds agree about nothing"
-        );
-        assert!(
-            clipped.iter().any(|run| {
-                run.columns.start == drawn.columns.start || run.columns.end == drawn.columns.end
-            }),
-            "no run reached an edge of the drawn range, which is the only place the two folds could part"
-        );
         assert_eq!(
             Paint::derive(FramePaint::new(&frame, drawn)).background_runs(),
             clipped

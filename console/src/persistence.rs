@@ -10,6 +10,8 @@
 use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 use orcvs::source::Source;
 
+use crate::cursor_effects::CursorEffectSettings;
+
 ///
 /// The Storage key one stored Source revision lives under.
 ///
@@ -21,6 +23,9 @@ use orcvs::source::Source;
 ///
 #[cfg(feature = "persistence")]
 pub const SOURCE_KEY: &str = "orcvs_source";
+
+#[cfg(feature = "persistence")]
+pub(crate) const CURSOR_EFFECTS_KEY: &str = "cursor_effects";
 
 ///
 /// The Storage key a value that could not be read back is moved to.
@@ -51,6 +56,7 @@ fn default_source() -> Source {
 pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
     Start {
         source: default_source(),
+        cursor_effects: CursorEffectSettings::default(),
     }
 }
 
@@ -73,6 +79,7 @@ enum StoredSource {
 ///
 pub(crate) struct Start {
     pub(crate) source: Source,
+    pub(crate) cursor_effects: CursorEffectSettings,
     #[cfg(feature = "persistence")]
     pub(crate) persistence: Persistence,
 }
@@ -98,11 +105,13 @@ impl Persistence {
         &mut self,
         storage: &mut dyn eframe::Storage,
         source: &orcvs::source::SourceCommander,
+        cursor_effects: CursorEffectSettings,
     ) {
         if let Some(refused) = self.refused.take() {
             storage.set_string(REFUSED_KEY, refused);
         }
         source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
+        storage.set_string(CURSOR_EFFECTS_KEY, cursor_effects.encode());
     }
 
     pub(crate) fn notice_visible(&self) -> bool {
@@ -146,9 +155,15 @@ fn stored_source(storage: Option<&dyn eframe::Storage>) -> StoredSource {
 ///
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
+    let cursor_effects = storage
+        .and_then(|storage| storage.get_string(CURSOR_EFFECTS_KEY))
+        .as_deref()
+        .and_then(CursorEffectSettings::decode)
+        .unwrap_or_default();
     match stored_source(storage) {
         StoredSource::Restored(source) => Start {
             source,
+            cursor_effects,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -156,6 +171,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
         },
         StoredSource::Absent => Start {
             source: default_source(),
+            cursor_effects,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -165,6 +181,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
             report_refusal();
             Start {
                 source: default_source(),
+                cursor_effects,
                 persistence: Persistence {
                     refused: Some(stored),
                     notice: true,
@@ -380,18 +397,60 @@ pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::S
         refused: None,
         notice: false,
     }
-    .save(storage, source);
+    .save(storage, source, CursorEffectSettings::default());
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "persistence")]
+    use super::{CURSOR_EFFECTS_KEY, InMemoryStorage, Persistence, edited_source};
     use super::{assert_default_grid, starting_source};
+    #[cfg(feature = "persistence")]
+    use crate::cursor_effects::CursorEffectSettings;
 
     #[test]
     fn a_console_with_no_storage_starts_the_default_grid() {
         // The whole of what a build without the `persistence` feature does,
         // and what a first start does with the feature.
         assert_default_grid(&starting_source(None).source);
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn absent_or_malformed_cursor_effect_settings_use_theme_defaults() {
+        let empty = InMemoryStorage::default();
+        assert_eq!(
+            starting_source(Some(&empty)).cursor_effects,
+            CursorEffectSettings::default()
+        );
+
+        let mut malformed = InMemoryStorage::default();
+        eframe::Storage::set_string(&mut malformed, CURSOR_EFFECTS_KEY, "broken".to_owned());
+        assert_eq!(
+            starting_source(Some(&malformed)).cursor_effects,
+            CursorEffectSettings::default()
+        );
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn cursor_effect_settings_round_trip_without_affecting_the_source() {
+        let current = edited_source();
+        let mut settings = CursorEffectSettings::default();
+        *settings.amount_mut() = 82;
+        *settings.frequency_mut() = 0;
+        *settings.cursor_colour_mut() = egui::Color32::from_rgb(1, 2, 3);
+        *settings.area_colour_mut() = egui::Color32::from_rgb(4, 5, 6);
+        let mut storage = InMemoryStorage::default();
+        Persistence {
+            refused: None,
+            notice: false,
+        }
+        .save(&mut storage, &current, settings);
+
+        let restored = starting_source(Some(&storage));
+        assert_eq!(restored.cursor_effects, settings);
+        assert_eq!(restored.source.snapshot(), current.snapshot());
     }
 }
 
@@ -403,6 +462,7 @@ mod stored_source_tests {
         InMemoryStorage, REFUSED_KEY, SOURCE_KEY, StoredSource, assert_default_grid, edited_source,
         starting_source, store, stored_source,
     };
+    use crate::cursor_effects::CursorEffectSettings;
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
         eframe::Storage::get_string(storage, SOURCE_KEY)
@@ -425,7 +485,7 @@ mod stored_source_tests {
             }
 
             let current = edited_source();
-            persistence.save(&mut storage, &current);
+            persistence.save(&mut storage, &current, CursorEffectSettings::default());
             assert_eq!(persistence.notice_visible(), !dismiss_before_save);
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -442,7 +502,7 @@ mod stored_source_tests {
             persistence.dismiss_notice();
             let cell = current.grid().cell_index(0).expect("inside the Grid");
             current.set(cell, " ").expect("a valid empty Cell");
-            persistence.save(&mut storage, &current);
+            persistence.save(&mut storage, &current, CursorEffectSettings::default());
             assert!(!persistence.notice_visible());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -465,7 +525,11 @@ mod stored_source_tests {
             let mut persistence = starting_source(Some(&storage)).persistence;
             assert!(!persistence.notice_visible());
             persistence.dismiss_notice();
-            persistence.save(&mut storage, &edited_source());
+            persistence.save(
+                &mut storage,
+                &edited_source(),
+                CursorEffectSettings::default(),
+            );
             assert!(!persistence.notice_visible());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),

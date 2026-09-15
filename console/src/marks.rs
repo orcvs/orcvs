@@ -6,6 +6,13 @@
 use orcvs::grid::Position;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "retained only to decode historical Cell styling tests"
+    )
+)]
 pub(crate) enum CursorBloom {
     Core,
     Inner,
@@ -13,6 +20,7 @@ pub(crate) enum CursorBloom {
     Outer,
 }
 
+#[cfg(test)]
 pub(crate) fn cursor_bloom(
     position: Position,
     selected: Position,
@@ -29,6 +37,7 @@ pub(crate) fn cursor_bloom(
     )
 }
 
+#[cfg(test)]
 fn signal_breakup(position: Position, distance: usize, radius: usize) -> usize {
     let hash = cell_hash(position);
     let broken = if distance == radius {
@@ -79,6 +88,7 @@ pub(crate) fn sector_top_strength(position: Position, spacing: usize) -> Option<
         .flatten()
 }
 
+#[cfg(test)]
 fn classify_cursor_bloom(distance: usize, radius: usize) -> Option<CursorBloom> {
     // Band widths follow 1:1:2:3, with cumulative radii 1:2:4:7.
     let scaled_distance = distance.saturating_mul(7);

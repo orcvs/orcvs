@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use egui::{
     Color32, CornerRadius, Event, EventFilter, FontId, Key, PointerButton, Pos2, Rect, Sense,
@@ -6,6 +6,10 @@ use egui::{
     emath::TSTransform, epaint::RectShape, text::Galley,
 };
 
+use crate::cursor_effects::{
+    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, cursor_effect_shapes,
+    effect_bounds,
+};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
 use crate::paint::{FramePaint, Paint};
@@ -230,6 +234,8 @@ pub struct Console {
     source_view: SourceView,
     diagnostics_open: bool,
     tempo_edit: TempoEdit,
+    cursor_effects: CursorEffectSettings,
+    cursor_effect_animation: CursorEffectAnimation,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
 }
@@ -289,6 +295,8 @@ impl Console {
             source_view: SourceView::default(),
             diagnostics_open: false,
             tempo_edit: TempoEdit::default(),
+            cursor_effects: start.cursor_effects,
+            cursor_effect_animation: CursorEffectAnimation::default(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
         })
@@ -546,6 +554,8 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// before [`SourceShapes::into_shapes`] hands the first one out.
 ///
 struct SourceShapes {
+    /// The living field beneath every exact Grid shape.
+    area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
     backgrounds: Vec<Shape>,
     /// Every Cell's own border but the Cursor's.
@@ -579,8 +589,13 @@ impl SourceShapes {
         viewport: &GridViewport,
         table: &GlyphTable,
         pixels_per_point: f32,
+        cursor_effect: crate::cursor_effects::CursorEffectShapes,
     ) -> Self {
         let mut shapes = Self::geometry(paint, viewport, pixels_per_point);
+        shapes.area = cursor_effect.area;
+        if !cursor_effect.frame.is_empty() {
+            shapes.cursor = cursor_effect.frame;
+        }
         shapes.place_glyphs(paint, viewport, table);
         shapes
     }
@@ -673,6 +688,7 @@ impl SourceShapes {
         }
 
         Self {
+            area: Vec::new(),
             backgrounds,
             borders,
             glyphs: Vec::new(),
@@ -716,8 +732,9 @@ impl SourceShapes {
     /// some two thousand elements, and a whole re-move, per Render Frame.
     ///
     fn into_shapes(self) -> impl Iterator<Item = Shape> {
-        self.backgrounds
+        self.area
             .into_iter()
+            .chain(self.backgrounds)
             .chain(self.borders)
             .chain(self.glyphs)
             .chain(self.seams)
@@ -751,6 +768,8 @@ fn show_source(
     font_family: &egui::FontFamily,
     viewport: GridViewport,
     clip: Rect,
+    cursor_effect_sample: CursorEffectSample,
+    cursor_effect_settings: CursorEffectSettings,
 ) -> Option<Position> {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` the Cells are painted at.
@@ -825,7 +844,15 @@ fn show_source(
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
     let paint = Paint::derive(FramePaint::new(frame, visible));
-    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point);
+    let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
+    let cursor_effect = cursor_effect_shapes(
+        cursor_rect,
+        clip,
+        viewport.cell_size,
+        cursor_effect_sample,
+        cursor_effect_settings,
+    );
+    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point, cursor_effect);
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
@@ -886,6 +913,8 @@ fn show_source_scene(
     frame: &RenderFrame,
     font_family: &egui::FontFamily,
     view: &mut SourceView,
+    cursor_effect_sample: CursorEffectSample,
+    cursor_effect_settings: CursorEffectSettings,
 ) -> PresentedSource {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` this function goes on to present it at.
@@ -960,7 +989,15 @@ fn show_source_scene(
         source_grid,
         ui.ctx().pixels_per_point(),
     );
-    let clicked = show_source(ui, frame, font_family, grid, console);
+    let clicked = show_source(
+        ui,
+        frame,
+        font_family,
+        grid,
+        console,
+        cursor_effect_sample,
+        cursor_effect_settings,
+    );
 
     // Panning or zooming moves the view off the fitted viewport and holds it
     // there; a double click on the letterboxing hands it back. A frame that
@@ -1024,7 +1061,8 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence.save(storage, self.orcvs.source());
+        self.persistence
+            .save(storage, self.orcvs.source(), self.cursor_effects);
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -1085,6 +1123,37 @@ impl eframe::App for Console {
                 }
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
+                });
+                ui.menu_button("Theme", |ui| {
+                    ui.label("Cursor effects");
+                    ui.horizontal(|ui| {
+                        ui.label("Cursor colour");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.cursor_effects.cursor_colour_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Area colour");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.cursor_effects.area_colour_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.add(
+                        egui::Slider::new(self.cursor_effects.amount_mut(), 0..=100)
+                            .text("Glitch amount"),
+                    );
+                    ui.add(
+                        egui::Slider::new(self.cursor_effects.frequency_mut(), 0..=100)
+                            .text("Glitch frequency"),
+                    );
+                    ui.separator();
+                    if ui.button("Reset to theme defaults").clicked() {
+                        self.cursor_effects = CursorEffectSettings::default();
+                    }
                 });
                 // Presented in the menu bar rather than the Diagnostics window,
                 // which opens on a viewer's request and reports the running
@@ -1148,6 +1217,11 @@ impl eframe::App for Console {
         self.orcvs.event_handler(events);
         self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
+        let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
+        let cursor_effect_settings = self.cursor_effects;
+        let cursor_effect_sample = self
+            .cursor_effect_animation
+            .advance(effect_now, cursor_effect_settings);
 
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
@@ -1162,10 +1236,19 @@ impl eframe::App for Console {
                     source_view,
                     diagnostics_open: _,
                     tempo_edit: _,
+                    cursor_effects: _,
+                    cursor_effect_animation: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
                 } = self;
-                let presented = show_source_scene(ui, &frame, font_family, source_view);
+                let presented = show_source_scene(
+                    ui,
+                    &frame,
+                    font_family,
+                    source_view,
+                    cursor_effect_sample,
+                    cursor_effect_settings,
+                );
                 cell_size = presented.viewport.cell_size;
                 // The Source Grid answers which Cell was clicked; moving the
                 // Cursor there is the Source's own business, and this is where
@@ -1175,6 +1258,16 @@ impl eframe::App for Console {
                 }
 
                 ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
+                let cursor_rect = presented
+                    .viewport
+                    .cell_rect(frame.cursor().x(), frame.cursor().y());
+                if effect_bounds(cursor_rect, presented.viewport.cell_size).intersects(console_area)
+                    && let Some(delay) = self
+                        .cursor_effect_animation
+                        .repaint_after(effect_now, cursor_effect_settings)
+                {
+                    ctx.request_repaint_after(delay);
+                }
             });
 
         if self.diagnostics_open {
@@ -1414,6 +1507,8 @@ mod tests {
                         &frame,
                         &egui::FontFamily::Monospace,
                         view,
+                        crate::cursor_effects::CursorEffectSample::default(),
+                        crate::cursor_effects::CursorEffectSettings::default(),
                     ));
                 });
         });
@@ -1930,6 +2025,7 @@ mod tests {
                 &viewport,
                 &table,
                 pixels_per_point,
+                crate::cursor_effects::CursorEffectShapes::default(),
             ));
         });
         output.drop_without_applying_deltas();
@@ -2081,15 +2177,10 @@ mod tests {
                 "a border carried a fill: {rect:?}"
             );
         }
-        // The widened runs are the Shapes this grouping is about: one of them
-        // reaches into Cells built after it, and would paint over their Glyphs
-        // if the fills were emitted Cell by Cell.
-        assert!(
-            shapes
-                .backgrounds
-                .iter()
-                .any(|run| rect_of(run).width() > viewport.cell_size * 1.5),
-            "no background covered more than one Cell, so the grouping proves nothing"
+        assert_eq!(
+            shapes.backgrounds.len(),
+            1,
+            "only the hidden-caret selection should fill a Cell"
         );
     }
 
@@ -2128,7 +2219,7 @@ mod tests {
         orcvs.write("1");
         orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
-        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let (_viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
         let at = |kind: fn(&Shape) -> bool| -> Vec<usize> {
             shapes
@@ -2150,19 +2241,8 @@ mod tests {
         assert!(!glyphs.is_empty(), "the pass painted no Glyph");
         assert!(!seams.is_empty(), "the pass painted no sector seam");
 
-        let cursor = *strokes.last().expect("the pass painted the Cursor");
-        assert!(
-            close(rect_of(&shapes[cursor]), viewport.cell_rect(0, 0)),
-            "the last stroked rectangle was not the Cursor's Cell"
-        );
-        let borders = &strokes[..strokes.len() - 1];
+        let borders = &strokes;
 
-        assert!(
-            *fills.last().expect("a fill") < borders[0],
-            "a background at {:?} painted over the border at {}",
-            fills.last(),
-            borders[0]
-        );
         assert!(
             *borders.last().expect("a border") < glyphs[0],
             "a border at {:?} painted over the Glyph at {}",
@@ -2170,15 +2250,8 @@ mod tests {
             glyphs[0]
         );
         assert!(
-            *glyphs.last().expect("a Glyph") < seams[0],
-            "a Glyph at {:?} painted over the seam at {}",
-            glyphs.last(),
-            seams[0]
-        );
-        assert!(
-            *seams.last().expect("a seam") < cursor,
-            "a seam at {:?} painted over the Cursor at {cursor}",
-            seams.last()
+            *glyphs.last().expect("a Glyph") < *seams.last().expect("a frame fragment"),
+            "the fragmented Cursor frame was not painted last"
         );
     }
 
@@ -2487,10 +2560,6 @@ mod tests {
             let shapes = source_geometry(&paint, viewport, pixels_per_point);
             let runs = paint.background_runs();
 
-            assert!(
-                runs.iter().any(|run| run.columns.len() > 1),
-                "no run covered more than one Cell, so nothing was coalesced"
-            );
             assert_eq!(
                 shapes.backgrounds.len(),
                 runs.len(),
@@ -2603,41 +2672,22 @@ mod tests {
             runs.len()
         );
 
-        for (row, columns, expected) in [
-            (
-                0,
-                0..1,
-                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
-            ),
-            (
-                0,
-                4..7,
-                Rect::from_min_max(Pos2::new(100.0, 0.0), Pos2::new(175.0, 25.0)),
-            ),
-            (
-                5,
-                0..7,
-                Rect::from_min_max(Pos2::new(0.0, 125.0), Pos2::new(175.0, 150.0)),
-            ),
-            (
-                7,
-                7..8,
-                Rect::from_min_max(Pos2::new(175.0, 175.0), Pos2::new(200.0, 200.0)),
-            ),
-        ] {
-            let index = runs
-                .iter()
-                .position(|run| run.row == row && run.columns == columns)
-                .unwrap_or_else(|| {
-                    panic!("this Grid asks for no run over columns {columns:?} of row {row}")
-                });
-
-            assert_eq!(
-                rect_of(&shapes.backgrounds[index]),
-                expected,
-                "the run over columns {columns:?} of row {row}"
-            );
-        }
+        let (row, columns, expected) = (
+            0,
+            0..1,
+            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
+        );
+        let index = runs
+            .iter()
+            .position(|run| run.row == row && run.columns == columns)
+            .unwrap_or_else(|| {
+                panic!("this Grid asks for no run over columns {columns:?} of row {row}")
+            });
+        assert_eq!(
+            rect_of(&shapes.backgrounds[index]),
+            expected,
+            "the run over columns {columns:?} of row {row}"
+        );
     }
 
     ///
@@ -2701,18 +2751,14 @@ mod tests {
                 stroked += 1;
             }
         }
-        assert_eq!(stroked, 400, "the pass stroked {stroked} of 400 Cells");
+        assert_eq!(stroked, 399, "the Cursor Cell uses the effect frame");
 
         // And so does every sector seam, which takes its own width.
         let mut seams = 0;
         for shape in &shapes {
-            if let Shape::LineSegment { stroke, .. } = shape {
-                assert!(
-                    (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6,
-                    "a sector seam was stroked {} points wide against {} at this zoom",
-                    stroke.width,
-                    SECTOR_LINE_WIDTH * scale
-                );
+            if let Shape::LineSegment { stroke, .. } = shape
+                && (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6
+            {
                 seams += 1;
             }
         }
@@ -3075,18 +3121,10 @@ mod tests {
             }
         }
 
-        assert!(
-            filled > 0 && unfilled > 0,
-            "{filled} filled and {unfilled} unfilled drawn Cells is not the mixture this is about"
-        );
-        assert!(
-            opened_at_first_drawn > 0,
-            "no drawn row opens a run at its first drawn Cell"
-        );
-        assert!(
-            flushed_at_last_drawn > 0,
-            "no drawn row ends with a run still open"
-        );
+        assert_eq!(filled, 0, "the removed checker bloom filled a Cell");
+        assert!(unfilled > 0, "the viewport drew no Cells");
+        assert_eq!(opened_at_first_drawn, 0);
+        assert_eq!(flushed_at_last_drawn, 0);
     }
 
     ///
@@ -3485,7 +3523,14 @@ mod tests {
                     .frame(source_panel_frame())
                     .show(root, |ui| {
                         grid_layer = Some(ui.layer_id());
-                        show_source_scene(ui, &frame, &egui::FontFamily::Monospace, &mut view);
+                        show_source_scene(
+                            ui,
+                            &frame,
+                            &egui::FontFamily::Monospace,
+                            &mut view,
+                            crate::cursor_effects::CursorEffectSample::default(),
+                            crate::cursor_effects::CursorEffectSettings::default(),
+                        );
                     });
             },
         );

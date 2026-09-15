@@ -74,7 +74,7 @@ pub(crate) struct CellVisuals {
 ///
 pub(crate) fn cell_visuals(
     token: Option<Token>,
-    cursor_bloom: Option<CursorBloom>,
+    _cursor_bloom: Option<CursorBloom>,
     selected: bool,
     cursor_visible: bool,
 ) -> CellVisuals {
@@ -87,32 +87,15 @@ pub(crate) fn cell_visuals(
         Some(Token::Char | Token::Atom | Token::Sequence) | None => PALETTE.ordinary,
     };
     CellVisuals {
-        background: if selected && !cursor_visible {
-            Some(PALETTE.selection_fill)
-        } else if cursor_visible {
-            None
-        } else {
-            cursor_bloom.map(|bloom| bloom_colours(bloom).0)
-        },
+        background: (selected && !cursor_visible).then_some(PALETTE.selection_fill),
         border: if cursor_visible {
             PALETTE.selection_stroke
         } else if selected {
             PALETTE.selection_stroke_rest
-        } else if let Some(bloom) = cursor_bloom {
-            bloom_colours(bloom).1
         } else {
             PALETTE.grid_line
         },
         foreground,
-    }
-}
-
-fn bloom_colours(bloom: CursorBloom) -> (Color32, Color32) {
-    match bloom {
-        CursorBloom::Core => (PALETTE.bloom_core_fill, PALETTE.bloom_core_line),
-        CursorBloom::Inner => (PALETTE.bloom_inner_fill, PALETTE.bloom_inner_line),
-        CursorBloom::Mid => (PALETTE.bloom_mid_fill, PALETTE.bloom_mid_line),
-        CursorBloom::Outer => (PALETTE.bloom_outer_fill, PALETTE.bloom_outer_line),
     }
 }
 
@@ -333,36 +316,16 @@ mod tests {
     }
 
     #[test]
-    fn cursor_bloom_grades_both_fill_and_grid_line() {
+    fn the_historical_cell_aligned_bloom_no_longer_changes_cells() {
         let core = cell_visuals(None, Some(CursorBloom::Core), false, false);
         let inner = cell_visuals(None, Some(CursorBloom::Inner), false, false);
         let mid = cell_visuals(None, Some(CursorBloom::Mid), false, false);
         let outer = cell_visuals(None, Some(CursorBloom::Outer), false, false);
         let distant = cell_visuals(None, None, false, false);
 
-        assert_eq!(core.background, Some(PALETTE.bloom_core_fill));
-        assert_eq!(inner.background, Some(PALETTE.bloom_inner_fill));
-        assert_eq!(mid.background, Some(PALETTE.bloom_mid_fill));
-        assert_eq!(outer.background, Some(PALETTE.bloom_outer_fill));
-        // `None`: the panel behind the Grid has already painted the Source colour.
-        assert_eq!(distant.background, None);
-        assert_eq!(core.border, PALETTE.bloom_core_line);
-        assert_eq!(inner.border, PALETTE.bloom_inner_line);
-        assert_eq!(mid.border, PALETTE.bloom_mid_line);
-        assert_eq!(outer.border, PALETTE.bloom_outer_line);
-        assert_eq!(distant.border, PALETTE.grid_line);
-        assert_eq!(
-            [
-                core.background,
-                inner.background,
-                mid.background,
-                outer.background,
-                distant.background,
-            ]
-            .windows(2)
-            .filter(|pair| pair[0] != pair[1])
-            .count(),
-            4
-        );
+        for cell in [core, inner, mid, outer, distant] {
+            assert_eq!(cell.background, None);
+            assert_eq!(cell.border, PALETTE.grid_line);
+        }
     }
 }
