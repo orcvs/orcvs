@@ -141,10 +141,10 @@ impl RenderFrame {
     }
 
     ///
-    /// Whether the Cursor is on the visible half of its blink for this Frame.
+    /// Whether the Cursor is visible in this Frame.
     ///
     /// Carried from derivation rather than recovered from a Cell
-    /// flag. The blink is a fact about the Frame, not about any one Cell.
+    /// flag. Visibility is a fact about the Frame, not about any one Cell.
     ///
     pub fn cursor_visible(&self) -> bool {
         self.cursor_visible

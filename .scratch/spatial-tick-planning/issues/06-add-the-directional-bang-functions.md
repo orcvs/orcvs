@@ -87,6 +87,9 @@ Neither Function group gives input a way to name a destination for such a Functi
 theirs from a declaration, and the `performs_terminal_output()` gate in `computations` still comes
 first — so the refusal has the same one raiser it had before this effort started.
 
+2026-09-15: `spatial-tick-planning/03` is resolved. The inherited ADR 0009 line is
+`spatial-tick-planning/09`.
+
 2026-09-11: Reviewed. Six findings, all addressed in this branch. One was a defect in the Functions
 issue 03 built, and it is recorded here rather than there because this is the branch that fixed it.
 

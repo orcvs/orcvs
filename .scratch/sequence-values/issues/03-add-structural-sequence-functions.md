@@ -3,21 +3,21 @@
 **What to build:** Implement the four structural Sequence Functions — Reverse `:<`, Concatenate
 `:&`, Select `:?`, and Replace `:=` — with the exact contracts in ADR 0007.
 
-**Blocked by:** 06 — Project a Sequence result into Source; grid-boundedness/01 — Decide whether the Grid's edge is a language concept.
+**Blocked by:** None — 06 and grid-boundedness/01 are resolved.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
-- [ ] Reverse changes Atom order but never reverses an Atom encoding.
-- [ ] Concatenate promotes Atoms, stays flat, and treats empty Sequence as identity.
-- [ ] Select uses a Number index modulo non-empty Sequence length.
-- [ ] Replace returns a new same-length Sequence and permits a different replacement Atom type.
-- [ ] Empty and invalid operands diagnose as ADR 0007 specifies.
-- [ ] Every Function parses and round-trips through its canonical two-Cell spelling.
-- [ ] Structural operations preserve a Bang member's type and encoding. (From issue 01, which
+- [x] Reverse changes Atom order but never reverses an Atom encoding.
+- [x] Concatenate promotes Atoms, stays flat, and treats empty Sequence as identity.
+- [x] Select uses a Number index modulo non-empty Sequence length.
+- [x] Replace returns a new same-length Sequence and permits a different replacement Atom type.
+- [x] Empty and invalid operands diagnose as ADR 0007 specifies.
+- [x] Every Function parses and round-trips through its canonical two-Cell spelling.
+- [x] Structural operations preserve a Bang member's type and encoding. (From issue 01, which
       covers Bang only through construction, promotion, and encoding.)
-- [ ] All four stay generic over Atom type, because none of them reinterprets an Atom.
+- [x] All four stay generic over Atom type, because none of them reinterprets an Atom.
 
 ## Comments
 
@@ -96,3 +96,47 @@ operation. `Vec` is 24 bytes and is the smaller of the two.
 badly contaminated — one round of it read 53.8 ns for the base and 778 ns for the first cut. Build
 the bench binary first, run the binary directly, alternate the revisions, and take the lowest
 result.
+
+### Verification, 2026-09-14
+
+Verified all eight items against `main` (`87fc793`), per item, by reading the code that decides the
+behaviour and then confirming a test drives it. Landed in `fcb1a40` with review follow-up in
+`651f9d6`. ADR 0026's revisit trigger (broadcasting + these four Functions) is therefore complete;
+the cost paragraph above is unchanged.
+
+- **Reverse order, not encoding.** `reverse` copies members and reverses the vec
+  (`lang/src/functions/sequence.rs`). Covered by `reverse_preserves_atom_type_and_encoding`, which
+  round-trips Number / Note / Bang and Source `:<:-0003` → `03 02 01 00`.
+- **Concatenate promote, flat, empty identity.** `AtomOrSequence` binding promotes
+  (`lang/src/stack.rs`); `concatenate` extends one vec. Covered by
+  `concatenate_promotes_atoms_stays_flat_and_treats_empty_as_identity`. Nested Sequences are
+  unrepresentable (`Sequence` is flat), so flatness is the type.
+- **Select modulo length.** `wrapping_index` is `usize::from(index) % length`. Covered by
+  `select_uses_a_wrapping_number_index_and_preserves_the_chosen_atom` (`04` on length 3 → member 1).
+- **Replace same length, different type.** Copies the vec, writes one slot, returns a new Sequence;
+  the input is left unchanged. Covered by
+  `replace_returns_a_new_same_length_sequence_and_allows_a_different_replacement_type`. Wrapping
+  shares `wrapping_index` with Select; Replace has no independent wrap fixture.
+- **Empty and invalid operands.** Select/Replace raise `SequenceError::EmptyNotAllowed`; Reverse
+  leaves empty unchanged (ADR 0007). Non-Number index, Sequence where an Atom is required, Atom
+  where a Sequence is required, and arity are covered by
+  `select_diagnoses_empty_sequences_and_non_number_indices`,
+  `replace_diagnoses_empty_sequences_non_number_indices_and_sequence_replacements`,
+  `reverse_and_concatenate_diagnose_atoms_where_sequences_are_required`, and
+  `structural_functions_diagnose_missing_operands`.
+- **Parse and round-trip.** `define_functions!` rows `:<`, `:&`, `:?`, `:=`. Covered by
+  `every_sequence_function_parses_and_round_trips_its_spelling` and
+  `select_and_replace_parse_round_trips_execute_through_nested_operands`. `:&` is parsed as a nested
+  Expression in that test rather than as a bare `TryFrom` spelling; Display still answers `:&`.
+- **Bang type and encoding.** Reverse and Replace are driven by
+  `structural_operations_preserve_bang_type_and_encoding`; Select by
+  `select_declares_that_it_can_emit_bang_and_returns_a_bang_member` (and the Source Grid
+  `a_select_bang_activates_an_aligned_terminal_root`). Concatenate copies members and so preserves
+  Bang the same way Reverse does; nothing concatenates a Bang member as a fixture.
+- **Generic over Atom type.** Signatures name `Sequence` / `Atom` / `AtomOrSequence`, not Number or
+  Note. Reverse and Replace fixtures mix Number, Note, and Bang; Concatenate's happy path is Numbers
+  only, plus a refused effect-Function member.
+
+Source projection of these results is issue 06's, already resolved:
+`live_a_declared_reverse_result_reaches_its_destination_cells` and the Concatenate / Replace
+siblings in `orcvs/src/source/tick.rs`.

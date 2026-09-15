@@ -5,8 +5,6 @@ pub const DEFAULT_SECTOR_SEAM_SPACING: usize = 8;
 
 pub const DEFAULT_CURSOR_BLOOM_RADIUS: usize = 7;
 
-pub const DEFAULT_CURSOR_DELAY: u64 = 800;
-
 const MAX_BPM: usize = 60_000 / 4;
 
 ///
@@ -18,7 +16,6 @@ const MAX_BPM: usize = 60_000 / 4;
 #[derive(Clone, Debug)]
 pub struct Opts {
     pub bpm: Bpm,
-    pub cursor_delay: u64,
     pub cursor_bloom_radius: CursorBloomRadius,
     pub sector_seam_spacing: SectorSeamSpacing,
     pub mode: Mode,
@@ -80,7 +77,6 @@ impl Opts {
     pub fn new() -> Self {
         Self {
             bpm: Bpm::new(20).expect("default tempo is positive"),
-            cursor_delay: DEFAULT_CURSOR_DELAY,
             cursor_bloom_radius: CursorBloomRadius::new(DEFAULT_CURSOR_BLOOM_RADIUS)
                 .expect("default cursor bloom radius is positive"),
             sector_seam_spacing: SectorSeamSpacing::new(DEFAULT_SECTOR_SEAM_SPACING)
