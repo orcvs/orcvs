@@ -146,6 +146,18 @@ struct Lookup {
     /// Destination Cells each producer reserved, including overlapping writes.
     writes: WriteClaims,
     subtree_ends: Vec<usize>,
+    /// Snapshot targets, shared by scheduling and execution. Only execution
+    /// decides whether an active, unsuppressed Halt actually applies its lock.
+    locks: Vec<Option<LockTarget>>,
+}
+
+/// Classification against the Source Snapshot, before any Turn can change it.
+enum LockTarget {
+    /// Parser preorder makes the complete root a contiguous subtree.
+    Root(Range<usize>),
+    Empty,
+    Outside,
+    Occupied,
 }
 
 /// How many Cells scheduling reserves for one computation's result, per
@@ -257,7 +269,7 @@ struct FunctionContact {
 const SCALAR_WIDTH: usize = 2;
 
 impl Lookup {
-    fn new(grid: Grid, mut nodes: Vec<Computation>) -> Self {
+    fn new(grid: Grid, mut nodes: Vec<Computation>, map: &LanguageMap) -> Self {
         let mut functions = Vec::new();
         let mut literals = Vec::new();
         let mut operands = Vec::new();
@@ -309,7 +321,7 @@ impl Lookup {
                 }
             }
         }
-        let lookup = Self {
+        let mut lookup = Self {
             grid,
             nodes,
             functions: Claims::new(functions),
@@ -317,7 +329,32 @@ impl Lookup {
             operands: Claims::new(operands),
             writes: WriteClaims::new(grid, writes),
             subtree_ends,
+            locks: Vec::new(),
         };
+        lookup.locks = lookup
+            .nodes
+            .iter()
+            .map(|node| {
+                node.portal_access.lock_site().map(|site| {
+                    let Ok(destination) = site else {
+                        return LockTarget::Outside;
+                    };
+                    if let Some(root) = lookup.root_at(destination) {
+                        return LockTarget::Root(lookup.descendants(root));
+                    }
+                    // Snapshot occupancy survives prior Bang display cleanup.
+                    let portal = Portal::at(grid, destination);
+                    if matches!(
+                        portal.occupancy(map, SCALAR_WIDTH, |anchor| lookup.root_at(anchor)),
+                        Occupancy::Empty
+                    ) {
+                        LockTarget::Empty
+                    } else {
+                        LockTarget::Occupied
+                    }
+                })
+            })
+            .collect();
         // The agreement [`Lookup::would_reserve`] is a hypothesis against:
         // what a computation reserves is what its own declared Function
         // re-derives, so asking about a replacement is a different question
@@ -697,7 +734,7 @@ fn schedule_carrying(
 ) -> Result<Schedule, Vec<Diagnostic>> {
     let (mut nodes, diagnostics) = computations(grid, map);
     carry(grid, &mut nodes, destinations);
-    order_turns(Lookup::new(grid, nodes), diagnostics)
+    order_turns(Lookup::new(grid, nodes, map), diagnostics)
 }
 
 ///
@@ -840,16 +877,12 @@ fn advances(function: Function) -> bool {
     )
 }
 
-/// The Expression root a locking Function's Portal names.
-fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
-    let node = &lookup.nodes()[locker];
-    if !node.function.locks_root() {
-        return None;
+/// The complete subtree a locking Function's Portal names.
+fn locked_subtree(lookup: &Lookup, locker: usize) -> Option<&Range<usize>> {
+    match &lookup.locks[locker] {
+        Some(LockTarget::Root(subtree)) => Some(subtree),
+        _ => None,
     }
-    let coords = node.function.output_portal()?;
-    Portal::named(lookup.grid, node.anchor, coords)
-        .ok()
-        .and_then(|portal| lookup.root_at(portal.destination()))
 }
 
 /// Whether `locker` is a locking root whose Portal names `producer`.
@@ -860,13 +893,12 @@ fn lock_target_root(lookup: &Lookup, locker: usize) -> Option<usize> {
 fn lock_covers(lookup: &Lookup, locker: usize, producer: usize) -> bool {
     let node = &lookup.nodes()[locker];
     node.parent.is_none()
-        && lock_target_root(lookup, locker)
-            .is_some_and(|target| lookup.descendants(target).any(|index| index == producer))
+        && locked_subtree(lookup, locker).is_some_and(|target| target.contains(&producer))
 }
 
 fn schedule(grid: Grid, map: &LanguageMap) -> Result<Schedule, Vec<Diagnostic>> {
     let (nodes, diagnostics) = computations(grid, map);
-    order_turns(Lookup::new(grid, nodes), diagnostics)
+    order_turns(Lookup::new(grid, nodes, map), diagnostics)
 }
 
 ///
@@ -978,6 +1010,9 @@ fn order_turns(
         }
         if !active[node.owner] {
             continue;
+        }
+        if let Some(target) = locked_subtree(&lookup, index) {
+            edges.extend(target.clone().map(|consumer| (index, consumer)));
         }
         for output in node
             .portal_access
@@ -2111,6 +2146,77 @@ mod test {
     }
 
     #[test]
+    fn halt_does_not_supply_cells_read_by_a_jump() {
+        // Halt targets the empty Cells west of East Jump. Treating that lock
+        // as a write closes a false cycle through both other Jumps and Equality.
+        let (plans, grids, _) =
+            tick_by_tick(Grid::new(8, 3), &[".=0101&<", "  *!  &^", "    &>  "], 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(grids[0], [".=0101  ", "***!  &^", "    &>  "]);
+        assert!(plans[0].locks.is_empty());
+        assert!(plans[0].play_commands.is_empty());
+    }
+
+    #[test]
+    fn an_inactive_or_suppressed_halt_does_not_diagnose_its_target() {
+        let (plans, grids, _) = tick_by_tick(Grid::new(8, 2), &["  *!    ", "  ||    "], 1);
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert!(plans[0].locks.is_empty());
+        assert_eq!(grids[0], ["  *!    ", "  ||    "]);
+
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(8, 4),
+            &[".=0101  ", "  *!    ", "  *!    ", "  ||    "],
+            1,
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(plans[0].locks, vec![source.grid().position(2, 2).unwrap()]);
+        assert_eq!(grids[0], [".=0101  ", "***!    ", "  *!    ", "  ||    "]);
+    }
+
+    #[test]
+    fn halt_locks_nested_computations_before_they_can_diagnose() {
+        // The nested Divide would diagnose its zero divisor if it took a Turn.
+        let (plans, grids, source) = tick_by_tick(
+            Grid::new(12, 4),
+            &[
+                ".=0101      ",
+                "  *!        ",
+                "  .+./010001",
+                "            ",
+            ],
+            1,
+        );
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{:?}",
+            plans[0].diagnostics
+        );
+        assert_eq!(plans[0].locks, vec![source.grid().position(2, 2).unwrap()]);
+        assert_eq!(
+            grids[0],
+            [
+                ".=0101      ",
+                "***!        ",
+                "  .+./010001",
+                "            "
+            ]
+        );
+    }
+
+    #[test]
     fn an_active_halt_locks_the_complete_root_one_row_south() {
         // CONTEXT.md: when Halt is active it "establishes a dependency that
         // locks the Expression root directly south before that root can
@@ -2784,7 +2890,7 @@ mod test {
                 .unwrap();
         }
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let mut lookup = super::Lookup::new(grid, nodes);
+        let mut lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         // Parser preorder: the owning `.+` at column 0, then the `.-` nested
         // in its first operand.
@@ -2867,7 +2973,7 @@ mod test {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &[":-0003", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes);
+        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         assert_eq!(lookup.nodes().len(), 1);
         assert_eq!(lookup.nodes()[0].function, lang::Function::NumberRange);
@@ -2889,7 +2995,7 @@ mod test {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &["                ", ".+:-0003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes);
+        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         assert_eq!(lookup.nodes().len(), 2);
         let (root, child) = (0, 1);
@@ -2911,7 +3017,7 @@ mod test {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &["                ", ".:?00:-0003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes);
+        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         assert_eq!(lookup.nodes().len(), 2);
         let (root, child) = (0, 1);
@@ -2930,7 +3036,7 @@ mod test {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &[":#C4C7", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes);
+        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         assert_eq!(lookup.nodes().len(), 1);
         assert_eq!(lookup.nodes()[0].function, lang::Function::NoteRange);
@@ -3009,7 +3115,7 @@ mod test {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &[".-000003", ""]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes);
+        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         assert_eq!(lookup.reserved(0), super::Reserved::Pair);
         assert_eq!(
@@ -3024,7 +3130,7 @@ mod test {
         let grid = Grid::new(16, 2);
         let source = seeded_source(grid, &["                ", ".+.-000003"]);
         let (nodes, _) = super::computations(grid, &source.shared_language_map());
-        let lookup = super::Lookup::new(grid, nodes);
+        let lookup = super::Lookup::new(grid, nodes, &source.shared_language_map());
 
         assert_eq!(lookup.nodes().len(), 2);
         let (root, child) = (0, 1);

@@ -421,40 +421,41 @@ impl SpanWrite {
 }
 
 ///
-/// How one computation interacts with Portals: the Cells it writes, and the
-/// extra Cells it reads.
+/// How one computation interacts with Portals: Cell writes or a root lock,
+/// and the extra Cells it reads.
 ///
-/// A Portal is one Cell. [`PortalWrites`] is whether this computation writes
-/// any, and which. Reads are independent of that: a nested Jump writes nothing
-/// and still reads the opposite Portal, so a producer of those Cells is ordered
-/// first.
+/// A Portal is one Cell. [`PortalOutput`] distinguishes a Cell write from
+/// a root lock, so a lock never supplies an Input Portal's characters. Reads
+/// are independent of that: a nested Jump writes nothing and still reads the
+/// opposite Portal, so a producer of those Cells is ordered first.
 ///
-/// Terminal Output answers Play, not a Cell, so its writes are [`PortalWrites::None`]
+/// Terminal Output answers Play, not a Cell, so its writes are [`PortalOutput::None`]
 /// — a kind, so [`Self::carry`] cannot mint a site the resolve step refused.
 /// Empty-vec silence was the leak: a test helper could stuff a Portal onto
 /// `!>`. Play stays an Effect; it is not a Portal.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct PortalAccess {
-    writes: PortalWrites,
+    output: PortalOutput,
     reads: Vec<Range<usize>>,
 }
 
 ///
-/// Whether a computation writes Cells, and which.
+/// What a computation delivers at its output: Cell writes or a root lock.
 ///
-/// [`PortalWrites::None`] is a kind, not an empty site list. An empty list can
+/// [`PortalOutput::None`] is a kind, not an empty site list. An empty list can
 /// be stuffed; none cannot.
 ///
 #[derive(Clone, Debug, PartialEq)]
-enum PortalWrites {
+enum PortalOutput {
     None,
-    Sites(Vec<Result<Position, PortalError>>),
+    Writes(Vec<Result<Position, PortalError>>),
+    Lock(Result<Position, PortalError>),
 }
 
 impl PortalAccess {
     ///
-    /// The write sites and extra reads `function` demands at `anchor`.
+    /// The output kind, destination sites and extra reads demanded at `anchor`.
     ///
     /// Nested computations hand a typed value to a parent. Terminal Output
     /// answers Play. Neither demands a write Portal. A locking root and every
@@ -469,13 +470,13 @@ impl PortalAccess {
             .unwrap_or_default();
         if nested {
             return Self {
-                writes: PortalWrites::None,
+                output: PortalOutput::None,
                 reads,
             };
         }
         if function.performs_terminal_output() {
             return Self {
-                writes: PortalWrites::None,
+                output: PortalOutput::None,
                 reads: Vec::new(),
             };
         }
@@ -492,20 +493,21 @@ impl PortalAccess {
                 SourceBundle::Emit => vec![destination],
             };
             return Self {
-                writes: PortalWrites::Sites(writes),
+                output: PortalOutput::Writes(writes),
                 reads: Vec::new(),
             };
         }
         if let Some(coords) = function.output_portal() {
-            return Self {
-                writes: PortalWrites::Sites(vec![
-                    Portal::named(grid, anchor, coords).map(|portal| portal.destination()),
-                ]),
-                reads,
+            let site = Portal::named(grid, anchor, coords).map(|portal| portal.destination());
+            let output = if function.locks_root() {
+                PortalOutput::Lock(site)
+            } else {
+                PortalOutput::Writes(vec![site])
             };
+            return Self { output, reads };
         }
         Self {
-            writes: PortalWrites::None,
+            output: PortalOutput::None,
             reads,
         }
     }
@@ -519,13 +521,21 @@ impl PortalAccess {
     }
 
     pub(super) fn writes_cells(&self) -> bool {
-        matches!(self.writes, PortalWrites::Sites(_))
+        matches!(self.output, PortalOutput::Writes(_))
     }
 
     pub(super) fn write_sites(&self) -> &[Result<Position, PortalError>] {
-        match &self.writes {
-            PortalWrites::None => &[],
-            PortalWrites::Sites(writes) => writes,
+        match &self.output {
+            PortalOutput::None | PortalOutput::Lock(_) => &[],
+            PortalOutput::Writes(writes) => writes,
+        }
+    }
+
+    /// The lock's destination, including failure to resolve outside the Grid.
+    pub(super) fn lock_site(&self) -> Option<Result<Position, PortalError>> {
+        match self.output {
+            PortalOutput::Lock(site) => Some(site),
+            PortalOutput::None | PortalOutput::Writes(_) => None,
         }
     }
 
@@ -537,14 +547,14 @@ impl PortalAccess {
     /// Restates write sites a test named, only when this value already demanded
     /// some.
     ///
-    /// [`PortalWrites::None`] stays none. That is the whole of the helper: it
-    /// cannot attach a Portal to Terminal Output or to a nested Jump.
+    /// [`PortalOutput::None`] stays none. That is the whole of the helper: it
+    /// cannot attach a write to Terminal Output, a nested Jump, or a root lock.
     ///
     #[cfg(test)]
     pub(super) fn carry(&mut self, grid: Grid, writes: &[Position]) {
-        match &mut self.writes {
-            PortalWrites::None => {}
-            PortalWrites::Sites(sites) => {
+        match &mut self.output {
+            PortalOutput::None | PortalOutput::Lock(_) => {}
+            PortalOutput::Writes(sites) => {
                 *sites = writes
                     .iter()
                     .map(|output| {
