@@ -81,6 +81,31 @@ const GLYPH_SCALE_STEP: f32 = 0.125;
 /// console. It is the panel's own minimum, which the menu bar does not exceed.
 const TOP_PANEL_HEIGHT: f32 = 32.0;
 
+#[cfg(target_arch = "wasm32")]
+fn prefers_reduced_motion() -> bool {
+    web_sys::window()
+        .and_then(|window| {
+            window
+                .match_media("(prefers-reduced-motion: reduce)")
+                .ok()
+                .flatten()
+        })
+        .is_some_and(|query| query.matches())
+}
+
+#[cfg(target_os = "macos")]
+fn prefers_reduced_motion() -> bool {
+    std::process::Command::new("defaults")
+        .args(["read", "com.apple.universalaccess", "reduceMotion"])
+        .output()
+        .is_ok_and(|output| output.status.success() && output.stdout.starts_with(b"1"))
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "macos")))]
+fn prefers_reduced_motion() -> bool {
+    false
+}
+
 ///
 /// The window size that presents the default Grid at the Source's own Cell
 /// size: the Source's own points, and the chrome above the console.
@@ -236,6 +261,7 @@ pub struct Console {
     tempo_edit: TempoEdit,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
+    reduced_motion: bool,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
 }
@@ -297,6 +323,7 @@ impl Console {
             tempo_edit: TempoEdit::default(),
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
+            reduced_motion: prefers_reduced_motion(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
         })
@@ -543,7 +570,7 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// after the fills, because a run widened across several Cells covers the
 /// borders of every Cell but its last. That is a fact about how a painter
 /// composites rather than about the Source, which is why it is decided here and
-/// not in the value layer — and naming the five groups states it where a
+/// not in the value layer — and naming the ordered groups states it where a
 /// comment used to.
 ///
 /// # Why they are built eagerly
@@ -614,10 +641,9 @@ impl SourceShapes {
         // up front — to those Cells rather than to the Grid: a densely written
         // Source that regrew the group would pay the reallocation on every
         // Render Frame, and a zoomed console reserves what it draws instead of
-        // what the Source holds. A background is the exception — the Cursor's
-        // bloom reaches fifteen Cells and the rest of the Grid asks for none —
-        // so that one starts empty and grows to whatever the blink is asking
-        // for. Glyphs are reserved in [`Self::place_glyphs`].
+        // what the Source holds. Backgrounds are sparse selection state, so
+        // that group starts empty. Glyphs are reserved in
+        // [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
         let mut borders = Vec::with_capacity(paint.count());
         let mut seams = Vec::new();
@@ -725,7 +751,7 @@ impl SourceShapes {
     }
 
     ///
-    /// The five groups end to end, in paint order.
+    /// The shape groups end to end, in paint order.
     ///
     /// An iterator over the owned `Vec`s rather than a sixth one: the chain
     /// costs nothing, and collecting it would spend a further allocation of
@@ -751,11 +777,9 @@ impl SourceShapes {
 /// `GridViewport::visible_positions` is this loop's one source of them — so
 /// that cost follows the viewport rather than the Source.
 ///
-/// A background is painted only where it differs from the Source fill the panel
-/// is already filled with, and consecutive Cells in a row that want the same
-/// background share one rectangle. The Cursor's bloom reaches fifteen Cells
-/// across, so on the default Grid most Cells ask for no background at all and
-/// the ones that do arrive in runs.
+/// A background is painted only where selection state differs from the Source
+/// fill the panel already provides. Consecutive Cells in a row that want the
+/// same background share one rectangle.
 ///
 /// The click is answered rather than acted on. Selecting a Cell is the Source's
 /// business and `Console::ui` owns the running Orcvs it is asked of; handing the
@@ -1041,8 +1065,7 @@ fn show_source_scene(
 /// `None` for a Cell's background wherever the panel has already painted
 /// `PALETTE.source`, on the grounds that this frame has already painted exactly
 /// that colour across the whole console and clips every Shape to it. An ordinary
-/// Cell therefore has no rectangle of its own, and on the default Grid — where
-/// the Cursor's bloom reaches fifteen Cells — most Cells are ordinary.
+/// Cell therefore has no rectangle of its own.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -1056,8 +1079,8 @@ fn source_panel_frame() -> egui::Frame {
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
-    /// intervals while running. The Source is the one persistence root, so
-    /// this stores the current revision and nothing of the Console around it.
+    /// intervals while running. This stores the current Source revision and
+    /// the persisted presentation settings.
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1218,7 +1241,9 @@ impl eframe::App for Console {
         self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
-        let cursor_effect_settings = self.cursor_effects;
+        let cursor_effect_settings = self
+            .cursor_effects
+            .respecting_reduced_motion(self.reduced_motion);
         let cursor_effect_sample = self
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
@@ -1238,6 +1263,7 @@ impl eframe::App for Console {
                     tempo_edit: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
+                    reduced_motion: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
                 } = self;
@@ -2129,7 +2155,7 @@ mod tests {
     /// `backgrounds`, every Glyph in `glyphs` and the Cursor alone in `cursor`,
     /// so chaining the groups orders the *kinds* however the Cells interleave:
     /// a later Cell in the row order cannot erase an earlier Cell's Glyph, and
-    /// no neighbour's fill or seam can reach the Cursor. That the five groups
+    /// no neighbour's fill or seam can reach the Cursor. That the shape groups
     /// then arrive at the painter in that order is asserted by
     /// `the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them`.
     ///
@@ -2185,7 +2211,7 @@ mod tests {
     }
 
     ///
-    /// The five groups reach the painter end to end, in the order
+    /// The shape groups reach the painter end to end, in the order
     /// `SourceShapes::into_shapes` chains them: backgrounds, borders, Glyphs,
     /// seams, the Cursor.
     ///
@@ -2358,7 +2384,7 @@ mod tests {
     /// shape step gives each Cell the border the Paint gave that Cell, and
     /// not its neighbour's.
     ///
-    /// The Grid is wider than the Cursor's fifteen-Cell bloom, so the borders
+    /// The Grid is wider than the Cursor effect, so the borders
     /// are not all one colour and a step that handed every Cell the same
     /// stroke would be caught.
     ///
@@ -2477,7 +2503,7 @@ mod tests {
     /// `PALETTE.source`, and what stands in its place is the `CentralPanel`
     /// frame. The two values are stated in different places, so nothing but
     /// this holds them together: give the panel any other fill and every
-    /// ordinary Cell — outside the Cursor's fifteen-Cell bloom, most of the
+    /// ordinary Cell — outside the Cursor effect, most of the
     /// default Grid — renders on a ground the palette never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
@@ -3044,25 +3070,19 @@ mod tests {
     /// one: that the rectangle the shape step builds from a run whose columns
     /// start mid-row still covers exactly the Cells that run replaces.
     ///
-    /// The console is small and the zoom is at the limit on purpose, so the
-    /// Cursor's bloom — fifteen Cells across — is wider than the viewport. That
-    /// is what puts a filled Cell at both edges of the drawn rows, which is the
-    /// only place a run built from the wrong endpoint would show. The test
-    /// asserts that this is so rather than assuming it, so it cannot go
-    /// quietly vacuous if the bloom moves.
+    /// The console is small and the zoom is at the limit so both sides of the
+    /// Source are culled. Cursor effects are geometry beneath the Grid and
+    /// therefore must not reintroduce Cell background runs in this view.
     ///
     #[tokio::test]
-    async fn a_zoomed_row_fills_every_cell_the_paint_asks_for_and_no_other() {
+    async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
         let ctx = egui::Context::default();
-        // Narrower than the bloom at the zoom below, so every drawn row both
-        // starts and ends inside it.
+        // Narrow enough that every drawn row starts and ends inside the Grid.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
         let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         let mut view = SourceView::default();
-        // Below the window the console shows, so the bloom covers the lower
-        // drawn rows and stops short of the upper ones: the viewport holds
-        // filled and unfilled Cells at once, and every drawn row that is filled
-        // is filled at both its edges.
+        // Below the window the console shows, keeping the Cursor near the
+        // visible range while its area remains separate geometry.
         orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
 
         // The Grid's near corner at (-700, -500), so the console shows a window
@@ -3121,7 +3141,7 @@ mod tests {
             }
         }
 
-        assert_eq!(filled, 0, "the removed checker bloom filled a Cell");
+        assert_eq!(filled, 0, "Cursor geometry filled a Cell background");
         assert!(unfilled > 0, "the viewport drew no Cells");
         assert_eq!(opened_at_first_drawn, 0);
         assert_eq!(flushed_at_last_drawn, 0);

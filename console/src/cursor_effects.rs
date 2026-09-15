@@ -51,6 +51,14 @@ impl CursorEffectSettings {
         &mut self.frequency
     }
 
+    pub(crate) fn respecting_reduced_motion(mut self, reduced_motion: bool) -> Self {
+        if reduced_motion {
+            self.amount = 0;
+            self.frequency = 0;
+        }
+        self
+    }
+
     pub(crate) fn interval(self, variation: u8) -> Option<Duration> {
         (self.frequency > 0).then(|| {
             let fastest = 45_u64;
@@ -178,7 +186,7 @@ pub struct CursorEffectShapes {
 }
 
 pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
-    cursor.expand(AREA_RADIUS_CELLS * cell_size)
+    cursor.expand((AREA_RADIUS_CELLS + 1.0) * cell_size)
 }
 
 /// Builds the approved green damaged field and off-white eroded frame.
@@ -432,6 +440,13 @@ mod tests {
     }
 
     #[test]
+    fn reduced_motion_uses_a_clear_static_cursor() {
+        let settings = CursorEffectSettings::default().respecting_reduced_motion(true);
+        assert_eq!(settings.amount(), 0);
+        assert_eq!(settings.frequency(), 0);
+    }
+
+    #[test]
     fn malformed_or_out_of_range_settings_are_refused_whole() {
         assert_eq!(CursorEffectSettings::decode("garbage"), None);
         assert_eq!(CursorEffectSettings::decode("1,2,3;4,5,6;101;50"), None);
@@ -536,6 +551,25 @@ mod tests {
             let rect = shape.visual_bounding_rect();
             (rect.left() / 25.0).floor() != (rect.right() / 25.0).floor()
         }));
+    }
+
+    #[test]
+    fn advertised_bounds_contain_the_outer_area_tails() {
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(25.0));
+        let bounds = effect_bounds(cursor, 25.0);
+        for field in 0..32 {
+            let effects = cursor_effect_shapes(
+                cursor,
+                bounds.expand(100.0),
+                25.0,
+                sample(1, field, field.rotate_left(7)),
+                CursorEffectSettings::default(),
+            );
+            assert!(effects.area.iter().all(|shape| {
+                let shape = shape.visual_bounding_rect();
+                bounds.contains(shape.min) && bounds.contains(shape.max)
+            }));
+        }
     }
 
     #[test]

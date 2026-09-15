@@ -46,7 +46,7 @@ impl GridViewport {
 ///
 /// This is what the console shows *and one Cell more* in every direction the
 /// Grid has one, so it is not the set of Positions a viewer can see — the
-/// extra Cell is the margin seams and bloom need. A caller that needs only
+/// extra Cell is the margin the seams need. A caller that needs only
 /// what is on screen has to narrow it; a caller drawing them does not.
 ///
 /// The ranges are already clamped to the Grid, so a caller walks those

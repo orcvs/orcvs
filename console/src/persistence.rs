@@ -1,10 +1,10 @@
 //!
-//! The console's storage seam: the one Source revision eframe storage holds.
+//! The console's storage seam: the Source revision and presentation settings
+//! eframe storage holds.
 //!
-//! `Source` is the only supported persistence root. The Language Map, Tokens,
-//! diagnostics and parsed Expressions are derived from it, so a restore
-//! rebuilds them and storage never holds them; the console itself is a runtime
-//! coordinator and is not stored either.
+//! The Language Map, Tokens, diagnostics and parsed Expressions are derived
+//! from the Source, so a restore rebuilds them. The console runtime and
+//! animation state are not stored.
 //!
 
 use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
@@ -17,9 +17,8 @@ use crate::cursor_effects::CursorEffectSettings;
 ///
 /// Deliberately not `eframe::APP_KEY`: that key names the whole App value, and
 /// `source-playback-engine/18` settled that the Console is a runtime
-/// coordinator with nothing to restore. What is stored here is the one
-/// supported persistence root, the Source, so a reader of the stored file is
-/// not told the Console was saved.
+/// coordinator rather than a serializable application value. This key stores
+/// only the Source payload; presentation settings use their own key.
 ///
 #[cfg(feature = "persistence")]
 pub const SOURCE_KEY: &str = "orcvs_source";
