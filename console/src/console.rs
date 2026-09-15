@@ -101,7 +101,19 @@ fn prefers_reduced_motion() -> bool {
         .is_ok_and(|output| output.status.success() && output.stdout.starts_with(b"1"))
 }
 
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "macos")))]
+#[cfg(target_os = "linux")]
+fn prefers_reduced_motion() -> bool {
+    std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "enable-animations"])
+        .output()
+        .is_ok_and(|output| output.status.success() && output.stdout.starts_with(b"false"))
+}
+
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "macos"),
+    not(target_os = "linux")
+))]
 fn prefers_reduced_motion() -> bool {
     false
 }
