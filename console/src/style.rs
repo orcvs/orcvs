@@ -54,10 +54,25 @@ pub(crate) struct CellVisuals {
 /// own Cell is one of those arms: painting the Source fill again would hide
 /// the Cursor Effect's presentation.
 ///
+#[cfg(test)]
 pub(crate) fn cell_visuals(
     token: Option<Token>,
     selected: bool,
     cursor_visible: bool,
+) -> CellVisuals {
+    cell_visuals_with_cursor_colour(
+        token,
+        selected,
+        cursor_visible,
+        Some(PALETTE.selection_fill),
+    )
+}
+
+pub(crate) fn cell_visuals_with_cursor_colour(
+    token: Option<Token>,
+    selected: bool,
+    cursor_visible: bool,
+    cursor_colour: Option<Color32>,
 ) -> CellVisuals {
     let foreground = match token {
         Some(Token::Bang) => PALETTE.bang,
@@ -68,7 +83,7 @@ pub(crate) fn cell_visuals(
         Some(Token::Char | Token::Atom | Token::Sequence) | None => PALETTE.ordinary,
     };
     CellVisuals {
-        background: (selected && !cursor_visible).then_some(PALETTE.selection_fill),
+        background: selected.then_some(cursor_colour.unwrap_or(PALETTE.selection_fill)),
         border: if cursor_visible {
             PALETTE.selection_stroke
         } else if selected {
@@ -270,9 +285,23 @@ mod tests {
         assert_eq!(ordinary.border, PALETTE.grid_line);
         assert_eq!(selected.background, Some(PALETTE.selection_fill));
         assert_eq!(selected.border, PALETTE.selection_stroke_rest);
-        assert_eq!(cursor.background, None);
+        assert_eq!(cursor.background, Some(PALETTE.selection_fill));
         assert_eq!(cursor.border, PALETTE.selection_stroke);
         assert_ne!(cursor, selected);
+    }
+
+    #[test]
+    fn cursor_cell_colour_is_optional_and_defaults_to_the_theme_background() {
+        let colour = Color32::from_rgb(1, 2, 3);
+        assert_eq!(
+            super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, None).background,
+            Some(PALETTE.selection_fill)
+        );
+        assert_eq!(
+            super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, Some(colour))
+                .background,
+            Some(colour)
+        );
     }
 
     #[test]

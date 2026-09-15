@@ -52,7 +52,7 @@ use orcvs::{
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
-    style::{cell_visuals, sector_line},
+    style::{PALETTE, cell_visuals_with_cursor_colour, sector_line},
 };
 
 pub use crate::grid_viewport::VisiblePositions;
@@ -173,6 +173,13 @@ impl Paint {
     /// checked in [`FramePaint::new`].
     ///
     pub fn derive(input: FramePaint<'_>) -> Self {
+        Self::derive_with_cursor_colour(input, Some(PALETTE.selection_fill))
+    }
+
+    pub fn derive_with_cursor_colour(
+        input: FramePaint<'_>,
+        cursor_colour: Option<Color32>,
+    ) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
         // The Cursor is the Position the Render Frame was derived for. A Paint
@@ -198,7 +205,12 @@ impl Paint {
                     .expect("a drawn Position is one the visible range clamped to this Grid");
                 let cell = frame.at(position);
                 let selected = position == frame_cursor;
-                let visuals = cell_visuals(cell.token(), selected, selected && cursor_visible);
+                let visuals = cell_visuals_with_cursor_colour(
+                    cell.token(),
+                    selected,
+                    selected && cursor_visible,
+                    cursor_colour,
+                );
 
                 cells.push(CellPaint {
                     background: visuals.background,

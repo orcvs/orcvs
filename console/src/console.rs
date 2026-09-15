@@ -7,8 +7,8 @@ use egui::{
 };
 
 use crate::cursor_effects::{
-    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, cursor_effect_shapes,
-    effect_bounds,
+    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, DEFAULT_CURSOR_COLOUR,
+    cursor_effect_shapes, effect_bounds,
 };
 use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
@@ -879,7 +879,10 @@ fn show_source(
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
-    let paint = Paint::derive(FramePaint::new(frame, visible));
+    let paint = Paint::derive_with_cursor_colour(
+        FramePaint::new(frame, visible),
+        cursor_effect_settings.cell_colour(),
+    );
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
@@ -1177,6 +1180,27 @@ impl eframe::App for Console {
                             egui::color_picker::Alpha::Opaque,
                         );
                     });
+                    let mut cell_colour_enabled = self.cursor_effects.cell_colour().is_some();
+                    if ui
+                        .checkbox(&mut cell_colour_enabled, "Cursor cell colour")
+                        .changed()
+                    {
+                        self.cursor_effects.set_cell_colour(if cell_colour_enabled {
+                            Some(DEFAULT_CURSOR_COLOUR)
+                        } else {
+                            None
+                        });
+                    }
+                    if let Some(mut colour) = self.cursor_effects.cell_colour()
+                        && egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            &mut colour,
+                            egui::color_picker::Alpha::Opaque,
+                        )
+                        .changed()
+                    {
+                        self.cursor_effects.set_cell_colour(Some(colour));
+                    }
                     ui.add(
                         egui::Slider::new(self.cursor_effects.amount_mut(), 0..=100)
                             .text("Glitch amount"),
@@ -2695,7 +2719,13 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = painted(&frame, viewport, viewport.rect);
+        let paint = Paint::derive_with_cursor_colour(
+            FramePaint::new(
+                &frame,
+                viewport.visible_positions(viewport.rect, frame.grid()),
+            ),
+            Some(PALETTE.selection_fill),
+        );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
 

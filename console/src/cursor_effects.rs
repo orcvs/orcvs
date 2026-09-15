@@ -9,6 +9,7 @@ pub(crate) const DEFAULT_AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
 pub struct CursorEffectSettings {
     cursor_colour: Color32,
     area_colour: Color32,
+    cell_colour: Option<Color32>,
     amount: u8,
     frequency: u8,
 }
@@ -18,6 +19,7 @@ impl Default for CursorEffectSettings {
         Self {
             cursor_colour: DEFAULT_CURSOR_COLOUR,
             area_colour: DEFAULT_AREA_COLOUR,
+            cell_colour: None,
             amount: 60,
             frequency: 55,
         }
@@ -31,6 +33,9 @@ impl CursorEffectSettings {
     pub(crate) fn area_colour(self) -> Color32 {
         self.area_colour
     }
+    pub(crate) fn cell_colour(self) -> Option<Color32> {
+        self.cell_colour
+    }
     pub(crate) fn amount(self) -> u8 {
         self.amount
     }
@@ -43,6 +48,9 @@ impl CursorEffectSettings {
     }
     pub(crate) fn area_colour_mut(&mut self) -> &mut Color32 {
         &mut self.area_colour
+    }
+    pub(crate) fn set_cell_colour(&mut self, colour: Option<Color32>) {
+        self.cell_colour = colour;
     }
     pub fn amount_mut(&mut self) -> &mut u8 {
         &mut self.amount
@@ -71,7 +79,7 @@ impl CursorEffectSettings {
     #[cfg(any(feature = "persistence", test))]
     pub(crate) fn encode(self) -> String {
         format!(
-            "{},{},{};{},{},{};{};{}",
+            "{},{},{};{},{},{};{};{};{}",
             self.cursor_colour.r(),
             self.cursor_colour.g(),
             self.cursor_colour.b(),
@@ -79,7 +87,11 @@ impl CursorEffectSettings {
             self.area_colour.g(),
             self.area_colour.b(),
             self.amount,
-            self.frequency
+            self.frequency,
+            self.cell_colour.map_or_else(
+                || "none".to_owned(),
+                |colour| { format!("{},{},{}", colour.r(), colour.g(), colour.b()) }
+            )
         )
     }
 
@@ -99,6 +111,10 @@ impl CursorEffectSettings {
             area_colour: colour(groups.next()?)?,
             amount: groups.next()?.parse().ok()?,
             frequency: groups.next()?.parse().ok()?,
+            cell_colour: match groups.next() {
+                None | Some("none") => None,
+                Some(group) => colour(group),
+            },
         };
         (groups.next().is_none() && settings.amount <= 100 && settings.frequency <= 100)
             .then_some(settings)
@@ -424,6 +440,7 @@ mod tests {
         let settings = CursorEffectSettings::default();
         assert_eq!(settings.cursor_colour(), Color32::from_rgb(234, 235, 229));
         assert_eq!(settings.area_colour(), Color32::from_rgb(76, 190, 156));
+        assert_eq!(settings.cell_colour(), None);
         assert_ne!(settings.interval(0), settings.interval(255));
     }
 
