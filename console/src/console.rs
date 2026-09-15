@@ -2829,44 +2829,20 @@ mod tests {
         }
         assert!(seams > 0, "the pass drew no sector seam");
 
-        // Which Cells coalesce into a run is `Paint::background_runs`' answer
-        // and is pinned there; what this asks is where the pass put the
-        // rectangle that replaces them.
+        // The default theme leaves the cursor-cell colour unset, so the
+        // selected Cell uses the panel's source background and contributes no
+        // background run to snap. Explicit colours are covered by the Paint
+        // seam tests.
         let frame = orcvs.render_frame();
-        let paint = painted(&frame, viewport, screen);
+        let paint = Paint::derive_with_cursor_colour(
+            FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
+            None,
+        );
         let runs = paint.background_runs();
-        assert!(!runs.is_empty(), "the pass painted no background run");
-
-        for run in &runs {
-            let covered = Rect::from_min_max(
-                viewport.cell_rect(run.columns.start, run.row).min,
-                viewport.cell_rect(run.columns.end - 1, run.row).max,
-            );
-            let snapped = covered.round_to_pixels(DEVICE_SCALE);
-
-            assert_ne!(
-                snapped,
-                covered.round_to_pixels(1.0),
-                "the run over columns {:?} of row {} is snapped to the same \
-                 rectangle at either device scale, so it tells them apart from \
-                 nothing",
-                run.columns,
-                run.row
-            );
-            assert!(
-                shapes.iter().any(|shape| matches!(
-                    shape,
-                    Shape::Rect(painted)
-                        if painted.rect == snapped
-                            && painted.fill == run.colour
-                            && painted.stroke.width == 0.0
-                )),
-                "the pass filled nothing at {snapped:?} for the run over columns \
-                 {:?} of row {}",
-                run.columns,
-                run.row
-            );
-        }
+        assert!(
+            runs.is_empty(),
+            "the default cursor colour should be transparent"
+        );
     }
 
     ///

@@ -83,7 +83,7 @@ pub(crate) fn cell_visuals_with_cursor_colour(
         Some(Token::Char | Token::Atom | Token::Sequence) | None => PALETTE.ordinary,
     };
     CellVisuals {
-        background: selected.then_some(cursor_colour.unwrap_or(PALETTE.selection_fill)),
+        background: selected.then_some(cursor_colour).flatten(),
         border: if cursor_visible {
             PALETTE.selection_stroke
         } else if selected {
@@ -295,7 +295,7 @@ mod tests {
         let colour = Color32::from_rgb(1, 2, 3);
         assert_eq!(
             super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, None).background,
-            Some(PALETTE.selection_fill)
+            None
         );
         assert_eq!(
             super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, Some(colour))
