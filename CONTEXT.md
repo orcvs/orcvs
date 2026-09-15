@@ -265,7 +265,7 @@ The terminal `!$` Function that sends a command to the Orcvs host application. I
 _Avoid_: Host Command, shell command, process execution
 
 **Cursor**:
-The one Cell the console is editing: a Position, plus the blink state that draws it. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
+The one Cell the console is editing: a Position drawn with the active Cursor Effect. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
 **Cursor Effect**:

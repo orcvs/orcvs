@@ -1250,7 +1250,6 @@ impl eframe::App for Console {
                 .collect()
         });
         self.orcvs.event_handler(events);
-        self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
         let cursor_effect_settings = self
@@ -1295,7 +1294,6 @@ impl eframe::App for Console {
                     orcvs.select(position);
                 }
 
-                ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
                 let cursor_rect = presented
                     .viewport
                     .cell_rect(frame.cursor().x(), frame.cursor().y());
@@ -2084,7 +2082,7 @@ mod tests {
     }
 
     ///
-    /// The Cursor's blink reaches what a Cell is painted *with* and never
+    /// The Cursor Effect reaches what a Cell is painted *with* and never
     /// where it is painted.
     ///
     /// This is the property the retired `cell_line_width` test held over a
@@ -2093,10 +2091,9 @@ mod tests {
     /// `GridViewport::cell_rect` takes a Position and nothing else — so it is
     /// asserted here against the geometry that actually reached the Shapes.
     ///
-    /// The Cursor's own blink phase cannot be driven from a console test: it
-    /// turns on a wall-clock delay held inside `orcvs`, and a seam to set it
-    /// would be a test-only input cut into shipped code. What is asserted
-    /// instead is the whole of what that phase could have moved — every Cell,
+    /// The Cursor's visibility is owned by `orcvs`; a console test does not
+    /// need a wall-clock seam to assert geometry. What is asserted is the
+    /// whole of what the presentation could move — every Cell,
     /// the Cursor's included, occupies exactly the rectangle its Position gives
     /// it, and the Cursor's own stroke is drawn on that same rectangle rather
     /// than beside it or around it.
@@ -2387,7 +2384,7 @@ mod tests {
 
     ///
     /// Every Cell is stroked with its own border, one Grid line wide, and the
-    /// Cursor's blink changes that colour rather than that width — which is
+    /// Cursor Effect changes that colour rather than that width — which is
     /// what `cell_line_width` returned a constant for.
     ///
     /// The colours come from the Paint rather than from `cell_visuals`: which

@@ -51,8 +51,8 @@ pub(crate) struct CellVisuals {
 /// `source_panel_frame` behind the Grid has already painted `PALETTE.source`
 /// across the console, so the two arms that would answer that colour answer
 /// `None` instead of asking every ordinary Cell to repaint it. The Cursor's
-/// own Cell on the visible half of the blink is one of those arms: painting
-/// the Source fill again would only hide the blink's empty half.
+/// own Cell is one of those arms: painting the Source fill again would hide
+/// the Cursor Effect's presentation.
 ///
 pub(crate) fn cell_visuals(
     token: Option<Token>,
