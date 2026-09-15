@@ -91,6 +91,11 @@ fn destination_presentation_for<'a>(
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum SelectionOrigin {
+    Auto,
+    User,
+}
 
 pub(crate) struct MidiDeviceSelection {
     selection: MidiSelectionHandle,
@@ -98,6 +103,13 @@ pub(crate) struct MidiDeviceSelection {
     destinations: Vec<MidiDestination>,
     status: Option<String>,
     engine_status: Option<String>,
+    ///
+    /// Whether automatic destination selection has already been tried without
+    /// an explicit user action. A refused connect leaves the selection empty,
+    /// so without this guard the Panel would ask again on every frame and
+    /// erase the refusal just received.
+    ///
+    auto_select_attempted: bool,
 }
 
 impl MidiDeviceSelection {
@@ -108,6 +120,7 @@ impl MidiDeviceSelection {
             destinations: Vec::new(),
             status: None,
             engine_status: None,
+            auto_select_attempted: false,
         }
     }
 
@@ -115,6 +128,7 @@ impl MidiDeviceSelection {
     /// Looks for destinations on the console thread and updates the menu list.
     ///
     pub(crate) fn refresh_destinations(&mut self) {
+        self.auto_select_attempted = false;
         match self.backend.destinations() {
             Ok(destinations) => {
                 self.destinations = destinations;
@@ -135,6 +149,17 @@ impl MidiDeviceSelection {
     /// Opens the port on the console thread and queues the connection for Playback.
     ///
     pub(crate) fn select_destination(&mut self, destination_id: &MidiDestinationId) {
+        self.select_destination_with_origin(destination_id, SelectionOrigin::User);
+    }
+
+    fn select_destination_with_origin(
+        &mut self,
+        destination_id: &MidiDestinationId,
+        origin: SelectionOrigin,
+    ) {
+        if origin == SelectionOrigin::User {
+            self.auto_select_attempted = false;
+        }
         let connection = match self.backend.connect(destination_id) {
             Ok(connection) => connection,
             Err(error) => {
@@ -169,7 +194,7 @@ impl MidiDeviceSelection {
     /// made.
     ///
     pub(crate) fn auto_select_first_if_unselected(&mut self) {
-        if self.selected_destination_id().is_some() {
+        if self.auto_select_attempted || self.selected_destination_id().is_some() {
             return;
         }
         let first_id = self
@@ -177,7 +202,8 @@ impl MidiDeviceSelection {
             .first()
             .map(|destination| destination.id.clone());
         if let Some(id) = first_id {
-            self.select_destination(&id);
+            self.auto_select_attempted = true;
+            self.select_destination_with_origin(&id, SelectionOrigin::Auto);
         }
     }
 
@@ -327,6 +353,39 @@ mod tests {
     /// Discovery that returns a non-empty list while nothing is selected
     /// selects the first destination.
     ///
+    ///
+    /// A refused automatic connect is reported once and not retried on every
+    /// frame; Refresh is the explicit action that may ask again.
+    ///
+    #[tokio::test]
+    async fn a_failed_automatic_selection_is_not_retried_until_refresh() {
+        let (mut orcvs, mut midi) = selection_for(RefusingConnectBackend);
+        midi.refresh_destinations();
+        settle_until!(!midi.destinations().is_empty());
+
+        midi.auto_select_first_if_unselected();
+        settle_until!({
+            midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
+            midi.status() == Some("device connection failed")
+        });
+
+        for _ in 0..5 {
+            midi.auto_select_first_if_unselected();
+            midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
+        }
+
+        assert_eq!(midi.selected_destination_id(), None);
+        assert_eq!(midi.status(), Some("device connection failed"));
+
+        midi.refresh_destinations();
+        settle_until!(!midi.destinations().is_empty());
+        midi.auto_select_first_if_unselected();
+        settle_until!({
+            midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
+            midi.status() == Some("device connection failed")
+        });
+    }
+
     #[tokio::test]
     async fn an_empty_selection_takes_the_first_discovered_destination() {
         let (_orcvs, mut midi) = selection_for(FakeBackend);
@@ -573,6 +632,21 @@ mod tests {
             midi.selected_destination_id(),
             Some(MidiDestinationId::new("one"))
         );
+    }
+
+    struct RefusingConnectBackend;
+
+    impl MidiBackend for RefusingConnectBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            Ok(vec![MidiDestination::new("one", "Studio Synth")])
+        }
+
+        fn connect(
+            &mut self,
+            _destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            Err(MidiError::new("device connection failed"))
+        }
     }
 
     struct FailingBackend;
