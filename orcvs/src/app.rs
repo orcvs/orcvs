@@ -219,6 +219,29 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
         diagnostics
     }
 
+    ///
+    /// The observation the Playback Engine last published, read without
+    /// awaiting and without reaching the engine.
+    ///
+    /// ADR 0041 has the console read this while drawing a frame rather than
+    /// asking the engine a question: the browser main thread has no blocking
+    /// receive, so a frame cannot wait for an answer at all.
+    ///
+    pub fn playback_observation(&self) -> crate::playback::PlaybackObservation {
+        self.playback.observation()
+    }
+
+    ///
+    /// A subscriber to the observation a Render Frame reads.
+    ///
+    /// The console cannot wait for the next Tick on the browser main thread,
+    /// so it paints [`Self::playback_observation`] and wakes when this
+    /// receiver moves rather than starting a second clock from the frame.
+    ///
+    pub fn playback_observation_watch(&self) -> crate::playback::PlaybackObservationWatch {
+        self.playback.observation_watch()
+    }
+
     pub fn bpm(&self) -> Bpm {
         self.opts.bpm
     }
@@ -409,8 +432,24 @@ mod test {
 
     use super::Orcvs;
     use crate::opts::Bpm;
+    use crate::playback::PlaybackState;
+    use crate::source::Tick;
     use crate::test::trace;
     use crate::{opts::DEFAULT_SECTOR_SEAM_SPACING, source::Token};
+
+    #[tokio::test]
+    async fn playback_observation_is_tick_zero_stopped_and_run_clock_zero_before_the_first_run() {
+        let orcvs =
+            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default())
+                .expect("the test runtime");
+
+        let observation = orcvs.playback_observation();
+
+        assert_eq!(observation.state, PlaybackState::Stopped);
+        assert_eq!(observation.tick, Tick::ZERO);
+        assert!(observation.on_beat);
+        assert_eq!(observation.run_clock(), Duration::ZERO);
+    }
 
     ///
     /// An output adapter that dies on its first delivery, which is how a
@@ -503,6 +542,15 @@ mod test {
                 .any(|diagnostic| matches!(diagnostic, PlaybackDiagnostic::StartFailure { .. })),
             "Space asked to stop a run that had already ended: {diagnostics:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_fresh_orcvs_opens_at_one_hundred_and_twenty_bpm() {
+        let orcvs =
+            Orcvs::with_output_adapter(2, 1, crate::playback::InMemoryOutputAdapter::default())
+                .expect("the test runtime");
+
+        assert_eq!(orcvs.bpm().beats_per_minute(), 120);
     }
 
     #[tokio::test]

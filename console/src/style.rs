@@ -138,6 +138,29 @@ pub fn style() -> Style {
     visuals.menu_corner_radius = CornerRadius::ZERO;
     visuals.window_shadow = Shadow::NONE;
     visuals.popup_shadow = Shadow::NONE;
+    // `Frame::window` and `Panel`'s separator both read these.
+    // Cell `grid_line` is alpha for Source compositing; chrome is the same hue.
+    let chrome = Stroke::new(1.0, PALETTE.grid_line.to_opaque());
+    visuals.window_stroke = chrome;
+    visuals.widgets.noninteractive.bg_fill = PALETTE.page;
+    visuals.widgets.noninteractive.weak_bg_fill = PALETTE.page;
+    visuals.widgets.noninteractive.bg_stroke = chrome;
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
+    visuals.widgets.inactive.bg_fill = PALETTE.source;
+    visuals.widgets.inactive.weak_bg_fill = PALETTE.source;
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
+    visuals.widgets.hovered.bg_fill = PALETTE.selection_fill;
+    visuals.widgets.hovered.weak_bg_fill = PALETTE.selection_fill;
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
+    visuals.widgets.active.bg_fill = PALETTE.selection_fill;
+    visuals.widgets.active.weak_bg_fill = PALETTE.selection_fill;
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
+    visuals.widgets.open.bg_fill = PALETTE.selection_fill;
+    visuals.widgets.open.weak_bg_fill = PALETTE.source;
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
     for widget in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -146,6 +169,7 @@ pub fn style() -> Style {
         &mut visuals.widgets.open,
     ] {
         widget.corner_radius = CornerRadius::ZERO;
+        widget.expansion = 0.0;
     }
 
     Style {
@@ -159,7 +183,7 @@ pub fn style() -> Style {
 mod tests {
     use super::{ConsolePalette, PALETTE, cell_visuals, sector_line};
     use crate::marks::CursorBloom;
-    use egui::Color32;
+    use egui::{Color32, Stroke};
     use orcvs::source::Token;
 
     ///
@@ -318,6 +342,31 @@ mod tests {
         assert_eq!(cursor.background, None);
         assert_eq!(cursor.border, PALETTE.selection_stroke);
         assert_ne!(cursor, selected);
+    }
+
+    #[test]
+    fn panel_separator_uses_the_grid_line() {
+        let style = super::style();
+        let chrome = Stroke::new(1.0, PALETTE.grid_line.to_opaque());
+        assert_eq!(style.visuals.window_stroke, chrome);
+        assert_eq!(
+            style.visuals.widgets.noninteractive.bg_stroke, chrome,
+            "Panel::show_separator_line reads noninteractive.bg_stroke"
+        );
+    }
+
+    #[test]
+    fn idle_widgets_have_no_rest_outline() {
+        let style = super::style();
+        assert_eq!(style.visuals.widgets.inactive.bg_stroke, Stroke::NONE);
+        assert_eq!(
+            style.visuals.widgets.active.bg_stroke.color,
+            PALETTE.selection_stroke
+        );
+        assert_eq!(
+            style.visuals.selection.stroke.color,
+            PALETTE.selection_stroke
+        );
     }
 
     #[test]

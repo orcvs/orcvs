@@ -3,6 +3,92 @@ use orcvs::playback::{MidiSelectionHandle, PlaybackDiagnostic};
 
 use crate::diagnostics::failure_message;
 
+///
+/// ComboBox copy when the last discovery returned no destinations.
+///
+pub(crate) const NO_OUTPUT_DESTINATION: &str = "No output destination";
+
+///
+/// The text the destination ComboBox shows for the current selection.
+///
+/// An empty discovery is the empty copy, not a device name and not "not
+/// found". A kept selection missing from a later non-empty list is still a
+/// selection: the ComboBox shows that id rather than the empty copy.
+///
+pub(crate) fn destination_selected_text<'a>(
+    destinations: &'a [MidiDestination],
+    selected_id: Option<&'a MidiDestinationId>,
+) -> &'a str {
+    if destinations.is_empty() {
+        return NO_OUTPUT_DESTINATION;
+    }
+    match selected_id {
+        Some(id) => destinations
+            .iter()
+            .find(|destination| &destination.id == id)
+            .map(|destination| destination.name.as_str())
+            .unwrap_or_else(|| id.as_str()),
+        None => NO_OUTPUT_DESTINATION,
+    }
+}
+
+///
+/// How the Panel presents destination selection for this build.
+///
+/// When the backend is missing, the ComboBox is still drawn — disabled, with
+/// the empty copy — and Refresh is not. The build flag is read here rather
+/// than passed in: a parameter only tests would flip is a seam
+/// `AGENTS.md` forbids.
+///
+pub(crate) struct DestinationPresentation<'a> {
+    pub enabled: bool,
+    pub show_refresh: bool,
+    pub selected_text: &'a str,
+}
+
+pub(crate) fn destination_presentation<'a>(
+    destinations: &'a [MidiDestination],
+    selected_id: Option<&'a MidiDestinationId>,
+) -> DestinationPresentation<'a> {
+    if !orcvs::native_midi::AVAILABLE {
+        return DestinationPresentation {
+            enabled: false,
+            show_refresh: false,
+            selected_text: NO_OUTPUT_DESTINATION,
+        };
+    }
+    DestinationPresentation {
+        enabled: true,
+        show_refresh: true,
+        selected_text: destination_selected_text(destinations, selected_id),
+    }
+}
+
+///
+/// The presentation a test builds for a backend availability production
+/// cannot construct on this target. Production goes through
+/// [`destination_presentation`], which reads `native_midi::AVAILABLE`.
+///
+#[cfg(test)]
+fn destination_presentation_for<'a>(
+    available: bool,
+    destinations: &'a [MidiDestination],
+    selected_id: Option<&'a MidiDestinationId>,
+) -> DestinationPresentation<'a> {
+    if !available {
+        return DestinationPresentation {
+            enabled: false,
+            show_refresh: false,
+            selected_text: NO_OUTPUT_DESTINATION,
+        };
+    }
+    DestinationPresentation {
+        enabled: true,
+        show_refresh: true,
+        selected_text: destination_selected_text(destinations, selected_id),
+    }
+}
+
 pub(crate) struct MidiDeviceSelection<B: MidiBackend> {
     selection: MidiSelectionHandle<B>,
     destinations: Vec<MidiDestination>,
@@ -37,7 +123,7 @@ impl<B: MidiBackend + 'static> MidiDeviceSelection<B> {
     /// adapter, which per ADR 0041 that engine's task owns, so the answer is
     /// published rather than returned: what this reports here is only whether
     /// there was still a running Orcvs to ask. The list arrives through
-    /// `destinations`, which every frame that draws the menu reads.
+    /// `destinations`, which every frame that draws the ComboBox reads.
     ///
     pub(crate) fn refresh_destinations(&mut self) {
         if let Err(error) = self.selection.refresh_destinations() {
@@ -48,9 +134,9 @@ impl<B: MidiBackend + 'static> MidiDeviceSelection<B> {
     ///
     /// The destinations the running Orcvs last published.
     ///
-    /// Read every frame the menu is drawn, so a refresh asked for on one frame
-    /// appears on the frame after the engine answered it, with nothing for the
-    /// user to click twice.
+    /// Read every frame the ComboBox is drawn, so a refresh asked for on one
+    /// frame appears on the frame after the engine answered it, with nothing
+    /// for the user to click twice.
     ///
     pub(crate) fn destinations(&mut self) -> &[MidiDestination] {
         match self.selection.destinations() {
@@ -59,10 +145,10 @@ impl<B: MidiBackend + 'static> MidiDeviceSelection<B> {
                 self.reported_discovery_failure = None;
             }
             Err(error) => {
-                // Read every frame the menu is open, and twice per frame at
-                // that, against a value that persists until the next discovery
-                // answers. Reporting on each read would restate one failure
-                // over whatever the engine reported since.
+                // Read every frame the ComboBox is drawn, and twice per frame
+                // at that, against a value that persists until the next
+                // discovery answers. Reporting on each read would restate one
+                // failure over whatever the engine reported since.
                 if self.reported_discovery_failure.as_deref() != Some(error.message.as_str()) {
                     self.status = Some(error.message.clone());
                     self.reported_discovery_failure = Some(error.message);
@@ -96,6 +182,27 @@ impl<B: MidiBackend + 'static> MidiDeviceSelection<B> {
         }
     }
 
+    ///
+    /// Selects the first published destination when nothing is selected yet.
+    ///
+    /// Discovery answers through a `watch`, so the frame that first reads a
+    /// non-empty list is the moment to choose. A later read that already has a
+    /// selection leaves it, even if that id is gone from the new list — Refresh
+    /// must not steal a choice the user has made.
+    ///
+    pub(crate) fn auto_select_first_if_unselected(&mut self) {
+        if self.selected_destination_id().is_some() {
+            return;
+        }
+        let first_id = self
+            .destinations()
+            .first()
+            .map(|destination| destination.id.clone());
+        if let Some(id) = first_id {
+            self.select_destination(&id);
+        }
+    }
+
     pub(crate) fn status(&self) -> Option<&str> {
         self.status.as_deref()
     }
@@ -119,7 +226,7 @@ mod tests {
     use orcvs::native_midi::NativeMidiBackend;
     use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic};
 
-    use super::MidiDeviceSelection;
+    use super::{MidiDeviceSelection, destination_presentation_for, destination_selected_text};
 
     ///
     /// Waits until the running Orcvs has answered, or gives up and says so.
@@ -216,6 +323,201 @@ mod tests {
         fn send(&mut self, _message: &[u8]) -> Result<(), MidiError> {
             Ok(())
         }
+    }
+
+    ///
+    /// A backend whose destination list a test can replace between refreshes,
+    /// so auto-select can be shown not to steal a choice the user already made.
+    ///
+    #[derive(Clone)]
+    struct ConfigurableBackend {
+        destinations: std::sync::Arc<std::sync::Mutex<Vec<MidiDestination>>>,
+    }
+
+    impl ConfigurableBackend {
+        fn new(destinations: Vec<MidiDestination>) -> Self {
+            Self {
+                destinations: std::sync::Arc::new(std::sync::Mutex::new(destinations)),
+            }
+        }
+
+        fn set(&self, destinations: Vec<MidiDestination>) {
+            *self
+                .destinations
+                .lock()
+                .expect("the test still holds the destination list") = destinations;
+        }
+    }
+
+    impl MidiBackend for ConfigurableBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            Ok(self
+                .destinations
+                .lock()
+                .expect("the test still holds the destination list")
+                .clone())
+        }
+
+        fn connect(
+            &mut self,
+            _destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            Ok(Box::new(FakeConnection))
+        }
+    }
+
+    ///
+    /// Discovery that returns a non-empty list while nothing is selected
+    /// selects the first destination.
+    ///
+    #[tokio::test]
+    async fn an_empty_selection_takes_the_first_discovered_destination() {
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
+        midi.refresh_destinations();
+        settle_until!(!midi.destinations().is_empty());
+
+        midi.auto_select_first_if_unselected();
+        settle_until!(midi.selected_destination_id().is_some());
+
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("one"))
+        );
+    }
+
+    ///
+    /// A later Refresh does not steal a selection the user already made, even
+    /// when the new list's first destination is a different one, and even when
+    /// the chosen id is missing from that list.
+    ///
+    #[tokio::test]
+    async fn a_later_refresh_does_not_steal_a_selection() {
+        let backend = ConfigurableBackend::new(vec![
+            MidiDestination::new("one", "First"),
+            MidiDestination::new("two", "Second"),
+        ]);
+        let control = backend.clone();
+        let (_orcvs, mut midi) = selection_for(backend);
+
+        midi.refresh_destinations();
+        settle_until!(midi.destinations().len() == 2);
+        midi.auto_select_first_if_unselected();
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("one")));
+
+        midi.select_destination(&MidiDestinationId::new("two"));
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("two")));
+
+        control.set(vec![
+            MidiDestination::new("three", "Third"),
+            MidiDestination::new("two", "Second"),
+        ]);
+        midi.refresh_destinations();
+        settle_until!(
+            midi.destinations()
+                .first()
+                .map(|destination| destination.id.clone())
+                == Some(MidiDestinationId::new("three"))
+        );
+        midi.auto_select_first_if_unselected();
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("two")),
+            "a different first destination stole the user's choice"
+        );
+
+        control.set(vec![
+            MidiDestination::new("three", "Third"),
+            MidiDestination::new("four", "Fourth"),
+        ]);
+        midi.refresh_destinations();
+        settle_until!(
+            midi.destinations()
+                == [
+                    MidiDestination::new("three", "Third"),
+                    MidiDestination::new("four", "Fourth")
+                ]
+        );
+        midi.auto_select_first_if_unselected();
+        assert_eq!(
+            midi.selected_destination_id(),
+            Some(MidiDestinationId::new("two")),
+            "a missing id was replaced by the new first destination"
+        );
+    }
+
+    ///
+    /// Empty discovery leaves the selection empty: there is no phantom first
+    /// destination to choose.
+    ///
+    #[tokio::test]
+    async fn empty_discovery_does_not_select_a_phantom_first() {
+        let (_orcvs, mut midi) = selection_for(ConfigurableBackend::new(Vec::new()));
+        midi.refresh_destinations();
+        midi.auto_select_first_if_unselected();
+
+        assert_eq!(midi.selected_destination_id(), None);
+        assert_eq!(midi.destinations(), &[]);
+        assert_eq!(
+            destination_selected_text(&[], midi.selected_destination_id().as_ref()),
+            "No output destination"
+        );
+    }
+
+    ///
+    /// When the last discovery returned no destinations, the ComboBox copy is
+    /// exactly "No output destination" — not "not found" and not "No MIDI
+    /// destinations found."
+    ///
+    #[test]
+    fn an_empty_discovery_presents_no_output_destination() {
+        assert_eq!(
+            destination_selected_text(&[], None),
+            "No output destination"
+        );
+        assert_eq!(
+            destination_selected_text(&[], Some(&MidiDestinationId::new("one"))),
+            "No output destination"
+        );
+    }
+
+    ///
+    /// A kept selection whose id is missing from a later non-empty list is
+    /// still a selection: the empty copy is only for an empty discovery, so
+    /// the ComboBox shows the id rather than pretending nothing is chosen.
+    ///
+    #[test]
+    fn a_kept_selection_missing_from_the_list_is_not_the_empty_copy() {
+        let destinations = [MidiDestination::new("three", "Third")];
+        assert_eq!(
+            destination_selected_text(&destinations, Some(&MidiDestinationId::new("two"))),
+            "two"
+        );
+    }
+
+    ///
+    /// A build with no native MIDI backend still draws the destination
+    /// Readout, disabled, with the empty copy, and does not offer Refresh.
+    ///
+    #[test]
+    fn an_unavailable_backend_disables_the_destination_and_hides_refresh() {
+        let destinations = [MidiDestination::new("one", "Studio Synth")];
+        let selected = MidiDestinationId::new("one");
+        let presentation = destination_presentation_for(false, &destinations, Some(&selected));
+        assert!(!presentation.enabled);
+        assert!(!presentation.show_refresh);
+        assert_eq!(presentation.selected_text, "No output destination");
+    }
+
+    ///
+    /// A build that has a backend keeps the ComboBox enabled and shows
+    /// Refresh, even when the last discovery was empty.
+    ///
+    #[test]
+    fn an_available_backend_keeps_refresh_and_the_destination_enabled() {
+        let presentation = destination_presentation_for(true, &[], None);
+        assert!(presentation.enabled);
+        assert!(presentation.show_refresh);
+        assert_eq!(presentation.selected_text, "No output destination");
     }
 
     ///

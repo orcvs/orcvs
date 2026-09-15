@@ -283,3 +283,19 @@ _Avoid_: Frame, Tick, refresh
 **Paint**:
 The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
 _Avoid_: Shapes, draw list, painter
+
+**Panel**:
+The console's performer-facing telemetry surface for one running Orcvs. It is static: it does not move.
+_Avoid_: HUD, toolbar, dock, egui Panel
+
+**Readout**:
+One labelled value on the Panel.
+_Avoid_: widget, field, metric, status item
+
+**BPM**:
+The performer's display of the Tick Grid's period, in beats per minute.
+_Avoid_: speed, clock rate
+
+**Run Clock**:
+The wall-clock duration of the current Playback run, measured from Tick 0 of that run and held while Playback is stopped.
+_Avoid_: frame time, elapsed, timer
