@@ -1,4 +1,5 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use egui::{
     Color32, CornerRadius, Event, EventFilter, FontId, Key, PointerButton, Pos2, Rect, Sense,
@@ -11,7 +12,7 @@ use crate::cursor_effects::{
     cursor_effect_shapes, effect_bounds,
 };
 use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
-use crate::midi::MidiDeviceSelection;
+use crate::midi::{MidiDeviceSelection, NO_OUTPUT_DESTINATION, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
@@ -20,7 +21,7 @@ use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
     opts::{Bpm, DEFAULT_FONT_SIZE},
-    playback::PlaybackStartError,
+    playback::{PlaybackStartError, PlaybackState},
     render_frame::RenderFrame,
 };
 
@@ -118,9 +119,35 @@ fn prefers_reduced_motion() -> bool {
     false
 }
 
+/// The height the bottom Panel takes from the window, leaving the rest to the
+/// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
+const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
+/// Extra left inset on top of `Frame::side_top_panel`'s inner margin.
+const BOTTOM_PANEL_LEFT_PAD: i8 = 10;
+
+/// Widget id of the Panel's typed BPM field, so a later pass can find the
+/// rectangle it occupied and so focus is the same id the field is shown under.
+const BPM_FIELD_ID: &str = "bpm";
+
+/// Widget id of the Panel's destination ComboBox, so focus is the same id the
+/// ComboBox is shown under and `event_handler` can skip keys while it has it.
+const DESTINATION_COMBO_ID: &str = "destination";
+/// Tick copy is this many digits, zero-padded, so the field does not change width.
+const TICK_DIGITS: usize = 5;
+/// Flash next to BPM when the engine publishes a beat.
+const BEAT_MARKER: &str = "**";
+/// Marker next to BPM while Playback is stopped.
+const REST_MARKER: &str = "//";
+/// How many points to pull each label toward its value, relative to one monospace cell.
+const LABEL_VALUE_TIGHTEN: f32 = 2.0;
+/// Monospace cells between Readout groups, so C is not as close to T's value as to its own.
+const GROUP_GAP_CELLS: f32 = 3.0;
+/// Slot the destination ComboBox occupies so a shorter device name does not shove Refresh.
+const DESTINATION_COMBO_WIDTH: f32 = 196.0;
+
 ///
 /// The window size that presents the default Grid at the Source's own Cell
-/// size: the Source's own points, and the chrome above the console.
+/// size: the Source's own points, and the chrome above and below the console.
 ///
 /// A console opened at this size fits the Grid at a scale of exactly one, so
 /// the Grid fills it with no letterboxing and Glyphs are drawn at the size they
@@ -130,8 +157,185 @@ fn prefers_reduced_motion() -> bool {
 ///
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
     DEFAULT_COL_COUNT as f32 * CELL_SIZE,
-    DEFAULT_ROW_COUNT as f32 * CELL_SIZE + TOP_PANEL_HEIGHT,
+    DEFAULT_ROW_COUNT as f32 * CELL_SIZE + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT,
 ];
+
+///
+/// Run Clock copy for a wall-clock Duration: `mm:ss` through 59:59 inclusive,
+/// then `h:mm:ss`. Hours are unpadded; minutes and seconds always occupy two
+/// digits. Tick copy is zero-padded to [`TICK_DIGITS`].
+///
+fn format_run_clock(elapsed: Duration) -> String {
+    let total_secs = elapsed.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    if hours == 0 {
+        format!("{minutes:02}:{seconds:02}")
+    } else {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    }
+}
+
+fn format_tick(tick: u64) -> String {
+    format!("{tick:0width$}", width = TICK_DIGITS)
+}
+
+fn format_beat_marker(state: PlaybackState, on_beat: bool) -> &'static str {
+    match (state, on_beat) {
+        (PlaybackState::Playing, true) => BEAT_MARKER,
+        (PlaybackState::Playing, false) => "",
+        (PlaybackState::Stopped, _) => REST_MARKER,
+    }
+}
+
+fn panel_readout_gaps(ui: &egui::Ui) -> (f32, f32) {
+    let cell = monospace_width(ui, "0");
+    (
+        (cell - LABEL_VALUE_TIGHTEN).max(0.0),
+        cell * GROUP_GAP_CELLS,
+    )
+}
+
+fn panel_monospace_id(ui: &egui::Ui) -> FontId {
+    ui.style()
+        .text_styles
+        .get(&egui::TextStyle::Monospace)
+        .cloned()
+        .unwrap_or_else(|| FontId::monospace(12.0))
+}
+
+fn monospace_width(ui: &egui::Ui, text: &str) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text.to_owned(), panel_monospace_id(ui), Color32::WHITE)
+        .size()
+        .x
+}
+
+///
+/// A monospace Readout that keeps a fixed slot, so a wider value does not
+/// shove the widgets after it.
+///
+fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> egui::Response {
+    let font_id = panel_monospace_id(ui);
+    let height = ui
+        .spacing()
+        .interact_size
+        .y
+        .max(ui.text_style_height(&egui::TextStyle::Monospace));
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font_id, ui.visuals().text_color());
+    let pos = egui::Align2::LEFT_CENTER
+        .anchor_size(rect.left_center(), galley.size())
+        .min;
+    ui.painter().galley(pos, galley, ui.visuals().text_color());
+    response
+}
+
+fn panel_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.add(
+        egui::Label::new(egui::RichText::new(text).text_style(egui::TextStyle::Monospace))
+            .selectable(false),
+    )
+}
+
+/// Inner padding of the typed BPM field. Wider than TextEdit's default
+/// `Margin::symmetric(4, 2)` so three digits sit inside a roomier box.
+const BPM_FIELD_MARGIN: egui::Margin = egui::Margin::symmetric(8, 4);
+/// The Panel BPM range is 1..=999.
+const PANEL_BPM_MIN: usize = 1;
+const PANEL_BPM_MAX: usize = 999;
+
+fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> egui::Response {
+    let size = egui::vec2(
+        monospace_width(ui, "000") + BPM_FIELD_MARGIN.sum().x,
+        ui.text_style_height(&egui::TextStyle::Monospace) + BPM_FIELD_MARGIN.sum().y,
+    );
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .id(egui::Id::new(BPM_FIELD_ID))
+            .max_rect(rect),
+    );
+    child.spacing_mut().button_padding =
+        egui::vec2(BPM_FIELD_MARGIN.leftf(), BPM_FIELD_MARGIN.topf());
+    child.spacing_mut().interact_size = size;
+    child.style_mut().drag_value_text_style = egui::TextStyle::Monospace;
+    child.add(
+        egui::DragValue::new(bpm)
+            .range(PANEL_BPM_MIN..=PANEL_BPM_MAX)
+            .speed(1.0)
+            .max_decimals(0)
+            .update_while_editing(false)
+            .custom_parser(|text| {
+                if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
+                    None
+                } else {
+                    text.parse::<f64>().ok().filter(|value| {
+                        *value >= PANEL_BPM_MIN as f64 && *value <= PANEL_BPM_MAX as f64
+                    })
+                }
+            }),
+    )
+}
+
+fn keep_digits_in_text_events(events: &mut Vec<egui::Event>) {
+    for event in events.iter_mut() {
+        match event {
+            egui::Event::Text(text) | egui::Event::Paste(text) => {
+                text.retain(|c| c.is_ascii_digit());
+            }
+            _ => {}
+        }
+    }
+    events.retain(|event| match event {
+        egui::Event::Text(text) | egui::Event::Paste(text) => !text.is_empty(),
+        _ => true,
+    });
+}
+
+#[cfg(test)]
+mod run_clock_tests {
+    use super::{format_beat_marker, format_run_clock, format_tick};
+    use std::time::Duration;
+
+    #[test]
+    fn run_clock_copy_is_mm_ss_until_an_hour_then_h_mm_ss() {
+        let cases = [
+            (0, "00:00"),
+            (59, "00:59"),
+            (60, "01:00"),
+            (3599, "59:59"),
+            (3600, "1:00:00"),
+            (36000, "10:00:00"),
+        ];
+        for (seconds, copy) in cases {
+            assert_eq!(
+                format_run_clock(Duration::from_secs(seconds)),
+                copy,
+                "{seconds} seconds"
+            );
+        }
+    }
+
+    #[test]
+    fn tick_copy_is_five_zero_padded_digits() {
+        assert_eq!(format_tick(0), "00000");
+        assert_eq!(format_tick(1), "00001");
+        assert_eq!(format_tick(99999), "99999");
+    }
+
+    #[test]
+    fn beat_marker_is_stars_when_the_engine_publishes_a_beat() {
+        use orcvs::playback::PlaybackState;
+        assert_eq!(format_beat_marker(PlaybackState::Playing, true), "**");
+        assert_eq!(format_beat_marker(PlaybackState::Playing, false), "");
+        assert_eq!(format_beat_marker(PlaybackState::Stopped, true), "//");
+        assert_eq!(format_beat_marker(PlaybackState::Stopped, false), "//");
+    }
+}
 
 fn translate_event(event: Event) -> Option<InputEvent> {
     match event {
@@ -224,40 +428,6 @@ fn glyph_scale(scaling: f32) -> f32 {
     ((scaling / GLYPH_SCALE_STEP).floor() * GLYPH_SCALE_STEP).max(GLYPH_SCALE_STEP)
 }
 
-#[derive(Default)]
-struct TempoEdit {
-    pending: Option<Bpm>,
-}
-
-impl TempoEdit {
-    fn changed(&mut self, bpm: Bpm) {
-        self.pending = Some(bpm);
-    }
-
-    fn take_commit(&mut self, pointer_down: bool) -> Option<Bpm> {
-        if pointer_down {
-            None
-        } else {
-            self.pending.take()
-        }
-    }
-}
-
-#[cfg(test)]
-mod tempo_edit_tests {
-    use super::TempoEdit;
-    use orcvs::opts::Bpm;
-
-    #[test]
-    fn a_dragged_tempo_commits_after_release_even_if_the_menu_closed() {
-        let mut edit = TempoEdit::default();
-        edit.changed(Bpm::new(120).unwrap());
-
-        assert_eq!(edit.take_commit(true), None);
-        assert_eq!(edit.take_commit(false), Bpm::new(120));
-    }
-}
-
 /// Console wraps the running Orcvs with egui presentation concerns.
 ///
 pub struct Console {
@@ -265,12 +435,23 @@ pub struct Console {
     /// Device discovery and selection for whatever MIDI backend `orcvs` has on
     /// this target. The console never asks what target it is on: a target with
     /// no native backend answers an empty destination list here, and
-    /// `native_midi::AVAILABLE` says whether the menu presenting it exists.
+    /// `native_midi::AVAILABLE` says whether the ComboBox is enabled and
+    /// whether Refresh is shown.
     midi: MidiDeviceSelection,
     font_family: egui::FontFamily,
     source_view: SourceView,
     diagnostics_open: bool,
-    tempo_edit: TempoEdit,
+    /// The DragValue's widget id, so a later pass can find the rectangle it
+    /// occupied and so focus is the same id the field is shown under.
+    #[cfg(test)]
+    bpm_widget_id: egui::Id,
+    /// Focus is from the previous frame: `event_handler` runs before widgets,
+    /// so this frame's keys would reach Source and Playback while the field
+    /// is already focused unless they are held back here.
+    bpm_field_focused: bool,
+    /// Same last-frame latch as `bpm_field_focused`, for the destination
+    /// ComboBox: digits typed while it is open would otherwise write Source.
+    destination_combo_focused: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
     reduced_motion: bool,
@@ -324,6 +505,7 @@ impl Console {
         // default Grid otherwise. Every derived view is rebuilt from it.
         let start = starting_source(cc.storage);
         let orcvs = Orcvs::with_source(start.source)?;
+        wake_panel_when_playback_publishes(cc.egui_ctx.clone(), orcvs.playback_observation_watch());
         let mut midi = MidiDeviceSelection::new(
             orcvs.midi_selection_handle(),
             Box::new(NativeMidiBackend::new()),
@@ -335,7 +517,10 @@ impl Console {
             font_family: FontId::monospace(DEFAULT_FONT_SIZE).family,
             source_view: SourceView::default(),
             diagnostics_open: false,
-            tempo_edit: TempoEdit::default(),
+            #[cfg(test)]
+            bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
+            bpm_field_focused: false,
+            destination_combo_focused: false,
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
             reduced_motion: prefers_reduced_motion(),
@@ -347,6 +532,33 @@ impl Console {
 
 fn frames_per_second(frame_time: f32) -> Option<f32> {
     frame_time.is_normal().then(|| frame_time.recip())
+}
+
+///
+/// Paints the Panel from a published Tick. A wait started from this Render
+/// Frame is a second clock; this asks for a paint when the engine publishes.
+///
+fn wake_panel_when_playback_publishes(
+    ctx: egui::Context,
+    mut observation: orcvs::playback::PlaybackObservationWatch,
+) {
+    let _ = observation.borrow_and_update();
+    let wake = async move {
+        loop {
+            if observation.changed().await.is_err() {
+                break;
+            }
+            ctx.request_repaint();
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        tokio::spawn(wake);
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        wasm_bindgen_futures::spawn_local(wake);
+    }
 }
 
 fn show_diagnostics(
@@ -585,7 +797,7 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// after the fills, because a run widened across several Cells covers the
 /// borders of every Cell but its last. That is a fact about how a painter
 /// composites rather than about the Source, which is why it is decided here and
-/// not in the value layer — and naming the ordered groups states it where a
+/// not in the value layer — and naming the five groups states it where a
 /// comment used to.
 ///
 /// # Why they are built eagerly
@@ -656,9 +868,10 @@ impl SourceShapes {
         // up front — to those Cells rather than to the Grid: a densely written
         // Source that regrew the group would pay the reallocation on every
         // Render Frame, and a zoomed console reserves what it draws instead of
-        // what the Source holds. Backgrounds are sparse selection state, so
-        // that group starts empty. Glyphs are reserved in
-        // [`Self::place_glyphs`].
+        // what the Source holds. A background is the exception — the Cursor's
+        // bloom reaches fifteen Cells and the rest of the Grid asks for none —
+        // so that one starts empty and grows to whatever the blink is asking
+        // for. Glyphs are reserved in [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
         let mut borders = Vec::with_capacity(paint.count());
         let mut seams = Vec::new();
@@ -792,9 +1005,11 @@ impl SourceShapes {
 /// `GridViewport::visible_positions` is this loop's one source of them — so
 /// that cost follows the viewport rather than the Source.
 ///
-/// A background is painted only where selection state differs from the Source
-/// fill the panel already provides. Consecutive Cells in a row that want the
-/// same background share one rectangle.
+/// A background is painted only where it differs from the Source fill the panel
+/// is already filled with, and consecutive Cells in a row that want the same
+/// background share one rectangle. The Cursor's bloom reaches fifteen Cells
+/// across, so on the default Grid most Cells ask for no background at all and
+/// the ones that do arrive in runs.
 ///
 /// The click is answered rather than acted on. Selecting a Cell is the Source's
 /// business and `Console::ui` owns the running Orcvs it is asked of; handing the
@@ -1083,7 +1298,8 @@ fn show_source_scene(
 /// `None` for a Cell's background wherever the panel has already painted
 /// `PALETTE.source`, on the grounds that this frame has already painted exactly
 /// that colour across the whole console and clips every Shape to it. An ordinary
-/// Cell therefore has no rectangle of its own.
+/// Cell therefore has no rectangle of its own, and on the default Grid — where
+/// the Cursor's bloom reaches fifteen Cells — most Cells are ordinary.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -1092,6 +1308,12 @@ fn show_source_scene(
 ///
 fn source_panel_frame() -> egui::Frame {
     egui::Frame::new().fill(PALETTE.source)
+}
+
+fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
+    let mut frame = egui::Frame::side_top_panel(style);
+    frame.inner_margin.left += BOTTOM_PANEL_LEFT_PAD;
+    frame
 }
 
 impl eframe::App for Console {
@@ -1113,18 +1335,15 @@ impl eframe::App for Console {
         if native_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
-            // Without a native backend there is no MIDI menu, so the status
-            // line those diagnostics would reach is never presented and the
-            // developer console is the only channel a failure has.
+            // Without a native backend the destination ComboBox is disabled
+            // and Refresh is hidden, so a refused connect has nowhere on the
+            // Panel to land; the developer console is the only channel a
+            // failure has.
             crate::diagnostics::report_playback_failures(&playback_diagnostics);
         }
         let top_panel = egui::Panel::top("top_panel")
             .resizable(true)
             .min_size(TOP_PANEL_HEIGHT);
-
-        // let _bottom_panel = egui::TopBottomPanel::bottom("bottom_panel")
-        //     .resizable(false)
-        //     .min_height(0.0);
 
         top_panel.show(root, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -1137,30 +1356,6 @@ impl eframe::App for Console {
                         }
                     });
                     ui.add_space(16.0);
-                }
-                // The menu presents a choice of destination, so it exists only
-                // where a backend can have one. Which targets those are is
-                // `console::native_midi`'s answer, not a condition restated here.
-                if native_midi::AVAILABLE {
-                    ui.menu_button("MIDI", |ui| {
-                        if ui.button("Refresh destinations").clicked() {
-                            self.midi.refresh_destinations();
-                        }
-                        let selected = self.midi.selected_destination_id();
-                        for destination in self.midi.destinations().to_vec() {
-                            let is_selected = selected.as_ref() == Some(&destination.id);
-                            if ui.selectable_label(is_selected, destination.name).clicked() {
-                                self.midi.select_destination(&destination.id);
-                            }
-                        }
-                        if self.midi.destinations().is_empty() {
-                            ui.label("No MIDI destinations found");
-                        }
-                        if let Some(status) = self.midi.status() {
-                            ui.separator();
-                            ui.colored_label(ui.visuals().error_fg_color, status);
-                        }
-                    });
                 }
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
@@ -1237,31 +1432,8 @@ impl eframe::App for Console {
                         self.persistence.dismiss_notice();
                     }
                 }
-                ui.menu_button("Tempo", |ui| {
-                    let mut beats_per_minute = self.orcvs.bpm().beats_per_minute();
-                    let tempo_response = ui.add(
-                        egui::DragValue::new(&mut beats_per_minute)
-                            .range(1..=999)
-                            .suffix(" BPM"),
-                    );
-                    if tempo_response.changed() {
-                        self.tempo_edit.changed(
-                            Bpm::new(beats_per_minute)
-                                .expect("the tempo control has a positive range"),
-                        );
-                    }
-                });
-                // ui.label(format!("HELLO"));
-                // egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
-
-        if let Some(bpm) = self
-            .tempo_edit
-            .take_commit(ctx.input(|input| input.pointer.primary_down()))
-        {
-            self.orcvs.set_bpm(bpm);
-        }
 
         let event_filter = EventFilter {
             tab: true,
@@ -1270,14 +1442,25 @@ impl eframe::App for Console {
             escape: true,
         };
 
-        let events = ctx.input(|i| {
-            i.filtered_events(&event_filter)
-                .into_iter()
-                .filter_map(translate_event)
-                .collect()
-        });
-        self.orcvs.event_handler(events);
+        // Keys belong to the field or ComboBox while it has focus. The flag
+        // is last frame's, because this frame's events are collected before
+        // the widgets are shown and would otherwise write Source or toggle
+        // Playback in the same pass they are already editing.
+        if self.bpm_field_focused {
+            ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
+        }
+        if !self.bpm_field_focused && !self.destination_combo_focused {
+            let events = ctx.input(|i| {
+                i.filtered_events(&event_filter)
+                    .into_iter()
+                    .filter_map(translate_event)
+                    .collect()
+            });
+            self.orcvs.event_handler(events);
+        }
+        self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
+        let observation = self.orcvs.playback_observation();
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
         let cursor_effect_settings = self
             .cursor_effects
@@ -1285,6 +1468,110 @@ impl eframe::App for Console {
         let cursor_effect_sample = self
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
+
+        // Shown before CentralPanel so it takes height rather than overlaying
+        // the Grid. Static: no resize handle, no drag. BPM is a DragValue:
+        // click to type, drag to change. `**` is the published beat, `//`
+        // while Playback is stopped. Tick and Run Clock are the engine's
+        // published Readouts. Destination is chosen from the ComboBox;
+        // Refresh asks the engine to discover again. There is no periodic
+        // polling.
+        egui::Panel::bottom("bottom_panel")
+            .resizable(false)
+            .min_size(BOTTOM_PANEL_HEIGHT)
+            .frame(bottom_panel_frame(root.style().as_ref()))
+            .show(root, |ui| {
+                ui.allocate_ui_with_layout(
+                    ui.available_size(),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        panel_label(ui, "B");
+                        ui.add_space(label_value_gap);
+                        let mut bpm = self.orcvs.bpm().beats_per_minute();
+                        let response = add_bpm_field(ui, &mut bpm);
+                        if response.changed()
+                            && (PANEL_BPM_MIN..=PANEL_BPM_MAX).contains(&bpm)
+                            && let Some(next) = Bpm::new(bpm)
+                            && next != self.orcvs.bpm()
+                        {
+                            self.orcvs.set_bpm(next);
+                        }
+                        #[cfg(test)]
+                        {
+                            self.bpm_widget_id = response.id;
+                        }
+                        self.bpm_field_focused = response.has_focus();
+                        ui.add_space(label_value_gap);
+                        let beat_text = format_beat_marker(observation.state, observation.on_beat);
+                        let beat_width = monospace_width(ui, BEAT_MARKER);
+                        reserved_monospace(ui, beat_text, beat_width);
+                        ui.add_space(entry_gap);
+                        panel_label(ui, "T");
+                        ui.add_space(label_value_gap);
+                        let tick_text = format_tick(observation.tick.get());
+                        let tick_width = monospace_width(ui, "00000");
+                        reserved_monospace(ui, &tick_text, tick_width);
+                        ui.add_space(entry_gap);
+                        panel_label(ui, "C");
+                        ui.add_space(label_value_gap);
+                        let clock_text = format_run_clock(observation.run_clock());
+                        let clock_width =
+                            monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
+                        reserved_monospace(ui, &clock_text, clock_width);
+                        ui.add_space(entry_gap);
+
+                        self.midi.auto_select_first_if_unselected();
+                        let destinations = self.midi.destinations().to_vec();
+                        let selected_id = self.midi.selected_destination_id();
+                        let presentation =
+                            destination_presentation(&destinations, selected_id.as_ref());
+                        ui.add_enabled_ui(presentation.enabled, |ui| {
+                            let mut selected = selected_id.clone();
+                            ui.push_id(DESTINATION_COMBO_ID, |ui| {
+                                let button = ui.add_sized(
+                                    [DESTINATION_COMBO_WIDTH, ui.spacing().interact_size.y],
+                                    egui::Button::new(presentation.selected_text).truncate(),
+                                );
+                                // ComboBox's menu opens downward; from this Panel that
+                                // would clip. Popup::menu uses the same default.
+                                let popup = egui::Popup::from_toggle_button_response(&button)
+                                    .kind(egui::PopupKind::Menu)
+                                    .align(egui::emath::RectAlign::TOP_START)
+                                    .align_alternatives(&[])
+                                    .width(button.rect.width())
+                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClick);
+                                let combo_open = popup.is_open();
+                                popup.show(|ui| {
+                                    if destinations.is_empty() {
+                                        ui.label(NO_OUTPUT_DESTINATION);
+                                    }
+                                    for destination in &destinations {
+                                        ui.selectable_value(
+                                            &mut selected,
+                                            Some(destination.id.clone()),
+                                            destination.name.as_str(),
+                                        );
+                                    }
+                                });
+                                self.destination_combo_focused = button.has_focus() || combo_open;
+                            });
+                            if selected != selected_id
+                                && let Some(id) = selected.as_ref()
+                            {
+                                self.midi.select_destination(id);
+                            }
+                        });
+                        if let Some(status) = self.midi.status() {
+                            ui.colored_label(ui.visuals().error_fg_color, status);
+                        }
+                        if presentation.show_refresh && ui.button("Refresh").clicked() {
+                            self.midi.refresh_destinations();
+                        }
+                    },
+                );
+            });
 
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
@@ -1298,7 +1585,10 @@ impl eframe::App for Console {
                     font_family,
                     source_view,
                     diagnostics_open: _,
-                    tempo_edit: _,
+                    #[cfg(test)]
+                        bpm_widget_id: _,
+                    bpm_field_focused: _,
+                    destination_combo_focused: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
                     reduced_motion: _,
@@ -1331,6 +1621,8 @@ impl eframe::App for Console {
                 {
                     ctx.request_repaint_after(delay);
                 }
+
+                ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
             });
 
         if self.diagnostics_open {
@@ -1352,7 +1644,8 @@ mod kittest_tests;
 #[cfg(test)]
 mod tests {
     use egui::{
-        Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::GuiRounding as _, emath::TSTransform,
+        Color32, Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::GuiRounding as _,
+        emath::TSTransform,
     };
     use orcvs::app::{InputEvent, InputKey, Orcvs};
     use orcvs::render_frame::RenderFrame;
@@ -1363,9 +1656,10 @@ mod tests {
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
-        ALPHABET_FIRST, ALPHABET_LAST, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE,
-        GLYPH_SCALE_STEP, GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH,
-        SourceShapes, SourceView, TOP_PANEL_HEIGHT, frames_per_second, glyph_scale, is_presentable,
+        ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
+        BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
+        GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SourceShapes,
+        SourceView, TOP_PANEL_HEIGHT, frames_per_second, glyph_scale, is_presentable,
         show_source_scene, source_bounds, source_panel_frame, translate_event,
     };
 
@@ -1797,6 +2091,130 @@ mod tests {
     }
 
     ///
+    /// One pass, answering how soon the console asked to be painted again.
+    ///
+    /// The Panel paints a published Tick. A delay started from this frame is
+    /// a second clock; an immediate delay after a publish is the wake.
+    ///
+    fn app_pass_repaint_delay(
+        ctx: &egui::Context,
+        screen: Rect,
+        events: Vec<Event>,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+    ) -> std::time::Duration {
+        use eframe::App as _;
+
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |root| console.ui(root, host));
+        let delay = output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|viewport| viewport.repaint_delay)
+            .unwrap_or(std::time::Duration::MAX);
+        output.drop_without_applying_deltas();
+        delay
+    }
+
+    fn collect_shape_text(shape: &Shape, out: &mut String) {
+        match shape {
+            Shape::Text(text) => {
+                out.push_str(text.galley.text());
+                out.push(' ');
+            }
+            Shape::Vec(shapes) => {
+                for nested in shapes {
+                    collect_shape_text(nested, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_shape_strokes(shape: &Shape, out: &mut Vec<(Color32, Rect)>) {
+        match shape {
+            Shape::Rect(rect) if rect.stroke.width > 0.0 => {
+                out.push((rect.stroke.color, rect.rect));
+            }
+            Shape::LineSegment { stroke, points } => {
+                out.push((stroke.color, Rect::from_two_pos(points[0], points[1])));
+            }
+            Shape::Vec(shapes) => {
+                for nested in shapes {
+                    collect_shape_strokes(nested, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn painted_strokes(ctx: &egui::Context) -> Vec<(Color32, Rect)> {
+        let mut strokes = Vec::new();
+        let layers = [
+            egui::LayerId::background(),
+            egui::LayerId::new(egui::Order::Background, egui::Id::NULL),
+            egui::LayerId::new(egui::Order::Middle, egui::Id::NULL),
+            egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
+            egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+            egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
+            egui::LayerId::new(egui::Order::Middle, egui::Id::new("top_panel")),
+        ];
+        ctx.graphics(|graphics| {
+            for layer in layers {
+                if let Some(list) = graphics.get(layer) {
+                    for clipped in list.all_entries() {
+                        collect_shape_strokes(&clipped.shape, &mut strokes);
+                    }
+                }
+            }
+        });
+        strokes
+    }
+
+    fn collect_shape_text_spans(shape: &Shape, out: &mut Vec<(String, f32, f32)>) {
+        match shape {
+            Shape::Text(text) => {
+                let left = text.pos.x;
+                out.push((
+                    text.galley.text().to_owned(),
+                    left,
+                    left + text.galley.size().x,
+                ));
+            }
+            Shape::Vec(shapes) => {
+                for nested in shapes {
+                    collect_shape_text_spans(nested, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn painted_text(ctx: &egui::Context) -> String {
+        let mut text = String::new();
+        let layers = [
+            egui::LayerId::background(),
+            egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
+            egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
+            egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+        ];
+        ctx.graphics(|graphics| {
+            for layer in layers {
+                if let Some(list) = graphics.get(layer) {
+                    for clipped in list.all_entries() {
+                        collect_shape_text(&clipped.shape, &mut text);
+                    }
+                }
+            }
+        });
+        text
+    }
+
+    ///
     /// Where a running Console presented its Source Grid, asked of the
     /// transform the pass left behind.
     ///
@@ -1865,6 +2283,676 @@ mod tests {
         );
     }
 
+    ///
+    /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
+    /// C `00:00`, then the destination ComboBox and Refresh in that
+    /// order. File and View remain on the top bar; the MIDI menu is gone.
+    ///
+    #[tokio::test]
+    async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        let painted = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = painted.clone();
+        ctx.on_end_pass(
+            "capture-panel-text",
+            std::sync::Arc::new(move |ctx| {
+                *sink.lock().unwrap() = painted_text(ctx);
+            }),
+        );
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+        let text = painted.lock().unwrap().clone();
+        let bpm_at = text
+            .find('B')
+            .expect("the Panel is missing the B label in {text:?}");
+        let tick_at = text
+            .find('T')
+            .expect("the Panel is missing the T label in {text:?}");
+        let clock_at = text
+            .find('C')
+            .expect("the Panel is missing the C label in {text:?}");
+        let beat_at = text
+            .find("//")
+            .expect("the Panel is missing the rest marker in {text:?}");
+        assert!(
+            !text.contains("**"),
+            "the rest Panel still shows the beat marker in {text:?}"
+        );
+        assert!(
+            bpm_at < beat_at && beat_at < tick_at && tick_at < clock_at,
+            "Readout order is not B then // then T then C in {text:?}"
+        );
+        assert!(
+            text.contains("120"),
+            "the Panel is missing BPM 120 in {text:?}"
+        );
+        assert!(
+            text.contains("00000"),
+            "the Panel is missing Tick 00000 in {text:?}"
+        );
+        assert!(
+            text.contains("00:00"),
+            "the Panel is missing Run Clock 00:00 in {text:?}"
+        );
+        for menu in ["File", "View"] {
+            assert!(
+                text.contains(menu),
+                "the top bar is missing {menu} in {text:?}"
+            );
+        }
+        assert!(
+            !text.contains("MIDI"),
+            "the MIDI menu is still on the top bar in {text:?}"
+        );
+        assert!(
+            !text.contains("No MIDI destinations found"),
+            "the MIDI menu empty copy is still on the console in {text:?}"
+        );
+        assert!(
+            !text.contains("Tempo"),
+            "the Tempo menu is still on the top bar in {text:?}"
+        );
+
+        if native_midi::AVAILABLE {
+            let refresh_at = text
+                .find("Refresh")
+                .unwrap_or_else(|| panic!("the Panel is missing Refresh in {text:?}"));
+            assert!(
+                clock_at < refresh_at,
+                "Refresh is not after Run Clock in {text:?}"
+            );
+            if let Some(empty_at) = text.find("No output destination") {
+                assert!(
+                    clock_at < empty_at && empty_at < refresh_at,
+                    "destination copy is not between Run Clock and Refresh in {text:?}"
+                );
+            }
+        } else {
+            assert!(
+                !text.contains("Refresh"),
+                "Refresh is shown without a native MIDI backend in {text:?}"
+            );
+            let empty_at = text.find("No output destination").unwrap_or_else(|| {
+                panic!("the Panel is missing the empty destination copy in {text:?}")
+            });
+            assert!(
+                clock_at < empty_at,
+                "destination copy is not after Run Clock in {text:?}"
+            );
+        }
+
+        let panel = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("bottom_panel"))
+            .expect("the bottom Panel was not shown");
+        assert!(
+            (panel.outer_rect.bottom() - screen.bottom()).abs() < 0.5,
+            "the Panel is not at the bottom: {:?}",
+            panel.outer_rect
+        );
+        assert!(
+            (panel.outer_rect.height() - BOTTOM_PANEL_HEIGHT).abs() < 0.5,
+            "the Panel is not {BOTTOM_PANEL_HEIGHT} tall: {:?}",
+            panel.outer_rect
+        );
+    }
+
+    ///
+    /// A published Tick is what the Panel paints. Waiting a Tick period from
+    /// this Render Frame is a second clock, so `**` and T land late or twice.
+    ///
+    #[tokio::test]
+    async fn a_playing_console_repaints_as_soon_as_the_published_tick_advances() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
+        console.orcvs.set_bpm(bpm);
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let tick = console.orcvs.playback_observation().tick;
+        for _ in 0..2_000 {
+            if console.orcvs.playback_observation().tick != tick {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        let advanced = console.orcvs.playback_observation().tick;
+        assert_ne!(
+            advanced, tick,
+            "Playback never published another Tick from {tick:?}"
+        );
+
+        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        assert_eq!(
+            delay,
+            std::time::Duration::ZERO,
+            "the console waited {delay:?} after Tick {tick:?} became {advanced:?}"
+        );
+    }
+
+    ///
+    /// A quiet Render Frame must not start a Tick period from now. That is
+    /// the second clock. The next paint is the next publish, or the Cursor
+    /// blink, whichever is sooner.
+    ///
+    #[tokio::test]
+    async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        let bpm = orcvs::opts::Bpm::new(200).expect("200 is in range");
+        console.orcvs.set_bpm(bpm);
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        assert!(
+            delay > std::time::Duration::from_millis(bpm.delay_ms()),
+            "the console still scheduled a Tick period from this frame: {delay:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_open_does_not_shorten_a_playing_repaint_below_a_tick() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        let bpm = orcvs::opts::Bpm::new(120).expect("120 is in range");
+        console.orcvs.set_bpm(bpm);
+        console.diagnostics_open = true;
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let with_diagnostics =
+            app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        console.diagnostics_open = false;
+        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let without_diagnostics =
+            app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+        let tick = std::time::Duration::from_millis(bpm.delay_ms());
+        assert!(
+            with_diagnostics > tick,
+            "Diagnostics scheduled a paint inside a Tick: {with_diagnostics:?}"
+        );
+        assert!(
+            without_diagnostics > tick,
+            "a quiet playing frame scheduled a paint inside a Tick: {without_diagnostics:?}"
+        );
+    }
+
+    fn origin_content(orcvs: &Orcvs) -> Option<char> {
+        let frame = orcvs.render_frame();
+        frame.at(frame.grid().origin()).content()
+    }
+
+    fn bpm_field_id(console: &Console) -> egui::Id {
+        console.bpm_widget_id
+    }
+
+    fn focus_bpm_field(
+        ctx: &egui::Context,
+        screen: Rect,
+        console: &mut Console,
+        host: &mut eframe::Frame,
+    ) {
+        let target = ctx
+            .read_response(bpm_field_id(console))
+            .expect("the BPM field was not shown")
+            .rect
+            .center();
+        app_pass(ctx, screen, click_at(target), console, host);
+        app_pass(ctx, screen, release_at(target), console, host);
+        assert!(
+            ctx.memory(|memory| memory.has_focus(bpm_field_id(console))),
+            "the BPM field did not take focus"
+        );
+    }
+
+    fn bpm_selected_chars(ctx: &egui::Context, console: &Console) -> usize {
+        egui::TextEdit::load_state(ctx, bpm_field_id(console))
+            .and_then(|state| state.cursor.char_range())
+            .map(|range| {
+                let chars = range.as_sorted_char_range();
+                chars.end.0.saturating_sub(chars.start.0)
+            })
+            .unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn clicking_the_bpm_field_selects_its_text() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let shown = console.orcvs.bpm().beats_per_minute().to_string();
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        assert_eq!(
+            bpm_selected_chars(&ctx, &console),
+            shown.chars().count(),
+            "a click left the BPM text unselected"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("7".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Enter, true)],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(
+            console.orcvs.bpm().beats_per_minute(),
+            7,
+            "a click did not select the BPM text for replacement"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_bpm_field_accepts_digits_only() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("8".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("a".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("4".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("0".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Enter, true)],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(
+            console.orcvs.bpm().beats_per_minute(),
+            840,
+            "the BPM field took a letter"
+        );
+    }
+
+    #[tokio::test]
+    async fn dragging_the_bpm_field_changes_the_tempo() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let start = console.orcvs.bpm().beats_per_minute();
+        let origin = ctx
+            .read_response(bpm_field_id(&console))
+            .expect("the BPM field was not shown")
+            .rect
+            .center();
+        app_pass(&ctx, screen, click_at(origin), &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(origin + Vec2::new(40.0, 0.0))],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            release_at(origin + Vec2::new(40.0, 0.0)),
+            &mut console,
+            &mut host,
+        );
+        assert_ne!(
+            console.orcvs.bpm().beats_per_minute(),
+            start,
+            "dragging the BPM field left the tempo unchanged"
+        );
+    }
+    #[tokio::test]
+    async fn the_bpm_field_pads_three_digits() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let field = ctx
+            .read_response(bpm_field_id(&console))
+            .expect("the BPM field was not shown")
+            .rect;
+        let font = ctx
+            .style_of(egui::Theme::Dark)
+            .text_styles
+            .get(&egui::TextStyle::Monospace)
+            .cloned()
+            .unwrap_or_else(|| egui::FontId::monospace(12.0));
+        let digits = ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap("000".to_owned(), font, Color32::WHITE)
+                .size()
+        });
+        assert!(
+            field.width() + 0.5 >= digits.x + BPM_FIELD_MARGIN.sum().x,
+            "the BPM field is too narrow for its padding: {field:?}"
+        );
+        assert!(
+            field.height() + 0.5 >= digits.y + BPM_FIELD_MARGIN.sum().y,
+            "the BPM field is too short for its padding: {field:?}"
+        );
+    }
+
+    ///
+    /// While the BPM field is focused, digits stay in the field and Space does
+    /// not toggle Playback. Escape (and a later Grid click) return keys to
+    /// the console.
+    ///
+    #[tokio::test]
+    async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("5".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(
+            origin_content(&console.orcvs),
+            None,
+            "a digit typed into the focused BPM field wrote the Source Cell"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        tokio::task::yield_now().await;
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Stopped,
+            "Space toggled Playback while the BPM field had focus"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Escape, true)],
+            &mut console,
+            &mut host,
+        );
+        assert!(
+            !ctx.memory(|memory| memory.has_focus(bpm_field_id(&console))),
+            "Escape left the BPM field focused"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("x".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(
+            origin_content(&console.orcvs),
+            Some('x'),
+            "a digit after Escape did not write the Source Cell"
+        );
+
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        let viewport = console_viewport(&ctx, &console);
+        let grid_cell = viewport.rect.min + Vec2::new(1.5, 0.5) * viewport.cell_size;
+        app_pass(&ctx, screen, click_at(grid_cell), &mut console, &mut host);
+        app_pass(&ctx, screen, release_at(grid_cell), &mut console, &mut host);
+        assert!(
+            !ctx.memory(|memory| memory.has_focus(bpm_field_id(&console))),
+            "a click on the Source Grid left the BPM field focused"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        tokio::task::yield_now().await;
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing,
+            "Space did not toggle Playback after a Grid click returned keys"
+        );
+    }
+
+    ///
+    /// Out-of-range typed BPM is rejected rather than clamped into range.
+    ///
+    #[tokio::test]
+    async fn out_of_range_bpm_input_does_not_change_the_tempo() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let start = console.orcvs.bpm().beats_per_minute();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        for text in ["0", "1500"] {
+            app_pass(
+                &ctx,
+                screen,
+                vec![Event::Text(text.to_owned())],
+                &mut console,
+                &mut host,
+            );
+            app_pass(
+                &ctx,
+                screen,
+                vec![key_event(Key::Enter, true)],
+                &mut console,
+                &mut host,
+            );
+            assert_eq!(
+                console.orcvs.bpm().beats_per_minute(),
+                start,
+                "committing {text} changed the tempo"
+            );
+            focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        }
+    }
+
+    ///
+    /// Committing a new BPM while Playback is requested goes through
+    /// `Orcvs::set_bpm`. Retune-while-playing is already the engine's test;
+    /// this only asks that the Console's commit reaches it.
+    ///
+    #[tokio::test]
+    async fn committing_bpm_while_playback_is_requested_sets_it_on_orcvs() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        tokio::task::yield_now().await;
+
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Key {
+                key: Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::COMMAND,
+            }],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("60".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Enter, true)],
+            &mut console,
+            &mut host,
+        );
+
+        assert_eq!(console.orcvs.bpm().beats_per_minute(), 60);
+    }
+
     #[tokio::test]
     async fn the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell() {
         for screen_size in [
@@ -1931,7 +3019,7 @@ mod tests {
         let ctx = egui::Context::default();
         let console = Vec2::new(
             DEFAULT_VIEW_SIZE[0],
-            DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT,
+            DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT - BOTTOM_PANEL_HEIGHT,
         );
         let screen = Rect::from_min_size(Pos2::ZERO, console);
         let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
@@ -1950,10 +3038,11 @@ mod tests {
     }
 
     ///
-    /// The default window size holds back exactly the height the top panel
-    /// takes, so the rest reaches the console. The menu bar is rebuilt here
-    /// rather than shared, so this also asserts that no menu makes the panel
-    /// taller than its minimum.
+    /// The default window size holds back exactly the height the top bar and
+    /// the bottom Panel take, so the rest reaches the console. The menu bar is
+    /// rebuilt here rather than shared, so this also asserts that no menu
+    /// makes the top bar taller than its minimum, and that the Panel's
+    /// Readouts do not make it taller than its minimum.
     ///
     #[test]
     fn the_top_panel_takes_the_height_the_default_window_holds_back() {
@@ -1976,10 +3065,53 @@ mod tests {
                         egui::MenuBar::new().ui(ui, |ui| {
                             ui.menu_button("File", |_ui| {});
                             ui.add_space(16.0);
-                            ui.menu_button("MIDI", |_ui| {});
                             ui.menu_button("View", |_ui| {});
-                            ui.menu_button("Tempo", |_ui| {});
                         });
+                    });
+                egui::Panel::bottom("bottom_panel")
+                    .resizable(false)
+                    .min_size(BOTTOM_PANEL_HEIGHT)
+                    .show(root, |ui| {
+                        ui.allocate_ui_with_layout(
+                            ui.available_size(),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                let (label_value_gap, entry_gap) = super::panel_readout_gaps(ui);
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                super::panel_label(ui, "B");
+                                ui.add_space(label_value_gap);
+                                let mut bpm = 120usize;
+                                super::add_bpm_field(ui, &mut bpm);
+                                ui.add_space(label_value_gap);
+                                super::reserved_monospace(
+                                    ui,
+                                    super::BEAT_MARKER,
+                                    super::monospace_width(ui, super::BEAT_MARKER),
+                                );
+                                ui.add_space(entry_gap);
+                                super::panel_label(ui, "T");
+                                ui.add_space(label_value_gap);
+                                super::reserved_monospace(
+                                    ui,
+                                    "00000",
+                                    super::monospace_width(ui, "00000"),
+                                );
+                                ui.add_space(entry_gap);
+                                super::panel_label(ui, "C");
+                                ui.add_space(label_value_gap);
+                                super::reserved_monospace(
+                                    ui,
+                                    "00:00",
+                                    super::monospace_width(ui, "00:00"),
+                                );
+                                ui.add_space(entry_gap);
+                                ui.add_sized(
+                                    [super::DESTINATION_COMBO_WIDTH, ui.spacing().interact_size.y],
+                                    egui::Button::new("No output destination").truncate(),
+                                );
+                                let _ = ui.button("Refresh");
+                            },
+                        );
                     });
                 egui::CentralPanel::default()
                     .frame(source_panel_frame())
@@ -1994,8 +3126,306 @@ mod tests {
             console,
             Vec2::new(
                 DEFAULT_VIEW_SIZE[0],
-                DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT
+                DEFAULT_VIEW_SIZE[1] - TOP_PANEL_HEIGHT - BOTTOM_PANEL_HEIGHT
             )
+        );
+    }
+
+    ///
+    /// Tick and Run Clock occupy fixed slots, so a second Tick digit does not
+    /// shove Run Clock.
+    ///
+    #[test]
+    fn a_second_tick_digit_does_not_move_run_clock() {
+        fn clock_left(tick: &str) -> i32 {
+            let ctx = egui::Context::default();
+            ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+            ctx.set_theme(egui::Theme::Dark);
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+            let clock_x = std::cell::Cell::new(0.0);
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |root| {
+                    egui::Panel::bottom("bottom_panel")
+                        .resizable(false)
+                        .min_size(BOTTOM_PANEL_HEIGHT)
+                        .show(root, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("T");
+                                super::reserved_monospace(
+                                    ui,
+                                    tick,
+                                    super::monospace_width(ui, "00000"),
+                                );
+                                ui.label("C");
+                                clock_x.set(
+                                    super::reserved_monospace(
+                                        ui,
+                                        "00:00",
+                                        super::monospace_width(ui, "00:00"),
+                                    )
+                                    .rect
+                                    .left(),
+                                );
+                            });
+                        });
+                },
+            );
+            output.drop_without_applying_deltas();
+            clock_x.get().round() as i32
+        }
+
+        assert_eq!(
+            clock_left("00009"),
+            clock_left("00010"),
+            "a second Tick digit shoved Run Clock"
+        );
+    }
+
+    #[test]
+    fn an_off_beat_does_not_move_tick() {
+        fn tick_left(marker: &str) -> i32 {
+            let ctx = egui::Context::default();
+            ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+            ctx.set_theme(egui::Theme::Dark);
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+            let tick_x = std::cell::Cell::new(0.0);
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |root| {
+                    egui::Panel::bottom("bottom_panel")
+                        .resizable(false)
+                        .min_size(BOTTOM_PANEL_HEIGHT)
+                        .show(root, |ui| {
+                            ui.horizontal(|ui| {
+                                super::reserved_monospace(
+                                    ui,
+                                    marker,
+                                    super::monospace_width(ui, super::BEAT_MARKER),
+                                );
+                                ui.label("T");
+                                tick_x.set(
+                                    super::reserved_monospace(
+                                        ui,
+                                        "00000",
+                                        super::monospace_width(ui, "00000"),
+                                    )
+                                    .rect
+                                    .left(),
+                                );
+                            });
+                        });
+                },
+            );
+            output.drop_without_applying_deltas();
+            tick_x.get().round() as i32
+        }
+
+        assert_eq!(
+            tick_left("**"),
+            tick_left(""),
+            "hiding the beat marker shoved Tick"
+        );
+        assert_eq!(
+            tick_left("**"),
+            tick_left("//"),
+            "the rest marker shoved Tick"
+        );
+    }
+
+    #[test]
+    fn panel_readouts_use_the_monospace_style_size_not_line_height() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let sizes = std::cell::Cell::new((0.0, 0.0));
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |root| {
+                egui::Panel::bottom("bottom_panel").show(root, |ui| {
+                    let style_size = ui
+                        .style()
+                        .text_styles
+                        .get(&egui::TextStyle::Monospace)
+                        .map(|font| font.size)
+                        .unwrap_or(0.0);
+                    sizes.set((style_size, super::panel_monospace_id(ui).size));
+                });
+            },
+        );
+        output.drop_without_applying_deltas();
+        let (style_size, used) = sizes.get();
+        assert_eq!(
+            used, style_size,
+            "Panel numbers were drawn at line height instead of the Monospace size"
+        );
+    }
+
+    #[tokio::test]
+    async fn panel_label_gaps_match_and_entry_gaps_match() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = painted.clone();
+        ctx.on_end_pass(
+            "capture-panel-spans",
+            std::sync::Arc::new(move |ctx| {
+                let mut spans = Vec::new();
+                let layers = [
+                    egui::LayerId::background(),
+                    egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
+                    egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
+                    egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+                ];
+                ctx.graphics(|graphics| {
+                    for layer in layers {
+                        if let Some(list) = graphics.get(layer) {
+                            for clipped in list.all_entries() {
+                                collect_shape_text_spans(&clipped.shape, &mut spans);
+                            }
+                        }
+                    }
+                });
+                *sink.lock().unwrap() = spans;
+            }),
+        );
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+        let mut spans = painted.lock().unwrap().clone();
+        spans.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        fn span<'a>(spans: &'a [(String, f32, f32)], text: &str) -> &'a (String, f32, f32) {
+            spans
+                .iter()
+                .find(|(shown, _, _)| shown == text)
+                .unwrap_or_else(|| panic!("the Panel is missing {text:?} in {spans:?}"))
+        }
+
+        let b = span(&spans, "B");
+        let rest = span(&spans, "//");
+        let t = span(&spans, "T");
+        let tick = span(&spans, "00000");
+        let c = span(&spans, "C");
+        let clock = span(&spans, "00:00");
+
+        let t_to_v = tick.1 - t.2;
+        let c_to_v = clock.1 - c.2;
+        let beat_to_t = t.1 - rest.2;
+        let tick_to_c = c.1 - tick.2;
+
+        assert!(
+            (t_to_v - c_to_v).abs() < 0.5,
+            "readout pairs differ: T {t_to_v} C {c_to_v}"
+        );
+        assert!(
+            (beat_to_t - tick_to_c).abs() < 0.5,
+            "entry gaps differ: //-to-T {beat_to_t} Tick-to-C {tick_to_c}"
+        );
+        assert!(
+            beat_to_t > t_to_v + 0.5,
+            "groups are as tight as a label and its value: group {beat_to_t} pair {t_to_v}"
+        );
+
+        let expected_left = egui::Frame::side_top_panel(&crate::style::style())
+            .inner_margin
+            .leftf()
+            + f32::from(BOTTOM_PANEL_LEFT_PAD);
+        assert!(
+            (b.1 - expected_left).abs() < 1.0,
+            "B starts at {} rather than {expected_left} in {spans:?}",
+            b.1
+        );
+    }
+
+    #[tokio::test]
+    async fn the_bottom_panel_separator_is_the_grid_line() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = painted.clone();
+        ctx.on_end_pass(
+            "capture-panel-separator",
+            std::sync::Arc::new(move |ctx| {
+                *sink.lock().unwrap() = painted_strokes(ctx);
+            }),
+        );
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+        let strokes = painted.lock().unwrap().clone();
+        assert!(
+            strokes.iter().any(|(color, rect)| {
+                *color == crate::style::style().visuals.window_stroke.color
+                    && rect.height() <= 2.0
+                    && rect.width() > screen.width() * 0.5
+            }),
+            "the Panel separator was not the grid-line stroke in {strokes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = painted.clone();
+        ctx.on_end_pass(
+            "capture-bpm-strokes",
+            std::sync::Arc::new(move |ctx| {
+                *sink.lock().unwrap() = painted_strokes(ctx);
+            }),
+        );
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let field = ctx
+            .read_response(bpm_field_id(&console))
+            .expect("the BPM field was not shown")
+            .rect;
+        let rest = painted.lock().unwrap().clone();
+        assert!(
+            rest.iter().all(|(color, rect)| {
+                !field.intersects(*rect)
+                    || (*color != PALETTE.selection_stroke
+                        && *color != PALETTE.selection_stroke_rest)
+            }),
+            "an unfocused BPM field still carried a selection border in {rest:?}"
+        );
+
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        let focused_field = ctx
+            .read_response(bpm_field_id(&console))
+            .expect("the BPM field was not shown")
+            .rect;
+        let focused = painted.lock().unwrap().clone();
+        assert!(
+            focused.iter().any(|(color, rect)| {
+                *color == PALETTE.selection_stroke && focused_field.intersects(*rect)
+            }),
+            "a focused BPM field lost the selection stroke in {focused:?}"
         );
     }
 
@@ -2112,7 +3542,7 @@ mod tests {
     }
 
     ///
-    /// The Cursor Effect reaches what a Cell is painted *with* and never
+    /// The Cursor's blink reaches what a Cell is painted *with* and never
     /// where it is painted.
     ///
     /// This is the property the retired `cell_line_width` test held over a
@@ -2121,9 +3551,10 @@ mod tests {
     /// `GridViewport::cell_rect` takes a Position and nothing else — so it is
     /// asserted here against the geometry that actually reached the Shapes.
     ///
-    /// The Cursor's visibility is owned by `orcvs`; a console test does not
-    /// need a wall-clock seam to assert geometry. What is asserted is the
-    /// whole of what the presentation could move — every Cell,
+    /// The Cursor's own blink phase cannot be driven from a console test: it
+    /// turns on a wall-clock delay held inside `orcvs`, and a seam to set it
+    /// would be a test-only input cut into shipped code. What is asserted
+    /// instead is the whole of what that phase could have moved — every Cell,
     /// the Cursor's included, occupies exactly the rectangle its Position gives
     /// it, and the Cursor's own stroke is drawn on that same rectangle rather
     /// than beside it or around it.
@@ -2194,7 +3625,7 @@ mod tests {
     /// `backgrounds`, every Glyph in `glyphs` and the Cursor alone in `cursor`,
     /// so chaining the groups orders the *kinds* however the Cells interleave:
     /// a later Cell in the row order cannot erase an earlier Cell's Glyph, and
-    /// no neighbour's fill or seam can reach the Cursor. That the shape groups
+    /// no neighbour's fill or seam can reach the Cursor. That the five groups
     /// then arrive at the painter in that order is asserted by
     /// `the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them`.
     ///
@@ -2242,15 +3673,20 @@ mod tests {
                 "a border carried a fill: {rect:?}"
             );
         }
-        assert_eq!(
-            shapes.backgrounds.len(),
-            1,
-            "only the hidden-caret selection should fill a Cell"
+        // The widened runs are the Shapes this grouping is about: one of them
+        // reaches into Cells built after it, and would paint over their Glyphs
+        // if the fills were emitted Cell by Cell.
+        assert!(
+            shapes
+                .backgrounds
+                .iter()
+                .any(|run| rect_of(run).width() > viewport.cell_size * 1.5),
+            "no background covered more than one Cell, so the grouping proves nothing"
         );
     }
 
     ///
-    /// The shape groups reach the painter end to end, in the order
+    /// The five groups reach the painter end to end, in the order
     /// `SourceShapes::into_shapes` chains them: backgrounds, borders, Glyphs,
     /// seams, the Cursor.
     ///
@@ -2284,7 +3720,7 @@ mod tests {
         orcvs.write("1");
         orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
-        let (_viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
         let at = |kind: fn(&Shape) -> bool| -> Vec<usize> {
             shapes
@@ -2306,8 +3742,19 @@ mod tests {
         assert!(!glyphs.is_empty(), "the pass painted no Glyph");
         assert!(!seams.is_empty(), "the pass painted no sector seam");
 
-        let borders = &strokes;
+        let cursor = *strokes.last().expect("the pass painted the Cursor");
+        assert!(
+            close(rect_of(&shapes[cursor]), viewport.cell_rect(0, 0)),
+            "the last stroked rectangle was not the Cursor's Cell"
+        );
+        let borders = &strokes[..strokes.len() - 1];
 
+        assert!(
+            *fills.last().expect("a fill") < borders[0],
+            "a background at {:?} painted over the border at {}",
+            fills.last(),
+            borders[0]
+        );
         assert!(
             *borders.last().expect("a border") < glyphs[0],
             "a border at {:?} painted over the Glyph at {}",
@@ -2315,8 +3762,15 @@ mod tests {
             glyphs[0]
         );
         assert!(
-            *glyphs.last().expect("a Glyph") < *seams.last().expect("a frame fragment"),
-            "the fragmented Cursor frame was not painted last"
+            *glyphs.last().expect("a Glyph") < seams[0],
+            "a Glyph at {:?} painted over the seam at {}",
+            glyphs.last(),
+            seams[0]
+        );
+        assert!(
+            *seams.last().expect("a seam") < cursor,
+            "a seam at {:?} painted over the Cursor at {cursor}",
+            seams.last()
         );
     }
 
@@ -2414,7 +3868,7 @@ mod tests {
 
     ///
     /// Every Cell is stroked with its own border, one Grid line wide, and the
-    /// Cursor Effect changes that colour rather than that width — which is
+    /// Cursor's blink changes that colour rather than that width — which is
     /// what `cell_line_width` returned a constant for.
     ///
     /// The colours come from the Paint rather than from `cell_visuals`: which
@@ -2423,7 +3877,7 @@ mod tests {
     /// shape step gives each Cell the border the Paint gave that Cell, and
     /// not its neighbour's.
     ///
-    /// The Grid is wider than the Cursor effect, so the borders
+    /// The Grid is wider than the Cursor's fifteen-Cell bloom, so the borders
     /// are not all one colour and a step that handed every Cell the same
     /// stroke would be caught.
     ///
@@ -2542,7 +3996,7 @@ mod tests {
     /// `PALETTE.source`, and what stands in its place is the `CentralPanel`
     /// frame. The two values are stated in different places, so nothing but
     /// this holds them together: give the panel any other fill and every
-    /// ordinary Cell — outside the Cursor effect, most of the
+    /// ordinary Cell — outside the Cursor's fifteen-Cell bloom, most of the
     /// default Grid — renders on a ground the palette never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
@@ -2625,6 +4079,10 @@ mod tests {
             let shapes = source_geometry(&paint, viewport, pixels_per_point);
             let runs = paint.background_runs();
 
+            assert!(
+                runs.iter().any(|run| run.columns.len() > 1),
+                "no run covered more than one Cell, so nothing was coalesced"
+            );
             assert_eq!(
                 shapes.backgrounds.len(),
                 runs.len(),
@@ -2725,13 +4183,7 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_cursor_colour(
-            FramePaint::new(
-                &frame,
-                viewport.visible_positions(viewport.rect, frame.grid()),
-            ),
-            Some(PALETTE.selection_fill),
-        );
+        let paint = painted(&frame, viewport, viewport.rect);
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
 
@@ -2743,22 +4195,41 @@ mod tests {
             runs.len()
         );
 
-        let (row, columns, expected) = (
-            0,
-            0..1,
-            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
-        );
-        let index = runs
-            .iter()
-            .position(|run| run.row == row && run.columns == columns)
-            .unwrap_or_else(|| {
-                panic!("this Grid asks for no run over columns {columns:?} of row {row}")
-            });
-        assert_eq!(
-            rect_of(&shapes.backgrounds[index]),
-            expected,
-            "the run over columns {columns:?} of row {row}"
-        );
+        for (row, columns, expected) in [
+            (
+                0,
+                0..1,
+                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
+            ),
+            (
+                0,
+                4..7,
+                Rect::from_min_max(Pos2::new(100.0, 0.0), Pos2::new(175.0, 25.0)),
+            ),
+            (
+                5,
+                0..7,
+                Rect::from_min_max(Pos2::new(0.0, 125.0), Pos2::new(175.0, 150.0)),
+            ),
+            (
+                7,
+                7..8,
+                Rect::from_min_max(Pos2::new(175.0, 175.0), Pos2::new(200.0, 200.0)),
+            ),
+        ] {
+            let index = runs
+                .iter()
+                .position(|run| run.row == row && run.columns == columns)
+                .unwrap_or_else(|| {
+                    panic!("this Grid asks for no run over columns {columns:?} of row {row}")
+                });
+
+            assert_eq!(
+                rect_of(&shapes.backgrounds[index]),
+                expected,
+                "the run over columns {columns:?} of row {row}"
+            );
+        }
     }
 
     ///
@@ -2822,33 +4293,61 @@ mod tests {
                 stroked += 1;
             }
         }
-        assert_eq!(stroked, 399, "the Cursor Cell uses the effect frame");
+        assert_eq!(stroked, 400, "the pass stroked {stroked} of 400 Cells");
 
         // And so does every sector seam, which takes its own width.
         let mut seams = 0;
         for shape in &shapes {
-            if let Shape::LineSegment { stroke, .. } = shape
-                && (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6
-            {
+            if let Shape::LineSegment { stroke, .. } = shape {
+                assert!(
+                    (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6,
+                    "a sector seam was stroked {} points wide against {} at this zoom",
+                    stroke.width,
+                    SECTOR_LINE_WIDTH * scale
+                );
                 seams += 1;
             }
         }
         assert!(seams > 0, "the pass drew no sector seam");
 
-        // The default theme leaves the cursor-cell colour unset, so the
-        // selected Cell uses the panel's source background and contributes no
-        // background run to snap. Explicit colours are covered by the Paint
-        // seam tests.
+        // Which Cells coalesce into a run is `Paint::background_runs`' answer
+        // and is pinned there; what this asks is where the pass put the
+        // rectangle that replaces them.
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_cursor_colour(
-            FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
-            None,
-        );
+        let paint = painted(&frame, viewport, screen);
         let runs = paint.background_runs();
-        assert!(
-            runs.is_empty(),
-            "the default cursor colour should be transparent"
-        );
+        assert!(!runs.is_empty(), "the pass painted no background run");
+
+        for run in &runs {
+            let covered = Rect::from_min_max(
+                viewport.cell_rect(run.columns.start, run.row).min,
+                viewport.cell_rect(run.columns.end - 1, run.row).max,
+            );
+            let snapped = covered.round_to_pixels(DEVICE_SCALE);
+
+            assert_ne!(
+                snapped,
+                covered.round_to_pixels(1.0),
+                "the run over columns {:?} of row {} is snapped to the same \
+                 rectangle at either device scale, so it tells them apart from \
+                 nothing",
+                run.columns,
+                run.row
+            );
+            assert!(
+                shapes.iter().any(|shape| matches!(
+                    shape,
+                    Shape::Rect(painted)
+                        if painted.rect == snapped
+                            && painted.fill == run.colour
+                            && painted.stroke.width == 0.0
+                )),
+                "the pass filled nothing at {snapped:?} for the run over columns \
+                 {:?} of row {}",
+                run.columns,
+                run.row
+            );
+        }
     }
 
     ///
@@ -3091,19 +4590,25 @@ mod tests {
     /// one: that the rectangle the shape step builds from a run whose columns
     /// start mid-row still covers exactly the Cells that run replaces.
     ///
-    /// The console is small and the zoom is at the limit so both sides of the
-    /// Source are culled. Cursor effects are geometry beneath the Grid and
-    /// therefore must not reintroduce Cell background runs in this view.
+    /// The console is small and the zoom is at the limit on purpose, so the
+    /// Cursor's bloom — fifteen Cells across — is wider than the viewport. That
+    /// is what puts a filled Cell at both edges of the drawn rows, which is the
+    /// only place a run built from the wrong endpoint would show. The test
+    /// asserts that this is so rather than assuming it, so it cannot go
+    /// quietly vacuous if the bloom moves.
     ///
     #[tokio::test]
-    async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
+    async fn a_zoomed_row_fills_every_cell_the_paint_asks_for_and_no_other() {
         let ctx = egui::Context::default();
-        // Narrow enough that every drawn row starts and ends inside the Grid.
+        // Narrower than the bloom at the zoom below, so every drawn row both
+        // starts and ends inside it.
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
         let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         let mut view = SourceView::default();
-        // Below the window the console shows, keeping the Cursor near the
-        // visible range while its area remains separate geometry.
+        // Below the window the console shows, so the bloom covers the lower
+        // drawn rows and stops short of the upper ones: the viewport holds
+        // filled and unfilled Cells at once, and every drawn row that is filled
+        // is filled at both its edges.
         orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
 
         // The Grid's near corner at (-700, -500), so the console shows a window
@@ -3162,10 +4667,18 @@ mod tests {
             }
         }
 
-        assert_eq!(filled, 0, "Cursor geometry filled a Cell background");
-        assert!(unfilled > 0, "the viewport drew no Cells");
-        assert_eq!(opened_at_first_drawn, 0);
-        assert_eq!(flushed_at_last_drawn, 0);
+        assert!(
+            filled > 0 && unfilled > 0,
+            "{filled} filled and {unfilled} unfilled drawn Cells is not the mixture this is about"
+        );
+        assert!(
+            opened_at_first_drawn > 0,
+            "no drawn row opens a run at its first drawn Cell"
+        );
+        assert!(
+            flushed_at_last_drawn > 0,
+            "no drawn row ends with a run still open"
+        );
     }
 
     ///

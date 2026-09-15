@@ -120,3 +120,9 @@ Whether the Panel is reachable by keyboard at all, and whether its Readouts shou
 order.
 
 Whether `!$`, the Application Command Function, should be able to toggle it.
+
+## Decisions so far
+
+- Ticket 01 resolved: a static bottom Panel shows Tick and Run Clock from a published `PlaybackObservation`. See [01-show-tick-and-run-clock-on-the-panel.md](issues/01-show-tick-and-run-clock-on-the-panel.md).
+- Ticket 02 resolved: typed BPM field on the Panel (default 120, range 1..=999), Tempo menu gone, field owns keys while focused. See [02-type-bpm-on-the-panel.md](issues/02-type-bpm-on-the-panel.md).
+- Ticket 03 resolved: destination ComboBox and Refresh on the Panel, MIDI menu gone, auto-select first when nothing is selected. See [03-choose-the-destination-on-the-panel.md](issues/03-choose-the-destination-on-the-panel.md).

@@ -1,11 +1,17 @@
 use std::num::NonZeroUsize;
 
+use lang::Tick;
+
 pub const DEFAULT_FONT_SIZE: f32 = 18.0;
 pub const DEFAULT_SECTOR_SEAM_SPACING: usize = 8;
 
 pub const DEFAULT_CURSOR_BLOOM_RADIUS: usize = 7;
 
-const MAX_BPM: usize = 60_000 / 4;
+pub const DEFAULT_CURSOR_DELAY: u64 = 800;
+
+/// Ticks that make one displayed BPM beat. [`Bpm::delay_ms`] is one of these.
+const TICKS_PER_BEAT: usize = 4;
+const MAX_BPM: usize = 60_000 / TICKS_PER_BEAT;
 
 ///
 /// How the console presents and plays a Source. Nothing in this file is a
@@ -16,6 +22,7 @@ const MAX_BPM: usize = 60_000 / 4;
 #[derive(Clone, Debug)]
 pub struct Opts {
     pub bpm: Bpm,
+    pub cursor_delay: u64,
     pub cursor_bloom_radius: CursorBloomRadius,
     pub sector_seam_spacing: SectorSeamSpacing,
     pub mode: Mode,
@@ -64,19 +71,31 @@ impl Bpm {
     }
 
     pub fn delay_ms(&self) -> u64 {
-        let ms = (60000 / self.0.get()) / 4;
+        let ms = (60000 / self.0.get()) / TICKS_PER_BEAT;
         ms as u64
     }
 
     pub fn beats_per_minute(self) -> usize {
         self.0.get()
     }
+
+    ///
+    /// Whether `tick` is a displayed BPM beat.
+    ///
+    /// [`Self::delay_ms`] is one Tick of that grouping, so Tick `0` and every
+    /// multiple of the grouping after it are beats; the Ticks between them
+    /// are not.
+    ///
+    pub fn on_beat(tick: Tick) -> bool {
+        tick.get().is_multiple_of(TICKS_PER_BEAT as u64)
+    }
 }
 
 impl Opts {
     pub fn new() -> Self {
         Self {
-            bpm: Bpm::new(20).expect("default tempo is positive"),
+            bpm: Bpm::new(120).expect("default tempo is positive"),
+            cursor_delay: DEFAULT_CURSOR_DELAY,
             cursor_bloom_radius: CursorBloomRadius::new(DEFAULT_CURSOR_BLOOM_RADIUS)
                 .expect("default cursor bloom radius is positive"),
             sector_seam_spacing: SectorSeamSpacing::new(DEFAULT_SECTOR_SEAM_SPACING)
@@ -95,12 +114,29 @@ impl Default for Opts {
 #[cfg(test)]
 mod tests {
     use super::{Bpm, CursorBloomRadius, DEFAULT_CURSOR_BLOOM_RADIUS, Opts, SectorSeamSpacing};
+    use lang::Tick;
 
     #[test]
     fn bpm_accepts_only_positive_tick_rates() {
         assert_eq!(Bpm::new(20).map(|bpm| bpm.delay_ms()), Some(750));
         assert_eq!(Bpm::new(0), None);
         assert_eq!(Bpm::new(15_001), None);
+    }
+
+    #[test]
+    fn default_bpm_is_one_hundred_and_twenty() {
+        assert_eq!(Opts::new().bpm.beats_per_minute(), 120);
+        assert_eq!(Opts::new().bpm.delay_ms(), 125);
+    }
+
+    #[test]
+    fn a_displayed_beat_is_every_fourth_tick() {
+        assert!(Bpm::on_beat(Tick::ZERO));
+        assert!(!Bpm::on_beat(Tick::new(1)));
+        assert!(!Bpm::on_beat(Tick::new(2)));
+        assert!(!Bpm::on_beat(Tick::new(3)));
+        assert!(Bpm::on_beat(Tick::new(4)));
+        assert!(Bpm::on_beat(Tick::new(8)));
     }
 
     #[test]
