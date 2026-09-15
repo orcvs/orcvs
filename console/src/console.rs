@@ -232,7 +232,9 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> egui::Response {
                 if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
                     None
                 } else {
-                    text.parse().ok()
+                    text.parse::<f64>().ok().filter(|value| {
+                        *value >= PANEL_BPM_MIN as f64 && *value <= PANEL_BPM_MAX as f64
+                    })
                 }
             }),
     )
@@ -1348,6 +1350,7 @@ impl eframe::App for Console {
                         let mut bpm = self.orcvs.bpm().beats_per_minute();
                         let response = add_bpm_field(ui, &mut bpm);
                         if response.changed()
+                            && (PANEL_BPM_MIN..=PANEL_BPM_MAX).contains(&bpm)
                             && let Some(next) = Bpm::new(bpm)
                             && next != self.orcvs.bpm()
                         {
@@ -2683,6 +2686,46 @@ mod tests {
             orcvs::playback::PlaybackState::Playing,
             "Space did not toggle Playback after a Grid click returned keys"
         );
+    }
+
+    ///
+    /// Out-of-range typed BPM is rejected rather than clamped into range.
+    ///
+    #[tokio::test]
+    async fn out_of_range_bpm_input_does_not_change_the_tempo() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let start = console.orcvs.bpm().beats_per_minute();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        for text in ["0", "1500"] {
+            app_pass(
+                &ctx,
+                screen,
+                vec![Event::Text(text.to_owned())],
+                &mut console,
+                &mut host,
+            );
+            app_pass(
+                &ctx,
+                screen,
+                vec![key_event(Key::Enter, true)],
+                &mut console,
+                &mut host,
+            );
+            assert_eq!(
+                console.orcvs.bpm().beats_per_minute(),
+                start,
+                "committing {text} changed the tempo"
+            );
+            focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        }
     }
 
     ///
