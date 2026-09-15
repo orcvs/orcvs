@@ -1,6 +1,3 @@
-use std::time::Duration;
-use web_time::Instant;
-
 use crate::grid::Position;
 
 #[derive(Debug)]
@@ -8,30 +5,14 @@ pub struct Cursor {
     pub on: bool,
 
     position: Position,
-
-    at: Instant,
-    delay_ms: u64,
 }
 
 impl Cursor {
-    pub fn new(position: Position, delay: u64) -> Self {
+    pub fn new(position: Position) -> Self {
         Self {
             position,
-            at: Instant::now(),
             on: false,
-            delay_ms: delay,
         }
-    }
-
-    pub fn blink(&mut self) {
-        if self.at.elapsed() >= Duration::from_millis(self.delay_ms) {
-            self.at = Instant::now();
-            self.on = !self.on;
-        }
-    }
-
-    pub fn remaining_blink_delay(&self) -> Duration {
-        Duration::from_millis(self.delay_ms).saturating_sub(self.at.elapsed())
     }
 
     #[inline]
@@ -48,14 +29,11 @@ impl Cursor {
     pub fn select(&mut self, selected: Position) {
         self.position = selected;
         self.on = false;
-        self.at = Instant::now();
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
-
     use crate::{cursor::Cursor, grid::Grid, test::trace};
 
     #[test]
@@ -64,7 +42,7 @@ mod test {
 
         let grid = Grid::new(10, 4);
         let at = |x, y| grid.position(x, y).expect("inside the grid");
-        let cursor = Cursor::new(grid.origin(), 1000);
+        let cursor = Cursor::new(grid.origin());
 
         assert_eq!(cursor.position(), grid.origin());
         assert!(cursor.is_at(grid.origin()));
@@ -78,7 +56,7 @@ mod test {
         trace();
 
         let grid = Grid::new(10, 4);
-        let mut cursor = Cursor::new(grid.origin(), 1000);
+        let mut cursor = Cursor::new(grid.origin());
 
         cursor.select(grid.down(cursor.position()));
         assert_eq!(cursor.position().y(), 1);
@@ -101,15 +79,5 @@ mod test {
             cursor.select(grid.up(cursor.position()));
         }
         assert_eq!(cursor.position().y(), 0);
-    }
-
-    #[test]
-    fn remaining_blink_delay_saturates_at_zero() {
-        let grid = Grid::new(10, 4);
-        let cursor = Cursor::new(grid.origin(), 0);
-
-        let remaining = cursor.remaining_blink_delay();
-
-        assert_eq!(remaining, Duration::ZERO);
     }
 }

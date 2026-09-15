@@ -265,12 +265,12 @@ The terminal `!$` Function that sends a command to the Orcvs host application. I
 _Avoid_: Host Command, shell command, process execution
 
 **Cursor**:
-The one Cell the console is editing: a Position, plus the blink state that draws it. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
+The one Cell the console is editing: a Position drawn with the active Cursor Effect. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
-**Cursor Bloom**:
-The graded field of four bands the console draws outward from the Cursor's Cell, measured in Cells by Chebyshev distance and decided per Cell by console paint from the Render Frame's Cursor and spacing. It changes a Cell's background and border and never its content or its Token.
-_Avoid_: Highlight, glow, radial light, focus matrix
+**Cursor Effect**:
+The console presentation surrounding the Cursor: an eroded frame on its Cell and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
+_Avoid_: Cell highlight, radial glow, focus matrix
 
 **Sector Seam**:
 The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.

@@ -7,9 +7,8 @@
 //! Nothing here is a `Rect`, and nothing here reads a viewport's geometry.
 //! Where a Cell *is* on screen is `GridViewport`'s arithmetic and is asserted
 //! there; a `Rect` in this layer would make every assertion about a colour
-//! acquire a viewport before it could be written. Sector Seam strengths and
-//! Cursor Bloom bands are decided here from the Frame's Cursor and spacing
-//! answers; `sector_line` turns a strength into a colour as a pure reading of
+//! acquire a viewport before it could be written. Sector Seam strengths are
+//! decided here from the Frame's spacing answer; `sector_line` turns a strength into a colour as a pure reading of
 //! the palette, while the stroke *widths* the same seams are drawn with scale
 //! with the Cell side and so belong to the step that has one.
 //!
@@ -30,9 +29,7 @@
 //! no others, so a console showing a tenth of a Grid pays for a tenth of it:
 //! neither the per-Cell call to `cell_visuals` nor the `Vec` holding its
 //! answers follows the Source's size. Everything the derivation reads is local
-//! to its own Cell — a Cursor outside the drawn range still blooms correctly on
-//! the Cells inside it — which is what makes the cull a saving rather than a
-//! change of answer.
+//! to its own Cell, which makes the cull a saving rather than a change of answer.
 //!
 //! # Why the Cells are flat
 //!
@@ -54,8 +51,8 @@ use orcvs::{
 };
 
 use crate::{
-    marks::{cursor_bloom, sector_left_strength, sector_top_strength},
-    style::{cell_visuals, sector_line},
+    marks::{sector_left_strength, sector_top_strength},
+    style::{PALETTE, cell_visuals_with_cursor_colour, sector_line},
 };
 
 pub use crate::grid_viewport::VisiblePositions;
@@ -176,6 +173,13 @@ impl Paint {
     /// checked in [`FramePaint::new`].
     ///
     pub fn derive(input: FramePaint<'_>) -> Self {
+        Self::derive_with_cursor_colour(input, Some(PALETTE.selection_fill))
+    }
+
+    pub fn derive_with_cursor_colour(
+        input: FramePaint<'_>,
+        cursor_colour: Option<Color32>,
+    ) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
         // The Cursor is the Position the Render Frame was derived for. A Paint
@@ -184,7 +188,6 @@ impl Paint {
         let frame_cursor = frame.cursor();
         let cursor_visible = frame.cursor_visible();
         let sector_seam_spacing = frame.sector_seam_spacing().cells();
-        let bloom_radius = frame.cursor_bloom_radius().cells();
         let cursor = (drawn.columns.contains(&frame_cursor.x())
             && drawn.rows.contains(&frame_cursor.y()))
         .then_some(frame_cursor);
@@ -202,11 +205,11 @@ impl Paint {
                     .expect("a drawn Position is one the visible range clamped to this Grid");
                 let cell = frame.at(position);
                 let selected = position == frame_cursor;
-                let visuals = cell_visuals(
+                let visuals = cell_visuals_with_cursor_colour(
                     cell.token(),
-                    cursor_bloom(position, frame_cursor, bloom_radius),
                     selected,
                     selected && cursor_visible,
+                    cursor_colour,
                 );
 
                 cells.push(CellPaint {
@@ -503,7 +506,7 @@ mod tests {
         blank_token_index,
     };
     use crate::grid_viewport::VisiblePositions;
-    use crate::marks::{cursor_bloom, sector_left_strength, sector_top_strength};
+    use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::style::{PALETTE, cell_visuals, sector_line};
     use egui::Color32;
     use orcvs::source::Token;
@@ -530,8 +533,8 @@ mod tests {
     ///
     /// Every Position answers the Cell the Grid indexes, not its neighbour.
     ///
-    /// The Cursor's bloom grades the border across the Grid and the written
-    /// Cells carry Glyph colours of their own, so an answer off by one Cell —
+    /// The Cursor grades its selected Cell and written Cells carry Glyph
+    /// colours of their own, so an answer off by one Cell —
     /// in either axis — differs from the answer asked for.
     ///
     #[tokio::test]
@@ -548,17 +551,11 @@ mod tests {
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
         let cursor = frame.cursor();
-        let bloom_radius = frame.cursor_bloom_radius().cells();
 
         for cell in frame.cells() {
             let position = cell.position();
             let selected = position == cursor;
-            let visuals = cell_visuals(
-                cell.token(),
-                cursor_bloom(position, cursor, bloom_radius),
-                selected,
-                selected && frame.cursor_visible(),
-            );
+            let visuals = cell_visuals(cell.token(), selected, selected && frame.cursor_visible());
             let painted = paint.at(position);
 
             assert_eq!(
@@ -703,7 +700,6 @@ mod tests {
     ///
     /// What an empty Cell shows is the Token's blank spelling, read once per
     /// Render Frame rather than restated per Cell.
-    ///
     #[test]
     fn a_blank_cell_shows_what_its_token_spells() {
         for token in BLANK_TOKENS {
@@ -792,8 +788,7 @@ mod tests {
     ///
     /// `background_runs` folds over the per-Cell backgrounds alone, so the
     /// rest of each Cell is filler: stating it from a Render Frame would make
-    /// every case below an exercise in arranging a Cursor bloom to land where
-    /// the case needs it.
+    /// every case below an exercise in arranging production state around it.
     ///
     fn paint_of(rows: &[&[Option<Color32>]]) -> Paint {
         let grid = Grid::new(rows[0].len(), rows.len());
@@ -831,8 +826,8 @@ mod tests {
 
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
-        let first = PALETTE.bloom_core_fill;
-        let second = PALETTE.bloom_mid_fill;
+        let first = PALETTE.selection_fill;
+        let second = PALETTE.source;
         let paint = paint_of(&[&[Some(first), Some(first), Some(second), Some(second)]]);
 
         assert_eq!(
@@ -843,7 +838,7 @@ mod tests {
 
     #[test]
     fn a_run_ends_where_the_next_cell_wants_no_background() {
-        let colour = PALETTE.bloom_core_fill;
+        let colour = PALETTE.selection_fill;
         let paint = paint_of(&[&[Some(colour), Some(colour), None, Some(colour)]]);
 
         assert_eq!(
@@ -859,7 +854,7 @@ mod tests {
     ///
     #[test]
     fn a_run_ends_at_the_end_of_its_row() {
-        let colour = PALETTE.bloom_core_fill;
+        let colour = PALETTE.selection_fill;
         let paint = paint_of(&[&[Some(colour), Some(colour)], &[Some(colour), Some(colour)]]);
 
         assert_eq!(
@@ -878,74 +873,6 @@ mod tests {
         let paint = paint_of(&[&[None, Some(colour), None]]);
 
         assert_eq!(paint.background_runs(), vec![run(colour, 0, 1..2)]);
-    }
-
-    ///
-    /// Consecutive Cells in a row that want the same background are one run,
-    /// over a real Render Frame rather than a fixture.
-    ///
-    /// The runs this Grid asks for are written out rather than folded. Deriving
-    /// the expectation with the same match the fold runs would check that the
-    /// answer agrees with the rule without ever checking the rule: invert the
-    /// guard in both places and the test still passes. These spans are read off
-    /// the 8 by 8 default Grid instead, so the fold's arm structure is pinned
-    /// by something outside the code under test.
-    ///
-    /// The Cursor rests at 0,0 and its bloom grades outwards through four
-    /// bands, which is why the rows nearest it break into short runs while the
-    /// far rows run whole. Row 7 carries the bloom's hashed outer edge, so its
-    /// Cells alternate instead of joining up — that ragged boundary is the
-    /// Render Frame's, and a run that swallowed it would be caught here.
-    ///
-    /// Columns and no geometry: what rectangle a run becomes is the viewport's
-    /// arithmetic and is asserted in `console.rs`, where a viewport exists.
-    ///
-    #[tokio::test]
-    async fn consecutive_cells_sharing_a_background_are_one_rectangle() {
-        let orcvs = running_orcvs(8, 8);
-        let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-
-        let expected = vec![
-            run(PALETTE.selection_fill, 0, 0..1),
-            run(PALETTE.bloom_core_fill, 0, 1..2),
-            run(PALETTE.bloom_inner_fill, 0, 2..3),
-            run(PALETTE.bloom_mid_fill, 0, 3..4),
-            run(PALETTE.bloom_outer_fill, 0, 4..7),
-            run(PALETTE.bloom_inner_fill, 1, 0..1),
-            run(PALETTE.bloom_core_fill, 1, 1..2),
-            run(PALETTE.bloom_mid_fill, 1, 2..5),
-            run(PALETTE.bloom_outer_fill, 1, 5..7),
-            run(PALETTE.bloom_mid_fill, 2, 0..1),
-            run(PALETTE.bloom_inner_fill, 2, 1..2),
-            run(PALETTE.bloom_mid_fill, 2, 2..4),
-            run(PALETTE.bloom_outer_fill, 2, 4..7),
-            run(PALETTE.bloom_mid_fill, 3, 0..5),
-            run(PALETTE.bloom_outer_fill, 3, 5..7),
-            run(PALETTE.bloom_mid_fill, 4, 0..1),
-            run(PALETTE.bloom_outer_fill, 4, 1..2),
-            run(PALETTE.bloom_mid_fill, 4, 2..4),
-            run(PALETTE.bloom_outer_fill, 4, 4..7),
-            run(PALETTE.bloom_outer_fill, 5, 0..7),
-            run(PALETTE.bloom_outer_fill, 6, 0..7),
-            run(PALETTE.bloom_outer_fill, 7, 1..2),
-            run(PALETTE.bloom_outer_fill, 7, 3..4),
-            run(PALETTE.bloom_outer_fill, 7, 5..6),
-            run(PALETTE.bloom_outer_fill, 7, 7..8),
-        ];
-        // The Cells those runs replace, counted off the same table.
-        let filled: usize = expected.iter().map(|run| run.columns.len()).sum();
-
-        assert!(
-            expected.iter().any(|run| run.columns.len() > 1),
-            "no run covered more than one Cell, so nothing was coalesced"
-        );
-        assert!(
-            expected.len() < filled,
-            "{} runs for {filled} filled Cells is no saving",
-            expected.len()
-        );
-        assert_eq!(paint.background_runs(), expected);
     }
 
     #[test]
@@ -967,10 +894,8 @@ mod tests {
     ///
     /// The second assertion is the half that matters for correctness. Nothing
     /// the derivation reads reaches past its own Cell, so a culled Paint has
-    /// to answer what an unculled one answers. The Cursor is placed outside
-    /// the drawn range and near enough for its bloom to reach inside it, which
-    /// is the case that would catch a derivation whose answer depended on
-    /// where the walk started.
+    /// to answer what an unculled one answers even when the Cursor is outside
+    /// the drawn range.
     ///
     #[tokio::test]
     async fn a_paint_decides_the_drawn_cells_and_answers_them_unchanged() {
@@ -1004,10 +929,7 @@ mod tests {
             graded += usize::from(cell.background.is_some());
         }
 
-        assert!(
-            graded > 0,
-            "the Cursor's bloom reached no drawn Cell, so nothing here would notice a derivation that read its neighbours"
-        );
+        assert_eq!(graded, 0, "Cursor effects belong to console geometry");
     }
 
     ///
@@ -1045,16 +967,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert!(
-            clipped.iter().any(|run| run.columns.len() > 1),
-            "nothing was coalesced, so the two folds agree about nothing"
-        );
-        assert!(
-            clipped.iter().any(|run| {
-                run.columns.start == drawn.columns.start || run.columns.end == drawn.columns.end
-            }),
-            "no run reached an edge of the drawn range, which is the only place the two folds could part"
-        );
         assert_eq!(
             Paint::derive(FramePaint::new(&frame, drawn)).background_runs(),
             clipped

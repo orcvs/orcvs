@@ -168,7 +168,7 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
         let playback = PlaybackEngine::new(source.clone(), adapter)?;
 
         Ok(Self {
-            cursor: Cursor::new(grid.origin(), opts.cursor_delay),
+            cursor: Cursor::new(grid.origin()),
             grid,
             opts,
             source,
@@ -286,14 +286,6 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
                 cursor_bloom_radius: self.opts.cursor_bloom_radius,
             },
         )
-    }
-
-    pub fn advance_cursor_blink(&mut self) {
-        self.cursor.blink();
-    }
-
-    pub fn remaining_cursor_blink_delay(&self) -> Duration {
-        self.cursor.remaining_blink_delay()
     }
 
     ///
@@ -639,24 +631,28 @@ mod test {
     async fn render_frame_answers_the_cursor_it_was_derived_for() {
         let mut app = Orcvs::new(4, 3).expect("the test runtime");
         let origin = app.grid.origin();
-        assert_eq!(app.render_frame().cursor(), origin);
+        let initial = app.render_frame();
+        assert_eq!(initial.cursor(), origin);
+        assert!(!initial.cursor_visible());
 
         let moved = app.grid.position(2, 1).unwrap();
         app.select(moved);
-        assert_eq!(app.render_frame().cursor(), moved);
+        let moved_frame = app.render_frame();
+        assert_eq!(moved_frame.cursor(), moved);
+        assert!(!moved_frame.cursor_visible());
     }
 
     #[tokio::test]
-    async fn deriving_a_render_frame_does_not_advance_cursor_blink_state() {
+    async fn deriving_a_render_frame_does_not_change_cursor_visibility() {
         let mut app = orcvs();
-        app.cursor.on = true;
+        app.cursor.on = false;
 
         let first = app.render_frame();
         let second = app.render_frame();
 
-        assert!(first.cursor_visible());
-        assert!(second.cursor_visible());
-        assert!(app.cursor.on);
+        assert!(!first.cursor_visible());
+        assert!(!second.cursor_visible());
+        assert!(!app.cursor.on);
     }
 
     ///
