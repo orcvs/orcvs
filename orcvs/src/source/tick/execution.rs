@@ -790,47 +790,30 @@ impl<'a> Execution<'a> {
     ///
     fn lock_portal(&mut self, index: usize) -> ControlFlow<Diagnostic> {
         let node = &self.lookup.nodes()[index];
-        let Some(coords) = node.function.output_portal() else {
-            return Continue(());
-        };
-        let Ok(portal) = Portal::named(self.grid, node.anchor, coords) else {
-            return Continue(());
-        };
-        let target = portal.destination();
-        if let Some(root) = self.lookup.root_at(target) {
-            if self
-                .lookup
-                .descendants(root)
-                .any(|descendant| self.states[descendant].attempted)
-            {
-                return Break(diagnose(
+        match &self.lookup.locks[index] {
+            Some(super::LockTarget::Root(target)) => {
+                if target
+                    .clone()
+                    .any(|descendant| self.states[descendant].attempted)
+                {
+                    return Break(diagnose(
+                        node,
+                        "spatial output reached an executed computation; Tick effects rejected",
+                    ));
+                }
+                for descendant in target.clone() {
+                    self.states[descendant].suppressed = true;
+                }
+                self.effects
+                    .push(Effect::Lock(self.lookup.nodes()[target.start].anchor));
+            }
+            Some(super::LockTarget::Occupied) => {
+                self.effects.push(Effect::Diagnose(diagnose(
                     node,
-                    "spatial output reached an executed computation; Tick effects rejected",
-                ));
+                    format!("{} target is not an Expression root", node.function),
+                )));
             }
-            for descendant in self.lookup.descendants(root) {
-                self.states[descendant].suppressed = true;
-            }
-            self.effects
-                .push(Effect::Lock(self.lookup.nodes()[root].anchor));
-            return Continue(());
-        }
-        // Asked of the Language Map rather than working Source: Bang cleanup
-        // clears a standalone `**` before any Turn, and a Comment never writes,
-        // so the Snapshot is what still names an occupied non-root after those
-        // Cells look empty. A root anchored at the destination was already
-        // offered the lock; Occupancy::Root here is a covering root that is
-        // not aligned with this Portal, and Halt diagnoses it with the rest.
-        if !matches!(
-            portal.occupancy(self.map, super::SCALAR_WIDTH, |anchor| {
-                self.lookup.root_at(anchor)
-            }),
-            Occupancy::Empty
-        ) {
-            self.effects.push(Effect::Diagnose(diagnose(
-                node,
-                format!("{} target is not an Expression root", node.function),
-            )));
+            None | Some(super::LockTarget::Empty | super::LockTarget::Outside) => {}
         }
         Continue(())
     }
@@ -957,7 +940,7 @@ pub(super) mod stated {
     ) -> (TickPlan, Vec<ComputationState>) {
         let (mut nodes, diagnostics) = computations(grid, map);
         carry(grid, &mut nodes, destinations);
-        let mut lookup = Lookup::new(grid, nodes);
+        let mut lookup = Lookup::new(grid, nodes, map);
         // Every fixture error the schedule can be asked about is asked here,
         // before an order exists. A Source with a cycle answers `Err` from
         // `order_turns` and a plan carrying nothing but diagnostics, which is
