@@ -2363,56 +2363,61 @@ mod tests {
     }
 
     ///
-    /// The beat flash is published with the Tick. If those publishes jitter,
-    /// the Panel is showing a clock that is already uneven. If they do not,
-    /// the uneven `**` is a paint-loop problem, not the engine.
+    /// The beat flash is published with the Tick, one publish per grid
+    /// deadline. If those publishes were uneven, the Panel would be showing a
+    /// clock that is already uneven; since they are not, an uneven `**` is a
+    /// paint-loop problem, not the engine.
     ///
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn published_tick_gaps_at_120_bpm_stay_near_the_period() {
+    /// Paused time makes the spacing exact rather than sampled: nothing is
+    /// published a microsecond before a deadline, and the Tick and its beat are
+    /// published at it. Wall-clock gaps between wake-ups on a shared runtime
+    /// would measure the host's scheduler as much as this engine.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn published_ticks_at_120_bpm_land_one_period_apart() {
         let engine = engine(
             SourceCommander::new(Grid::new(1, 1)),
             InMemoryOutputAdapter::default(),
         );
-        let mut rx = engine.observation.clone();
         let period = Duration::from_millis(125);
         engine.start(period).unwrap();
-
-        let mut tick_ats = Vec::new();
-        let mut beat_ons = Vec::new();
-        let mut last_tick = None;
-        let mut last_on = false;
-        let origin = std::time::Instant::now();
-        while origin.elapsed() < Duration::from_millis(1600) {
-            if rx.changed().await.is_err() {
-                break;
-            }
-            let obs = *rx.borrow();
-            let at = origin.elapsed();
-            if last_tick != Some(obs.tick) {
-                tick_ats.push(at);
-                last_tick = Some(obs.tick);
-            }
-            if obs.on_beat && !last_on {
-                beat_ons.push(at);
-            }
-            last_on = obs.on_beat;
-        }
-        engine.stop();
-
-        let gaps: Vec<Duration> = tick_ats.windows(2).map(|pair| pair[1] - pair[0]).collect();
-        let settled = if gaps.len() > 2 {
-            &gaps[2..]
-        } else {
-            &gaps[..]
-        };
-        let min = settled.iter().copied().min().unwrap_or_default();
-        let max = settled.iter().copied().max().unwrap_or_default();
-        let beat_gaps: Vec<Duration> = beat_ons.windows(2).map(|pair| pair[1] - pair[0]).collect();
-        assert!(
-            !settled.is_empty() && max.saturating_sub(min) < Duration::from_millis(20),
-            "tick jitter min={min:?} max={max:?} gaps={settled:?} beat_ons={beat_ons:?} beat_gaps={beat_gaps:?}"
+        settle(&engine).await;
+        assert_eq!(
+            engine.observation().tick,
+            Tick::new(1),
+            "the first Tick is immediate"
         );
+
+        for published in 2..=13u64 {
+            time::advance(period - Duration::from_micros(1)).await;
+            settle(&engine).await;
+            assert_eq!(
+                engine.observation().tick,
+                Tick::new(published - 1),
+                "Tick {published} was published before its deadline"
+            );
+
+            time::advance(Duration::from_micros(1)).await;
+            settle(&engine).await;
+            let observation = engine.observation();
+            assert_eq!(
+                observation.tick,
+                Tick::new(published),
+                "Tick {published} was not published at its deadline"
+            );
+            assert_eq!(
+                observation.on_beat,
+                Bpm::on_beat(Tick::new(published)),
+                "the beat was not published with Tick {published}"
+            );
+        }
+        assert!(
+            engine.drain_diagnostics().is_empty(),
+            "a run on its grid reported a diagnostic"
+        );
+
+        engine.stop();
+        settle(&engine).await;
     }
 
     #[test]
