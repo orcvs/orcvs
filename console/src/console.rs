@@ -1159,6 +1159,9 @@ impl eframe::App for Console {
                             ui.colored_label(ui.visuals().error_fg_color, status);
                         }
                     });
+                    if self.midi.refresh_pending() {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+                    }
                 }
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");

@@ -26,7 +26,7 @@ default = ["native-midi"]
 # holds a backend that offers no destination and refuses to connect. The tree
 # then carries neither `midir` nor a system audio library.
 # `orcvs/src/native_midi.rs` is the one place that chooses between the two.
-native-midi = ["dep:midir"]
+native-midi = ["dep:midir", "dep:dispatch"]
 persistence = ["dep:serde"]
 
 [dependencies]
@@ -56,7 +56,7 @@ midir = { version = "0.11", optional = true }
 # `dispatch` reaches the main queue from the Playback task without a new MIDI
 # dependency. See `native_midi::backend` on macOS.
 [target.'cfg(target_os = "macos")'.dependencies]
-dispatch = "0.2"
+dispatch = { version = "0.2", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }

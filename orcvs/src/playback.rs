@@ -953,7 +953,38 @@ impl PlaybackEngine {
     /// [`PlaybackStartError::RuntimeUnavailable`] is answered here rather than
     /// at the first `start`.
     ///
-    pub fn new<A: OutputAdapter + Send + 'static>(
+    /// Pass an [`OutputOnlyAdapter`]: [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter)
+    /// is rejected here because its destination publication has no publisher on
+    /// this path. Use [`Self::with_midi_output_adapter`] for selectable MIDI.
+    ///
+    /// ```compile_fail
+    /// use orcvs::app::SourceCommander;
+    /// use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError, MidiOutputAdapter};
+    /// use orcvs::grid::Grid;
+    /// use orcvs::playback::PlaybackEngine;
+    ///
+    /// struct SilentBackend;
+    ///
+    /// impl MidiBackend for SilentBackend {
+    ///     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+    ///         Ok(Vec::new())
+    ///     }
+    ///
+    ///     fn connect(
+    ///         &mut self,
+    ///         _destination_id: &MidiDestinationId,
+    ///     ) -> Result<Box<dyn MidiConnection>, MidiError> {
+    ///         Err(MidiError::new("no device"))
+    ///     }
+    /// }
+    ///
+    /// let _engine = PlaybackEngine::new(
+    ///     SourceCommander::new(Grid::new(1, 1)),
+    ///     MidiOutputAdapter::new(SilentBackend),
+    /// )
+    /// .unwrap();
+    /// ```
+    pub fn new<A: OutputOnlyAdapter + Send + 'static>(
         source: SourceCommander,
         adapter: A,
     ) -> Result<Self, PlaybackStartError> {
@@ -1638,6 +1669,8 @@ mod tests {
         }
     }
 
+    impl OutputOnlyAdapter for RecordingAdapter {}
+
     ///
     /// An adapter that refuses every submission and every safety action with
     /// the same error, as a device that is gone refuses everything sent to it.
@@ -1661,6 +1694,8 @@ mod tests {
             Err(OutputAdapterError::new(Self::ERROR))
         }
     }
+
+    impl OutputOnlyAdapter for RefusingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, mpsc as std_mpsc};
@@ -1798,6 +1833,9 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for DoublyPanickingOutputAdapter {}
+
+    #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for SilencePanickingOutputAdapter {
         fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
             Ok(())
@@ -1807,6 +1845,9 @@ mod tests {
             panic!("test safety panic");
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for SilencePanickingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for PanickingOutputAdapter {
@@ -1819,6 +1860,9 @@ mod tests {
             Ok(())
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for PanickingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for BlockingOutputAdapter {
@@ -1858,6 +1902,9 @@ mod tests {
             Ok(())
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for BlockingOutputAdapter {}
 
     fn write(source: &SourceCommander, start: usize, content: &str) {
         let grid = source.grid();

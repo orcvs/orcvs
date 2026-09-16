@@ -18,6 +18,16 @@ pub(crate) struct MidiDeviceSelection {
     /// be found and overwriting whatever the user should be reading instead.
     ///
     reported_discovery_failure: Option<String>,
+    ///
+    /// Whether a refresh was asked for and the published list has not yet
+    /// changed.
+    ///
+    refresh_pending: bool,
+    ///
+    /// The publication-unavailability message this selection has already put
+    /// on the status line.
+    ///
+    reported_unavailability: Option<String>,
 }
 
 impl MidiDeviceSelection {
@@ -27,6 +37,8 @@ impl MidiDeviceSelection {
             destinations: Vec::new(),
             status: None,
             reported_discovery_failure: None,
+            refresh_pending: false,
+            reported_unavailability: None,
         }
     }
 
@@ -40,9 +52,14 @@ impl MidiDeviceSelection {
     /// `destinations`, which every frame that draws the menu reads.
     ///
     pub(crate) fn refresh_destinations(&mut self) {
-        if let Err(error) = self.selection.refresh_destinations() {
-            self.status = Some(error.message);
+        match self.selection.refresh_destinations() {
+            Ok(()) => self.refresh_pending = true,
+            Err(error) => self.status = Some(error.message),
         }
+    }
+
+    pub(crate) fn refresh_pending(&self) -> bool {
+        self.refresh_pending
     }
 
     ///
@@ -57,6 +74,7 @@ impl MidiDeviceSelection {
             Ok(destinations) => {
                 self.destinations = destinations;
                 self.reported_discovery_failure = None;
+                self.refresh_pending = false;
             }
             Err(error) => {
                 // Read every frame the menu is open, and twice per frame at
@@ -88,9 +106,17 @@ impl MidiDeviceSelection {
 
     pub(crate) fn selected_destination_id(&mut self) -> Option<MidiDestinationId> {
         match self.selection.selected_destination_id() {
-            Ok(destination_id) => destination_id,
+            Ok(destination_id) => {
+                self.reported_unavailability = None;
+                destination_id
+            }
             Err(error) => {
-                self.status = Some(error.message);
+                if self.reported_unavailability.as_deref() != Some(error.message.as_str()) {
+                    self.reported_unavailability = Some(error.message.clone());
+                    if self.status.is_none() {
+                        self.status = Some(error.message);
+                    }
+                }
                 None
             }
         }
@@ -417,6 +443,32 @@ mod tests {
             midi.status(),
             Some("Tick period is too long to schedule a deadline for")
         );
+    }
+
+    #[tokio::test]
+    async fn refresh_pending_until_the_published_list_changes() {
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
+
+        midi.refresh_destinations();
+        assert!(midi.refresh_pending());
+
+        settle_until!(!midi.destinations().is_empty());
+        assert!(!midi.refresh_pending());
+    }
+
+    #[tokio::test]
+    async fn drawing_the_menu_does_not_hide_an_output_failure_behind_stale_unavailability() {
+        let (orcvs, mut midi) = selection_for(FakeBackend);
+        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
+            OutputAdapterError::new("device lost"),
+        )]);
+
+        drop(orcvs);
+
+        let _ = midi.selected_destination_id();
+        let _ = midi.selected_destination_id();
+
+        assert_eq!(midi.status(), Some("device lost"));
     }
 
     #[tokio::test]

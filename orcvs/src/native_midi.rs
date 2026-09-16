@@ -67,7 +67,7 @@ pub fn output_adapter() -> NativeMidiOutputAdapter {
     any(target_os = "macos", target_os = "windows", target_os = "linux")
 ))]
 mod backend {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use midir::{MidiOutput, MidiOutputConnection};
 
@@ -80,26 +80,27 @@ mod backend {
     ///
     /// The platform MIDI service, reached through `midir`.
     ///
-    /// One `MidiOutput` is kept for enumeration and never consumed by
-    /// `connect`, because repeatedly creating a fresh client on macOS returns
-    /// a stale port list until the process restarts. `connect` opens its own
-    /// client for the one connection it needs.
+    /// One `MidiOutput` is kept for enumeration and for finding the port to
+    /// connect, because repeatedly creating a fresh client on macOS returns a
+    /// stale port list until the process restarts. `connect` consumes that
+    /// client to open the connection; the next enumeration or connect creates
+    /// a fresh one.
     ///
     pub struct NativeMidiBackend {
-        enumeration: Mutex<Option<MidiOutput>>,
+        enumeration: Arc<Mutex<Option<MidiOutput>>>,
     }
 
     impl Default for NativeMidiBackend {
         fn default() -> Self {
             Self {
-                enumeration: Mutex::new(None),
+                enumeration: Arc::new(Mutex::new(None)),
             }
         }
     }
 
     impl NativeMidiBackend {
         fn enumerate(&self) -> Result<Vec<MidiDestination>, MidiError> {
-            let enumeration = &self.enumeration;
+            let enumeration = self.enumeration.clone();
             platform_sync(move || {
                 let mut guard = enumeration
                     .lock()
@@ -118,23 +119,6 @@ mod backend {
                     .collect()
             })
         }
-
-        fn connect(
-            destination_id: &MidiDestinationId,
-        ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            let destination_id = destination_id.clone();
-            platform_sync(move || {
-                let output = MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?;
-                let port = output
-                    .find_port_by_id(destination_id.as_str())
-                    .ok_or_else(|| {
-                        MidiError::new("the selected MIDI destination is no longer available")
-                    })?;
-                let port_name = format!("{MIDI_CLIENT_NAME} output");
-                let connection = output.connect(&port, &port_name).map_err(midi_error)?;
-                Ok(Box::new(MidirConnection(connection)) as Box<dyn MidiConnection>)
-            })
-        }
     }
 
     impl MidiBackend for NativeMidiBackend {
@@ -146,7 +130,29 @@ mod backend {
             &mut self,
             destination_id: &MidiDestinationId,
         ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            Self::connect(destination_id)
+            let destination_id = destination_id.clone();
+            let enumeration = self.enumeration.clone();
+            platform_sync(move || {
+                let mut guard = enumeration
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if guard.is_none() {
+                    *guard = Some(MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?);
+                }
+                let output = guard.take().expect("enumeration client for connect");
+                let port = match output.find_port_by_id(destination_id.as_str()) {
+                    Some(port) => port,
+                    None => {
+                        *guard = Some(output);
+                        return Err(MidiError::new(
+                            "the selected MIDI destination is no longer available",
+                        ));
+                    }
+                };
+                let port_name = format!("{MIDI_CLIENT_NAME} output");
+                let connection = output.connect(&port, &port_name).map_err(midi_error)?;
+                Ok(Box::new(MidirConnection(connection)) as Box<dyn MidiConnection>)
+            })
         }
     }
 
@@ -155,16 +161,88 @@ mod backend {
     ///
     /// On macOS the Playback task reaches this from a worker thread; the
     /// console's main thread owns the run loop `midir` enumerates against.
-    /// Elsewhere the call runs inline.
+    /// When that queue is already pumping, the work is dispatched there and
+    /// waited on briefly; when nothing pumps the main queue — a headless
+    /// library consumer, or shutdown after the GUI has stopped — the wait
+    /// times out and the work runs on the caller's thread instead of blocking
+    /// forever. On the application main thread the work runs inline, because
+    /// `exec_sync` onto the same queue would deadlock. Elsewhere the call runs
+    /// inline.
     ///
-    fn platform_sync<R: Send>(operation: impl FnOnce() -> R + Send) -> R {
+    fn platform_sync<R: Send + 'static>(operation: impl FnOnce() -> R + Send + 'static) -> R {
         #[cfg(target_os = "macos")]
         {
-            dispatch::Queue::main().exec_sync(operation)
+            if on_application_main_thread() {
+                return operation();
+            }
+
+            const MAIN_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(operation)));
+            let slot_for_async = slot.clone();
+            dispatch::Queue::main().exec_async(move || {
+                if let Some(operation) = slot_for_async.lock().unwrap().take() {
+                    let _ = tx.send(operation());
+                }
+            });
+
+            match rx.recv_timeout(MAIN_QUEUE_WAIT) {
+                Ok(result) => result,
+                Err(_) => slot
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("platform_sync operation was not run on the main queue")(
+                ),
+            }
         }
         #[cfg(not(target_os = "macos"))]
         {
             operation()
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn on_application_main_thread() -> bool {
+        unsafe extern "C" {
+            fn pthread_main_np() -> std::ffi::c_int;
+        }
+        // SAFETY: `pthread_main_np` is a read-only query with no preconditions.
+        unsafe { pthread_main_np() != 0 }
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    fn platform_sync_for_test<R: Send + 'static>(
+        operation: impl FnOnce() -> R + Send + 'static,
+    ) -> R {
+        platform_sync(operation)
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    mod platform_sync_tests {
+        use super::platform_sync_for_test;
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        #[test]
+        fn completes_without_a_main_queue_pump() {
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let answer = platform_sync_for_test(|| 42);
+                tx.send(answer).ok();
+            });
+
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < deadline {
+                if let Ok(answer) = rx.try_recv() {
+                    assert_eq!(answer, 42);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+
+            panic!("platform_sync blocked forever without a main-queue pump");
         }
     }
 

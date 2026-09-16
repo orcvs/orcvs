@@ -271,8 +271,8 @@ cargo deny --locked check
 # tree` resolves the host target, so the Linux and macOS runners between them
 # check this against both libraries a native build could otherwise link.
 native_midi_tree="$(cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked)"
-if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|alsa|alsa-sys|coremidi|coremidi-sys) '; then
-  echo 'orcvs without native-midi still carries midir or a system audio library' >&2
+if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|alsa|alsa-sys|coremidi|coremidi-sys|dispatch) '; then
+  echo 'orcvs without native-midi still carries midir, dispatch, or a system audio library' >&2
   exit 1
 fi
 '''
