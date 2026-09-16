@@ -1,9 +1,13 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use orcvs::app::{InputEvent, InputKey, Orcvs};
 use orcvs::midi::{
     MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError, MidiOutputAdapter,
 };
+use orcvs::playback::PlaybackDiagnostic;
 
 #[derive(Default)]
 struct FakeState {
@@ -38,6 +42,37 @@ impl MidiConnection for FakeConnection {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
         self.state.lock().unwrap().messages.push(message.to_vec());
         Ok(())
+    }
+}
+
+struct PanickingConnection {
+    delivery_started: Arc<AtomicBool>,
+}
+
+impl MidiConnection for PanickingConnection {
+    fn send(&mut self, _message: &[u8]) -> Result<(), MidiError> {
+        self.delivery_started.store(true, Ordering::SeqCst);
+        panic!("adapter death");
+    }
+}
+
+struct PanickingBackend {
+    delivery_started: Arc<AtomicBool>,
+}
+
+impl MidiBackend for PanickingBackend {
+    fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+        Ok(vec![MidiDestination::new("studio", "Studio Synth")])
+    }
+
+    fn connect(
+        &mut self,
+        destination_id: &MidiDestinationId,
+    ) -> Result<Box<dyn MidiConnection>, MidiError> {
+        assert_eq!(destination_id, &MidiDestinationId::new("studio"));
+        Ok(Box::new(PanickingConnection {
+            delivery_started: self.delivery_started.clone(),
+        }))
     }
 }
 
@@ -124,6 +159,55 @@ async fn selection_observations_become_unavailable_as_soon_as_the_owner_is_dropp
     );
     let unavailable = MidiError::new("running Orcvs is no longer available");
     assert_eq!(observations, (Err(unavailable.clone()), Err(unavailable)));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn selection_requests_fail_when_the_engine_task_has_ended() {
+    let delivery_started = Arc::new(AtomicBool::new(false));
+    let mut orcvs = Orcvs::with_midi_output_adapter(
+        10,
+        6,
+        MidiOutputAdapter::new(PanickingBackend {
+            delivery_started: delivery_started.clone(),
+        }),
+    )
+    .expect("the test runtime");
+    let midi = orcvs.midi_selection_handle();
+    midi.refresh_destinations().unwrap();
+    midi.select(&MidiDestinationId::new("studio")).unwrap();
+    for content in ".=0101".chars() {
+        orcvs.write(&content.to_string());
+    }
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown); 2]);
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 6]);
+    for content in "!>007FC4".chars() {
+        orcvs.write(&content.to_string());
+    }
+
+    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+
+    let mut ended = false;
+    for _ in 0..1_000 {
+        if delivery_started.load(Ordering::SeqCst)
+            && orcvs
+                .drain_playback_diagnostics()
+                .iter()
+                .any(|diagnostic| matches!(diagnostic, PlaybackDiagnostic::ClockFailure { .. }))
+        {
+            ended = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    assert!(ended, "the engine never reported that its run ended");
+
+    let unavailable = MidiError::new("running Orcvs is no longer available");
+    assert_eq!(midi.refresh_destinations(), Err(unavailable.clone()));
+    assert_eq!(
+        midi.select(&MidiDestinationId::new("studio")),
+        Err(unavailable)
+    );
 }
 
 #[tokio::test(start_paused = true)]

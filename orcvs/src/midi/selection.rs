@@ -43,9 +43,11 @@ pub(crate) enum MidiRequest {
 /// The MIDI configuration capability, without Playback lifecycle control.
 ///
 /// It holds a weak sender rather than a clone of one, so that it cannot keep
-/// the engine's task alive: every method answers "running Orcvs is no longer
-/// available" once the last `PlaybackEngine` has been dropped, which is the
-/// guarantee the strong senders and this weak one draw between them.
+/// the engine's task alive. Every method answers "running Orcvs is no longer
+/// available" once the last `PlaybackEngine` has been dropped, or once the
+/// publication channel reports that the task has ended while its owner still
+/// lives — the weak sender and the publication channel draw that guarantee
+/// together.
 ///
 #[derive(Clone)]
 pub struct MidiSelectionHandle {
@@ -78,6 +80,7 @@ impl MidiSelectionHandle {
     }
 
     fn request(&self, request: MidiRequest) -> Result<(), crate::midi::MidiError> {
+        self.ensure_available()?;
         let commands = self
             .commands
             .upgrade()
@@ -146,5 +149,26 @@ impl MidiSelectionHandle {
     ) -> Result<Option<crate::midi::MidiDestinationId>, crate::midi::MidiError> {
         self.ensure_available()?;
         Ok(self.destinations.borrow().selected.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requests_honour_publication_unavailability() {
+        let (commands, _receiver) = mpsc::unbounded_channel();
+        let weak = commands.downgrade();
+        let (destinations, destinations_rx) = watch::channel(MidiDestinations::default());
+        drop(destinations);
+
+        let handle = MidiSelectionHandle::new(weak, destinations_rx);
+        let unavailable = MidiError::new("running Orcvs is no longer available");
+        assert_eq!(handle.refresh_destinations(), Err(unavailable.clone()));
+        assert_eq!(
+            handle.select(&MidiDestinationId::new("studio")),
+            Err(unavailable)
+        );
     }
 }

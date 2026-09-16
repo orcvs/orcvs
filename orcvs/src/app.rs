@@ -7,7 +7,7 @@ use crate::opts::{Bpm, Opts};
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 use crate::native_midi;
-use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
+use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::{Source, SourceCommander};
 
@@ -119,14 +119,39 @@ impl Orcvs {
 
 impl Orcvs<()> {
     /// Builds output-only Playback, with no MIDI selection capability.
-    /// Use [`Orcvs::with_midi_output_adapter`] for a selectable MIDI output.
+    ///
+    /// Pass an [`OutputOnlyAdapter`]: [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter)
+    /// is rejected here because its destination publication has no publisher on
+    /// this path. Use [`Orcvs::with_midi_output_adapter`] for selectable MIDI.
     ///
     /// ```compile_fail
     /// use orcvs::{app::Orcvs, playback::InMemoryOutputAdapter};
     /// let app = Orcvs::with_output_adapter(1, 1, InMemoryOutputAdapter::default()).unwrap();
     /// app.midi_selection_handle();
     /// ```
-    pub fn with_output_adapter<A: OutputAdapter + Send + 'static>(
+    ///
+    /// ```compile_fail
+    /// use orcvs::app::Orcvs;
+    /// use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError, MidiOutputAdapter};
+    ///
+    /// struct SilentBackend;
+    ///
+    /// impl MidiBackend for SilentBackend {
+    ///     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+    ///         Ok(Vec::new())
+    ///     }
+    ///
+    ///     fn connect(
+    ///         &mut self,
+    ///         _destination_id: &MidiDestinationId,
+    ///     ) -> Result<Box<dyn MidiConnection>, MidiError> {
+    ///         Err(MidiError::new("no device"))
+    ///     }
+    /// }
+    ///
+    /// let _orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new(SilentBackend)).unwrap();
+    /// ```
+    pub fn with_output_adapter<A: OutputOnlyAdapter + Send + 'static>(
         cols: usize,
         rows: usize,
         adapter: A,
@@ -163,7 +188,7 @@ impl Orcvs<()> {
     /// assert_eq!(frame.cursor(), frame.grid().origin());
     /// ```
     ///
-    pub fn with_source_and_output_adapter<A: OutputAdapter + Send + 'static>(
+    pub fn with_source_and_output_adapter<A: OutputOnlyAdapter + Send + 'static>(
         source: Source,
         adapter: A,
     ) -> Result<Self, PlaybackStartError> {
@@ -444,6 +469,8 @@ mod test {
     struct PanickingOutputAdapter;
 
     #[cfg(not(target_arch = "wasm32"))]
+    impl crate::playback::OutputOnlyAdapter for PanickingOutputAdapter {}
+
     impl crate::playback::OutputAdapter for PanickingOutputAdapter {
         fn submit(
             &mut self,

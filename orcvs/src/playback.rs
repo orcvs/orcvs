@@ -73,6 +73,15 @@ pub trait OutputAdapter {
     fn safety_reset(&mut self) -> Result<(), OutputAdapterError>;
 }
 
+///
+/// An output adapter that does not publish MIDI destination state.
+///
+/// [`Orcvs::with_output_adapter`] accepts only these adapters.
+/// [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter) is excluded: use
+/// [`Orcvs::with_midi_output_adapter`](crate::app::Orcvs::with_midi_output_adapter).
+///
+pub trait OutputOnlyAdapter: OutputAdapter {}
+
 fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -311,6 +320,8 @@ impl InMemoryOutputAdapter {
         self.state.lock().unwrap().next_failure = Some(OutputAdapterError::new(message));
     }
 }
+
+impl OutputOnlyAdapter for InMemoryOutputAdapter {}
 
 impl OutputAdapter for InMemoryOutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {

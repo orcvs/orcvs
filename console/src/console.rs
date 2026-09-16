@@ -1142,6 +1142,7 @@ impl eframe::App for Console {
                     ui.menu_button("MIDI", |ui| {
                         if ui.button("Refresh destinations").clicked() {
                             self.midi.refresh_destinations();
+                            ui.ctx().request_repaint();
                         }
                         let selected = self.midi.selected_destination_id();
                         for destination in self.midi.destinations().to_vec() {

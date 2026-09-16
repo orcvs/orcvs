@@ -264,6 +264,52 @@ mod tests {
         );
     }
 
+    struct ChangingBackend {
+        alternate: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl MidiBackend for ChangingBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            if self.alternate.load(std::sync::atomic::Ordering::SeqCst) {
+                Ok(vec![MidiDestination::new("two", "Second Synth")])
+            } else {
+                Ok(vec![MidiDestination::new("one", "Studio Synth")])
+            }
+        }
+
+        fn connect(
+            &mut self,
+            _destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            Ok(Box::new(FakeConnection))
+        }
+    }
+
+    #[tokio::test]
+    async fn refresh_picks_up_changed_destinations() {
+        let alternate = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let backend = ChangingBackend {
+            alternate: alternate.clone(),
+        };
+        let (_orcvs, mut midi) = selection_for(backend);
+
+        midi.refresh_destinations();
+        settle_until!(midi.destinations().len() == 1);
+        assert_eq!(
+            midi.destinations(),
+            &[MidiDestination::new("one", "Studio Synth")]
+        );
+
+        alternate.store(true, std::sync::atomic::Ordering::SeqCst);
+        midi.refresh_destinations();
+        settle_until!(midi.destinations() == [MidiDestination::new("two", "Second Synth")]);
+
+        assert_eq!(
+            midi.destinations(),
+            &[MidiDestination::new("two", "Second Synth")]
+        );
+    }
+
     ///
     /// A refresh that has not been answered yet leaves the menu showing what it
     /// showed before, rather than emptying it.

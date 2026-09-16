@@ -59,7 +59,7 @@ pub type NativeMidiOutputAdapter = MidiOutputAdapter<NativeMidiBackend>;
 /// mention a backend at all.
 ///
 pub fn output_adapter() -> NativeMidiOutputAdapter {
-    NativeMidiOutputAdapter::new(NativeMidiBackend)
+    NativeMidiOutputAdapter::new(NativeMidiBackend::default())
 }
 
 #[cfg(all(
@@ -67,6 +67,8 @@ pub fn output_adapter() -> NativeMidiOutputAdapter {
     any(target_os = "macos", target_os = "windows", target_os = "linux")
 ))]
 mod backend {
+    use std::sync::Mutex;
+
     use midir::{MidiOutput, MidiOutputConnection};
 
     use crate::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError};
@@ -78,35 +80,91 @@ mod backend {
     ///
     /// The platform MIDI service, reached through `midir`.
     ///
-    #[derive(Default)]
-    pub struct NativeMidiBackend;
+    /// One `MidiOutput` is kept for enumeration and never consumed by
+    /// `connect`, because repeatedly creating a fresh client on macOS returns
+    /// a stale port list until the process restarts. `connect` opens its own
+    /// client for the one connection it needs.
+    ///
+    pub struct NativeMidiBackend {
+        enumeration: Mutex<Option<MidiOutput>>,
+    }
+
+    impl Default for NativeMidiBackend {
+        fn default() -> Self {
+            Self {
+                enumeration: Mutex::new(None),
+            }
+        }
+    }
+
+    impl NativeMidiBackend {
+        fn enumerate(&self) -> Result<Vec<MidiDestination>, MidiError> {
+            let enumeration = &self.enumeration;
+            platform_sync(move || {
+                let mut guard = enumeration
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if guard.is_none() {
+                    *guard = Some(MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?);
+                }
+                let output = guard.as_ref().expect("enumeration client was just opened");
+                output
+                    .ports()
+                    .into_iter()
+                    .map(|port| {
+                        let name = output.port_name(&port).map_err(midi_error)?;
+                        Ok(MidiDestination::new(port.id(), name))
+                    })
+                    .collect()
+            })
+        }
+
+        fn connect(
+            destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            let destination_id = destination_id.clone();
+            platform_sync(move || {
+                let output = MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?;
+                let port = output
+                    .find_port_by_id(destination_id.as_str())
+                    .ok_or_else(|| {
+                        MidiError::new("the selected MIDI destination is no longer available")
+                    })?;
+                let port_name = format!("{MIDI_CLIENT_NAME} output");
+                let connection = output.connect(&port, &port_name).map_err(midi_error)?;
+                Ok(Box::new(MidirConnection(connection)) as Box<dyn MidiConnection>)
+            })
+        }
+    }
 
     impl MidiBackend for NativeMidiBackend {
         fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-            let output = MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?;
-            output
-                .ports()
-                .into_iter()
-                .map(|port| {
-                    let name = output.port_name(&port).map_err(midi_error)?;
-                    Ok(MidiDestination::new(port.id(), name))
-                })
-                .collect()
+            self.enumerate()
         }
 
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,
         ) -> Result<Box<dyn MidiConnection>, MidiError> {
-            let output = MidiOutput::new(MIDI_CLIENT_NAME).map_err(midi_error)?;
-            let port = output
-                .find_port_by_id(destination_id.as_str())
-                .ok_or_else(|| {
-                    MidiError::new("the selected MIDI destination is no longer available")
-                })?;
-            let port_name = format!("{MIDI_CLIENT_NAME} output");
-            let connection = output.connect(&port, &port_name).map_err(midi_error)?;
-            Ok(Box::new(MidirConnection(connection)))
+            Self::connect(destination_id)
+        }
+    }
+
+    ///
+    /// Runs `operation` on the platform thread CoreMIDI expects.
+    ///
+    /// On macOS the Playback task reaches this from a worker thread; the
+    /// console's main thread owns the run loop `midir` enumerates against.
+    /// Elsewhere the call runs inline.
+    ///
+    fn platform_sync<R: Send>(operation: impl FnOnce() -> R + Send) -> R {
+        #[cfg(target_os = "macos")]
+        {
+            dispatch::Queue::main().exec_sync(operation)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            operation()
         }
     }
 
