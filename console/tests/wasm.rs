@@ -7,8 +7,8 @@ use lang::{MidiChannel, Note, Velocity};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
 use orcvs::playback::{
-    InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand, PlaybackEngine,
-    PlaybackState,
+    InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand, OutputOnlyAdapter,
+    PlaybackEngine, PlaybackState,
 };
 use orcvs::source::{Source, SourceCommander, Tick};
 use std::sync::Arc;
@@ -204,6 +204,8 @@ impl OutputAdapter for StallingOutputAdapter {
         Ok(())
     }
 }
+
+impl OutputOnlyAdapter for StallingOutputAdapter {}
 
 #[wasm_bindgen_test(async)]
 async fn web_clock_yields_to_the_event_loop_between_ticks() {

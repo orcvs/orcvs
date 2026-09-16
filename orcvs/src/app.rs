@@ -1,12 +1,11 @@
 use std::time::Duration;
 use tracing::error;
 
-use crate::midi::{MidiBackend, MidiOutputAdapter, MidiSelectionHandle};
+use crate::midi::{MidiOutputAdapter, MidiSelectionHandle};
 use crate::opts::{Bpm, Opts};
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
-use crate::native_midi;
 use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::{Source, SourceCommander};
@@ -84,7 +83,7 @@ pub struct Orcvs<S = MidiSelectionHandle> {
 
 impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Result<Self, PlaybackStartError> {
-        Self::with_midi_output_adapter(cols, rows, native_midi::output_adapter())
+        Self::with_midi_output_adapter(cols, rows, MidiOutputAdapter::new())
     }
 
     ///
@@ -113,7 +112,7 @@ impl Orcvs {
     /// ```
     ///
     pub fn with_source(source: Source) -> Result<Self, PlaybackStartError> {
-        Self::with_source_and_midi_output_adapter(source, native_midi::output_adapter())
+        Self::with_source_and_midi_output_adapter(source, MidiOutputAdapter::new())
     }
 }
 
@@ -132,24 +131,9 @@ impl Orcvs<()> {
     ///
     /// ```compile_fail
     /// use orcvs::app::Orcvs;
-    /// use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError, MidiOutputAdapter};
+    /// use orcvs::midi::MidiOutputAdapter;
     ///
-    /// struct SilentBackend;
-    ///
-    /// impl MidiBackend for SilentBackend {
-    ///     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-    ///         Ok(Vec::new())
-    ///     }
-    ///
-    ///     fn connect(
-    ///         &mut self,
-    ///         _destination_id: &MidiDestinationId,
-    ///     ) -> Result<Box<dyn MidiConnection>, MidiError> {
-    ///         Err(MidiError::new("no device"))
-    ///     }
-    /// }
-    ///
-    /// let _orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new(SilentBackend)).unwrap();
+    /// let _orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new()).unwrap();
     /// ```
     pub fn with_output_adapter<A: OutputOnlyAdapter + Send + 'static>(
         cols: usize,
@@ -384,18 +368,18 @@ impl<S> Orcvs<S> {
 
 impl Orcvs {
     /// A running Orcvs with MIDI discovery and selection connected to Playback.
-    pub fn with_midi_output_adapter<B: MidiBackend + 'static>(
+    pub fn with_midi_output_adapter(
         cols: usize,
         rows: usize,
-        adapter: MidiOutputAdapter<B>,
+        adapter: MidiOutputAdapter,
     ) -> Result<Self, PlaybackStartError> {
         Self::with_source_and_midi_output_adapter(Source::new(Grid::new(cols, rows)), adapter)
     }
 
     /// Restores Source with MIDI publication established before Playback owns the adapter.
-    pub fn with_source_and_midi_output_adapter<B: MidiBackend + 'static>(
+    pub fn with_source_and_midi_output_adapter(
         source: Source,
-        adapter: MidiOutputAdapter<B>,
+        adapter: MidiOutputAdapter,
     ) -> Result<Self, PlaybackStartError> {
         let source = SourceCommander::with_source(source);
         let (playback, selection) =
@@ -471,6 +455,7 @@ mod test {
     #[cfg(not(target_arch = "wasm32"))]
     impl crate::playback::OutputOnlyAdapter for PanickingOutputAdapter {}
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl crate::playback::OutputAdapter for PanickingOutputAdapter {
         fn submit(
             &mut self,

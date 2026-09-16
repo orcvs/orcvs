@@ -15,18 +15,10 @@ workspace = true
 bench = false
 
 [features]
-default = ["native-midi"]
-# The one backend that talks to a platform MIDI service, and the `midir`
-# dependency that reaches it. It is `native-midi` rather than `midi` because the
-# MIDI vocabulary — destinations, backends, output adapters, Play Commands —
-# is present either way; what the feature gates is the backend beneath it. On by
-# default, so every build that exists today resolves identically. Off, a running
-# Orcvs still composes, executes, and renders Source exactly as before and still
-# has a MIDI output adapter; what it gives up is delivery, because the adapter
-# holds a backend that offers no destination and refuses to connect. The tree
-# then carries neither `midir` nor a system audio library.
-# `orcvs/src/native_midi.rs` is the one place that chooses between the two.
-native-midi = ["dep:midir", "dep:dispatch"]
+default = []
+# Platform MIDI discovery and port opening live in the console. The toolkit-free
+# crate keeps the MIDI vocabulary and output adapter; it carries no platform
+# MIDI or system audio dependency.
 persistence = ["dep:serde"]
 
 [dependencies]
@@ -44,19 +36,6 @@ serde = { version = "1", default-features = false, features = ["derive", "std"],
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing.workspace = true
 web-time = "1.1.0"
-
-# The feature says whether Orcvs wants a native MIDI backend; this table says
-# where one could exist. Both conditions are needed: a WASM build never sees
-# `midir` whatever the feature is set to, and a native build sees it only
-# through `native-midi`.
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
-midir = { version = "0.11", optional = true }
-
-# CoreMIDI expects enumeration on the thread that owns the application run loop;
-# `dispatch` reaches the main queue from the Playback task without a new MIDI
-# dependency. See `native_midi::backend` on macOS.
-[target.'cfg(target_os = "macos")'.dependencies]
-dispatch = { version = "0.2", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }

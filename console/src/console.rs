@@ -12,13 +12,13 @@ use crate::cursor_effects::{
 };
 use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
 use crate::midi::MidiDeviceSelection;
+use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::style::{PALETTE, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
-    native_midi,
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::PlaybackStartError,
     render_frame::RenderFrame,
@@ -324,7 +324,10 @@ impl Console {
         // default Grid otherwise. Every derived view is rebuilt from it.
         let start = starting_source(cc.storage);
         let orcvs = Orcvs::with_source(start.source)?;
-        let mut midi = MidiDeviceSelection::new(orcvs.midi_selection_handle());
+        let mut midi = MidiDeviceSelection::new(
+            orcvs.midi_selection_handle(),
+            Box::new(NativeMidiBackend::new()),
+        );
         midi.refresh_destinations();
         Ok(Self {
             orcvs,
@@ -1137,12 +1140,11 @@ impl eframe::App for Console {
                 }
                 // The menu presents a choice of destination, so it exists only
                 // where a backend can have one. Which targets those are is
-                // `orcvs`'s answer, not a condition restated here.
+                // `console::native_midi`'s answer, not a condition restated here.
                 if native_midi::AVAILABLE {
                     ui.menu_button("MIDI", |ui| {
                         if ui.button("Refresh destinations").clicked() {
                             self.midi.refresh_destinations();
-                            ui.ctx().request_repaint();
                         }
                         let selected = self.midi.selected_destination_id();
                         for destination in self.midi.destinations().to_vec() {
@@ -1159,9 +1161,6 @@ impl eframe::App for Console {
                             ui.colored_label(ui.visuals().error_fg_color, status);
                         }
                     });
-                    if self.midi.refresh_pending() {
-                        ctx.request_repaint_after(std::time::Duration::from_millis(16));
-                    }
                 }
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");

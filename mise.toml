@@ -264,15 +264,12 @@ description = "Audit advisories, licenses, sources, and duplicate dependencies"
 run = '''
 cargo tree --workspace --all-features -e features --locked
 cargo deny --locked check
-# What `native-midi` is for is a claim about this tree, so the claim is checked
-# here rather than described in a comment somewhere. With the feature off,
-# `orcvs` reaches no platform MIDI service and so needs no system audio library:
-# `midir` and the ALSA and CoreMIDI crates beneath it are all absent. `cargo
-# tree` resolves the host target, so the Linux and macOS runners between them
-# check this against both libraries a native build could otherwise link.
+# Platform MIDI lives in the console, not the toolkit-free crate. This checks
+# that `orcvs` carries no platform binding of the kind `midir` pulls in: the
+# library itself, dispatch, or any `-sys` crate beneath it.
 native_midi_tree="$(cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked)"
-if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|alsa|alsa-sys|coremidi|coremidi-sys|dispatch) '; then
-  echo 'orcvs without native-midi still carries midir, dispatch, or a system audio library' >&2
+if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|dispatch|[[:alnum:]-]+-sys) '; then
+  echo 'orcvs still carries a platform MIDI or system audio binding' >&2
   exit 1
 fi
 '''

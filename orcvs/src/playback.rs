@@ -12,7 +12,7 @@ use web_time::Instant as ClockInstant;
 mod gate;
 mod schedule;
 
-use crate::midi::{MidiRequest, MidiSelectionHandle};
+use crate::midi::MidiSelectionHandle;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
     Velocity,
@@ -889,26 +889,21 @@ impl PlaybackEngine {
     }
 }
 
-impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B>> {
+impl PlaybackInner<crate::midi::MidiOutputAdapter> {
     ///
-    /// Discovers the destinations this engine's backend offers and publishes
-    /// what it found, or the failure it reported.
-    ///
-    fn refresh_destinations(&mut self) {
-        self.adapter.refresh_destinations();
-    }
-
-    ///
-    /// Connects this engine's output to `destination_id`.
+    /// Installs an already-open connection the console opened on its own
+    /// thread.
     ///
     /// The explicit selection request arrives here in the same queue as
     /// lifecycle requests, so connection and note ownership change together.
+    /// A safety-action refusal on the outgoing connection is reported on the
+    /// one ordered stream every other output failure travels on.
     ///
-    /// A refusal is reported rather than returned. The task that owns this
-    /// state cannot answer a caller synchronously, so the one ordered stream
-    /// every other output failure travels on is where this one goes too.
-    ///
-    fn select_destination(&mut self, destination_id: &crate::midi::MidiDestinationId) {
+    fn install_connection(
+        &mut self,
+        destination_id: crate::midi::MidiDestinationId,
+        connection: Box<dyn crate::midi::MidiConnection>,
+    ) {
         // The notes this engine owned are sounding on the destination it is
         // leaving, which is sent the safety action before the new connection is
         // reached. Their scheduled stops would arrive at a device that never
@@ -927,7 +922,7 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
         // clearing only on success leaves the console showing nothing while
         // the device is still unplugged.
         self.last_output_failure = None;
-        let selection = match self.adapter.select(destination_id) {
+        let selection = match self.adapter.install_connection(destination_id, connection) {
             Ok(selection) => selection,
             Err(error) => {
                 self.record_output_failure(OutputAdapterError::new(error.message));
@@ -959,28 +954,13 @@ impl PlaybackEngine {
     ///
     /// ```compile_fail
     /// use orcvs::app::SourceCommander;
-    /// use orcvs::midi::{MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError, MidiOutputAdapter};
     /// use orcvs::grid::Grid;
+    /// use orcvs::midi::MidiOutputAdapter;
     /// use orcvs::playback::PlaybackEngine;
-    ///
-    /// struct SilentBackend;
-    ///
-    /// impl MidiBackend for SilentBackend {
-    ///     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-    ///         Ok(Vec::new())
-    ///     }
-    ///
-    ///     fn connect(
-    ///         &mut self,
-    ///         _destination_id: &MidiDestinationId,
-    ///     ) -> Result<Box<dyn MidiConnection>, MidiError> {
-    ///         Err(MidiError::new("no device"))
-    ///     }
-    /// }
     ///
     /// let _engine = PlaybackEngine::new(
     ///     SourceCommander::new(Grid::new(1, 1)),
-    ///     MidiOutputAdapter::new(SilentBackend),
+    ///     MidiOutputAdapter::new(),
     /// )
     /// .unwrap();
     /// ```
@@ -994,14 +974,16 @@ impl PlaybackEngine {
 
     /// Builds MIDI Playback and its restricted selection handle together.
     /// Publication is subscribed before the adapter moves into the owning task.
-    pub fn with_midi_output_adapter<B: crate::midi::MidiBackend + 'static>(
+    pub fn with_midi_output_adapter(
         source: SourceCommander,
-        adapter: crate::midi::MidiOutputAdapter<B>,
+        adapter: crate::midi::MidiOutputAdapter,
     ) -> Result<(Self, MidiSelectionHandle), PlaybackStartError> {
         let destinations = adapter.published_destinations();
         let (engine, commands) = Self::spawn(source, adapter, |inner, request| match request {
-            MidiRequest::Discover => inner.refresh_destinations(),
-            MidiRequest::Select(destination) => inner.select_destination(&destination),
+            crate::midi::MidiRequest::Install {
+                destination_id,
+                connection,
+            } => inner.install_connection(destination_id, connection),
         })?;
         Ok((engine, MidiSelectionHandle::new(commands, destinations)))
     }

@@ -464,6 +464,7 @@ dependencies = [
  "gloo-timers",
  "lang",
  "log",
+ "midir",
  "orcvs",
  "ron",
  "tokio",
@@ -1975,10 +1976,8 @@ name = "orcvs"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "dispatch",
  "gloo-timers",
  "lang",
- "midir",
  "proptest",
  "serde",
  "serde_json",

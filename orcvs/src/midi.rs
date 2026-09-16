@@ -81,15 +81,14 @@ impl MidiSelection {
     }
 }
 
-pub struct MidiOutputAdapter<B> {
-    backend: B,
+pub struct MidiOutputAdapter {
     connection: Option<Box<dyn MidiConnection>>,
     delivery_failure: Option<OutputAdapterError>,
     ///
-    /// The destinations this adapter offers and the one it is connected to,
-    /// published rather than stored.
+    /// The destination this adapter is connected to, published rather than
+    /// stored.
     ///
-    /// The console compares them against every row of its MIDI menu while
+    /// The console compares it against every row of its MIDI menu while
     /// drawing a frame, and ADR 0041 has that frame read the latest published
     /// value instead of asking the engine a question: the browser main thread
     /// has no blocking receive, so a frame cannot wait for an answer at all,
@@ -100,14 +99,19 @@ pub struct MidiOutputAdapter<B> {
     destinations: watch::Sender<MidiDestinations>,
 }
 
-impl<B: MidiBackend> MidiOutputAdapter<B> {
+impl Default for MidiOutputAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MidiOutputAdapter {
     pub(crate) fn published_destinations(&self) -> watch::Receiver<MidiDestinations> {
         self.destinations.subscribe()
     }
 
-    pub fn new(backend: B) -> Self {
+    pub fn new() -> Self {
         Self {
-            backend,
             connection: None,
             delivery_failure: None,
             destinations: watch::Sender::new(MidiDestinations::default()),
@@ -115,34 +119,27 @@ impl<B: MidiBackend> MidiOutputAdapter<B> {
     }
 
     ///
-    /// Asks the backend what it offers and publishes the answer, whether that
-    /// is a list or the failure discovery reported.
+    /// Installs an already-open connection and publishes the destination it
+    /// was opened for.
     ///
-    /// The failure is published beside the list rather than reported as a
-    /// diagnostic: it is what the menu has to show in place of rows, and a
-    /// discovery that starts working again replaces it without anything having
-    /// to withdraw it.
+    /// The port was opened by the console on the thread that could open it.
+    /// The safety action on the outgoing connection runs here, inside the
+    /// engine's task, before the new connection is installed.
     ///
-    pub(crate) fn refresh_destinations(&mut self) {
-        let discovered = self.backend.destinations();
-        self.destinations
-            .send_modify(|destinations| destinations.discovered = discovered);
-    }
-
-    pub fn select(
+    pub(crate) fn install_connection(
         &mut self,
-        destination_id: &MidiDestinationId,
+        destination_id: MidiDestinationId,
+        connection: Box<dyn MidiConnection>,
     ) -> Result<MidiSelection, MidiError> {
         let safety_failure = self
             .connection
             .is_some()
             .then(|| self.send_safety_reset().err())
             .flatten();
-        let connection = self.backend.connect(destination_id)?;
         self.connection = Some(connection);
         self.delivery_failure = None;
         self.destinations
-            .send_modify(|destinations| destinations.selected = Some(destination_id.clone()));
+            .send_modify(|destinations| destinations.selected = Some(destination_id));
         Ok(MidiSelection { safety_failure })
     }
 
@@ -215,7 +212,7 @@ fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
     ]
 }
 
-impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
+impl OutputAdapter for MidiOutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
         let Some(connection) = self.connection.as_mut() else {
             return self.delivery_failure.clone().map_or(Ok(()), Err);
@@ -284,7 +281,7 @@ impl<B: MidiBackend> OutputAdapter for MidiOutputAdapter<B> {
 mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
-    use crate::playback::{OutputAdapter, OutputCommand, PlaybackDiagnostic, PlaybackEngine};
+    use crate::playback::{OutputAdapter, OutputCommand, PlaybackEngine};
 
     use crate::source::{
         BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Velocity,
@@ -307,10 +304,7 @@ mod tests {
         }
     }
 
-    fn engine<B: MidiBackend + 'static>(
-        source: SourceCommander,
-        adapter: MidiOutputAdapter<B>,
-    ) -> MidiPlayback {
+    fn engine(source: SourceCommander, adapter: MidiOutputAdapter) -> MidiPlayback {
         let (playback, selection) =
             PlaybackEngine::with_midi_output_adapter(source, adapter).expect("the test runtime");
         MidiPlayback {
@@ -320,18 +314,28 @@ mod tests {
     }
 
     ///
-    /// Asks the engine for a destination the way the console does.
+    /// Opens a port through the fake backend and queues it the way the console does.
     ///
-    /// Through `MidiSelectionHandle`, which is the only path production has:
-    /// the engine grew a `select_midi_destination` of its own for these twelve
-    /// call sites and nothing else ever called it, which is a seam cut into
-    /// shipped code for a test to reach through.
-    ///
-    fn select(playback: &MidiPlayback, destination_id: &MidiDestinationId) {
+    fn install_via_backend(
+        playback: &MidiPlayback,
+        backend: &mut impl MidiBackend,
+        destination_id: &MidiDestinationId,
+    ) {
+        let connection = backend
+            .connect(destination_id)
+            .expect("the fake backend offered this destination");
         playback
             .selection
-            .select(destination_id)
+            .install(destination_id.clone(), connection)
             .expect("a running Orcvs");
+    }
+
+    fn select(
+        playback: &MidiPlayback,
+        backend: &mut FakeBackend,
+        destination_id: &MidiDestinationId,
+    ) {
+        install_via_backend(playback, backend, destination_id);
     }
 
     ///
@@ -435,13 +439,25 @@ mod tests {
         }
     }
 
+    fn install_on_adapter(
+        adapter: &mut MidiOutputAdapter,
+        backend: &mut FakeBackend,
+        destination_id: &MidiDestinationId,
+    ) {
+        let connection = backend.connect(destination_id).unwrap();
+        adapter
+            .install_connection(destination_id.clone(), connection)
+            .unwrap();
+    }
+
     #[test]
     fn submits_commands_as_ordered_note_on_messages() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
             .submit(&[
@@ -467,10 +483,11 @@ mod tests {
     #[test]
     fn submits_control_change_and_pitch_bend_as_their_wire_bytes() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
             .submit(&[
@@ -519,11 +536,12 @@ mod tests {
         {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
+        };
+        let adapter = MidiOutputAdapter::new();
         let playback = engine(source, adapter);
-        select(&playback, &MidiDestinationId::new("one"));
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
 
         playback.start(Duration::from_secs(1)).unwrap();
         // Waited out rather than yielded for: under the paused clock the
@@ -539,65 +557,52 @@ mod tests {
     }
 
     ///
-    /// A device that refuses the same connection twice is reported twice.
-    ///
-    /// The engine latches the last output failure so that a run does not
-    /// report the same broken device once per Tick. A selection is not a Tick:
-    /// it is a thing the user just did, and the console clears its status line
-    /// on the click that asks for it. Suppressing the second report leaves a
-    /// console showing nothing at all while the device is still unplugged.
+    /// A device that refuses to open is reported when the console connects,
+    /// before anything is queued for the engine.
     ///
     #[tokio::test]
-    async fn a_destination_that_refuses_twice_is_reported_twice() {
+    async fn a_destination_that_refuses_twice_is_reported_at_connect_time() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::new(10, 6);
-        let source = SourceCommander::new(grid);
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        let playback = engine(source, adapter);
-
-        state.lock().unwrap().fail_next_connect = true;
-        select(&playback, &MidiDestinationId::new("one"));
-        settle_until!(!state.lock().unwrap().fail_next_connect);
-        state.lock().unwrap().fail_next_connect = true;
-        select(&playback, &MidiDestinationId::new("one"));
-        settle_until!(!state.lock().unwrap().fail_next_connect);
-
-        let reported: Vec<String> = playback
-            .drain_diagnostics()
-            .into_iter()
-            .filter_map(|diagnostic| match diagnostic {
-                PlaybackDiagnostic::OutputFailure(error) => Some(error.message),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            reported,
-            vec![
-                "device unplugged".to_string(),
-                "device unplugged".to_string()
-            ]
+        };
+        let playback = engine(
+            SourceCommander::new(Grid::new(1, 1)),
+            MidiOutputAdapter::new(),
         );
+
+        state.lock().unwrap().fail_next_connect = true;
+        assert_eq!(
+            backend
+                .connect(&MidiDestinationId::new("one"))
+                .err()
+                .map(|error| error.message),
+            Some("device unplugged".to_owned())
+        );
+        state.lock().unwrap().fail_next_connect = true;
+        assert_eq!(
+            backend
+                .connect(&MidiDestinationId::new("one"))
+                .err()
+                .map(|error| error.message),
+            Some("device unplugged".to_owned())
+        );
+        assert!(playback.drain_diagnostics().is_empty());
     }
 
     #[test]
     fn enumerates_and_selects_a_destination() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
+        };
+        let mut adapter = MidiOutputAdapter::new();
 
-        // Asked for and read back the way production does it: discovery is a
-        // thing the engine's task is told to do, and what it found arrives on
-        // the published value rather than as an answer.
-        let mut published = adapter.published_destinations();
-        adapter.refresh_destinations();
         assert_eq!(
-            published.borrow_and_update().discovered,
+            backend.destinations(),
             Ok(vec![MidiDestination::new("one", "Synth")])
         );
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         assert_eq!(
             adapter.selected_destination_id(),
@@ -617,10 +622,11 @@ mod tests {
     #[test]
     fn delivery_failure_attempts_the_safety_action_and_reselection_reconnects() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
         state.lock().unwrap().failing_sends = vec![0];
 
         let error = adapter
@@ -648,7 +654,7 @@ mod tests {
             OutputAdapterError::new("device lost on send 0")
         );
 
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
         adapter
             .submit(&[OutputCommand::NoteOn {
                 channel: MidiChannel::try_from(1).unwrap(),
@@ -701,10 +707,11 @@ mod tests {
     #[test]
     fn the_safety_action_clears_notes_controllers_and_bend_on_every_channel() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter.safety_reset().unwrap();
 
@@ -734,10 +741,11 @@ mod tests {
         const REFUSALS: usize = 2;
 
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
         // Two refusals, neither of them the last attempt, so a run that
         // stopped at the first would deliver fewer messages and a run that
         // reported the last would name the wrong one.
@@ -770,11 +778,12 @@ mod tests {
         {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
+        };
+        let adapter = MidiOutputAdapter::new();
         let playback = engine(source, adapter);
-        select(&playback, &MidiDestinationId::new("one"));
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
 
         playback.start(Duration::from_secs(1)).unwrap();
         // Waited out rather than yielded for: under the paused clock the
@@ -808,15 +817,16 @@ mod tests {
     #[test]
     fn a_destination_change_sends_the_safety_action_to_the_destination_it_leaves() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let mut adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        adapter.select(&MidiDestinationId::new("one")).unwrap();
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
         // A first selection holds no connection to make safe, so every message
         // recorded below belongs to the change itself.
         assert!(state.lock().unwrap().messages.is_empty());
 
-        adapter.select(&MidiDestinationId::new("two")).unwrap();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("two"));
 
         // The bytes, not a delta: a count that only grew would be satisfied by
         // the narrower All Notes Off loop this action replaced.
@@ -828,15 +838,18 @@ mod tests {
     #[tokio::test]
     async fn a_disconnect_sends_the_safety_action_to_the_destination_it_releases() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
+        };
         // Asserted here rather than beside the engine's own disconnect test,
         // which drives `InMemoryOutputAdapter`: that fake counts the calls and
         // emits no bytes, so what a device receives can only be read off the
         // adapter that assembles it.
-        let playback = engine(SourceCommander::new(Grid::new(1, 1)), adapter);
-        select(&playback, &MidiDestinationId::new("one"));
+        let playback = engine(
+            SourceCommander::new(Grid::new(1, 1)),
+            MidiOutputAdapter::new(),
+        );
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
         settle_until!(state.lock().unwrap().connection_count == 1);
         assert!(state.lock().unwrap().messages.is_empty());
 
@@ -856,15 +869,15 @@ mod tests {
         for (index, content) in ".=0101              !>007FC4".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        let playback = engine(source, adapter);
-        select(&playback, &MidiDestinationId::new("one"));
+        };
+        let playback = engine(source, MidiOutputAdapter::new());
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
         playback.start(Duration::from_secs(1)).unwrap();
         playback.disconnect();
 
-        select(&playback, &MidiDestinationId::new("one"));
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
         // Waited out rather than yielded for: under the paused clock the
         // runtime advances to the next timer only once it has nothing runnable
         // left, so a millisecond of it is every message answered and every
@@ -887,11 +900,11 @@ mod tests {
         for (index, content) in ".=0101              !>007FC4".chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
         }
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
-        let playback = engine(source.clone(), adapter);
-        select(&playback, &MidiDestinationId::new("one"));
+        };
+        let playback = engine(source.clone(), MidiOutputAdapter::new());
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
         state.lock().unwrap().failing_sends = vec![0];
 
         playback.start(Duration::from_secs(1)).unwrap();
@@ -930,11 +943,11 @@ mod tests {
                     .set(cell(grid, 20 + index), &content.to_string())
                     .unwrap();
             }
-            let adapter = MidiOutputAdapter::new(FakeBackend {
+            let mut backend = FakeBackend {
                 state: state.clone(),
-            });
-            let playback = engine(source.clone(), adapter);
-            select(&playback, &MidiDestinationId::new("one"));
+            };
+            let playback = engine(source.clone(), MidiOutputAdapter::new());
+            select(&playback, &mut backend, &MidiDestinationId::new("one"));
 
             playback.start(Duration::from_secs(1)).unwrap();
             // The Tick due when the run began, waited out rather than yielded
@@ -953,8 +966,11 @@ mod tests {
             // left, which is sent the safety action as it goes, so its scheduled
             // stop belongs to a device this engine no longer holds.
             source.set(cell(grid, 5), "2").unwrap();
-            select(&playback, &MidiDestinationId::new("one"));
-            settle_until!(state.lock().unwrap().connection_count == 2);
+            let messages_before_change = state.lock().unwrap().messages.len();
+            select(&playback, &mut backend, &MidiDestinationId::new("one"));
+            settle_until!(
+                state.lock().unwrap().messages.len() >= messages_before_change + SAFETY_ACTION_LEN
+            );
             let delivered = state.lock().unwrap().messages.len();
 
             // The three deadlines after the change, waited out for the reason
@@ -989,11 +1005,11 @@ mod tests {
                     .set(cell(grid, 20 + index), &content.to_string())
                     .unwrap();
             }
-            let adapter = MidiOutputAdapter::new(FakeBackend {
+            let mut backend = FakeBackend {
                 state: state.clone(),
-            });
-            let playback = engine(source.clone(), adapter);
-            select(&playback, &MidiDestinationId::new("one"));
+            };
+            let playback = engine(source.clone(), MidiOutputAdapter::new());
+            select(&playback, &mut backend, &MidiDestinationId::new("one"));
 
             playback.start(Duration::from_secs(1)).unwrap();
             // The Tick due when the run began, waited out rather than yielded
@@ -1008,16 +1024,17 @@ mod tests {
             );
 
             // Make the comparison false, then attempt a change the device
-            // refuses. The safety action that precedes the connection is sent
-            // regardless, so the note is silenced whether or not the new
-            // destination is reached: a change that silences the old device
-            // owes the same cleared schedule whether it completes or fails.
-            // The refusal itself is reported on the diagnostics stream rather
-            // than returned, because the engine's task cannot answer a caller.
+            // refuses. A refused port open never reaches the engine, so the
+            // run keeps the connection it already had.
             source.set(cell(grid, 5), "2").unwrap();
             state.lock().unwrap().fail_next_connect = true;
-            select(&playback, &MidiDestinationId::new("one"));
-            settle_until!(!state.lock().unwrap().fail_next_connect);
+            assert_eq!(
+                backend
+                    .connect(&MidiDestinationId::new("one"))
+                    .err()
+                    .map(|error| error.message),
+                Some("device unplugged".to_owned())
+            );
             let delivered = state.lock().unwrap().messages.len();
 
             // The three deadlines after the change, waited out for the reason
@@ -1031,7 +1048,10 @@ mod tests {
                 let state = state.lock().unwrap();
                 (state.messages.len(), state.connection_count)
             };
-            assert_eq!(sent, delivered, "{expression} delivered a cleared stop");
+            assert!(
+                sent > delivered,
+                "{expression} kept the scheduled stop after a refused port open"
+            );
             assert_eq!(connections, 1, "{expression} reconnected after a refusal");
         }
     }
@@ -1039,17 +1059,23 @@ mod tests {
     #[tokio::test]
     async fn reselection_reports_safety_failure_and_connects_new_destination() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let adapter = MidiOutputAdapter::new(FakeBackend {
+        let mut backend = FakeBackend {
             state: state.clone(),
-        });
+        };
         let source = SourceCommander::new(Grid::new(1, 1));
-        let playback = engine(source, adapter);
-        select(&playback, &MidiDestinationId::new("one"));
-        settle_until!(state.lock().unwrap().connection_count == 1);
+        let playback = engine(source, MidiOutputAdapter::new());
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+        settle_until!(
+            playback
+                .selection
+                .selected_destination_id()
+                .unwrap()
+                .is_some()
+        );
         state.lock().unwrap().failing_sends = vec![0];
 
-        select(&playback, &MidiDestinationId::new("one"));
-        settle_until!(state.lock().unwrap().connection_count == 2);
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+        settle_until!(state.lock().unwrap().send_count > 0);
 
         assert_eq!(state.lock().unwrap().connection_count, 2);
         assert_eq!(

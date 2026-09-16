@@ -698,18 +698,16 @@ test_spaced_key_merge_guard_is_rejected() {
 
 test_non_optional_midir_is_rejected() {
   make_fixture
-  perl -pi -e 's/^midir = \{ version = "0.11", optional = true \}$/midir = "0.11"/' "$fixture_dir/orcvs/Cargo.toml"
-  assert_rejected "a midir dependency that arrives whether native-midi is enabled or not"
+  perl -pi -e 's/^\[dependencies\]$/[dependencies]\nmidir = "0.11"/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency in the toolkit-free orcvs crate"
 }
 
 test_shipped_midir_dependency_is_rejected() {
   make_fixture
-  # The target table is what keeps `midir` out of a WASM build. Moved into the
-  # plain table it is optional and feature-gated still, and every other
-  # assertion about it holds, while a default-featured browser build now asks
-  # Cargo for a crate that links CoreMIDI.
+  # Platform MIDI lives in the console. A `midir` line in `orcvs` pulls a
+  # platform binding back into the toolkit-free crate no feature can gate away.
   perl -pi -e 's/^\[dependencies\]$/[dependencies]\nmidir = { version = "0.11", optional = true }/' "$fixture_dir/orcvs/Cargo.toml"
-  assert_rejected "a midir dependency declared outside the native target table"
+  assert_rejected "a midir dependency declared in the orcvs crate"
 }
 
 test_fixture_suite_back_in_the_pull_request_tier_is_rejected() {
@@ -737,50 +735,43 @@ test_tooling_workflow_missing_a_fixture_input_is_rejected() {
 
 test_wasm_midir_dependency_is_rejected() {
   make_fixture
-  # The target table is what keeps `midir` out of a browser build. Declared in
-  # the WASM table it is optional and feature-gated still, so every other
-  # assertion about it holds while a default-featured browser build asks Cargo
-  # for a crate that links a platform MIDI service.
-  perl -pi -e "s/^\[target\.'cfg\(target_arch = \"wasm32\"\)'\.dependencies\]\$/[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nmidir = { version = \"0.11\", optional = true }/" "$fixture_dir/orcvs/Cargo.toml"
-  assert_rejected "a midir dependency declared in the WASM target table"
+  # The console keeps `midir` out of the browser build. Declared in the WASM
+  # table it links a platform MIDI service into a target that cannot use it.
+  perl -pi -e "s/^\[target\.'cfg\(target_arch = \"wasm32\"\)'\.dependencies\]\$/[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nmidir = \"0.11\"/" "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a midir dependency declared in the console WASM target table"
 }
 
 test_native_midi_gating_nothing_is_rejected() {
   make_fixture
-  # A feature that no longer names `dep:midir` still exists, still defaults on,
-  # and gates nothing: `midir` would then be an optional dependency implied by
-  # its own bare name, back in every build that mentions it.
-  perl -pi -e 's/^native-midi = \["dep:midir"\]$/native-midi = []/' "$fixture_dir/orcvs/Cargo.toml"
-  assert_rejected "a native-midi feature that no longer gates the midir dependency"
+  # `dispatch` is the other platform binding the toolkit-free crate must not
+  # carry. A line in the plain table is enough to pull it back in.
+  perl -pi -e 's/^\[dependencies\]$/[dependencies]\ndispatch = "0.2"/' "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a dispatch dependency in the toolkit-free orcvs crate"
 }
 
 test_native_midi_off_by_default_is_rejected() {
   make_fixture
-  perl -pi -e 's/^default = \["native-midi"\]$/default = []/' "$fixture_dir/orcvs/Cargo.toml"
-  assert_rejected "an orcvs crate that no longer defaults native-midi on"
+  perl -pi -e "s/^\[target\.'cfg\(not\(target_arch = \"wasm32\"\)\)'\.dependencies\]\$/[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]\nmidir = \"0.11\"\n/" "$fixture_dir/orcvs/Cargo.toml"
+  assert_rejected "a midir dependency declared in the orcvs native target table"
 }
 
 test_console_without_native_midi_is_rejected() {
   make_fixture
-  perl -pi -e 's/, features = \["native-midi"\] \}$/ }/' "$fixture_dir/console/Cargo.toml"
+  perl -pi -e 's/^midir = "0.11"$/# midir = "0.11"/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console that asks for no native MIDI backend on its native targets"
 
-  # Asking for it by name is the point: with `orcvs` defaulting the feature on,
-  # a console that merely leaves the default alone still ships MIDI today and
-  # loses it silently the day that default changes.
+  # `default-features = false` on `orcvs` keeps persistence an explicit choice.
+  # Dropping it lets the console's default build pick up whatever `orcvs` ships.
   make_fixture
   perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/console/Cargo.toml"
-  assert_rejected "a console that leans on the orcvs default instead of naming the feature"
+  assert_rejected "a console that leans on the orcvs default instead of naming default-features off"
 }
 
 test_console_with_a_second_feature_is_accepted() {
   make_fixture
-  # `console` already has a `persistence` feature that maps onto
-  # `orcvs/persistence`, so a second entry beside `native-midi` is a manifest
-  # the contract has no reason to refuse. Pinning the list by its length refused
-  # it, and said the feature was missing while doing so.
-  perl -pi -e 's/features = \["native-midi"\] \}$/features = ["native-midi", "persistence"] }/' "$fixture_dir/console/Cargo.toml"
-  assert_accepted "a console that names native-midi alongside another feature"
+  # `console` already ships `persistence` by default alongside native `midir`.
+  # The contract has no reason to refuse that combination.
+  assert_accepted "a console that ships persistence alongside native midir"
 }
 
 test_console_target_table_reborrowing_defaults_is_rejected() {
@@ -789,7 +780,7 @@ test_console_target_table_reborrowing_defaults_is_rejected() {
   # takes effect if every one of them says it. Dropping it here alone puts
   # `orcvs feature "default"` back in the console's native build while the plain
   # table still reads as though defaults were off.
-  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false, features = \["native-midi"\] \}$/orcvs = { path = "..\/orcvs", version = "0.1.0", features = ["native-midi"] }/' "$fixture_dir/console/Cargo.toml"
+  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console whose native table borrows the orcvs default back"
 }
 

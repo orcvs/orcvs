@@ -279,7 +279,7 @@ assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^cargo tree --work
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^native_midi_tree="[$][(]cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked[)]"$'
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' "^if printf '%s.n' \"[\$]native_midi_tree\" [|] grep -E"
 assert_toml_task_contains "$root_dir/mise.toml" 'audit_deps' '^  exit 1$'
-assert_contains "$root_dir/mise.toml" "grep -E '\^\(midir\|alsa\|alsa-sys\|coremidi\|coremidi-sys\) '"
+assert_contains "$root_dir/mise.toml" 'orcvs still carries a platform MIDI or system audio binding'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo check --package orcvs --lib --features persistence --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'test_persistence' '^cargo clippy --workspace --all-targets --features persistence --locked -- -D warnings$'
 # The `-E` is the point of the assertion, not decoration on it. Without the
@@ -709,53 +709,23 @@ for regressions_path in \
   esac
 done
 
-# `midir` is the one dependency in this workspace that links a system audio
-# library — ALSA on Linux, CoreMIDI on macOS — and `native-midi` is what decides
-# whether a build has it. The feature is on by default, so every build that
-# exists today resolves as it did; what turning it off gives up is MIDI
-# delivery, and what it buys is a tree with no `midir` and no audio library in
-# it. Two conditions have to hold together for that, and each is pinned here.
-#
-# The feature has to be the only way in. `midir` declared without `optional`, or
-# declared in a table the feature does not gate, is a dependency that arrives
-# whatever the feature says — and the tree check in `audit_deps` is the only
-# other thing that would notice.
-midir_native_table='^[[]target[.].cfg[(]any[(]target_os = "macos", target_os = "windows", target_os = "linux"[)][)].[.]dependencies[]]$'
-assert_contains "$root_dir/orcvs/Cargo.toml" '^default = \["native-midi"\]$'
-assert_contains "$root_dir/orcvs/Cargo.toml" '^native-midi = \["dep:midir"\]$'
-# Bracket forms rather than backslash escapes in every table pattern here and
-# below: they reach the matcher through `awk -v`, which drops the backslash from
-# `\{` and `\[` and turns what is left of `\["native-midi"\]` into a character
-# class carrying an `e-m` range. That class matches the `f` of
-# `default-features = false`, so the escaped spelling of the console assertion at
-# the end of this file passed against a console that had stopped naming the
-# feature at all.
-assert_toml_table_contains "$root_dir/orcvs/Cargo.toml" "$midir_native_table" '^[[:space:]]*midir[[:space:]]*=[[:space:]]*[{][^}]*optional[[:space:]]*=[[:space:]]*true'
+# Platform MIDI lives in the console. The toolkit-free crate carries no `midir`,
+# no dispatch, and no target table that could pull either in.
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*midir[[:space:]]*='
-# And the target table has to stay, because the feature alone does not say where
-# a MIDI service could exist. Without it a default-featured WASM build would ask
-# Cargo for `midir`, which is the one thing this arrangement must not change.
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*dispatch[[:space:]]*='
+orcvs_native_table='^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$'
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" "$orcvs_native_table" '^[[:space:]]*midir[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" "$orcvs_native_table" '^[[:space:]]*dispatch[[:space:]]*='
+midir_native_table='^[[]target[.].cfg[(]any[(]target_os = "macos", target_os = "windows", target_os = "linux"[)][)].[.]dependencies[]]$'
+assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" "$midir_native_table" '^[[:space:]]*midir[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[]target[.].cfg[(]target_arch = "wasm32"[)].[.]dependencies[]]$' '^[[:space:]]*midir[[:space:]]*='
 #
-# The console asks for the feature by name for its native targets rather than
-# leaning on `orcvs`'s default, so the shipped application keeps its MIDI
-# destination list even if that default changes, and the browser build keeps
-# asking for no native backend at all.
-#
-# Three assertions rather than two, because the declaration is not two halves:
-# Cargo unions a dependency's declarations and honours `default-features =
-# false` only if every one of them says it, so the native table has to say it
-# too. Pinning it in the plain table alone accepted a native declaration that
-# had dropped it — a console back on the borrowed default, which is the one
-# thing naming the feature exists to prevent, passing green.
+# The console declares `midir` for native targets only, and keeps asking for
+# `orcvs` with default features off so persistence stays an explicit choice.
 assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]dependencies[]][[:space:]]*$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
-assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*default-features[[:space:]]*=[[:space:]]*false'
-# The feature list is pinned by what it contains, not by how long it is.
-# `console` already has a `persistence` feature that maps onto
-# `orcvs/persistence`, so a second entry beside `native-midi` is a manifest this
-# contract should accept; requiring the list to be exactly `["native-midi"]`
-# rejected it with a message that read as though the feature were missing.
-assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$' '^[[:space:]]*orcvs[[:space:]]*=[[:space:]]*[{][^}]*[^-]features[[:space:]]*=[[:space:]]*[[]([^]]*,[[:space:]]*)?"native-midi"'
+console_native_table='^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_native_table" '^[[:space:]]*midir[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]target_arch = "wasm32"[)].[.]dependencies[]]$' '^[[:space:]]*midir[[:space:]]*='
 
 # Every ADR takes a number no other ADR takes. `0036` named two accepted
 # decisions for a day — the pulse refusal and the Cell reservation — and every
