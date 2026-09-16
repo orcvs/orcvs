@@ -1,12 +1,12 @@
 use std::time::Duration;
 use tracing::error;
 
+use crate::midi::{MidiOutputAdapter, MidiSelectionHandle};
 use crate::opts::{Bpm, Opts};
 
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
-use crate::native_midi::{self, NativeMidiOutputAdapter};
-use crate::playback::{OutputAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
+use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::{Source, SourceCommander};
 
@@ -28,16 +28,11 @@ pub enum InputEvent {
 }
 
 ///
-/// What a running Orcvs sends its Output Commands to unless it is handed
-/// another adapter. `orcvs::native_midi` decides what backend that adapter has
-/// on this target, so this alias names a valid type everywhere, the browser
-/// included.
-///
-pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
-
-///
 /// One running Orcvs: its options, Source and Grid, Cursor, and Playback
 /// lifecycle. Output-device discovery and selection belong to the console.
+///
+/// `S` is the selection capability, not the output backend. MIDI construction
+/// supplies a [`MidiSelectionHandle`]; output-only construction uses `()`.
 ///
 /// Selection names a Position, and only a Grid mints one. A pair outside the
 /// Grid never becomes a Position at all, so `select` has no rejection to make
@@ -64,13 +59,14 @@ pub type OrcvsOutputAdapter = NativeMidiOutputAdapter;
 /// assert_eq!(orcvs.render_frame().cursor(), position);
 /// ```
 ///
-pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
+pub struct Orcvs<S = MidiSelectionHandle> {
     opts: Opts,
     cursor: Cursor,
     grid: Grid,
 
     source: SourceCommander,
-    playback: PlaybackEngine<A>,
+    playback: PlaybackEngine,
+    selection: S,
     ///
     /// Whether this Orcvs has asked its Playback Engine to be running.
     ///
@@ -87,7 +83,7 @@ pub struct Orcvs<A: OutputAdapter = OrcvsOutputAdapter> {
 
 impl Orcvs {
     pub fn new(cols: usize, rows: usize) -> Result<Self, PlaybackStartError> {
-        Self::with_output_adapter(cols, rows, native_midi::output_adapter())
+        Self::with_midi_output_adapter(cols, rows, MidiOutputAdapter::new())
     }
 
     ///
@@ -116,12 +112,30 @@ impl Orcvs {
     /// ```
     ///
     pub fn with_source(source: Source) -> Result<Self, PlaybackStartError> {
-        Self::with_source_and_output_adapter(source, native_midi::output_adapter())
+        Self::with_source_and_midi_output_adapter(source, MidiOutputAdapter::new())
     }
 }
 
-impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
-    pub fn with_output_adapter(
+impl Orcvs<()> {
+    /// Builds output-only Playback, with no MIDI selection capability.
+    ///
+    /// Pass an [`OutputOnlyAdapter`]: [`MidiOutputAdapter`]
+    /// is rejected here because its destination publication has no publisher on
+    /// this path. Use [`Orcvs::with_midi_output_adapter`] for selectable MIDI.
+    ///
+    /// ```compile_fail
+    /// use orcvs::{app::Orcvs, playback::InMemoryOutputAdapter};
+    /// let app = Orcvs::with_output_adapter(1, 1, InMemoryOutputAdapter::default()).unwrap();
+    /// app.midi_selection_handle();
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use orcvs::app::Orcvs;
+    /// use orcvs::midi::MidiOutputAdapter;
+    ///
+    /// let _orcvs = Orcvs::with_output_adapter(1, 1, MidiOutputAdapter::new()).unwrap();
+    /// ```
+    pub fn with_output_adapter<A: OutputOnlyAdapter + Send + 'static>(
         cols: usize,
         rows: usize,
         adapter: A,
@@ -158,23 +172,29 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     /// assert_eq!(frame.cursor(), frame.grid().origin());
     /// ```
     ///
-    pub fn with_source_and_output_adapter(
+    pub fn with_source_and_output_adapter<A: OutputOnlyAdapter + Send + 'static>(
         source: Source,
         adapter: A,
     ) -> Result<Self, PlaybackStartError> {
-        let grid = source.grid();
-        let opts = Opts::new();
         let source = SourceCommander::with_source(source);
         let playback = PlaybackEngine::new(source.clone(), adapter)?;
+        Ok(Self::from_playback(source, playback, ()))
+    }
+}
 
-        Ok(Self {
+impl<S> Orcvs<S> {
+    fn from_playback(source: SourceCommander, playback: PlaybackEngine, selection: S) -> Self {
+        let grid = source.grid();
+        let opts = Opts::new();
+        Self {
             cursor: Cursor::new(grid.origin()),
             grid,
             opts,
             source,
             playback,
+            selection,
             playback_requested: false,
-        })
+        }
     }
 
     ///
@@ -346,7 +366,27 @@ impl<A: OutputAdapter + Send + 'static> Orcvs<A> {
     }
 }
 
-impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter<B>> {
+impl Orcvs {
+    /// A running Orcvs with MIDI discovery and selection connected to Playback.
+    pub fn with_midi_output_adapter(
+        cols: usize,
+        rows: usize,
+        adapter: MidiOutputAdapter,
+    ) -> Result<Self, PlaybackStartError> {
+        Self::with_source_and_midi_output_adapter(Source::new(Grid::new(cols, rows)), adapter)
+    }
+
+    /// Restores Source with MIDI publication established before Playback owns the adapter.
+    pub fn with_source_and_midi_output_adapter(
+        source: Source,
+        adapter: MidiOutputAdapter,
+    ) -> Result<Self, PlaybackStartError> {
+        let source = SourceCommander::with_source(source);
+        let (playback, selection) =
+            PlaybackEngine::with_midi_output_adapter(source.clone(), adapter)?;
+        Ok(Self::from_playback(source, playback, selection))
+    }
+
     /// Returns the MIDI configuration capability without exposing Playback
     /// lifecycle control.
     ///
@@ -390,8 +430,8 @@ impl<B: crate::midi::MidiBackend + 'static> Orcvs<crate::midi::MidiOutputAdapter
     /// let orcvs = orcvs::app::Orcvs::new(16, 16).unwrap();
     /// let _diagnostics = orcvs.midi_selection_handle().drain_diagnostics();
     /// ```
-    pub fn midi_selection_handle(&self) -> crate::playback::MidiSelectionHandle<B> {
-        crate::playback::MidiSelectionHandle::new(&self.playback)
+    pub fn midi_selection_handle(&self) -> MidiSelectionHandle {
+        self.selection.clone()
     }
 }
 
@@ -411,6 +451,9 @@ mod test {
     #[cfg(not(target_arch = "wasm32"))]
     #[derive(Default)]
     struct PanickingOutputAdapter;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl crate::playback::OutputOnlyAdapter for PanickingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     impl crate::playback::OutputAdapter for PanickingOutputAdapter {

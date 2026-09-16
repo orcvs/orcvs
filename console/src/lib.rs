@@ -7,6 +7,7 @@ pub mod diagnostics;
 mod grid_viewport;
 mod marks;
 mod midi;
+pub mod native_midi;
 mod paint;
 pub mod persistence;
 mod report;

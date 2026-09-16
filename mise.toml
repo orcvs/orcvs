@@ -65,9 +65,9 @@ description = "Interpret the Source model tests under Miri"
 # channel and the component it needs for the length of the run rather than
 # moving the pin and making every other gate nightly's problem.
 #
-# Scoped by test filter, not by crate. `orcvs` links ALSA through `midir` in the
-# default-featured build this task runs — `native-midi` is what decides that —
-# and builds a multi-threaded Tokio runtime, and Miri can execute neither: it
+# Scoped by test filter, not by crate. The console links ALSA through `midir` on
+# supported native targets, and `orcvs` builds a multi-threaded Tokio runtime on
+# native targets; Miri can execute neither: it
 # has no foreign functions and no real threads to hand them. But Miri interprets what
 # actually runs, not what the crate links, so a dependency no selected test
 # calls never becomes a problem. The filter selects the tests in the module that
@@ -157,15 +157,12 @@ cargo fmt --all -- --check
 # persistence` here would name the default twice and test one configuration.
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
-# `native-midi` is on by default, so every line above and below this one builds
-# the crate one way — the `--no-default-features` line included, because
-# `console` names the feature for its native targets and workspace resolution
-# hands it back. These two build it the other way, and they are scoped to
-# `orcvs` because it is the only crate the feature reaches. Crossed with
-# `persistence` rather than run twice plain, so the four feature cells are all
-# compiled between here and the lines around it, and the plain pass is the one
-# that runs, because the tests that state what disabling the feature gives up
-# are compiled only with it off.
+# `persistence` is on by default in the console, so every line above and below
+# this one builds that way — the `--no-default-features` line included. These
+# two build `orcvs` the other way, crossed with `persistence` rather than run
+# twice plain, so the four feature cells are all compiled between here and the
+# lines around it, and the plain pass is the one that runs, because the tests
+# that state what disabling persistence gives up are compiled only with it off.
 cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings
 cargo nextest run --package orcvs --no-default-features --profile ci --locked
 cargo nextest run --workspace --profile ci --locked
@@ -264,15 +261,12 @@ description = "Audit advisories, licenses, sources, and duplicate dependencies"
 run = '''
 cargo tree --workspace --all-features -e features --locked
 cargo deny --locked check
-# What `native-midi` is for is a claim about this tree, so the claim is checked
-# here rather than described in a comment somewhere. With the feature off,
-# `orcvs` reaches no platform MIDI service and so needs no system audio library:
-# `midir` and the ALSA and CoreMIDI crates beneath it are all absent. `cargo
-# tree` resolves the host target, so the Linux and macOS runners between them
-# check this against both libraries a native build could otherwise link.
+# Platform MIDI lives in the console, not the toolkit-free crate. This checks
+# that `orcvs` carries no platform binding of the kind `midir` pulls in: the
+# library itself, dispatch, or any `-sys` crate beneath it.
 native_midi_tree="$(cargo tree --package orcvs --no-default-features --edges normal --prefix none --locked)"
-if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|alsa|alsa-sys|coremidi|coremidi-sys) '; then
-  echo 'orcvs without native-midi still carries midir or a system audio library' >&2
+if printf '%s\n' "$native_midi_tree" | grep -E '^(midir|dispatch|[[:alnum:]-]+-sys) '; then
+  echo 'orcvs still carries a platform MIDI or system audio binding' >&2
   exit 1
 fi
 '''

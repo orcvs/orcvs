@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::fmt;
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -11,7 +12,7 @@ use web_time::Instant as ClockInstant;
 mod gate;
 mod schedule;
 
-use crate::midi::MidiDestinations;
+use crate::midi::MidiSelectionHandle;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
     Velocity,
@@ -70,26 +71,16 @@ pub enum OutputCommand {
 pub trait OutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError>;
     fn safety_reset(&mut self) -> Result<(), OutputAdapterError>;
-
-    ///
-    /// A reader of the MIDI destinations this adapter publishes.
-    ///
-    /// ADR 0041 moves the adapter into the task that owns the engine's state,
-    /// so nothing outside that task can reach the adapter to ask it anything.
-    /// The subscription is therefore taken here, while the adapter is still in
-    /// the constructor's hand, and travels to the handle that reads it — which
-    /// is how the console draws its menu without awaiting an answer the
-    /// browser main thread has no way to wait for.
-    ///
-    /// An adapter with no destination to choose has nothing to publish and
-    /// answers with a reader of a channel whose sender is already gone, which
-    /// is the same answer a reader gets once the running Orcvs publishing into
-    /// it has ended.
-    ///
-    fn published_destinations(&self) -> watch::Receiver<MidiDestinations> {
-        watch::Sender::new(MidiDestinations::default()).subscribe()
-    }
 }
+
+///
+/// An output adapter that does not publish MIDI destination state.
+///
+/// [`Orcvs::with_output_adapter`](crate::app::Orcvs::with_output_adapter) accepts only these adapters.
+/// [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter) is excluded: use
+/// [`Orcvs::with_midi_output_adapter`](crate::app::Orcvs::with_midi_output_adapter).
+///
+pub trait OutputOnlyAdapter: OutputAdapter {}
 
 fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -330,6 +321,8 @@ impl InMemoryOutputAdapter {
     }
 }
 
+impl OutputOnlyAdapter for InMemoryOutputAdapter {}
+
 impl OutputAdapter for InMemoryOutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
         let mut state = self.state.lock().unwrap();
@@ -402,7 +395,7 @@ struct PlaybackInner<A: OutputAdapter> {
 /// A handle validates and then sends; the task is the only thing that touches
 /// the state, so every transition arrives here in the order it was asked for.
 ///
-enum PlaybackCommand<A: OutputAdapter> {
+pub(crate) enum PlaybackCommand<C = Infallible> {
     Start {
         tick_period: Duration,
     },
@@ -411,22 +404,30 @@ enum PlaybackCommand<A: OutputAdapter> {
     },
     Stop,
     Disconnect,
-    ///
-    /// A transition whose shape belongs to the output adapter rather than to
-    /// the lifecycle.
-    ///
-    /// `PlaybackEngine` is generic over its adapter and choosing a MIDI
-    /// destination exists for one of them, so the variant carries the
-    /// transition itself rather than naming a message only one adapter could
-    /// ever answer. It is still one message in one queue, applied by the one
-    /// task that owns the state: the alternative shapes — a second channel, or
-    /// a lifecycle variant that most adapters must refuse — buy nothing and
-    /// cost an ordering guarantee each.
-    ///
-    Adapter(AdapterTransition<A>),
+    /// Output-specific requests share the lifecycle queue and its ordering.
+    Output(C),
 }
 
-type AdapterTransition<A> = Box<dyn FnOnce(&mut PlaybackInner<A>) + Send>;
+/// Erases only the queue's output-request type from lifecycle handles.
+/// Both implementations enqueue the same lifecycle operations; MIDI selection
+/// retains its typed weak sender to that exact queue.
+trait LifecycleRequests: Send + Sync {
+    fn send(&self, command: PlaybackCommand) -> Result<(), PlaybackStartError>;
+}
+
+impl<C: Send> LifecycleRequests for mpsc::UnboundedSender<PlaybackCommand<C>> {
+    fn send(&self, command: PlaybackCommand) -> Result<(), PlaybackStartError> {
+        let command = match command {
+            PlaybackCommand::Start { tick_period } => PlaybackCommand::Start { tick_period },
+            PlaybackCommand::Retune { tick_period } => PlaybackCommand::Retune { tick_period },
+            PlaybackCommand::Stop => PlaybackCommand::Stop,
+            PlaybackCommand::Disconnect => PlaybackCommand::Disconnect,
+            PlaybackCommand::Output(never) => match never {},
+        };
+        mpsc::UnboundedSender::send(self, command)
+            .map_err(|_| PlaybackStartError::EngineUnavailable)
+    }
+}
 
 ///
 /// A cloneable handle to one Playback Engine.
@@ -437,7 +438,7 @@ type AdapterTransition<A> = Box<dyn FnOnce(&mut PlaybackInner<A>) + Send>;
 /// needs. There is no lock here, no task handle, and nothing to be stale
 /// relative to.
 ///
-pub struct PlaybackEngine<A: OutputAdapter> {
+pub struct PlaybackEngine {
     ///
     /// The writing end of the transition queue.
     ///
@@ -446,7 +447,7 @@ pub struct PlaybackEngine<A: OutputAdapter> {
     /// it, sends the safety action, and exits. The count that used to say the
     /// same thing arithmetically is gone with it.
     ///
-    commands: mpsc::UnboundedSender<PlaybackCommand<A>>,
+    commands: Arc<dyn LifecycleRequests>,
     ///
     /// Whether someone has asked this engine to stop.
     ///
@@ -484,123 +485,9 @@ pub struct PlaybackEngine<A: OutputAdapter> {
     /// The writing end this handle reports its own failures on, so that a
     /// caller draining on the next line finds them.
     reports: mpsc::UnboundedSender<PlaybackDiagnostic>,
-    ///
-    /// The reading end of the adapter's published MIDI destinations,
-    /// subscribed while the adapter was still in hand at construction.
-    ///
-    destinations: watch::Receiver<MidiDestinations>,
 }
 
-///
-/// The MIDI configuration capability, without Playback lifecycle control.
-///
-/// It holds a weak sender rather than a clone of one, so that it cannot keep
-/// the engine's task alive: every method answers "running Orcvs is no longer
-/// available" once the last `PlaybackEngine` has been dropped, which is the
-/// guarantee the strong senders and this weak one draw between them.
-///
-pub struct MidiSelectionHandle<B: crate::midi::MidiBackend> {
-    commands: mpsc::WeakUnboundedSender<PlaybackCommand<crate::midi::MidiOutputAdapter<B>>>,
-    destinations: watch::Receiver<MidiDestinations>,
-}
-
-impl<B: crate::midi::MidiBackend + 'static> MidiSelectionHandle<B> {
-    pub(crate) fn new(playback: &PlaybackEngine<crate::midi::MidiOutputAdapter<B>>) -> Self {
-        Self {
-            commands: playback.commands.downgrade(),
-            destinations: playback.destinations.clone(),
-        }
-    }
-
-    ///
-    /// Queues `transition` for the engine's task, or answers that there is no
-    /// longer a running Orcvs to queue it for.
-    ///
-    fn request(
-        &self,
-        transition: impl FnOnce(&mut PlaybackInner<crate::midi::MidiOutputAdapter<B>>) + Send + 'static,
-    ) -> Result<(), crate::midi::MidiError> {
-        let commands = self
-            .commands
-            .upgrade()
-            .ok_or_else(|| crate::midi::MidiError::new("running Orcvs is no longer available"))?;
-        commands
-            .send(PlaybackCommand::Adapter(Box::new(transition)))
-            .map_err(|_| crate::midi::MidiError::new("running Orcvs is no longer available"))
-    }
-
-    ///
-    /// Asks the engine to discover the destinations its backend offers.
-    ///
-    /// Discovery reaches a platform MIDI service through the adapter, which
-    /// the engine's task owns, so this asks rather than answers: what it
-    /// found — or the failure it reported — arrives through
-    /// [`destinations`](Self::destinations) once the task has run.
-    ///
-    pub fn refresh_destinations(&self) -> Result<(), crate::midi::MidiError> {
-        self.request(PlaybackInner::refresh_destinations)
-    }
-
-    ///
-    /// The destinations the engine last published, or the failure the last
-    /// discovery reported.
-    ///
-    /// Read from the published value rather than asked of the engine, for the
-    /// reason every other observation is: the console compares this list
-    /// against its menu while drawing a frame, and the browser main thread has
-    /// no blocking receive with which to wait for an answer.
-    ///
-    pub fn destinations(
-        &self,
-    ) -> Result<Vec<crate::midi::MidiDestination>, crate::midi::MidiError> {
-        if self.destinations.has_changed().is_err() {
-            return Err(crate::midi::MidiError::new(
-                "running Orcvs is no longer available",
-            ));
-        }
-        self.destinations.borrow().discovered.clone()
-    }
-
-    ///
-    /// Asks the engine to connect its output to `destination_id`.
-    ///
-    /// The answer this returns is whether there is still a running Orcvs to
-    /// ask. Whether the device accepted the connection is the engine's to
-    /// report: a refusal becomes a Playback diagnostic, on the one ordered
-    /// stream every other output failure is reported on, and the selection
-    /// that succeeded appears in the published destinations.
-    ///
-    pub fn select(
-        &self,
-        destination_id: &crate::midi::MidiDestinationId,
-    ) -> Result<(), crate::midi::MidiError> {
-        let destination_id = destination_id.clone();
-        self.request(move |inner| inner.select_destination(&destination_id))
-    }
-
-    ///
-    /// The destination the engine last published, read without awaiting and
-    /// without reaching the engine.
-    ///
-    /// The console compares this against every row of its menu while drawing a
-    /// frame, which is why it is read from the published value rather than
-    /// asked of the engine. The running Orcvs that publishes into the channel
-    /// is what keeps it open, so a handle outliving that Orcvs learns it the
-    /// same way the methods above do.
-    ///
-    pub fn selected_destination_id(
-        &self,
-    ) -> Result<Option<crate::midi::MidiDestinationId>, crate::midi::MidiError> {
-        if self.destinations.has_changed().is_err() {
-            return Err(crate::midi::MidiError::new(
-                "running Orcvs is no longer available",
-            ));
-        }
-        Ok(self.destinations.borrow().selected.clone())
-    }
-}
-
-impl<A: OutputAdapter> Clone for PlaybackEngine<A> {
+impl Clone for PlaybackEngine {
     fn clone(&self) -> Self {
         Self {
             commands: self.commands.clone(),
@@ -608,7 +495,6 @@ impl<A: OutputAdapter> Clone for PlaybackEngine<A> {
             state: self.state.clone(),
             diagnostics: self.diagnostics.clone(),
             reports: self.reports.clone(),
-            destinations: self.destinations.clone(),
         }
     }
 }
@@ -919,7 +805,7 @@ impl<A: OutputAdapter> Drop for PlaybackInner<A> {
     }
 }
 
-impl<A: OutputAdapter> PlaybackEngine<A> {
+impl PlaybackEngine {
     ///
     /// The lifecycle state this engine last published.
     ///
@@ -964,10 +850,8 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     /// respawn a clock over: what is owed the caller is the truth, not a
     /// recovery.
     ///
-    fn send(&self, command: PlaybackCommand<A>) -> Result<(), PlaybackStartError> {
-        self.commands
-            .send(command)
-            .map_err(|_| PlaybackStartError::EngineUnavailable)
+    fn send(&self, command: PlaybackCommand) -> Result<(), PlaybackStartError> {
+        self.commands.send(command)
     }
 
     ///
@@ -1005,27 +889,21 @@ impl<A: OutputAdapter> PlaybackEngine<A> {
     }
 }
 
-impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B>> {
+impl PlaybackInner<crate::midi::MidiOutputAdapter> {
     ///
-    /// Discovers the destinations this engine's backend offers and publishes
-    /// what it found, or the failure it reported.
+    /// Installs an already-open connection the console opened on its own
+    /// thread.
     ///
-    fn refresh_destinations(&mut self) {
-        self.adapter.refresh_destinations();
-    }
-
+    /// The explicit selection request arrives here in the same queue as
+    /// lifecycle requests, so connection and note ownership change together.
+    /// A safety-action refusal on the outgoing connection is reported on the
+    /// one ordered stream every other output failure travels on.
     ///
-    /// Connects this engine's output to `destination_id`.
-    ///
-    /// Both ways a destination is chosen — this engine's own method and the
-    /// selection handle the console holds — arrive here, so what a change of
-    /// destination owes is stated once rather than twice.
-    ///
-    /// A refusal is reported rather than returned. The task that owns this
-    /// state cannot answer a caller synchronously, so the one ordered stream
-    /// every other output failure travels on is where this one goes too.
-    ///
-    fn select_destination(&mut self, destination_id: &crate::midi::MidiDestinationId) {
+    fn install_connection(
+        &mut self,
+        destination_id: crate::midi::MidiDestinationId,
+        connection: Box<dyn crate::midi::MidiConnection>,
+    ) {
         // The notes this engine owned are sounding on the destination it is
         // leaving, which is sent the safety action before the new connection is
         // reached. Their scheduled stops would arrive at a device that never
@@ -1044,7 +922,7 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
         // clearing only on success leaves the console showing nothing while
         // the device is still unplugged.
         self.last_output_failure = None;
-        let selection = match self.adapter.select(destination_id) {
+        let selection = match self.adapter.install_connection(destination_id, connection) {
             Ok(selection) => selection,
             Err(error) => {
                 self.record_output_failure(OutputAdapterError::new(error.message));
@@ -1058,7 +936,7 @@ impl<B: crate::midi::MidiBackend> PlaybackInner<crate::midi::MidiOutputAdapter<B
     }
 }
 
-impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
+impl PlaybackEngine {
     ///
     /// One Playback Engine over `source`, delivering to `adapter`, with the
     /// task that owns its state already running.
@@ -1070,23 +948,72 @@ impl<A: OutputAdapter + Send + 'static> PlaybackEngine<A> {
     /// [`PlaybackStartError::RuntimeUnavailable`] is answered here rather than
     /// at the first `start`.
     ///
-    pub fn new(source: SourceCommander, adapter: A) -> Result<Self, PlaybackStartError> {
-        let spawner = ClockSpawner::acquire()?;
-        // Subscribed while the adapter is still in hand. Once it is the task's
-        // there is no way back to it, which is the whole of what ADR 0041 buys.
+    /// Pass an [`OutputOnlyAdapter`]: [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter)
+    /// is rejected here because its destination publication has no publisher on
+    /// this path. Use [`Self::with_midi_output_adapter`] for selectable MIDI.
+    ///
+    /// ```compile_fail
+    /// use orcvs::grid::Grid;
+    /// use orcvs::midi::MidiOutputAdapter;
+    /// use orcvs::playback::PlaybackEngine;
+    /// use orcvs::source::SourceCommander;
+    ///
+    /// let _engine = PlaybackEngine::new(
+    ///     SourceCommander::new(Grid::new(1, 1)),
+    ///     MidiOutputAdapter::new(),
+    /// )
+    /// .unwrap();
+    /// ```
+    pub fn new<A: OutputOnlyAdapter + Send + 'static>(
+        source: SourceCommander,
+        adapter: A,
+    ) -> Result<Self, PlaybackStartError> {
+        Self::spawn(source, adapter, |_, never: Infallible| match never {})
+            .map(|(engine, _)| engine)
+    }
+
+    /// Builds MIDI Playback and its restricted selection handle together.
+    /// Publication is subscribed before the adapter moves into the owning task.
+    pub fn with_midi_output_adapter(
+        source: SourceCommander,
+        adapter: crate::midi::MidiOutputAdapter,
+    ) -> Result<(Self, MidiSelectionHandle), PlaybackStartError> {
         let destinations = adapter.published_destinations();
+        let (engine, commands) = Self::spawn(source, adapter, |inner, request| match request {
+            crate::midi::MidiRequest::Install {
+                destination_id,
+                connection,
+            } => inner.install_connection(destination_id, connection),
+        })?;
+        Ok((engine, MidiSelectionHandle::new(commands, destinations)))
+    }
+
+    fn spawn<A: OutputAdapter + Send + 'static, C: Send + 'static>(
+        source: SourceCommander,
+        adapter: A,
+        handle_output: fn(&mut PlaybackInner<A>, C),
+    ) -> Result<(Self, mpsc::WeakUnboundedSender<PlaybackCommand<C>>), PlaybackStartError> {
+        let spawner = ClockSpawner::acquire()?;
         let (inner, channels) = PlaybackInner::new(source, adapter);
         let (commands, queued) = mpsc::unbounded_channel();
+        let output_requests = commands.downgrade();
         let tick_gate = Arc::new(TickGate::new());
-        spawner.spawn(run_engine(inner, queued, Arc::clone(&tick_gate)));
-        Ok(Self {
-            commands,
-            tick_gate,
-            state: channels.state,
-            diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
-            reports: channels.reports,
-            destinations,
-        })
+        spawner.spawn(run_engine(
+            inner,
+            queued,
+            Arc::clone(&tick_gate),
+            handle_output,
+        ));
+        Ok((
+            Self {
+                commands: Arc::new(commands),
+                tick_gate,
+                state: channels.state,
+                diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
+                reports: channels.reports,
+            },
+            output_requests,
+        ))
     }
 
     ///
@@ -1292,8 +1219,8 @@ impl TickClock {
 ///
 /// What the engine's task wakes for.
 ///
-enum PlaybackEvent<A: OutputAdapter> {
-    Command(PlaybackCommand<A>),
+enum PlaybackEvent<C> {
+    Command(PlaybackCommand<C>),
     Deadline,
     /// The next deadline is not an instant this clock can express, so there is
     /// nothing to wait until and the run cannot go on.
@@ -1337,11 +1264,11 @@ const MESSAGES_BEFORE_A_DEADLINE: usize = 64;
 /// Tick, and the fairness budget may already have been spent while the engine
 /// was stopped.
 ///
-async fn next_playback_event<A: OutputAdapter>(
-    commands: &mut mpsc::UnboundedReceiver<PlaybackCommand<A>>,
+async fn next_playback_event<C>(
+    commands: &mut mpsc::UnboundedReceiver<PlaybackCommand<C>>,
     clock: Option<&TickClock>,
     messages_since_tick: usize,
-) -> PlaybackEvent<A> {
+) -> PlaybackEvent<C> {
     let Some(clock) = clock else {
         return match commands.recv().await {
             Some(command) => PlaybackEvent::Command(command),
@@ -1397,10 +1324,11 @@ async fn next_playback_event<A: OutputAdapter>(
 /// woken, and no other task whose death has to be noticed. A retune recomputes
 /// the deadline the loop waits on, and that is the whole of it.
 ///
-async fn run_engine<A: OutputAdapter>(
+async fn run_engine<A: OutputAdapter, C>(
     mut inner: PlaybackInner<A>,
-    mut commands: mpsc::UnboundedReceiver<PlaybackCommand<A>>,
+    mut commands: mpsc::UnboundedReceiver<PlaybackCommand<C>>,
     tick_gate: Arc<TickGate>,
+    handle_output: fn(&mut PlaybackInner<A>, C),
 ) {
     let mut clock: Option<TickClock> = None;
     let mut messages_since_tick = 0usize;
@@ -1452,7 +1380,9 @@ async fn run_engine<A: OutputAdapter>(
                 inner.disconnect();
                 messages_since_tick = 0;
             }
-            PlaybackEvent::Command(PlaybackCommand::Adapter(transition)) => transition(&mut inner),
+            PlaybackEvent::Command(PlaybackCommand::Output(request)) => {
+                handle_output(&mut inner, request)
+            }
             PlaybackEvent::Unschedulable => {
                 // `start` and `retune` refuse a period whose deadlines cannot
                 // be expressed, so reaching this means a run outlasted its own
@@ -1540,11 +1470,33 @@ mod tests {
     /// every test that builds an engine is running on one; the test that is
     /// about not having one builds its engine deliberately outside it.
     ///
+    struct TestEngine {
+        engine: PlaybackEngine,
+        probes: mpsc::WeakUnboundedSender<PlaybackCommand<tokio::sync::oneshot::Sender<()>>>,
+    }
+
+    impl std::ops::Deref for TestEngine {
+        type Target = PlaybackEngine;
+
+        fn deref(&self) -> &Self::Target {
+            &self.engine
+        }
+    }
+
+    fn answer_probe<A: OutputAdapter>(
+        _: &mut PlaybackInner<A>,
+        probe: tokio::sync::oneshot::Sender<()>,
+    ) {
+        let _ = probe.send(());
+    }
+
     fn engine<A: OutputAdapter + Send + 'static>(
         source: SourceCommander,
         adapter: A,
-    ) -> PlaybackEngine<A> {
-        PlaybackEngine::new(source, adapter).expect("the test runtime")
+    ) -> TestEngine {
+        let (engine, probes) =
+            PlaybackEngine::spawn(source, adapter, answer_probe).expect("the test runtime");
+        TestEngine { engine, probes }
     }
 
     ///
@@ -1568,22 +1520,22 @@ mod tests {
     /// suite passed, and the negative assertions it stands under — nothing ran
     /// yet — are the ones it cannot support at any count.
     ///
-    /// The probe travels as an ordinary `Adapter` transition, which is the
-    /// variant `MidiSelectionHandle` sends through in production. Nothing is
-    /// staged here that the shipped queue does not already carry.
+    /// The test fixture instantiates the output-request type with a reply
+    /// channel below the shipped constructors. No queued closure can mutate
+    /// Playback, and production has no test-only request or branch.
     ///
-    async fn settle<A: OutputAdapter>(engine: &PlaybackEngine<A>) {
-        settle_queue(&engine.commands).await;
+    async fn settle(engine: &TestEngine) {
+        settle_queue(&engine.probes.upgrade().expect("a live engine")).await;
     }
 
     /// [`settle`], against the queue rather than a handle holding one, for the
     /// test that owns the two ends separately.
-    async fn settle_queue<A: OutputAdapter>(commands: &mpsc::UnboundedSender<PlaybackCommand<A>>) {
+    async fn settle_queue(
+        commands: &mpsc::UnboundedSender<PlaybackCommand<tokio::sync::oneshot::Sender<()>>>,
+    ) {
         let (probe, answered) = tokio::sync::oneshot::channel();
         commands
-            .send(PlaybackCommand::Adapter(Box::new(move |_| {
-                let _ = probe.send(());
-            })))
+            .send(PlaybackCommand::Output(probe))
             .unwrap_or_else(|_| panic!("the engine's task holds the queue open"));
         answered.await.expect("the engine's task answers its probe");
     }
@@ -1699,6 +1651,8 @@ mod tests {
         }
     }
 
+    impl OutputOnlyAdapter for RecordingAdapter {}
+
     ///
     /// An adapter that refuses every submission and every safety action with
     /// the same error, as a device that is gone refuses everything sent to it.
@@ -1722,6 +1676,8 @@ mod tests {
             Err(OutputAdapterError::new(Self::ERROR))
         }
     }
+
+    impl OutputOnlyAdapter for RefusingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, mpsc as std_mpsc};
@@ -1859,6 +1815,9 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for DoublyPanickingOutputAdapter {}
+
+    #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for SilencePanickingOutputAdapter {
         fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
             Ok(())
@@ -1868,6 +1827,9 @@ mod tests {
             panic!("test safety panic");
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for SilencePanickingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for PanickingOutputAdapter {
@@ -1880,6 +1842,9 @@ mod tests {
             Ok(())
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for PanickingOutputAdapter {}
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for BlockingOutputAdapter {
@@ -1919,6 +1884,9 @@ mod tests {
             Ok(())
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl OutputOnlyAdapter for BlockingOutputAdapter {}
 
     fn write(source: &SourceCommander, start: usize, content: &str) {
         let grid = source.grid();
@@ -3252,26 +3220,28 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_requested_stop_prevents_a_tick_before_the_message_arrives() {
         let adapter = InMemoryOutputAdapter::default();
-        let destinations = adapter.published_destinations();
         let (inner, channels) =
             PlaybackInner::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
         let (commands, queued) = mpsc::unbounded_channel();
         let tick_gate = Arc::new(TickGate::new());
-        let task = tokio::spawn(run_engine(inner, queued, Arc::clone(&tick_gate)));
+        let task = tokio::spawn(run_engine(
+            inner,
+            queued,
+            Arc::clone(&tick_gate),
+            |_, never: Infallible| match never {},
+        ));
 
         // The handle the stop is asked of: the loop's own request flag, the
         // loop's own published state and diagnostics, and a queue that ends
         // here. `in_flight` is where the message waits, so the request reaches
         // the loop and the message it travels ahead of does not.
-        let (undelivered, _in_flight) =
-            mpsc::unbounded_channel::<PlaybackCommand<InMemoryOutputAdapter>>();
+        let (undelivered, _in_flight) = mpsc::unbounded_channel::<PlaybackCommand>();
         let engine = PlaybackEngine {
-            commands: undelivered,
+            commands: Arc::new(undelivered),
             tick_gate: Arc::clone(&tick_gate),
             state: channels.state,
             diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
             reports: channels.reports,
-            destinations,
         };
 
         commands
@@ -3332,7 +3302,12 @@ mod tests {
         let (inner, mut channels) =
             PlaybackInner::new(SourceCommander::new(Grid::new(1, 1)), adapter.clone());
         let (commands, queued) = mpsc::unbounded_channel();
-        let task = tokio::spawn(run_engine(inner, queued, Arc::new(TickGate::new())));
+        let task = tokio::spawn(run_engine(
+            inner,
+            queued,
+            Arc::new(TickGate::new()),
+            answer_probe,
+        ));
 
         commands
             .send(PlaybackCommand::Start {
@@ -3745,9 +3720,7 @@ mod tests {
     /// call would delay that observation by the length of that call.
     ///
     #[cfg(not(target_arch = "wasm32"))]
-    async fn diagnostics_once_stopped<A: OutputAdapter>(
-        engine: &PlaybackEngine<A>,
-    ) -> Vec<PlaybackDiagnostic> {
+    async fn diagnostics_once_stopped(engine: &PlaybackEngine) -> Vec<PlaybackDiagnostic> {
         wait_until("the engine never published a stop", || {
             engine.state() == PlaybackState::Stopped
         })
