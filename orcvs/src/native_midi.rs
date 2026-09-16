@@ -150,8 +150,16 @@ mod backend {
                     }
                 };
                 let port_name = format!("{MIDI_CLIENT_NAME} output");
-                let connection = output.connect(&port, &port_name).map_err(midi_error)?;
-                Ok(Box::new(MidirConnection(connection)) as Box<dyn MidiConnection>)
+                match output.connect(&port, &port_name) {
+                    Ok(connection) => {
+                        Ok(Box::new(MidirConnection(connection)) as Box<dyn MidiConnection>)
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        *guard = Some(error.into_inner());
+                        Err(MidiError::new(message))
+                    }
+                }
             })
         }
     }
@@ -162,12 +170,13 @@ mod backend {
     /// On macOS the Playback task reaches this from a worker thread; the
     /// console's main thread owns the run loop `midir` enumerates against.
     /// When that queue is already pumping, the work is dispatched there and
-    /// waited on briefly; when nothing pumps the main queue — a headless
-    /// library consumer, or shutdown after the GUI has stopped — the wait
-    /// times out and the work runs on the caller's thread instead of blocking
-    /// forever. On the application main thread the work runs inline, because
-    /// `exec_sync` onto the same queue would deadlock. Elsewhere the call runs
-    /// inline.
+    /// waited on; a slow main-queue run is waited out rather than started
+    /// again on the caller's thread. When nothing pumps the main queue — a
+    /// headless library consumer, or shutdown after the GUI has stopped — the
+    /// wait times out and the work runs on the caller's thread instead of
+    /// blocking forever. On the application main thread the work runs inline,
+    /// because `exec_sync` onto the same queue would deadlock. Elsewhere the
+    /// call runs inline.
     ///
     fn platform_sync<R: Send + 'static>(operation: impl FnOnce() -> R + Send + 'static) -> R {
         #[cfg(target_os = "macos")]
@@ -189,12 +198,24 @@ mod backend {
 
             match rx.recv_timeout(MAIN_QUEUE_WAIT) {
                 Ok(result) => result,
-                Err(_) => slot
-                    .lock()
-                    .unwrap()
-                    .take()
-                    .expect("platform_sync operation was not run on the main queue")(
-                ),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if let Some(operation) = slot.lock().unwrap().take() {
+                        operation()
+                    } else {
+                        rx.recv().expect(
+                            "platform_sync result channel closed while work was on the main queue",
+                        )
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if let Some(operation) = slot.lock().unwrap().take() {
+                        operation()
+                    } else {
+                        panic!(
+                            "platform_sync result channel closed while work was on the main queue"
+                        );
+                    }
+                }
             }
         }
         #[cfg(not(target_os = "macos"))]
