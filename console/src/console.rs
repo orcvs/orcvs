@@ -12,7 +12,7 @@ use crate::cursor_effects::{
     cursor_effect_shapes, effect_bounds,
 };
 use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
-use crate::midi::{MidiDeviceSelection, NO_OUTPUT_DESTINATION, destination_presentation};
+use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
@@ -142,8 +142,10 @@ const REST_MARKER: &str = "//";
 const LABEL_VALUE_TIGHTEN: f32 = 2.0;
 /// Monospace cells between Readout groups, so C is not as close to T's value as to its own.
 const GROUP_GAP_CELLS: f32 = 3.0;
-/// Slot the destination ComboBox occupies so a shorter device name does not shove Refresh.
-const DESTINATION_COMBO_WIDTH: f32 = 196.0;
+/// Slot the Output readout occupies so a shorter device name is not truncated early.
+const OUTPUT_READOUT_WIDTH: f32 = 196.0;
+/// Menu action that asks the engine to discover output destinations again.
+const OUTPUT_SCAN: &str = "Scan";
 
 ///
 /// The window size that presents the default Grid at the Source's own Cell
@@ -248,37 +250,81 @@ const BPM_FIELD_MARGIN: egui::Margin = egui::Margin::symmetric(8, 4);
 const PANEL_BPM_MIN: usize = 1;
 const PANEL_BPM_MAX: usize = 999;
 
-fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> egui::Response {
+fn parse_panel_bpm(text: &str) -> Option<usize> {
+    if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    text.parse()
+        .ok()
+        .filter(|value| (PANEL_BPM_MIN..=PANEL_BPM_MAX).contains(value))
+}
+
+fn select_all_bpm_text(ctx: &egui::Context, id: egui::Id, text: &str) {
+    let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::default(),
+            egui::text::CCursor::new(text.chars().count()),
+        )));
+    state.store(ctx, id);
+}
+
+fn panel_field_height(ui: &egui::Ui) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Monospace) + BPM_FIELD_MARGIN.sum().y
+}
+
+///
+/// ComboBox chrome reads [`Spacing::button_padding`]; match the BPM TextEdit margin.
+///
+fn apply_panel_field_spacing(ui: &mut egui::Ui) {
+    ui.spacing_mut().button_padding = egui::vec2(BPM_FIELD_MARGIN.leftf(), BPM_FIELD_MARGIN.topf());
+    ui.spacing_mut().interact_size.y = panel_field_height(ui);
+}
+
+///
+/// Typed BPM only: commits on Enter or when focus leaves, not while dragging.
+///
+fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
+    let id = egui::Id::new(BPM_FIELD_ID);
     let size = egui::vec2(
         monospace_width(ui, "000") + BPM_FIELD_MARGIN.sum().x,
-        ui.text_style_height(&egui::TextStyle::Monospace) + BPM_FIELD_MARGIN.sum().y,
+        panel_field_height(ui),
     );
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .id(egui::Id::new(BPM_FIELD_ID))
-            .max_rect(rect),
+    let ctx = ui.ctx().clone();
+    let mut text = ctx
+        .data(|data| data.get_temp::<String>(id))
+        .unwrap_or_else(|| bpm.to_string());
+    if !ctx.memory(|memory| memory.has_focus(id)) {
+        text = bpm.to_string();
+    }
+    let response = ui.add_sized(
+        size,
+        egui::TextEdit::singleline(&mut text)
+            .id(id)
+            .font(egui::TextStyle::Monospace)
+            .margin(BPM_FIELD_MARGIN),
     );
-    child.spacing_mut().button_padding =
-        egui::vec2(BPM_FIELD_MARGIN.leftf(), BPM_FIELD_MARGIN.topf());
-    child.spacing_mut().interact_size = size;
-    child.style_mut().drag_value_text_style = egui::TextStyle::Monospace;
-    child.add(
-        egui::DragValue::new(bpm)
-            .range(PANEL_BPM_MIN..=PANEL_BPM_MAX)
-            .speed(1.0)
-            .max_decimals(0)
-            .update_while_editing(false)
-            .custom_parser(|text| {
-                if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
-                    None
-                } else {
-                    text.parse::<f64>().ok().filter(|value| {
-                        *value >= PANEL_BPM_MIN as f64 && *value <= PANEL_BPM_MAX as f64
-                    })
-                }
-            }),
-    )
+    if response.clicked() {
+        select_all_bpm_text(&ctx, id, &text);
+    }
+    ctx.data_mut(|data| data.insert_temp(id, text.clone()));
+    let enter = response.has_focus() && ctx.input(|input| input.key_pressed(Key::Enter));
+    let mut committed = false;
+    if response.lost_focus() || enter {
+        match parse_panel_bpm(&text) {
+            Some(parsed) if parsed != *bpm => {
+                *bpm = parsed;
+                committed = true;
+            }
+            Some(_) => {}
+            None => {
+                text = bpm.to_string();
+                ctx.data_mut(|data| data.insert_temp(id, text));
+            }
+        }
+    }
+    (response, committed)
 }
 
 fn keep_digits_in_text_events(events: &mut Vec<egui::Event>) {
@@ -441,7 +487,7 @@ pub struct Console {
     font_family: egui::FontFamily,
     source_view: SourceView,
     diagnostics_open: bool,
-    /// The DragValue's widget id, so a later pass can find the rectangle it
+    /// The BPM field's widget id, so a later pass can find the rectangle it
     /// occupied and so focus is the same id the field is shown under.
     #[cfg(test)]
     bpm_widget_id: egui::Id,
@@ -1470,12 +1516,11 @@ impl eframe::App for Console {
             .advance(effect_now, cursor_effect_settings);
 
         // Shown before CentralPanel so it takes height rather than overlaying
-        // the Grid. Static: no resize handle, no drag. BPM is a DragValue:
-        // click to type, drag to change. `**` is the published beat, `//`
+        // the Grid. Static: no resize handle, no drag. BPM is a TextEdit:
+        // click to type; Enter or leaving the field commits. `**` is the beat, `//`
         // while Playback is stopped. Tick and Run Clock are the engine's
         // published Readouts. Destination is chosen from the ComboBox;
-        // Refresh asks the engine to discover again. There is no periodic
-        // polling.
+        // Scan asks the engine to discover again. There is no periodic polling.
         egui::Panel::bottom("bottom_panel")
             .resizable(false)
             .min_size(BOTTOM_PANEL_HEIGHT)
@@ -1490,9 +1535,8 @@ impl eframe::App for Console {
                         panel_label(ui, "B");
                         ui.add_space(label_value_gap);
                         let mut bpm = self.orcvs.bpm().beats_per_minute();
-                        let response = add_bpm_field(ui, &mut bpm);
-                        if response.changed()
-                            && (PANEL_BPM_MIN..=PANEL_BPM_MAX).contains(&bpm)
+                        let (response, committed) = add_bpm_field(ui, &mut bpm);
+                        if committed
                             && let Some(next) = Bpm::new(bpm)
                             && next != self.orcvs.bpm()
                         {
@@ -1521,6 +1565,8 @@ impl eframe::App for Console {
                             monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
                         reserved_monospace(ui, &clock_text, clock_width);
                         ui.add_space(entry_gap);
+                        panel_label(ui, "O");
+                        ui.add_space(label_value_gap);
 
                         self.midi.auto_select_first_if_unselected();
                         let destinations = self.midi.destinations().to_vec();
@@ -1528,35 +1574,48 @@ impl eframe::App for Console {
                         let presentation =
                             destination_presentation(&destinations, selected_id.as_ref());
                         ui.add_enabled_ui(presentation.enabled, |ui| {
+                            apply_panel_field_spacing(ui);
                             let mut selected = selected_id.clone();
-                            ui.push_id(DESTINATION_COMBO_ID, |ui| {
-                                let button = ui.add_sized(
-                                    [DESTINATION_COMBO_WIDTH, ui.spacing().interact_size.y],
-                                    egui::Button::new(presentation.selected_text).truncate(),
-                                );
-                                // ComboBox's menu opens downward; from this Panel that
-                                // would clip. Popup::menu uses the same default.
-                                let popup = egui::Popup::from_toggle_button_response(&button)
-                                    .kind(egui::PopupKind::Menu)
-                                    .align(egui::emath::RectAlign::TOP_START)
-                                    .align_alternatives(&[])
-                                    .width(button.rect.width())
-                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClick);
-                                let combo_open = popup.is_open();
-                                popup.show(|ui| {
-                                    if destinations.is_empty() {
-                                        ui.label(NO_OUTPUT_DESTINATION);
+                            let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
+                                .selected_text(
+                                    egui::RichText::new(presentation.selected_text)
+                                        .text_style(egui::TextStyle::Monospace),
+                                )
+                                .width(OUTPUT_READOUT_WIDTH)
+                                .icon(|_ui, _rect, _visuals, _is_open| {})
+                                .show_ui(ui, |ui| {
+                                    if presentation.show_refresh {
+                                        if ui.button(OUTPUT_SCAN).clicked() {
+                                            self.midi.refresh_destinations();
+                                        }
+                                        ui.separator();
                                     }
-                                    for destination in &destinations {
-                                        ui.selectable_value(
-                                            &mut selected,
-                                            Some(destination.id.clone()),
-                                            destination.name.as_str(),
-                                        );
+                                    if destinations.is_empty() {
+                                        ui.add_enabled_ui(false, |ui| {
+                                            let _ = ui.selectable_label(
+                                                true,
+                                                egui::RichText::new(crate::midi::OUTPUT_NONE)
+                                                    .text_style(egui::TextStyle::Monospace),
+                                            );
+                                        });
+                                    } else {
+                                        for destination in &destinations {
+                                            ui.selectable_value(
+                                                &mut selected,
+                                                Some(destination.id.clone()),
+                                                destination.name.as_str(),
+                                            );
+                                        }
                                     }
                                 });
-                                self.destination_combo_focused = button.has_focus() || combo_open;
-                            });
+                            if combo_response.response.clicked()
+                                && presentation.show_refresh
+                                && destinations.is_empty()
+                            {
+                                self.midi.refresh_destinations();
+                            }
+                            self.destination_combo_focused = combo_response.response.has_focus()
+                                || egui::ComboBox::is_open(ui.ctx(), combo_response.response.id);
                             if selected != selected_id
                                 && let Some(id) = selected.as_ref()
                             {
@@ -1565,9 +1624,6 @@ impl eframe::App for Console {
                         });
                         if let Some(status) = self.midi.status() {
                             ui.colored_label(ui.visuals().error_fg_color, status);
-                        }
-                        if presentation.show_refresh && ui.button("Refresh").clicked() {
-                            self.midi.refresh_destinations();
                         }
                     },
                 );
@@ -2285,8 +2341,8 @@ mod tests {
 
     ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
-    /// C `00:00`, then the destination ComboBox and Refresh in that
-    /// order. File and View remain on the top bar; the MIDI menu is gone.
+    /// C `00:00`, O `None`. File, View, and Theme remain on the top bar; the
+    /// MIDI menu is gone.
     ///
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
@@ -2342,7 +2398,7 @@ mod tests {
             text.contains("00:00"),
             "the Panel is missing Run Clock 00:00 in {text:?}"
         );
-        for menu in ["File", "View"] {
+        for menu in ["File", "View", "Theme"] {
             assert!(
                 text.contains(menu),
                 "the top bar is missing {menu} in {text:?}"
@@ -2361,33 +2417,21 @@ mod tests {
             "the Tempo menu is still on the top bar in {text:?}"
         );
 
-        if native_midi::AVAILABLE {
-            let refresh_at = text
-                .find("Refresh")
-                .unwrap_or_else(|| panic!("the Panel is missing Refresh in {text:?}"));
-            assert!(
-                clock_at < refresh_at,
-                "Refresh is not after Run Clock in {text:?}"
-            );
-            if let Some(empty_at) = text.find("No output destination") {
-                assert!(
-                    clock_at < empty_at && empty_at < refresh_at,
-                    "destination copy is not between Run Clock and Refresh in {text:?}"
-                );
-            }
-        } else {
-            assert!(
-                !text.contains("Refresh"),
-                "Refresh is shown without a native MIDI backend in {text:?}"
-            );
-            let empty_at = text.find("No output destination").unwrap_or_else(|| {
-                panic!("the Panel is missing the empty destination copy in {text:?}")
-            });
-            assert!(
-                clock_at < empty_at,
-                "destination copy is not after Run Clock in {text:?}"
-            );
-        }
+        let output_at = clock_at
+            + text[clock_at..]
+                .find('O')
+                .expect("the Panel is missing the O label in {text:?}");
+        let none_at = text
+            .find(crate::midi::OUTPUT_NONE)
+            .unwrap_or_else(|| panic!("the Panel is missing Output None in {text:?}"));
+        assert!(
+            clock_at < output_at && output_at < none_at,
+            "Readout order is not C then O then None in {text:?}"
+        );
+        assert!(
+            !text.contains(super::OUTPUT_SCAN),
+            "Scan belongs in the Output menu, not on the closed Panel in {text:?}"
+        );
 
         let panel = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("bottom_panel"))
             .expect("the bottom Panel was not shown");
@@ -2688,7 +2732,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dragging_the_bpm_field_changes_the_tempo() {
+    async fn dragging_the_bpm_field_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
         ctx.set_style_of(egui::Theme::Dark, crate::style::style());
         ctx.set_theme(egui::Theme::Dark);
@@ -2719,10 +2763,10 @@ mod tests {
             &mut console,
             &mut host,
         );
-        assert_ne!(
+        assert_eq!(
             console.orcvs.bpm().beats_per_minute(),
             start,
-            "dragging the BPM field left the tempo unchanged"
+            "dragging the BPM field changed the tempo"
         );
     }
     #[tokio::test]
@@ -3105,11 +3149,25 @@ mod tests {
                                     super::monospace_width(ui, "00:00"),
                                 );
                                 ui.add_space(entry_gap);
-                                ui.add_sized(
-                                    [super::DESTINATION_COMBO_WIDTH, ui.spacing().interact_size.y],
-                                    egui::Button::new("No output destination").truncate(),
-                                );
-                                let _ = ui.button("Refresh");
+                                super::panel_label(ui, "O");
+                                ui.add_space(label_value_gap);
+                                super::apply_panel_field_spacing(ui);
+                                egui::ComboBox::from_id_salt(super::DESTINATION_COMBO_ID)
+                                    .selected_text(
+                                        egui::RichText::new(crate::midi::OUTPUT_NONE)
+                                            .text_style(egui::TextStyle::Monospace),
+                                    )
+                                    .width(super::OUTPUT_READOUT_WIDTH)
+                                    .icon(|_ui, _rect, _visuals, _is_open| {})
+                                    .show_ui(ui, |ui| {
+                                        let _ = ui.button(super::OUTPUT_SCAN);
+                                        ui.separator();
+                                        let _ = ui.selectable_label(
+                                            true,
+                                            egui::RichText::new(crate::midi::OUTPUT_NONE)
+                                                .text_style(egui::TextStyle::Monospace),
+                                        );
+                                    });
                             },
                         );
                     });

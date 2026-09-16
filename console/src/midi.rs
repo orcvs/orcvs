@@ -6,9 +6,10 @@ use crate::diagnostics::failure_message;
 const UNAVAILABLE: &str = "running Orcvs is no longer available";
 
 ///
-/// ComboBox copy when the last discovery returned no destinations.
+/// Output readout copy when nothing is selected or the last discovery returned
+/// no destinations.
 ///
-pub(crate) const NO_OUTPUT_DESTINATION: &str = "No output destination";
+pub(crate) const OUTPUT_NONE: &str = "None";
 
 ///
 /// The text the destination ComboBox shows for the current selection.
@@ -22,7 +23,7 @@ pub(crate) fn destination_selected_text<'a>(
     selected_id: Option<&'a MidiDestinationId>,
 ) -> &'a str {
     if destinations.is_empty() {
-        return NO_OUTPUT_DESTINATION;
+        return OUTPUT_NONE;
     }
     match selected_id {
         Some(id) => destinations
@@ -30,7 +31,7 @@ pub(crate) fn destination_selected_text<'a>(
             .find(|destination| &destination.id == id)
             .map(|destination| destination.name.as_str())
             .unwrap_or_else(|| id.as_str()),
-        None => NO_OUTPUT_DESTINATION,
+        None => OUTPUT_NONE,
     }
 }
 
@@ -56,7 +57,7 @@ pub(crate) fn destination_presentation<'a>(
         return DestinationPresentation {
             enabled: false,
             show_refresh: false,
-            selected_text: NO_OUTPUT_DESTINATION,
+            selected_text: OUTPUT_NONE,
         };
     }
     DestinationPresentation {
@@ -81,7 +82,7 @@ fn destination_presentation_for<'a>(
         return DestinationPresentation {
             enabled: false,
             show_refresh: false,
-            selected_text: NO_OUTPUT_DESTINATION,
+            selected_text: OUTPUT_NONE,
         };
     }
     DestinationPresentation {
@@ -475,24 +476,20 @@ mod tests {
         assert_eq!(midi.destinations(), &[]);
         assert_eq!(
             destination_selected_text(&[], midi.selected_destination_id().as_ref()),
-            "No output destination"
+            super::OUTPUT_NONE
         );
     }
 
     ///
-    /// When the last discovery returned no destinations, the ComboBox copy is
-    /// exactly "No output destination" — not "not found" and not "No MIDI
-    /// destinations found."
+    /// When the last discovery returned no destinations, the Output readout is
+    /// exactly "None" — not "not found" and not "No MIDI destinations found."
     ///
     #[test]
-    fn an_empty_discovery_presents_no_output_destination() {
-        assert_eq!(
-            destination_selected_text(&[], None),
-            "No output destination"
-        );
+    fn an_empty_discovery_presents_none() {
+        assert_eq!(destination_selected_text(&[], None), super::OUTPUT_NONE);
         assert_eq!(
             destination_selected_text(&[], Some(&MidiDestinationId::new("one"))),
-            "No output destination"
+            super::OUTPUT_NONE
         );
     }
 
@@ -521,19 +518,19 @@ mod tests {
         let presentation = destination_presentation_for(false, &destinations, Some(&selected));
         assert!(!presentation.enabled);
         assert!(!presentation.show_refresh);
-        assert_eq!(presentation.selected_text, "No output destination");
+        assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
     }
 
     ///
-    /// A build that has a backend keeps the ComboBox enabled and shows
-    /// Refresh, even when the last discovery was empty.
+    /// A build that has a backend keeps the Output readout enabled and offers
+    /// Refresh in its menu, even when the last discovery was empty.
     ///
     #[test]
     fn an_available_backend_keeps_refresh_and_the_destination_enabled() {
         let presentation = destination_presentation_for(true, &[], None);
         assert!(presentation.enabled);
         assert!(presentation.show_refresh);
-        assert_eq!(presentation.selected_text, "No output destination");
+        assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
     }
 
     ///

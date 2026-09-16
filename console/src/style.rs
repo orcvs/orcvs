@@ -146,8 +146,9 @@ pub fn style() -> Style {
     visuals.widgets.noninteractive.weak_bg_fill = PALETTE.page;
     visuals.widgets.noninteractive.bg_stroke = chrome;
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
-    visuals.widgets.inactive.bg_fill = PALETTE.source;
-    visuals.widgets.inactive.weak_bg_fill = PALETTE.source;
+    visuals.widgets.inactive.bg_fill = PALETTE.page;
+    visuals.widgets.inactive.weak_bg_fill = PALETTE.page;
+    visuals.widgets.inactive.bg_stroke = Stroke::NONE;
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
     visuals.widgets.hovered.bg_fill = PALETTE.selection_fill;
     visuals.widgets.hovered.weak_bg_fill = PALETTE.selection_fill;
@@ -158,7 +159,7 @@ pub fn style() -> Style {
     visuals.widgets.active.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, PALETTE.selection_stroke);
     visuals.widgets.open.bg_fill = PALETTE.selection_fill;
-    visuals.widgets.open.weak_bg_fill = PALETTE.source;
+    visuals.widgets.open.weak_bg_fill = PALETTE.page;
     visuals.widgets.open.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
     visuals.widgets.open.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
     for widget in [
