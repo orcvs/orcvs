@@ -9,13 +9,16 @@ all connection and Playback mutations.
 
 **Status:** resolved
 
+Superseded in part by `midi-port-ownership`: discovery and port opening moved to the console;
+Playback now receives `Install { destination_id, connection }` on the ordered queue. The ownership
+guarantees below still hold.
+
 ## Agreed design
 
 - MIDI selection owns destination publication. The shared output adapter interface handles
   command delivery and safety reset; generic Playback handles carry no MIDI destination state.
-- Discovery and destination selection cross the seam as explicit requests. The receiving
-  module owns their implementation and ordering; callers cannot supply arbitrary closures
-  that mutate the Playback Engine's entire state.
+- Selection crosses the seam as explicit queue data processed inside the engine's task; callers
+  cannot supply arbitrary closures that mutate the Playback Engine's entire state.
 - MIDI-specific construction establishes the destination subscription before the adapter
   moves into the Playback task and connects the selection module to that task.
 - Console reads remain nonblocking. Selection handles retain weak ownership and cannot keep
@@ -27,8 +30,9 @@ all connection and Playback mutations.
       shows the selected identity, and selects the same connection subsequent Playback uses.
 - [x] MIDI destination publication is absent from the shared output adapter interface and
       generic Playback handles; a non-MIDI adapter constructs no unused destination channel.
-- [x] Discovery and selection use explicit requests processed by the existing Playback task;
-      the arbitrary transition-closure mechanism is removed, including its test callers.
+- [x] Selection uses explicit queue requests processed by the existing Playback task; the
+      arbitrary transition-closure mechanism is removed, including its test callers. (Was
+      Discover/Select before `midi-port-ownership`; now Install with an open connection.)
 - [x] MIDI-specific construction establishes publication before transferring the adapter to
       the task, and all production construction paths use that wiring.
 - [x] Discovery failures and connection failures retain their existing reporting behavior.

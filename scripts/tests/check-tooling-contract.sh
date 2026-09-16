@@ -770,17 +770,19 @@ test_console_without_native_midi_is_rejected() {
 test_console_with_a_second_feature_is_accepted() {
   make_fixture
   # `console` already ships `persistence` by default alongside native `midir`.
-  # The contract has no reason to refuse that combination.
+  # Adding another declared feature must not fail the contract.
+  perl -pi -e 's/^persistence = \["eframe\/persistence", "orcvs\/persistence"\]$/persistence = ["eframe\/persistence", "orcvs\/persistence"]\nbench-harness = []/' "$fixture_dir/console/Cargo.toml"
   assert_accepted "a console that ships persistence alongside native midir"
 }
 
 test_console_target_table_reborrowing_defaults_is_rejected() {
   make_fixture
   # Cargo unions a dependency's declarations, so `default-features = false` only
-  # takes effect if every one of them says it. Dropping it here alone puts
-  # `orcvs feature "default"` back in the console's native build while the plain
-  # table still reads as though defaults were off.
-  perl -pi -e 's/^orcvs = \{ path = "\.\.\/orcvs", version = "0\.1\.0", default-features = false \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/console/Cargo.toml"
+  # takes effect if every one of them says it. Declaring `orcvs` again in the
+  # native table without that flag puts `orcvs feature "default"` back in the
+  # console's native build while the plain table still reads as though defaults
+  # were off.
+  perl -pi -e 's/^\[target\.'\''cfg(not(target_arch = "wasm32"))'\''\.dependencies\]\$/[target.'\''cfg(not(target_arch = "wasm32"))'\''.dependencies]\norcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console whose native table borrows the orcvs default back"
 }
 

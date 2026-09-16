@@ -56,7 +56,10 @@ impl MidiDeviceSelection {
             }
         };
         match self.selection.install(destination_id.clone(), connection) {
-            Ok(()) => self.status = None,
+            Ok(()) => {
+                self.status = None;
+                self.engine_status = None;
+            }
             Err(error) => self.status = Some(error.message),
         }
     }
@@ -75,13 +78,14 @@ impl MidiDeviceSelection {
         if self.status.as_deref() == Some(UNAVAILABLE) {
             return Some(UNAVAILABLE);
         }
-        self.engine_status.as_deref().or(self.status.as_deref())
+        self.status.as_deref().or(self.engine_status.as_deref())
     }
 
     pub(crate) fn observe_diagnostics(&mut self, diagnostics: Vec<PlaybackDiagnostic>) {
         for diagnostic in diagnostics {
             if let Some(message) = failure_message(&diagnostic) {
                 self.engine_status = Some(message);
+                self.status = None;
             }
         }
     }
@@ -340,6 +344,32 @@ mod tests {
         let _ = midi.selected_destination_id();
 
         assert_eq!(midi.status(), Some("running Orcvs is no longer available"));
+    }
+
+    #[tokio::test]
+    async fn a_successful_selection_clears_a_stale_engine_diagnostic() {
+        let (_orcvs, mut midi) = selection_for(FakeBackend);
+        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
+            OutputAdapterError::new("device lost"),
+        )]);
+        assert_eq!(midi.status(), Some("device lost"));
+
+        midi.select_destination(&MidiDestinationId::new("one"));
+        tokio::task::yield_now().await;
+
+        assert_eq!(midi.status(), None);
+    }
+
+    #[tokio::test]
+    async fn a_connect_error_reaches_the_status_line_after_an_engine_failure() {
+        let (_orcvs, mut midi) = selection_for(FailingBackend);
+        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
+            OutputAdapterError::new("device lost"),
+        )]);
+
+        midi.select_destination(&MidiDestinationId::new("missing"));
+
+        assert_eq!(midi.status(), Some("device connection failed"));
     }
 
     #[tokio::test]

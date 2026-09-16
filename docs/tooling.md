@@ -92,34 +92,25 @@ one layer up. So the contract reads both lists out of the files and fails if any
 uncovered, and the absence of the suite from `check_pull_request` is pinned alongside its presence
 in the workflow, because putting the line back is a one-word edit nothing else notices.
 
-`orcvs` carries a second feature, and it is the one a tier can pass without ever building.
-`native-midi` gates the platform MIDI backend and the `midir` dependency that reaches it, and it is
-on by default, so every command in this file resolves exactly as it did before the feature existed
-— the `--no-default-features` halves included, because `console` names `orcvs/native-midi` for its
-non-WASM targets and workspace resolution hands it back.
-What turning it off gives up is delivery. A running Orcvs still composes, executes, and renders
-Source, and still has a MIDI output adapter; the adapter holds a backend that offers no destination
-and refuses to connect, so it accepts every submission and sends nothing. What it buys is a
-dependency tree with neither `midir` nor a system audio library — ALSA on Linux, CoreMIDI on macOS —
-anywhere in it. `orcvs/src/native_midi.rs` is the one place that chooses between the two answers:
-the feature says whether this build wants a native backend, and the manifest's target table says
-where one could exist, which is why a WASM build never sees `midir` whichever way the feature is
-set.
+Platform MIDI lives in the console, not the toolkit-free crate. The console declares `midir` for
+macOS, Windows, and Linux only; the browser build never sees it. `orcvs` carries the MIDI vocabulary
+and output adapter but no platform binding — no `midir`, no `dispatch`, and no target table that
+could pull either in.
 
-Being on by default is exactly why the tier has to ask for the other state by name.
+`console` carries a feature the tier can pass without ever building: `persistence` ships on by
+default, so every command in this file resolves the shipped application unless a line names
+`--no-default-features` beside it. What turning persistence off gives up is save and restore of the
+current Source revision; what the `--no-default-features` halves of the tier still prove is that the
+path compiles out.
+
 `check_pull_request` lints `orcvs` with `--no-default-features --features persistence` and runs its
-tests with `--no-default-features`; between them and the two workspace passes beside them, which
-carry the backend either way, all four cells of the two features are compiled, and the tests that
-state what disabling
-`native-midi` gives up — compiled only with it off — are executed rather than merely type-checked.
-The scope is `orcvs` because it is the only crate the feature reaches: `console` asks for
-`orcvs/native-midi` by name for its non-WASM targets and would keep it whatever the tier passed, and
-the browser build asks for no native backend at all. `mise run audit_deps` holds the tree claim
-itself rather than describing it — it resolves the feature-off tree and fails if `midir` or an audio
-library is still in it, and because `cargo tree` resolves the host target, the Linux and macOS
-runners between them check both libraries a native build could otherwise link.
-`scripts/check-tooling-contract.sh` pins all of it, down to `midir` staying optional and staying in
-its target table.
+tests with `--no-default-features`; between them and the two workspace passes beside them, all four
+cells of the two features are compiled, and the tests that state what disabling persistence gives up
+— compiled only with it off — are executed rather than merely type-checked. `mise run audit_deps`
+holds the toolkit-free tree claim itself rather than describing it — it resolves `orcvs` with default
+features off and fails if `midir`, `dispatch`, or a `-sys` crate beneath them is still in it.
+`scripts/check-tooling-contract.sh` pins all of it: `midir` in the console's supported-native table
+only, and none of those bindings in `orcvs`.
 
 Dependency auditing runs in the pull-request tier through `mise run audit_deps`, which checks
 advisories, licences, and sources and prints the feature-resolved dependency tree. Dependabot's

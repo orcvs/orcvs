@@ -953,10 +953,10 @@ impl PlaybackEngine {
     /// this path. Use [`Self::with_midi_output_adapter`] for selectable MIDI.
     ///
     /// ```compile_fail
-    /// use orcvs::app::SourceCommander;
     /// use orcvs::grid::Grid;
     /// use orcvs::midi::MidiOutputAdapter;
     /// use orcvs::playback::PlaybackEngine;
+    /// use orcvs::source::SourceCommander;
     ///
     /// let _engine = PlaybackEngine::new(
     ///     SourceCommander::new(Grid::new(1, 1)),

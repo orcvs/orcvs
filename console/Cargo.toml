@@ -60,8 +60,10 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "std",
 ] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(all(not(target_arch = "wasm32"), any(target_os = "macos", target_os = "windows", target_os = "linux")))'.dependencies]
 midir = "0.11"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
