@@ -189,8 +189,18 @@ mise run inspect 5720         # same, on another port
 ```
 
 The task builds `console` with `--features inspection --locked`, then runs the
-built binary with `HOME` and `XDG_DATA_HOME` pointed at `target/inspection`.
-`target/` is ignored; delete `target/inspection` to start from an empty Source.
+binary that build reported — not a written-down `./target/debug/console`, which
+would ignore `CARGO_TARGET_DIR` and `build.target-dir` — with `HOME` and
+`XDG_DATA_HOME` pointed at `target/inspection`. `target/` is ignored; delete
+`target/inspection` to start from an empty Source.
+
+That redirect isolates storage on macOS and Linux only. eframe resolves its
+storage directory from `HOME` on macOS and `XDG_DATA_HOME` on Linux, but on
+Windows from `SHGetKnownFolderPath(FOLDERID_RoamingAppData)`
+(`eframe-0.36.1/src/native/file_storage.rs:37,46-90`) — a shell known-folder
+lookup, not an environment variable — so no assignment moves it there. On
+Windows an inspection session writes the real `%APPDATA%\Orcvs\data`. See
+`docs/tooling.md`.
 
 No MIDI destination is connected. The console connects an output only when the
 MIDI menu is used, so an inspection session sends nothing to a real device
@@ -291,14 +301,26 @@ and it holds three things:
 - a menu control found by label and asserted through both the console's state
   and the window it opens;
 - the Source's keyboard path, which is not a widget and so has no locator;
-- the pointer-to-Cell mapping after a resize and after a zoom, with every
+- the pointer-to-Cell round trip after a resize and after a zoom, with every
   coordinate read back out of the transform in force at the moment of the click.
+
+That third one is a round trip and not a geometry assertion, and the difference
+decides where a new case belongs. The click target comes from the same
+`presented_grid` call `show_source_scene` makes, so what it holds is that
+`cell_rect` and `cell_at` still invert each other under a transform the console
+has moved, and that a click at the coordinate `cell_rect` answers reaches the
+Source as that Cell. A fault inside `presented_grid` itself — a mishandled
+`pixels_per_point`, a letterbox origin off by a Cell — moves both sides of that
+equality and passes here. Where the Grid actually lands is `console::tests`' and
+`grid_viewport::tests`' to assert, and the module documentation names which
+tests those are.
 
 `console::tests` beside it is the older harness and is not superseded: it
 asserts on `Shape`s and `GridViewport` at a finer grain than any tree query
 reaches. Extend whichever fits. Add to `kittest_tests` when the question is
 "can a viewer get at this" or "does the input path work end to end"; add to
-`tests` when it is "what did it paint" or "where did it put it".
+`tests` or `grid_viewport::tests` when it is "what did it paint" or "where
+exactly did it put it" — absolute geometry belongs where nothing cancels it.
 
 Rules the module holds and a new test should too:
 
@@ -307,8 +329,12 @@ Rules the module holds and a new test should too:
   at `CursorEffectSettings::default`, is always. Use `step` (one frame per
   queued event) and `run_steps(n)`. Never sleep, never read the clock, never
   wait on Playback.
-- Derive every coordinate. A written-down position either keeps passing after
-  the mapping breaks or fails for reasons unrelated to it.
+- Derive every coordinate, and state the claim at the height deriving reaches.
+  A written-down position either keeps passing after the mapping breaks or fails
+  for reasons unrelated to it; a position derived from the mapping under test
+  can only ever prove the round trip, because a shared error moves both sides of
+  it. Write the test's claim as a round trip and leave the absolute geometry to
+  the modules that assert it without going through the mapping.
 - No test-only seam in shipped code. A fixture production cannot construct is
   built in the test module, below the shipped entry point — `AGENTS.md`'s rule,
   and the reason `Console::new` takes eframe's own `CreationContext` here rather

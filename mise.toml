@@ -53,15 +53,34 @@ description = "Run the console with development inspection, bound to loopback"
 # `HOME` on macOS and `XDG_DATA_HOME` on Linux
 # (`eframe-0.36.1/src/native/file_storage.rs:17-40`), so a smoke test drives a
 # Source of its own and cannot overwrite a saved one. `target/` is ignored, so
-# the location is disposable; delete it to start from an empty Source.
+# the location is disposable; delete it to start from an empty Source. That
+# location is the repository's own `target/`, not cargo's output directory, so
+# it is unaffected by the two settings below.
+#
+# The binary to launch comes back from the build rather than being written down
+# as `./target/debug/console`. A written-down path ignores `CARGO_TARGET_DIR`
+# and `build.target-dir`, and with either of those set it launches whatever
+# stale binary the default location still holds — one compiled without
+# `inspection`, which eframe starts anyway and only logs a warning about
+# (`eframe-0.36.1/src/lib.rs`, the `not(feature = "inspection")` fallback). The
+# session then presents as an attach timeout with nothing to distinguish it
+# from a console that is simply not running. `json-render-diagnostics` is the
+# format that keeps compiler errors human-readable on stderr while the artifact
+# records come back on stdout, and the emptiness check is what fails the task
+# when the build produced no executable, since this pipeline's exit status is
+# `sed`'s.
 #
 # No MIDI destination is selected. The console connects an output only when a
 # viewer picks one from the MIDI menu, so an inspection session sends nothing
 # to a real device unless it is told to. Do not tell it to.
 run = '''
 mkdir -p target/inspection
-cargo build --package console --features inspection --locked
-EGUI_INSPECTION=127.0.0.1:{{arg(name="port", default="5719")}} HOME="$PWD/target/inspection" XDG_DATA_HOME="$PWD/target/inspection" ./target/debug/console
+console_binary="$(cargo build --package console --features inspection --locked --message-format=json-render-diagnostics | sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' | tail -n 1)"
+if [ -z "$console_binary" ]; then
+  echo 'cargo build --features inspection produced no console executable' >&2
+  exit 1
+fi
+EGUI_INSPECTION=127.0.0.1:{{arg(name="port", default="5719")}} HOME="$PWD/target/inspection" XDG_DATA_HOME="$PWD/target/inspection" "$console_binary"
 '''
 
 [tasks.install_egui_mcp]

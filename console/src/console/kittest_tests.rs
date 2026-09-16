@@ -36,12 +36,35 @@
 //! the change ADR 0040 and `show_source` were written to make.
 //!
 //! What the Source Grid offers instead is a geometry contract —
-//! `presented_grid` maps the owned transform onto a `GridViewport`, and
+//! `presented_grid` maps the owned transform onto a `GridViewport`,
+//! `GridViewport::cell_rect` hands out a Cell's rectangle and
 //! `GridViewport::cell_at` inverts it — so every pointer coordinate below is
 //! *derived from the live transform at the moment of the click* rather than
 //! written down. That is what makes the resize and zoom cases mean anything: a
 //! hardcoded coordinate would either keep passing after the mapping broke or
 //! start failing for reasons that have nothing to do with it.
+//!
+//! Deriving it is also the limit of what those cases prove, and the limit is
+//! deliberate. `presented_source` makes the same `presented_grid` call
+//! `show_source_scene` makes, so what the click tests pin is the *round trip*:
+//! that `cell_rect` and `cell_at` remain mutual inverses under a transform the
+//! console has moved, and that a click at the coordinate `cell_rect` answers
+//! reaches the Source as that Cell. An error inside `presented_grid` itself — a
+//! mishandled `pixels_per_point`, a letterbox origin off by a Cell — would move
+//! both sides of that equality and pass here.
+//!
+//! Where the Grid actually lands is asserted where nothing cancels, and is not
+//! restated here. `console::tests` holds it for a whole console pass:
+//! `the_default_window_presents_the_default_grid_at_its_own_scale` pins the
+//! presented rectangle and Cell side against written-down values,
+//! `the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell`
+//! pins the corners and the letterboxing, and
+//! `the_presented_viewport_is_the_one_a_console_pass_presents` holds a pass to
+//! the helper at a fractional device scale as well as at one.
+//! `grid_viewport::tests` holds `presented_grid`'s own centring, letterboxing
+//! and whole-physical-pixel snap. Making the cases below independent of
+//! `presented_grid` would mean writing a second copy of it in a test, which is
+//! the arrangement those modules already cover better.
 //!
 //! # Determinism
 //!
@@ -221,13 +244,28 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 }
 
 ///
-/// The pointer-to-Cell mapping after the transform has moved, which is the one
-/// thing a fixed coordinate cannot test.
+/// The pointer-to-Cell round trip after the transform has moved, which is the
+/// one thing a fixed coordinate cannot test.
 ///
 /// Three transforms, in order: the fit the default window opens on, the fit a
 /// resize re-derives, and a zoom the viewer pinned. After each, the click
 /// target is read back out of the transform the console is presenting under,
 /// and the Cell it selects has to be the Cell that coordinate was painted from.
+///
+/// That is a round trip and not a geometry assertion: the target comes from
+/// the same `presented_grid` call `show_source_scene` makes, so this holds
+/// `cell_rect` and `cell_at` to inverting each other under a moved transform,
+/// and holds a click at `cell_rect`'s answer to reaching the Source as that
+/// Cell — the whole input path, from the toolkit's event through the one Grid
+/// rectangle and `show_source`'s answered Position to `Console::ui`'s
+/// `orcvs.select`. Where `presented_grid` puts the Grid is `console::tests`'
+/// and `grid_viewport::tests`' to assert; the module documentation names which
+/// tests those are.
+///
+/// Each stage guards the premise it rests on, because a round trip through a
+/// transform that did not move proves nothing about the transform: the
+/// `assert_ne` on Cell (3, 1)'s centre across the resize, and the scale
+/// recorded before the zoom, are those guards.
 ///
 /// The selection is also asserted across the resize itself. The Cursor belongs
 /// to the Source and the transform belongs to the console, so a resize that

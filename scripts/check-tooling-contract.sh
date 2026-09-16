@@ -291,15 +291,44 @@ fi
 # And the console it launches is the one carrying the feature. Without this the
 # task builds the shipped binary, `eframe` logs a warning about a variable it
 # cannot act on, and the attach fails with nothing to point at.
-assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '^cargo build --package console --features inspection --locked$'
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '^console_binary="[$][(]cargo build --package console --features inspection --locked --message-format=json-render-diagnostics'
+# The launched path is the one that build reported, not a written-down
+# `./target/debug/console`. A written-down path ignores `CARGO_TARGET_DIR` and
+# `build.target-dir`; with either set the task launches whatever stale binary
+# the default location holds, which has no `inspection` in it, and the failure
+# arrives as an attach timeout rather than as anything naming the build.
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '"[$]console_binary"$'
+assert_not_contains "$root_dir/mise.toml" '[.]/target/(debug|release)/console'
 # The storage location is disposable and is not the developer's. eframe derives
 # it from `HOME` on macOS and `XDG_DATA_HOME` on Linux, and `console` saves the
 # current Source revision every thirty seconds, so a smoke test launched
 # without this overwrites whatever Source the developer last had open.
-# Anchored so `XDG_DATA_HOME="$PWD/target/inspection"` on the same line cannot
-# satisfy the HOME assignment.
-assert_contains "$root_dir/mise.toml" ' HOME="[$]PWD/target/inspection"'
-assert_contains "$root_dir/mise.toml" 'XDG_DATA_HOME="[$]PWD/target/inspection"'
+#
+# Both halves are scoped to `inspect` rather than to the file, so the task the
+# documentation tells a developer to run is the one that has to carry them: a
+# file-scoped match is satisfied by an assignment sitting in any task at all,
+# including one that no longer launches anything.
+#
+# The HOME pattern is anchored on the leading space so
+# `XDG_DATA_HOME="$PWD/target/inspection"` on the same line cannot satisfy it;
+# the characters before `HOME` there are `XDG_DATA_`, not a space.
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' ' HOME="[$]PWD/target/inspection"'
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' 'XDG_DATA_HOME="[$]PWD/target/inspection"'
+# And scoping alone would let a *second* launcher task omit the redirect while
+# `inspect` keeps it, so every inspection bind in the file is tied to a pair of
+# redirects, counted per occurrence exactly as the loopback assertion above is.
+# A task that sets `EGUI_INSPECTION` is a task that runs the console under
+# inspection, and every one of them writes to disposable storage or none do.
+home_redirects="$(count_occurrences "$root_dir/mise.toml" ' HOME="[$]PWD/target/inspection"')"
+if [ "${home_redirects:-0}" -ne "$inspection_binds" ]; then
+  echo "expected $root_dir/mise.toml to match $inspection_binds times, matched ${home_redirects:-0}:  HOME=\"[\$]PWD/target/inspection\"" >&2
+  exit 1
+fi
+xdg_redirects="$(count_occurrences "$root_dir/mise.toml" 'XDG_DATA_HOME="[$]PWD/target/inspection"')"
+if [ "${xdg_redirects:-0}" -ne "$inspection_binds" ]; then
+  echo "expected $root_dir/mise.toml to match $inspection_binds times, matched ${xdg_redirects:-0}: XDG_DATA_HOME=\"[\$]PWD/target/inspection\"" >&2
+  exit 1
+fi
 # The MCP bridge is installed at a named version rather than from a moving
 # branch. It is the one tool here that `[tools]` cannot pin — it is a cargo
 # binary rather than a mise-managed one — so the version lives in the task, and

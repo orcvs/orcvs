@@ -621,6 +621,52 @@ test_inspect_without_home_assignment_is_rejected() {
   assert_rejected "an inspect task that leaves macOS storage on the developer's HOME"
 }
 
+test_inspect_launching_a_written_down_target_path_is_rejected() {
+  make_fixture
+  # The launcher runs what the build just produced. A written-down
+  # `./target/debug/console` ignores `CARGO_TARGET_DIR` and `build.target-dir`,
+  # so with either set it launches whatever stale binary the default location
+  # still holds. That binary has no `inspection` feature, eframe starts it
+  # anyway and only logs a warning, and the session presents as an attach
+  # timeout indistinguishable from a console that never started.
+  perl -pi -e 's/ "\$console_binary"$/ .\/target\/debug\/console/' "$fixture_dir/mise.toml"
+  assert_rejected "an inspect task that launches a path the build did not report"
+}
+
+test_inspection_launcher_outside_the_inspect_task_is_rejected() {
+  make_fixture
+  # A second launcher task. It sets EGUI_INSPECTION and runs the console, and it
+  # omits the redirect, so it writes the developer's real app.ron every thirty
+  # seconds. A file-scoped assertion is satisfied by the pair still sitting in
+  # `inspect` and never looks at this task at all.
+  cat >>"$fixture_dir/mise.toml" <<'EOF'
+
+[tasks.inspect_release]
+description = "Run the release console with development inspection"
+run = '''
+cargo build --package console --features inspection --locked --release
+EGUI_INSPECTION=127.0.0.1:5719 ./target/release/console
+'''
+EOF
+  assert_rejected "a second inspection launcher that leaves storage on the developer's HOME"
+
+  # The launch moved out of `inspect` into a task of its own. The redirect moved
+  # with it, so a file-scoped assertion still matches; what is gone is the
+  # guarantee that the task the documentation tells a developer to run is the
+  # one carrying it.
+  make_fixture
+  perl -0pi -e 's/^(EGUI_INSPECTION=127[.]0[.]0[.]1:.*\n)//m' "$fixture_dir/mise.toml"
+  cat >>"$fixture_dir/mise.toml" <<'EOF'
+
+[tasks.inspect_launch]
+description = "Launch the already-built console with development inspection"
+run = '''
+EGUI_INSPECTION=127.0.0.1:5719 HOME="$PWD/target/inspection" XDG_DATA_HOME="$PWD/target/inspection" ./target/debug/console
+'''
+EOF
+  assert_rejected "an inspect task that no longer launches the console under the redirected storage"
+}
+
 test_two_inspection_assignments_on_one_line_is_rejected() {
   make_fixture
   # Two assignments on one line: the first is loopback, the second is
@@ -978,6 +1024,8 @@ case "${1:-all}" in
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
   networked-inspection-bind) test_networked_inspection_bind_is_rejected ;;
   inspect-without-home) test_inspect_without_home_assignment_is_rejected ;;
+  inspect-written-down-target-path) test_inspect_launching_a_written_down_target_path_is_rejected ;;
+  inspection-launcher-outside-inspect) test_inspection_launcher_outside_the_inspect_task_is_rejected ;;
   two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
@@ -1083,6 +1131,8 @@ case "${1:-all}" in
     test_pull_request_tier_without_feature_off_doctests_is_rejected
     test_networked_inspection_bind_is_rejected
     test_inspect_without_home_assignment_is_rejected
+    test_inspect_launching_a_written_down_target_path_is_rejected
+    test_inspection_launcher_outside_the_inspect_task_is_rejected
     test_two_inspection_assignments_on_one_line_is_rejected
     test_pull_request_tier_without_the_inspection_feature_is_rejected
     test_caret_egui_requirement_is_rejected

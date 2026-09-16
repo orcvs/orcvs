@@ -17,7 +17,7 @@ symlink is invisible to it — `AGENTS.md` can name the skill and the file can b
 The symlinks are tracked. This matters more than it looks: `git worktree add` populates a new
 worktree from the index, so an untracked symlink exists only in the checkout that created it and
 every worktree silently loses the skill. That is the state this file was written to end. Committing
-them costs five 120000-mode blobs holding a relative path each.
+them costs one 120000-mode blob per skill, each holding a relative path.
 
 Adding a skill means adding both halves:
 

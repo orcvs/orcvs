@@ -151,8 +151,25 @@ spelling is unsafe. And it builds, then runs the built binary under a `HOME` and
 `target/inspection`, because eframe derives its storage directory from those
 (`eframe-0.36.1/src/native/file_storage.rs:17-40`) and `console` saves the current Source revision
 every thirty seconds — a smoke test launched without that override would overwrite whatever Source
-the developer last had open. The two halves are separate commands because `cargo` reads `HOME` to
-find `CARGO_HOME`, so the build needs the real environment and the console needs the disposable one.
+the developer last had open. The binary it then launches is the one that build reported, through
+`--message-format=json-render-diagnostics`, rather than a written-down `./target/debug/console`: a
+written-down path ignores `CARGO_TARGET_DIR` and `build.target-dir`, and with either of those set
+the task would launch whatever stale binary the default location still holds — one without the
+feature, which eframe starts anyway and only logs a warning about, so the failure arrives as an
+attach timeout that names nothing. The two halves are separate commands because `cargo` reads `HOME`
+to find `CARGO_HOME`, so the build needs the real environment and the console needs the disposable
+one.
+
+**The storage redirect works on macOS and Linux only.** Those are the two platforms eframe resolves
+its storage directory from the environment on. On Windows it calls
+`SHGetKnownFolderPath(FOLDERID_RoamingAppData)` instead
+(`eframe-0.36.1/src/native/file_storage.rs:37,46-90`), which is a shell known-folder lookup and not
+an environment variable at all, so neither `HOME`, `XDG_DATA_HOME` nor `%APPDATA%` moves it. A
+`mise run inspect` on Windows writes the developer's real `app.ron` under
+`%APPDATA%\Orcvs\data`, and the contract assertion above cannot tell — it reads the assignment, not
+the platform. Development and both CI tiers run on macOS and Linux, so this is a stated limitation
+rather than a guard: on Windows, close the console before inspecting, or expect the Source to be
+overwritten.
 
 `mise run install_egui_mcp` installs the bridge the agent side attaches through: `egui_mcp` 0.2.0
 from crates.io, `--locked`, which is the release requiring `egui_inspection ^0.36.0`. It is the one
