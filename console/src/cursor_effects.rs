@@ -144,13 +144,25 @@ pub struct CursorEffectSample {
     field: u64,
 }
 
+fn animation_seed() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // `SystemTime::now()` panics on `wasm32-unknown-unknown`; per-session
+        // variation comes from the console's elapsed-time clock in `advance`.
+        0x6f72_6376_735f_6375
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0x6f72_6376_735f_6375, |elapsed| elapsed.as_nanos() as u64)
+    }
+}
+
 impl Default for CursorEffectAnimation {
     fn default() -> Self {
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0x6f72_6376_735f_6375, |elapsed| elapsed.as_nanos() as u64);
         Self {
-            seed: hash(seed),
+            seed: hash(animation_seed()),
             frame_epoch: 0,
             field_epoch: 0,
             next_frame: Duration::ZERO,
@@ -433,6 +445,17 @@ mod tests {
             grain,
             field,
         }
+    }
+
+    #[test]
+    fn default_animation_constructs_on_every_target() {
+        let _ = CursorEffectAnimation::default();
+    }
+
+    #[test]
+    fn animation_seed_avoids_system_time_on_wasm() {
+        #[cfg(target_arch = "wasm32")]
+        assert_eq!(animation_seed(), 0x6f72_6376_735f_6375);
     }
 
     #[test]

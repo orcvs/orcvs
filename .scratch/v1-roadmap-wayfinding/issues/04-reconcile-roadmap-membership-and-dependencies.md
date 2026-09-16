@@ -28,8 +28,8 @@ through the implementation graph.
 - `orcvs-language-migration`: 05 and 07.
 - `sequence-values`: 01–04.
 - `tick-functions`: 01–04.
-- `spatial-tick-planning`: 01–05. `^^`, `vv`, `<<`, and `>>` are root-only Source Functions;
-  movement implements that model rather than waiting on a later prototype.
+- `spatial-tick-planning`: 01–02, 04–05. Issue 03 is resolved; `^^`, `vv`, `<<`, and `>>` are
+  root-only Source Functions shipped as satisfied prerequisites, not open release work.
 - `midi-output-family`: 01–04.
 - `property-testing`: 01–05 and 07.
 - `restyle-egui-console`: 01–03.
