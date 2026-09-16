@@ -16,6 +16,7 @@ use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
+use crate::readout_deadline::until_next;
 use crate::style::{PALETTE, style};
 use orcvs::{
     app::{InputEvent, InputKey, Orcvs},
@@ -1510,6 +1511,10 @@ impl eframe::App for Console {
         }
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
+        let sampled_run_clock = observation.run_clock();
+        let moving_run_clock = (observation.state == PlaybackState::Playing
+            && observation.run_started_at.is_some())
+        .then_some(sampled_run_clock);
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
         let cursor_effect_settings = self
             .cursor_effects
@@ -1563,7 +1568,7 @@ impl eframe::App for Console {
                         ui.add_space(entry_gap);
                         panel_label(ui, "C");
                         ui.add_space(label_value_gap);
-                        let clock_text = format_run_clock(observation.run_clock());
+                        let clock_text = format_run_clock(sampled_run_clock);
                         let clock_width =
                             monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
                         reserved_monospace(ui, &clock_text, clock_width);
@@ -1634,7 +1639,7 @@ impl eframe::App for Console {
 
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
-        egui::CentralPanel::default()
+        let cursor_delay = egui::CentralPanel::default()
             .frame(source_panel_frame())
             .show(root, |ui| {
                 console_area = ui.available_rect_before_wrap();
@@ -1674,13 +1679,22 @@ impl eframe::App for Console {
                     .viewport
                     .cell_rect(frame.cursor().x(), frame.cursor().y());
                 if effect_bounds(cursor_rect, presented.viewport.cell_size).intersects(console_area)
-                    && let Some(delay) = self
-                        .cursor_effect_animation
-                        .repaint_after(effect_now, cursor_effect_settings)
                 {
-                    ctx.request_repaint_after(delay);
+                    self.cursor_effect_animation
+                        .repaint_after(effect_now, cursor_effect_settings)
+                } else {
+                    None
                 }
-            });
+            })
+            .inner;
+
+        if let Some(delay) = until_next(
+            moving_run_clock,
+            cursor_delay,
+            Duration::from_secs_f32(ctx.input(|input| input.predicted_dt).max(0.0)),
+        ) {
+            ctx.request_repaint_after(delay);
+        }
 
         if self.diagnostics_open {
             show_diagnostics(
@@ -2549,6 +2563,82 @@ mod tests {
         assert_ne!(
             delay, tick,
             "the console still scheduled a Tick period from this frame: {delay:?}"
+        );
+    }
+
+    ///
+    /// At 1 BPM a Tick lasts 15 seconds. Cursor Effect off, so its 45–190 ms
+    /// wakes cannot hide a missing Run Clock remainder. A quiet Playing pass
+    /// must still request a delay of at most one second.
+    ///
+    #[tokio::test]
+    async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        console.reduced_motion = true;
+        let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
+        console.orcvs.set_bpm(bpm);
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        assert!(
+            delay <= std::time::Duration::from_secs(1),
+            "the console waited {delay:?} on a quiet Playing pass with Cursor Effect off"
+        );
+    }
+
+    ///
+    /// Rest must not grow a one-second wake. Cursor Effect is off so its
+    /// cadence cannot be mistaken for Run Clock honesty. The first passes
+    /// request an immediate Render Frame (focus, destination auto-select);
+    /// settle before asserting.
+    ///
+    #[tokio::test]
+    async fn a_stopped_console_with_cursor_effect_off_requests_no_timed_wake() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        console.reduced_motion = true;
+        let mut delay = std::time::Duration::ZERO;
+        for _ in 0..8 {
+            delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+            if delay == std::time::Duration::MAX {
+                break;
+            }
+        }
+        assert_eq!(
+            delay,
+            std::time::Duration::MAX,
+            "a Stopped console still requested a timed wake after settling: {delay:?}"
         );
     }
 
