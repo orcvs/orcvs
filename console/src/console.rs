@@ -309,9 +309,13 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
         select_all_bpm_text(&ctx, id, &text);
     }
     ctx.data_mut(|data| data.insert_temp(id, text.clone()));
+    let escape = ctx.input(|input| input.key_pressed(Key::Escape));
     let enter = response.has_focus() && ctx.input(|input| input.key_pressed(Key::Enter));
     let mut committed = false;
-    if response.lost_focus() || enter {
+    if escape {
+        text = bpm.to_string();
+        ctx.data_mut(|data| data.insert_temp(id, text));
+    } else if response.lost_focus() || enter {
         match parse_panel_bpm(&text) {
             Some(parsed) if parsed != *bpm => {
                 *bpm = parsed;
@@ -2728,6 +2732,40 @@ mod tests {
             console.orcvs.bpm().beats_per_minute(),
             840,
             "the BPM field took a letter"
+        );
+    }
+
+    #[tokio::test]
+    async fn escape_reverts_a_valid_uncommitted_bpm() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let start = console.orcvs.bpm().beats_per_minute();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("60".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Escape, true)],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(
+            console.orcvs.bpm().beats_per_minute(),
+            start,
+            "Escape committed the typed BPM"
         );
     }
 
