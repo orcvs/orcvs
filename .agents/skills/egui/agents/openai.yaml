@@ -1,0 +1,4 @@
+interface:
+  display_name: "egui"
+  short_description: "Implement, inspect, and test the console's egui presentation"
+  default_prompt: "Use $egui to implement and verify this console UI change."

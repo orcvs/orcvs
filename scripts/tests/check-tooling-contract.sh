@@ -592,6 +592,122 @@ test_pull_request_tier_without_feature_off_doctests_is_rejected() {
   assert_rejected "a pull-request tier that never compiles the feature-off doctests"
 }
 
+test_networked_inspection_bind_is_rejected() {
+  make_fixture
+  # The one line in the repository that decides what the inspection server is
+  # reachable from. Binding anything but loopback hands input injection, the
+  # widget tree and screenshots of the running console to whatever reaches the
+  # port, with no authentication anywhere in the protocol.
+  perl -pi -e 's/^EGUI_INSPECTION=127[.]0[.]0[.]1:/EGUI_INSPECTION=0.0.0.0:/' "$fixture_dir/mise.toml"
+  assert_rejected "an inspection launcher reachable from the network"
+
+  # The same hole spelled as a switch. `EGUI_INSPECTION=1` maps to
+  # `127.0.0.1:5719` (`bind_addr_from_env`); a command-level assignment
+  # replaces any inherited value. The contract still rejects a bare `1` as
+  # policy: the launcher writes the host:port so the bind is greppable and
+  # the port is selectable.
+  make_fixture
+  perl -pi -e 's/^EGUI_INSPECTION=127[.]0[.]0[.]1:[^ ]* /EGUI_INSPECTION=1 /' "$fixture_dir/mise.toml"
+  assert_rejected "an inspection launcher that names no loopback host"
+}
+
+test_inspect_without_home_assignment_is_rejected() {
+  make_fixture
+  # eframe derives its storage directory from HOME on macOS. XDG_DATA_HOME on
+  # the same line already contains the substring HOME="$PWD/target/inspection",
+  # so an unanchored match stays green after this deletion and a macOS inspect
+  # would write the developer's real app.ron.
+  perl -pi -e 's/ HOME="\$PWD\/target\/inspection"//' "$fixture_dir/mise.toml"
+  assert_rejected "an inspect task that leaves macOS storage on the developer's HOME"
+}
+
+test_inspect_launching_a_written_down_target_path_is_rejected() {
+  make_fixture
+  # The launcher runs what the build just produced. A written-down
+  # `./target/debug/console` ignores `CARGO_TARGET_DIR` and `build.target-dir`,
+  # so with either set it launches whatever stale binary the default location
+  # still holds. That binary has no `inspection` feature, eframe starts it
+  # anyway and only logs a warning, and the session presents as an attach
+  # timeout indistinguishable from a console that never started.
+  perl -pi -e 's/ "\$console_binary"$/ .\/target\/debug\/console/' "$fixture_dir/mise.toml"
+  assert_rejected "an inspect task that launches a path the build did not report"
+}
+
+test_inspection_launcher_outside_the_inspect_task_is_rejected() {
+  make_fixture
+  # A second launcher task. It sets EGUI_INSPECTION and runs the console, and it
+  # omits the redirect, so it writes the developer's real app.ron every thirty
+  # seconds. A file-scoped assertion is satisfied by the pair still sitting in
+  # `inspect` and never looks at this task at all.
+  cat >>"$fixture_dir/mise.toml" <<'EOF'
+
+[tasks.inspect_release]
+description = "Run the release console with development inspection"
+run = '''
+cargo build --package console --features inspection --locked --release
+EGUI_INSPECTION=127.0.0.1:5719 ./target/release/console
+'''
+EOF
+  assert_rejected "a second inspection launcher that leaves storage on the developer's HOME"
+
+  # The launch moved out of `inspect` into a task of its own. The redirect moved
+  # with it, so a file-scoped assertion still matches; what is gone is the
+  # guarantee that the task the documentation tells a developer to run is the
+  # one carrying it.
+  make_fixture
+  perl -0pi -e 's/^(EGUI_INSPECTION=127[.]0[.]0[.]1:.*\n)//m' "$fixture_dir/mise.toml"
+  cat >>"$fixture_dir/mise.toml" <<'EOF'
+
+[tasks.inspect_launch]
+description = "Launch the already-built console with development inspection"
+run = '''
+EGUI_INSPECTION=127.0.0.1:5719 HOME="$PWD/target/inspection" XDG_DATA_HOME="$PWD/target/inspection" ./target/debug/console
+'''
+EOF
+  assert_rejected "an inspect task that no longer launches the console under the redirected storage"
+}
+
+test_two_inspection_assignments_on_one_line_is_rejected() {
+  make_fixture
+  # Two assignments on one line: the first is loopback, the second is
+  # networked. A line-counting checker sees one EGUI_INSPECTION= line and one
+  # loopback-matching line, so a networked bind passes the contract.
+  perl -pi -e 's/^(EGUI_INSPECTION=127[.]0[.]0[.]1:[^ ]*) /$1 EGUI_INSPECTION=0.0.0.0:5719 /' "$fixture_dir/mise.toml"
+  assert_rejected "an inspection launcher with a networked bind on the same line as a loopback one"
+}
+
+test_pull_request_tier_without_the_inspection_feature_is_rejected() {
+  make_fixture
+  # `inspection` is off by default, so this is the only line in either tier that
+  # compiles it. Removing it leaves a feature the repository documents, launches
+  # and tells agents to use, with no build behind it.
+  perl -pi -e 's/^(mise run check_inspection)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles the inspection feature"
+}
+
+test_caret_egui_requirement_is_rejected() {
+  make_fixture
+  # A caret requirement reads "0.36.1 or any later 0.36", so the lockfile is the
+  # only thing holding the release the console's own citations are written
+  # against. That is exactly how this workspace came to resolve 0.36.2 under a
+  # requirement that said 0.36.1.
+  perl -pi -e 's/^(eframe = [{] version = )"=0[.]36[.]1"/$1"0.36.1"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "an eframe requirement a patch release can move"
+
+  make_fixture
+  perl -pi -e 's/^(egui = [{] version = )"=0[.]36[.]1"/$1"0.36.1"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "an egui requirement a patch release can move"
+}
+
+test_shipped_kittest_dependency_is_rejected() {
+  make_fixture
+  # The harness is a test tool. In a shipped dependency table it reaches the
+  # binary; in the plain dev table it reaches the browser build, which compiles
+  # for a target the tests never run on.
+  perl -pi -e 's/^egui_kittest = /[dependencies]\negui_kittest = /' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a test harness in the console's shipped dependencies"
+}
+
 test_optional_persistence_default_is_rejected() {
   make_fixture
   # Every feature arm in the tiers is stated relative to the console default.
@@ -899,6 +1015,14 @@ case "${1:-all}" in
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
+  networked-inspection-bind) test_networked_inspection_bind_is_rejected ;;
+  inspect-without-home) test_inspect_without_home_assignment_is_rejected ;;
+  inspect-written-down-target-path) test_inspect_launching_a_written_down_target_path_is_rejected ;;
+  inspection-launcher-outside-inspect) test_inspection_launcher_outside_the_inspect_task_is_rejected ;;
+  two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
+  inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
+  caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
+  shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
   optional-persistence-default) test_optional_persistence_default_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   ungated-rust-cache) test_ungated_rust_cache_save_is_rejected ;;
@@ -998,6 +1122,14 @@ case "${1:-all}" in
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected
+    test_networked_inspection_bind_is_rejected
+    test_inspect_without_home_assignment_is_rejected
+    test_inspect_launching_a_written_down_target_path_is_rejected
+    test_inspection_launcher_outside_the_inspect_task_is_rejected
+    test_two_inspection_assignments_on_one_line_is_rejected
+    test_pull_request_tier_without_the_inspection_feature_is_rejected
+    test_caret_egui_requirement_is_rejected
+    test_shipped_kittest_dependency_is_rejected
     test_optional_persistence_default_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;

@@ -1346,6 +1346,9 @@ impl eframe::App for Console {
     }
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod kittest_tests;
+
 #[cfg(test)]
 mod tests {
     use egui::{

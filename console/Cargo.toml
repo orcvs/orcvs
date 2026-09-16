@@ -42,17 +42,57 @@ bench = false
 # tier runs beside the default one. See docs/tooling.md.
 default = ["persistence"]
 persistence = ["eframe/persistence", "orcvs/persistence"]
+# Development-only inspection, off in every shipped build and in every tier's
+# default arm. It forwards to `eframe/inspection`, which is upstream's own
+# integration: the feature pulls `egui_inspection` in and
+# `eframe::maybe_attach_inspection_plugin` attaches the plugin from
+# `glow_integration`/`wgpu_integration` at start
+# (`eframe-0.36.1/src/lib.rs:214-222`). The console writes no server of its own.
+#
+# The feature alone changes nothing a viewer can see. `egui_inspection` reads
+# `EGUI_INSPECTION` at start and binds nothing when the variable is unset, empty,
+# `0` or `false` (`egui_inspection-0.36.1/src/lib.rs:40-50`), so a build carrying
+# the feature and launched without the variable behaves exactly like one without
+# it. Deliberate activation is the variable, not the build.
+#
+# Off by default because attaching it hands full control of the running console —
+# input injection, the widget tree, and screenshots — to whatever connects, with
+# no authentication. `mise run inspect` is the launcher that sets
+# `EGUI_INSPECTION` to an explicit loopback host:port; see `docs/tooling.md` and
+# `.agents/skills/egui/references/guide.md`.
+#
+# Native-only in effect rather than by declaration: `eframe` gates the attach on
+# `not(target_arch = "wasm32")`, so a browser build that enabled this would still
+# start no server. No tier enables it for `wasm32`, and `mise run check_wasm`
+# builds the two feature sets it has always built.
+inspection = ["eframe/inspection"]
 
 [dependencies]
 # Defaults off here; platform MIDI lives in this crate's `native_midi` module.
 orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 # Keep both Linux window backends explicit because disabling eframe defaults removes them.
-eframe = { version = "0.36.1", default-features = false, features = [
+#
+# `=0.36.1` rather than `0.36.1`. A caret requirement reads "0.36.1 or any later
+# 0.36", and the console's own reasoning is written against one of those
+# releases and cites it by line: `console.rs` quotes
+# `epaint-0.36.1/src/text/font.rs:567`, `epaint-0.36.1/src/text/mod.rs:62`,
+# `epaint-0.36.1/src/text/fonts.rs:734-748`, `egui-0.36.1/src/containers/scene.rs`,
+# `egui-0.36.1/src/context.rs:436-446`, `emath-0.36.1/src/ts_transform.rs:55-57`
+# and `egui-0.36.1/src/response.rs:452-465` as the evidence for the atlas budget,
+# the owned transform, and the drag-pan branch it replaces. A patch release that
+# arrives without anyone deciding to takes those citations out from under the
+# code that depends on them, and a lockfile is the only thing that was holding
+# the version — which is exactly how this workspace had already resolved 0.36.2
+# under a `0.36.1` requirement. The pin says what the manifest meant.
+#
+# `.agents/skills/egui/references/guide.md` records the release this stack is
+# read against and what moving it costs.
+eframe = { version = "=0.36.1", default-features = false, features = [
     "glow",
     "wayland",
     "x11",
 ] }
-egui = { version = "0.36.1", default-features = false }
+egui = { version = "=0.36.1", default-features = false }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", default-features = false, features = [
     "ansi",
@@ -79,6 +119,34 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# The UI interaction tests in `console::kittest_tests` drive the real `Console`
+# through `eframe::App` over an AccessKit tree, which is the one thing the
+# hand-rolled `app_pass` beside them cannot do: it can post an `egui::Event` at a
+# position but it cannot find the menu item a viewer would click.
+#
+# `eframe` is the only feature enabled, and it is the load-bearing one: it is
+# what `Harness::build_eframe` is behind (`egui_kittest-0.36.1/src/builder.rs:192-219`),
+# and without it the harness can only be given a closure — a second, test-only
+# UI, which this repository's own policy refuses. It pulls `eframe/accesskit`
+# with it, so a `cargo test` build of `eframe` carries `accesskit_winit` that a
+# `cargo build` does not. That is a dev-graph activation and it is the price of
+# querying production widgets by role and label.
+#
+# `snapshot` and `wgpu` are deliberately absent. Both exist to render a frame to
+# an image, `snapshot` has no renderer without `wgpu`
+# (`egui_kittest-0.36.1/src/renderer.rs:36-45`), and `wgpu` would put the whole
+# wgpu and naga tree into the dev graph and a GPU requirement into CI for
+# coverage the `Shape`-level assertions in `console.rs` already hold at a finer
+# grain. `.agents/skills/egui/references/guide.md` records that decision and
+# when to revisit it.
+#
+# Confined to the non-WASM target table for the reason `proptest` is: the
+# invariants these tests hold are platform-independent, `cargo clippy
+# --all-targets --target wasm32-unknown-unknown` compiles this crate's unit tests,
+# and a browser build has no business resolving a test harness. `=0.36.1` for the
+# reason `egui` and `eframe` carry it — the harness has to be the one that matches
+# the egui it drives.
+egui_kittest = { version = "=0.36.1", default-features = false, features = ["eframe"] }
 # Native FileStorage writes a RON `HashMap<String, String>` to `app.ron`.
 # FileStorage itself is crate-private (`from_ron_filepath` is `pub(crate)`;
 # only `eframe::storage_dir` is re-exported), so a product-path test has to

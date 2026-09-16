@@ -1,0 +1,3 @@
+[mcp_servers.egui-mcp]
+command = "egui-mcp"
+args = []

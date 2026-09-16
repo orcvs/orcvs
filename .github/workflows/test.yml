@@ -27,10 +27,15 @@ env:
 
 jobs:
   full-gate:
-    # Every job here finishes in about ninety seconds. Unbounded, one that hangs —
-    # `wasm-pack test --headless --firefox` waiting on a browser that never
-    # answers is the obvious candidate — holds a runner for the six-hour limit
-    # instead. The bound is generous against the real cost and cheap against that.
+    # Warm, this job finishes in about ninety seconds: it restores `main`'s cache
+    # through the key prefix and compiles almost nothing. The first run after a
+    # dependency lands is the exception — PR #104 added sixty-four crates
+    # (accesskit, kittest, and on Linux the atspi/zbus tree) that `main`'s cache
+    # did not hold, and they compile once here before `main` saves them. Minutes,
+    # against a bound of twenty. Unbounded, a job that hangs — `wasm-pack test
+    # --headless --firefox` waiting on a browser that never answers is the obvious
+    # candidate — holds a runner for the six-hour limit instead. The bound is
+    # generous against the real cost and cheap against that.
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:

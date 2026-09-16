@@ -117,6 +117,14 @@ count_matches() {
   grep -Ev '^[[:space:]]*#' "$1" | grep -Ec "$2" || true
 }
 
+# Occurrences, not lines. `count_matches` is `grep -Ec` and is the right count
+# when the pattern is already a whole line. Inspection binds can share a line
+# (`EGUI_INSPECTION=127.0.0.1:5719 … EGUI_INSPECTION=0.0.0.0:5719`), so those
+# assertions count each assignment.
+count_occurrences() {
+  grep -Ev '^[[:space:]]*#' "$1" | grep -Eo "$2" | wc -l | tr -d '[:space:]' || true
+}
+
 # The triggers a workflow declares, one per line: the keys at exactly one indent
 # level inside `on:`. Read as a set rather than matched as forbidden names, so a
 # rule about what may run a workflow cannot be stepped around by reaching for a
@@ -251,6 +259,80 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo tes
 # tier, where a public-to-private intra-doc link first failed PR #81.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
+# `inspection` is off in `console`'s default feature set, so every compilation
+# in this tier — including the `--no-default-features` halves — builds the
+# console without it, and a break behind it would reach `main` unseen. One line
+# on one crate closes that, and it is pinned here rather than left to whoever
+# next edits the tier, because deleting it is invisible: nothing else in this
+# file compiles the feature and no test fails when it stops being compiled.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_inspection$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_inspection' '^run = .cargo clippy --package console --all-targets --features inspection --locked -- -D warnings.$'
+# The launcher binds loopback, and this is the assertion that keeps it there.
+# `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
+# that is not empty/`0`/`false` to a `host:port`
+# (`egui_inspection-0.36.1/src/lib.rs:40-50`). A command-level assignment
+# replaces any inherited value; `1` is not unsafe. The contract still rejects a
+# bare `1` as policy: the launcher writes the literal host:port so the bind is
+# greppable and the port is selectable, and what binds is full unauthenticated
+# control of the running console. Counted per occurrence rather than per line,
+# so a second assignment on the same line has to bind the same host.
+inspection_binds="$(count_occurrences "$root_dir/mise.toml" 'EGUI_INSPECTION=')"
+if [ "${inspection_binds:-0}" -lt 1 ]; then
+  echo "expected mise.toml to launch the console with EGUI_INSPECTION set" >&2
+  exit 1
+fi
+loopback_binds="$(count_occurrences "$root_dir/mise.toml" 'EGUI_INSPECTION=127[.]0[.]0[.]1:')"
+if [ "${loopback_binds:-0}" -ne "$inspection_binds" ]; then
+  echo "expected $root_dir/mise.toml to match $inspection_binds times, matched ${loopback_binds:-0}: EGUI_INSPECTION=127[.]0[.]0[.]1:" >&2
+  exit 1
+fi
+# And the console it launches is the one carrying the feature. Without this the
+# task builds the shipped binary, `eframe` logs a warning about a variable it
+# cannot act on, and the attach fails with nothing to point at.
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '^console_binary="[$][(]cargo build --package console --features inspection --locked --message-format=json-render-diagnostics'
+# The launched path is the one that build reported, not a written-down
+# `./target/debug/console`. A written-down path ignores `CARGO_TARGET_DIR` and
+# `build.target-dir`; with either set the task launches whatever stale binary
+# the default location holds, which has no `inspection` in it, and the failure
+# arrives as an attach timeout rather than as anything naming the build.
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '"[$]console_binary"$'
+assert_not_contains "$root_dir/mise.toml" '[.]/target/(debug|release)/console'
+# The storage location is disposable and is not the developer's. eframe derives
+# it from `HOME` on macOS and `XDG_DATA_HOME` on Linux, and `console` saves the
+# current Source revision every thirty seconds, so a smoke test launched
+# without this overwrites whatever Source the developer last had open.
+#
+# Both halves are scoped to `inspect` rather than to the file, so the task the
+# documentation tells a developer to run is the one that has to carry them: a
+# file-scoped match is satisfied by an assignment sitting in any task at all,
+# including one that no longer launches anything.
+#
+# The HOME pattern is anchored on the leading space so
+# `XDG_DATA_HOME="$PWD/target/inspection"` on the same line cannot satisfy it;
+# the characters before `HOME` there are `XDG_DATA_`, not a space.
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' ' HOME="[$]PWD/target/inspection"'
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' 'XDG_DATA_HOME="[$]PWD/target/inspection"'
+# And scoping alone would let a *second* launcher task omit the redirect while
+# `inspect` keeps it, so every inspection bind in the file is tied to a pair of
+# redirects, counted per occurrence exactly as the loopback assertion above is.
+# A task that sets `EGUI_INSPECTION` is a task that runs the console under
+# inspection, and every one of them writes to disposable storage or none do.
+home_redirects="$(count_occurrences "$root_dir/mise.toml" ' HOME="[$]PWD/target/inspection"')"
+if [ "${home_redirects:-0}" -ne "$inspection_binds" ]; then
+  echo "expected $root_dir/mise.toml to match $inspection_binds times, matched ${home_redirects:-0}:  HOME=\"[\$]PWD/target/inspection\"" >&2
+  exit 1
+fi
+xdg_redirects="$(count_occurrences "$root_dir/mise.toml" 'XDG_DATA_HOME="[$]PWD/target/inspection"')"
+if [ "${xdg_redirects:-0}" -ne "$inspection_binds" ]; then
+  echo "expected $root_dir/mise.toml to match $inspection_binds times, matched ${xdg_redirects:-0}: XDG_DATA_HOME=\"[\$]PWD/target/inspection\"" >&2
+  exit 1
+fi
+# The MCP bridge is installed at a named version rather than from a moving
+# branch. It is the one tool here that `[tools]` cannot pin — it is a cargo
+# binary rather than a mise-managed one — so the version lives in the task, and
+# `--locked` is what makes two machines build the same tree from it.
+assert_toml_task_contains "$root_dir/mise.toml" 'install_egui_mcp' '^run = .cargo install egui_mcp --version [0-9]+[.][0-9]+[.][0-9]+ --locked.$'
+assert_not_contains "$root_dir/mise.toml" 'cargo install egui_mcp.*--git'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_merge_native$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_wasm$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run test_wasm$'
@@ -422,6 +504,29 @@ assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_tab
 # `--no-default-features` proves, which is the criterion the default-on decision
 # was taken against rather than in place of.
 assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*persistence[[:space:]]*=[[:space:]]*[[].*"eframe/persistence".*"orcvs/persistence".*[]]$'
+# Inspection is a feature and it is not in the default set. The `default` line
+# above is pinned as exactly `["persistence"]`, which is what keeps it out; this
+# pins that the feature exists and forwards to upstream's own integration rather
+# than to a control server written here.
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*inspection[[:space:]]*=[[:space:]]*[[]"eframe/inspection"[]]$'
+# The egui stack is pinned exactly, not by caret. `console.rs` cites
+# `egui-0.36.1`, `epaint-0.36.1` and `emath-0.36.1` by file and line as the
+# evidence for the atlas budget, the owned transform, and the drag-pan branch it
+# replaces, and a caret requirement lets a patch release move all of that with
+# nothing but a lockfile holding the version — which is how this workspace had
+# already resolved 0.36.2 under a `0.36.1` requirement.
+assert_contains "$root_dir/console/Cargo.toml" '^eframe = [{] version = "=0[.]36[.]1",'
+assert_contains "$root_dir/console/Cargo.toml" '^egui = [{] version = "=0[.]36[.]1",'
+# `egui_kittest` stays a dev-dependency of the non-WASM target table, for the
+# reason `proptest` does one file over: the UI invariants it holds are
+# platform-independent, `check_wasm` compiles this crate's test targets for
+# `wasm32-unknown-unknown`, and no shipped or browser build has any business
+# resolving a test harness. The plain `[dev-dependencies]` table compiles for
+# WASM too, so it needs its own guard.
+kittest_native_dev_table='^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dev-dependencies[]]$'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$kittest_native_dev_table" '^[[:space:]]*egui_kittest[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*egui_kittest[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]dev-dependencies[]][[:space:]]*$' '^[[:space:]]*egui_kittest[[:space:]]*='
 assert_contains "$root_dir/console/assets/sw.js" "'./console.js'"
 assert_contains "$root_dir/console/assets/sw.js" "'./console_bg.wasm'"
 assert_contains "$root_dir/console/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-9]+';$"
