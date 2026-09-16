@@ -142,24 +142,27 @@ stops being compiled.
 
 `mise run inspect` is the launcher, and two things about it are load-bearing rather than
 convenience. It writes `EGUI_INSPECTION=127.0.0.1:5719` out in full instead of the `EGUI_INSPECTION=1`
-the upstream README suggests: the variable is not a switch, and `1` resolves to loopback only while
-nothing in the inherited environment has already set it to an address. The contract counts the
-assignments in `mise.toml` and requires every one of them to name the loopback host, so a bare `1`
-fails it rather than binding whatever a shell had exported. And it builds, then runs the built
-binary under a `HOME` and `XDG_DATA_HOME` of `target/inspection`, because eframe derives its storage
-directory from those (`eframe-0.36.1/src/native/file_storage.rs:17-40`) and `console` saves the
-current Source revision every thirty seconds — a smoke test launched without that override would
-overwrite whatever Source the developer last had open. The two halves are separate commands because
-`cargo` reads `HOME` to find `CARGO_HOME`, so the build needs the real environment and the console
-needs the disposable one.
+the upstream README suggests: a command-level assignment replaces any inherited `EGUI_INSPECTION`
+value, and `1` itself resolves to loopback (`bind_addr_from_env` in
+`egui_inspection-0.36.1/src/lib.rs:40-50`). The literal is self-documenting and greppable, the port
+is selectable, and the contract counts each assignment in `mise.toml` and requires every one of them
+to name the loopback host, so a bare `1` fails it as repository policy rather than because that
+spelling is unsafe. And it builds, then runs the built binary under a `HOME` and `XDG_DATA_HOME` of
+`target/inspection`, because eframe derives its storage directory from those
+(`eframe-0.36.1/src/native/file_storage.rs:17-40`) and `console` saves the current Source revision
+every thirty seconds — a smoke test launched without that override would overwrite whatever Source
+the developer last had open. The two halves are separate commands because `cargo` reads `HOME` to
+find `CARGO_HOME`, so the build needs the real environment and the console needs the disposable one.
 
 `mise run install_egui_mcp` installs the bridge the agent side attaches through: `egui_mcp` 0.2.0
 from crates.io, `--locked`, which is the release requiring `egui_inspection ^0.36.0`. It is the one
 pinned tool that `[tools]` does not hold, because it is a cargo binary rather than a mise-managed
 one, so the version lives in the task and the contract pins its shape there — including that it is
 not installed from a git branch, which would make "the version that worked" unanswerable.
-`.mcp.json` registers the installed `egui-mcp` as a stdio server for repository-scoped agent
-configuration; no user-global or machine-global file is written by anything in this repository.
+`.mcp.json` and `.codex/config.toml` register the installed `egui-mcp` as a stdio server for
+repository-scoped agent configuration (Claude and Codex); no user-global or machine-global file is
+written by anything in this repository. Codex loads the project file only when the project is
+trusted.
 `.agents/skills/egui/references/guide.md` is where the attach, verify and troubleshooting procedure
 lives.
 

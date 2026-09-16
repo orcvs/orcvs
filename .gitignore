@@ -10,3 +10,7 @@
 !.scratch/*/evidence/*.png
 .claude/worktrees/
 .worktrees/
+# Codex project config is tracked; local worktrees and other Codex working
+# files are not.
+.codex/*
+!.codex/config.toml

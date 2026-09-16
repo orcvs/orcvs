@@ -1,7 +1,7 @@
 # egui in Orcvs
 
 Detail behind `../SKILL.md`. Read the section you need; do not read this file to
-find out what to do next, which is what the six steps in `SKILL.md` are for.
+find out what to do next, which is what the steps in `SKILL.md` are for.
 
 ## Resolved versions
 
@@ -22,39 +22,23 @@ cargo tree --package console --locked --all-features --prefix none -e normal,dev
 | `epaint`, `emath`, `ecolor` | 0.36.1 | `Cargo.lock` | egui's own crates. Held at 0.36.1 by the lockfile. |
 | `egui_inspection` | 0.36.1 | `Cargo.lock`, through `eframe/inspection` | The inspection plugin and wire protocol. Reached only by `console/inspection`. |
 | `egui_kittest` | `=0.36.1` | `console/Cargo.toml`, non-WASM `dev-dependencies` | The UI test harness. Feature `eframe` only. |
-| `egui_mcp` | 0.2.0 | `mise run install_egui_mcp`, `.mcp.json` | The MCP server an agent attaches through. Not a workspace dependency. |
+| `egui_mcp` | 0.2.0 | `mise run install_egui_mcp`, `.mcp.json`, `.codex/config.toml` | The MCP server an agent attaches through. Not a workspace dependency. |
 
-The second command is how the duplicate check is made: one version of each egui
-crate, and the `accesskit_consumer` entries — currently three, from accesskit's
-own platform adapters and from `kittest` — all inside the `accesskit_winit`
-tree, which is dev and inspection only. `cargo-deny` sets
-`bans.multiple-versions = "warn"`, so those report rather than fail; a *second
-egui version* would be a fault rather than a warning.
-
-The three direct requirements are exact (`=0.36.1`) rather than caret. A caret
-requirement reads "0.36.1 or any later 0.36", and the console's reasoning is
-written against one release and cites it by line — `console.rs` quotes
-`epaint-0.36.1/src/text/font.rs:567`, `epaint-0.36.1/src/text/mod.rs:62`,
-`epaint-0.36.1/src/text/fonts.rs:734-748`, `egui-0.36.1/src/containers/scene.rs`,
-`egui-0.36.1/src/context.rs:436-446`, `emath-0.36.1/src/ts_transform.rs:55-57`
-and `egui-0.36.1/src/response.rs:452-465` as the evidence for the glyph atlas
-budget, the owned transform, and the drag-pan branch it replaces. Under a caret
-requirement the lockfile was the only thing holding the version, and it had
-already drifted to 0.36.2.
-
-`epaint`, `emath` and `ecolor` are held by the lockfile rather than by a
-manifest pin, because egui depends on them itself and pinning a crate this
-workspace does not name is the "pin every transitive" failure. If they drift,
-`cargo update epaint --precise 0.36.1` (and the same for the other two) is the
-repair.
-
-Moving the stack is a deliberate change with its own ticket: it re-reads every
-citation above, re-runs the geometry and painting tests in `console::tests`, and
-moves `egui_kittest` with it. It is not a side effect of another change.
-
-`egui_mcp`'s version is its own. 0.2.0 requires `egui_inspection ^0.36.0` and
-`egui ^0.36.0`, which is what makes it the release that speaks to this console;
-the package number does not track egui's and will not.
+The second command is the duplicate check: one version of each egui crate.
+Multiple `accesskit_consumer` entries inside `accesskit_winit` are expected
+(dev and inspection only); a *second egui version* is a fault. The three
+direct requirements are exact (`=0.36.1`). Pins are exact; moving the stack
+is its own ticket — it re-reads the citations `console.rs` takes from this
+release (`epaint-0.36.1/src/text/font.rs:567`,
+`epaint-0.36.1/src/text/mod.rs:62`, `epaint-0.36.1/src/text/fonts.rs:734-748`,
+`egui-0.36.1/src/containers/scene.rs`, `egui-0.36.1/src/context.rs:436-446`,
+`emath-0.36.1/src/ts_transform.rs:55-57`,
+`egui-0.36.1/src/response.rs:452-465`), re-runs the geometry and painting
+tests in `console::tests`, and moves `egui_kittest` with it. `epaint`,
+`emath` and `ecolor` are held by the lockfile; if they drift,
+`cargo update epaint --precise 0.36.1` (and the same for the other two) is
+the repair. `egui_mcp`'s version is its own: 0.2.0 requires
+`egui_inspection ^0.36.0` and `egui ^0.36.0`.
 
 ## Provenance
 
@@ -122,9 +106,10 @@ one is arguing with an ADR, which is a ticket rather than an edit.
 - **The Source Grid is painted, not built from widgets.** `show_source`
   allocates one `Ui::interact` rectangle over the whole Grid with `Sense::CLICK`
   — deliberately not `Sense::click()`, which is `CLICK | FOCUSABLE` and would
-  put a thousand Cells in the tab order — and issues one `Painter::extend` for
-  every Shape. A `Painter::add` per Cell takes a `Context` write lock per Cell.
-  ADR 0040 is the decision; `console/benches/paint.rs` measures it.
+  put that rectangle in the keyboard tab order — and issues one `Painter::extend`
+  for every Shape. Cells are painted into the rectangle; they are not widgets.
+  A `Painter::add` per Cell takes a `Context` write lock per Cell. ADR 0040 is
+  the decision; `console/benches/paint.rs` measures it.
 - **The console owns the transform.** `SourceView { to_global, adjusted }`, not
   an `egui::Scene` region. `egui::Scene::register_pan_and_zoom` is still used
   for zoom-at-pointer, smooth scroll and the zoom clamp, because all three are
@@ -162,10 +147,9 @@ else as a `host:port` to bind (`egui_inspection-0.36.1/src/lib.rs:26-50`).
 **Inspection is full, unauthenticated control of the running console.** Whatever
 connects can inject input, read the widget tree, resize the window and take
 screenshots. Bind loopback. Do not bind `0.0.0.0`; if you need it from another
-machine, tunnel over SSH. `mise run inspect` writes the loopback host out in
-full rather than relying on `EGUI_INSPECTION=1`, because that spelling only
-binds loopback while nothing in the inherited environment has already set the
-variable to an address, and the tooling contract holds that.
+machine, tunnel over SSH. `mise run inspect` writes
+`EGUI_INSPECTION=127.0.0.1:…`. Why that spelling, and why the launcher
+redirects `HOME` and `XDG_DATA_HOME`, is in `docs/tooling.md`.
 
 ### Setting it up
 
@@ -181,9 +165,12 @@ command -v egui-mcp
 ```
 
 `.mcp.json` at the repository root registers it for Claude Code as a stdio
-server named `egui-mcp`; the file is repository-scoped and tracked, so nothing
-user-global is touched. For Codex, add this to `~/.codex/config.toml` yourself —
-it is user-local and no repository file should write it:
+server named `egui-mcp`. Codex reads the same command and args from
+`.codex/config.toml`. Trust this checkout so Codex loads that file. Why those
+files are tracked and write nothing user-global is in `docs/tooling.md`.
+
+The same table in `~/.codex/config.toml` remains an optional alternative when
+you want the server outside this repository:
 
 ```toml
 [mcp_servers.egui-mcp]
@@ -203,11 +190,7 @@ mise run inspect 5720         # same, on another port
 
 The task builds `console` with `--features inspection --locked`, then runs the
 built binary with `HOME` and `XDG_DATA_HOME` pointed at `target/inspection`.
-That second half matters: eframe derives its storage directory from those
-(`eframe-0.36.1/src/native/file_storage.rs:17-40`) and `console` saves the
-current Source revision every thirty seconds, so a session launched without it
-would overwrite whatever Source you last had open. `target/` is ignored; delete
-`target/inspection` to start from an empty Source.
+`target/` is ignored; delete `target/inspection` to start from an empty Source.
 
 No MIDI destination is connected. The console connects an output only when the
 MIDI menu is used, so an inspection session sends nothing to a real device
@@ -219,10 +202,16 @@ Then, from the agent:
    `timeout_secs` available.
 2. `query_tree` — read what the console actually exposes before writing a
    selector. See the next section for what it does and does not contain.
-3. Drive it: `click`, `hover`, `type_text`, `press_key`, `scroll`, `drag`,
-   `resize`, `wait_for`, `batch`. Each takes either a locator (`id`, `role`,
-   `label_contains`, `content_contains`, `value_contains`) or a raw `pos` in
-   logical points.
+3. Drive it. Pointer tools take a target: `click` and `hover` accept a locator
+   (`id`, `role`, `label_contains`, `content_contains`, `value_contains`) or a
+   raw `pos` in logical points; `scroll` takes that target plus a `delta`;
+   `drag` takes separate `start` and `end` targets. Keyboard and text tools do
+   not: `type_text` takes the text and an optional semantic focus target, not a
+   raw position; `press_key` takes a key and modifiers. Window and session
+   tools are their own shape: `resize` takes width and height; `wait_for` takes
+   query constraints and waiting parameters; `batch` takes an array of named
+   actions with arguments. Inspect the connected server's tool schemas before
+   calling an unfamiliar tool.
 4. `screenshot` — returns a PNG inline and optionally writes it to `save_path`.
 5. `status` to confirm the connection, `disconnect` to drop it. Close the
    console window to stop the server; nothing persists after the process exits.
@@ -266,19 +255,15 @@ them. This is what `console::kittest_tests` queries and what `egui-mcp` should
 click.
 
 **The Source Grid is one rectangle.** Forty by twenty-five Cells are painted
-into a single interactive rectangle. There is no node per Cell, there must not
-become one, and no amount of querying will find one. Minting a thousand
-AccessKit nodes to satisfy a tool would undo ADR 0040 and put the Cells back in
-the tab order.
+into a single interactive rectangle. `query_tree` will not find a Cell; the
+Cursor is not in the tree either. Confirm selection from geometry, Diagnostics,
+or a screenshot.
 
 A `query_tree` against a default console bears this out: five `Button` nodes
 labelled `File`, `MIDI`, `View`, `Theme` and `Tempo`, a handful of unlabelled
 `GenericContainer`s, and one `Unknown` node whose bounds are the whole console
 area below the menu bar — 1000 by 625 points at the default window, holding
-1000 Cells and reporting none of them. The Cursor is not in the tree either: it
-is painted Source state, so an inspection session confirms a Cell selection by
-looking at a screenshot or by reading a derived value out of the Diagnostics
-window, never by querying for it.
+1000 Cells and reporting none of them.
 
 So the Source view is reached four ways, and each answers a different question:
 
@@ -361,25 +346,4 @@ and it is a human looking at it.
 
 ## Verification
 
-The console's baseline from `AGENTS.md`:
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --package console --all-targets --locked -- -D warnings
-cargo nextest run --package console --locked
-```
-
-Then whatever the change touched:
-
-- the `inspection` feature, `eframe`, or the feature set: `mise run check_inspection`
-- `console/Cargo.toml` or `Cargo.lock`: `mise run audit_deps`
-- rendering, platform code, or anything the browser build compiles:
-  `mise run check_wasm`
-- `mise.toml`, `scripts/`, or `.github/workflows/`:
-  `bash scripts/check-tooling-contract.sh`, `actionlint`,
-  `zizmor --offline .github/workflows`, and the fixture suite
-  `bash scripts/tests/check-tooling-contract.sh all`
-
-`mise run check`, `mise run check_merge` and `mise run test_wasm` are deferred
-to CI; `docs/tooling.md` says why. Report what you ran, what you did not, and
-which interactions were inspected rather than tested.
+The console gate is `AGENTS.md`'s (skill step 6).

@@ -601,12 +601,33 @@ test_networked_inspection_bind_is_rejected() {
   perl -pi -e 's/^EGUI_INSPECTION=127[.]0[.]0[.]1:/EGUI_INSPECTION=0.0.0.0:/' "$fixture_dir/mise.toml"
   assert_rejected "an inspection launcher reachable from the network"
 
-  # The same hole spelled as a switch. `EGUI_INSPECTION=1` binds loopback only
-  # while nothing else in the environment has already set the variable to an
-  # address, and an assignment that names no host cannot say which it was.
+  # The same hole spelled as a switch. `EGUI_INSPECTION=1` maps to
+  # `127.0.0.1:5719` (`bind_addr_from_env`); a command-level assignment
+  # replaces any inherited value. The contract still rejects a bare `1` as
+  # policy: the launcher writes the host:port so the bind is greppable and
+  # the port is selectable.
   make_fixture
   perl -pi -e 's/^EGUI_INSPECTION=127[.]0[.]0[.]1:[^ ]* /EGUI_INSPECTION=1 /' "$fixture_dir/mise.toml"
-  assert_rejected "an inspection launcher that leaves the bind address to the environment"
+  assert_rejected "an inspection launcher that names no loopback host"
+}
+
+test_inspect_without_home_assignment_is_rejected() {
+  make_fixture
+  # eframe derives its storage directory from HOME on macOS. XDG_DATA_HOME on
+  # the same line already contains the substring HOME="$PWD/target/inspection",
+  # so an unanchored match stays green after this deletion and a macOS inspect
+  # would write the developer's real app.ron.
+  perl -pi -e 's/ HOME="\$PWD\/target\/inspection"//' "$fixture_dir/mise.toml"
+  assert_rejected "an inspect task that leaves macOS storage on the developer's HOME"
+}
+
+test_two_inspection_assignments_on_one_line_is_rejected() {
+  make_fixture
+  # Two assignments on one line: the first is loopback, the second is
+  # networked. A line-counting checker sees one EGUI_INSPECTION= line and one
+  # loopback-matching line, so a networked bind passes the contract.
+  perl -pi -e 's/^(EGUI_INSPECTION=127[.]0[.]0[.]1:[^ ]*) /$1 EGUI_INSPECTION=0.0.0.0:5719 /' "$fixture_dir/mise.toml"
+  assert_rejected "an inspection launcher with a networked bind on the same line as a loopback one"
 }
 
 test_pull_request_tier_without_the_inspection_feature_is_rejected() {
@@ -956,6 +977,8 @@ case "${1:-all}" in
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
   networked-inspection-bind) test_networked_inspection_bind_is_rejected ;;
+  inspect-without-home) test_inspect_without_home_assignment_is_rejected ;;
+  two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
@@ -1059,6 +1082,8 @@ case "${1:-all}" in
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected
     test_networked_inspection_bind_is_rejected
+    test_inspect_without_home_assignment_is_rejected
+    test_two_inspection_assignments_on_one_line_is_rejected
     test_pull_request_tier_without_the_inspection_feature_is_rejected
     test_caret_egui_requirement_is_rejected
     test_shipped_kittest_dependency_is_rejected

@@ -1,6 +1,6 @@
 ---
 name: egui
-description: Implement or review the console's egui and eframe presentation in this repository. Use for widgets, custom painting, layout, input, focus, the Source view's pan, zoom and presentation behaviour, egui_kittest UI regressions, live inspection through egui_mcp, and egui or eframe dependency and feature changes. Combine with rust-change for implementation, rust-dependency-change for the manifests and lockfile, and rust-review for independent review.
+description: egui in this repository. Use for the console's egui and eframe presentation, live inspection, and egui or eframe dependency or feature changes.
 ---
 
 # egui
@@ -12,7 +12,8 @@ necessary for a module to live in `orcvs` but not sufficient.
 
 `references/guide.md` holds the resolved versions, the reference hierarchy, the
 inspection and `egui_mcp` setup, the testing patterns, and the troubleshooting.
-Read it before deriving an instruction from an upstream document.
+Read it before citing an upstream API, before `mise run inspect`, before writing
+a kittest, and before attaching `egui-mcp`.
 
 1. Read `AGENTS.md`, `console/Cargo.toml`, and the console modules the change
    reaches. Confirm the resolved versions with
@@ -39,11 +40,12 @@ Read it before deriving an instruction from an upstream document.
 
 ## Hold these
 
-- Do not move domain behaviour into a widget or mint a second authoritative
+- Domain behaviour and Source state stay in `orcvs`; the UI reads a snapshot.
+  Do not move domain behaviour into a widget or mint a second authoritative
   copy of Source state for the UI.
-- No blocking I/O, blocking receive, `block_on`, or repeated expensive work in
-  the UI path; do not hold a mutex guard across a widget closure. Follow the
-  snapshot and message-passing the console already uses.
+- Follow the snapshot and message-passing the console already uses. No
+  blocking I/O, blocking receive, `block_on`, or repeated expensive work in
+  the UI path; do not hold a mutex guard across a widget closure.
 - Widget identity is stable and derived from domain identity, never from a list
   position or a mutable display string.
 - Reuse the existing style, `PALETTE`, font, `GlyphTable`, and paint
@@ -52,7 +54,8 @@ Read it before deriving an instruction from an upstream document.
   hit-testing, focus ownership, and input consumption. Rendering and
   hit-testing stay consistent under resize and pan or zoom.
 - Preserve the established repaint, animation, and reduced-motion behaviour.
-- Do not paint a thousand Cells as a thousand AccessKit widgets to satisfy a
-  tool, and do not add a domain-control API because the canvas is painted.
-- General performance advice is not a licence for an unrequested optimisation;
-  ADR 0040 and the atlas budget in `console.rs` are the standing decisions.
+- Cells stay painted; AccessKit nodes belong to real controls. Do not mint
+  per-Cell widgets solely for automation, and do not add a domain-control API
+  because the canvas is painted.
+- ADR 0040 and the atlas budget in `console.rs` are the standing decisions.
+  General performance advice is not a licence for an unrequested optimisation.

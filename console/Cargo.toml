@@ -57,8 +57,9 @@ persistence = ["eframe/persistence", "orcvs/persistence"]
 #
 # Off by default because attaching it hands full control of the running console —
 # input injection, the widget tree, and screenshots — to whatever connects, with
-# no authentication. `mise run inspect` is the launcher that binds it to
-# loopback; see `docs/tooling.md` and `.agents/skills/egui/references/guide.md`.
+# no authentication. `mise run inspect` is the launcher that sets
+# `EGUI_INSPECTION` to an explicit loopback host:port; see `docs/tooling.md` and
+# `.agents/skills/egui/references/guide.md`.
 #
 # Native-only in effect rather than by declaration: `eframe` gates the attach on
 # `not(target_arch = "wasm32")`, so a browser build that enabled this would still

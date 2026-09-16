@@ -26,12 +26,14 @@
 //! Those are queried semantically.
 //!
 //! The Source Grid is not. `show_source` allocates *one* `Ui::interact`
-//! rectangle over the whole Grid and paints every Cell into it, deliberately —
-//! `Sense::CLICK` rather than `Sense::click()` so a thousand Cells never enter
-//! the tab order, and one `Painter::extend` rather than a `Painter::add` per
-//! Cell. So there is no widget per Cell to query and there must not become one:
-//! minting a thousand AccessKit nodes to please a test tool would undo the
-//! change ADR 0040 and `show_source` were written to make.
+//! rectangle over the whole Grid and paints every Cell into it. `Sense::CLICK`
+//! rather than `Sense::click()` keeps that rectangle out of the keyboard tab
+//! order, which is the input-routing this module relies on; Cells are painted
+//! rather than instantiated as widgets, and must not become widgets solely so
+//! a test can query them. One `Painter::extend` rather than a `Painter::add`
+//! per Cell. So there is no widget per Cell to query and there must not become
+//! one: minting a thousand AccessKit nodes to please a test tool would undo
+//! the change ADR 0040 and `show_source` were written to make.
 //!
 //! What the Source Grid offers instead is a geometry contract —
 //! `presented_grid` maps the owned transform onto a `GridViewport`, and
@@ -256,11 +258,14 @@ async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer()
         "resizing the console moved the Cursor"
     );
 
-    let resized = cell_centre(&harness, 7, 5);
+    // Same Cell as `fitted`. Comparing (7, 5) after a resize against (3, 1)
+    // before it is true under one transform, so it cannot prove the re-fit.
+    let after_resize = cell_centre(&harness, 3, 1);
     assert_ne!(
-        resized, fitted,
-        "the resize left the Grid exactly where it was, so this proves nothing"
+        after_resize, fitted,
+        "the resize left Cell (3, 1) exactly where it was, so this proves nothing"
     );
+    let resized = cell_centre(&harness, 7, 5);
     click_at(&mut harness, resized);
     assert_eq!(
         cursor(harness.state()),
@@ -272,6 +277,7 @@ async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer()
     // the owned transform and `show_source_scene` records that the viewer
     // adjusted it. Every later coordinate has to come back through the moved
     // transform.
+    let scale_before_zoom = harness.state().source_view.to_global.scaling;
     let over = cell_centre(&harness, 7, 5);
     harness.event(Event::PointerMoved(over));
     harness.event(Event::Zoom(1.5));
@@ -279,6 +285,10 @@ async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer()
     harness.run_steps(1);
 
     let scaling = harness.state().source_view.to_global.scaling;
+    assert_ne!(
+        scaling, scale_before_zoom,
+        "the zoom left the Grid at the same scale"
+    );
     assert!(
         harness.state().source_view.adjusted,
         "the zoom did not pin the view"

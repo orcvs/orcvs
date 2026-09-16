@@ -117,6 +117,14 @@ count_matches() {
   grep -Ev '^[[:space:]]*#' "$1" | grep -Ec "$2" || true
 }
 
+# Occurrences, not lines. `count_matches` is `grep -Ec` and is the right count
+# when the pattern is already a whole line. Inspection binds can share a line
+# (`EGUI_INSPECTION=127.0.0.1:5719 … EGUI_INSPECTION=0.0.0.0:5719`), so those
+# assertions count each assignment.
+count_occurrences() {
+  grep -Ev '^[[:space:]]*#' "$1" | grep -Eo "$2" | wc -l | tr -d '[:space:]' || true
+}
+
 # The triggers a workflow declares, one per line: the keys at exactly one indent
 # level inside `on:`. Read as a set rather than matched as forbidden names, so a
 # rule about what may run a workflow cannot be stepped around by reaching for a
@@ -262,19 +270,24 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFL
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_inspection$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_inspection' '^run = .cargo clippy --package console --all-targets --features inspection --locked -- -D warnings.$'
 # The launcher binds loopback, and this is the assertion that keeps it there.
-# `EGUI_INSPECTION` is not a switch: `egui_inspection` reads anything that is
-# not empty, `0`, `false`, `1` or `true` as a `host:port` to bind, and what
-# binds is full unauthenticated control of the running console — input
-# injection, the widget tree, and screenshots. Stated as a count rather than as
-# a presence, so a second assignment added anywhere in this file has to bind the
-# same host: a bare `EGUI_INSPECTION=1` would pass a presence check while
-# leaving the address to whatever the shell had already exported.
-inspection_binds="$(count_matches "$root_dir/mise.toml" 'EGUI_INSPECTION=')"
-if [ "$inspection_binds" -lt 1 ]; then
+# `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
+# that is not empty/`0`/`false` to a `host:port`
+# (`egui_inspection-0.36.1/src/lib.rs:40-50`). A command-level assignment
+# replaces any inherited value; `1` is not unsafe. The contract still rejects a
+# bare `1` as policy: the launcher writes the literal host:port so the bind is
+# greppable and the port is selectable, and what binds is full unauthenticated
+# control of the running console. Counted per occurrence rather than per line,
+# so a second assignment on the same line has to bind the same host.
+inspection_binds="$(count_occurrences "$root_dir/mise.toml" 'EGUI_INSPECTION=')"
+if [ "${inspection_binds:-0}" -lt 1 ]; then
   echo "expected mise.toml to launch the console with EGUI_INSPECTION set" >&2
   exit 1
 fi
-assert_occurs_exactly "$root_dir/mise.toml" 'EGUI_INSPECTION=127[.]0[.]0[.]1:' "$inspection_binds"
+loopback_binds="$(count_occurrences "$root_dir/mise.toml" 'EGUI_INSPECTION=127[.]0[.]0[.]1:')"
+if [ "${loopback_binds:-0}" -ne "$inspection_binds" ]; then
+  echo "expected $root_dir/mise.toml to match $inspection_binds times, matched ${loopback_binds:-0}: EGUI_INSPECTION=127[.]0[.]0[.]1:" >&2
+  exit 1
+fi
 # And the console it launches is the one carrying the feature. Without this the
 # task builds the shipped binary, `eframe` logs a warning about a variable it
 # cannot act on, and the attach fails with nothing to point at.
@@ -283,7 +296,9 @@ assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '^cargo build --packag
 # it from `HOME` on macOS and `XDG_DATA_HOME` on Linux, and `console` saves the
 # current Source revision every thirty seconds, so a smoke test launched
 # without this overwrites whatever Source the developer last had open.
-assert_contains "$root_dir/mise.toml" 'HOME="[$]PWD/target/inspection"'
+# Anchored so `XDG_DATA_HOME="$PWD/target/inspection"` on the same line cannot
+# satisfy the HOME assignment.
+assert_contains "$root_dir/mise.toml" ' HOME="[$]PWD/target/inspection"'
 assert_contains "$root_dir/mise.toml" 'XDG_DATA_HOME="[$]PWD/target/inspection"'
 # The MCP bridge is installed at a named version rather than from a moving
 # branch. It is the one tool here that `[tools]` cannot pin — it is a cargo

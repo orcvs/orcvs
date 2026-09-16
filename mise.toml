@@ -35,16 +35,16 @@ description = "Run the console with development inspection, bound to loopback"
 # feature is off by default and the plugin binds nothing unless the environment
 # says so, so this task is the whole of "inspection is on".
 #
-# The address is written out rather than spelled `EGUI_INSPECTION=1`. The
-# variable is not a switch — `egui_inspection` reads anything that is not
-# `""`, `0`, `false`, `1` or `true` as a `host:port` to bind
-# (`egui_inspection-0.36.1/src/lib.rs:40-50`) — and an inherited
-# `EGUI_INSPECTION=0.0.0.0:5719` from some other project's shell would
-# otherwise be what a developer has to notice. An assignment on the command
-# line overrides the environment it inherits, and naming the loopback host
-# makes the thing that must stay true visible in the line that decides it.
-# Binding anything else hands input injection, the widget tree and screenshots
-# to whatever reaches the port, unauthenticated.
+# The address is written out rather than spelled `EGUI_INSPECTION=1`.
+# `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
+# that is not empty/`0`/`false` to a `host:port`
+# (`egui_inspection-0.36.1/src/lib.rs:40-50`). A command-level assignment
+# replaces any inherited `EGUI_INSPECTION` value — `1` is not unsafe and does
+# not lose to a previously exported address. The literal host:port is here
+# because it is self-documenting, greppable, and the port is selectable; the
+# tooling contract asserts on that spelling. Binding anything else hands
+# input injection, the widget tree and screenshots to whatever reaches the
+# port, unauthenticated.
 #
 # Built and then run, rather than `cargo run`, because the run half needs a
 # `HOME` that is not the developer's and `cargo` reads `HOME` to find
@@ -66,7 +66,7 @@ EGUI_INSPECTION=127.0.0.1:{{arg(name="port", default="5719")}} HOME="$PWD/target
 
 [tasks.install_egui_mcp]
 description = "Install the pinned egui_mcp inspection bridge"
-# The MCP server `.mcp.json` starts. It is a development tool rather than a
+# The MCP server `.mcp.json` and `.codex/config.toml` start. It is a development tool rather than a
 # dependency of this workspace — nothing here links it and it appears in no
 # manifest — so it is installed by version rather than resolved, and the version
 # is named rather than left to `cargo install`'s idea of latest.
