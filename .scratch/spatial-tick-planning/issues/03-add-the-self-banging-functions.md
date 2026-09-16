@@ -15,14 +15,11 @@ Function group and not by layer, because the match over `Interpretation` is exha
 handle a Source effect as soon as `lang` can answer one, so a stage that added the representation
 without the write path would ship an unreachable arm.
 
-**Blocked by:** `grid-boundedness/01` — Decide whether the Grid's edge is a language concept.
-02 and evaluation-machine/05 are resolved. The `grid-boundedness/01` blocker was added on `main`
-after stage 1 was built, and stage 1 answers the question it asks without waiting for it: an
-out-of-Grid displacement and a row-edge crossing both replace the Function's own Span with Bang,
-per ADR 0006. If that decision lands differently, those two refusals and their tests are what it
-reaches.
+**Blocked by:** None — `grid-boundedness/01` is resolved. 02 and evaluation-machine/05 were already
+resolved. Stage 1 answered the Grid-edge question without waiting: an out-of-Grid displacement and a
+row-edge crossing both replace the Function's own Span with Bang, per ADR 0006.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -104,18 +101,24 @@ ADR 0029 makes Sequence membership ask the declared kind of a Function.
 - [x] Self-Banging Functions stay root-only Source effects. They are not operands, runtime values, or
       Sequence members.
 
-- [ ] Stated destinations reach `computations` without a Terminal Output Function acquiring one:
-      ADR 0009's refusal is raised in shipped code and covered by a test of its own, not by the
-      `#[cfg(test)]` `carry` helper.
-      Blocked until real input can assign destinations: current Source-writing Functions state
-      them from declarations, and Terminal Output Functions always receive an empty destination
-      list. Injected destinations cover the refusal only in tests.
+- [x] Stated destinations reach `computations` without a Terminal Output Function acquiring one.
+      `PortalAccess::resolve` hands Terminal Output `PortalWrites::None`;
+      `stated_destinations_reach_computations_without_a_terminal_output_portal` covers that
+      coexistence. Raising ADR 0009's refusal when input can assign a destination is
+      `spatial-tick-planning/09`.
 
 ### Tests
 
 - [x] Tick-by-Tick Source Grid tests cover movement in all four directions, Grid edges, and row
       edges.
 - [x] Tests cover the blocked move, the out-of-Grid move, complete root contact, and partial contact.
+
+## Answer
+
+`^^`, `vv`, `<<`, and `>>` are root-only Source Functions: intrinsic activation, a declared Portal
+offset, and a four-write Advance bundle. `Atom::Activation` is gone. Stated destinations reach
+`computations` without a Terminal Output Function acquiring a Portal. The leftover — raise ADR 0009
+when input can name that pairing — is `spatial-tick-planning/09`.
 
 ## Comments
 
@@ -366,3 +369,16 @@ Carried forward verbatim except for one clause. The line had said the `carry` he
 declaration and no Terminal Output Function can name one — the gate above still comes first, and
 this branch kept it there. The refusal therefore has the same single test-only raiser it had
 yesterday, and the item stays open for the Source Function that first lets input name a destination.
+
+2026-09-14: Re-checked against `main` (`87fc793`, after Jump `04` merged). Every ticked item still
+holds. The one open item still holds too: `refuse_terminal_output_portals` and `carry` remain
+`#[cfg(test)]` (`orcvs/src/source/tick.rs`). `a_test_injected_terminal_output_portal_is_refused`
+still injects a Portal after `computations`. Jump states destinations from chain geometry, not from
+input naming one for a Terminal Output Function, so it does not retire the raiser. Status stays
+`ready-for-agent` for that inherited ADR 0009 line.
+
+2026-09-15: Resolved. The inherited ADR 0009 refusal-in-shipped-code line moves to
+`spatial-tick-planning/09`. It is not tagged `release/v1`: no FRC Function lets input assign a
+destination to a Terminal Output Function, so keeping it here would have left this ticket, and the
+Gate, waiting on addressing ADR 0005 still defers. The coexistence half is already proved on this
+ticket.

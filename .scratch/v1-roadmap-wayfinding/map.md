@@ -36,8 +36,8 @@ evidence-backed, and ready for implementation sessions to execute.
   [01 — Name the shipped language inventory](issues/01-name-the-shipped-language-inventory.md).
 - Expression/runtime pairing is limited to successfully parsed evaluable entries; incomplete,
   invalid, comment, diagnostic, and future non-evaluable syntax remain explicit non-value records
-  behind the Language Map. Activation's representation awaits a focused prototype while its
-  spatial behavior stays fixed. See
+  behind the Language Map. Self-Banging Functions `^^`, `vv`, `<<`, and `>>` are root-only Source
+  Functions with no operand or Sequence behaviour (`activation-representation/01`, CONTEXT.md). See
   [02 — Decide the Expression, Language Unit, and runtime value invariant](issues/02-decide-the-expression-language-unit-runtime-invariant.md).
 - FRC evidence is conjunctive and candidate-bound: exhaustive finite laws, 256-case structured
   properties, exact target/feature gates, product persistence, fake plus physical MIDI proof, four
@@ -58,6 +58,10 @@ evidence-backed, and ready for implementation sessions to execute.
   maintenance tickets remain Improvements, new Activation/persistence/candidate/MIDI evidence work
   fills the gaps, and the inventory-backed DoD and final gate now match the graph. See
   [06 — Apply the decided release roadmap](issues/06-apply-the-decided-release-roadmap.md).
+- Four review-flagged ticket statements are reconciled: `04` no longer makes `sequence-values/01`
+  wait on a representation prototype; Directional Bang emission is two Cells outside the emitter's
+  Span; `midi-output-family/01` is resolved; `native-midi/02` records the WASM feature matrix.
+  See [07 — Correct the ticket statements flagged in review](issues/07-correct-ticket-statements-flagged-in-review.md).
 
 ## Out of scope
 

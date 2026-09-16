@@ -1,6 +1,6 @@
 # Console palette
 
-This is the decided twenty-one-token console palette. `restyle-egui-console/03`
+This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
 change, not drift.
 
@@ -14,30 +14,28 @@ change, not drift.
 - Bang and error: `#FF7F87` (`rgb(255, 127, 135)`)
 - Number: `#83A6D8` (`rgb(131, 166, 216)`)
 - Note: `#AA91D6` (`rgb(170, 145, 214)`)
-- Cursor focus core: fill `#0A1E1A`, line `rgba(76, 190, 156, 0.59)`
-- Cursor focus inner: fill `#091A17`, line `rgba(58, 148, 122, 0.49)`
-- Cursor focus middle: fill `#081614`, line `rgba(43, 110, 92, 0.39)`
-- Cursor focus outer: fill `#081211`, line `rgba(34, 78, 67, 0.32)`
+- Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
+- Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
 - Selection stroke while caret is hidden: `#52C3A3` (`rgb(82, 195, 163)`)
 - Selection and Cursor stroke: `#65E6BE` (`rgb(101, 230, 190)`)
 
-The Cursor field is a seven-Cell Cartesian focus matrix. Cell-aligned square
-bands have widths `1 : 1 : 2 : 3`, giving cumulative radii of 1, 2, 4, and 7
-Cells. Background changes stay near-black; most of the focus is expressed by
-grid-line energy. This reads as an address reticle rather than radial light.
-At each band boundary, a deterministic hash of the absolute Grid Position
-pushes roughly half of Cells into the next band. The resulting chipped edges
-interact with the fixed Source coordinates without random flicker. The outer
-boundary uses denser breakup, dropping roughly two thirds of its edge Cells.
-Because the hash belongs to the absolute Grid Position, each Cell's noise is
-stable while Cursor movement samples a different boundary pattern.
+The Cursor is an eroded off-white frame whose four edges change independently.
+Bright fragments, gaps, short horizontal tears, and fine connections evolve at
+irregular intervals while the selected Cell and its Glyph remain exact. A
+faint green field beneath the Grid extends roughly seven Cells around it. The
+field uses continuous positions, related concentrations, large empty patches,
+and horizontal interruption rather than colouring whole Cells. Its broad form
+changes more slowly than its grain. The effect advances from console
+presentation time, independently of Playback and Source revisions, and remains
+stable between its scheduled visual changes.
 
-This four-band `1 : 1 : 2 : 3` reticle is the shipped treatment. It is
-proposed, not settled. `restyle-egui-console/03` reports the capture against
-the prototype and states whether the four bands, their widths, and the edge
-breakup are kept, retuned, or dropped. A capture that matches this record
-does not by itself settle the question.
+`Theme → Cursor effects` holds the four deliberate adjustments: Cursor colour,
+Area colour, Glitch amount, and Glitch frequency. Colour changes are explicit
+overrides of the defaults above; reset restores all four defaults together.
+Amount zero retains one clear frame without decorative noise. Frequency zero
+freezes both layers and stops their scheduled repaints. With persistence
+enabled, these preferences are restored independently of the saved Source.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward

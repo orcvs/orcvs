@@ -1,43 +1,9 @@
 //!
-//! Cursor Bloom and Sector Seam strengths — presentation the console decides
-//! from a Render Frame's Cursor and spacing answers.
+//! Sector Seam strengths — presentation the console decides from a Render
+//! Frame's spacing answer.
 //!
 
 use orcvs::grid::Position;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CursorBloom {
-    Core,
-    Inner,
-    Mid,
-    Outer,
-}
-
-pub(crate) fn cursor_bloom(
-    position: Position,
-    selected: Position,
-    radius: usize,
-) -> Option<CursorBloom> {
-    let dx = position.x().abs_diff(selected.x());
-    let dy = position.y().abs_diff(selected.y());
-    // A Cartesian distance produces a Cell-aligned focus matrix instead of a
-    // radial pool of light.
-    let distance = dx.max(dy);
-    classify_cursor_bloom(
-        distance.saturating_add(signal_breakup(position, distance, radius)),
-        radius,
-    )
-}
-
-fn signal_breakup(position: Position, distance: usize, radius: usize) -> usize {
-    let hash = cell_hash(position);
-    let broken = if distance == radius {
-        !hash.is_multiple_of(3)
-    } else {
-        hash.is_multiple_of(2)
-    };
-    usize::from(broken)
-}
 
 fn cell_hash(position: Position) -> u32 {
     let mut hash = (position.x() as u32).wrapping_mul(0x9E37_79B1)
@@ -79,31 +45,11 @@ pub(crate) fn sector_top_strength(position: Position, spacing: usize) -> Option<
         .flatten()
 }
 
-fn classify_cursor_bloom(distance: usize, radius: usize) -> Option<CursorBloom> {
-    // Band widths follow 1:1:2:3, with cumulative radii 1:2:4:7.
-    let scaled_distance = distance.saturating_mul(7);
-
-    if scaled_distance <= radius {
-        Some(CursorBloom::Core)
-    } else if scaled_distance <= radius.saturating_mul(2) {
-        Some(CursorBloom::Inner)
-    } else if scaled_distance <= radius.saturating_mul(4) {
-        Some(CursorBloom::Mid)
-    } else if distance <= radius {
-        Some(CursorBloom::Outer)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use orcvs::grid::Grid;
 
-    use super::{
-        CursorBloom, cell_hash, classify_cursor_bloom, cursor_bloom, sector_left_strength,
-        sector_seam_strength, signal_breakup,
-    };
+    use super::{cell_hash, sector_left_strength, sector_seam_strength};
 
     #[test]
     fn cell_noise_uses_the_wasm32_integer_domain_on_every_target() {
@@ -112,43 +58,6 @@ mod tests {
 
         assert_eq!(cell_hash(position), 0xea1e_857c);
         assert_eq!(std::mem::size_of_val(&cell_hash(position)), 4);
-    }
-
-    #[tokio::test]
-    async fn cursor_field_is_local_and_centred_on_the_cursor() {
-        let mut orcvs = orcvs::app::Orcvs::new(24, 16).expect("the test runtime");
-        let grid = orcvs.grid();
-        let selected = grid.position(9, 7).unwrap();
-        orcvs.select(selected);
-        let frame = orcvs.render_frame();
-        let radius = frame.cursor_bloom_radius().cells();
-
-        assert_eq!(
-            cursor_bloom(selected, selected, radius),
-            Some(CursorBloom::Core)
-        );
-        assert_eq!(
-            cursor_bloom(grid.position(12, 10).unwrap(), selected, radius),
-            Some(CursorBloom::Mid)
-        );
-        assert_eq!(
-            cursor_bloom(grid.position(15, 13).unwrap(), selected, radius),
-            Some(CursorBloom::Outer)
-        );
-        assert_eq!(
-            cursor_bloom(grid.position(17, 7).unwrap(), selected, radius),
-            None
-        );
-        assert_eq!(frame.at(grid.position(12, 10).unwrap()).token(), None);
-    }
-
-    #[test]
-    fn cursor_bloom_bands_have_cumulative_radii_of_one_two_four_and_seven() {
-        assert_eq!(classify_cursor_bloom(1, 7), Some(CursorBloom::Core));
-        assert_eq!(classify_cursor_bloom(2, 7), Some(CursorBloom::Inner));
-        assert_eq!(classify_cursor_bloom(3, 7), Some(CursorBloom::Mid));
-        assert_eq!(classify_cursor_bloom(5, 7), Some(CursorBloom::Outer));
-        assert_eq!(classify_cursor_bloom(8, 7), None);
     }
 
     #[test]
@@ -197,48 +106,6 @@ mod tests {
             sector_seam_strength(3, 8, position),
             sector_seam_strength(3, 8, position)
         );
-    }
-
-    #[test]
-    fn boundary_breakup_approximates_half_inner_and_two_thirds_outer() {
-        let grid = Grid::new(1024, 1);
-        let inner_breaks = grid
-            .positions_by_row()
-            .flatten()
-            .filter(|&position| signal_breakup(position, 4, 7) == 1)
-            .count();
-        let outer_breaks = grid
-            .positions_by_row()
-            .flatten()
-            .filter(|&position| signal_breakup(position, 7, 7) == 1)
-            .count();
-
-        assert!(
-            (460..=564).contains(&inner_breaks),
-            "expected the inner break count in 460..=564, observed {inner_breaks}"
-        );
-        assert!(
-            (614..=738).contains(&outer_breaks),
-            "expected the outer break count in 614..=738, observed {outer_breaks}"
-        );
-    }
-
-    #[test]
-    fn cell_noise_is_stable_while_cursor_movement_changes_the_boundary() {
-        let grid = Grid::new(32, 1);
-        let edge = grid
-            .positions_by_row()
-            .flatten()
-            .skip(7)
-            .find(|&position| signal_breakup(position, 7, 7) == 1)
-            .expect("the deterministic pattern includes a broken outer Cell");
-        let before = grid.position(edge.x() - 7, 0).unwrap();
-        let after = grid.position(edge.x() - 6, 0).unwrap();
-
-        assert_eq!(signal_breakup(edge, 7, 7), 1);
-        assert_eq!(signal_breakup(edge, 7, 7), 1);
-        assert_eq!(cursor_bloom(edge, before, 7), None);
-        assert_eq!(cursor_bloom(edge, after, 7), Some(CursorBloom::Outer));
     }
 
     #[tokio::test]

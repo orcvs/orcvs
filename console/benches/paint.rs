@@ -16,8 +16,12 @@
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
-use console::{FramePaint, Paint, VisiblePositions};
+use console::{
+    FramePaint, Paint, VisiblePositions,
+    cursor_effects::{CursorEffectAnimation, CursorEffectSettings, cursor_effect_shapes},
+};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use egui::{Pos2, Rect, Vec2};
 use orcvs::app::Orcvs;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::RenderFrame;
@@ -205,5 +209,25 @@ fn background_runs(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, derive_paint, background_runs);
+fn cursor_effects(c: &mut Criterion) {
+    let settings = CursorEffectSettings::default();
+    let mut animation = CursorEffectAnimation::default();
+    let sample = animation.advance(std::time::Duration::ZERO, settings);
+    let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(25.0));
+    let clip = cursor.expand(175.0);
+
+    c.bench_function("cursor effects/frame and living area", |b| {
+        b.iter(|| {
+            black_box(cursor_effect_shapes(
+                black_box(cursor),
+                black_box(clip),
+                black_box(25.0),
+                black_box(sample),
+                black_box(settings),
+            ))
+        });
+    });
+}
+
+criterion_group!(benches, derive_paint, background_runs, cursor_effects);
 criterion_main!(benches);

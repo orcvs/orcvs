@@ -28,12 +28,13 @@ through the implementation graph.
 - `orcvs-language-migration`: 05 and 07.
 - `sequence-values`: 01–04.
 - `tick-functions`: 01–04.
-- `spatial-tick-planning`: 01–05, with Activation movement blocked by the new prototype.
+- `spatial-tick-planning`: 01–02, 04–05. Issue 03 is resolved; `^^`, `vv`, `<<`, and `>>` are
+  root-only Source Functions shipped as satisfied prerequisites, not open release work.
 - `midi-output-family`: 01–04.
 - `property-testing`: 01–05 and 07.
 - `restyle-egui-console`: 01–03.
-- New Activation representation prototype, product-persistence proof, physical MIDI smoke, and
-  exact-candidate verification work.
+- Activation representation (`activation-representation/01`), product-persistence proof, physical
+  MIDI smoke, and exact-candidate verification work.
 - The final `v1-release` proof gate.
 
 Resolved language migration, Playback Engine, benchmark, CI-tier, crate-boundary, inherited-defect,
@@ -60,12 +61,13 @@ borrowing cleanup.
 - Rewrite `property-testing/03` around strict-parser and permissive-analysis totality and recovery.
   Rewrite issue 04 against the implemented Language Map. Rewrite issue 05 as exhaustive proof for
   the complete numeric family and conversions and remove its false proptest-harness dependency.
-- Rewrite `sequence-values/01` to admit Bang Atoms while granting the directional activation
-  spelling no operand or Sequence behavior before the prototype decides its representation. Clarify issue
+- Rewrite `sequence-values/01` to admit Bang Atoms. `^^`, `vv`, `<<`, and `>>` are root-only Source
+  Functions with no operand or Sequence behaviour, as CONTEXT.md already states; Sequence membership
+  does not wait on a representation prototype. Clarify issue
   02 that Equality is ADR 0011's whole-value predicate: it returns one scalar Bang only when every
   broadcast pair is equal, otherwise no value; it never creates missing Sequence elements.
-- Make Directional Bang movement wait for the Activation prototype and then rewrite its internal
-  representation criteria to the selected model without changing fixed observable behavior.
+- Directional Bang movement uses the selected Function model (`activation-representation/01`)
+  without changing fixed observable behavior.
 - Rewrite `restyle-egui-console/03` to produce candidate-bound native/WASM × wide/tall captures with
   the decided metadata and checklist.
 - Mark `collapse-expression-map/spec.md` superseded by the Language Map effort and invariant. Do not
@@ -74,9 +76,10 @@ borrowing cleanup.
 
 ### New work
 
-- A focused Activation prototype compares a distinct spatial Language Unit with a self-reproducing
-  Function/value implementation across recognition, scheduling, Source writes, collision, and
-  accidental Expression/Sequence capability. It blocks Activation movement, not Expression parsing.
+- A focused Activation prototype (`activation-representation/01`) compares a distinct spatial
+  Language Unit with a self-reproducing Function/value implementation across recognition,
+  scheduling, Source writes, collision, and accidental Expression/Sequence capability. It selected
+  the Function model. It blocked Activation movement until that choice, not Expression parsing.
 - A product-persistence ticket proves model authority/rebuild and actual native/WASM
   save–restart–reload paths.
 - A physical MIDI evidence ticket records the candidate SHA, OS, device, procedure, observation,
@@ -105,8 +108,8 @@ borrowing cleanup.
   `sequence-values/01` precedes Sequence issues 02–04.
 - `language-map/03` precedes Portal result writes, spatial effect ordering, and Tick/Position inputs.
 - Spatial ordering precedes Bang activation/expiry and Jump chains. Bang activation precedes Halt
-  and the observable Directional Bang path; the Activation prototype additionally precedes
-  Activation movement.
+  and the observable Directional Bang path. Self-Banging Functions are root-only Source Functions;
+  `sequence-values/01` does not wait on a prototype to say so.
 - Tick/Position input precedes all Tick Functions and Timed Play scheduling. Sequence broadcasting
   precedes deterministic Random; Portal result writes precede visible feedback Functions.
 - Central typed extraction precedes the remaining numeric, Tick, and MIDI Function implementations.
@@ -123,3 +126,12 @@ complete. It then collects exact-candidate target results, four captures, persis
 physical MIDI evidence, benchmark comparison/history, traceability and defect review before the
 human GO/NO-GO. Those are gate dependencies and checklist requirements, not artificial edges among
 implementation tickets.
+
+## Comments
+
+2026-09-15: `v1-roadmap-wayfinding/07` corrected the representation wait. This Answer had made
+`sequence-values/01` and Directional Bang movement wait on an Activation prototype to choose
+whether `^^` / `vv` / `<<` / `>>` were Functions. They are root-only Source Functions, as
+CONTEXT.md already stated; `activation-representation/01` selected that model and
+`spatial-tick-planning/03` shipped it. The graph no longer treats that choice as an open
+prerequisite of Sequence membership.
