@@ -4,8 +4,6 @@ use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selecti
 
 use orcvs::source::Token;
 
-use crate::marks::CursorBloom;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
     pub page: Color32,
@@ -18,14 +16,6 @@ pub struct ConsolePalette {
     pub bang: Color32,
     pub number: Color32,
     pub note: Color32,
-    pub bloom_core_fill: Color32,
-    pub bloom_core_line: Color32,
-    pub bloom_inner_fill: Color32,
-    pub bloom_inner_line: Color32,
-    pub bloom_mid_fill: Color32,
-    pub bloom_mid_line: Color32,
-    pub bloom_outer_fill: Color32,
-    pub bloom_outer_line: Color32,
     pub selection_fill: Color32,
     pub selection_stroke_rest: Color32,
     pub selection_stroke: Color32,
@@ -42,14 +32,6 @@ pub const PALETTE: ConsolePalette = ConsolePalette {
     bang: Color32::from_rgb(255, 127, 135),     // #FF7F87
     number: Color32::from_rgb(131, 166, 216),   // #83A6D8
     note: Color32::from_rgb(170, 145, 214),     // #AA91D6
-    bloom_core_fill: Color32::from_rgb(10, 30, 26), // #0A1E1A
-    bloom_core_line: Color32::from_rgba_unmultiplied_const(76, 190, 156, 150),
-    bloom_inner_fill: Color32::from_rgb(9, 26, 23), // #091A17
-    bloom_inner_line: Color32::from_rgba_unmultiplied_const(58, 148, 122, 125),
-    bloom_mid_fill: Color32::from_rgb(8, 22, 20), // #081614
-    bloom_mid_line: Color32::from_rgba_unmultiplied_const(43, 110, 92, 100),
-    bloom_outer_fill: Color32::from_rgb(8, 18, 17), // #081211
-    bloom_outer_line: Color32::from_rgba_unmultiplied_const(34, 78, 67, 82),
     selection_fill: Color32::from_rgb(10, 42, 34), // #0A2A22
     selection_stroke_rest: Color32::from_rgb(82, 195, 163), // #52C3A3
     selection_stroke: Color32::from_rgb(101, 230, 190), // #65E6BE
@@ -69,14 +51,28 @@ pub(crate) struct CellVisuals {
 /// `source_panel_frame` behind the Grid has already painted `PALETTE.source`
 /// across the console, so the two arms that would answer that colour answer
 /// `None` instead of asking every ordinary Cell to repaint it. The Cursor's
-/// own Cell on the visible half of the blink is one of those arms: painting
-/// the Source fill again would only hide the blink's empty half.
+/// own Cell is one of those arms: painting the Source fill again would hide
+/// the Cursor Effect's presentation.
 ///
+#[cfg(test)]
 pub(crate) fn cell_visuals(
     token: Option<Token>,
-    cursor_bloom: Option<CursorBloom>,
     selected: bool,
     cursor_visible: bool,
+) -> CellVisuals {
+    cell_visuals_with_cursor_colour(
+        token,
+        selected,
+        cursor_visible,
+        Some(PALETTE.selection_fill),
+    )
+}
+
+pub(crate) fn cell_visuals_with_cursor_colour(
+    token: Option<Token>,
+    selected: bool,
+    cursor_visible: bool,
+    cursor_colour: Option<Color32>,
 ) -> CellVisuals {
     let foreground = match token {
         Some(Token::Bang) => PALETTE.bang,
@@ -87,32 +83,15 @@ pub(crate) fn cell_visuals(
         Some(Token::Char | Token::Atom | Token::Sequence) | None => PALETTE.ordinary,
     };
     CellVisuals {
-        background: if selected && !cursor_visible {
-            Some(PALETTE.selection_fill)
-        } else if cursor_visible {
-            None
-        } else {
-            cursor_bloom.map(|bloom| bloom_colours(bloom).0)
-        },
+        background: selected.then_some(cursor_colour).flatten(),
         border: if cursor_visible {
             PALETTE.selection_stroke
         } else if selected {
             PALETTE.selection_stroke_rest
-        } else if let Some(bloom) = cursor_bloom {
-            bloom_colours(bloom).1
         } else {
             PALETTE.grid_line
         },
         foreground,
-    }
-}
-
-fn bloom_colours(bloom: CursorBloom) -> (Color32, Color32) {
-    match bloom {
-        CursorBloom::Core => (PALETTE.bloom_core_fill, PALETTE.bloom_core_line),
-        CursorBloom::Inner => (PALETTE.bloom_inner_fill, PALETTE.bloom_inner_line),
-        CursorBloom::Mid => (PALETTE.bloom_mid_fill, PALETTE.bloom_mid_line),
-        CursorBloom::Outer => (PALETTE.bloom_outer_fill, PALETTE.bloom_outer_line),
     }
 }
 
@@ -183,7 +162,6 @@ pub fn style() -> Style {
 #[cfg(test)]
 mod tests {
     use super::{ConsolePalette, PALETTE, cell_visuals, sector_line};
-    use crate::marks::CursorBloom;
     use egui::{Color32, Stroke};
     use orcvs::source::Token;
 
@@ -207,29 +185,21 @@ mod tests {
                 bang: Color32::from_rgb(255, 127, 135),                               // #FF7F87
                 number: Color32::from_rgb(131, 166, 216),                             // #83A6D8
                 note: Color32::from_rgb(170, 145, 214),                               // #AA91D6
-                bloom_core_fill: Color32::from_rgb(10, 30, 26),                       // #0A1E1A
-                bloom_core_line: Color32::from_rgba_unmultiplied_const(76, 190, 156, 150), // rgba(76, 190, 156, 0.59)
-                bloom_inner_fill: Color32::from_rgb(9, 26, 23), // #091A17
-                bloom_inner_line: Color32::from_rgba_unmultiplied_const(58, 148, 122, 125), // rgba(58, 148, 122, 0.49)
-                bloom_mid_fill: Color32::from_rgb(8, 22, 20), // #081614
-                bloom_mid_line: Color32::from_rgba_unmultiplied_const(43, 110, 92, 100), // rgba(43, 110, 92, 0.39)
-                bloom_outer_fill: Color32::from_rgb(8, 18, 17),                          // #081211
-                bloom_outer_line: Color32::from_rgba_unmultiplied_const(34, 78, 67, 82), // rgba(34, 78, 67, 0.32)
-                selection_fill: Color32::from_rgb(10, 42, 34),                           // #0A2A22
-                selection_stroke_rest: Color32::from_rgb(82, 195, 163),                  // #52C3A3
-                selection_stroke: Color32::from_rgb(101, 230, 190),                      // #65E6BE
+                selection_fill: Color32::from_rgb(10, 42, 34),                        // #0A2A22
+                selection_stroke_rest: Color32::from_rgb(82, 195, 163),               // #52C3A3
+                selection_stroke: Color32::from_rgb(101, 230, 190),                   // #65E6BE
             }
         );
     }
 
     #[test]
     fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {
-        let function = cell_visuals(Some(Token::Function), None, false, false);
-        let number = cell_visuals(Some(Token::Number), None, false, false);
-        let note = cell_visuals(Some(Token::Note), None, false, false);
-        let ordinary = cell_visuals(Some(Token::Char), None, false, false);
-        let bang = cell_visuals(Some(Token::Bang), None, false, false);
-        let comment = cell_visuals(Some(Token::Comment), None, false, false);
+        let function = cell_visuals(Some(Token::Function), false, false);
+        let number = cell_visuals(Some(Token::Number), false, false);
+        let note = cell_visuals(Some(Token::Note), false, false);
+        let ordinary = cell_visuals(Some(Token::Char), false, false);
+        let bang = cell_visuals(Some(Token::Bang), false, false);
+        let comment = cell_visuals(Some(Token::Comment), false, false);
 
         assert_eq!(function.foreground, PALETTE.function);
         assert_eq!(number.foreground, PALETTE.number);
@@ -244,11 +214,11 @@ mod tests {
         // Atom and Sequence keep Char's colour until typed-source-paint/03
         // gives them colours of their own.
         assert_eq!(
-            cell_visuals(Some(Token::Atom), None, false, false).foreground,
+            cell_visuals(Some(Token::Atom), false, false).foreground,
             ordinary.foreground
         );
         assert_eq!(
-            cell_visuals(Some(Token::Sequence), None, false, false).foreground,
+            cell_visuals(Some(Token::Sequence), false, false).foreground,
             ordinary.foreground
         );
     }
@@ -331,18 +301,32 @@ mod tests {
 
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
-        let ordinary = cell_visuals(Some(Token::Char), None, false, false);
-        let selected = cell_visuals(Some(Token::Char), Some(CursorBloom::Core), true, false);
-        let cursor = cell_visuals(Some(Token::Char), Some(CursorBloom::Core), true, true);
+        let ordinary = cell_visuals(Some(Token::Char), false, false);
+        let selected = cell_visuals(Some(Token::Char), true, false);
+        let cursor = cell_visuals(Some(Token::Char), true, true);
 
         // `None`: the panel behind the Grid has already painted the Source colour.
         assert_eq!(ordinary.background, None);
         assert_eq!(ordinary.border, PALETTE.grid_line);
         assert_eq!(selected.background, Some(PALETTE.selection_fill));
         assert_eq!(selected.border, PALETTE.selection_stroke_rest);
-        assert_eq!(cursor.background, None);
+        assert_eq!(cursor.background, Some(PALETTE.selection_fill));
         assert_eq!(cursor.border, PALETTE.selection_stroke);
         assert_ne!(cursor, selected);
+    }
+
+    #[test]
+    fn cursor_cell_colour_is_optional_and_defaults_to_the_theme_background() {
+        let colour = Color32::from_rgb(1, 2, 3);
+        assert_eq!(
+            super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, None).background,
+            None
+        );
+        assert_eq!(
+            super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, Some(colour))
+                .background,
+            Some(colour)
+        );
     }
 
     #[test]
@@ -380,39 +364,5 @@ mod tests {
 
         assert!(channel_delta >= 80, "border delta was only {channel_delta}");
         assert!(channel_delta <= 120, "border delta was {channel_delta}");
-    }
-
-    #[test]
-    fn cursor_bloom_grades_both_fill_and_grid_line() {
-        let core = cell_visuals(None, Some(CursorBloom::Core), false, false);
-        let inner = cell_visuals(None, Some(CursorBloom::Inner), false, false);
-        let mid = cell_visuals(None, Some(CursorBloom::Mid), false, false);
-        let outer = cell_visuals(None, Some(CursorBloom::Outer), false, false);
-        let distant = cell_visuals(None, None, false, false);
-
-        assert_eq!(core.background, Some(PALETTE.bloom_core_fill));
-        assert_eq!(inner.background, Some(PALETTE.bloom_inner_fill));
-        assert_eq!(mid.background, Some(PALETTE.bloom_mid_fill));
-        assert_eq!(outer.background, Some(PALETTE.bloom_outer_fill));
-        // `None`: the panel behind the Grid has already painted the Source colour.
-        assert_eq!(distant.background, None);
-        assert_eq!(core.border, PALETTE.bloom_core_line);
-        assert_eq!(inner.border, PALETTE.bloom_inner_line);
-        assert_eq!(mid.border, PALETTE.bloom_mid_line);
-        assert_eq!(outer.border, PALETTE.bloom_outer_line);
-        assert_eq!(distant.border, PALETTE.grid_line);
-        assert_eq!(
-            [
-                core.background,
-                inner.background,
-                mid.background,
-                outer.background,
-                distant.background,
-            ]
-            .windows(2)
-            .filter(|pair| pair[0] != pair[1])
-            .count(),
-            4
-        );
     }
 }

@@ -1508,7 +1508,6 @@ impl eframe::App for Console {
             });
             self.orcvs.event_handler(events);
         }
-        self.orcvs.advance_cursor_blink();
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
         let effect_now = Duration::from_secs_f64(ctx.input(|input| input.time).max(0.0));
@@ -1681,8 +1680,6 @@ impl eframe::App for Console {
                 {
                     ctx.request_repaint_after(delay);
                 }
-
-                ctx.request_repaint_after(self.orcvs.remaining_cursor_blink_delay());
             });
 
         if self.diagnostics_open {
@@ -2373,15 +2370,17 @@ mod tests {
         let bpm_at = text
             .find('B')
             .expect("the Panel is missing the B label in {text:?}");
-        let tick_at = text
-            .find('T')
-            .expect("the Panel is missing the T label in {text:?}");
-        let clock_at = text
-            .find('C')
-            .expect("the Panel is missing the C label in {text:?}");
         let beat_at = text
             .find("//")
             .expect("the Panel is missing the rest marker in {text:?}");
+        let tick_at = beat_at
+            + text[beat_at..]
+                .find('T')
+                .expect("the Panel is missing the T label in {text:?}");
+        let clock_at = beat_at
+            + text[beat_at..]
+                .find('C')
+                .expect("the Panel is missing the C label in {text:?}");
         assert!(
             !text.contains("**"),
             "the rest Panel still shows the beat marker in {text:?}"
@@ -2549,57 +2548,6 @@ mod tests {
         assert!(
             delay > std::time::Duration::from_millis(bpm.delay_ms()),
             "the console still scheduled a Tick period from this frame: {delay:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn diagnostics_open_does_not_shorten_a_playing_repaint_below_a_tick() {
-        let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
-            .expect("the test runtime");
-        let mut host = eframe::Frame::_new_kittest();
-
-        let bpm = orcvs::opts::Bpm::new(120).expect("120 is in range");
-        console.orcvs.set_bpm(bpm);
-        console.diagnostics_open = true;
-        app_pass(
-            &ctx,
-            screen,
-            vec![key_event(Key::Space, true)],
-            &mut console,
-            &mut host,
-        );
-        for _ in 0..1_000 {
-            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-        assert_eq!(
-            console.orcvs.playback_observation().state,
-            orcvs::playback::PlaybackState::Playing
-        );
-
-        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-        let with_diagnostics =
-            app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-        console.diagnostics_open = false;
-        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-        let without_diagnostics =
-            app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-
-        let tick = std::time::Duration::from_millis(bpm.delay_ms());
-        assert!(
-            with_diagnostics > tick,
-            "Diagnostics scheduled a paint inside a Tick: {with_diagnostics:?}"
-        );
-        assert!(
-            without_diagnostics > tick,
-            "a quiet playing frame scheduled a paint inside a Tick: {without_diagnostics:?}"
         );
     }
 
@@ -3769,15 +3717,10 @@ mod tests {
                 "a border carried a fill: {rect:?}"
             );
         }
-        // The widened runs are the Shapes this grouping is about: one of them
-        // reaches into Cells built after it, and would paint over their Glyphs
-        // if the fills were emitted Cell by Cell.
-        assert!(
-            shapes
-                .backgrounds
-                .iter()
-                .any(|run| rect_of(run).width() > viewport.cell_size * 1.5),
-            "no background covered more than one Cell, so the grouping proves nothing"
+        assert_eq!(
+            shapes.backgrounds.len(),
+            1,
+            "only the hidden-caret selection should fill a Cell"
         );
     }
 
@@ -3816,7 +3759,7 @@ mod tests {
         orcvs.write("1");
         orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
-        let (viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let (_viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
         let at = |kind: fn(&Shape) -> bool| -> Vec<usize> {
             shapes
@@ -3838,19 +3781,8 @@ mod tests {
         assert!(!glyphs.is_empty(), "the pass painted no Glyph");
         assert!(!seams.is_empty(), "the pass painted no sector seam");
 
-        let cursor = *strokes.last().expect("the pass painted the Cursor");
-        assert!(
-            close(rect_of(&shapes[cursor]), viewport.cell_rect(0, 0)),
-            "the last stroked rectangle was not the Cursor's Cell"
-        );
-        let borders = &strokes[..strokes.len() - 1];
+        let borders = &strokes;
 
-        assert!(
-            *fills.last().expect("a fill") < borders[0],
-            "a background at {:?} painted over the border at {}",
-            fills.last(),
-            borders[0]
-        );
         assert!(
             *borders.last().expect("a border") < glyphs[0],
             "a border at {:?} painted over the Glyph at {}",
@@ -3858,15 +3790,8 @@ mod tests {
             glyphs[0]
         );
         assert!(
-            *glyphs.last().expect("a Glyph") < seams[0],
-            "a Glyph at {:?} painted over the seam at {}",
-            glyphs.last(),
-            seams[0]
-        );
-        assert!(
-            *seams.last().expect("a seam") < cursor,
-            "a seam at {:?} painted over the Cursor at {cursor}",
-            seams.last()
+            *glyphs.last().expect("a Glyph") < *seams.last().expect("a frame fragment"),
+            "the fragmented Cursor frame was not painted last"
         );
     }
 
@@ -4175,10 +4100,6 @@ mod tests {
             let shapes = source_geometry(&paint, viewport, pixels_per_point);
             let runs = paint.background_runs();
 
-            assert!(
-                runs.iter().any(|run| run.columns.len() > 1),
-                "no run covered more than one Cell, so nothing was coalesced"
-            );
             assert_eq!(
                 shapes.backgrounds.len(),
                 runs.len(),
@@ -4279,7 +4200,13 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = painted(&frame, viewport, viewport.rect);
+        let paint = Paint::derive_with_cursor_colour(
+            FramePaint::new(
+                &frame,
+                viewport.visible_positions(viewport.rect, frame.grid()),
+            ),
+            Some(PALETTE.selection_fill),
+        );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
 
@@ -4291,41 +4218,22 @@ mod tests {
             runs.len()
         );
 
-        for (row, columns, expected) in [
-            (
-                0,
-                0..1,
-                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
-            ),
-            (
-                0,
-                4..7,
-                Rect::from_min_max(Pos2::new(100.0, 0.0), Pos2::new(175.0, 25.0)),
-            ),
-            (
-                5,
-                0..7,
-                Rect::from_min_max(Pos2::new(0.0, 125.0), Pos2::new(175.0, 150.0)),
-            ),
-            (
-                7,
-                7..8,
-                Rect::from_min_max(Pos2::new(175.0, 175.0), Pos2::new(200.0, 200.0)),
-            ),
-        ] {
-            let index = runs
-                .iter()
-                .position(|run| run.row == row && run.columns == columns)
-                .unwrap_or_else(|| {
-                    panic!("this Grid asks for no run over columns {columns:?} of row {row}")
-                });
-
-            assert_eq!(
-                rect_of(&shapes.backgrounds[index]),
-                expected,
-                "the run over columns {columns:?} of row {row}"
-            );
-        }
+        let (row, columns, expected) = (
+            0,
+            0..1,
+            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
+        );
+        let index = runs
+            .iter()
+            .position(|run| run.row == row && run.columns == columns)
+            .unwrap_or_else(|| {
+                panic!("this Grid asks for no run over columns {columns:?} of row {row}")
+            });
+        assert_eq!(
+            rect_of(&shapes.backgrounds[index]),
+            expected,
+            "the run over columns {columns:?} of row {row}"
+        );
     }
 
     ///
@@ -4389,61 +4297,33 @@ mod tests {
                 stroked += 1;
             }
         }
-        assert_eq!(stroked, 400, "the pass stroked {stroked} of 400 Cells");
+        assert_eq!(stroked, 399, "the Cursor Cell uses the effect frame");
 
         // And so does every sector seam, which takes its own width.
         let mut seams = 0;
         for shape in &shapes {
-            if let Shape::LineSegment { stroke, .. } = shape {
-                assert!(
-                    (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6,
-                    "a sector seam was stroked {} points wide against {} at this zoom",
-                    stroke.width,
-                    SECTOR_LINE_WIDTH * scale
-                );
+            if let Shape::LineSegment { stroke, .. } = shape
+                && (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6
+            {
                 seams += 1;
             }
         }
         assert!(seams > 0, "the pass drew no sector seam");
 
-        // Which Cells coalesce into a run is `Paint::background_runs`' answer
-        // and is pinned there; what this asks is where the pass put the
-        // rectangle that replaces them.
+        // The default theme leaves the cursor-cell colour unset, so the
+        // selected Cell uses the panel's source background and contributes no
+        // background run to snap. Explicit colours are covered by the Paint
+        // seam tests.
         let frame = orcvs.render_frame();
-        let paint = painted(&frame, viewport, screen);
+        let paint = Paint::derive_with_cursor_colour(
+            FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
+            None,
+        );
         let runs = paint.background_runs();
-        assert!(!runs.is_empty(), "the pass painted no background run");
-
-        for run in &runs {
-            let covered = Rect::from_min_max(
-                viewport.cell_rect(run.columns.start, run.row).min,
-                viewport.cell_rect(run.columns.end - 1, run.row).max,
-            );
-            let snapped = covered.round_to_pixels(DEVICE_SCALE);
-
-            assert_ne!(
-                snapped,
-                covered.round_to_pixels(1.0),
-                "the run over columns {:?} of row {} is snapped to the same \
-                 rectangle at either device scale, so it tells them apart from \
-                 nothing",
-                run.columns,
-                run.row
-            );
-            assert!(
-                shapes.iter().any(|shape| matches!(
-                    shape,
-                    Shape::Rect(painted)
-                        if painted.rect == snapped
-                            && painted.fill == run.colour
-                            && painted.stroke.width == 0.0
-                )),
-                "the pass filled nothing at {snapped:?} for the run over columns \
-                 {:?} of row {}",
-                run.columns,
-                run.row
-            );
-        }
+        assert!(
+            runs.is_empty(),
+            "the default cursor colour should be transparent"
+        );
     }
 
     ///
@@ -4671,110 +4551,6 @@ mod tests {
                 positions.count()
             );
         }
-    }
-
-    ///
-    /// A zoomed console fills every Cell its Paint asks to fill, and no other,
-    /// with rectangles built from runs that begin and end mid-row.
-    ///
-    /// Runs are row-local state, opened and flushed inside one row. Under
-    /// culling a row no longer starts at column zero or ends at the last
-    /// column, so a run opens and is flushed at columns the Source's own row
-    /// does not begin or end at. That the fold gets that right is
-    /// `Paint::background_runs`' question and is asserted in `paint.rs`, where
-    /// it needs no viewport. What is asserted here is the half that does need
-    /// one: that the rectangle the shape step builds from a run whose columns
-    /// start mid-row still covers exactly the Cells that run replaces.
-    ///
-    /// The console is small and the zoom is at the limit on purpose, so the
-    /// Cursor's bloom — fifteen Cells across — is wider than the viewport. That
-    /// is what puts a filled Cell at both edges of the drawn rows, which is the
-    /// only place a run built from the wrong endpoint would show. The test
-    /// asserts that this is so rather than assuming it, so it cannot go
-    /// quietly vacuous if the bloom moves.
-    ///
-    #[tokio::test]
-    async fn a_zoomed_row_fills_every_cell_the_paint_asks_for_and_no_other() {
-        let ctx = egui::Context::default();
-        // Narrower than the bloom at the zoom below, so every drawn row both
-        // starts and ends inside it.
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
-        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
-        let mut view = SourceView::default();
-        // Below the window the console shows, so the bloom covers the lower
-        // drawn rows and stops short of the upper ones: the viewport holds
-        // filled and unfilled Cells at once, and every drawn row that is filled
-        // is filled at both its edges.
-        orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
-
-        // The Grid's near corner at (-700, -500), so the console shows a window
-        // in the middle of it rather than a corner.
-        pinned_at(&mut view, Vec2::new(-700.0, -500.0), MAX_ZOOM);
-        let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        let visible = viewport.visible_positions(screen, orcvs.grid());
-
-        assert!(
-            visible.columns.start > 0 && visible.columns.end < DEFAULT_COL_COUNT,
-            "the zoom culled nothing on one side, so no run begins or ends mid-row"
-        );
-
-        let frame = orcvs.render_frame();
-        let paint = painted(&frame, viewport, screen);
-        let shapes = source_shapes(&paint, viewport, 1.0);
-        // The fill covering a point, and how many rectangles claim it. A Cell
-        // covered twice is a run painted over a run, which the count catches
-        // where a lookup of the first match would not.
-        let covering = |point: Pos2| {
-            shapes
-                .backgrounds
-                .iter()
-                .filter_map(|shape| match shape {
-                    Shape::Rect(rect) if rect.rect.contains(point) => Some(rect.fill),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let mut filled = 0;
-        let mut unfilled = 0;
-        let mut opened_at_first_drawn = 0;
-        let mut flushed_at_last_drawn = 0;
-        for (position, cell) in paint.cells() {
-            let rect = viewport.cell_rect(position.x(), position.y());
-
-            match cell.background {
-                Some(colour) => {
-                    assert_eq!(
-                        covering(rect.center()),
-                        vec![colour],
-                        "the Cell {position:?} the Paint fills was covered wrongly"
-                    );
-                    filled += 1;
-                    opened_at_first_drawn += usize::from(position.x() == visible.columns.start);
-                    flushed_at_last_drawn += usize::from(position.x() == visible.columns.end - 1);
-                }
-                None => {
-                    assert!(
-                        covering(rect.center()).is_empty(),
-                        "the Cell {position:?} the Paint leaves to the Source fill was covered"
-                    );
-                    unfilled += 1;
-                }
-            }
-        }
-
-        assert!(
-            filled > 0 && unfilled > 0,
-            "{filled} filled and {unfilled} unfilled drawn Cells is not the mixture this is about"
-        );
-        assert!(
-            opened_at_first_drawn > 0,
-            "no drawn row opens a run at its first drawn Cell"
-        );
-        assert!(
-            flushed_at_last_drawn > 0,
-            "no drawn row ends with a run still open"
-        );
     }
 
     ///

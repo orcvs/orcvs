@@ -284,19 +284,21 @@ mod tests {
         }
     }
 
-
     /// Yield until `cond` is true, or panic after a bounded number of turns.
     macro_rules! settle_until {
         ($cond:expr) => {{
             let mut spins = 0;
             while !($cond) {
-                assert!(spins < 32, "condition did not settle: {}", stringify!($cond));
+                assert!(
+                    spins < 32,
+                    "condition did not settle: {}",
+                    stringify!($cond)
+                );
                 tokio::task::yield_now().await;
                 spins += 1;
             }
         }};
     }
-
 
     #[tokio::test]
     async fn the_console_selection_comes_from_a_default_running_orcvs() {
