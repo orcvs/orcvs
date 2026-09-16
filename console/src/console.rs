@@ -848,7 +848,7 @@ fn background_run(covered: Rect, fill: Color32, pixels_per_point: f32) -> Shape 
 /// after the fills, because a run widened across several Cells covers the
 /// borders of every Cell but its last. That is a fact about how a painter
 /// composites rather than about the Source, which is why it is decided here and
-/// not in the value layer — and naming the five groups states it where a
+/// not in the value layer — and naming the ordered groups states it where a
 /// comment used to.
 ///
 /// # Why they are built eagerly
@@ -919,10 +919,9 @@ impl SourceShapes {
         // up front — to those Cells rather than to the Grid: a densely written
         // Source that regrew the group would pay the reallocation on every
         // Render Frame, and a zoomed console reserves what it draws instead of
-        // what the Source holds. A background is the exception — the Cursor's
-        // bloom reaches fifteen Cells and the rest of the Grid asks for none —
-        // so that one starts empty and grows to whatever the blink is asking
-        // for. Glyphs are reserved in [`Self::place_glyphs`].
+        // what the Source holds. Backgrounds are sparse selection state, so
+        // that group starts empty. Glyphs are reserved in
+        // [`Self::place_glyphs`].
         let mut backgrounds = Vec::new();
         let mut borders = Vec::with_capacity(paint.count());
         let mut seams = Vec::new();
@@ -1056,11 +1055,9 @@ impl SourceShapes {
 /// `GridViewport::visible_positions` is this loop's one source of them — so
 /// that cost follows the viewport rather than the Source.
 ///
-/// A background is painted only where it differs from the Source fill the panel
-/// is already filled with, and consecutive Cells in a row that want the same
-/// background share one rectangle. The Cursor's bloom reaches fifteen Cells
-/// across, so on the default Grid most Cells ask for no background at all and
-/// the ones that do arrive in runs.
+/// A background is painted only where selection state differs from the Source
+/// fill the panel already provides. Consecutive Cells in a row that want the
+/// same background share one rectangle.
 ///
 /// The click is answered rather than acted on. Selecting a Cell is the Source's
 /// business and `Console::ui` owns the running Orcvs it is asked of; handing the
@@ -1349,8 +1346,7 @@ fn show_source_scene(
 /// `None` for a Cell's background wherever the panel has already painted
 /// `PALETTE.source`, on the grounds that this frame has already painted exactly
 /// that colour across the whole console and clips every Shape to it. An ordinary
-/// Cell therefore has no rectangle of its own, and on the default Grid — where
-/// the Cursor's bloom reaches fifteen Cells — most Cells are ordinary.
+/// Cell therefore has no rectangle of its own.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -2612,6 +2608,76 @@ mod tests {
     }
 
     ///
+    /// egui subtracts `predicted_dt` from every timed request. With a
+    /// predicted frame longer than any Run Clock remainder, an uncompensated
+    /// remainder saturates to an immediate Render Frame on every pass — the
+    /// back-to-back redraw `until_next` adds `predicted_dt` to prevent. The
+    /// compensated request survives the subtraction as the remainder itself.
+    ///
+    #[tokio::test]
+    async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_time() {
+        use eframe::App as _;
+
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        console.reduced_motion = true;
+        console
+            .orcvs
+            .set_bpm(orcvs::opts::Bpm::new(1).expect("1 is in range"));
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        // A publish or focus wake can still ask for an immediate pass while
+        // settling; a compensated Run Clock request is the only timed one.
+        let mut delays = Vec::new();
+        for _ in 0..8 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                predicted_dt: 2.0,
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |root| console.ui(root, &mut host));
+            let delay = output
+                .viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .map(|viewport| viewport.repaint_delay)
+                .unwrap_or(std::time::Duration::MAX);
+            output.drop_without_applying_deltas();
+            delays.push(delay);
+            if delay > std::time::Duration::ZERO {
+                break;
+            }
+        }
+        let settled = delays.last().copied().expect("at least one pass");
+        assert!(
+            settled > std::time::Duration::ZERO && settled <= std::time::Duration::from_secs(1),
+            "a quiet Playing pass never requested the Run Clock remainder: {delays:?}"
+        );
+    }
+
+    ///
     /// Rest must not grow a one-second wake. Cursor Effect is off so its
     /// cadence cannot be mistaken for Run Clock honesty. The first passes
     /// request an immediate Render Frame (focus, destination auto-select);
@@ -3677,7 +3743,7 @@ mod tests {
     }
 
     ///
-    /// The Cursor's blink reaches what a Cell is painted *with* and never
+    /// The Cursor Effect reaches what a Cell is painted *with* and never
     /// where it is painted.
     ///
     /// This is the property the retired `cell_line_width` test held over a
@@ -3686,10 +3752,9 @@ mod tests {
     /// `GridViewport::cell_rect` takes a Position and nothing else — so it is
     /// asserted here against the geometry that actually reached the Shapes.
     ///
-    /// The Cursor's own blink phase cannot be driven from a console test: it
-    /// turns on a wall-clock delay held inside `orcvs`, and a seam to set it
-    /// would be a test-only input cut into shipped code. What is asserted
-    /// instead is the whole of what that phase could have moved — every Cell,
+    /// The Cursor's visibility is owned by `orcvs`; a console test does not
+    /// need a wall-clock seam to assert geometry. What is asserted is the
+    /// whole of what the presentation could move — every Cell,
     /// the Cursor's included, occupies exactly the rectangle its Position gives
     /// it, and the Cursor's own stroke is drawn on that same rectangle rather
     /// than beside it or around it.
@@ -3760,7 +3825,7 @@ mod tests {
     /// `backgrounds`, every Glyph in `glyphs` and the Cursor alone in `cursor`,
     /// so chaining the groups orders the *kinds* however the Cells interleave:
     /// a later Cell in the row order cannot erase an earlier Cell's Glyph, and
-    /// no neighbour's fill or seam can reach the Cursor. That the five groups
+    /// no neighbour's fill or seam can reach the Cursor. That the shape groups
     /// then arrive at the painter in that order is asserted by
     /// `the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them`.
     ///
@@ -3816,7 +3881,7 @@ mod tests {
     }
 
     ///
-    /// The five groups reach the painter end to end, in the order
+    /// The shape groups reach the painter end to end, in the order
     /// `SourceShapes::into_shapes` chains them: backgrounds, borders, Glyphs,
     /// seams, the Cursor.
     ///
@@ -3980,7 +4045,7 @@ mod tests {
 
     ///
     /// Every Cell is stroked with its own border, one Grid line wide, and the
-    /// Cursor's blink changes that colour rather than that width — which is
+    /// Cursor Effect changes that colour rather than that width — which is
     /// what `cell_line_width` returned a constant for.
     ///
     /// The colours come from the Paint rather than from `cell_visuals`: which
@@ -3989,7 +4054,7 @@ mod tests {
     /// shape step gives each Cell the border the Paint gave that Cell, and
     /// not its neighbour's.
     ///
-    /// The Grid is wider than the Cursor's fifteen-Cell bloom, so the borders
+    /// The Grid is wider than the Cursor effect, so the borders
     /// are not all one colour and a step that handed every Cell the same
     /// stroke would be caught.
     ///
@@ -4108,7 +4173,7 @@ mod tests {
     /// `PALETTE.source`, and what stands in its place is the `CentralPanel`
     /// frame. The two values are stated in different places, so nothing but
     /// this holds them together: give the panel any other fill and every
-    /// ordinary Cell — outside the Cursor's fifteen-Cell bloom, most of the
+    /// ordinary Cell — outside the Cursor effect, most of the
     /// default Grid — renders on a ground the palette never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
@@ -4642,6 +4707,96 @@ mod tests {
                 positions.count()
             );
         }
+    }
+
+    ///
+    /// A zoomed console fills every Cell its Paint asks to fill, and no other,
+    /// with rectangles built from runs that begin and end mid-row.
+    ///
+    /// Runs are row-local state, opened and flushed inside one row. Under
+    /// culling a row no longer starts at column zero or ends at the last
+    /// column, so a run opens and is flushed at columns the Source's own row
+    /// does not begin or end at. That the fold gets that right is
+    /// `Paint::background_runs`' question and is asserted in `paint.rs`, where
+    /// it needs no viewport. What is asserted here is the half that does need
+    /// one: that the rectangle the shape step builds from a run whose columns
+    /// start mid-row still covers exactly the Cells that run replaces.
+    ///
+    /// The console is small and the zoom is at the limit so both sides of the
+    /// Source are culled. Cursor effects are geometry beneath the Grid and
+    /// therefore must not reintroduce Cell background runs in this view.
+    ///
+    #[tokio::test]
+    async fn a_zoomed_row_leaves_cursor_effects_out_of_cell_fills() {
+        let ctx = egui::Context::default();
+        // Narrow enough that every drawn row starts and ends inside the Grid.
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+        let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
+        let mut view = SourceView::default();
+        // Below the window the console shows, keeping the Cursor near the
+        // visible range while its area remains separate geometry.
+        orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
+
+        // The Grid's near corner at (-700, -500), so the console shows a window
+        // in the middle of it rather than a corner.
+        pinned_at(&mut view, Vec2::new(-700.0, -500.0), MAX_ZOOM);
+        let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let visible = viewport.visible_positions(screen, orcvs.grid());
+
+        assert!(
+            visible.columns.start > 0 && visible.columns.end < DEFAULT_COL_COUNT,
+            "the zoom culled nothing on one side, so no run begins or ends mid-row"
+        );
+
+        let frame = orcvs.render_frame();
+        let paint = painted(&frame, viewport, screen);
+        let shapes = source_shapes(&paint, viewport, 1.0);
+        // The fill covering a point, and how many rectangles claim it. A Cell
+        // covered twice is a run painted over a run, which the count catches
+        // where a lookup of the first match would not.
+        let covering = |point: Pos2| {
+            shapes
+                .backgrounds
+                .iter()
+                .filter_map(|shape| match shape {
+                    Shape::Rect(rect) if rect.rect.contains(point) => Some(rect.fill),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let mut filled = 0;
+        let mut unfilled = 0;
+        let mut opened_at_first_drawn = 0;
+        let mut flushed_at_last_drawn = 0;
+        for (position, cell) in paint.cells() {
+            let rect = viewport.cell_rect(position.x(), position.y());
+
+            match cell.background {
+                Some(colour) => {
+                    assert_eq!(
+                        covering(rect.center()),
+                        vec![colour],
+                        "the Cell {position:?} the Paint fills was covered wrongly"
+                    );
+                    filled += 1;
+                    opened_at_first_drawn += usize::from(position.x() == visible.columns.start);
+                    flushed_at_last_drawn += usize::from(position.x() == visible.columns.end - 1);
+                }
+                None => {
+                    assert!(
+                        covering(rect.center()).is_empty(),
+                        "the Cell {position:?} the Paint leaves to the Source fill was covered"
+                    );
+                    unfilled += 1;
+                }
+            }
+        }
+
+        assert_eq!(filled, 0, "Cursor geometry filled a Cell background");
+        assert!(unfilled > 0, "the viewport drew no Cells");
+        assert_eq!(opened_at_first_drawn, 0);
+        assert_eq!(flushed_at_last_drawn, 0);
     }
 
     ///
