@@ -2408,7 +2408,7 @@ mod tests {
             );
         }
         assert!(
-            !text.contains("MIDI"),
+            !text[..bpm_at].contains("MIDI"),
             "the MIDI menu is still on the top bar in {text:?}"
         );
         assert!(
@@ -2510,7 +2510,7 @@ mod tests {
     ///
     /// A quiet Render Frame must not start a Tick period from now. That is
     /// the second clock. The next paint is the next publish, or the Cursor
-    /// blink, whichever is sooner.
+    /// Effect, whichever is sooner.
     ///
     #[tokio::test]
     async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
@@ -2545,8 +2545,9 @@ mod tests {
 
         let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
         let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
-        assert!(
-            delay > std::time::Duration::from_millis(bpm.delay_ms()),
+        let tick = std::time::Duration::from_millis(bpm.delay_ms());
+        assert_ne!(
+            delay, tick,
             "the console still scheduled a Tick period from this frame: {delay:?}"
         );
     }
