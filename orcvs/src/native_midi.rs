@@ -170,13 +170,13 @@ mod backend {
     /// On macOS the Playback task reaches this from a worker thread; the
     /// console's main thread owns the run loop `midir` enumerates against.
     /// When that queue is already pumping, the work is dispatched there and
-    /// waited on; a slow main-queue run is waited out rather than started
-    /// again on the caller's thread. When nothing pumps the main queue — a
-    /// headless library consumer, or shutdown after the GUI has stopped — the
-    /// wait times out and the work runs on the caller's thread instead of
-    /// blocking forever. On the application main thread the work runs inline,
-    /// because `exec_sync` onto the same queue would deadlock. Elsewhere the
-    /// call runs inline.
+    /// waited on; a slow or backlogged main-queue run is waited out rather
+    /// than started again on the caller's thread. When nothing pumps the main
+    /// queue — a headless library consumer, or shutdown after the GUI has
+    /// stopped — the wait eventually times out and the work runs on the
+    /// caller's thread instead of blocking forever. On the application main
+    /// thread the work runs inline, because `exec_sync` onto the same queue
+    /// would deadlock. Elsewhere the call runs inline.
     ///
     fn platform_sync<R: Send + 'static>(operation: impl FnOnce() -> R + Send + 'static) -> R {
         #[cfg(target_os = "macos")]
@@ -186,6 +186,8 @@ mod backend {
             }
 
             const MAIN_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+            const QUEUED_DRAIN_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+            const QUEUED_DRAIN_POLLS: u32 = 20;
 
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
             let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(operation)));
@@ -199,22 +201,10 @@ mod backend {
             match rx.recv_timeout(MAIN_QUEUE_WAIT) {
                 Ok(result) => result,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if let Some(operation) = slot.lock().unwrap().take() {
-                        operation()
-                    } else {
-                        rx.recv().expect(
-                            "platform_sync result channel closed while work was on the main queue",
-                        )
-                    }
+                    wait_for_main_queue_result(&rx, &slot, QUEUED_DRAIN_POLL, QUEUED_DRAIN_POLLS)
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Some(operation) = slot.lock().unwrap().take() {
-                        operation()
-                    } else {
-                        panic!(
-                            "platform_sync result channel closed while work was on the main queue"
-                        );
-                    }
+                    wait_for_main_queue_result(&rx, &slot, QUEUED_DRAIN_POLL, QUEUED_DRAIN_POLLS)
                 }
             }
         }
@@ -222,6 +212,37 @@ mod backend {
         {
             operation()
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn wait_for_main_queue_result<R>(
+        rx: &std::sync::mpsc::Receiver<R>,
+        slot: &std::sync::Arc<std::sync::Mutex<Option<impl FnOnce() -> R>>>,
+        poll: std::time::Duration,
+        polls: u32,
+    ) -> R {
+        if slot.lock().unwrap().is_none() {
+            return rx
+                .recv()
+                .expect("platform_sync result channel closed while work was on the main queue");
+        }
+
+        for _ in 0..polls {
+            std::thread::sleep(poll);
+            if slot.lock().unwrap().is_none() {
+                return rx.recv().expect(
+                    "platform_sync result channel closed while work was on the main queue",
+                );
+            }
+            if let Ok(result) = rx.try_recv() {
+                return result;
+            }
+        }
+
+        slot.lock()
+            .unwrap()
+            .take()
+            .expect("platform_sync operation was not run on the main queue")()
     }
 
     #[cfg(target_os = "macos")]
@@ -254,7 +275,7 @@ mod backend {
                 tx.send(answer).ok();
             });
 
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let deadline = Instant::now() + Duration::from_secs(3);
             while Instant::now() < deadline {
                 if let Ok(answer) = rx.try_recv() {
                     assert_eq!(answer, 42);

@@ -28,6 +28,11 @@ pub(crate) struct MidiDeviceSelection {
     /// on the status line.
     ///
     reported_unavailability: Option<String>,
+    ///
+    /// Whether the status line currently carries an engine diagnostic rather
+    /// than a message this selection wrote itself.
+    ///
+    status_from_engine: bool,
 }
 
 impl MidiDeviceSelection {
@@ -39,6 +44,7 @@ impl MidiDeviceSelection {
             reported_discovery_failure: None,
             refresh_pending: false,
             reported_unavailability: None,
+            status_from_engine: false,
         }
     }
 
@@ -53,8 +59,14 @@ impl MidiDeviceSelection {
     ///
     pub(crate) fn refresh_destinations(&mut self) {
         match self.selection.refresh_destinations() {
-            Ok(()) => self.refresh_pending = true,
-            Err(error) => self.status = Some(error.message),
+            Ok(()) => {
+                self.selection.mark_destinations_seen();
+                self.refresh_pending = true;
+            }
+            Err(error) => {
+                self.status = Some(error.message);
+                self.status_from_engine = false;
+            }
         }
     }
 
@@ -74,7 +86,9 @@ impl MidiDeviceSelection {
             Ok(destinations) => {
                 self.destinations = destinations;
                 self.reported_discovery_failure = None;
-                self.refresh_pending = false;
+                if self.refresh_pending && self.selection.destinations_changed() {
+                    self.refresh_pending = false;
+                }
             }
             Err(error) => {
                 // Read every frame the menu is open, and twice per frame at
@@ -84,6 +98,7 @@ impl MidiDeviceSelection {
                 if self.reported_discovery_failure.as_deref() != Some(error.message.as_str()) {
                     self.status = Some(error.message.clone());
                     self.reported_discovery_failure = Some(error.message);
+                    self.status_from_engine = false;
                 }
             }
         }
@@ -99,8 +114,14 @@ impl MidiDeviceSelection {
     ///
     pub(crate) fn select_destination(&mut self, destination_id: &MidiDestinationId) {
         match self.selection.select(destination_id) {
-            Ok(()) => self.status = None,
-            Err(error) => self.status = Some(error.message),
+            Ok(()) => {
+                self.status = None;
+                self.status_from_engine = false;
+            }
+            Err(error) => {
+                self.status = Some(error.message);
+                self.status_from_engine = false;
+            }
         }
     }
 
@@ -113,7 +134,7 @@ impl MidiDeviceSelection {
             Err(error) => {
                 if self.reported_unavailability.as_deref() != Some(error.message.as_str()) {
                     self.reported_unavailability = Some(error.message.clone());
-                    if self.status.is_none() {
+                    if !self.status_from_engine {
                         self.status = Some(error.message);
                     }
                 }
@@ -130,6 +151,7 @@ impl MidiDeviceSelection {
         for diagnostic in diagnostics {
             if let Some(message) = failure_message(&diagnostic) {
                 self.status = Some(message);
+                self.status_from_engine = true;
             }
         }
     }
@@ -446,14 +468,77 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_pending_until_the_published_list_changes() {
-        let (_orcvs, mut midi) = selection_for(FakeBackend);
+    async fn refresh_pending_until_the_publication_changes() {
+        let alternate = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let backend = ChangingBackend {
+            alternate: alternate.clone(),
+        };
+        let (_orcvs, mut midi) = selection_for(backend);
 
+        midi.refresh_destinations();
+        settle_until!(!midi.destinations().is_empty());
+        assert_eq!(
+            midi.destinations(),
+            &[MidiDestination::new("one", "Studio Synth")]
+        );
+
+        alternate.store(true, std::sync::atomic::Ordering::SeqCst);
         midi.refresh_destinations();
         assert!(midi.refresh_pending());
 
-        settle_until!(!midi.destinations().is_empty());
+        assert_eq!(
+            midi.destinations(),
+            &[MidiDestination::new("one", "Studio Synth")]
+        );
+        assert!(midi.refresh_pending());
+
+        settle_until!(midi.destinations() == [MidiDestination::new("two", "Second Synth")]);
         assert!(!midi.refresh_pending());
+    }
+
+    struct RecoveringDiscoveryBackend {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl MidiBackend for RecoveringDiscoveryBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Err(MidiError::new("device discovery failed"))
+            } else {
+                Ok(vec![MidiDestination::new("one", "Studio Synth")])
+            }
+        }
+
+        fn connect(
+            &mut self,
+            _destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            Ok(Box::new(FakeConnection))
+        }
+    }
+
+    #[tokio::test]
+    async fn unavailability_replaces_a_stale_refresh_error() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let backend = RecoveringDiscoveryBackend {
+            calls: calls.clone(),
+        };
+        let (orcvs, mut midi) = selection_for(backend);
+
+        midi.refresh_destinations();
+        settle_until!({
+            let _destinations = midi.destinations();
+            midi.status() == Some("device discovery failed")
+        });
+
+        midi.refresh_destinations();
+        settle_until!(!midi.destinations().is_empty());
+        assert_eq!(midi.status(), Some("device discovery failed"));
+
+        drop(orcvs);
+
+        let _ = midi.selected_destination_id();
+        assert_eq!(midi.status(), Some("running Orcvs is no longer available"));
     }
 
     #[tokio::test]

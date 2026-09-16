@@ -119,6 +119,25 @@ impl MidiSelectionHandle {
     }
 
     ///
+    /// Marks the published destinations as seen at their current value.
+    ///
+    /// Call this when a refresh is queued so a later
+    /// [`destinations_changed`](Self::destinations_changed) distinguishes the
+    /// answer from the still-stale publication.
+    ///
+    pub fn mark_destinations_seen(&mut self) {
+        let _ = self.destinations.borrow_and_update();
+    }
+
+    ///
+    /// Whether the engine has published a new destinations value since the last
+    /// [`mark_destinations_seen`](Self::mark_destinations_seen).
+    ///
+    pub fn destinations_changed(&mut self) -> bool {
+        self.destinations.has_changed().unwrap_or(false)
+    }
+
+    ///
     /// Asks the engine to connect its output to `destination_id`.
     ///
     /// The answer this returns is whether there is still a running Orcvs to
