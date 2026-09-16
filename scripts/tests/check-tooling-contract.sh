@@ -782,7 +782,7 @@ test_console_target_table_reborrowing_defaults_is_rejected() {
   # native table without that flag puts `orcvs feature "default"` back in the
   # console's native build while the plain table still reads as though defaults
   # were off.
-  perl -pi -e 's/^\[target\.'\''cfg(not(target_arch = "wasm32"))'\''\.dependencies\]\$/[target.'\''cfg(not(target_arch = "wasm32"))'\''.dependencies]\norcvs = { path = "..\/orcvs", version = "0.1.0" }/' "$fixture_dir/console/Cargo.toml"
+  perl -pi -e 's/^tokio = \{ workspace = true, features = \["macros", "rt-multi-thread"\] \}$/orcvs = { path = "..\/orcvs", version = "0.1.0" }\ntokio = { workspace = true, features = ["macros", "rt-multi-thread"] }/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "a console whose native table borrows the orcvs default back"
 }
 

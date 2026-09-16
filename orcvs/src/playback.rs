@@ -76,7 +76,7 @@ pub trait OutputAdapter {
 ///
 /// An output adapter that does not publish MIDI destination state.
 ///
-/// [`Orcvs::with_output_adapter`] accepts only these adapters.
+/// [`Orcvs::with_output_adapter`](crate::app::Orcvs::with_output_adapter) accepts only these adapters.
 /// [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter) is excluded: use
 /// [`Orcvs::with_midi_output_adapter`](crate::app::Orcvs::with_midi_output_adapter).
 ///

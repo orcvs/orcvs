@@ -119,7 +119,7 @@ impl Orcvs {
 impl Orcvs<()> {
     /// Builds output-only Playback, with no MIDI selection capability.
     ///
-    /// Pass an [`OutputOnlyAdapter`]: [`MidiOutputAdapter`](crate::midi::MidiOutputAdapter)
+    /// Pass an [`OutputOnlyAdapter`]: [`MidiOutputAdapter`]
     /// is rejected here because its destination publication has no publisher on
     /// this path. Use [`Orcvs::with_midi_output_adapter`] for selectable MIDI.
     ///

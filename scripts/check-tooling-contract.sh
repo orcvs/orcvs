@@ -724,6 +724,9 @@ assert_toml_table_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]depen
 console_native_midir_table='^[[]target[.].cfg[(]all[(]not[(]target_arch = "wasm32"[)], any[(]target_os = "macos", target_os = "windows", target_os = "linux"[)][)][)].[.]dependencies[]]$'
 assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_native_midir_table" '^[[:space:]]*midir[[:space:]]*='
 console_native_table='^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dependencies[]]$'
+# Cargo unions dependency declarations. A second `orcvs` entry here without
+# `default-features = false` borrows the crate default back into the native build.
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" "$console_native_table" '^[[:space:]]*orcvs[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[]target[.].cfg[(]target_arch = "wasm32"[)].[.]dependencies[]]$' '^[[:space:]]*midir[[:space:]]*='
 
 # Every ADR takes a number no other ADR takes. `0036` named two accepted
