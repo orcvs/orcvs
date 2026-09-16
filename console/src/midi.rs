@@ -158,7 +158,7 @@ impl MidiDeviceSelection {
         origin: SelectionOrigin,
     ) {
         if origin == SelectionOrigin::User {
-            self.auto_select_attempted = false;
+            self.auto_select_attempted = true;
         }
         let connection = match self.backend.connect(destination_id) {
             Ok(connection) => connection,
@@ -631,6 +631,72 @@ mod tests {
         assert_eq!(
             midi.selected_destination_id(),
             Some(MidiDestinationId::new("one"))
+        );
+    }
+
+    #[derive(Clone)]
+    struct OrderedConnectBackend {
+        connect_order: std::sync::Arc<std::sync::Mutex<Vec<MidiDestinationId>>>,
+    }
+
+    impl OrderedConnectBackend {
+        fn new() -> Self {
+            Self {
+                connect_order: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            }
+        }
+
+        fn connect_order(&self) -> Vec<MidiDestinationId> {
+            self.connect_order
+                .lock()
+                .expect("the test still holds the connect log")
+                .clone()
+        }
+    }
+
+    impl MidiBackend for OrderedConnectBackend {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            Ok(vec![
+                MidiDestination::new("one", "First"),
+                MidiDestination::new("two", "Second"),
+            ])
+        }
+
+        fn connect(
+            &mut self,
+            destination_id: &MidiDestinationId,
+        ) -> Result<Box<dyn MidiConnection>, MidiError> {
+            self.connect_order
+                .lock()
+                .expect("the test still holds the connect log")
+                .push(destination_id.clone());
+            Ok(Box::new(FakeConnection))
+        }
+    }
+
+    ///
+    /// An explicit user choice is not followed by an automatic attempt on the
+    /// first destination while that choice is still pending.
+    ///
+    #[tokio::test]
+    async fn an_explicit_selection_is_not_followed_by_automatic_selection() {
+        let backend = OrderedConnectBackend::new();
+        let (_orcvs, mut midi) = selection_for(backend.clone());
+
+        midi.refresh_destinations();
+        settle_until!(midi.destinations().len() == 2);
+
+        midi.select_destination(&MidiDestinationId::new("two"));
+        for _ in 0..5 {
+            midi.auto_select_first_if_unselected();
+            tokio::task::yield_now().await;
+        }
+        settle_until!(midi.selected_destination_id() == Some(MidiDestinationId::new("two")));
+
+        assert_eq!(
+            backend.connect_order(),
+            vec![MidiDestinationId::new("two")],
+            "automatic selection queued a connect to the first destination"
         );
     }
 
