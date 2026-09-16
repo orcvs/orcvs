@@ -76,6 +76,9 @@ Then run only the gates whose inputs the change actually touched:
   whole pass and belongs to CI.
 - WASM or platform code: `mise run check_wasm`
 - dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
+- `console`'s `inspection` feature, or the `eframe` feature set it selects: `mise run check_inspection`.
+  The feature is off by default, so every other gate compiles the console without it.
+- egui or eframe presentation, painting, input, or UI tests: the `egui` skill
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
   `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused
   tests on every affected target and platform. Miri is the tool this gate would prefer and it
@@ -151,3 +154,8 @@ Syntax and evaluation prototypes use Tick-by-Tick Orcvs Source Grids with diagno
 
 The repository's skills live in `.agents/skills/` and are exposed to Claude Code through tracked
 symlinks in `.claude/skills/`. See `docs/agents/skills.md`.
+
+`rust-change`, `rust-review`, `rust-unsafe` and `rust-dependency-change` route by the risk in the
+change. `egui` routes by the crate: the console's egui and eframe presentation, its custom painting
+and input, its UI regression tests, and the inspection tooling those use. It carries the pinned
+versions and the upstream references, so read it rather than restating it here.

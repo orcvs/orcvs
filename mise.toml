@@ -28,6 +28,72 @@ description = "run"
 # ships. `cargo run --no-default-features` is the feature-off build.
 run = 'cargo run'
 
+[tasks.inspect]
+description = "Run the console with development inspection, bound to loopback"
+# The console with `eframe/inspection` compiled in and `egui_inspection`
+# listening, which is what `egui-mcp` attaches to. Neither half ships: the
+# feature is off by default and the plugin binds nothing unless the environment
+# says so, so this task is the whole of "inspection is on".
+#
+# The address is written out rather than spelled `EGUI_INSPECTION=1`. The
+# variable is not a switch — `egui_inspection` reads anything that is not
+# `""`, `0`, `false`, `1` or `true` as a `host:port` to bind
+# (`egui_inspection-0.36.1/src/lib.rs:40-50`) — and an inherited
+# `EGUI_INSPECTION=0.0.0.0:5719` from some other project's shell would
+# otherwise be what a developer has to notice. An assignment on the command
+# line overrides the environment it inherits, and naming the loopback host
+# makes the thing that must stay true visible in the line that decides it.
+# Binding anything else hands input injection, the widget tree and screenshots
+# to whatever reaches the port, unauthenticated.
+#
+# Built and then run, rather than `cargo run`, because the run half needs a
+# `HOME` that is not the developer's and `cargo` reads `HOME` to find
+# `CARGO_HOME`. Splitting them lets the build use the real environment and the
+# console use a disposable one: eframe derives its storage directory from
+# `HOME` on macOS and `XDG_DATA_HOME` on Linux
+# (`eframe-0.36.1/src/native/file_storage.rs:17-40`), so a smoke test drives a
+# Source of its own and cannot overwrite a saved one. `target/` is ignored, so
+# the location is disposable; delete it to start from an empty Source.
+#
+# No MIDI destination is selected. The console connects an output only when a
+# viewer picks one from the MIDI menu, so an inspection session sends nothing
+# to a real device unless it is told to. Do not tell it to.
+run = '''
+mkdir -p target/inspection
+cargo build --package console --features inspection --locked
+EGUI_INSPECTION=127.0.0.1:{{arg(name="port", default="5719")}} HOME="$PWD/target/inspection" XDG_DATA_HOME="$PWD/target/inspection" ./target/debug/console
+'''
+
+[tasks.install_egui_mcp]
+description = "Install the pinned egui_mcp inspection bridge"
+# The MCP server `.mcp.json` starts. It is a development tool rather than a
+# dependency of this workspace — nothing here links it and it appears in no
+# manifest — so it is installed by version rather than resolved, and the version
+# is named rather than left to `cargo install`'s idea of latest.
+#
+# 0.2.0 is the release that speaks the protocol `egui_inspection` 0.36.1 serves:
+# it requires `egui_inspection ^0.36.0` and `egui ^0.36.0`. The package version
+# is its own and deliberately does not track egui's.
+#
+# `--locked` so the build uses the lockfile the crate was published with rather
+# than resolving its tree afresh on each machine. A crates.io release rather
+# than `--git ...` against a moving branch, which is what the upstream README
+# suggests and what would make "the version that worked" unanswerable.
+run = 'cargo install egui_mcp --version 0.2.0 --locked'
+
+[tasks.check_inspection]
+description = "Compile the opt-in inspection feature"
+# `inspection` is off by default, so every other gate in this file compiles the
+# console without it and a break inside `#[cfg(feature = "inspection")]` —
+# or in the `eframe` feature set it selects — reaches `main` unseen. This is the
+# one line that compiles it, and it is one line on one crate rather than a tier
+# of its own: the feature adds no module to this workspace, it turns on
+# `eframe/inspection`, so what can break is the dependency resolving and the
+# crate still building against it.
+#
+# `--all-targets` because the tests are where the feature's neighbours live.
+run = 'cargo clippy --package console --all-targets --features inspection --locked -- -D warnings'
+
 [tasks.test]
 alias = 't'
 description = "All test"
@@ -167,6 +233,9 @@ cargo clippy --workspace --all-targets --no-default-features --locked -- -D warn
 # that runs, because the tests that state what disabling the feature gives up
 # are compiled only with it off.
 cargo clippy --package orcvs --all-targets --no-default-features --features persistence --locked -- -D warnings
+# The console's `inspection` feature is off in every line above and below this
+# one, which is the whole reason it needs a line. See the task.
+mise run check_inspection
 cargo nextest run --package orcvs --no-default-features --profile ci --locked
 cargo nextest run --workspace --profile ci --locked
 cargo nextest run --workspace --tests --no-default-features --profile ci --locked

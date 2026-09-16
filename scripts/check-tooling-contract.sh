@@ -253,6 +253,44 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^cargo tes
 # tier, where a public-to-private intra-doc link first failed PR #81.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked$'
+# `inspection` is off in `console`'s default feature set, so every compilation
+# in this tier — including the `--no-default-features` halves — builds the
+# console without it, and a break behind it would reach `main` unseen. One line
+# on one crate closes that, and it is pinned here rather than left to whoever
+# next edits the tier, because deleting it is invisible: nothing else in this
+# file compiles the feature and no test fails when it stops being compiled.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_inspection$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_inspection' '^run = .cargo clippy --package console --all-targets --features inspection --locked -- -D warnings.$'
+# The launcher binds loopback, and this is the assertion that keeps it there.
+# `EGUI_INSPECTION` is not a switch: `egui_inspection` reads anything that is
+# not empty, `0`, `false`, `1` or `true` as a `host:port` to bind, and what
+# binds is full unauthenticated control of the running console — input
+# injection, the widget tree, and screenshots. Stated as a count rather than as
+# a presence, so a second assignment added anywhere in this file has to bind the
+# same host: a bare `EGUI_INSPECTION=1` would pass a presence check while
+# leaving the address to whatever the shell had already exported.
+inspection_binds="$(count_matches "$root_dir/mise.toml" 'EGUI_INSPECTION=')"
+if [ "$inspection_binds" -lt 1 ]; then
+  echo "expected mise.toml to launch the console with EGUI_INSPECTION set" >&2
+  exit 1
+fi
+assert_occurs_exactly "$root_dir/mise.toml" 'EGUI_INSPECTION=127[.]0[.]0[.]1:' "$inspection_binds"
+# And the console it launches is the one carrying the feature. Without this the
+# task builds the shipped binary, `eframe` logs a warning about a variable it
+# cannot act on, and the attach fails with nothing to point at.
+assert_toml_task_contains "$root_dir/mise.toml" 'inspect' '^cargo build --package console --features inspection --locked$'
+# The storage location is disposable and is not the developer's. eframe derives
+# it from `HOME` on macOS and `XDG_DATA_HOME` on Linux, and `console` saves the
+# current Source revision every thirty seconds, so a smoke test launched
+# without this overwrites whatever Source the developer last had open.
+assert_contains "$root_dir/mise.toml" 'HOME="[$]PWD/target/inspection"'
+assert_contains "$root_dir/mise.toml" 'XDG_DATA_HOME="[$]PWD/target/inspection"'
+# The MCP bridge is installed at a named version rather than from a moving
+# branch. It is the one tool here that `[tools]` cannot pin — it is a cargo
+# binary rather than a mise-managed one — so the version lives in the task, and
+# `--locked` is what makes two machines build the same tree from it.
+assert_toml_task_contains "$root_dir/mise.toml" 'install_egui_mcp' '^run = .cargo install egui_mcp --version [0-9]+[.][0-9]+[.][0-9]+ --locked.$'
+assert_not_contains "$root_dir/mise.toml" 'cargo install egui_mcp.*--git'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_merge_native$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run check_wasm$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_merge' '^[[:space:]]*mise run test_wasm$'
@@ -424,6 +462,29 @@ assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_tab
 # `--no-default-features` proves, which is the criterion the default-on decision
 # was taken against rather than in place of.
 assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*persistence[[:space:]]*=[[:space:]]*[[].*"eframe/persistence".*"orcvs/persistence".*[]]$'
+# Inspection is a feature and it is not in the default set. The `default` line
+# above is pinned as exactly `["persistence"]`, which is what keeps it out; this
+# pins that the feature exists and forwards to upstream's own integration rather
+# than to a control server written here.
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*inspection[[:space:]]*=[[:space:]]*[[]"eframe/inspection"[]]$'
+# The egui stack is pinned exactly, not by caret. `console.rs` cites
+# `egui-0.36.1`, `epaint-0.36.1` and `emath-0.36.1` by file and line as the
+# evidence for the atlas budget, the owned transform, and the drag-pan branch it
+# replaces, and a caret requirement lets a patch release move all of that with
+# nothing but a lockfile holding the version — which is how this workspace had
+# already resolved 0.36.2 under a `0.36.1` requirement.
+assert_contains "$root_dir/console/Cargo.toml" '^eframe = [{] version = "=0[.]36[.]1",'
+assert_contains "$root_dir/console/Cargo.toml" '^egui = [{] version = "=0[.]36[.]1",'
+# `egui_kittest` stays a dev-dependency of the non-WASM target table, for the
+# reason `proptest` does one file over: the UI invariants it holds are
+# platform-independent, `check_wasm` compiles this crate's test targets for
+# `wasm32-unknown-unknown`, and no shipped or browser build has any business
+# resolving a test harness. The plain `[dev-dependencies]` table compiles for
+# WASM too, so it needs its own guard.
+kittest_native_dev_table='^[[]target[.].cfg[(]not[(]target_arch = "wasm32"[)][)].[.]dev-dependencies[]]$'
+assert_toml_table_contains "$root_dir/console/Cargo.toml" "$kittest_native_dev_table" '^[[:space:]]*egui_kittest[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*egui_kittest[[:space:]]*='
+assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]dev-dependencies[]][[:space:]]*$' '^[[:space:]]*egui_kittest[[:space:]]*='
 assert_contains "$root_dir/console/assets/sw.js" "'./console.js'"
 assert_contains "$root_dir/console/assets/sw.js" "'./console_bg.wasm'"
 assert_contains "$root_dir/console/assets/sw.js" "^var cacheName = 'orcvs-pwa-v[0-9]+';$"

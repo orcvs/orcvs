@@ -592,6 +592,55 @@ test_pull_request_tier_without_feature_off_doctests_is_rejected() {
   assert_rejected "a pull-request tier that never compiles the feature-off doctests"
 }
 
+test_networked_inspection_bind_is_rejected() {
+  make_fixture
+  # The one line in the repository that decides what the inspection server is
+  # reachable from. Binding anything but loopback hands input injection, the
+  # widget tree and screenshots of the running console to whatever reaches the
+  # port, with no authentication anywhere in the protocol.
+  perl -pi -e 's/^EGUI_INSPECTION=127[.]0[.]0[.]1:/EGUI_INSPECTION=0.0.0.0:/' "$fixture_dir/mise.toml"
+  assert_rejected "an inspection launcher reachable from the network"
+
+  # The same hole spelled as a switch. `EGUI_INSPECTION=1` binds loopback only
+  # while nothing else in the environment has already set the variable to an
+  # address, and an assignment that names no host cannot say which it was.
+  make_fixture
+  perl -pi -e 's/^EGUI_INSPECTION=127[.]0[.]0[.]1:[^ ]* /EGUI_INSPECTION=1 /' "$fixture_dir/mise.toml"
+  assert_rejected "an inspection launcher that leaves the bind address to the environment"
+}
+
+test_pull_request_tier_without_the_inspection_feature_is_rejected() {
+  make_fixture
+  # `inspection` is off by default, so this is the only line in either tier that
+  # compiles it. Removing it leaves a feature the repository documents, launches
+  # and tells agents to use, with no build behind it.
+  perl -pi -e 's/^(mise run check_inspection)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles the inspection feature"
+}
+
+test_caret_egui_requirement_is_rejected() {
+  make_fixture
+  # A caret requirement reads "0.36.1 or any later 0.36", so the lockfile is the
+  # only thing holding the release the console's own citations are written
+  # against. That is exactly how this workspace came to resolve 0.36.2 under a
+  # requirement that said 0.36.1.
+  perl -pi -e 's/^(eframe = [{] version = )"=0[.]36[.]1"/$1"0.36.1"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "an eframe requirement a patch release can move"
+
+  make_fixture
+  perl -pi -e 's/^(egui = [{] version = )"=0[.]36[.]1"/$1"0.36.1"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "an egui requirement a patch release can move"
+}
+
+test_shipped_kittest_dependency_is_rejected() {
+  make_fixture
+  # The harness is a test tool. In a shipped dependency table it reaches the
+  # binary; in the plain dev table it reaches the browser build, which compiles
+  # for a target the tests never run on.
+  perl -pi -e 's/^egui_kittest = /[dependencies]\negui_kittest = /' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a test harness in the console's shipped dependencies"
+}
+
 test_optional_persistence_default_is_rejected() {
   make_fixture
   # Every feature arm in the tiers is stated relative to the console default.
@@ -906,6 +955,10 @@ case "${1:-all}" in
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
+  networked-inspection-bind) test_networked_inspection_bind_is_rejected ;;
+  inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
+  caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
+  shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
   optional-persistence-default) test_optional_persistence_default_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   ungated-rust-cache) test_ungated_rust_cache_save_is_rejected ;;
@@ -1005,6 +1058,10 @@ case "${1:-all}" in
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected
+    test_networked_inspection_bind_is_rejected
+    test_pull_request_tier_without_the_inspection_feature_is_rejected
+    test_caret_egui_requirement_is_rejected
+    test_shipped_kittest_dependency_is_rejected
     test_optional_persistence_default_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;
