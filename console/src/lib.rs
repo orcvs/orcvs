@@ -10,6 +10,7 @@ mod midi;
 pub mod native_midi;
 mod paint;
 pub mod persistence;
+mod readout_deadline;
 mod report;
 pub mod style;
 #[cfg(target_arch = "wasm32")]

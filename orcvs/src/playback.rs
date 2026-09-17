@@ -13,6 +13,7 @@ mod gate;
 mod schedule;
 
 use crate::midi::MidiSelectionHandle;
+use crate::opts::Bpm;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
     Velocity,
@@ -123,6 +124,86 @@ pub enum PlaybackDiagnostic {
 pub enum PlaybackState {
     Stopped,
     Playing,
+}
+
+/// A subscriber to [`PlaybackObservation`]. The console paints the latest
+/// value and wakes when this receiver moves.
+pub type PlaybackObservationWatch = watch::Receiver<PlaybackObservation>;
+
+///
+/// What a Playback Engine publishes about the run in progress: whether it is
+/// playing, the absolute Tick of that run, whether that Tick is a displayed
+/// BPM beat, and the facts a Render Frame needs to draw the Run Clock.
+///
+/// One value rather than three channels, because the console reads them while
+/// drawing one frame and a Panel drawn from three channels can show a Tick
+/// the Run Clock has already left behind. ADR 0041 has the engine's task own
+/// the state, so this is the whole of what a caller can see of it without
+/// asking.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaybackObservation {
+    pub state: PlaybackState,
+    ///
+    /// The Tick of this run that last sounded, so T and `**` land with the
+    /// audio. Tick `0` from the moment a run begins, since Tick `0` executes
+    /// then; held when the run stops or a Tick is declined.
+    ///
+    pub tick: Tick,
+    ///
+    /// Whether [`Self::tick`] is a displayed BPM beat. Published with the Tick
+    /// so a Render Frame paints it rather than reconstructing [`Bpm::on_beat`].
+    ///
+    pub on_beat: bool,
+    ///
+    /// Origin of the current Playback run, published as `web_time::Instant` so
+    /// native and WASM share one public type. A Render Frame subtracts this
+    /// from `web_time::Instant::now()` while [`PlaybackState::Playing`]. `None`
+    /// while Stopped, including before the first run.
+    ///
+    pub run_started_at: Option<web_time::Instant>,
+    /// Frozen Run Clock while Stopped. Zero before the first run.
+    pub frozen_run_clock: Duration,
+}
+
+impl Default for PlaybackObservation {
+    ///
+    /// What an engine publishes before anything has asked it to play: Stopped,
+    /// Tick `0`, on a beat, and a Run Clock of zero.
+    ///
+    fn default() -> Self {
+        Self {
+            state: PlaybackState::Stopped,
+            tick: Tick::ZERO,
+            on_beat: Bpm::on_beat(Tick::ZERO),
+            run_started_at: None,
+            frozen_run_clock: Duration::ZERO,
+        }
+    }
+}
+
+impl PlaybackObservation {
+    fn set_tick(&mut self, tick: Tick) {
+        self.tick = tick;
+        self.on_beat = Bpm::on_beat(tick);
+    }
+
+    ///
+    /// The Run Clock a Render Frame should show.
+    ///
+    /// While Playing it is wall-clock since [`Self::run_started_at`]; while
+    /// Stopped it is the duration frozen when the run stopped, so a later
+    /// frame does not invent time a stopped run did not spend.
+    ///
+    pub fn run_clock(self) -> Duration {
+        match self.state {
+            PlaybackState::Playing => self
+                .run_started_at
+                .map(|origin| origin.elapsed())
+                .unwrap_or(self.frozen_run_clock),
+            PlaybackState::Stopped => self.frozen_run_clock,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -343,15 +424,15 @@ struct PlaybackInner<A: OutputAdapter> {
     source: SourceCommander,
     adapter: A,
     ///
-    /// The lifecycle state, published rather than held.
+    /// The performer-facing observation, published rather than held.
     ///
     /// ADR 0041 has the console read this without awaiting and without
-    /// reaching the engine, because the frame that gates Space on it cannot
+    /// reaching the engine, because the frame that draws the Panel cannot
     /// wait for an answer. The sender is the one copy of the fact: this
     /// engine reads its own state back through `borrow`, so what it acts on
     /// and what the console sees cannot drift apart.
     ///
-    state: watch::Sender<PlaybackState>,
+    observation: watch::Sender<PlaybackObservation>,
     connected: bool,
     ///
     /// The writing end of the diagnostics stream.
@@ -467,10 +548,10 @@ pub struct PlaybackEngine {
     /// this decision removes.
     ///
     tick_gate: Arc<TickGate>,
-    /// The reading end of the published lifecycle state. Read without awaiting
+    /// The reading end of the published observation. Read without awaiting
     /// and without reaching the engine, which is what lets a console frame
-    /// gate on it.
-    state: watch::Receiver<PlaybackState>,
+    /// draw the Panel from it.
+    observation: watch::Receiver<PlaybackObservation>,
     ///
     /// The reading end of the diagnostics stream.
     ///
@@ -492,7 +573,7 @@ impl Clone for PlaybackEngine {
         Self {
             commands: self.commands.clone(),
             tick_gate: Arc::clone(&self.tick_gate),
-            state: self.state.clone(),
+            observation: self.observation.clone(),
             diagnostics: self.diagnostics.clone(),
             reports: self.reports.clone(),
         }
@@ -503,7 +584,7 @@ impl Clone for PlaybackEngine {
 /// [`PlaybackInner::new`] to whoever is building a handle over that state.
 ///
 struct PlaybackChannels {
-    state: watch::Receiver<PlaybackState>,
+    observation: watch::Receiver<PlaybackObservation>,
     diagnostics: mpsc::UnboundedReceiver<PlaybackDiagnostic>,
     ///
     /// A second writing end of the diagnostics stream, for the handle's own
@@ -526,15 +607,15 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// facts and the facts the engine acts on the same ones.
     ///
     fn new(source: SourceCommander, adapter: A) -> (Self, PlaybackChannels) {
-        let state = watch::Sender::new(PlaybackState::Stopped);
-        let observed_state = state.subscribe();
+        let observation = watch::Sender::new(PlaybackObservation::default());
+        let observed = observation.subscribe();
         let (diagnostics, drained) = mpsc::unbounded_channel();
         let reports = diagnostics.clone();
         (
             Self {
                 source,
                 adapter,
-                state,
+                observation,
                 connected: true,
                 diagnostics,
                 last_output_failure: None,
@@ -543,7 +624,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 owned: OwnedNotes::default(),
             },
             PlaybackChannels {
-                state: observed_state,
+                observation: observed,
                 diagnostics: drained,
                 reports,
             },
@@ -559,19 +640,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// request.
     ///
     fn is_playing(&self) -> bool {
-        *self.state.borrow() == PlaybackState::Playing
-    }
-
-    ///
-    /// Publishes `state` as this engine's lifecycle state.
-    ///
-    /// `send_replace` rather than `send`, because the value must be stored
-    /// whether or not anyone is reading: an engine whose console has gone
-    /// still has to know its own state, and the next reader to subscribe
-    /// reads the latest one.
-    ///
-    fn publish_state(&self, state: PlaybackState) {
-        self.state.send_replace(state);
+        self.observation.borrow().state == PlaybackState::Playing
     }
 
     ///
@@ -586,7 +655,14 @@ impl<A: OutputAdapter> PlaybackInner<A> {
 
     fn stop(&mut self) {
         if self.is_playing() {
-            self.publish_state(PlaybackState::Stopped);
+            let frozen_run_clock = self.observation.borrow().run_clock();
+            self.observation.send_modify(|observation| {
+                // The published Tick is already the last one that sounded;
+                // stopping holds it rather than showing one that never will.
+                observation.state = PlaybackState::Stopped;
+                observation.run_started_at = None;
+                observation.frozen_run_clock = frozen_run_clock;
+            });
             if self.connected {
                 self.send_safety_reset();
             }
@@ -665,11 +741,19 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// `retune` deliberately does not begin a run: retuning changes the Tick
     /// period of the run it is already in, so it keeps that run's absolute Tick
     /// and reads the last Tick to schedule the first retuned Tick against it.
+    /// The Run Clock origin is captured here as `web_time::Instant` rather than
+    /// borrowed from the Tick Grid's epoch, for the same reason: a retune
+    /// captures a new epoch and is not a new run.
     ///
     fn begin_run(&mut self) {
-        self.publish_state(PlaybackState::Playing);
         self.last_tick_at = None;
         self.tick = Tick::ZERO;
+        self.observation.send_replace(PlaybackObservation {
+            state: PlaybackState::Playing,
+            run_started_at: Some(web_time::Instant::now()),
+            frozen_run_clock: Duration::ZERO,
+            ..PlaybackObservation::default()
+        });
         // A scheduled stop is due at an absolute Tick, and this run's absolute
         // Ticks begin again at zero, so an inherited expiry would stop a note
         // of the new run that has not started. Discarding the schedule is part
@@ -723,6 +807,10 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         let tick = self.tick;
         let plan = self.source.execute(tick);
         self.tick = tick.next();
+        // The Panel shows the Tick that sounds, not the one after it: `**`
+        // lit a Tick ahead would flash before the beat and go dark on it.
+        self.observation
+            .send_modify(|observation| observation.set_tick(tick));
         if self.connected {
             // Nothing is delivered while disconnected, so nothing is owned
             // while disconnected either: resolving the Tick Plan here rather
@@ -815,7 +903,30 @@ impl PlaybackEngine {
     /// main thread there has no blocking receive with which to ask.
     ///
     pub fn state(&self) -> PlaybackState {
-        *self.state.borrow()
+        self.observation.borrow().state
+    }
+
+    ///
+    /// The observation this engine last published.
+    ///
+    /// It reads the latest published value: no await, and no wait on whatever
+    /// this engine is doing. That is what lets a console frame draw the Panel
+    /// — and on the browser it is not merely the faster option, because the
+    /// main thread there has no blocking receive with which to ask.
+    ///
+    pub fn observation(&self) -> PlaybackObservation {
+        *self.observation.borrow()
+    }
+
+    ///
+    /// A subscriber to the same observation [`Self::observation`] reads.
+    ///
+    /// A Render Frame cannot wait for the next Tick, so the console paints
+    /// what was last published and asks to be painted again when this
+    /// receiver moves.
+    ///
+    pub fn observation_watch(&self) -> PlaybackObservationWatch {
+        self.observation.clone()
     }
 
     ///
@@ -1008,7 +1119,7 @@ impl PlaybackEngine {
             Self {
                 commands: Arc::new(commands),
                 tick_gate,
-                state: channels.state,
+                observation: channels.observation,
                 diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
                 reports: channels.reports,
             },
@@ -1553,7 +1664,7 @@ mod tests {
     ///
     struct HandDrivenRun<A: OutputAdapter> {
         inner: PlaybackInner<A>,
-        state: watch::Receiver<PlaybackState>,
+        observation: watch::Receiver<PlaybackObservation>,
         diagnostics: mpsc::UnboundedReceiver<PlaybackDiagnostic>,
     }
 
@@ -1562,7 +1673,7 @@ mod tests {
             let (inner, channels) = PlaybackInner::new(source, adapter);
             Self {
                 inner,
-                state: channels.state,
+                observation: channels.observation,
                 diagnostics: channels.diagnostics,
             }
         }
@@ -1595,7 +1706,7 @@ mod tests {
         }
 
         fn state(&self) -> PlaybackState {
-            *self.state.borrow()
+            self.observation.borrow().state
         }
 
         ///
@@ -1603,6 +1714,10 @@ mod tests {
         ///
         fn current_tick(&self) -> Tick {
             self.inner.tick
+        }
+
+        fn observation(&self) -> PlaybackObservation {
+            *self.observation.borrow()
         }
 
         ///
@@ -2206,6 +2321,215 @@ mod tests {
 
             assert_eq!(run.current_tick(), Tick::new(executed));
         }
+    }
+
+    #[test]
+    fn beginning_a_run_publishes_tick_zero_playing_and_a_run_origin() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::new(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+
+        run.begin_run();
+
+        let observation = run.observation();
+        assert_eq!(observation.state, PlaybackState::Playing);
+        assert_eq!(observation.tick, Tick::ZERO);
+        assert!(
+            observation.on_beat,
+            "Tick 0 of a new run is not a displayed beat"
+        );
+        assert!(
+            observation.run_started_at.is_some(),
+            "a run that has just begun published no origin for the Run Clock"
+        );
+        assert!(
+            observation.run_clock() < Duration::from_secs(1),
+            "a run that has just begun already shows {:?}",
+            observation.run_clock()
+        );
+    }
+
+    ///
+    /// The Panel's T and `**` describe the Tick that just sounded. A beat
+    /// marker that lights while the Tick before the beat plays, and goes dark
+    /// on the beat, is not a beat marker.
+    ///
+    #[test]
+    fn the_published_tick_and_beat_are_the_tick_that_just_sounded() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::new(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+
+        for executed in 0..=8u64 {
+            run.run_tick(executed);
+
+            let observation = run.observation();
+            assert_eq!(
+                observation.tick,
+                Tick::new(executed),
+                "Tick {executed} sounded but the Panel was handed {:?}",
+                observation.tick
+            );
+            assert_eq!(
+                observation.on_beat,
+                executed % 4 == 0,
+                "Tick {executed} sounded with the beat marker {}",
+                if observation.on_beat { "lit" } else { "dark" }
+            );
+        }
+    }
+
+    ///
+    /// The beat flash is published with the Tick, one publish per grid
+    /// deadline. If those publishes were uneven, the Panel would be showing a
+    /// clock that is already uneven; since they are not, an uneven `**` is a
+    /// paint-loop problem, not the engine.
+    ///
+    /// Paused time makes the spacing exact rather than sampled: nothing is
+    /// published a microsecond before a deadline, and the Tick and its beat are
+    /// published at it. Wall-clock gaps between wake-ups on a shared runtime
+    /// would measure the host's scheduler as much as this engine.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn published_ticks_at_120_bpm_land_one_period_apart() {
+        let engine = engine(
+            SourceCommander::new(Grid::new(1, 1)),
+            InMemoryOutputAdapter::default(),
+        );
+        let period = Duration::from_millis(125);
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(
+            engine.observation().tick,
+            Tick::ZERO,
+            "the first Tick is immediate"
+        );
+
+        for published in 1..=12u64 {
+            time::advance(period - Duration::from_micros(1)).await;
+            settle(&engine).await;
+            assert_eq!(
+                engine.observation().tick,
+                Tick::new(published - 1),
+                "Tick {published} was published before its deadline"
+            );
+
+            time::advance(Duration::from_micros(1)).await;
+            settle(&engine).await;
+            let observation = engine.observation();
+            assert_eq!(
+                observation.tick,
+                Tick::new(published),
+                "Tick {published} was not published at its deadline"
+            );
+            assert_eq!(
+                observation.on_beat,
+                Bpm::on_beat(Tick::new(published)),
+                "the beat was not published with Tick {published}"
+            );
+        }
+        assert!(
+            engine.drain_diagnostics().is_empty(),
+            "a run on its grid reported a diagnostic"
+        );
+
+        engine.stop();
+        settle(&engine).await;
+    }
+
+    #[test]
+    fn stopping_freezes_the_published_tick_and_run_clock() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::new(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+        run.run_tick(0);
+        run.run_tick(1);
+        std::thread::sleep(Duration::from_millis(20));
+        run.inner.stop();
+
+        let first = run.observation();
+        std::thread::sleep(Duration::from_millis(20));
+        let second = run.observation();
+
+        assert_eq!(first.state, PlaybackState::Stopped);
+        assert_eq!(
+            first.tick,
+            Tick::new(1),
+            "stop froze a Tick that never sounded"
+        );
+        assert!(!first.on_beat, "Tick 1 is not a beat");
+        assert_eq!(second.tick, first.tick);
+        assert_eq!(second.on_beat, first.on_beat);
+        assert_eq!(second.run_clock(), first.run_clock());
+        assert!(
+            first.run_clock() >= Duration::from_millis(20),
+            "stop froze {:?} rather than the time the run spent",
+            first.run_clock()
+        );
+        assert!(
+            first.run_started_at.is_none(),
+            "a stopped run still published an origin a later frame could advance"
+        );
+    }
+
+    #[test]
+    fn beginning_a_new_run_resets_the_published_tick_and_run_clock() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::new(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+        run.run_tick(0);
+        run.run_tick(1);
+        std::thread::sleep(Duration::from_millis(20));
+        run.inner.stop();
+        assert_eq!(run.observation().tick, Tick::new(1));
+        assert!(run.observation().run_clock() >= Duration::from_millis(20));
+
+        run.begin_run();
+
+        let observation = run.observation();
+        assert_eq!(observation.state, PlaybackState::Playing);
+        assert_eq!(observation.tick, Tick::ZERO);
+        assert!(observation.on_beat);
+        assert!(
+            observation.run_clock() < Duration::from_millis(20),
+            "a new run kept the previous run's clock {:?}",
+            observation.run_clock()
+        );
+    }
+
+    #[test]
+    fn an_overrun_does_not_move_the_published_tick_or_invent_run_clock_time() {
+        let mut run = HandDrivenRun::new(
+            SourceCommander::new(Grid::new(10, 9)),
+            InMemoryOutputAdapter::default(),
+        );
+        run.begin_run();
+        run.run_tick(0);
+        run.run_tick(1);
+        let before = run.observation();
+
+        assert!(
+            run.tick(scheduled(Duration::from_secs(2), Duration::from_secs(6)))
+                .is_none()
+        );
+
+        let after = run.observation();
+        assert_eq!(after.tick, Tick::new(1));
+        assert_eq!(after.tick, before.tick);
+        assert_eq!(after.on_beat, before.on_beat);
+        assert_eq!(after.state, PlaybackState::Playing);
+        assert!(
+            after.run_clock() < Duration::from_secs(1),
+            "an Overrun invented skipped time on the Run Clock: {:?}",
+            after.run_clock()
+        );
     }
 
     #[test]
@@ -3239,7 +3563,7 @@ mod tests {
         let engine = PlaybackEngine {
             commands: Arc::new(undelivered),
             tick_gate: Arc::clone(&tick_gate),
-            state: channels.state,
+            observation: channels.observation,
             diagnostics: Arc::new(Mutex::new(channels.diagnostics)),
             reports: channels.reports,
         };
@@ -3324,7 +3648,7 @@ mod tests {
             channels.diagnostics.try_recv().is_err(),
             "an orderly shutdown reported a failure"
         );
-        assert_eq!(*channels.state.borrow(), PlaybackState::Stopped);
+        assert_eq!(channels.observation.borrow().state, PlaybackState::Stopped);
     }
 
     #[tokio::test(start_paused = true)]
@@ -3335,18 +3659,21 @@ mod tests {
         // task publishes its way out through here. Dropping the last sender
         // leaves nothing to probe with, so the wait is on what the shutdown
         // itself says rather than on a message sent after it.
-        let mut state = engine.state.clone();
+        let mut observation = engine.observation.clone();
         engine.start(Duration::from_secs(1)).unwrap();
         settle(&engine).await;
-        assert_eq!(*state.borrow_and_update(), PlaybackState::Playing);
+        assert_eq!(
+            observation.borrow_and_update().state,
+            PlaybackState::Playing
+        );
 
         drop(engine);
-        state
+        observation
             .changed()
             .await
             .expect("the task publishes the stop before it drops the sender");
 
-        assert_eq!(*state.borrow(), PlaybackState::Stopped);
+        assert_eq!(observation.borrow().state, PlaybackState::Stopped);
         assert_eq!(adapter.safety_reset_count(), 1);
     }
 
