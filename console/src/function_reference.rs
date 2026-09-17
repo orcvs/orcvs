@@ -16,28 +16,46 @@
 //! by a `||` Comment naming it, with each example's Expression row, its
 //! result row directly south, and one blank row. Groups sit side by side so
 //! later tickets can add their own column without moving this one; the
-//! planned order, left to right, is:
+//! planned order, left to right, with the column band index `k` used below, is:
 //!
-//! | Columns   | Group                                                |
-//! |-----------|-------------------------------------------------------|
-//! | `0..16`   | Arithmetic (this ticket): `.+ .- .| .x ./ .% .< .> .=` |
-//! | `16..32`  | Numeric Conversion: `.v .^`                            |
-//! | `32..48`  | Sequence: `:- :# :< :& :? :=` (results up to 14 Cells) |
-//! | `48..64`  | Tick: `~. ~* ~% ~+ ~> ~?`                              |
-//! | `64..96`  | Jumps, Directional Bangs, Self-Banging, Halt (two columns: `&^ &v &< &>`, `*^ *v *< *> *!`, `^^ vv << >>` move and need room to move without leaving their area) |
-//! | `96..112` | MIDI: `!> !~ !% !c !b !$` (examples ~10 Cells wide)     |
+//! | Columns   | `k` | Group                                                |
+//! |-----------|-----|-------------------------------------------------------|
+//! | `0..16`   | 0   | Arithmetic (ticket 01): `.+ .- .| .x ./ .% .< .> .=`   |
+//! | `16..32`  | 1   | Numeric Conversion (this ticket): `.v .^`              |
+//! | `32..48`  | 2   | Sequence (this ticket): `:- :# :< :& :? :=` (results up to 14 Cells) |
+//! | `48..64`  | 3   | Tick: `~. ~* ~% ~+ ~> ~?`                              |
+//! | `64..96`  | 4..5 | Jumps, Directional Bangs, Self-Banging, Halt (two columns: `&^ &v &< &>`, `*^ *v *< *> *!`, `^^ vv << >>` move and need room to move without leaving their area) |
+//! | `96..112` | 6   | MIDI: `!> !~ !% !c !b !$` (examples ~10 Cells wide)     |
 //!
-//! Each group's header Comment claims the rest of its Grid row per the
-//! Comment Language Unit, which is the whole Grid width rather than one
-//! group's 16 Cells — a later ticket adding a second column on row 0 must
-//! either give its header a row the Arithmetic column has already finished
-//! with, or otherwise avoid two group headers sharing a row. This ticket
-//! leaves that unresolved because only one group exists so far.
+//! Each group's header Comment claims the rest of its *Grid* row per the
+//! Comment Language Unit — the whole row, not just its own 16 Cells — so two
+//! group headers cannot share a row once more than one group exists. This is
+//! resolved by a staircase: the group in column band `k` puts its header on
+//! row `k` and starts its examples on row `k + 1`. A row is parsed left to
+//! right, so every column west of band `k` was already claimed by its own
+//! Expression or blank row before the parser reaches column `16 * k`, and
+//! every column east of it has not started yet (its own header is a later
+//! row), so the header's rightward claim only ever swallows blank padding.
+//! Arithmetic keeps `k = 0` from ticket 01 and does not move.
 //!
-//! Rows: the Arithmetic column needs 1 header row plus 10 examples of 3 rows
-//! each (31 rows), so the Grid is padded to 32 — the next multiple of 8 — with
-//! one trailing blank row. A later group taller than 32 rows widens the whole
-//! Grid's row count; every column shares one row axis.
+//! Rows: the tallest group decides the Grid's row count — currently
+//! Arithmetic, whose header plus 10 examples of 3 rows each reaches row 30 —
+//! rounded up to 32, the next multiple of 8. Conversion and Sequence both
+//! start later (rows 1 and 2) but finish well inside that height, so this
+//! ticket does not grow the Grid; a later group taller than 32 rows would
+//! widen the whole Grid's row count, since every column shares one row axis.
+//!
+//! # Checked-in text is ragged, not a padded rectangle
+//!
+//! `function_reference.orcvs` stores each line with its trailing whitespace
+//! removed, and stops at the last line with any content — no trailing blank
+//! rows. Editors and formatters strip trailing whitespace on save, which
+//! would otherwise turn a checked-in padded rectangle ragged on its next
+//! untouched edit and fail a loader that demanded one. `source_from_reference_text`
+//! instead derives the Grid's width from the widest line and its height from
+//! the line count, each rounded up to the Sector Seam spacing, and pads
+//! every short line and every row past the last line with empty Cells — see
+//! its doc comment.
 //!
 
 use orcvs::grid::Grid;
@@ -51,30 +69,32 @@ const SECTOR_SEAM: usize = 8;
 ///
 /// The Function reference Source, rebuilt fresh each call.
 ///
-/// The Grid's dimensions come from `REFERENCE` itself — its longest line and
-/// its line count — rather than from a value stated separately in code, so
-/// the two cannot drift apart. Every line must be the same width: a ragged
-/// checked-in text is a defect in the reference, not a shape to tolerate.
-///
 pub(crate) fn function_reference() -> Source {
-    let lines: Vec<&str> = REFERENCE.lines().collect();
-    let columns = lines.first().map_or(0, |line| line.chars().count());
-    let rows = lines.len();
+    source_from_reference_text(REFERENCE)
+}
 
-    assert!(
-        lines.iter().all(|line| line.chars().count() == columns),
-        "the Function reference text must be a rectangle: every row the same width"
-    );
-    assert_eq!(
-        columns % SECTOR_SEAM,
-        0,
-        "the Function reference's column count must be a multiple of the Sector Seam spacing"
-    );
-    assert_eq!(
-        rows % SECTOR_SEAM,
-        0,
-        "the Function reference's row count must be a multiple of the Sector Seam spacing"
-    );
+///
+/// Parses `text` into a Source whose Grid is exactly wide and tall enough for
+/// it: the widest line's Cell count and the line count, each rounded up to
+/// the Sector Seam spacing.
+///
+/// A short line is padded with empty Cells rather than required to reach the
+/// Grid's width, and any row past the last line is left entirely empty —
+/// both are ordinary unset Cells, not a special case, since [`Source::get`]
+/// already reads an unset Cell back as empty. This tolerates a ragged
+/// `text`, which is what an editor or formatter that strips trailing
+/// whitespace leaves behind: a padded rectangle with every trailing space
+/// removed is ragged the moment one row's content ends before another's.
+///
+fn source_from_reference_text(text: &str) -> Source {
+    let lines: Vec<&str> = text.lines().collect();
+    let widest = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let columns = round_up_to_sector_seam(widest);
+    let rows = round_up_to_sector_seam(lines.len());
 
     let grid = Grid::new(columns, rows);
     let mut source = Source::new(grid);
@@ -93,18 +113,67 @@ pub(crate) fn function_reference() -> Source {
     source
 }
 
+/// Rounds `value` up to the next multiple of [`SECTOR_SEAM`] (`0` stays `0`).
+fn round_up_to_sector_seam(value: usize) -> usize {
+    value.div_ceil(SECTOR_SEAM) * SECTOR_SEAM
+}
+
 #[cfg(test)]
 mod tests {
-    use super::function_reference;
+    use super::{function_reference, source_from_reference_text};
     use orcvs::source::Tick;
 
     ///
-    /// Every result row the Arithmetic group's examples write, read back
-    /// after ticking the reference once.
+    /// A checked-in, padded rectangle is not the only shape the loader must
+    /// accept: an editor or formatter that strips trailing whitespace turns
+    /// every padded row short of the widest into a ragged one, and a blank
+    /// row into an empty line. The loader rounds the widest line and the
+    /// line count up to the Sector Seam spacing instead of asserting a
+    /// rectangle already at that shape, so this ragged text — never checked
+    /// in, built by the test itself — loads rather than panics.
+    ///
+    #[test]
+    fn a_ragged_text_with_stripped_trailing_whitespace_loads_at_rounded_up_dimensions() {
+        // Three lines, none the same length: 6 Cells, 0 (a blank line
+        // stripped bare), and 2. The widest, 6, rounds up to 8 Cells; the 3
+        // lines round up to 8 rows.
+        let source = source_from_reference_text(".+0102\n\n0C");
+        let grid = source.grid();
+
+        assert_eq!(grid.columns(), 8);
+        assert_eq!(grid.rows(), 8);
+
+        let read = |x, y| {
+            let position = grid.position(x, y).expect("inside the rounded-up Grid");
+            source.get(grid.index(position))
+        };
+
+        assert_eq!(read(0, 0), Some(".".to_string()));
+        assert_eq!(read(5, 0), Some("2".to_string()));
+        assert_eq!(
+            read(6, 0),
+            None,
+            "a short line pads with empty Cells rather than reaching into the next row"
+        );
+        assert_eq!(read(0, 1), None, "a blank line stays entirely empty");
+        assert_eq!(read(0, 2), Some("0".to_string()));
+        assert_eq!(read(1, 2), Some("C".to_string()));
+        assert_eq!(
+            read(0, 7),
+            None,
+            "a row past the last line is empty padding, not an error"
+        );
+    }
+
+    ///
+    /// Every result row the Arithmetic, Conversion, and Sequence groups'
+    /// examples write, read back after ticking the reference once.
     ///
     /// This is the test later groups extend: a later ticket adds its own
-    /// `(row, expected)` entries for its own examples rather than a second
-    /// assertion mechanism.
+    /// `(column, row, expected)` entries for its own examples rather than a
+    /// second assertion mechanism. `column` is the group's own anchor column
+    /// (Arithmetic 0, Conversion 16, Sequence 32), since each group's result
+    /// rows are read back from its own Cells, not always the leftmost ones.
     ///
     #[test]
     fn ticking_the_reference_once_writes_every_result_row_exactly_as_written() {
@@ -119,31 +188,47 @@ mod tests {
         );
 
         let expected = [
-            (2, "03"),  // .+0102
-            (5, "02"),  // .-0503
-            (8, "04"),  // .|0307
-            (11, "0C"), // .x0304
-            (14, "04"), // ./0902
-            (17, "01"), // .%0902
-            (20, "03"), // .<0305
-            (23, "05"), // .>0305
-            (26, "**"), // .=0505 (equal)
-            (29, "  "), // .=0506 (not equal: no Cell write)
+            // Arithmetic (column 0)
+            (0, 2, "03"),  // .+0102
+            (0, 5, "02"),  // .-0503
+            (0, 8, "04"),  // .|0307
+            (0, 11, "0C"), // .x0304
+            (0, 14, "04"), // ./0902
+            (0, 17, "01"), // .%0902
+            (0, 20, "03"), // .<0305
+            (0, 23, "05"), // .>0305
+            (0, 26, "**"), // .=0505 (equal)
+            (0, 29, "  "), // .=0506 (not equal: no Cell write)
+            // Conversion (column 16)
+            (16, 3, "C4"), // .^3C (Number to Note)
+            (16, 6, "3C"), // .vC4 (Note to Number)
+            // Sequence (column 32)
+            (32, 4, "01020304"),  // :-0104 (Number Range)
+            (32, 7, "C4c4D4"),    // :#C4D4 (Note Range)
+            (32, 10, "04030201"), // :<:-0104 (Reverse, over a nested Function operand)
+            (32, 13, "010203"),   // :&01:-0203 (Concatenate)
+            (32, 16, "01"),       // :?00:-0103 (Select)
+            (32, 19, "010303"),   // :=01.+0102:-0103 (Replace, over nested Functions)
+            (32, 22, "111213"),   // .+10:-0103 (Add, pervasive over a Sequence)
         ];
 
-        for (row, expected) in expected {
-            let start = grid.position(0, row).expect("inside the reference Grid");
-            let end = grid.position(1, row).expect("inside the reference Grid");
-            let actual: String = [start, end]
-                .into_iter()
-                .map(|position| {
+        for (column, row, expected) in expected {
+            let width = expected.chars().count();
+            let actual: String = (0..width)
+                .map(|offset| {
+                    let position = grid
+                        .position(column + offset, row)
+                        .expect("inside the reference Grid");
                     source
                         .get(grid.index(position))
                         .unwrap_or_else(|| " ".to_string())
                 })
                 .collect();
 
-            assert_eq!(actual, expected, "row {row} did not read as written");
+            assert_eq!(
+                actual, expected,
+                "row {row}, column {column} did not read as written"
+            );
         }
     }
 
