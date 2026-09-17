@@ -189,6 +189,57 @@
 //! every short line and every row past the last line with empty Cells — see
 //! its doc comment.
 //!
+//! # Completeness and diagnostic-cleanliness are proven, not asserted
+//!
+//! Two tests close the loop the intent states rather than leaving it as
+//! prose. `every_function_in_the_table_has_a_worked_example` reads
+//! `lang::Function::ALL` — the table's own enumeration, from
+//! `define_functions!` — and asserts each spelling anchors at least one
+//! `orcvs::source::LanguageUnitKind::Function` unit in the reference's own
+//! `LanguageMap`; a Function added to the table without an example fails
+//! the build rather than a checklist going stale. It reads the spelling
+//! through `Function`'s existing `Display` impl, so no new public API is
+//! needed.
+//!
+//! `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`
+//! reads the same `LanguageMap`, built directly from the checked-in text
+//! before any Tick runs, and asserts every Diagnostic's Span sits wholly
+//! inside a named excluded area: the one-Tick result triples, the movement
+//! areas' non-Function Cells, or the MIDI band's Bang-display Cells. A
+//! written result such as `02` sits at a row start with no Function before
+//! it, so the Parser's greedy two-Cell Function read refuses it a Cell at a
+//! time (ADR 0018) — a fact about the checked-in placeholder, never about
+//! the example that computes it, and never a Tick-time Diagnostic: Tick
+//! scheduling only ever visits Expressions with a `function_candidate`, and
+//! a bare written result never parses as one.
+//!
+//! This diagnostic-cleanliness proof caught a real defect rather than only
+//! guarding against future ones. Ticket 02's Concatenate example,
+//! `:&01:-0203`, spelled its left operand as a bare literal `01` against
+//! its `AtomOrSequence`-declared slot, which the Parser resolves to
+//! `Token::Atom` for parsing purposes. `Token::Atom::decode` always refuses
+//! a literal by design (`lang/src/expression.rs`): a generic Atom operand
+//! "has no literal reading" because nothing in the declaration says
+//! whether it means a Number, a Note, or a Char, so "the only thing that
+//! can stand at the position is a nested Function's typed answer" — the
+//! same rule ADR 0007 states for a Sequence-typed operand, extended to the
+//! Atom alternative Concatenate accepts beside it. The Expression therefore
+//! diagnosed at the static parse stage, and Tick scheduling's
+//! `syntax_valid` carried the same fact forward: `syntax_blocks`
+//! (`orcvs/src/source/tick/execution.rs`) silently withheld Concatenate's
+//! own Turn every Tick, with no Diagnostic of its own, because its
+//! operands never changed from the checked-in text `syntax_valid` already
+//! judged invalid. The checked-in result, `010203`, was a hand-typed
+//! placeholder that happened to already match — never an actual Tick
+//! answer — which is exactly what
+//! `ticking_the_reference_once_writes_every_result_row_exactly_as_written`
+//! could not catch: it only reads settled Cells back, never asks whether a
+//! Tick wrote them. The fix, `:&.+0001:-0203`, gives the left operand a
+//! nested Function's Atom answer (Add's `01`) instead of a bare literal,
+//! keeping the same worked answer while letting Concatenate's Turn
+//! actually run: corrupting the result Cell by hand and re-ticking now
+//! shows it overwritten, where before the fix it stood untouched.
+//!
 
 use orcvs::grid::Grid;
 use orcvs::source::Source;
@@ -254,8 +305,8 @@ fn round_up_to_sector_seam(value: usize) -> usize {
 mod tests {
     use super::{function_reference, source_from_reference_text};
     use orcvs::source::{
-        BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand, Tick,
-        Velocity,
+        BendLsb, BendMsb, ControlValue, Controller, LanguageUnitKind, Length, MidiChannel, Note,
+        PlayCommand, Tick, Velocity,
     };
 
     ///
@@ -300,30 +351,22 @@ mod tests {
         );
     }
 
-    ///
     /// Every result row the Arithmetic, Conversion, Sequence, and Tick
-    /// groups' examples write, read back after ticking the reference once.
+    /// groups' examples write, one `(column, row, expected)` triple each,
+    /// where `column` is the group's own anchor column (Arithmetic 0,
+    /// Conversion 16, Sequence 32, Tick 48) since each group's result rows
+    /// are read back from its own Cells, not always the leftmost ones.
     ///
-    /// This is the test later groups extend: a later ticket adds its own
-    /// `(column, row, expected)` entries for its own examples rather than a
-    /// second assertion mechanism. `column` is the group's own anchor column
-    /// (Arithmetic 0, Conversion 16, Sequence 32, Tick 48), since each
-    /// group's result rows are read back from its own Cells, not always the
-    /// leftmost ones.
-    ///
-    #[test]
-    fn ticking_the_reference_once_writes_every_result_row_exactly_as_written() {
-        let mut source = function_reference();
-        let grid = source.grid();
-
-        let plan = source.execute(Tick::ZERO);
-        assert!(
-            plan.diagnostics.is_empty(),
-            "every worked example must be a valid Expression: {:?}",
-            plan.diagnostics
-        );
-
-        let expected = [
+    /// Shared by [`ticking_the_reference_once_writes_every_result_row_exactly_as_written`],
+    /// which reads these Cells back after ticking, and
+    /// `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`,
+    /// which excludes them from the pre-Tick diagnostic sweep: a written
+    /// result such as `03` sits at a row start with no Function before it,
+    /// so the Parser's greedy two-Cell Function read refuses it (ADR 0018)
+    /// and diagnoses every one of its Cells, a fact about the checked-in
+    /// placeholder rather than about the example that computes it.
+    fn one_tick_result_triples() -> Vec<(usize, usize, &'static str)> {
+        vec![
             // Arithmetic (column 0)
             (0, 2, "03"),  // .+0102
             (0, 5, "02"),  // .-0503
@@ -342,10 +385,10 @@ mod tests {
             (32, 4, "01020304"),  // :-0104 (Number Range)
             (32, 7, "C4c4D4"),    // :#C4D4 (Note Range)
             (32, 10, "04030201"), // :<:-0104 (Reverse, over a nested Function operand)
-            (32, 13, "010203"),   // :&01:-0203 (Concatenate)
-            (32, 16, "01"),       // :?00:-0103 (Select)
-            (32, 19, "010303"),   // :=01.+0102:-0103 (Replace, over nested Functions)
-            (32, 22, "111213"),   // .+10:-0103 (Add, pervasive over a Sequence)
+            (32, 13, "010203"), // :&.+0001:-0203 (Concatenate, over a nested Function's Atom answer)
+            (32, 16, "01"),     // :?00:-0103 (Select)
+            (32, 19, "010303"), // :=01.+0102:-0103 (Replace, over nested Functions)
+            (32, 22, "111213"), // .+10:-0103 (Add, pervasive over a Sequence)
             // Tick (column 48). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
@@ -364,9 +407,22 @@ mod tests {
             (48, 14, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
             (48, 17, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
             (48, 20, "10"), // ~?010010 (Random: seed 01 at Position (48, 19), Tick 0)
-        ];
+        ]
+    }
 
-        for (column, row, expected) in expected {
+    #[test]
+    fn ticking_the_reference_once_writes_every_result_row_exactly_as_written() {
+        let mut source = function_reference();
+        let grid = source.grid();
+
+        let plan = source.execute(Tick::ZERO);
+        assert!(
+            plan.diagnostics.is_empty(),
+            "every worked example must be a valid Expression: {:?}",
+            plan.diagnostics
+        );
+
+        for (column, row, expected) in one_tick_result_triples() {
             let width = expected.chars().count();
             let actual: String = (0..width)
                 .map(|offset| {
@@ -844,6 +900,130 @@ mod tests {
         assert!(
             emitted.iter().all(|&fired| fired),
             "not every MIDI example fired within nine Ticks: {emitted:?}"
+        );
+    }
+
+    ///
+    /// Every Function in `lang::Function::ALL` — the table's own
+    /// enumeration, generated by `define_functions!` beside the enum itself
+    /// (`lang/src/atom.rs`) — anchors at least one
+    /// [`LanguageUnitKind::Function`] Language Unit somewhere in the
+    /// reference's own [`orcvs::source::LanguageMap`]. Deriving the list from
+    /// the table itself, rather than a hand-written one, is the point: a
+    /// Function added to `define_functions!` without an example here fails
+    /// this test instead of a checklist nobody remembered to update.
+    ///
+    /// A Function's spelling is read through its existing
+    /// `impl std::fmt::Display for Function` (`f.write_str(self.spelling())`,
+    /// `lang/src/atom.rs`) rather than a new accessor: `Function::spelling`
+    /// is `pub(crate)` to `lang`, but `Function` and its `Display` impl are
+    /// already public, so nothing new is exposed to answer this — no
+    /// public-API risk.
+    ///
+    #[test]
+    fn every_function_in_the_table_has_a_worked_example() {
+        let source = function_reference();
+        let map = source.language_map();
+
+        let documented: Vec<lang::Function> = map
+            .units()
+            .filter_map(|unit| match unit.kind() {
+                LanguageUnitKind::Function(function) => Some(function),
+                _ => None,
+            })
+            .collect();
+
+        let missing: Vec<String> = lang::Function::ALL
+            .iter()
+            .filter(|function| !documented.contains(function))
+            .map(|function| format!("{function} ({function:?})"))
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "the Function reference has no worked example for: {missing:?}"
+        );
+    }
+
+    ///
+    /// Every example Expression in the reference parses without a
+    /// Diagnostic, reading the reference's own
+    /// [`orcvs::source::LanguageMap`] built directly from the checked-in
+    /// text — the same Map `Source::language_map` exposes for live syntax
+    /// highlighting — before any Tick has run.
+    ///
+    /// A written result such as `02` sits at a row start with no Function
+    /// before it, so the Parser's greedy two-Cell Function read refuses it
+    /// and advances one Cell at a time (ADR 0018), naming every one of its
+    /// Cells "unknown function" or "invalid Language Unit character" — a
+    /// fact about the checked-in placeholder, not about the example that
+    /// computes it, and never a Tick-time Diagnostic:
+    /// `orcvs::source::tick`'s scheduling only ever visits Expressions with
+    /// a `function_candidate`, and a bare written result never parses as
+    /// one (proven separately by
+    /// `ticking_the_reference_once_writes_every_result_row_exactly_as_written`'s
+    /// `plan.diagnostics.is_empty()`).
+    ///
+    /// A Diagnostic is excused only when its whole Span sits inside one of
+    /// three named areas, each reused from an existing helper rather than a
+    /// second hand-maintained coordinate list:
+    ///
+    /// - [`one_tick_result_triples`]'s result Cells (Arithmetic, Conversion,
+    ///   Sequence, and Tick's own answers);
+    /// - [`movement_areas`]'s non-Function Cells — the mover, jump, and
+    ///   blocker values a Jump, Halt, Directional Bang, or Self-Banging
+    ///   example writes or reads spatially — filtered to exclude whichever
+    ///   of an area's own Cells anchor a [`LanguageUnitKind::Function`]
+    ///   unit, so a mistyped Function spelling inside a movement area still
+    ///   fails this test;
+    /// - [`midi_bang_result_areas`]'s Bang-display Cells.
+    ///
+    /// This test caught a real defect rather than only guarding against
+    /// future ones: see the module doc's "Completeness and
+    /// diagnostic-cleanliness are proven, not asserted" section for what it
+    /// found in ticket 02's Concatenate example.
+    ///
+    #[test]
+    fn every_example_expression_parses_without_a_diagnostic_outside_a_result_row() {
+        let source = function_reference();
+        let map = source.language_map();
+
+        let function_cells: std::collections::HashSet<(usize, usize)> = map
+            .units()
+            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Function(_)))
+            .flat_map(|unit| unit.span().positions())
+            .map(|position| (position.x(), position.y()))
+            .collect();
+
+        let one_tick = one_tick_result_triples();
+        let movement = movement_areas();
+        let midi_bang = midi_bang_result_areas();
+
+        let excluded = |x: usize, y: usize| {
+            one_tick.iter().any(|&(column, row, expected)| {
+                row == y && (column..column + expected.chars().count()).contains(&x)
+            }) || (movement.iter().any(|area| area.contains(x, y))
+                && !function_cells.contains(&(x, y)))
+                || midi_bang.iter().any(|area| area.contains(x, y))
+        };
+
+        let offending: Vec<String> = map
+            .diagnostics()
+            .filter(|diagnostic| {
+                diagnostic
+                    .span()
+                    .positions()
+                    .any(|position| !excluded(position.x(), position.y()))
+            })
+            .map(|diagnostic| {
+                let anchor = diagnostic.anchor();
+                format!("({}, {}): {}", anchor.x(), anchor.y(), diagnostic.message)
+            })
+            .collect();
+
+        assert!(
+            offending.is_empty(),
+            "unexpected Diagnostics outside every excluded result Cell range: {offending:?}"
         );
     }
 }
