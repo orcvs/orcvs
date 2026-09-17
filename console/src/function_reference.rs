@@ -21,9 +21,9 @@
 //! | Columns   | `k` | Group                                                |
 //! |-----------|-----|-------------------------------------------------------|
 //! | `0..16`   | 0   | Arithmetic (ticket 01): `.+ .- .| .x ./ .% .< .> .=`   |
-//! | `16..32`  | 1   | Numeric Conversion (this ticket): `.v .^`              |
-//! | `32..48`  | 2   | Sequence (this ticket): `:- :# :< :& :? :=` (results up to 14 Cells) |
-//! | `48..64`  | 3   | Tick: `~. ~* ~% ~+ ~> ~?`                              |
+//! | `16..32`  | 1   | Numeric Conversion (ticket 02): `.v .^`                |
+//! | `32..48`  | 2   | Sequence (ticket 02): `:- :# :< :& :? :=` (results up to 14 Cells) |
+//! | `48..64`  | 3   | Tick (this ticket): `~. ~* ~% ~+ ~> ~?`                |
 //! | `64..96`  | 4..5 | Jumps, Directional Bangs, Self-Banging, Halt (two columns: `&^ &v &< &>`, `*^ *v *< *> *!`, `^^ vv << >>` move and need room to move without leaving their area) |
 //! | `96..112` | 6   | MIDI: `!> !~ !% !c !b !$` (examples ~10 Cells wide)     |
 //!
@@ -40,10 +40,14 @@
 //!
 //! Rows: the tallest group decides the Grid's row count — currently
 //! Arithmetic, whose header plus 10 examples of 3 rows each reaches row 30 —
-//! rounded up to 32, the next multiple of 8. Conversion and Sequence both
-//! start later (rows 1 and 2) but finish well inside that height, so this
-//! ticket does not grow the Grid; a later group taller than 32 rows would
-//! widen the whole Grid's row count, since every column shares one row axis.
+//! rounded up to 32, the next multiple of 8. Conversion, Sequence, and Tick
+//! all start later (rows 1, 2, and 3) but finish well inside that height —
+//! Tick's header plus six examples of 3 rows each reaches row 21 — so this
+//! ticket does not grow the Grid's row count either; a later group taller
+//! than 32 rows would widen the whole Grid's row count, since every column
+//! shares one row axis. Tick's column does widen the Grid: its widest row is
+//! Random's eight-Cell Expression, `~?010010`, reaching column 55 and
+//! rounding the Grid's width up from 48 to 56.
 //!
 //! # Checked-in text is ragged, not a padded rectangle
 //!
@@ -166,14 +170,15 @@ mod tests {
     }
 
     ///
-    /// Every result row the Arithmetic, Conversion, and Sequence groups'
-    /// examples write, read back after ticking the reference once.
+    /// Every result row the Arithmetic, Conversion, Sequence, and Tick
+    /// groups' examples write, read back after ticking the reference once.
     ///
     /// This is the test later groups extend: a later ticket adds its own
     /// `(column, row, expected)` entries for its own examples rather than a
     /// second assertion mechanism. `column` is the group's own anchor column
-    /// (Arithmetic 0, Conversion 16, Sequence 32), since each group's result
-    /// rows are read back from its own Cells, not always the leftmost ones.
+    /// (Arithmetic 0, Conversion 16, Sequence 32, Tick 48), since each
+    /// group's result rows are read back from its own Cells, not always the
+    /// leftmost ones.
     ///
     #[test]
     fn ticking_the_reference_once_writes_every_result_row_exactly_as_written() {
@@ -210,6 +215,24 @@ mod tests {
             (32, 16, "01"),       // :?00:-0103 (Select)
             (32, 19, "010303"),   // :=01.+0102:-0103 (Replace, over nested Functions)
             (32, 22, "111213"),   // .+10:-0103 (Add, pervasive over a Sequence)
+            // Tick (column 48). Clock, Delay, Euclidean, and Random depend
+            // only on their operands, the absolute Tick, and (for Random)
+            // this Function's own Grid Position — never on a previously
+            // written Cell — so the checked-in result row already holds
+            // what Tick 0 writes, exactly like Arithmetic.
+            //
+            // Increment and Interpolation are different: each reads its own
+            // result Cell as the previous value before it writes a new one.
+            // The checked-in text therefore holds a pre-Tick previous chosen
+            // to make the change visible (Increment's `03`, Interpolation's
+            // `00`), and this table asserts the value Tick 0 overwrites it
+            // with — the two are deliberately not the same string.
+            (48, 5, "00"),  // ~.0204 (Clock: step 0 of a 2-Tick, 4-step cycle)
+            (48, 8, "**"),  // ~*0302 (Delay: every cycle Bangs at Tick 0)
+            (48, 11, "**"), // ~%0308 (Euclidean: 03-08's pattern Bangs its first step)
+            (48, 14, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
+            (48, 17, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
+            (48, 20, "10"), // ~?010010 (Random: seed 01 at Position (48, 19), Tick 0)
         ];
 
         for (column, row, expected) in expected {
