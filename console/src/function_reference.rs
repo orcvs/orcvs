@@ -23,10 +23,10 @@
 //! | `0..16`   | 0   | Arithmetic (ticket 01): `.+ .- .| .x ./ .% .< .> .=`   |
 //! | `16..32`  | 1   | Numeric Conversion (ticket 02): `.v .^`                |
 //! | `32..48`  | 2   | Sequence (ticket 02): `:- :# :< :& :? :=` (results up to 14 Cells) |
-//! | `48..64`  | 3   | Tick (this ticket): `~. ~* ~% ~+ ~> ~?`                |
-//! | `64..80`  | 4   | Jumps and Halt (this ticket): `&^ &v &< &>`, `*!`      |
-//! | `80..96`  | 5   | Directional Bangs and Self-Banging (this ticket): `*^ *v *< *>`, `^^ vv << >>` |
-//! | `96..112` | 6   | MIDI: `!> !~ !% !c !b !$` (examples ~10 Cells wide)     |
+//! | `48..64`  | 3   | Tick (ticket 03): `~. ~* ~% ~+ ~> ~?`                  |
+//! | `64..80`  | 4   | Jumps and Halt (ticket 04): `&^ &v &< &>`, `*!`        |
+//! | `80..96`  | 5   | Directional Bangs and Self-Banging (ticket 04): `*^ *v *< *>`, `^^ vv << >>` |
+//! | `96..112` | 6   | MIDI (this ticket): `!> !~ !% !c !b`                   |
 //!
 //! Each group's header Comment claims the rest of its *Grid* row per the
 //! Comment Language Unit — the whole row, not just its own 16 Cells — so two
@@ -114,10 +114,68 @@
 //! (rows 1, 2, and 3) but finish well inside that height. Tick's column
 //! widens the Grid on its own: its widest row is Random's eight-Cell
 //! Expression, `~?010010`, reaching column 55 and rounding the Grid's width
-//! up from 48 to 56. This ticket widens it again — band 5's West Directional
+//! up from 48 to 56. Ticket 04 widened it again — band 5's West Directional
 //! Bang example's Delay Expression, `~*1001`, reaches column 91 — rounding
 //! the Grid's width up from 56 to 96, which is exactly band 5's own upper
-//! bound and leaves ticket 05's MIDI band (`96..112`) untouched.
+//! bound. This ticket widens it once more: Timed Play's and Monophonic
+//! Play's Expressions are ten Cells each (`!~0064E408`, `!%0164G404`),
+//! starting at column 96 like every MIDI example's Euclidean source above
+//! them and so reaching column 105 — rounding the Grid's width up from 96 to
+//! 112, exactly band 6's own upper bound. Band 6's five examples, each four
+//! rows tall (below), reach only row 26, well inside the height Arithmetic
+//! already pins, so this ticket does not grow the Grid's row count either.
+//!
+//! # MIDI activation needs no area, only a Bang source
+//!
+//! Every MIDI example is stable after the one Tick that computes it, the same
+//! as Arithmetic, Conversion, Sequence, and the Jumps: a Terminal Output
+//! Function "never writes a Cell result" (CONTEXT.md's Terminal Output
+//! Function entry), so nothing about a `!`-spelled Expression itself ever
+//! changes once checked in, and no row is reserved south of it the way every
+//! value-answering group reserves one for its result. What does change is
+//! each example's own Bang source, exactly as Tick's own Delay and Euclidean
+//! examples already do (ticket 03).
+//!
+//! Each of the five examples is gated by its own Euclidean, `~%0104` — the
+//! `X...` pattern, one Bang every four Ticks starting at Tick 0 — rather
+//! than a Delay or an always-true Equality, for a reason particular to this
+//! band: the ticket asks for a Bang source that "fires at a rate slow
+//! enough to hear distinct events at the default tempo" (20 BPM, 750 ms per
+//! Tick, from `orcvs::opts::Opts::new`), and neither alternative does that.
+//! A Delay whose cycle outlasts the tick budget — band 5's own choice —
+//! Bangs exactly once and never again, which does not "fire at a rate" at
+//! all. An always-true Equality Bangs every single Tick: band 5 avoids that
+//! choice because a Directional Bang's emission occupies a Cell, so every
+//! Tick after the first re-attempts a write into an occupied destination and
+//! diagnoses forever, but that failure mode does not apply here — a Terminal
+//! Output Function has no destination Cell to occupy, so an always-true
+//! Equality would perform cleanly on every Tick with no diagnostic. It would
+//! simply not read as a distinct event, firing on every Tick rather than at
+//! any chosen rate. Euclidean answers a Bang only on the Ticks its rhythm
+//! places an onset at (CONTEXT.md's Euclidean Function entry) and the
+//! Absence Marker on the rest, so `~% 01 04` gives a genuine repeating pulse
+//! at a rate the two operands choose, clearing to blank between Bangs the
+//! same way Delay's own result Cell does.
+//!
+//! Activation is vertical, the same alignment
+//! `orcvs::source::tick::a_select_bang_activates_an_aligned_terminal_root`
+//! proves for a Select-forwarded Bang activating a Raw Play root two rows
+//! south: each Euclidean's Expression sits on one row, its own Bang-display
+//! Cells sit one row south at the same column (the ordinary default Portal
+//! every Bang-capable Value Function uses), and the gated Terminal Output
+//! Function's root sits one row further south, at that same column — sharing
+//! the Bang-display Cells' anchor column one row south, exactly the
+//! "vertically aligned root" CONTEXT.md's Bang entry describes. A blank row
+//! then separates one example from the next, so each example spans four
+//! rows (Euclidean Expression, its Bang display, the gated Function, and a
+//! blank row) rather than the three-row cadence a value-answering group
+//! uses, since a Terminal Output Function's own row replaces a result row
+//! rather than sitting beside one.
+//!
+//! The Function table's only other Terminal Output Function, Application
+//! Command `!$`, is not among these five: ADR 0008 and ADR 0019 defer it
+//! until Orcvs settles a command value encoding, so it has no variant in
+//! `lang::Function` and nothing to write an example of.
 //!
 //! # Checked-in text is ragged, not a padded rectangle
 //!
@@ -195,7 +253,10 @@ fn round_up_to_sector_seam(value: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{function_reference, source_from_reference_text};
-    use orcvs::source::Tick;
+    use orcvs::source::{
+        BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand, Tick,
+        Velocity,
+    };
 
     ///
     /// A checked-in, padded rectangle is not the only shape the loader must
@@ -452,6 +513,33 @@ mod tests {
         ]
     }
 
+    /// The MIDI group's own five Bang-display Cells (ticket 05), one pair per
+    /// Terminal Output example — column `96..98`, one row south of that
+    /// example's Euclidean root, exactly the default output Portal every
+    /// Value Function that can emit Bang uses (the same Cells `~*0302`'s `**`
+    /// occupies south of Tick's own Delay, and `~%0308`'s south of Tick's own
+    /// Euclidean). `~% 01 04` Bangs on the "X..." pattern
+    /// (`euclidean_places_its_hits_where_the_adr_formula_does` proves this
+    /// pattern from the same `~%` formula this module's own Euclidean
+    /// example uses), so this Cell reads `**` on every fourth Tick starting
+    /// at Tick 0 and clears to blank on the three Ticks between — the same
+    /// clearing behaviour ticket 04's Delay and Tick's own Euclidean already
+    /// rely on — which is why these five Cells, and no others in the MIDI
+    /// group, are excluded from "no Cell outside an example's own area
+    /// changes" below. Every Terminal Output Function's own Expression is
+    /// stable forever after being written once: it performs an effect and
+    /// never receives a Cell write of its own, so re-evaluating it on a
+    /// later Tick reads back exactly what ticket 05 checked in.
+    fn midi_bang_result_areas() -> Vec<Area> {
+        [8, 12, 16, 20, 24]
+            .into_iter()
+            .map(|row| Area {
+                columns: 96..98,
+                rows: row..(row + 1),
+            })
+            .collect()
+    }
+
     /// `area`'s Cells, one `String` per row, each row read west to east with
     /// an unset Cell standing for a space — the same shape
     /// `orcvs::source::tick`'s own `rows_of` test helper reads a whole Grid
@@ -506,9 +594,11 @@ mod tests {
 
         let movement = movement_areas();
         let tick_dynamic = tick_dynamic_result_areas();
+        let midi_bang = midi_bang_result_areas();
         let excluded = |x: usize, y: usize| {
             movement.iter().any(|area| area.contains(x, y))
                 || tick_dynamic.iter().any(|area| area.contains(x, y))
+                || midi_bang.iter().any(|area| area.contains(x, y))
         };
 
         let before = snapshot(&source);
@@ -583,5 +673,177 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The five expected [`PlayCommand`]s this ticket's MIDI examples emit
+    /// when their own Euclidean Bang source Bangs, in the group's own row
+    /// order (Raw Play, Timed Play, Monophonic Play, Control Change, Pitch
+    /// Bend) — the operands `console/assets/function_reference.orcvs` checks
+    /// in for each, read as the domain types the Function table binds them
+    /// to. Channel, velocity, note, controller, value, and bend operands were
+    /// chosen to be plausible MIDI content (a mid-velocity Middle C on
+    /// channel `00`, a Volume Control Change (`07`), a Pitch Bend above
+    /// centre (`40`)) rather than boundary values, since this is a worked
+    /// example and not a domain-boundary test — those already live in
+    /// `lang`.
+    fn expected_midi_commands() -> [PlayCommand; 5] {
+        [
+            // !>0064C4 — Raw Play: channel 00, velocity 64 (100), note C4.
+            PlayCommand::Raw {
+                channel: MidiChannel::try_from(0x00).unwrap(),
+                velocity: Velocity::try_from(0x64).unwrap(),
+                note: Note::try_from(0x3C).unwrap(),
+            },
+            // !~0064E408 — Timed Play: channel 00, velocity 64, note E4,
+            // length 08 Ticks.
+            PlayCommand::Timed {
+                channel: MidiChannel::try_from(0x00).unwrap(),
+                velocity: Velocity::try_from(0x64).unwrap(),
+                note: Note::try_from(0x40).unwrap(),
+                length: Length::from(0x08),
+            },
+            // !%0164G404 — Monophonic Play: channel 01, velocity 64, note G4,
+            // length 04 Ticks.
+            PlayCommand::Mono {
+                channel: MidiChannel::try_from(0x01).unwrap(),
+                velocity: Velocity::try_from(0x64).unwrap(),
+                note: Note::try_from(0x43).unwrap(),
+                length: Length::from(0x04),
+            },
+            // !c000764 — Control Change: channel 00, controller 07 (Volume),
+            // value 64.
+            PlayCommand::ControlChange {
+                channel: MidiChannel::try_from(0x00).unwrap(),
+                controller: Controller::try_from(0x07).unwrap(),
+                value: ControlValue::try_from(0x64).unwrap(),
+            },
+            // !b000050 — Pitch Bend: channel 00, lsb 00, msb 50 (above
+            // centre).
+            PlayCommand::PitchBend {
+                channel: MidiChannel::try_from(0x00).unwrap(),
+                lsb: BendLsb::try_from(0x00).unwrap(),
+                msb: BendMsb::try_from(0x50).unwrap(),
+            },
+        ]
+    }
+
+    ///
+    /// Ticket 05's MIDI group: five Terminal Output Functions (`!>`, `!~`,
+    /// `!%`, `!c`, `!b` — every Terminal Output Function the Function table
+    /// holds; `!$` Application Command is not among them, since ADR 0008 and
+    /// ADR 0019 defer it until Orcvs has a command value encoding, so it has
+    /// no variant in `lang::Function` to give an example of), each gated by
+    /// its own Euclidean Bang source, `~%0104` — the `X...` pattern
+    /// `euclidean_places_its_hits_where_the_adr_formula_does` in `lang`
+    /// checks, one Bang every four Ticks starting at Tick 0. At the default
+    /// 20 BPM tempo (`orcvs::opts::Opts::new`'s `Bpm::new(20)`, 750 ms per
+    /// Tick), that is a Bang roughly every three seconds — slow enough to
+    /// hear each group's note, chord change, controller sweep, or bend as
+    /// its own event, unlike a Bang that repeated every Tick. A Delay was
+    /// not used instead: cycle `~*1001` Bangs exactly once and never again
+    /// inside any tick budget this module ticks, which does not "fire at a
+    /// rate" the way this ticket calls for. An Equality that holds forever
+    /// was not used either: unlike ticket 04's Directional Bang, a Terminal
+    /// Output Function never receives a Cell write of its own to occupy, so
+    /// an always-true Equality would not diagnose here the way it does for a
+    /// mover — but it would Bang every single Tick, which does not read as a
+    /// distinct event at any tempo.
+    ///
+    /// Every Terminal Output Function "never writes a Cell result"
+    /// (CONTEXT.md's Terminal Output Function entry), so no row is reserved
+    /// south of any of these five Expressions — unlike every value-answering
+    /// group's own result row — and the only Cells that ever change while
+    /// ticking this group are the Euclidean sources' own Bang-display Cells,
+    /// [`midi_bang_result_areas`], which this test names explicitly and
+    /// excludes rather than asserting fixed content for, since each toggles
+    /// between `**` and blank forever rather than settling.
+    ///
+    /// This ticks the reference across two full Euclidean cycles (Ticks `0`
+    /// through `8`) and asserts, at every Tick: no diagnostic, no
+    /// [`orcvs::source::CellWrite`] whose Position falls inside the MIDI
+    /// band (column `96` onward — no other group ever writes there), and no
+    /// Cell inside the MIDI band changes except the five Bang-display Cells.
+    /// Across the whole run it also asserts every one of the five expected
+    /// [`PlayCommand`]s was emitted on at least one Tick — proof the group
+    /// plays, not merely that it declines to write, which is what the Tick
+    /// Plan's own `play_commands` exposes for exactly this purpose (the same
+    /// field `orcvs::source::tick`'s own
+    /// `a_select_bang_activates_an_aligned_terminal_root` test reads).
+    ///
+    #[test]
+    fn ticking_the_midi_group_writes_no_cell_and_emits_every_terminal_output_function() {
+        let mut source = function_reference();
+        let grid = source.grid();
+
+        let read = |source: &super::Source, x: usize, y: usize| -> Option<String> {
+            let position = grid.position(x, y).expect("inside the reference Grid");
+            source.get(grid.index(position))
+        };
+
+        let midi_columns = 96..grid.columns();
+        let midi_rows = 0..grid.rows();
+        let midi_coordinates: Vec<(usize, usize)> = midi_rows
+            .clone()
+            .flat_map(|y| midi_columns.clone().map(move |x| (x, y)))
+            .collect();
+        let bang_cells = midi_bang_result_areas();
+        let excluded = |x: usize, y: usize| bang_cells.iter().any(|area| area.contains(x, y));
+
+        let before: Vec<Option<String>> = midi_coordinates
+            .iter()
+            .map(|&(x, y)| read(&source, x, y))
+            .collect();
+
+        let expected = expected_midi_commands();
+        let mut emitted = [false; 5];
+
+        for tick in 0..9u64 {
+            let plan = source.execute(Tick::new(tick));
+            assert!(
+                plan.diagnostics.is_empty(),
+                "Tick {tick} diagnosed: {:?}",
+                plan.diagnostics
+            );
+
+            for write in &plan.writes {
+                let position = grid.position_at(write.cell);
+                let in_midi_band = position.x() >= 96;
+                let is_bang_display = bang_cells
+                    .iter()
+                    .any(|area| area.contains(position.x(), position.y()));
+                assert!(
+                    !in_midi_band || is_bang_display,
+                    "Tick {tick} wrote Cell {position:?} inside the MIDI band \
+                     but outside a Euclidean Bang-display Cell — no Terminal \
+                     Output Function ever writes a Cell"
+                );
+            }
+
+            for (index, command) in expected.iter().enumerate() {
+                if plan.play_commands.contains(command) {
+                    emitted[index] = true;
+                }
+            }
+
+            let now: Vec<Option<String>> = midi_coordinates
+                .iter()
+                .map(|&(x, y)| read(&source, x, y))
+                .collect();
+            for (offset, &(x, y)) in midi_coordinates.iter().enumerate() {
+                if excluded(x, y) {
+                    continue;
+                }
+                assert_eq!(
+                    now[offset], before[offset],
+                    "Cell ({x}, {y}), in the MIDI band but outside a Euclidean \
+                     Bang-display Cell, changed on Tick {tick}"
+                );
+            }
+        }
+
+        assert!(
+            emitted.iter().all(|&fired| fired),
+            "not every MIDI example fired within nine Ticks: {emitted:?}"
+        );
     }
 }

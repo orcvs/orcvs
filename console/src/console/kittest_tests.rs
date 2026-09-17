@@ -481,7 +481,7 @@ async fn the_file_menu_loads_the_function_reference_on_demand() {
     let grid = harness.state().orcvs.render_frame().grid();
     assert_eq!(
         (grid.columns(), grid.rows()),
-        (96, 32),
+        (112, 32),
         "loading the Function reference did not carry its own Grid"
     );
 }
