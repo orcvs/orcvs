@@ -287,7 +287,7 @@ impl LanguageMap {
     }
 
     ///
-    /// The Token of the Expression that covers `position`, when one does.
+    /// The positioned entry that claims `position`, when one does.
     ///
     /// A later Expression owns the Cells its Span covers, so a Cell an earlier
     /// Expression had labelled is unread once a later Span takes it. A Cell
@@ -295,7 +295,11 @@ impl LanguageMap {
     /// unmatched non-space byte is not a claim either — leftover `Char` is the
     /// Source revision's composition, not this Map's.
     ///
-    pub fn token_at(&self, position: Position) -> Option<Token> {
+    /// [`Self::token_at`] and [`Self::bound_at`] both read one entry through
+    /// this lookup rather than walking the rows twice: `token` and whether it
+    /// bound an Atom are two questions about the one record the Parser left.
+    ///
+    fn entry_at(&self, position: Position) -> Option<&lang::PositionedEntry> {
         let index = self.grid.index(position).get();
         let row = &self.rows[index / self.grid.columns()];
         for expression in row.expressions.iter().rev() {
@@ -305,12 +309,44 @@ impl LanguageMap {
             }
             for entry in expression.positioned() {
                 if entry.cells.contains(&index) {
-                    return Some(entry.token);
+                    return Some(entry);
                 }
             }
             return None;
         }
         None
+    }
+
+    ///
+    /// The Token of the Expression that covers `position`, when one does.
+    ///
+    pub fn token_at(&self, position: Position) -> Option<Token> {
+        self.entry_at(position).map(|entry| entry.token)
+    }
+
+    ///
+    /// Whether the entry claiming `position` bound the Atom its Token
+    /// declared, when one claims it.
+    ///
+    /// `None` exactly where [`Self::token_at`] answers `None`: `position` is
+    /// not claimed by any positioned entry. Where an entry does claim it,
+    /// `Some(false)` is the Parser's own record that its Cells failed to bind
+    /// — an Invalid Operand (`take_token` refused the declared Token) or a
+    /// refused Function spelling (`Function::try_from` refused the two Cells
+    /// `take_language_unit` read, including a lone `|`, both Cells of a
+    /// written `07`, and the trailing `<` of `<<<`; ADR 0018). `Some(true)`
+    /// covers a Valid Operand, a Bang, a recognized Function — and a Comment,
+    /// which records `Token::Comment` and no Atom at all (ADR 0035) despite
+    /// being a complete Language Unit rather than an invalid one. `name_units`
+    /// (below) already reads `(entry.token, entry.atom)` with the Token
+    /// checked first for the same reason: a Comment is the one entry whose
+    /// Token and Atom presence disagree, and Comment's completeness is a fact
+    /// this Map already knows rather than one the console would have to
+    /// rediscover from the Token alone.
+    ///
+    pub fn bound_at(&self, position: Position) -> Option<bool> {
+        self.entry_at(position)
+            .map(|entry| entry.token == Token::Comment || entry.atom.is_some())
     }
 
     ///

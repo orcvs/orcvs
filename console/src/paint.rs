@@ -237,8 +237,12 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
+                // `bound() == None` is a Cell no positioned entry claims — an
+                // empty unclaimed Cell or leftover `Char` — and it folds to
+                // `true` here because nothing there can be marked invalid.
                 let visuals = cell_visuals_with_cursor_colour(
                     cell.token(),
+                    cell.bound().unwrap_or(true),
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
@@ -528,6 +532,7 @@ mod tests {
             let selected = position == cursor;
             let visuals = cell_visuals(
                 cell.token(),
+                cell.bound().unwrap_or(true),
                 selected,
                 selected && frame.cursor_visible(),
                 SourcePaintSettings::default(),
@@ -804,7 +809,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                cell_visuals(Some(Token::Number), false, false, source_paint).background,
+                cell_visuals(Some(Token::Number), true, false, false, source_paint).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -819,7 +824,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                cell_visuals(Some(Token::Note), false, false, source_paint).background,
+                cell_visuals(Some(Token::Note), true, false, false, source_paint).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -869,7 +874,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            cell_visuals(Some(Token::Number), false, false, source_paint).background,
+            cell_visuals(Some(Token::Number), true, false, false, source_paint).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -947,8 +952,9 @@ mod tests {
         let paint = whole(&frame);
         let source_paint = SourcePaintSettings::default();
         let function_tint =
-            cell_visuals(Some(Token::Function), false, false, source_paint).background;
-        let number_tint = cell_visuals(Some(Token::Number), false, false, source_paint).background;
+            cell_visuals(Some(Token::Function), true, false, false, source_paint).background;
+        let number_tint =
+            cell_visuals(Some(Token::Number), true, false, false, source_paint).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 

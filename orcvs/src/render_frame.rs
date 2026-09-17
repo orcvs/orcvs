@@ -16,6 +16,7 @@ pub struct RenderCell {
     position: Position,
     content: Option<char>,
     token: Option<Token>,
+    bound: Option<bool>,
 }
 
 impl RenderCell {
@@ -29,6 +30,20 @@ impl RenderCell {
 
     pub fn token(&self) -> Option<Token> {
         self.token
+    }
+
+    ///
+    /// Whether the entry this Cell's Token came from bound its declared Atom.
+    ///
+    /// `None` exactly where [`Self::token`] answers `None`: this Cell is not
+    /// claimed by any positioned entry (an empty unclaimed Cell, or leftover
+    /// `Char` content no Expression covered). Where an entry does claim it,
+    /// `Some(false)` is [`crate::source::LanguageMap::bound_at`]'s answer for
+    /// an Invalid Operand or a refused Function spelling; `Some(true)` covers
+    /// a Valid Operand, a Bang, a recognized Function, and a Comment.
+    ///
+    pub fn bound(&self) -> Option<bool> {
+        self.bound
     }
 }
 
@@ -90,6 +105,7 @@ impl RenderFrame {
                 position,
                 content: source.content_at(position),
                 token: source.token_at(position),
+                bound: source.language_map().bound_at(position),
             })
             .collect();
         let expressions = source
@@ -416,6 +432,96 @@ mod tests {
         let truncated = grid.position(4, 0).unwrap();
         assert_eq!(frame.at(truncated).content(), None);
         assert_eq!(frame.at(truncated).token(), Some(Token::Number));
+        // The Cells the row's tail held are the Cells `take_token` had to
+        // refuse: its declared Token survives, and it is unbound the same way
+        // any other Invalid Operand is.
+        assert_eq!(frame.at(truncated).bound(), Some(false));
+    }
+
+    #[test]
+    fn an_invalid_operand_keeps_its_declared_token_and_is_unbound() {
+        // `.+c40G`: Addition's two Number operands. `c4` is lowercase and `0G`
+        // is not hexadecimal at all, so both fail `Token::Number::decode` and
+        // the Parser records each as `(Token::Number, None)`. Both stay
+        // Number — `syntax-highlighting/02`'s tint reads the Token, not the
+        // Atom — and both are unbound.
+        let grid = Grid::new(6, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+c40G");
+        let frame = derive_frame(&source, grid.origin());
+
+        for column in [2, 3, 4, 5] {
+            let cell = frame.at(grid.position(column, 0).unwrap());
+            assert_eq!(cell.token(), Some(Token::Number), "column {column}");
+            assert_eq!(cell.bound(), Some(false), "column {column}");
+        }
+    }
+
+    #[test]
+    fn a_valid_operand_beside_an_invalid_one_is_unaffected() {
+        // `.+**01` and `.+||02`: the first Number operand is a rejected `**`
+        // or `||` spelling — neither is recognized at an operand position, so
+        // both are read as Number and refused, same as `c40G` above. The
+        // second operand, `01` and `02`, decodes cleanly and is unaffected by
+        // its neighbour's failure.
+        for source_text in [".+**01", ".+||02"] {
+            let grid = Grid::new(6, 1);
+            let source = SourceCommander::new(grid);
+            write_row(&source, grid, source_text);
+            let frame = derive_frame(&source, grid.origin());
+
+            let invalid = frame.at(grid.position(2, 0).unwrap());
+            assert_eq!(invalid.token(), Some(Token::Number), "{source_text}");
+            assert_eq!(invalid.bound(), Some(false), "{source_text}");
+
+            let valid = frame.at(grid.position(4, 0).unwrap());
+            assert_eq!(valid.token(), Some(Token::Number), "{source_text}");
+            assert_eq!(valid.bound(), Some(true), "{source_text}");
+        }
+    }
+
+    #[test]
+    fn an_unbound_function_entry_is_reported_with_no_spelling_specific_case() {
+        // A lone `|` and a written `07` are both refused Function spellings
+        // (ADR 0018): every unit starts as a Function slot, the two-Cell read
+        // fails `Function::try_from`, and the refusal advances one character.
+        // Nothing distinguishes `|`'s refusal from `0`'s or `7`'s — all three
+        // are `(Token::Function, None)` over one Cell, decided under
+        // syntax-highlighting/04's Comments.
+        let grid = Grid::new(2, 1);
+
+        let lone_pipe = SourceCommander::new(grid);
+        write_row(&lone_pipe, grid, "|a");
+        let frame = derive_frame(&lone_pipe, grid.origin());
+        let pipe = frame.at(grid.position(0, 0).unwrap());
+        assert_eq!(pipe.token(), Some(Token::Function));
+        assert_eq!(pipe.bound(), Some(false));
+
+        let written_07 = SourceCommander::new(grid);
+        write_row(&written_07, grid, "07");
+        let frame = derive_frame(&written_07, grid.origin());
+        for column in [0, 1] {
+            let cell = frame.at(grid.position(column, 0).unwrap());
+            assert_eq!(cell.token(), Some(Token::Function), "column {column}");
+            assert_eq!(cell.bound(), Some(false), "column {column}");
+        }
+    }
+
+    #[test]
+    fn a_comment_is_bound_despite_recording_no_atom() {
+        // A Comment records `Token::Comment` and no Atom (ADR 0035), the same
+        // shape as an unbound entry, but it is a complete Language Unit, not
+        // an invalid one: `bound` answers `Some(true)` throughout its claim.
+        let grid = Grid::new(5, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "||abc");
+        let frame = derive_frame(&source, grid.origin());
+
+        for column in 0..5 {
+            let cell = frame.at(grid.position(column, 0).unwrap());
+            assert_eq!(cell.token(), Some(Token::Comment), "column {column}");
+            assert_eq!(cell.bound(), Some(true), "column {column}");
+        }
     }
 
     #[test]

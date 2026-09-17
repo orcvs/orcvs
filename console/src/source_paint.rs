@@ -45,11 +45,13 @@ pub(crate) const DEFAULT_FILL_TINT: u8 = 16;
 ///
 /// Atom follows Ordinary, as Char already did — a Cell painting no glyph of
 /// its own has nothing to colour differently. Sequence no longer shares
-/// Ordinary's colour and carries its own field. Diagnostic and Result have no
-/// painter yet: no `Token` they colour exists until `syntax-highlighting/04`
-/// and `syntax-highlighting/06` add the classifications those Tokens paint.
-/// They are settings from this change on regardless, so the persisted shape
-/// is complete once rather than gaining a field — and a migration — later.
+/// Ordinary's colour and carries its own field. Diagnostic and Result both
+/// became settings before either had a painter, so the persisted shape was
+/// complete once rather than gaining a field — and a migration — later.
+/// `syntax-highlighting/04` gives Diagnostic its painter: an unbound
+/// Function, Number, Note, Atom or Sequence entry draws its glyph in
+/// Diagnostic instead of its Token colour. Result still has none until
+/// `syntax-highlighting/06`.
 ///
 /// `fill_tint` joins the ten colours as `syntax-highlighting/02`'s one
 /// non-colour role: the percentage a Function or Operand Cell's background is
@@ -116,16 +118,20 @@ impl SourcePaintSettings {
     pub(crate) fn sequence(self) -> Color32 {
         self.sequence
     }
-    // No shipped Token reaches these two yet — `syntax-highlighting/04` and
-    // `/06` give Diagnostic and Result the classifications they colour, and
-    // `source_paint::tests` already reads both to pin their defaults and
-    // contrast against the floor. `dead_code` cannot see through `#[cfg(test)]`
-    // into a production build, so it is silenced here rather than deleting an
-    // accessor two tickets are about to call from `paint.rs`.
-    #[allow(dead_code)]
+    /// The glyph colour an unbound Function, Number, Note, Atom or Sequence
+    /// entry draws with instead of its Token colour: `style::
+    /// cell_visuals_with_cursor_colour` reads it wherever `LanguageMap::
+    /// bound_at` answers `Some(false)` for one of those Tokens
+    /// (syntax-highlighting/04).
     pub(crate) fn diagnostic(self) -> Color32 {
         self.diagnostic
     }
+    // No shipped Token reaches this one yet — `syntax-highlighting/06` gives
+    // Result the classification it colours, and `source_paint::tests` already
+    // reads it to pin its default and contrast against the floor. `dead_code`
+    // cannot see through `#[cfg(test)]` into a production build, so it is
+    // silenced here rather than deleting an accessor the next ticket is about
+    // to call from `paint.rs`.
     #[allow(dead_code)]
     pub(crate) fn result(self) -> Color32 {
         self.result

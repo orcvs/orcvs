@@ -57,26 +57,42 @@ Source and of Cursor effects — an absent or malformed stored value falls back
 to the defaults below rather than partly restoring.
 
 The same section holds one more control that is not a colour: Fill tint, a
-0-100% Slider defaulting to 16%. Every Function Cell — nested Functions
-included — and every Operand Cell (its declared Token: Number, Note, Atom, or
-Sequence, whether the operand is still Pending, Valid, or Invalid) paints a
-background tint of its Token colour mixed toward the Source background by
-this percentage; 0% paints no tint at all. Comment, Bang, an empty unclaimed
-Cell, and a Leftover Char are never tinted, and the glyph itself keeps its
-Token colour regardless of the tint beneath it. On the Cursor's own Cell, the
+0-100% Slider defaulting to 16%. Every recognized Function Cell — nested
+Functions included — and every Operand Cell (its declared Token: Number,
+Note, Atom, or Sequence, whether the operand is still Pending, Valid, or
+Invalid) paints a background tint of its Token colour mixed toward the Source
+background by this percentage; 0% paints no tint at all. Comment, Bang, an
+empty unclaimed Cell, and a Leftover Char are never tinted. A refused
+Function spelling is not tinted either (see Diagnostic, below) — only a
+Function entry the Parser recognized is. On the Cursor's own Cell, the
 Cursor's fill wins over the tint outright. Adjacent tinted Cells that share
 one colour paint as one run, the same coalescing `Paint::background_runs`
 already gives the Cursor's and Selection's fills. "Reset to theme defaults"
 restores Fill tint to 16% together with the ten colours, and persistence
 restores it at the same key as the colours — there is no key of its own.
 
+Diagnostic paints the glyph, not the tint, of an entry the Parser recorded as
+unbound: a claimed Cell whose content fails to bind (an Invalid Operand — the
+declared Token is still visible underneath, unchanged) or a refused Function
+spelling (no Token-specific case: a lone `|`, both Cells of a written `07`,
+and the trailing `<` of `<<<` are each `(Token::Function, atom: None)` alike).
+An Invalid Operand keeps its declared Token's Fill tint beneath the Diagnostic
+glyph; a refused Function paints no tint at all, because its `Function` label
+records what the slot expected rather than what was found. A Comment records
+no Atom too, but it is a complete Language Unit rather than an invalid one
+(ADR 0035), so it is never painted Diagnostic. A Pending (still-empty)
+operand Cell answers the same "no Atom" fact as an Invalid one but shows no
+glyph at all — `paint.rs` already leaves it blank — so only its tint is
+visible, unchanged from `syntax-highlighting/03`. Evaluation-time operand
+diagnostics are out of scope: they are Tick outcomes, not Source facts.
+
 The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
 `grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
 in the Source Paint prototype
 (`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
-`?variant=A&palette=okabe`). Diagnostic and Result are exposed as settings now
-but paint nothing until `syntax-highlighting/04` and `syntax-highlighting/06`
-give their Tokens a classification to paint.
+`?variant=A&palette=okabe`). Result is exposed as a setting now but paints
+nothing until `syntax-highlighting/06` gives its Token a classification to
+paint.
 
 - Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
 - Ordinary, Char, and Atom: `#FFFFFF` (`rgb(255, 255, 255)`) — a prototype pick, not a named Okabe–Ito swatch
@@ -86,7 +102,7 @@ give their Tokens a classification to paint.
 - Number: `#56B4E9` (`rgb(86, 180, 233)`) — Okabe–Ito sky blue
 - Note: `#F0E442` (`rgb(240, 228, 66)`) — Okabe–Ito yellow
 - Sequence: `#0072B2` (`rgb(0, 114, 178)`) — Okabe–Ito blue
-- Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, no painter until `syntax-highlighting/04`
+- Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, an unbound entry's glyph colour since `syntax-highlighting/04`
 - Result: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, no painter until `syntax-highlighting/06`
 
 Every Source colour meets WCAG AA's 4.5:1 floor against the Source background
