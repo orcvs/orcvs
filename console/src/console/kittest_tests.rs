@@ -441,6 +441,51 @@ async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
     );
 }
 
+/// `File → Load Function reference` is reachable from the menu, and clicking
+/// it is an explicit action rather than a no-op: it discards whatever the
+/// running Orcvs currently holds and replaces it, Cursor included, with the
+/// reference.
+///
+/// The Cursor is moved away from the origin first — the same move
+/// `arrow_keys_move_the_cursor_through_the_source_input_path` proves — so a
+/// menu item that changed nothing would leave it standing, and the Grid
+/// check below would still read the blank default a fresh console opens on.
+///
+#[tokio::test]
+async fn the_file_menu_loads_the_function_reference_on_demand() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.key_press(egui::Key::ArrowRight);
+    harness.key_press(egui::Key::ArrowDown);
+    harness.step();
+    harness.run_steps(1);
+    assert_ne!(
+        cursor(harness.state()),
+        (0, 0),
+        "the arrow presses above did not move the Cursor"
+    );
+
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label("Load Function reference").click();
+    harness.step();
+    harness.run_steps(2);
+
+    assert_eq!(
+        cursor(harness.state()),
+        (0, 0),
+        "loading the Function reference did not reset the Cursor to the Grid origin"
+    );
+    let grid = harness.state().orcvs.render_frame().grid();
+    assert_eq!(
+        (grid.columns(), grid.rows()),
+        (16, 32),
+        "loading the Function reference did not carry its own Grid"
+    );
+}
+
 ///
 /// The pointer-to-Cell round trip after the transform has moved, which is the
 /// one thing a fixed coordinate cannot test.

@@ -11,6 +11,7 @@ use crate::cursor_effects::{
     CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, DEFAULT_CURSOR_COLOUR,
     cursor_effect_shapes, effect_bounds,
 };
+use crate::function_reference::function_reference;
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
@@ -804,6 +805,37 @@ impl Console {
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
         })
+    }
+
+    ///
+    /// Replaces the running Orcvs's Source, Grid included, with the Function
+    /// reference — what the File menu offers, since a console that restores
+    /// nothing opens the blank default Grid (`source-view/03`). With the `persistence`
+    /// feature on, the reference then saves like any other Source on the next
+    /// scheduled save.
+    ///
+    /// A Grid change is a whole-Orcvs replacement, so this also rebuilds MIDI
+    /// device selection over the new Orcvs's handle exactly as [`Console::new`]
+    /// does; a previously selected destination does not carry over. Every
+    /// other console setting — Theme, Cursor effects, Diagnostics visibility —
+    /// is untouched, because only the Source was asked to change.
+    ///
+    fn load_function_reference(&mut self) {
+        match Orcvs::with_source(function_reference()) {
+            Ok(orcvs) => {
+                let mut midi = MidiDeviceSelection::new(
+                    orcvs.midi_selection_handle(),
+                    Box::new(NativeMidiBackend::new()),
+                );
+                midi.refresh_destinations();
+                self.orcvs = orcvs;
+                self.midi = midi;
+                self.source_view = SourceView::default();
+            }
+            Err(error) => {
+                crate::report::error!("failed to load the Function reference: {error}");
+            }
+        }
     }
 }
 
@@ -1751,14 +1783,18 @@ impl eframe::App for Console {
             egui::MenuBar::new().ui(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Load Function reference").clicked() {
+                        self.load_function_reference();
+                    }
+                    if !is_web {
+                        ui.separator();
                         if ui.button("Quit").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
-                    });
-                    ui.add_space(16.0);
-                }
+                    }
+                });
+                ui.add_space(16.0);
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
@@ -7092,6 +7128,55 @@ mod storage_tests {
             "the Console did not start the revision storage held"
         );
         assert_eq!(console.orcvs.source().grid().count(), 18);
+    }
+
+    ///
+    /// `Console::load_function_reference` — what `File → Load Function
+    /// reference` calls — replaces the whole running Orcvs, Grid included,
+    /// rather than only clearing the Cells of the one it already had.
+    ///
+    /// `kittest_tests::the_file_menu_loads_the_function_reference_on_demand`
+    /// proves the menu item reaches this call; this proves what the call
+    /// itself does, against a starting revision on a Grid the reference does
+    /// not share.
+    ///
+    #[tokio::test]
+    async fn loading_the_function_reference_replaces_the_source_and_its_grid() {
+        let mut storage = InMemoryStorage::default();
+        store(&mut storage, &edited_source());
+        let mut console = console_over(&storage);
+        assert_eq!(
+            console.orcvs.source().grid().count(),
+            18,
+            "the console did not start the 6x3 revision storage held"
+        );
+
+        console.load_function_reference();
+
+        let reference = crate::function_reference::function_reference();
+        assert_eq!(
+            console.orcvs.source().snapshot(),
+            reference.snapshot(),
+            "loading the Function reference did not replace the running Source"
+        );
+        assert_eq!(
+            console.orcvs.render_frame().grid().columns(),
+            reference.grid().columns()
+        );
+        assert_eq!(
+            console.orcvs.render_frame().grid().rows(),
+            reference.grid().rows()
+        );
+
+        // With persistence on, the loaded reference then saves like any other
+        // Source.
+        let mut saved = InMemoryStorage::default();
+        console.save(&mut saved);
+        assert_eq!(
+            starting_source(Some(&saved)).source.snapshot(),
+            reference.snapshot(),
+            "the loaded reference was not saved like any other Source"
+        );
     }
 
     #[tokio::test]

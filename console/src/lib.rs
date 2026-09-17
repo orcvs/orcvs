@@ -4,6 +4,7 @@ pub mod console;
 #[doc(hidden)]
 pub mod cursor_effects;
 pub mod diagnostics;
+mod function_reference;
 mod grid_viewport;
 mod marks;
 mod midi;
