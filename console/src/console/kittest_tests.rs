@@ -76,11 +76,13 @@
 //! test sleeps, reads the clock, or depends on Playback: the harness advances
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
 
-use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
+use egui::{Color32, Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
 use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, source_bounds};
+use crate::cursor_effects::CursorEffectSettings;
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
+use crate::source_paint::SourcePaintSettings;
 
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
@@ -201,6 +203,58 @@ async fn the_view_menu_opens_the_diagnostics_window_a_viewer_asked_for() {
     assert!(
         harness.query_by_label("Source zoom").is_some(),
         "the console holds diagnostics_open but presented no Diagnostics window"
+    );
+}
+
+///
+/// `Theme → Source colours` holds its own "Reset to theme defaults", separate
+/// from `Theme → Cursor effects`' — the shape `syntax-highlighting/01` mirrors
+/// from Cursor effects, doubled. Both sections carry the same button text, so
+/// this finds the Source colours one by its position in the tree rather than
+/// by a label unique to it, and proves through the running `Console` — not
+/// merely through the two settings values in isolation — that clicking it
+/// touches only `source_paint`.
+///
+#[tokio::test]
+async fn the_source_colours_reset_restores_its_defaults_and_leaves_cursor_effects_untouched() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    let mut changed_source_paint = SourcePaintSettings::default();
+    *changed_source_paint.ordinary_mut() = Color32::from_rgb(1, 2, 3);
+    let mut changed_cursor_effects = CursorEffectSettings::default();
+    *changed_cursor_effects.cursor_colour_mut() = Color32::from_rgb(9, 8, 7);
+    harness.state_mut().source_paint = changed_source_paint;
+    harness.state_mut().cursor_effects = changed_cursor_effects;
+    harness.run_steps(1);
+
+    assert_ne!(harness.state().source_paint, SourcePaintSettings::default());
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+
+    let resets: Vec<_> = harness
+        .get_all_by_label("Reset to theme defaults")
+        .collect();
+    assert_eq!(
+        resets.len(),
+        2,
+        "expected one reset button for Cursor effects and one for Source colours"
+    );
+    resets[1].click();
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness.state().source_paint,
+        SourcePaintSettings::default(),
+        "the Source colours reset did not restore its defaults"
+    );
+    assert_eq!(
+        harness.state().cursor_effects,
+        changed_cursor_effects,
+        "the Source colours reset moved Cursor effects"
     );
 }
 

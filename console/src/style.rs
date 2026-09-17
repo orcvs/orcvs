@@ -4,34 +4,36 @@ use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selecti
 
 use orcvs::source::Token;
 
+use crate::source_paint::{
+    DEFAULT_BANG, DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings,
+};
+
+///
+/// The console's fixed palette: chrome, grid geometry, and Cursor/selection
+/// colours a viewer does not retheme.
+///
+/// The Source background and every Token's glyph colour used to live here too,
+/// but `syntax-highlighting/01` moved them into [`SourcePaintSettings`] — a
+/// console-owned settings value a viewer edits under `Theme → Source colours`
+/// and persistence restores independently — so the Source Grid paints from a
+/// value rather than from this fixed constant. The Cell grid line stays here
+/// deliberately: the ticket that moved the rest names it as the one Source
+/// geometry colour that is not a Source colour setting.
+///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
     pub page: Color32,
-    pub source: Color32,
     pub grid_line: Color32,
     pub sector_line: Color32,
-    pub ordinary: Color32,
-    pub comment: Color32,
-    pub function: Color32,
-    pub bang: Color32,
-    pub number: Color32,
-    pub note: Color32,
     pub selection_fill: Color32,
     pub selection_stroke_rest: Color32,
     pub selection_stroke: Color32,
 }
 
 pub const PALETTE: ConsolePalette = ConsolePalette {
-    page: Color32::from_rgb(11, 17, 18),  // #0B1112
-    source: Color32::from_rgb(7, 13, 13), // #070D0D
+    page: Color32::from_rgb(11, 17, 18), // #0B1112
     grid_line: Color32::from_rgba_unmultiplied_const(29, 55, 49, 72),
     sector_line: Color32::from_rgba_unmultiplied_const(55, 101, 86, 110),
-    ordinary: Color32::from_rgb(165, 183, 178), // #A5B7B2
-    comment: Color32::from_rgb(122, 135, 132),  // #7A8784
-    function: Color32::from_rgb(104, 224, 184), // #68E0B8
-    bang: Color32::from_rgb(255, 127, 135),     // #FF7F87
-    number: Color32::from_rgb(131, 166, 216),   // #83A6D8
-    note: Color32::from_rgb(170, 145, 214),     // #AA91D6
     selection_fill: Color32::from_rgb(10, 42, 34), // #0A2A22
     selection_stroke_rest: Color32::from_rgb(82, 195, 163), // #52C3A3
     selection_stroke: Color32::from_rgb(101, 230, 190), // #65E6BE
@@ -48,39 +50,52 @@ pub(crate) struct CellVisuals {
 /// How one Cell is coloured: fill, border and Token.
 ///
 /// `background` is `None` when the Cell needs no fill of its own — the
-/// `source_panel_frame` behind the Grid has already painted `PALETTE.source`
-/// across the console, so the two arms that would answer that colour answer
-/// `None` instead of asking every ordinary Cell to repaint it. The Cursor's
-/// own Cell is one of those arms: painting the Source fill again would hide
-/// the Cursor Effect's presentation.
+/// `source_panel_frame` behind the Grid has already painted the live
+/// `SourcePaintSettings::source_background` across the console, so the two
+/// arms that would answer that colour answer `None` instead of asking every
+/// ordinary Cell to repaint it. The Cursor's own Cell is one of those arms:
+/// painting the Source fill again would hide the Cursor Effect's
+/// presentation.
 ///
 #[cfg(test)]
 pub(crate) fn cell_visuals(
     token: Option<Token>,
     selected: bool,
     cursor_visible: bool,
+    source_paint: SourcePaintSettings,
 ) -> CellVisuals {
     cell_visuals_with_cursor_colour(
         token,
         selected,
         cursor_visible,
         Some(PALETTE.selection_fill),
+        source_paint,
     )
 }
 
+///
+/// Every Source Paint role a Token reads is `source_paint`'s, not this
+/// module's fixed [`PALETTE`]: `syntax-highlighting/01` made the Source Grid
+/// paint from a console-owned settings value rather than from a constant, so
+/// a viewer's `Theme → Source colours` edits reach here on the very next
+/// frame. Atom follows Ordinary, as Char already did; Sequence has had its own
+/// field since that change and no longer falls into the same arm.
+///
 pub(crate) fn cell_visuals_with_cursor_colour(
     token: Option<Token>,
     selected: bool,
     cursor_visible: bool,
     cursor_colour: Option<Color32>,
+    source_paint: SourcePaintSettings,
 ) -> CellVisuals {
     let foreground = match token {
-        Some(Token::Bang) => PALETTE.bang,
-        Some(Token::Comment) => PALETTE.comment,
-        Some(Token::Function) => PALETTE.function,
-        Some(Token::Number) => PALETTE.number,
-        Some(Token::Note) => PALETTE.note,
-        Some(Token::Char | Token::Atom | Token::Sequence) | None => PALETTE.ordinary,
+        Some(Token::Bang) => source_paint.bang(),
+        Some(Token::Comment) => source_paint.comment(),
+        Some(Token::Function) => source_paint.function(),
+        Some(Token::Number) => source_paint.number(),
+        Some(Token::Note) => source_paint.note(),
+        Some(Token::Sequence) => source_paint.sequence(),
+        Some(Token::Char | Token::Atom) | None => source_paint.ordinary(),
     };
     CellVisuals {
         background: selected.then_some(cursor_colour).flatten(),
@@ -101,14 +116,27 @@ pub(crate) fn sector_line(strength_percent: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(red, green, blue, alpha as u8)
 }
 
+///
+/// The style the console opens with, before any restored `SourcePaintSettings`
+/// is known.
+///
+/// Set once at `Console::new` rather than read every frame — unlike the Source
+/// Grid, egui's own `extreme_bg_color`, `faint_bg_color`, `error_fg_color` and
+/// `warn_fg_color` are not consulted per Cell, so there is no seam that would
+/// make them track a live `Theme → Source colours` edit the way `show_source`
+/// does. They start at the Source Paint defaults so the chrome and the Grid
+/// agree on first paint; a viewer who then retunes Source background or Bang
+/// sees the Grid move and this baseline stay, the same way a restored session
+/// would.
+///
 pub fn style() -> Style {
     let mut visuals = Visuals::dark();
     visuals.panel_fill = PALETTE.page;
     visuals.window_fill = PALETTE.page;
-    visuals.extreme_bg_color = PALETTE.source;
-    visuals.faint_bg_color = PALETTE.source;
-    visuals.error_fg_color = PALETTE.bang;
-    visuals.warn_fg_color = PALETTE.bang;
+    visuals.extreme_bg_color = DEFAULT_SOURCE_BACKGROUND;
+    visuals.faint_bg_color = DEFAULT_SOURCE_BACKGROUND;
+    visuals.error_fg_color = DEFAULT_BANG;
+    visuals.warn_fg_color = DEFAULT_BANG;
     visuals.selection = Selection {
         bg_fill: PALETTE.selection_fill,
         stroke: Stroke::new(1.0, PALETTE.selection_stroke),
@@ -124,11 +152,11 @@ pub fn style() -> Style {
     visuals.widgets.noninteractive.bg_fill = PALETTE.page;
     visuals.widgets.noninteractive.weak_bg_fill = PALETTE.page;
     visuals.widgets.noninteractive.bg_stroke = chrome;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, DEFAULT_ORDINARY);
     visuals.widgets.inactive.bg_fill = PALETTE.page;
     visuals.widgets.inactive.weak_bg_fill = PALETTE.page;
     visuals.widgets.inactive.bg_stroke = Stroke::NONE;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, DEFAULT_ORDINARY);
     visuals.widgets.hovered.bg_fill = PALETTE.selection_fill;
     visuals.widgets.hovered.weak_bg_fill = PALETTE.selection_fill;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
@@ -140,7 +168,7 @@ pub fn style() -> Style {
     visuals.widgets.open.bg_fill = PALETTE.selection_fill;
     visuals.widgets.open.weak_bg_fill = PALETTE.page;
     visuals.widgets.open.bg_stroke = Stroke::new(1.0, PALETTE.selection_stroke_rest);
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0, PALETTE.ordinary);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, DEFAULT_ORDINARY);
     for widget in [
         &mut visuals.widgets.noninteractive,
         &mut visuals.widgets.inactive,
@@ -162,29 +190,26 @@ pub fn style() -> Style {
 #[cfg(test)]
 mod tests {
     use super::{ConsolePalette, PALETTE, cell_visuals, sector_line};
+    use crate::source_paint::SourcePaintSettings;
     use egui::{Color32, Stroke};
     use orcvs::source::Token;
 
     ///
-    /// `theme.md` is the decided record. These literals are that record in
-    /// `Color32` form: a later palette change fails here, and the same commit
-    /// must change the document.
+    /// `theme.md` is the decided record for the fixed palette. These literals
+    /// are that record in `Color32` form: a later change to the chrome, grid
+    /// geometry, or Cursor/selection colours fails here, and the same commit
+    /// must change the document. The Source background and every Token's
+    /// glyph colour are pinned the same way in `source_paint::tests`, against
+    /// `SourcePaintSettings::default` rather than this constant.
     ///
     #[test]
     fn palette_tokens_match_the_decided_record() {
         assert_eq!(
             PALETTE,
             ConsolePalette {
-                page: Color32::from_rgb(11, 17, 18),  // #0B1112
-                source: Color32::from_rgb(7, 13, 13), // #070D0D
+                page: Color32::from_rgb(11, 17, 18), // #0B1112
                 grid_line: Color32::from_rgba_unmultiplied_const(29, 55, 49, 72), // rgba(29, 55, 49, 0.28)
                 sector_line: Color32::from_rgba_unmultiplied_const(55, 101, 86, 110), // rgba(55, 101, 86, 0.43)
-                ordinary: Color32::from_rgb(165, 183, 178),                           // #A5B7B2
-                comment: Color32::from_rgb(122, 135, 132),                            // #7A8784
-                function: Color32::from_rgb(104, 224, 184),                           // #68E0B8
-                bang: Color32::from_rgb(255, 127, 135),                               // #FF7F87
-                number: Color32::from_rgb(131, 166, 216),                             // #83A6D8
-                note: Color32::from_rgb(170, 145, 214),                               // #AA91D6
                 selection_fill: Color32::from_rgb(10, 42, 34),                        // #0A2A22
                 selection_stroke_rest: Color32::from_rgb(82, 195, 163),               // #52C3A3
                 selection_stroke: Color32::from_rgb(101, 230, 190),                   // #65E6BE
@@ -193,33 +218,47 @@ mod tests {
     }
 
     #[test]
-    fn semantic_glyph_colours_are_distinct_and_bang_is_soft_red() {
-        let function = cell_visuals(Some(Token::Function), false, false);
-        let number = cell_visuals(Some(Token::Number), false, false);
-        let note = cell_visuals(Some(Token::Note), false, false);
-        let ordinary = cell_visuals(Some(Token::Char), false, false);
-        let bang = cell_visuals(Some(Token::Bang), false, false);
-        let comment = cell_visuals(Some(Token::Comment), false, false);
+    fn semantic_glyph_colours_are_distinct_and_read_from_the_settings_value() {
+        let source_paint = SourcePaintSettings::default();
+        let function = cell_visuals(Some(Token::Function), false, false, source_paint);
+        let number = cell_visuals(Some(Token::Number), false, false, source_paint);
+        let note = cell_visuals(Some(Token::Note), false, false, source_paint);
+        let ordinary = cell_visuals(Some(Token::Char), false, false, source_paint);
+        let bang = cell_visuals(Some(Token::Bang), false, false, source_paint);
+        let comment = cell_visuals(Some(Token::Comment), false, false, source_paint);
+        let sequence = cell_visuals(Some(Token::Sequence), false, false, source_paint);
 
-        assert_eq!(function.foreground, PALETTE.function);
-        assert_eq!(number.foreground, PALETTE.number);
-        assert_eq!(note.foreground, PALETTE.note);
-        assert_eq!(ordinary.foreground, PALETTE.ordinary);
-        assert_eq!(bang.foreground, PALETTE.bang);
-        assert_eq!(comment.foreground, PALETTE.comment);
+        assert_eq!(function.foreground, source_paint.function());
+        assert_eq!(number.foreground, source_paint.number());
+        assert_eq!(note.foreground, source_paint.note());
+        assert_eq!(ordinary.foreground, source_paint.ordinary());
+        assert_eq!(bang.foreground, source_paint.bang());
+        assert_eq!(comment.foreground, source_paint.comment());
+        assert_eq!(sequence.foreground, source_paint.sequence());
         assert_ne!(number.foreground, function.foreground);
         assert_ne!(number.foreground, note.foreground);
         assert_ne!(number.foreground, ordinary.foreground);
         assert_ne!(comment.foreground, ordinary.foreground);
-        // Atom and Sequence keep Char's colour until typed-source-paint/03
-        // gives them colours of their own.
+        // Atom follows Ordinary, the way Char already did: a Cell painting no
+        // glyph of its own has nothing to colour differently.
         assert_eq!(
-            cell_visuals(Some(Token::Atom), false, false).foreground,
+            cell_visuals(Some(Token::Atom), false, false, source_paint).foreground,
             ordinary.foreground
         );
+        // Sequence stopped sharing Ordinary's colour in this same change: it
+        // has its own field and its own default, distinct from every other
+        // role including Ordinary.
+        assert_ne!(sequence.foreground, ordinary.foreground);
+        assert_ne!(sequence.foreground, comment.foreground);
+
+        // A changed settings value reaches `cell_visuals_with_cursor_colour`
+        // on the very next call — the Source Grid paints from this value, not
+        // from a fixed palette, so a Theme edit previews immediately.
+        let mut retuned = source_paint;
+        *retuned.function_mut() = Color32::from_rgb(1, 2, 3);
         assert_eq!(
-            cell_visuals(Some(Token::Sequence), false, false).foreground,
-            ordinary.foreground
+            cell_visuals(Some(Token::Function), false, false, retuned).foreground,
+            Color32::from_rgb(1, 2, 3)
         );
     }
 
@@ -228,42 +267,74 @@ mod tests {
     /// ordinary Glyph rather than as another semantic colour beside it — and
     /// it is still prose a person reads, so dimmer stops at legible.
     ///
-    /// Both halves are stated as measurements because neither survives being
-    /// stated as a difference: `assert_ne!` against the ordinary Glyph passes
-    /// for a Comment brighter than it, and passes again for one all but
-    /// indistinguishable from the Cell it sits on. The floor is WCAG AA for
-    /// normal text, which is the threshold every other Glyph in this palette
-    /// already clears by some margin.
+    /// Under the previous, hand-picked palette Comment was also the dimmest
+    /// Glyph that cleared the floor. The Okabe–Ito assignment does not carry
+    /// that second property over: measured against `#000000`, Diagnostic is
+    /// 5.43:1, Function is 6.14:1 and Bang is 6.86:1, each dimmer than
+    /// Comment's own 7.37:1, while every one of them still clears 4.5:1. This
+    /// restates the rule with that measured fact rather than silently keeping
+    /// an ordering the new defaults do not hold — `syntax-highlighting/01`'s
+    /// own instruction for the floor's Sequence exception applies here too,
+    /// to a property rather than a single colour. Sequence itself is measured
+    /// in `sequence_is_the_named_exception_to_the_contrast_floor` below.
     ///
     #[test]
-    fn a_comment_reads_dimmer_than_ordinary_source_and_stays_legible() {
-        let comment = contrast(PALETTE.comment, PALETTE.source);
-        let ordinary = contrast(PALETTE.ordinary, PALETTE.source);
+    fn comment_reads_dimmer_than_ordinary_and_every_non_sequence_colour_clears_the_floor() {
+        let source_paint = SourcePaintSettings::default();
+        let background = source_paint.source_background();
+        let comment = contrast(source_paint.comment(), background);
+        let ordinary = contrast(source_paint.ordinary(), background);
 
         assert!(
             comment >= 4.5,
-            "a Comment is read, not merely seen: {comment:.2}:1 against the Cell it sits on",
+            "a Comment is read, not merely seen: {comment:.2}:1 against the Source background",
         );
         assert!(
             comment < ordinary,
             "a Comment reads dimmer than ordinary Source: {comment:.2}:1 against {ordinary:.2}:1",
         );
-        // Every other Glyph a person reads clears the same floor, so the
-        // Comment is dimmest without being the one exception to legibility.
+        // Every Source colour but Sequence clears the floor. None of them is
+        // required to read brighter than Comment — Diagnostic, Function and
+        // Bang do not, and that is the fact this test pins rather than hides.
         for (name, colour) in [
-            ("ordinary", PALETTE.ordinary),
-            ("function", PALETTE.function),
-            ("bang", PALETTE.bang),
-            ("number", PALETTE.number),
-            ("note", PALETTE.note),
+            ("ordinary", source_paint.ordinary()),
+            ("function", source_paint.function()),
+            ("bang", source_paint.bang()),
+            ("number", source_paint.number()),
+            ("note", source_paint.note()),
+            ("diagnostic", source_paint.diagnostic()),
+            ("result", source_paint.result()),
         ] {
-            let ratio = contrast(colour, PALETTE.source);
-            assert!(ratio >= 4.5, "{name} is {ratio:.2}:1");
+            let ratio = contrast(colour, background);
             assert!(
-                ratio > comment,
-                "{name} is {ratio:.2}:1, dimmer than a Comment"
+                ratio >= 4.5,
+                "{name} is {ratio:.2}:1, below the 4.5:1 floor"
             );
         }
+    }
+
+    ///
+    /// The Okabe–Ito assignment's own choice for Sequence, `#0072B2`, measures
+    /// 4.05:1 against the Source background — below the 4.5:1 floor every
+    /// other Source colour clears. Restating the rule with this exception
+    /// named, rather than silently lowering the floor or silently excluding
+    /// Sequence from `comment_is_the_dimmest_glyph_that_still_clears_the_
+    /// contrast_floor`'s loop, is `syntax-highlighting/01`'s own acceptance
+    /// criterion.
+    ///
+    #[test]
+    fn sequence_is_the_named_exception_to_the_contrast_floor() {
+        let source_paint = SourcePaintSettings::default();
+        let sequence = contrast(source_paint.sequence(), source_paint.source_background());
+
+        assert!(
+            sequence < 4.5,
+            "Sequence no longer needs the named exception: {sequence:.2}:1"
+        );
+        assert!(
+            (sequence - 4.05).abs() < 0.01,
+            "Sequence drifted off the measured exception: {sequence:.2}:1, expected 4.05:1"
+        );
     }
 
     /// The WCAG 2.1 contrast ratio between two opaque colours, which is what
@@ -301,9 +372,10 @@ mod tests {
 
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
-        let ordinary = cell_visuals(Some(Token::Char), false, false);
-        let selected = cell_visuals(Some(Token::Char), true, false);
-        let cursor = cell_visuals(Some(Token::Char), true, true);
+        let source_paint = SourcePaintSettings::default();
+        let ordinary = cell_visuals(Some(Token::Char), false, false, source_paint);
+        let selected = cell_visuals(Some(Token::Char), true, false, source_paint);
+        let cursor = cell_visuals(Some(Token::Char), true, true, source_paint);
 
         // `None`: the panel behind the Grid has already painted the Source colour.
         assert_eq!(ordinary.background, None);
@@ -318,13 +390,27 @@ mod tests {
     #[test]
     fn cursor_cell_colour_is_optional_and_defaults_to_the_theme_background() {
         let colour = Color32::from_rgb(1, 2, 3);
+        let source_paint = SourcePaintSettings::default();
         assert_eq!(
-            super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, None).background,
+            super::cell_visuals_with_cursor_colour(
+                Some(Token::Char),
+                true,
+                true,
+                None,
+                source_paint
+            )
+            .background,
             None
         );
         assert_eq!(
-            super::cell_visuals_with_cursor_colour(Some(Token::Char), true, true, Some(colour))
-                .background,
+            super::cell_visuals_with_cursor_colour(
+                Some(Token::Char),
+                true,
+                true,
+                Some(colour),
+                source_paint
+            )
+            .background,
             Some(colour)
         );
     }

@@ -2,18 +2,13 @@
 
 This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
-change, not drift.
+change, not drift. The Source background and every Token's glyph colour used
+to be pinned here too; `syntax-highlighting/01` moved them into their own
+section below, as `Theme → Source colours` settings rather than fixed tokens.
 
 - Page: `#0B1112` (`rgb(11, 17, 18)`)
-- Source: `#070D0D` (`rgb(7, 13, 13)`)
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
 - 8 × 8 sector seam: `rgba(55, 101, 86, 0.43)`
-- Ordinary Glyph: `#A5B7B2` (`rgb(165, 183, 178)`)
-- Comment: `#7A8784` (`rgb(122, 135, 132)`) — the ordinary Glyph dimmed, at 5.25:1 against the Cell ground
-- Function: `#68E0B8` (`rgb(104, 224, 184)`)
-- Bang and error: `#FF7F87` (`rgb(255, 127, 135)`)
-- Number: `#83A6D8` (`rgb(131, 166, 216)`)
-- Note: `#AA91D6` (`rgb(170, 145, 214)`)
 - Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
@@ -48,6 +43,46 @@ above; reset restores every default together.
 Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, these preferences are restored independently of the saved Source.
+
+## Source colours
+
+`Theme → Source colours` holds one opaque colour control per Source Paint
+role: Source background, Ordinary (also Char and Atom), Comment, Function,
+Bang, Number, Note, Sequence, Diagnostic, and Result. The Cell grid line above
+is not one of them and keeps its fixed colour regardless. Changes preview
+immediately in the Source Grid; "Reset to theme defaults" restores every
+Source colour together and leaves Cursor effects untouched. With persistence
+enabled, Source colours are restored under their own key, independently of the
+Source and of Cursor effects — an absent or malformed stored value falls back
+to the defaults below rather than partly restoring.
+
+The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
+`grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
+in the Source Paint prototype
+(`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
+`?variant=A&palette=okabe`). Diagnostic and Result are exposed as settings now
+but paint nothing until `syntax-highlighting/04` and `syntax-highlighting/06`
+give their Tokens a classification to paint.
+
+- Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
+- Ordinary, Char, and Atom: `#FFFFFF` (`rgb(255, 255, 255)`) — a prototype pick, not a named Okabe–Ito swatch
+- Comment: `#999999` (`rgb(153, 153, 153)`) — Okabe–Ito gray
+- Function: `#009E73` (`rgb(0, 158, 115)`) — Okabe–Ito bluish green
+- Bang: `#CC79A7` (`rgb(204, 121, 167)`) — Okabe–Ito reddish purple
+- Number: `#56B4E9` (`rgb(86, 180, 233)`) — Okabe–Ito sky blue
+- Note: `#F0E442` (`rgb(240, 228, 66)`) — Okabe–Ito yellow
+- Sequence: `#0072B2` (`rgb(0, 114, 178)`) — Okabe–Ito blue
+- Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, no painter until `syntax-highlighting/04`
+- Result: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, no painter until `syntax-highlighting/06`
+
+Every Source colour meets WCAG AA's 4.5:1 floor against the Source background
+except Sequence: `#0072B2` measures 4.05:1 on `#000000`, the Okabe–Ito
+assignment's own choice, kept as a named exception rather than silently
+relaxing the floor. Comment, at 7.37:1, reads dimmer than Ordinary — the same
+relationship the previous palette held — but is no longer the dimmest colour
+above the floor: Diagnostic (5.43:1), Function (6.14:1) and Bang (6.86:1) all
+read dimmer than Comment while still clearing 4.5:1. That is restated here
+rather than left as an implied ordering the new defaults do not hold.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward

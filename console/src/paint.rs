@@ -52,6 +52,7 @@ use orcvs::{
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
+    source_paint::SourcePaintSettings,
     style::{PALETTE, cell_visuals_with_cursor_colour, sector_line},
 };
 
@@ -181,6 +182,7 @@ impl Paint {
             Some(PALETTE.selection_fill),
             crate::cursor_effects::DEFAULT_REGION_COLOUR,
             None,
+            SourcePaintSettings::default(),
         )
     }
 
@@ -198,6 +200,7 @@ impl Paint {
         cursor_colour: Option<Color32>,
         region_colour: Color32,
         region_cursor_colour: Option<Color32>,
+        source_paint: SourcePaintSettings,
     ) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
@@ -244,6 +247,7 @@ impl Paint {
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
+                    source_paint,
                 );
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
                 let background = if is_cursor && region_spans {
@@ -559,6 +563,7 @@ mod tests {
     };
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
+    use crate::source_paint::{DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings};
     use crate::style::{PALETTE, cell_visuals, sector_line};
     use egui::Color32;
     use orcvs::source::Token;
@@ -607,7 +612,12 @@ mod tests {
         for cell in frame.cells() {
             let position = cell.position();
             let selected = position == cursor;
-            let visuals = cell_visuals(cell.token(), selected, selected && frame.cursor_visible());
+            let visuals = cell_visuals(
+                cell.token(),
+                selected,
+                selected && frame.cursor_visible(),
+                SourcePaintSettings::default(),
+            );
             let painted = paint.at(position);
 
             assert_eq!(
@@ -674,6 +684,7 @@ mod tests {
                 cursor,
                 fill,
                 region_cursor,
+                SourcePaintSettings::default(),
             )
         };
 
@@ -948,7 +959,7 @@ mod tests {
                 .map(|&background| CellPaint {
                     background,
                     border: PALETTE.grid_line,
-                    foreground: PALETTE.ordinary,
+                    foreground: DEFAULT_ORDINARY,
                     sector_left: None,
                     sector_top: None,
                     character: ' ',
@@ -968,7 +979,7 @@ mod tests {
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
         let first = PALETTE.selection_fill;
-        let second = PALETTE.source;
+        let second = DEFAULT_SOURCE_BACKGROUND;
         let paint = paint_of(&[&[Some(first), Some(first), Some(second), Some(second)]]);
 
         assert_eq!(

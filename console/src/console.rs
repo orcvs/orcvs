@@ -17,7 +17,8 @@ use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
-use crate::style::{PALETTE, style};
+use crate::source_paint::SourcePaintSettings;
+use crate::style::style;
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
@@ -720,6 +721,7 @@ pub struct Console {
     keyboard_elsewhere: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
+    source_paint: SourcePaintSettings,
     reduced_motion: bool,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
@@ -797,6 +799,7 @@ impl Console {
             keyboard_elsewhere: false,
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
+            source_paint: start.source_paint,
             reduced_motion: prefers_reduced_motion(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
@@ -1305,6 +1308,15 @@ fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Rect {
 /// [`PointerSelection`] back is what leaves this function with nothing but a
 /// Render Frame and a place to draw it.
 ///
+/// Eight parameters, one over clippy's default: `source_paint` is the eighth,
+/// added by `syntax-highlighting/01`. Each of the eight is an independent,
+/// already-tested value threaded straight through from `show_source_scene`'s
+/// own parameters of the same names — geometry, a Render Frame, and the three
+/// presentation settings `Console::ui` owns — so grouping any of them into a
+/// struct would add an indirection this function's one caller does not need,
+/// for a threshold rather than a real complexity this function has grown.
+///
+#[allow(clippy::too_many_arguments)]
 fn show_source(
     ui: &mut egui::Ui,
     frame: &RenderFrame,
@@ -1313,6 +1325,7 @@ fn show_source(
     clip: Rect,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
+    source_paint: SourcePaintSettings,
 ) -> Option<PointerSelection> {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` the Cells are painted at.
@@ -1390,6 +1403,7 @@ fn show_source(
         cursor_effect_settings.cell_colour(),
         cursor_effect_settings.region_colour(),
         cursor_effect_settings.region_cursor_colour(),
+        source_paint,
     );
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
     let cursor_effect = cursor_effect_shapes(
@@ -1520,6 +1534,7 @@ fn show_source_scene(
     view: &mut SourceView,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
+    source_paint: SourcePaintSettings,
 ) -> PresentedSource {
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
@@ -1628,6 +1643,7 @@ fn show_source_scene(
         console,
         cursor_effect_sample,
         cursor_effect_settings,
+        source_paint,
     );
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -1674,17 +1690,22 @@ fn show_source_scene(
 ///
 /// The fill is load-bearing rather than decorative. `cell_visuals` answers
 /// `None` for a Cell's background wherever the panel has already painted
-/// `PALETTE.source`, on the grounds that this frame has already painted exactly
+/// `background`, on the grounds that this frame has already painted exactly
 /// that colour across the whole console and clips every Shape to it. An ordinary
 /// Cell therefore has no rectangle of its own.
+///
+/// `background` is the live `SourcePaintSettings::source_background`, not a
+/// constant: a viewer's `Theme → Source colours` edit has to repaint this
+/// panel on the very next frame for the Cell it stands in for to still agree
+/// with it.
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
 /// `the_omitted_background_is_the_colour_the_panel_is_filled_with` has one
 /// value to pin instead of a comment to trust.
 ///
-fn source_panel_frame() -> egui::Frame {
-    egui::Frame::new().fill(PALETTE.source)
+fn source_panel_frame(background: Color32) -> egui::Frame {
+    egui::Frame::new().fill(background)
 }
 
 fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
@@ -1701,8 +1722,12 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.persistence
-            .save(storage, self.orcvs.source(), self.cursor_effects);
+        self.persistence.save(
+            storage,
+            self.orcvs.source(),
+            self.cursor_effects,
+            self.source_paint,
+        );
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -1817,6 +1842,97 @@ impl eframe::App for Console {
                     if ui.button("Reset to theme defaults").clicked() {
                         self.cursor_effects = CursorEffectSettings::default();
                     }
+
+                    ui.separator();
+                    ui.label("Source colours");
+                    ui.horizontal(|ui| {
+                        ui.label("Source background");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.source_background_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Ordinary (Char, Atom)");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.ordinary_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Comment");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.comment_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Function");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.function_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Bang");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.bang_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Number");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.number_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Note");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.note_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Sequence");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.sequence_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Diagnostic");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.diagnostic_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Result");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.source_paint.result_mut(),
+                            egui::color_picker::Alpha::Opaque,
+                        );
+                    });
+                    ui.separator();
+                    // Its own reset, independent of Cursor effects' above: it
+                    // only ever assigns `self.source_paint`, so a Source
+                    // colours reset cannot move a Cursor effect and a Cursor
+                    // effects reset cannot move a Source colour.
+                    if ui.button("Reset to theme defaults").clicked() {
+                        self.source_paint = SourcePaintSettings::default();
+                    }
                 });
                 // Presented in the menu bar rather than the Diagnostics window,
                 // which opens on a viewer's request and reports the running
@@ -1898,6 +2014,7 @@ impl eframe::App for Console {
         let cursor_effect_sample = self
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
+        let source_paint = self.source_paint;
 
         // Shown before CentralPanel so it takes height rather than overlaying
         // the Grid. Static: no resize handle, no drag. BPM is a TextEdit:
@@ -2014,7 +2131,7 @@ impl eframe::App for Console {
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
         let cursor_delay = egui::CentralPanel::default()
-            .frame(source_panel_frame())
+            .frame(source_panel_frame(source_paint.source_background()))
             .show(root, |ui| {
                 console_area = ui.available_rect_before_wrap();
                 let Console {
@@ -2028,6 +2145,7 @@ impl eframe::App for Console {
                     keyboard_elsewhere: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
+                    source_paint: _,
                     reduced_motion: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
@@ -2039,6 +2157,7 @@ impl eframe::App for Console {
                     source_view,
                     cursor_effect_sample,
                     cursor_effect_settings,
+                    source_paint,
                 );
                 cell_size = presented.viewport.cell_size;
                 // The Source Grid answers which Cells the pointer asked for;
@@ -2495,7 +2614,9 @@ mod tests {
             .native_pixels_per_point = Some(pixels_per_point);
         let output = ctx.run_ui(input, |root| {
             egui::CentralPanel::default()
-                .frame(source_panel_frame())
+                .frame(source_panel_frame(
+                    crate::source_paint::SourcePaintSettings::default().source_background(),
+                ))
                 .show(root, |ui| {
                     presented = Some(show_source_scene(
                         ui,
@@ -2504,6 +2625,7 @@ mod tests {
                         view,
                         crate::cursor_effects::CursorEffectSample::default(),
                         crate::cursor_effects::CursorEffectSettings::default(),
+                        crate::source_paint::SourcePaintSettings::default(),
                     ));
                 });
         });
@@ -4078,7 +4200,9 @@ mod tests {
                         );
                     });
                 egui::CentralPanel::default()
-                    .frame(source_panel_frame())
+                    .frame(source_panel_frame(
+                        crate::source_paint::SourcePaintSettings::default().source_background(),
+                    ))
                     .show(root, |ui| {
                         console = ui.available_size_before_wrap();
                     });
@@ -4982,23 +5106,25 @@ mod tests {
     /// The background the Grid declines to paint is the one the panel paints.
     ///
     /// `show_source` omits a Cell's rectangle wherever `cell_visuals` asks for
-    /// `PALETTE.source`, and what stands in its place is the `CentralPanel`
-    /// frame. The two values are stated in different places, so nothing but
-    /// this holds them together: give the panel any other fill and every
-    /// ordinary Cell — outside the Cursor effect, most of the
-    /// default Grid — renders on a ground the palette never chose for it.
+    /// `SourcePaintSettings::source_background`, and what stands in its place
+    /// is the `CentralPanel` frame. The two values are stated in different
+    /// places, so nothing but this holds them together: give the panel any
+    /// other fill and every ordinary Cell — outside the Cursor effect, most of
+    /// the default Grid — renders on a ground the settings value never chose
+    /// for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
     /// is the painted result that has to sit on the right colour.
     ///
     #[test]
     fn the_omitted_background_is_the_colour_the_panel_is_filled_with() {
+        let source_paint = crate::source_paint::SourcePaintSettings::default();
         assert_eq!(
-            source_panel_frame().fill,
-            PALETTE.source,
+            source_panel_frame(source_paint.source_background()).fill,
+            source_paint.source_background(),
             "show_source omits a Cell's background wherever cell_visuals asks \
-             for PALETTE.source, so the panel standing in for it must be \
-             filled with exactly that colour"
+             for the settings value's source_background, so the panel \
+             standing in for it must be filled with exactly that colour"
         );
     }
 
@@ -5176,6 +5302,7 @@ mod tests {
             Some(PALETTE.selection_fill),
             crate::cursor_effects::DEFAULT_REGION_COLOUR,
             None,
+            crate::source_paint::SourcePaintSettings::default(),
         );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
@@ -5291,6 +5418,7 @@ mod tests {
             None,
             crate::cursor_effects::DEFAULT_REGION_COLOUR,
             None,
+            crate::source_paint::SourcePaintSettings::default(),
         );
         let runs = paint.background_runs();
         assert!(
@@ -6780,7 +6908,9 @@ mod tests {
             },
             |root| {
                 egui::CentralPanel::default()
-                    .frame(source_panel_frame())
+                    .frame(source_panel_frame(
+                        crate::source_paint::SourcePaintSettings::default().source_background(),
+                    ))
                     .show(root, |ui| {
                         grid_layer = Some(ui.layer_id());
                         show_source_scene(
@@ -6790,6 +6920,7 @@ mod tests {
                             &mut view,
                             crate::cursor_effects::CursorEffectSample::default(),
                             crate::cursor_effects::CursorEffectSettings::default(),
+                            crate::source_paint::SourcePaintSettings::default(),
                         );
                     });
             },

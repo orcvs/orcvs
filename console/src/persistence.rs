@@ -11,6 +11,7 @@ use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 use orcvs::source::Source;
 
 use crate::cursor_effects::CursorEffectSettings;
+use crate::source_paint::SourcePaintSettings;
 
 ///
 /// The Storage key one stored Source revision lives under.
@@ -25,6 +26,14 @@ pub const SOURCE_KEY: &str = "orcvs_source";
 
 #[cfg(feature = "persistence")]
 pub(crate) const CURSOR_EFFECTS_KEY: &str = "cursor_effects";
+
+///
+/// The Storage key Source Paint settings live under: its own key,
+/// independently of [`SOURCE_KEY`] and [`CURSOR_EFFECTS_KEY`], mirroring how
+/// Cursor effects already persist apart from the Source.
+///
+#[cfg(feature = "persistence")]
+pub(crate) const SOURCE_PAINT_KEY: &str = "source_paint";
 
 ///
 /// The Storage key a value that could not be read back is moved to.
@@ -56,6 +65,7 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
     Start {
         source: default_source(),
         cursor_effects: CursorEffectSettings::default(),
+        source_paint: SourcePaintSettings::default(),
     }
 }
 
@@ -79,6 +89,7 @@ enum StoredSource {
 pub(crate) struct Start {
     pub(crate) source: Source,
     pub(crate) cursor_effects: CursorEffectSettings,
+    pub(crate) source_paint: SourcePaintSettings,
     #[cfg(feature = "persistence")]
     pub(crate) persistence: Persistence,
 }
@@ -105,12 +116,14 @@ impl Persistence {
         storage: &mut dyn eframe::Storage,
         source: &orcvs::source::SourceCommander,
         cursor_effects: CursorEffectSettings,
+        source_paint: SourcePaintSettings,
     ) {
         if let Some(refused) = self.refused.take() {
             storage.set_string(REFUSED_KEY, refused);
         }
         source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
         storage.set_string(CURSOR_EFFECTS_KEY, cursor_effects.encode());
+        storage.set_string(SOURCE_PAINT_KEY, source_paint.encode());
     }
 
     pub(crate) fn notice_visible(&self) -> bool {
@@ -159,10 +172,16 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
         .as_deref()
         .and_then(CursorEffectSettings::decode)
         .unwrap_or_default();
+    let source_paint = storage
+        .and_then(|storage| storage.get_string(SOURCE_PAINT_KEY))
+        .as_deref()
+        .and_then(SourcePaintSettings::decode)
+        .unwrap_or_default();
     match stored_source(storage) {
         StoredSource::Restored(source) => Start {
             source,
             cursor_effects,
+            source_paint,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -171,6 +190,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
         StoredSource::Absent => Start {
             source: default_source(),
             cursor_effects,
+            source_paint,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -181,6 +201,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
             Start {
                 source: default_source(),
                 cursor_effects,
+                source_paint,
                 persistence: Persistence {
                     refused: Some(stored),
                     notice: true,
@@ -396,22 +417,32 @@ pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::S
         refused: None,
         notice: false,
     }
-    .save(storage, source, CursorEffectSettings::default());
+    .save(
+        storage,
+        source,
+        CursorEffectSettings::default(),
+        SourcePaintSettings::default(),
+    );
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "persistence")]
-    use super::{CURSOR_EFFECTS_KEY, InMemoryStorage, Persistence, edited_source};
+    use super::{
+        CURSOR_EFFECTS_KEY, InMemoryStorage, Persistence, SOURCE_PAINT_KEY, edited_source,
+    };
     use super::{assert_default_grid, starting_source};
     #[cfg(feature = "persistence")]
     use crate::cursor_effects::CursorEffectSettings;
+    use crate::source_paint::SourcePaintSettings;
 
     #[test]
     fn a_console_with_no_storage_starts_the_default_grid() {
         // The whole of what a build without the `persistence` feature does,
         // and what a first start does with the feature.
-        assert_default_grid(&starting_source(None).source);
+        let start = starting_source(None);
+        assert_default_grid(&start.source);
+        assert_eq!(start.source_paint, SourcePaintSettings::default());
     }
 
     #[cfg(feature = "persistence")]
@@ -431,6 +462,29 @@ mod tests {
         );
     }
 
+    ///
+    /// Mirrors `absent_or_malformed_cursor_effect_settings_use_theme_defaults`
+    /// for Source Paint: an absent key is an ordinary first start, and a
+    /// stored value that does not decode is refused whole rather than
+    /// restoring some roles and defaulting the rest.
+    ///
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn absent_or_malformed_source_paint_settings_use_theme_defaults() {
+        let empty = InMemoryStorage::default();
+        assert_eq!(
+            starting_source(Some(&empty)).source_paint,
+            SourcePaintSettings::default()
+        );
+
+        let mut malformed = InMemoryStorage::default();
+        eframe::Storage::set_string(&mut malformed, SOURCE_PAINT_KEY, "broken".to_owned());
+        assert_eq!(
+            starting_source(Some(&malformed)).source_paint,
+            SourcePaintSettings::default()
+        );
+    }
+
     #[cfg(feature = "persistence")]
     #[test]
     fn cursor_effect_settings_round_trip_without_affecting_the_source() {
@@ -445,10 +499,44 @@ mod tests {
             refused: None,
             notice: false,
         }
-        .save(&mut storage, &current, settings);
+        .save(
+            &mut storage,
+            &current,
+            settings,
+            SourcePaintSettings::default(),
+        );
 
         let restored = starting_source(Some(&storage));
         assert_eq!(restored.cursor_effects, settings);
+        assert_eq!(restored.source_paint, SourcePaintSettings::default());
+        assert_eq!(restored.source.snapshot(), current.snapshot());
+    }
+
+    ///
+    /// Source Paint's own round trip, at its own key: saving a changed
+    /// settings value restores exactly it, and leaves the Source and Cursor
+    /// effects — saved alongside it in the same call — at what they were
+    /// given, independently.
+    ///
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn source_paint_settings_round_trip_independently_of_the_source_and_cursor_effects() {
+        let current = edited_source();
+        let cursor_effects = CursorEffectSettings::default();
+        let mut source_paint = SourcePaintSettings::default();
+        *source_paint.source_background_mut() = egui::Color32::from_rgb(1, 2, 3);
+        *source_paint.sequence_mut() = egui::Color32::from_rgb(4, 5, 6);
+        *source_paint.diagnostic_mut() = egui::Color32::from_rgb(7, 8, 9);
+        let mut storage = InMemoryStorage::default();
+        Persistence {
+            refused: None,
+            notice: false,
+        }
+        .save(&mut storage, &current, cursor_effects, source_paint);
+
+        let restored = starting_source(Some(&storage));
+        assert_eq!(restored.source_paint, source_paint);
+        assert_eq!(restored.cursor_effects, cursor_effects);
         assert_eq!(restored.source.snapshot(), current.snapshot());
     }
 }
@@ -462,6 +550,7 @@ mod stored_source_tests {
         starting_source, store, stored_source,
     };
     use crate::cursor_effects::CursorEffectSettings;
+    use crate::source_paint::SourcePaintSettings;
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
         eframe::Storage::get_string(storage, SOURCE_KEY)
@@ -484,7 +573,12 @@ mod stored_source_tests {
             }
 
             let current = edited_source();
-            persistence.save(&mut storage, &current, CursorEffectSettings::default());
+            persistence.save(
+                &mut storage,
+                &current,
+                CursorEffectSettings::default(),
+                SourcePaintSettings::default(),
+            );
             assert_eq!(persistence.notice_visible(), !dismiss_before_save);
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -501,7 +595,12 @@ mod stored_source_tests {
             persistence.dismiss_notice();
             let cell = current.grid().cell_index(0).expect("inside the Grid");
             current.set(cell, " ").expect("a valid empty Cell");
-            persistence.save(&mut storage, &current, CursorEffectSettings::default());
+            persistence.save(
+                &mut storage,
+                &current,
+                CursorEffectSettings::default(),
+                SourcePaintSettings::default(),
+            );
             assert!(!persistence.notice_visible());
             assert_eq!(
                 eframe::Storage::get_string(&storage, REFUSED_KEY).as_deref(),
@@ -528,6 +627,7 @@ mod stored_source_tests {
                 &mut storage,
                 &edited_source(),
                 CursorEffectSettings::default(),
+                SourcePaintSettings::default(),
             );
             assert!(!persistence.notice_visible());
             assert_eq!(

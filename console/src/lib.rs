@@ -12,6 +12,8 @@ mod paint;
 pub mod persistence;
 mod readout_deadline;
 mod report;
+#[doc(hidden)]
+pub mod source_paint;
 pub mod style;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;
