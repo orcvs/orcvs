@@ -390,6 +390,35 @@ mod tests {
     }
 
     #[test]
+    fn a_row_truncated_operand_cell_carries_its_declared_token() {
+        // `.+01` written into a 5-wide Grid: an Add whose second Number
+        // operand needs columns 4-5, and column 4 is the last column the
+        // Grid has. The one Cell of that operand the Grid holds is empty
+        // (the row simply ends there, left at its default space), and it
+        // still carries `Token::Number` — `LanguageMap::token_at` already
+        // reads this from the Parser's own record of the Cells the row's
+        // tail held, so the Render Frame carries it through unchanged rather
+        // than needing a second per-Cell classifier of its own.
+        let grid = Grid::new(5, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+01");
+
+        let frame = RenderFrame::derive(
+            source.read_revision(),
+            grid.origin(),
+            false,
+            RenderFrameConfig {
+                sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
+            },
+        );
+
+        let truncated = grid.position(4, 0).unwrap();
+        assert_eq!(frame.at(truncated).content(), None);
+        assert_eq!(frame.at(truncated).token(), Some(Token::Number));
+    }
+
+    #[test]
     fn occupied_glyphs_win_over_sector_presentation() {
         let grid = Grid::new(2, 2);
         let source = SourceCommander::new(grid);

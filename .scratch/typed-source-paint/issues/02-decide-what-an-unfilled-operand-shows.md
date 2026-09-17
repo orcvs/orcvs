@@ -5,13 +5,13 @@ Function declares but nothing fills shows a character or is painted by its decla
 
 **Blocked by:** 06 — Delete Glyph.
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] The question is answered for all of `Number`, `Note`, `Char`, `Atom` and `Sequence` operands,
+- [x] The question is answered for all of `Number`, `Note`, `Char`, `Atom` and `Sequence` operands,
       not only the two that `GlyphString` currently spells.
-- [ ] Whichever way it goes, the console blank table's remaining reason to exist is stated or the
+- [x] Whichever way it goes, the console blank table's remaining reason to exist is stated or the
       table is deleted. Ticket `06` already retired GlyphString.
-- [ ] If operand slots are painted rather than spelled, `03`'s handover carries the declared-type
+- [x] If operand slots are painted rather than spelled, `03`'s handover carries the declared-type
       colours; if they are spelled, the spelling table returns with a producer that reaches it.
 
 ## Comments
@@ -34,3 +34,18 @@ claim's classification whether or not the Cell holds a byte — `language_map.rs
 `h`. `paint.rs:633` asserts exactly that. The producer this decision would need already exists:
 keeping the placeholders costs nothing to build, and retiring them is a deletion with a visible
 effect on screen, not the removal of dead vocabulary.
+
+**Resolved by `syntax-highlighting/03`, painted rather than spelled.** An empty claimed operand Cell
+shows only the Fill tint `syntax-highlighting/02` already paints for its declared Token
+(`console/src/style.rs::fill_tint_colour`) — no letter. `03` deletes `console/src/paint.rs`'s blank
+spelling table (`BLANK_TOKENS`, `blank_token_index`, `blank_character`, `CellCharacters`) and the
+three tests that pinned it, and a Cell's shown character becomes `cell.content().unwrap_or(' ')`
+with no Token lookup at all. `Token::Char` is answered vacuously: no Function signature ever declares
+a Char operand (`lang/src/atom.rs`'s `operand_token!` has no `Char` arm, and `lang/src/stack.rs`'s
+`check_token` marks that arm `unreachable!`), so there is no empty *claimed* Char Cell to paint
+either way — every `Token::Char` the Render Frame carries is the Leftover Char fallback, which was
+already excluded from the tint by `syntax-highlighting/02`. A slot cut off at the row edge carries
+its declared Token the same way an ordinary unfilled slot does — `LanguageMap::token_at` already
+reads it from the Parser's own record of the Cells the row's tail held
+(`lang::Parser::take_token`'s error path), so no second per-Cell classifier was needed beside the
+Language Map. See `syntax-highlighting/03` for the full change and its tests.

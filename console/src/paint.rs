@@ -46,8 +46,7 @@ use egui::Color32;
 
 use orcvs::{
     grid::{Grid, Position},
-    render_frame::{RenderCell, RenderFrame},
-    source::Token,
+    render_frame::RenderFrame,
 };
 
 use crate::{
@@ -223,10 +222,6 @@ impl Paint {
         } else {
             (0..0, 0..0)
         };
-        // What each Cell says, read once for the blank spellings and never
-        // per Cell. It needs no `egui::Context`: what a Cell says is a reading
-        // of the Token, and only drawing it reaches the font atlas.
-        let characters = CellCharacters::new();
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
@@ -284,7 +279,16 @@ impl Paint {
                             sector_top_strength(position, sector_seam_spacing).map(sector_line)
                         })
                         .flatten(),
-                    character: characters.character(cell),
+                    // A Cell's own content when it has one; the space
+                    // otherwise, which `place_glyphs` (`console.rs`) draws no
+                    // Glyph for. `syntax-highlighting/03` retired the blank
+                    // spelling table that used to stand a placeholder letter
+                    // in here: an empty claimed operand Cell now answers the
+                    // same space an empty unclaimed one always has, and reads
+                    // as its Token tint alone (`cell_visuals_with_cursor_
+                    // colour`'s `fill_tint_colour`), never as a spelled
+                    // letter.
+                    character: cell.content().unwrap_or(' '),
                 });
             }
         }
@@ -468,99 +472,9 @@ impl Paint {
     }
 }
 
-///
-/// Every Token a Render Frame can carry, in the order
-/// [`blank_token_index`] gives them.
-///
-const BLANK_TOKENS: [Option<Token>; 8] = [
-    Some(Token::Bang),
-    Some(Token::Char),
-    Some(Token::Comment),
-    Some(Token::Function),
-    Some(Token::Note),
-    Some(Token::Number),
-    Some(Token::Atom),
-    Some(Token::Sequence),
-];
-
-///
-/// Where `token` sits in [`BLANK_TOKENS`], or the empty-unclaimed slot.
-///
-/// The match is exhaustive, so a `Token` added to the vocabulary fails to build
-/// here rather than quietly painting the wrong character.
-///
-fn blank_token_index(token: Option<Token>) -> usize {
-    match token {
-        Some(Token::Bang) => 0,
-        Some(Token::Char) => 1,
-        Some(Token::Comment) => 2,
-        Some(Token::Function) => 3,
-        Some(Token::Note) => 4,
-        Some(Token::Number) => 5,
-        Some(Token::Atom) => 6,
-        Some(Token::Sequence) => 7,
-        None => 8,
-    }
-}
-
-///
-/// What an empty Cell of `token` shows.
-///
-fn blank_character(token: Option<Token>) -> char {
-    match token {
-        Some(Token::Bang) => '*',
-        Some(Token::Char | Token::Atom | Token::Sequence) => 'c',
-        Some(Token::Comment) | None => ' ',
-        Some(Token::Function) => 'F',
-        Some(Token::Note) => 'n',
-        Some(Token::Number) => 'h',
-    }
-}
-
-///
-/// What each Cell of a Render Frame shows: its own content, or the character
-/// its Token spells when it holds none.
-///
-/// This is the whole of deciding what a Cell says, and it is in this layer
-/// because it needs nothing this layer does not have: a Token and no
-/// `egui::Context` at all. Only *drawing* that character needs one —
-/// `GlyphTable` in `console.rs` holds the galleys and nothing else — so the
-/// split is the same one the rest of this module makes, between deciding
-/// what a Cell looks like and painting it.
-///
-/// The blank spellings are read once. The table is an array of `char`s indexed
-/// by [`blank_token_index`], so building it is far cheaper than the per-Cell
-/// reads it saves.
-///
-struct CellCharacters {
-    /// The character an empty Cell shows, indexed by [`blank_token_index`].
-    blanks: [char; BLANK_TOKENS.len() + 1],
-}
-
-impl CellCharacters {
-    /// Reads what an empty Cell of each Token spells.
-    fn new() -> Self {
-        let mut blanks = [' '; BLANK_TOKENS.len() + 1];
-        for token in BLANK_TOKENS {
-            blanks[blank_token_index(token)] = blank_character(token);
-        }
-        blanks[blank_token_index(None)] = blank_character(None);
-        Self { blanks }
-    }
-
-    /// The character `cell` shows.
-    fn character(&self, cell: &RenderCell) -> char {
-        cell.content()
-            .unwrap_or_else(|| self.blanks[blank_token_index(cell.token())])
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        BLANK_TOKENS, BackgroundRun, CellCharacters, CellPaint, FramePaint, Paint,
-        blank_token_index,
-    };
+    use super::{BackgroundRun, CellPaint, FramePaint, Paint};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::source_paint::{DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings};
@@ -809,15 +723,20 @@ mod tests {
     }
 
     ///
-    /// Each Cell shows what the character table answers for it: its own
-    /// content, or the character its Glyph spells when it holds none.
+    /// Each Cell shows exactly its own content, or the space when it holds
+    /// none — never a placeholder letter standing in for its Token.
     ///
-    /// The Grid carries an Addition, whose claim reaches past the two Cells it
-    /// is spelled in and leaves classified but empty operand Cells behind it,
-    /// so the blank spellings the table answers are not all the space.
+    /// `syntax-highlighting/03` retired the blank spelling table
+    /// `each_cell_shows_the_character_the_table_answers` used to pin: what a
+    /// Cell shows is answered from the Render Frame alone, with no Token
+    /// lookup at all. The Grid carries an Addition, whose claim reaches past
+    /// the two Cells it is spelled in and leaves classified but empty operand
+    /// Cells behind it — this is the Cell this test is about, and it answers
+    /// the space like any other empty Cell, not a letter the deleted table
+    /// used to spell for it.
     ///
     #[tokio::test]
-    async fn each_cell_shows_the_character_the_table_answers() {
+    async fn every_cell_shows_only_its_own_content_or_the_space() {
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
             orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
@@ -827,110 +746,131 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let characters = CellCharacters::new();
-        let mut spellings = std::collections::BTreeSet::new();
 
         for cell in frame.cells() {
             let shown = paint.at(cell.position()).character;
 
             assert_eq!(
                 shown,
-                characters.character(cell),
+                cell.content().unwrap_or(' '),
                 "the character at {:?}",
                 cell.position()
             );
-            spellings.insert(shown);
         }
-
-        assert!(
-            spellings.len() > 2,
-            "every Cell spelled the same thing, so the table answered nothing: {spellings:?}"
-        );
     }
 
     ///
-    /// What an empty Cell shows is the Token's blank spelling, read once per
-    /// Render Frame rather than restated per Cell.
-    #[test]
-    fn a_blank_cell_shows_what_its_token_spells() {
-        for token in BLANK_TOKENS {
-            assert_eq!(
-                BLANK_TOKENS[blank_token_index(token)],
-                token,
-                "the blank table is not indexed by its own order"
-            );
-        }
-        assert_eq!(super::blank_character(Some(Token::Bang)), '*');
-        assert_eq!(super::blank_character(Some(Token::Char)), 'c');
-        assert_eq!(super::blank_character(Some(Token::Atom)), 'c');
-        assert_eq!(super::blank_character(Some(Token::Sequence)), 'c');
-        assert_eq!(super::blank_character(Some(Token::Comment)), ' ');
-        assert_eq!(super::blank_character(Some(Token::Function)), 'F');
-        assert_eq!(super::blank_character(Some(Token::Note)), 'n');
-        assert_eq!(super::blank_character(Some(Token::Number)), 'h');
-        assert_eq!(super::blank_character(None), ' ');
-    }
-
+    /// An empty claimed operand Cell of every Token a signature can declare —
+    /// Number, Note, Atom, Sequence — shows no character at all: the tint
+    /// `style::fill_tint_colour` paints is the whole of what marks it as
+    /// Pending, and the space it shows is the same one an empty unclaimed
+    /// Cell always has. `Token::Char` is not one of the Tokens exercised
+    /// here: `style::fill_tint_colour`'s own doc explains why no operand ever
+    /// declares it, so there is no empty *claimed* Char Cell to write this
+    /// test against — a Leftover Char is never empty, since content is what
+    /// makes it Char at all.
     ///
-    /// Which character a Cell shows is answered from the Render Frame alone.
-    ///
-    /// No `egui::Context` is built here, and that is the assertion: the lookup
-    /// is a reading of the Token, not a reading of the font atlas, so the
-    /// step that decides what a Cell says is reachable without the harness the
-    /// galleys need. Every Cell of the Grid is checked against the blank
-    /// spelling its Token gives an empty Cell.
+    /// Number and Note come from an Addition (`.+`, two Number operands) and
+    /// a `.v` (one Note operand) left unfilled. Atom and Sequence have no
+    /// Function whose *first* operand declares them without also demanding a
+    /// nested Function earlier in the row, so they are asserted against
+    /// `cell_visuals` directly in `style::tests`, which this test does not
+    /// repeat.
     ///
     #[tokio::test]
-    async fn a_cell_answers_its_character_with_no_context() {
-        let mut orcvs = running_orcvs(8, 8);
-        // An Addition, whose claim reaches past the two Cells it is spelled in
-        // and leaves the operand Cells behind it empty but classified. Those
-        // are the Cells that make the blank table answer something other than
-        // the space.
-        let written = ".+";
-        for (x, character) in written.chars().enumerate() {
-            let position = orcvs.grid().position(x, 2).expect("inside the grid");
-            orcvs.select(position);
+    async fn an_empty_claimed_number_or_note_operand_shows_tint_and_no_character() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
+        for (x, character) in ".v".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        orcvs.select(orcvs.grid().position(7, 1).expect("inside the grid"));
 
-        let characters = CellCharacters::new();
         let frame = orcvs.render_frame();
-        let mut content = String::new();
-        let mut blanks = std::collections::BTreeSet::new();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
 
-        for cell in frame.cells() {
-            let spelled = cell
-                .content()
-                .unwrap_or_else(|| super::blank_character(cell.token()));
-
+        // The Addition's two Number operands, columns 2-5 of row 0.
+        for x in 2..6 {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            let cell = frame.at(position);
+            assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
+            assert_eq!(cell.token(), Some(Token::Number));
+            let painted = paint.at(position);
+            assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
-                characters.character(cell),
-                spelled,
-                "the Cell at {:?} shows something its Token does not spell",
-                cell.position()
+                painted.background,
+                cell_visuals(Some(Token::Number), false, false, source_paint).background,
+                "operand Cell {x} did not carry the Number tint"
             );
-
-            match cell.content() {
-                Some(character) => content.push(character),
-                None => {
-                    blanks.insert(characters.character(cell));
-                }
-            }
         }
 
-        assert_eq!(content, written, "the written Cells kept their content");
-        // A Grid whose blank Cells all spell the space would pass the loop
-        // above while telling nothing apart, so the Addition's unfilled operand
-        // slots have to be in it: `h` is what an empty Cell a signature says a
-        // Number belongs in shows.
-        assert!(
-            blanks.contains(&'h'),
-            "no unfilled operand slot reached the blank table, so it went untested: {blanks:?}"
+        // `.v`'s one Note operand, columns 2-3 of row 1.
+        for x in 2..4 {
+            let position = orcvs.grid().position(x, 1).expect("inside the grid");
+            let cell = frame.at(position);
+            assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
+            assert_eq!(cell.token(), Some(Token::Note));
+            let painted = paint.at(position);
+            assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
+            assert_eq!(
+                painted.background,
+                cell_visuals(Some(Token::Note), false, false, source_paint).background,
+                "operand Cell {x} did not carry the Note tint"
+            );
+        }
+    }
+
+    ///
+    /// A slot cut off by the end of its row carries its declared Token for
+    /// every one of its Cells the Grid holds, the same as any other claimed
+    /// operand Cell — no per-Cell classifier beside the Language Map is
+    /// needed, because `LanguageMap::token_at` already answers it: `lang::
+    /// Parser::take_token`'s error path still records the Cells the row's
+    /// tail actually held (`PositionedEntry::cells`), even though the
+    /// operand itself cannot bind, so the truncated Cell reaches this layer
+    /// exactly like an ordinary Pending Operand.
+    ///
+    /// `.+01` written into a 5-wide Grid is an Add whose second Number
+    /// operand needs columns 4-5, and column 4 is the last column the Grid
+    /// has: one Cell of the slot exists, and it is empty (a space at the row
+    /// edge, left at its default rather than written), so this is the
+    /// Pending case rather than an Invalid one.
+    ///
+    #[tokio::test]
+    async fn a_row_truncated_operand_cell_carries_its_declared_token_tint_and_no_character() {
+        let mut orcvs = running_orcvs(5, 1);
+        for (x, character) in ".+01".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let position = orcvs.grid().position(4, 0).expect("inside the grid");
+        let cell = frame.at(position);
+
+        assert_eq!(cell.content(), None, "the truncated Cell was not empty");
+        assert_eq!(
+            cell.token(),
+            Some(Token::Number),
+            "the truncated Cell did not carry the operand's declared Token"
         );
-        assert!(
-            blanks.contains(&' '),
-            "no empty Cell reached the blank table, so it went untested: {blanks:?}"
+        let painted = paint.at(position);
+        assert_eq!(
+            painted.character, ' ',
+            "the truncated Cell spelled a letter"
+        );
+        assert_eq!(
+            painted.background,
+            cell_visuals(Some(Token::Number), false, false, source_paint).background,
+            "the truncated Cell did not carry the Number tint"
         );
     }
 

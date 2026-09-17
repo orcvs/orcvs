@@ -5045,14 +5045,18 @@ mod tests {
     /// the space.
     ///
     /// What a Cell shows and what colour it is are the Paint's answers, made
-    /// with no `egui::Context` and asserted against the Token blank table and
+    /// with no `egui::Context` and asserted against `cell.content()` and
     /// `cell_visuals` in `paint.rs`. What this pins is the step between: a
     /// galley per Cell that has something to say, positioned on that Cell and
     /// handed that Cell's colour rather than its neighbour's.
     ///
     /// The Grid carries an Addition, whose claim reaches past the two Cells it
-    /// is spelled in and leaves classified but empty operand Cells behind it,
-    /// so the Cells showing something are not only the written ones.
+    /// is spelled in and leaves classified but empty operand Cells behind it.
+    /// `syntax-highlighting/03` retired the blank spelling table that used to
+    /// stand a placeholder letter in those Cells, so the Cells showing
+    /// something are exactly the written ones — the unfilled operand Cells
+    /// are tinted (`style::fill_tint_colour`) but spell nothing, which is what
+    /// this test's exact count of two asserts rather than only a lower bound.
     ///
     #[tokio::test]
     async fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
@@ -5075,9 +5079,10 @@ mod tests {
             .map(|(position, _)| position)
             .collect();
 
-        assert!(
-            shown.len() > 2,
-            "only {} Cells showed a character, so the blank spellings went untested",
+        assert_eq!(
+            shown.len(),
+            2,
+            "the two written Cells are the only Cells that should show a character, not {}",
             shown.len()
         );
         assert_eq!(
