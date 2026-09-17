@@ -976,6 +976,74 @@ mod tests {
         }
     }
 
+    ///
+    /// `syntax-highlighting/02`'s Fill tint, walked end to end from written
+    /// Source through `Paint::derive` rather than through `cell_visuals`
+    /// alone: a nested Function's own Cells tint like its parent's, an
+    /// Operand Cell tints with its declared Token's colour whether or not
+    /// its slot binds, and adjacent tinted Cells of one colour — a Function
+    /// and its nested Function here, and three Number operand entries there
+    /// — coalesce into one `BackgroundRun` apiece rather than one per Cell or
+    /// per Language Unit.
+    ///
+    /// `.+.x010203` is Add of a nested Multiply and a Number: `.+` and `.x`
+    /// are each a Function's own two-Cell spelling (columns 0-1 and 2-3),
+    /// and `01`, `02`, `03` are three Number operand entries (columns 4-5,
+    /// 6-7, 8-9) — Multiply's two and Add's own. The Cursor is parked on the
+    /// untouched row below so its own fill cannot stand in for a tint this
+    /// test is about.
+    ///
+    #[tokio::test]
+    async fn nested_function_and_operand_cells_tint_and_adjacent_same_colour_cells_merge_into_one_run()
+     {
+        let mut orcvs = running_orcvs(10, 2);
+        for (x, character) in ".+.x010203".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        orcvs.select(orcvs.grid().position(0, 1).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let function_tint =
+            cell_visuals(Some(Token::Function), false, false, source_paint).background;
+        let number_tint = cell_visuals(Some(Token::Number), false, false, source_paint).background;
+        assert!(function_tint.is_some() && number_tint.is_some());
+        assert_ne!(function_tint, number_tint);
+
+        for x in 0..4 {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            assert_eq!(
+                paint.at(position).background,
+                function_tint,
+                "Function Cell {x} was not tinted, nested included"
+            );
+        }
+        for x in 4..10 {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            assert_eq!(
+                paint.at(position).background,
+                number_tint,
+                "Number Operand Cell {x} was not tinted"
+            );
+        }
+
+        let row_zero_runs: Vec<_> = paint
+            .background_runs()
+            .into_iter()
+            .filter(|run| run.row == 0)
+            .collect();
+        assert_eq!(
+            row_zero_runs,
+            vec![
+                run(function_tint.expect("checked above"), 0, 0..4),
+                run(number_tint.expect("checked above"), 0, 4..10),
+            ],
+            "the outer and nested Function merged into one run, and so did the three Number entries"
+        );
+    }
+
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
         let first = PALETTE.selection_fill;

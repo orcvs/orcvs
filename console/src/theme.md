@@ -56,6 +56,20 @@ enabled, Source colours are restored under their own key, independently of the
 Source and of Cursor effects — an absent or malformed stored value falls back
 to the defaults below rather than partly restoring.
 
+The same section holds one more control that is not a colour: Fill tint, a
+0-100% Slider defaulting to 16%. Every Function Cell — nested Functions
+included — and every Operand Cell (its declared Token: Number, Note, Atom, or
+Sequence, whether the operand is still Pending, Valid, or Invalid) paints a
+background tint of its Token colour mixed toward the Source background by
+this percentage; 0% paints no tint at all. Comment, Bang, an empty unclaimed
+Cell, and a Leftover Char are never tinted, and the glyph itself keeps its
+Token colour regardless of the tint beneath it. On the Cursor's own Cell, the
+Cursor's fill wins over the tint outright. Adjacent tinted Cells that share
+one colour paint as one run, the same coalescing `Paint::background_runs`
+already gives the Cursor's and Selection's fills. "Reset to theme defaults"
+restores Fill tint to 16% together with the ten colours, and persistence
+restores it at the same key as the colours — there is no key of its own.
+
 The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
 `grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
 in the Source Paint prototype

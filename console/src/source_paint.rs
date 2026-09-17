@@ -32,6 +32,14 @@ pub(crate) const DEFAULT_DIAGNOSTIC: Color32 = Color32::from_rgb(213, 94, 0); //
 pub(crate) const DEFAULT_RESULT: Color32 = Color32::from_rgb(230, 159, 0); // #E69F00 orange
 
 ///
+/// `syntax-highlighting/02`'s default Fill tint strength: a Function or
+/// Operand Cell's background, mixed toward its Token colour by this
+/// percentage of the way from the Source background. Chosen in the Source
+/// Paint prototype at the same seam ticket 01's colours were.
+///
+pub(crate) const DEFAULT_FILL_TINT: u8 = 16;
+
+///
 /// One opaque colour per Source Paint role: the Source background and every
 /// Token's glyph.
 ///
@@ -42,6 +50,13 @@ pub(crate) const DEFAULT_RESULT: Color32 = Color32::from_rgb(230, 159, 0); // #E
 /// and `syntax-highlighting/06` add the classifications those Tokens paint.
 /// They are settings from this change on regardless, so the persisted shape
 /// is complete once rather than gaining a field — and a migration — later.
+///
+/// `fill_tint` joins the ten colours as `syntax-highlighting/02`'s one
+/// non-colour role: the percentage a Function or Operand Cell's background is
+/// mixed toward its Token colour, away from `source_background`. It is a
+/// percentage rather than a colour, so it is not one of the ten roles above,
+/// but it lives on this settings value for the same reason they do — a
+/// viewer's `Theme → Source colours` edit and persistence's own key.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourcePaintSettings {
@@ -55,6 +70,7 @@ pub struct SourcePaintSettings {
     sequence: Color32,
     diagnostic: Color32,
     result: Color32,
+    fill_tint: u8,
 }
 
 impl Default for SourcePaintSettings {
@@ -70,6 +86,7 @@ impl Default for SourcePaintSettings {
             sequence: DEFAULT_SEQUENCE,
             diagnostic: DEFAULT_DIAGNOSTIC,
             result: DEFAULT_RESULT,
+            fill_tint: DEFAULT_FILL_TINT,
         }
     }
 }
@@ -113,6 +130,12 @@ impl SourcePaintSettings {
     pub(crate) fn result(self) -> Color32 {
         self.result
     }
+    /// The Fill tint strength: what percentage of the way from the Source
+    /// background to a Token colour a Function or Operand Cell's background
+    /// is mixed. `0` paints no tint at all.
+    pub(crate) fn fill_tint(self) -> u8 {
+        self.fill_tint
+    }
 
     pub(crate) fn source_background_mut(&mut self) -> &mut Color32 {
         &mut self.source_background
@@ -144,9 +167,13 @@ impl SourcePaintSettings {
     pub(crate) fn result_mut(&mut self) -> &mut Color32 {
         &mut self.result
     }
+    pub(crate) fn fill_tint_mut(&mut self) -> &mut u8 {
+        &mut self.fill_tint
+    }
 
     ///
-    /// Ten `r,g,b` groups, semicolon-joined in field order.
+    /// Ten `r,g,b` groups and the Fill tint percentage, semicolon-joined in
+    /// field order.
     ///
     /// Mirrors [`crate::cursor_effects::CursorEffectSettings::encode`]: a flat
     /// string an `eframe::Storage` value holds directly, so this settings
@@ -155,7 +182,7 @@ impl SourcePaintSettings {
     #[cfg(any(feature = "persistence", test))]
     pub(crate) fn encode(self) -> String {
         let channel = |colour: Color32| format!("{},{},{}", colour.r(), colour.g(), colour.b());
-        [
+        let colours = [
             self.source_background,
             self.ordinary,
             self.comment,
@@ -170,14 +197,17 @@ impl SourcePaintSettings {
         .into_iter()
         .map(channel)
         .collect::<Vec<_>>()
-        .join(";")
+        .join(";");
+        format!("{colours};{}", self.fill_tint)
     }
 
     ///
     /// The inverse of [`Self::encode`], refusing anything that is not exactly
-    /// ten well-formed `r,g,b` groups — a short, long, or malformed value is
+    /// ten well-formed `r,g,b` groups followed by a Fill tint percentage of
+    /// `100` or less — a short, long, malformed, or out-of-range value is
     /// refused whole rather than partly decoded, so a caller falls back to
-    /// [`Self::default`] instead of restoring some roles and defaulting others.
+    /// [`Self::default`] instead of restoring some roles and defaulting
+    /// others.
     ///
     #[cfg(any(feature = "persistence", test))]
     pub(crate) fn decode(value: &str) -> Option<Self> {
@@ -201,9 +231,10 @@ impl SourcePaintSettings {
             sequence: colour(groups.next()?)?,
             diagnostic: colour(groups.next()?)?,
             result: colour(groups.next()?)?,
+            fill_tint: groups.next()?.parse().ok()?,
         };
 
-        groups.next().is_none().then_some(settings)
+        (groups.next().is_none() && settings.fill_tint <= 100).then_some(settings)
     }
 }
 
@@ -225,14 +256,15 @@ mod tests {
         assert_eq!(settings.sequence(), Color32::from_rgb(0, 114, 178));
         assert_eq!(settings.diagnostic(), Color32::from_rgb(213, 94, 0));
         assert_eq!(settings.result(), Color32::from_rgb(230, 159, 0));
+        assert_eq!(settings.fill_tint(), 16);
     }
 
     ///
     /// Resetting is `= SourcePaintSettings::default()` at the call site
     /// (`console.rs`); what this pins is that the value a reset restores
-    /// changes every one of the ten roles together rather than a subset of
-    /// them, so an edit that only touched some fields' defaults would be
-    /// caught here.
+    /// changes every one of the ten colours and the Fill tint percentage
+    /// together rather than a subset of them, so an edit that only touched
+    /// some fields' defaults would be caught here.
     ///
     #[test]
     fn every_role_differs_from_a_changed_settings_value_once_reset() {
@@ -247,6 +279,7 @@ mod tests {
         *changed.sequence_mut() = Color32::from_rgb(8, 8, 8);
         *changed.diagnostic_mut() = Color32::from_rgb(9, 9, 9);
         *changed.result_mut() = Color32::from_rgb(10, 10, 10);
+        *changed.fill_tint_mut() = 99;
         assert_ne!(changed, SourcePaintSettings::default());
 
         let reset = SourcePaintSettings::default();
@@ -262,6 +295,7 @@ mod tests {
         *settings.sequence_mut() = Color32::from_rgb(7, 8, 9);
         *settings.diagnostic_mut() = Color32::from_rgb(10, 11, 12);
         *settings.result_mut() = Color32::from_rgb(13, 14, 15);
+        *settings.fill_tint_mut() = 42;
 
         assert_eq!(
             SourcePaintSettings::decode(&settings.encode()),
@@ -274,13 +308,33 @@ mod tests {
         assert_eq!(SourcePaintSettings::decode("garbage"), None);
         assert_eq!(SourcePaintSettings::decode(""), None);
 
-        // Nine groups: one role short of the ten this settings value holds.
+        // Ten groups: the ten colours alone, missing the Fill tint
+        // percentage that makes eleven.
         let encoded = SourcePaintSettings::default().encode();
         let short = encoded.rsplit_once(';').expect("more than one group").0;
         assert_eq!(SourcePaintSettings::decode(short), None);
 
-        // Eleven groups: one group too many.
+        // Twelve groups: one group too many.
         let long = format!("{encoded};1,2,3");
         assert_eq!(SourcePaintSettings::decode(&long), None);
+    }
+
+    ///
+    /// The Fill tint percentage is a `u8`, so encoding never overflows it,
+    /// but a stored value above the 0-100 range a viewer's Slider can reach
+    /// is still refused rather than silently clamped — the same rule
+    /// [`crate::cursor_effects::CursorEffectSettings::decode`] holds for its
+    /// own `amount` and `frequency`.
+    ///
+    #[test]
+    fn a_fill_tint_above_the_percentage_range_is_refused() {
+        let mut settings = SourcePaintSettings::default();
+        *settings.fill_tint_mut() = 100;
+        let encoded = settings.encode();
+        assert_eq!(SourcePaintSettings::decode(&encoded), Some(settings));
+
+        let (prefix, _) = encoded.rsplit_once(';').expect("more than one group");
+        let too_high = format!("{prefix};101");
+        assert_eq!(SourcePaintSettings::decode(&too_high), None);
     }
 }

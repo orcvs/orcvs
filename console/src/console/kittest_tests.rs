@@ -222,6 +222,7 @@ async fn the_source_colours_reset_restores_its_defaults_and_leaves_cursor_effect
 
     let mut changed_source_paint = SourcePaintSettings::default();
     *changed_source_paint.ordinary_mut() = Color32::from_rgb(1, 2, 3);
+    *changed_source_paint.fill_tint_mut() = 77;
     let mut changed_cursor_effects = CursorEffectSettings::default();
     *changed_cursor_effects.cursor_colour_mut() = Color32::from_rgb(9, 8, 7);
     harness.state_mut().source_paint = changed_source_paint;

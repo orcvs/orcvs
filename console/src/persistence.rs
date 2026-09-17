@@ -527,6 +527,7 @@ mod tests {
         *source_paint.source_background_mut() = egui::Color32::from_rgb(1, 2, 3);
         *source_paint.sequence_mut() = egui::Color32::from_rgb(4, 5, 6);
         *source_paint.diagnostic_mut() = egui::Color32::from_rgb(7, 8, 9);
+        *source_paint.fill_tint_mut() = 42;
         let mut storage = InMemoryStorage::default();
         Persistence {
             refused: None,

@@ -51,11 +51,13 @@ pub(crate) struct CellVisuals {
 ///
 /// `background` is `None` when the Cell needs no fill of its own — the
 /// `source_panel_frame` behind the Grid has already painted the live
-/// `SourcePaintSettings::source_background` across the console, so the two
-/// arms that would answer that colour answer `None` instead of asking every
-/// ordinary Cell to repaint it. The Cursor's own Cell is one of those arms:
-/// painting the Source fill again would hide the Cursor Effect's
-/// presentation.
+/// `SourcePaintSettings::source_background` across the console, so an
+/// ordinary Cell with nothing to tint answers `None` instead of repainting
+/// it. The Cursor's own Cell is one such arm: painting the Source fill again
+/// would hide the Cursor Effect's presentation. `Some` answers one of two
+/// fills: the Cursor's own colour on the selected Cell
+/// (`syntax-highlighting/01`), which wins outright, or otherwise
+/// `syntax-highlighting/02`'s Fill tint on a Function or Operand Cell.
 ///
 #[cfg(test)]
 pub(crate) fn cell_visuals(
@@ -97,8 +99,20 @@ pub(crate) fn cell_visuals_with_cursor_colour(
         Some(Token::Sequence) => source_paint.sequence(),
         Some(Token::Char | Token::Atom) | None => source_paint.ordinary(),
     };
+    // The Cursor's own fill wins outright on its Cell (`syntax-highlighting/
+    // 01`): `cursor_colour` answers there whether it is `Some` or `None`,
+    // the same as before this ticket. Every other Cell answers
+    // `syntax-highlighting/02`'s Fill tint instead of the bare `None` a
+    // Cell with nothing to tint used to fall back to — `fill_tint_colour`
+    // answers that same `None` for a Function's or Operand's blank counterpart
+    // to keep it.
+    let background = if selected {
+        cursor_colour
+    } else {
+        fill_tint_colour(token, source_paint)
+    };
     CellVisuals {
-        background: selected.then_some(cursor_colour).flatten(),
+        background,
         border: if cursor_visible {
             PALETTE.selection_stroke
         } else if selected {
@@ -108,6 +122,57 @@ pub(crate) fn cell_visuals_with_cursor_colour(
         },
         foreground,
     }
+}
+
+///
+/// The background a Function or Operand Cell is tinted with: `token`'s own
+/// glyph colour mixed toward `source_paint.source_background()` by
+/// `source_paint.fill_tint()` — `100` paints the Token colour outright and
+/// `0` paints nothing, which is why the strength is checked before mixing
+/// rather than left to a mix that would round back to the background anyway.
+///
+/// A Function Cell, nested Functions included, answers `function()`: every
+/// Function's own two-Cell spelling carries `Token::Function` regardless of
+/// nesting, so no separate nesting fact is read. An Operand Cell answers its
+/// declared Token's colour — `Number`, `Note`, `Atom`, `Sequence` — whether
+/// its Cells are still Pending, hold a Valid Operand, or hold an Invalid one:
+/// the Parser labels a claimed operand slot with its signature's declared
+/// `Token` whether or not what stands there binds, so this reads the same
+/// fact `cell_visuals_with_cursor_colour`'s foreground match already reads
+/// rather than a second classifier of Function versus Operand.
+///
+/// `Token::Bang`, `Token::Comment` and `None` answer `None`: a Bang and a
+/// Comment are their own Language Unit, never a Function's operand, and an
+/// empty unclaimed Cell has no Token to tint with.
+///
+/// `Token::Char` answers `None` too, even though `spec.md`'s Function
+/// vocabulary names Char among the Tokens a Valid Operand can declare. No
+/// operand ever does in this vocabulary: `operand_token!` in `lang/src/
+/// atom.rs` never mints `Token::Char` for a signature, and `lang/src/
+/// stack.rs`'s `check_token` marks that arm `unreachable!` outright — "no
+/// operand type declares a Token the Parser mints only as a label". A Cell
+/// this function sees `Some(Token::Char)` on can therefore only be
+/// `SourceRevision::token_at`'s leftover-content fallback (`orcvs/src/
+/// source/mod.rs`) standing in for a Cell no Expression claimed — the
+/// Leftover Char role this ticket's acceptance leaves untinted alongside
+/// Comment, Bang and an empty unclaimed Cell.
+///
+fn fill_tint_colour(token: Option<Token>, source_paint: SourcePaintSettings) -> Option<Color32> {
+    let token_colour = match token {
+        Some(Token::Function) => source_paint.function(),
+        Some(Token::Number) => source_paint.number(),
+        Some(Token::Note) => source_paint.note(),
+        Some(Token::Atom) => source_paint.ordinary(),
+        Some(Token::Sequence) => source_paint.sequence(),
+        Some(Token::Bang | Token::Comment | Token::Char) | None => return None,
+    };
+    let strength = f32::from(source_paint.fill_tint()) / 100.0;
+
+    (strength > 0.0).then(|| {
+        source_paint
+            .source_background()
+            .lerp_to_gamma(token_colour, strength)
+    })
 }
 
 pub(crate) fn sector_line(strength_percent: u8) -> Color32 {
@@ -450,5 +515,149 @@ mod tests {
 
         assert!(channel_delta >= 80, "border delta was only {channel_delta}");
         assert!(channel_delta <= 120, "border delta was {channel_delta}");
+    }
+
+    ///
+    /// The reading every tint test below shares: `source_paint`'s
+    /// `lerp_to_gamma` at its own Fill tint strength, restated independently
+    /// of `super::fill_tint_colour` so a broken mix is caught rather than
+    /// mirrored.
+    ///
+    fn tinted(source_paint: SourcePaintSettings, colour: Color32) -> Color32 {
+        let strength = f32::from(source_paint.fill_tint()) / 100.0;
+        source_paint
+            .source_background()
+            .lerp_to_gamma(colour, strength)
+    }
+
+    ///
+    /// A Function Cell is tinted with the Function colour. Nested Functions
+    /// are not a separate case here: every Function's own two-Cell spelling
+    /// carries `Token::Function` regardless of nesting (`render_frame.rs`'s
+    /// `a_self_banging_function_is_painted_as_a_function` and
+    /// `orcvs`'s own nested-Function tests pin that at the Token layer), so
+    /// this one arm already covers a nested Function's Cells — proven with a
+    /// real nested Expression in `paint::tests::
+    /// a_nested_functions_own_cells_are_tinted_like_its_parents`.
+    ///
+    #[test]
+    fn a_function_cell_is_tinted_with_the_function_colour() {
+        let source_paint = SourcePaintSettings::default();
+        let function = cell_visuals(Some(Token::Function), false, false, source_paint);
+
+        assert_eq!(
+            function.background,
+            Some(tinted(source_paint, source_paint.function()))
+        );
+    }
+
+    ///
+    /// An Operand Cell is tinted with its declared Token's colour: Number,
+    /// Note, Atom and Sequence. `Token::Char` is not one of them —
+    /// `fill_tint_colour`'s own doc explains why a Cell can carry that Token
+    /// at all without ever being a declared operand.
+    ///
+    #[test]
+    fn an_operand_cell_of_each_declared_token_is_tinted_with_its_own_colour() {
+        let source_paint = SourcePaintSettings::default();
+
+        for (token, colour) in [
+            (Token::Number, source_paint.number()),
+            (Token::Note, source_paint.note()),
+            (Token::Atom, source_paint.ordinary()),
+            (Token::Sequence, source_paint.sequence()),
+        ] {
+            let visuals = cell_visuals(Some(token), false, false, source_paint);
+            assert_eq!(
+                visuals.background,
+                Some(tinted(source_paint, colour)),
+                "{token:?} was not tinted with its own colour"
+            );
+        }
+    }
+
+    ///
+    /// A Fill tint of `0` paints no background at all on a Function or
+    /// Operand Cell, the same `None` an untinted role answers — not
+    /// `Some` of the Source background, which `background_runs` would still
+    /// have to walk as a Cell wanting a fill of its own.
+    ///
+    #[test]
+    fn zero_percent_fill_tint_paints_no_tint() {
+        let mut source_paint = SourcePaintSettings::default();
+        *source_paint.fill_tint_mut() = 0;
+
+        for token in [
+            Token::Function,
+            Token::Number,
+            Token::Note,
+            Token::Atom,
+            Token::Sequence,
+        ] {
+            let visuals = cell_visuals(Some(token), false, false, source_paint);
+            assert_eq!(visuals.background, None, "{token:?} was tinted at 0%");
+        }
+    }
+
+    ///
+    /// Comment, Bang, Leftover Char and an empty unclaimed Cell are not
+    /// tinted, at the ticket's default (non-zero) Fill tint strength — so a
+    /// missing exclusion cannot hide behind `zero_percent_fill_tint_paints_
+    /// no_tint`'s strength being zero.
+    ///
+    #[test]
+    fn comment_bang_leftover_char_and_empty_unclaimed_cells_are_not_tinted() {
+        let source_paint = SourcePaintSettings::default();
+        assert_ne!(source_paint.fill_tint(), 0);
+
+        for token in [
+            Some(Token::Comment),
+            Some(Token::Bang),
+            Some(Token::Char),
+            None,
+        ] {
+            let visuals = cell_visuals(token, false, false, source_paint);
+            assert_eq!(visuals.background, None, "{token:?} was tinted");
+        }
+    }
+
+    ///
+    /// The Cursor's own fill wins over the tint on its Cell: a Function or
+    /// Operand Cell that is also selected answers the Cursor's colour, not
+    /// the tint, the same priority `cursor_and_selection_override_the_
+    /// ambient_field` already pins for a Cell with nothing to tint.
+    ///
+    #[test]
+    fn the_cursors_own_fill_wins_over_the_tint_on_its_cell() {
+        let source_paint = SourcePaintSettings::default();
+        let cursor_colour = Color32::from_rgb(9, 8, 7);
+        let tinted_function = tinted(source_paint, source_paint.function());
+
+        let unselected = super::cell_visuals_with_cursor_colour(
+            Some(Token::Function),
+            false,
+            false,
+            Some(cursor_colour),
+            source_paint,
+        );
+        let selected = super::cell_visuals_with_cursor_colour(
+            Some(Token::Function),
+            true,
+            false,
+            Some(cursor_colour),
+            source_paint,
+        );
+        let cursor = super::cell_visuals_with_cursor_colour(
+            Some(Token::Function),
+            true,
+            true,
+            Some(cursor_colour),
+            source_paint,
+        );
+
+        assert_eq!(unselected.background, Some(tinted_function));
+        assert_eq!(selected.background, Some(cursor_colour));
+        assert_eq!(cursor.background, Some(cursor_colour));
+        assert_ne!(cursor_colour, tinted_function);
     }
 }

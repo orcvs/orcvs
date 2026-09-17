@@ -1925,6 +1925,10 @@ impl eframe::App for Console {
                             egui::color_picker::Alpha::Opaque,
                         );
                     });
+                    ui.add(
+                        egui::Slider::new(self.source_paint.fill_tint_mut(), 0..=100)
+                            .text("Fill tint"),
+                    );
                     ui.separator();
                     // Its own reset, independent of Cursor effects' above: it
                     // only ever assigns `self.source_paint`, so a Source
