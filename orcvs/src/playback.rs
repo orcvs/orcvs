@@ -144,6 +144,11 @@ pub type PlaybackObservationWatch = watch::Receiver<PlaybackObservation>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlaybackObservation {
     pub state: PlaybackState,
+    ///
+    /// The Tick of this run that last sounded, so T and `**` land with the
+    /// audio. Tick `0` from the moment a run begins, since Tick `0` executes
+    /// then; held when the run stops or a Tick is declined.
+    ///
     pub tick: Tick,
     ///
     /// Whether [`Self::tick`] is a displayed BPM beat. Published with the Tick
@@ -652,8 +657,9 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         if self.is_playing() {
             let frozen_run_clock = self.observation.borrow().run_clock();
             self.observation.send_modify(|observation| {
+                // The published Tick is already the last one that sounded;
+                // stopping holds it rather than showing one that never will.
                 observation.state = PlaybackState::Stopped;
-                observation.set_tick(self.tick);
                 observation.run_started_at = None;
                 observation.frozen_run_clock = frozen_run_clock;
             });
@@ -801,8 +807,10 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         let tick = self.tick;
         let plan = self.source.execute(tick);
         self.tick = tick.next();
+        // The Panel shows the Tick that sounds, not the one after it: `**`
+        // lit a Tick ahead would flash before the beat and go dark on it.
         self.observation
-            .send_modify(|observation| observation.set_tick(self.tick));
+            .send_modify(|observation| observation.set_tick(tick));
         if self.connected {
             // Nothing is delivered while disconnected, so nothing is owned
             // while disconnected either: resolving the Tick Plan here rather
@@ -2342,22 +2350,34 @@ mod tests {
         );
     }
 
+    ///
+    /// The Panel's T and `**` describe the Tick that just sounded. A beat
+    /// marker that lights while the Tick before the beat plays, and goes dark
+    /// on the beat, is not a beat marker.
+    ///
     #[test]
-    fn executed_ticks_advance_the_published_tick() {
+    fn the_published_tick_and_beat_are_the_tick_that_just_sounded() {
         let mut run = HandDrivenRun::new(
             SourceCommander::new(Grid::new(10, 9)),
             InMemoryOutputAdapter::default(),
         );
         run.begin_run();
 
-        for executed in 1..=4u64 {
-            run.run_tick(executed - 1);
+        for executed in 0..=8u64 {
+            run.run_tick(executed);
 
-            assert_eq!(run.observation().tick, Tick::new(executed));
+            let observation = run.observation();
             assert_eq!(
-                run.observation().on_beat,
-                Bpm::on_beat(Tick::new(executed)),
-                "published on_beat drifted from the published Tick {executed}"
+                observation.tick,
+                Tick::new(executed),
+                "Tick {executed} sounded but the Panel was handed {:?}",
+                observation.tick
+            );
+            assert_eq!(
+                observation.on_beat,
+                executed % 4 == 0,
+                "Tick {executed} sounded with the beat marker {}",
+                if observation.on_beat { "lit" } else { "dark" }
             );
         }
     }
@@ -2384,11 +2404,11 @@ mod tests {
         settle(&engine).await;
         assert_eq!(
             engine.observation().tick,
-            Tick::new(1),
+            Tick::ZERO,
             "the first Tick is immediate"
         );
 
-        for published in 2..=13u64 {
+        for published in 1..=12u64 {
             time::advance(period - Duration::from_micros(1)).await;
             settle(&engine).await;
             assert_eq!(
@@ -2428,6 +2448,7 @@ mod tests {
         );
         run.begin_run();
         run.run_tick(0);
+        run.run_tick(1);
         std::thread::sleep(Duration::from_millis(20));
         run.inner.stop();
 
@@ -2436,8 +2457,12 @@ mod tests {
         let second = run.observation();
 
         assert_eq!(first.state, PlaybackState::Stopped);
-        assert_eq!(first.tick, Tick::new(1));
-        assert_eq!(first.on_beat, Bpm::on_beat(Tick::new(1)));
+        assert_eq!(
+            first.tick,
+            Tick::new(1),
+            "stop froze a Tick that never sounded"
+        );
+        assert!(!first.on_beat, "Tick 1 is not a beat");
         assert_eq!(second.tick, first.tick);
         assert_eq!(second.on_beat, first.on_beat);
         assert_eq!(second.run_clock(), first.run_clock());
@@ -2460,6 +2485,7 @@ mod tests {
         );
         run.begin_run();
         run.run_tick(0);
+        run.run_tick(1);
         std::thread::sleep(Duration::from_millis(20));
         run.inner.stop();
         assert_eq!(run.observation().tick, Tick::new(1));
@@ -2486,10 +2512,11 @@ mod tests {
         );
         run.begin_run();
         run.run_tick(0);
+        run.run_tick(1);
         let before = run.observation();
 
         assert!(
-            run.tick(scheduled(Duration::from_secs(1), Duration::from_secs(5)))
+            run.tick(scheduled(Duration::from_secs(2), Duration::from_secs(6)))
                 .is_none()
         );
 
