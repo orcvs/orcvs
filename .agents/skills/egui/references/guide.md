@@ -273,7 +273,7 @@ A `query_tree` against a default console bears this out: five `Button` nodes
 labelled `File`, `MIDI`, `View`, `Theme` and `Tempo`, a handful of unlabelled
 `GenericContainer`s, and one `Unknown` node whose bounds are the whole console
 area below the menu bar — 1024 by 640 points at the default window, holding
-2560 Cells and reporting none of them.
+10240 Cells, most of them past its edges, and reporting none of them.
 
 So the Source view is reached four ways, and each answers a different question:
 
