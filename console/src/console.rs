@@ -19,7 +19,7 @@ use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
 use crate::style::{PALETTE, style};
 use orcvs::{
-    app::{InputEvent, InputKey, Orcvs},
+    app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::{PlaybackStartError, PlaybackState},
@@ -382,6 +382,20 @@ mod run_clock_tests {
 
 fn translate_event(event: Event) -> Option<InputEvent> {
     match event {
+        // Shift with an arrow keeps the anchor and extends the Region; a bare
+        // arrow falls through to the arm below and collapses it.
+        Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.shift && arrow(key).is_some() => arrow(key).map(InputEvent::Extend),
+        Event::Key {
+            key: Key::A,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => Some(InputEvent::SelectAll),
         Event::Key {
             key, pressed: true, ..
         } => match key {
@@ -392,11 +406,25 @@ fn translate_event(event: Event) -> Option<InputEvent> {
             Key::Backspace => Some(InputEvent::KeyPressed(InputKey::Backspace)),
             Key::Delete => Some(InputEvent::KeyPressed(InputKey::Delete)),
             Key::Space => Some(InputEvent::KeyPressed(InputKey::Space)),
+            Key::Escape => Some(InputEvent::Collapse),
             _ => None,
         },
         Event::Text(text) => Some(InputEvent::Text(text)),
         // The running Orcvs models only input it acts on; all other toolkit
         // events remain presentation concerns and are dropped here.
+        _ => None,
+    }
+}
+
+///
+/// The direction an arrow key moves the Cursor, or `None` for any other key.
+///
+fn arrow(key: Key) -> Option<Arrow> {
+    match key {
+        Key::ArrowDown => Some(Arrow::Down),
+        Key::ArrowLeft => Some(Arrow::Left),
+        Key::ArrowRight => Some(Arrow::Right),
+        Key::ArrowUp => Some(Arrow::Up),
         _ => None,
     }
 }
@@ -1853,7 +1881,7 @@ mod tests {
         Color32, Event, Key, Modifiers, MouseWheelUnit, Pos2, Rect, Shape, TouchPhase, Vec2,
         emath::GuiRounding as _, emath::TSTransform,
     };
-    use orcvs::app::{InputEvent, InputKey, Orcvs};
+    use orcvs::app::{Arrow, InputEvent, InputKey, Orcvs};
     use orcvs::render_frame::RenderFrame;
 
     use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
@@ -1877,6 +1905,16 @@ mod tests {
             pressed,
             repeat: false,
             modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn modified_key_event(key: Key, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
         }
     }
 
@@ -1925,6 +1963,30 @@ mod tests {
         );
         assert_eq!(translate_event(key_event(Key::Enter, true)), None);
         assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
+
+        // Shift with an arrow extends the Region; command `A` spans the Grid;
+        // Escape collapses the Region onto the Cursor.
+        let shifted = [
+            (Key::ArrowDown, Arrow::Down),
+            (Key::ArrowLeft, Arrow::Left),
+            (Key::ArrowRight, Arrow::Right),
+            (Key::ArrowUp, Arrow::Up),
+        ];
+        for (egui_key, arrow) in shifted {
+            assert_eq!(
+                translate_event(modified_key_event(egui_key, Modifiers::SHIFT)),
+                Some(InputEvent::Extend(arrow))
+            );
+        }
+        assert_eq!(
+            translate_event(command_key_event(Key::A)),
+            Some(InputEvent::SelectAll)
+        );
+        assert_eq!(translate_event(key_event(Key::A, true)), None);
+        assert_eq!(
+            translate_event(key_event(Key::Escape, true)),
+            Some(InputEvent::Collapse)
+        );
         assert_eq!(translate_event(Event::Copy), None);
 
         // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
@@ -3192,6 +3254,11 @@ mod tests {
             .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let start = console.orcvs.bpm().beats_per_minute();
+        let grid = console.orcvs.grid();
+        console
+            .orcvs
+            .extend(grid.position(3, 2).expect("inside the Grid"));
+        let region = console.orcvs.region();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
         focus_bpm_field(&ctx, screen, &mut console, &mut host);
@@ -3213,6 +3280,11 @@ mod tests {
             console.orcvs.bpm().beats_per_minute(),
             start,
             "Escape committed the typed BPM"
+        );
+        assert_eq!(
+            console.orcvs.region(),
+            region,
+            "Escape in the BPM field collapsed the Region"
         );
     }
 

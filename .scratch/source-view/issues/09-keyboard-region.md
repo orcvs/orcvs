@@ -4,10 +4,10 @@
 
 **Blocked by:** 07
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Shift with an arrow extends the Region, and passing the anchor flips it.
-- [ ] A bare arrow collapses the Region and moves the Cursor.
-- [ ] Command `A` spans the whole Grid.
-- [ ] Escape collapses the Region onto the Cursor, and with the BPM field focused Escape reverts the BPM and leaves the Region as it was.
-- [ ] None of these chords writes to the Source.
+- [x] Shift with an arrow extends the Region, and passing the anchor flips it.
+- [x] A bare arrow collapses the Region and moves the Cursor.
+- [x] Command `A` spans the whole Grid.
+- [x] Escape collapses the Region onto the Cursor, and with the BPM field focused Escape reverts the BPM and leaves the Region as it was.
+- [x] None of these chords writes to the Source.

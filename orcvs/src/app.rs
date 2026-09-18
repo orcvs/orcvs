@@ -22,9 +22,33 @@ pub enum InputKey {
     Space,
 }
 
+///
+/// One of the four directions an arrow key moves the Cursor.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arrow {
+    Down,
+    Left,
+    Right,
+    Up,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InputEvent {
     KeyPressed(InputKey),
+    ///
+    /// Shift with an arrow: moves the Cursor and keeps the anchor, so the
+    /// Region grows or shrinks from the Cell it was spanned from.
+    ///
+    Extend(Arrow),
+    ///
+    /// Command `A`: spans the Region across the whole Grid.
+    ///
+    SelectAll,
+    ///
+    /// Escape: collapses the Region onto the Cursor.
+    ///
+    Collapse,
     Text(String),
 }
 
@@ -391,17 +415,24 @@ impl<S> Orcvs<S> {
         for event in &events {
             match event {
                 InputEvent::KeyPressed(InputKey::ArrowDown) => {
-                    self.collapse_to(self.grid.down(self.cursor.position()))
+                    self.collapse_to(self.stepped(Arrow::Down))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowLeft) => {
-                    self.collapse_to(self.grid.left(self.cursor.position()))
+                    self.collapse_to(self.stepped(Arrow::Left))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowRight) => {
-                    self.collapse_to(self.grid.right(self.cursor.position()))
+                    self.collapse_to(self.stepped(Arrow::Right))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowUp) => {
-                    self.collapse_to(self.grid.up(self.cursor.position()))
+                    self.collapse_to(self.stepped(Arrow::Up))
                 }
+                InputEvent::Extend(arrow) => self.cursor.select(self.stepped(*arrow)),
+                InputEvent::SelectAll => {
+                    let whole = Region::whole(self.grid);
+                    self.anchor = whole.anchor();
+                    self.cursor.select(whole.cursor());
+                }
+                InputEvent::Collapse => self.anchor = self.cursor.position(),
                 InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => self.delete(),
                 InputEvent::KeyPressed(InputKey::Space) => {
                     if self.playback_requested {
@@ -420,6 +451,20 @@ impl<S> Orcvs<S> {
             }
         }
         repaint
+    }
+
+    ///
+    /// The Cell one step from the Cursor towards `arrow`, clamped at the
+    /// Grid's edge.
+    ///
+    fn stepped(&self, arrow: Arrow) -> Position {
+        let cursor = self.cursor.position();
+        match arrow {
+            Arrow::Down => self.grid.down(cursor),
+            Arrow::Left => self.grid.left(cursor),
+            Arrow::Right => self.grid.right(cursor),
+            Arrow::Up => self.grid.up(cursor),
+        }
     }
 
     fn stop(&mut self) {
@@ -517,6 +562,7 @@ mod test {
     use super::Orcvs;
     use crate::opts::Bpm;
     use crate::playback::PlaybackState;
+    use crate::region::Region;
     use crate::source::Tick;
     use crate::test::trace;
     use crate::{opts::DEFAULT_SECTOR_SEAM_SPACING, source::Token};
@@ -812,11 +858,68 @@ mod test {
         assert_eq!(app.render_frame().cursor(), at(3, 2));
 
         app.select(at(4, 0));
-        assert_eq!(app.region(), crate::region::Region::at(grid, at(4, 0)));
+        assert_eq!(app.region(), Region::at(grid, at(4, 0)));
 
         app.extend(at(0, 0));
         app.write("x");
-        assert_eq!(app.region(), crate::region::Region::at(grid, at(1, 0)));
+        assert_eq!(app.region(), Region::at(grid, at(1, 0)));
+    }
+
+    ///
+    /// Shift with an arrow moves the Cursor and keeps the anchor, and passing
+    /// the anchor flips the Region; a bare arrow collapses it and moves.
+    ///
+    #[tokio::test]
+    async fn shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it() {
+        use super::{Arrow, InputEvent, InputKey};
+
+        let mut app = Orcvs::new(8, 6).expect("the test runtime");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(3, 3));
+
+        app.event_handler(vec![
+            InputEvent::Extend(Arrow::Right),
+            InputEvent::Extend(Arrow::Right),
+            InputEvent::Extend(Arrow::Down),
+        ]);
+        let region = app.region();
+        assert_eq!((region.columns(), region.rows()), (3..6, 3..5));
+        assert_eq!(region.cursor(), at(5, 4));
+
+        app.event_handler(vec![InputEvent::Extend(Arrow::Left); 4]);
+        let flipped = app.region();
+        assert_eq!((flipped.columns(), flipped.rows()), (1..4, 3..5));
+        assert_eq!(flipped.anchor(), at(3, 3));
+
+        app.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowUp)]);
+        assert_eq!(app.region(), Region::at(grid, at(1, 3)));
+    }
+
+    ///
+    /// Command `A` spans the whole Grid and Escape collapses the Region onto
+    /// the Cursor. Neither writes to the Source.
+    ///
+    #[tokio::test]
+    async fn select_all_spans_the_grid_and_collapse_returns_to_the_cursor() {
+        use super::{Arrow, InputEvent};
+
+        let mut app = Orcvs::new(5, 4).expect("the test runtime");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        let before = app.source.snapshot();
+
+        app.event_handler(vec![InputEvent::SelectAll]);
+        assert_eq!(app.region(), Region::whole(grid));
+
+        app.event_handler(vec![InputEvent::Extend(Arrow::Right), InputEvent::Collapse]);
+        assert_eq!(app.region(), Region::at(grid, at(1, 0)));
+
+        assert_eq!(
+            app.source.snapshot(),
+            before,
+            "a Region chord wrote to the Source"
+        );
     }
 
     #[tokio::test]
