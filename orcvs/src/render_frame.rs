@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
-    source::{Diagnostic, SourceRevision, Span, Token},
+    source::{Claim, Diagnostic, SourceRevision, Span, Token},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -16,7 +18,7 @@ pub struct RenderCell {
     position: Position,
     content: Option<char>,
     token: Option<Token>,
-    bound: Option<bool>,
+    claim: Option<Arc<Claim>>,
 }
 
 impl RenderCell {
@@ -33,17 +35,14 @@ impl RenderCell {
     }
 
     ///
-    /// Whether the entry this Cell's Token came from bound its declared Atom.
+    /// The parser's claim on this Cell, when one claims it.
     ///
-    /// `None` exactly where [`Self::token`] answers `None`: this Cell is not
-    /// claimed by any positioned entry (an empty unclaimed Cell, or leftover
-    /// `Char` content no Expression covered). Where an entry does claim it,
-    /// `Some(false)` is [`crate::source::LanguageMap::bound_at`]'s answer for
-    /// an Invalid Operand or a refused Function spelling; `Some(true)` covers
-    /// a Valid Operand, a Bang, a recognized Function, and a Comment.
+    /// `None` means no positioned entry covers this Cell: an empty unclaimed
+    /// Cell, or leftover content no Expression claimed. Each claim is stored
+    /// once and shared by every Cell it covers.
     ///
-    pub fn bound(&self) -> Option<bool> {
-        self.bound
+    pub fn claim(&self) -> Option<&Claim> {
+        self.claim.as_deref()
     }
 }
 
@@ -98,14 +97,18 @@ impl RenderFrame {
         let grid = source.grid();
         grid.assert_owns(region.anchor());
         grid.assert_owns(region.cursor());
+        let claims = source.language_map().claims_by_cell();
         let cells = grid
             .positions_by_row()
             .flatten()
-            .map(|position| RenderCell {
-                position,
-                content: source.content_at(position),
-                token: source.token_at(position),
-                bound: source.language_map().bound_at(position),
+            .map(|position| {
+                let index = grid.index(position).get();
+                RenderCell {
+                    position,
+                    content: source.content_at(position),
+                    token: source.token_at(position),
+                    claim: claims[index].clone(),
+                }
             })
             .collect();
         let expressions = source
@@ -406,6 +409,83 @@ mod tests {
     }
 
     #[test]
+    fn a_valid_function_with_unbound_operands_shares_each_parsers_claim() {
+        // `.+c40G`: Addition's two Number operands. `c4` is lowercase and `0G`
+        // is not hexadecimal, so both fail `Token::Number::decode` and the
+        // Parser records each as `(Token::Number, None)`. The Function itself
+        // bound. Each claim is stored once and shared by every Cell it covers.
+        let grid = Grid::new(6, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+c40G");
+        let frame = derive_frame(&source, grid.origin());
+
+        let function = frame.at(grid.position(0, 0).unwrap()).claim().expect(".+");
+        assert_eq!(function.cells, 0..2);
+        assert_eq!(function.token, Token::Function);
+        assert_eq!(
+            function.atom,
+            Some(lang::Atom::Function(lang::Function::Add))
+        );
+        assert!(std::ptr::eq(
+            function,
+            frame.at(grid.position(1, 0).unwrap()).claim().expect(".+")
+        ));
+
+        let first = frame.at(grid.position(2, 0).unwrap()).claim().expect("c4");
+        assert_eq!(first.cells, 2..4);
+        assert_eq!(first.token, Token::Number);
+        assert_eq!(first.atom, None);
+        assert!(std::ptr::eq(
+            first,
+            frame.at(grid.position(3, 0).unwrap()).claim().expect("c4")
+        ));
+
+        let second = frame.at(grid.position(4, 0).unwrap()).claim().expect("0G");
+        assert_eq!(second.cells, 4..6);
+        assert_eq!(second.token, Token::Number);
+        assert_eq!(second.atom, None);
+        assert!(std::ptr::eq(
+            second,
+            frame.at(grid.position(5, 0).unwrap()).claim().expect("0G")
+        ));
+    }
+
+    #[test]
+    fn a_bound_number_sits_beside_an_unbound_blank_operand_claim() {
+        // `.+01  `: the first Number binds; the second operand is two blank
+        // Cells the arity still claims. Pending and Invalid are not told
+        // apart here — `atom: None` covers both.
+        let grid = Grid::new(6, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+01  ");
+        let frame = derive_frame(&source, grid.origin());
+
+        let bound = frame.at(grid.position(2, 0).unwrap()).claim().expect("01");
+        assert_eq!(bound.cells, 2..4);
+        assert_eq!(bound.token, Token::Number);
+        assert_eq!(bound.atom, Some(lang::Atom::Number(1)));
+        assert!(std::ptr::eq(
+            bound,
+            frame.at(grid.position(3, 0).unwrap()).claim().expect("01")
+        ));
+
+        let pending = frame
+            .at(grid.position(4, 0).unwrap())
+            .claim()
+            .expect("blank operand");
+        assert_eq!(pending.cells, 4..6);
+        assert_eq!(pending.token, Token::Number);
+        assert_eq!(pending.atom, None);
+        assert!(std::ptr::eq(
+            pending,
+            frame
+                .at(grid.position(5, 0).unwrap())
+                .claim()
+                .expect("blank operand")
+        ));
+    }
+
+    #[test]
     fn a_row_truncated_operand_cell_carries_its_declared_token() {
         // `.+01` written into a 5-wide Grid: an Add whose second Number
         // operand needs columns 4-5, and column 4 is the last column the
@@ -421,7 +501,7 @@ mod tests {
 
         let frame = RenderFrame::derive(
             source.read_revision(),
-            grid.origin(),
+            Region::at(grid, grid.origin()),
             false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
@@ -432,96 +512,116 @@ mod tests {
         let truncated = grid.position(4, 0).unwrap();
         assert_eq!(frame.at(truncated).content(), None);
         assert_eq!(frame.at(truncated).token(), Some(Token::Number));
-        // The Cells the row's tail held are the Cells `take_token` had to
-        // refuse: its declared Token survives, and it is unbound the same way
-        // any other Invalid Operand is.
-        assert_eq!(frame.at(truncated).bound(), Some(false));
+        let claim = frame.at(truncated).claim().expect("truncated Number");
+        assert_eq!(claim.cells, 4..5);
+        assert_eq!(claim.token, Token::Number);
+        assert_eq!(claim.atom, None);
     }
 
     #[test]
-    fn an_invalid_operand_keeps_its_declared_token_and_is_unbound() {
-        // `.+c40G`: Addition's two Number operands. `c4` is lowercase and `0G`
-        // is not hexadecimal at all, so both fail `Token::Number::decode` and
-        // the Parser records each as `(Token::Number, None)`. Both stay
-        // Number — `syntax-highlighting/02`'s tint reads the Token, not the
-        // Atom — and both are unbound.
-        let grid = Grid::new(6, 1);
+    fn a_lone_pipe_is_one_unbound_function_claim() {
+        // A lone `|` is a refused Function spelling (ADR 0018): every unit
+        // starts as a Function slot, the two-Cell read fails
+        // `Function::try_from`, and the refusal advances one character.
+        let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
-        write_row(&source, grid, ".+c40G");
+        write_row(&source, grid, "|");
         let frame = derive_frame(&source, grid.origin());
 
-        for column in [2, 3, 4, 5] {
-            let cell = frame.at(grid.position(column, 0).unwrap());
-            assert_eq!(cell.token(), Some(Token::Number), "column {column}");
-            assert_eq!(cell.bound(), Some(false), "column {column}");
-        }
+        let pipe = frame.at(grid.position(0, 0).unwrap()).claim().expect("|");
+        assert_eq!(pipe.cells, 0..1);
+        assert_eq!(pipe.token, Token::Function);
+        assert_eq!(pipe.atom, None);
+        assert!(
+            frame.at(grid.position(1, 0).unwrap()).claim().is_none(),
+            "the empty Cell beside `|` is unclaimed"
+        );
     }
 
     #[test]
-    fn a_valid_operand_beside_an_invalid_one_is_unaffected() {
-        // `.+**01` and `.+||02`: the first Number operand is a rejected `**`
-        // or `||` spelling — neither is recognized at an operand position, so
-        // both are read as Number and refused, same as `c40G` above. The
-        // second operand, `01` and `02`, decodes cleanly and is unaffected by
-        // its neighbour's failure.
-        for source_text in [".+**01", ".+||02"] {
-            let grid = Grid::new(6, 1);
-            let source = SourceCommander::new(grid);
-            write_row(&source, grid, source_text);
-            let frame = derive_frame(&source, grid.origin());
-
-            let invalid = frame.at(grid.position(2, 0).unwrap());
-            assert_eq!(invalid.token(), Some(Token::Number), "{source_text}");
-            assert_eq!(invalid.bound(), Some(false), "{source_text}");
-
-            let valid = frame.at(grid.position(4, 0).unwrap());
-            assert_eq!(valid.token(), Some(Token::Number), "{source_text}");
-            assert_eq!(valid.bound(), Some(true), "{source_text}");
-        }
-    }
-
-    #[test]
-    fn an_unbound_function_entry_is_reported_with_no_spelling_specific_case() {
-        // A lone `|` and a written `07` are both refused Function spellings
-        // (ADR 0018): every unit starts as a Function slot, the two-Cell read
-        // fails `Function::try_from`, and the refusal advances one character.
-        // Nothing distinguishes `|`'s refusal from `0`'s or `7`'s — all three
-        // are `(Token::Function, None)` over one Cell, decided under
-        // syntax-highlighting/04's Comments.
+    fn a_written_07_is_two_one_cell_unbound_function_claims() {
+        // A written `07` is two refused Function spellings (ADR 0018).
+        // Nothing distinguishes `0`'s refusal from `7`'s — both are
+        // `(Token::Function, None)` over one Cell.
         let grid = Grid::new(2, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "07");
+        let frame = derive_frame(&source, grid.origin());
 
-        let lone_pipe = SourceCommander::new(grid);
-        write_row(&lone_pipe, grid, "|a");
-        let frame = derive_frame(&lone_pipe, grid.origin());
-        let pipe = frame.at(grid.position(0, 0).unwrap());
-        assert_eq!(pipe.token(), Some(Token::Function));
-        assert_eq!(pipe.bound(), Some(false));
+        let zero = frame.at(grid.position(0, 0).unwrap()).claim().expect("0");
+        assert_eq!(zero.cells, 0..1);
+        assert_eq!(zero.token, Token::Function);
+        assert_eq!(zero.atom, None);
 
-        let written_07 = SourceCommander::new(grid);
-        write_row(&written_07, grid, "07");
-        let frame = derive_frame(&written_07, grid.origin());
-        for column in [0, 1] {
-            let cell = frame.at(grid.position(column, 0).unwrap());
-            assert_eq!(cell.token(), Some(Token::Function), "column {column}");
-            assert_eq!(cell.bound(), Some(false), "column {column}");
-        }
+        let seven = frame.at(grid.position(1, 0).unwrap()).claim().expect("7");
+        assert_eq!(seven.cells, 1..2);
+        assert_eq!(seven.token, Token::Function);
+        assert_eq!(seven.atom, None);
+        assert!(
+            !std::ptr::eq(zero, seven),
+            "each refused Cell is its own claim"
+        );
     }
 
     #[test]
-    fn a_comment_is_bound_despite_recording_no_atom() {
+    fn a_comment_is_one_claim_that_records_no_atom() {
         // A Comment records `Token::Comment` and no Atom (ADR 0035), the same
-        // shape as an unbound entry, but it is a complete Language Unit, not
-        // an invalid one: `bound` answers `Some(true)` throughout its claim.
+        // shape as an unbound entry, but it is a complete Language Unit. The
+        // claim is one record shared across the introducer and the body.
         let grid = Grid::new(5, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "||abc");
         let frame = derive_frame(&source, grid.origin());
 
-        for column in 0..5 {
-            let cell = frame.at(grid.position(column, 0).unwrap());
-            assert_eq!(cell.token(), Some(Token::Comment), "column {column}");
-            assert_eq!(cell.bound(), Some(true), "column {column}");
+        let comment = frame
+            .at(grid.position(0, 0).unwrap())
+            .claim()
+            .expect("Comment");
+        assert_eq!(comment.cells, 0..5);
+        assert_eq!(comment.token, Token::Comment);
+        assert_eq!(comment.atom, None);
+        for column in 1..5 {
+            assert!(
+                std::ptr::eq(
+                    comment,
+                    frame
+                        .at(grid.position(column, 0).unwrap())
+                        .claim()
+                        .expect("Comment")
+                ),
+                "column {column}"
+            );
         }
+    }
+
+    #[test]
+    fn a_standalone_bang_is_one_bound_bang_claim() {
+        let grid = Grid::new(2, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "**");
+        let frame = derive_frame(&source, grid.origin());
+
+        let bang = frame.at(grid.position(0, 0).unwrap()).claim().expect("**");
+        assert_eq!(bang.cells, 0..2);
+        assert_eq!(bang.token, Token::Bang);
+        assert_eq!(bang.atom, Some(lang::Atom::Bang));
+        assert!(std::ptr::eq(
+            bang,
+            frame.at(grid.position(1, 0).unwrap()).claim().expect("**")
+        ));
+    }
+
+    #[test]
+    fn an_unclaimed_cell_answers_no_claim() {
+        let grid = Grid::new(2, 2);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+");
+        let frame = derive_frame(&source, grid.origin());
+
+        assert!(
+            frame.at(grid.position(0, 1).unwrap()).claim().is_none(),
+            "an empty Cell no Expression covers is not a claim"
+        );
     }
 
     #[test]

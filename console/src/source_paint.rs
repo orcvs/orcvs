@@ -120,9 +120,10 @@ impl SourcePaintSettings {
     }
     /// The glyph colour an unbound Function, Number, Note, Atom or Sequence
     /// entry draws with instead of its Token colour: `style::
-    /// cell_visuals_with_cursor_colour` reads it wherever `LanguageMap::
-    /// bound_at` answers `Some(false)` for one of those Tokens
-    /// (syntax-highlighting/04).
+    /// cell_visuals_with_cursor_colour` reads it wherever the parser's claim
+    /// records no Atom for one of those Tokens (syntax-highlighting/04). A
+    /// Comment is the exception: it records no Atom and still paints as
+    /// bound, until syntax-highlighting/09 decides by Token.
     pub(crate) fn diagnostic(self) -> Color32 {
         self.diagnostic
     }

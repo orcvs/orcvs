@@ -4,7 +4,7 @@ mod encoding;
 pub mod error;
 mod language_map;
 pub use lang::Token;
-pub use language_map::{ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
+pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 mod model;
 mod portal;
 mod tick;

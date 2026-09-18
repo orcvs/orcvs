@@ -47,6 +47,7 @@ use egui::Color32;
 use orcvs::{
     grid::{Grid, Position},
     render_frame::RenderFrame,
+    source::Token,
 };
 
 use crate::{
@@ -237,12 +238,17 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
-                // `bound() == None` is a Cell no positioned entry claims — an
-                // empty unclaimed Cell or leftover `Char` — and it folds to
-                // `true` here because nothing there can be marked invalid.
+                // A Cell no positioned entry claims — an empty unclaimed Cell
+                // or leftover `Char` — folds to bound, because nothing there
+                // can be marked invalid. A Comment records no Atom and still
+                // counts as bound; this clause is temporary and goes when
+                // syntax-highlighting/09 decides by Token.
+                let bound = cell
+                    .claim()
+                    .is_none_or(|claim| claim.token == Token::Comment || claim.atom.is_some());
                 let visuals = cell_visuals_with_cursor_colour(
                     cell.token(),
-                    cell.bound().unwrap_or(true),
+                    bound,
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
@@ -530,9 +536,12 @@ mod tests {
         for cell in frame.cells() {
             let position = cell.position();
             let selected = position == cursor;
+            let bound = cell
+                .claim()
+                .is_none_or(|claim| claim.token == Token::Comment || claim.atom.is_some());
             let visuals = cell_visuals(
                 cell.token(),
-                cell.bound().unwrap_or(true),
+                bound,
                 selected,
                 selected && frame.cursor_visible(),
                 SourcePaintSettings::default(),

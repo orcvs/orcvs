@@ -85,17 +85,16 @@ pub(crate) fn cell_visuals(
 /// frame. Atom follows Ordinary, as Char already did; Sequence has had its own
 /// field since that change and no longer falls into the same arm.
 ///
-/// `bound` is `orcvs::render_frame::RenderCell::bound`'s answer collapsed
-/// to a plain `bool` — the caller already folds its `None` (a Cell no entry
-/// claims) into `true`, because a Cell nothing claims has nothing to mark
-/// invalid. `syntax-highlighting/04`: an unbound Function, Number, Note, Atom
-/// or Sequence entry — an Invalid Operand or a refused Function spelling —
-/// draws its glyph in `source_paint.diagnostic()` instead of its Token
-/// colour. `Bang`, `Comment`, `Char` and an empty unclaimed Cell never read
-/// `bound` at all: a Bang and a Comment always bind (a Comment records no
-/// Atom yet is complete, ADR 0035, which is why `LanguageMap::bound_at`
-/// already answers `true` for it), and `Char`/`None` have no declared Token
-/// to fail.
+/// `bound` is the parser's claim collapsed to a plain `bool` — the caller
+/// already folds a Cell no entry claims into `true`, because a Cell nothing
+/// claims has nothing to mark invalid. `syntax-highlighting/04`: an unbound
+/// Function, Number, Note, Atom or Sequence entry — an Invalid Operand or a
+/// refused Function spelling — draws its glyph in
+/// `source_paint.diagnostic()` instead of its Token colour. `Bang`,
+/// `Comment`, `Char` and an empty unclaimed Cell never read `bound` at all:
+/// a Bang and a Comment always bind (a Comment records no Atom yet is
+/// complete, ADR 0035, which is why the claim fold treats it as bound), and
+/// `Char`/`None` have no declared Token to fail.
 ///
 pub(crate) fn cell_visuals_with_cursor_colour(
     token: Option<Token>,
@@ -750,7 +749,7 @@ mod tests {
     ///
     /// A Comment records `Token::Comment` and no Atom (ADR 0035), the same
     /// shape `entry.atom.is_some()` alone cannot tell from an Invalid
-    /// Operand — but `LanguageMap::bound_at` already answers `true` for it,
+    /// Operand — but the claim fold already answers bound for it,
     /// so the fact this layer reads never asks it to guess. Passing `bound:
     /// false` here would be a fact this layer never receives for a Comment;
     /// this pins that even an untinted, non-diagnostic-eligible Token (`Bang`,

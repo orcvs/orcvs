@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
@@ -89,6 +90,31 @@ pub struct Span {
     grid: Grid,
     start: CellIndex,
     end: CellIndex,
+}
+
+///
+/// The parser's claim on a Cell range: the Cells it covers, the Token its
+/// signature declared, and the Atom those Cells bound, or none.
+///
+/// This is [`lang::PositionedEntry`] without `parent`. That index counts
+/// entries within one Expression, so it means nothing once the claim
+/// leaves it.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct Claim {
+    pub cells: std::ops::Range<usize>,
+    pub token: Token,
+    pub atom: Option<Atom>,
+}
+
+impl Claim {
+    fn from_entry(entry: &lang::PositionedEntry) -> Self {
+        Self {
+            cells: entry.cells.clone(),
+            token: entry.token,
+            atom: entry.atom,
+        }
+    }
 }
 
 impl Span {
@@ -295,9 +321,9 @@ impl LanguageMap {
     /// unmatched non-space byte is not a claim either — leftover `Char` is the
     /// Source revision's composition, not this Map's.
     ///
-    /// [`Self::token_at`] and [`Self::bound_at`] both read one entry through
-    /// this lookup rather than walking the rows twice: `token` and whether it
-    /// bound an Atom are two questions about the one record the Parser left.
+    /// [`Self::token_at`] reads one entry through this lookup.
+    /// [`Self::claims_by_cell`] walks the same entries once for the Render
+    /// Frame, so a claim is stored once and shared by every Cell it covers.
     ///
     fn entry_at(&self, position: Position) -> Option<&lang::PositionedEntry> {
         let index = self.grid.index(position).get();
@@ -325,28 +351,28 @@ impl LanguageMap {
     }
 
     ///
-    /// Whether the entry claiming `position` bound the Atom its Token
-    /// declared, when one claims it.
+    /// The parser's claim on each Cell, in the Grid's row-major order.
     ///
-    /// `None` exactly where [`Self::token_at`] answers `None`: `position` is
-    /// not claimed by any positioned entry. Where an entry does claim it,
-    /// `Some(false)` is the Parser's own record that its Cells failed to bind
-    /// — an Invalid Operand (`take_token` refused the declared Token) or a
-    /// refused Function spelling (`Function::try_from` refused the two Cells
-    /// `take_language_unit` read, including a lone `|`, both Cells of a
-    /// written `07`, and the trailing `<` of `<<<`; ADR 0018). `Some(true)`
-    /// covers a Valid Operand, a Bang, a recognized Function — and a Comment,
-    /// which records `Token::Comment` and no Atom at all (ADR 0035) despite
-    /// being a complete Language Unit rather than an invalid one. `name_units`
-    /// (below) already reads `(entry.token, entry.atom)` with the Token
-    /// checked first for the same reason: a Comment is the one entry whose
-    /// Token and Atom presence disagree, and Comment's completeness is a fact
-    /// this Map already knows rather than one the console would have to
-    /// rediscover from the Token alone.
+    /// A later Expression owns the Cells its Span covers, matching
+    /// [`Self::entry_at`]: an earlier label is unread once a later Span takes
+    /// the Cell, and a Cell inside a Span that no positioned entry labelled
+    /// is not a claim. Each claim is stored once and shared by every Cell
+    /// it covers.
     ///
-    pub fn bound_at(&self, position: Position) -> Option<bool> {
-        self.entry_at(position)
-            .map(|entry| entry.token == Token::Comment || entry.atom.is_some())
+    pub(crate) fn claims_by_cell(&self) -> Vec<Option<Arc<Claim>>> {
+        let mut by_index = vec![None; self.grid.count()];
+        for expression in self.expressions() {
+            for index in expression.span.range() {
+                by_index[index] = None;
+            }
+            for entry in expression.positioned() {
+                let claim = Arc::new(Claim::from_entry(entry));
+                for index in entry.cells.clone() {
+                    by_index[index] = Some(Arc::clone(&claim));
+                }
+            }
+        }
+        by_index
     }
 
     ///
