@@ -88,3 +88,23 @@ Out of scope by the ticket's own wording ("the ticket only requires Functions fr
 should not be, asked for by `every_function_in_the_table_has_a_worked_example`. A Comment
 (`LanguageUnitKind::Comment`) is likewise not a Function. Neither is missing anything the completeness
 test is responsible for proving.
+
+## Correction
+
+`every_function_in_the_table_has_a_worked_example` did not match its own first acceptance
+criterion above: it asked the Language Map for every `LanguageUnitKind::Function` unit anywhere in
+the reference, counting a Function nested inside another's operand — Sequence's own nested
+`:-0104` inside `:<:-0104` or `:=01.+0102:-0103`, for instance — the same as a Function anchoring
+an Expression of its own, so a Function that only ever appeared nested would have passed. Fixed to
+read `orcvs::source::ExpressionEntry::root` for every Expression the Language Map holds and only
+credit the Function anchored there, exactly as "appears as the root of at least one example" asks.
+Every Function in the table still anchors a root somewhere in the checked-in text, so the test
+passes unchanged in outcome; nothing needed to move.
+
+The diagnostics test's own exclusion was widened past what it needed independently of this ticket
+(see `syntax-highlighting`'s review of this work): it excused every non-Function Cell inside a
+Jump, Halt, Directional Bang, or Self-Banging example's whole area rather than only the specific
+Cells that legitimately hold no Function — a mistyped operand inside, say, the Halt example's
+`.=0909` would have passed silently. Narrowed to the written result Cells and a small, explicitly
+named list of Jump inputs and blocking Cells (`spatial_literal_cells`); an operand typo anywhere
+else in a Source Function's own Expression now fails the test.

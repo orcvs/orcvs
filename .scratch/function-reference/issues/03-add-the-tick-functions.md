@@ -48,3 +48,18 @@ same string for those.
 pinned the reference's Grid at `(48, 32)`; updated to `(56, 32)`. `console/src/function_reference.rs`'s
 module doc gained the Tick row's height and width accounting, and its column-layout table now
 marks Conversion and Sequence as ticket 02's rather than "this ticket"'s, since this ticket is 03.
+
+## Correction
+
+The staircase rule this ticket followed (a group's header on row `k`, its examples starting on
+row `k + 1`) was over-constrained: a Comment claims the rest of its *Grid* row regardless of which
+Cell of it a second header lands on, so a second header sharing row 0 becomes that first Comment's
+own text rather than a header of its own, with no effect on parsing, evaluation, or Source Paint.
+Every group's header now sits on row 0 and every group's examples start on row 1, which moves the
+Tick group's own Random example from `(48, 19)` to `(48, 16)`. Random's stream is seeded in part
+from its own Grid Position (ADR 0013), so relocating it changes the draw: re-ticking at the new
+Position gives `07`, not `10`, and `console/assets/function_reference.orcvs` and
+`ticking_the_reference_once_writes_every_result_row_exactly_as_written`'s expectation were updated
+to match — found and fixed the same way the original value was, by ticking and reading back what
+the Tick Plan actually wrote rather than computing it by hand. Every other Tick group value is
+unaffected: none of the rest depend on Position.

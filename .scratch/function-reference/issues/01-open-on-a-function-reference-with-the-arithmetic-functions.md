@@ -47,6 +47,10 @@ for the same table, kept beside the reference text):
 | `64..96`  | Jumps, Directional Bangs, Self-Banging, Halt (two columns — these move and need room to move without leaving their area) |
 | `96..112` | MIDI: `!> !~ !% !c !b !$` (examples ~10 Cells wide)                             |
 
+## Correction
+
+"The window still fits the Grid" regressed once the reference grew past the blank default Grid, and was first fixed by deriving the default window size from the reference's own Grid. That fix was dropped on rebase onto `source-view`: ADR 0045 retired the fitted canvas, the default window now presents the 64 by 40 default Grid at Zoom 1.0, and a console with no stored Source opens that blank Grid rather than the reference. A reference wider or taller than the window is Panned like any other Source.
+
 Open question left for whichever ticket adds the second column: each group's header
 Comment claims the rest of its *Grid* row (the whole row, not just its own 16 Cells), so
 two groups cannot both head at row 0 once they share a Grid. Not resolved here because

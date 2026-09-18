@@ -57,3 +57,52 @@ pinned the reference's Grid at `(56, 32)`; updated to `(96, 32)` — the row cou
 (band 5's content reaches row 31, still inside the height Arithmetic already pins), but band 5's
 West Directional Bang example's Delay Expression reaches column 91, rounding the Grid's width up
 from 56 to 96.
+
+## Correction — walling the movers in with Halt instead of an ordinary blocker
+
+Playing the reference destroyed its own examples: every blocked mover's Span turned to `**` for
+one Tick and then cleared to blank forever, per ADR 0006, so `>> << ^^ vv` and the emissions of
+`*^ *v *< *>` all vanished once played, and with persistence on that vanished state was what got
+saved. The acceptance criterion above ("a path that ends inside its own example area") was met
+literally — the path did end inside the area — but the user later judged the result unacceptable:
+an example that only reads correctly before it is ever played is not documenting the language
+being played.
+
+The fix walls each mover in with the Halt Function (CONTEXT.md's Halt entry) in place of the
+ordinary blocking `00` this ticket used: Halt locks its target's Turn *before* it runs, so a Cell
+it protects is never overwritten and never turns to `**` — the mover's own glyph stands forever.
+This is possible for five of the eight movers and not for the other three, proven by ticking
+rather than assumed:
+
+- **`^^` and the `^^` a Directional Bang North (`*^`) emits** wall in cleanly with real, multi-Tick
+  travel: a Self-Banging Function's Span occupies exactly one row, so moving between rows is a
+  discrete jump with no partial state, and an already-active Halt several rows north locks the
+  mover the instant it arrives with no diagnostic at any Tick along the way.
+- **`<<` and `>>`** are placed at rest under their own Halt from Tick 0, rather than given real
+  travel: closing a two-Cell gap by one column a Tick, the Tick immediately before full alignment
+  always leaves the mover overlapping only one of Halt's two target Cells, and Halt reports
+  "target is not an Expression root" for that partial match instead of locking it silently. Placed
+  at rest from the start, Halt is already active before the mover exists, so no such Tick is ever
+  reached.
+- **`vv`** is placed at rest for a stricter reason: reaching a Cell south of Halt by moving south
+  means passing through Halt's own row, which collides with Halt outright rather than merely
+  misaligning with it, in flight or at rest apart from the one Cell directly south of it.
+- **The Directional Bang South, West, and East Functions (`*v`, `*<`, `*>`) cannot be walled at
+  all**, in flight or at rest. Each needs its own one-shot Delay (a permanently-true Equality
+  re-attempts the emission every Tick once the destination is no longer empty and diagnoses
+  forever, the reason this ticket already gives for using a Delay) touching it to emit exactly
+  once, and every placement of that Delay that avoids colliding with the emission or with Halt's
+  own target instead reaches into the one or two Cells a second, permanently active Bang source
+  would need in order to keep that mover's own Halt lit — proven by exhausting the placements a
+  Delay (six Cells: a two-Cell anchor and a four-digit operand) and a second Bang source can take
+  around a target only one or two Cells from the Directional Bang itself, not by inspection alone.
+  These three still emit into an ordinary blocking Cell and clear the Tick after, exactly as every
+  mover in this group did before this correction.
+
+`console/assets/function_reference.orcvs`'s Directional Bang and Self-Banging Function band was
+rebuilt against this design, and `console/src/function_reference.rs`'s
+`playing_the_reference_repeatedly_changes_only_each_examples_own_area` gained a
+`walled_resting_glyphs` check: after settling (still by the Tick indexed 2), the five walled
+movers' own glyphs are asserted present at their resting Cells, not merely that their areas stopped
+changing. The Grid also grew taller, from 32 to 40 rows, to give the walled movers' own Halt and
+Equality room; ticket 01's own correction covers the window-size consequence of that.

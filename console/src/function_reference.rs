@@ -13,164 +13,100 @@
 //! # Column layout
 //!
 //! Every group occupies one column two Sector Seams (16 Cells) wide, headed
-//! by a `||` Comment naming it, with each example's Expression row, its
-//! result row directly south, and one blank row. Groups sit side by side so
-//! later tickets can add their own column without moving this one; the
-//! planned order, left to right, with the column band index `k` used below, is:
+//! by a `||` Comment naming it. A Comment claims the rest of its Grid row, so
+//! only the first header actually parses as a Comment Language Unit; every
+//! header east of it becomes that Comment's own text instead of a Comment of
+//! its own. That has no consequence — a Comment is never evaluated, and
+//! Source Paint colours the whole row as a Comment either way — provided the
+//! row holds nothing else: an Expression east of a header would fall inside
+//! that Comment and silently stop being parsed and run. All six headers
+//! therefore sit on row 0, and every group's own examples start on row 1. A
+//! group that stacks a second header inside its own band follows the same
+//! rule: that header's row must hold no Expression east of it either.
 //!
-//! | Columns   | `k` | Group                                                |
-//! |-----------|-----|-------------------------------------------------------|
-//! | `0..16`   | 0   | Arithmetic (ticket 01): `.+ .- .| .x ./ .% .< .> .=`   |
-//! | `16..32`  | 1   | Numeric Conversion (ticket 02): `.v .^`                |
-//! | `32..48`  | 2   | Sequence (ticket 02): `:- :# :< :& :? :=` (results up to 14 Cells) |
-//! | `48..64`  | 3   | Tick (ticket 03): `~. ~* ~% ~+ ~> ~?`                  |
-//! | `64..80`  | 4   | Jumps and Halt (ticket 04): `&^ &v &< &>`, `*!`        |
-//! | `80..96`  | 5   | Directional Bangs and Self-Banging (ticket 04): `*^ *v *< *>`, `^^ vv << >>` |
-//! | `96..112` | 6   | MIDI (this ticket): `!> !~ !% !c !b`                   |
+//! | Columns   | Group                                                       |
+//! |-----------|--------------------------------------------------------------|
+//! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                      |
+//! | `16..32`  | Numeric Conversion: `.v .^`                                   |
+//! | `32..48`  | Sequence: `:- :# :< :& :? :=` (results up to 14 Cells)        |
+//! | `48..64`  | Tick: `~. ~* ~% ~+ ~> ~?`                                     |
+//! | `64..80`  | Jumps and Halt: `&^ &v &< &>`, `*!`                           |
+//! | `80..96`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>` |
+//! | `96..112` | MIDI: `!> !~ !% !c !b`                                        |
 //!
-//! Each group's header Comment claims the rest of its *Grid* row per the
-//! Comment Language Unit — the whole row, not just its own 16 Cells — so two
-//! group headers cannot share a row once more than one group exists. This is
-//! resolved by a staircase: the group in column band `k` puts its header on
-//! row `k` and starts its examples on row `k + 1`. A row is parsed left to
-//! right, so every column west of band `k` was already claimed by its own
-//! Expression or blank row before the parser reaches column `16 * k`, and
-//! every column east of it has not started yet (its own header is a later
-//! row), so the header's rightward claim only ever swallows blank padding.
-//! Arithmetic keeps `k = 0` from ticket 01 and does not move.
+//! # Source Functions need an area, not just a row
 //!
-//! Bands 4 and 5 each hold two of this ticket's four groups under one header
-//! rather than stacking a second `||` Comment inside the band: band 4's
-//! header reads `|| Jumps & Halt` and band 5's reads `|| Bang & Move`, each
-//! short enough to stay inside its own 16 Cells rather than spilling into
-//! the next band, matching every earlier header. A second header stacked
-//! lower in a band would claim the rest of *its* row
-//! too, which only works when every band east of it is still blank on that
-//! exact row — true here for bands 4 and 5's own single header rows (4 and
-//! 5), but a constraint worth stating for whoever adds a stacked header
-//! later: **never row 6**. Ticket 05 puts MIDI's header there (`96..112`),
-//! and a band-4 or band-5 header on row 6 would start further west, reach
-//! that row first, and swallow MIDI's header along with everything east of
-//! it. Ordinary (non-Comment) content from bands 4 or 5 on row 6 is fine —
-//! only a header's whole-row claim reaches that far — and band 5 does in
-//! fact use row 6 for the Delay expression of its first Directional Bang
-//! example, below.
+//! Every value-answering group's example is stable after the one Tick that
+//! computes it: an Arithmetic sum does not change on Tick 1 just because
+//! Tick 0 already wrote it. A Jump and a Halt are the same — a Jump re-reads
+//! and re-writes the same value every Tick, and a locked Halt target simply
+//! never runs — so their areas need only the columns their Expression and
+//! result occupy.
 //!
-//! # Movers need an area, not just a row
+//! A Directional Bang Function's emission and a Self-Banging Function's own
+//! Span are not stable: ADR 0006 moves them one Cell per Tick until
+//! something stops them. Rather than an ordinary blocking Cell — which turns
+//! a stopped mover's Span into `**` for one Tick and then clears it to blank
+//! forever, exactly the vanishing this reference should not show while it
+//! plays — each mover that can be walled in comes to rest directly south of
+//! an already-active Halt Function (CONTEXT.md's Halt entry). Halt locks its
+//! target's Turn before it runs, so a Cell it protects is never overwritten
+//! at all: the mover's own glyph stands forever once it arrives.
 //!
-//! Every other group's example is stable after the one Tick that computes
-//! it: an Arithmetic sum does not change on Tick 1 just because Tick 0 already
-//! wrote it. A Jump and a Halt are the same — a Jump re-reads and re-writes
-//! the same value every Tick, and a locked Halt target simply never runs —
-//! so their areas need only the columns their Expression and result occupy.
-//! A Directional Bang's emission and a Self-Banging Function's own Span are
-//! not stable: ADR 0006 moves them one Cell per Tick until something stops
-//! them, so each of those examples reserves a small rectangle — its own
-//! area — wide and tall enough for that path, with a blocking Cell placed so
-//! the mover always stops inside it. Ticking the reference is this module's
-//! test, not a guess: every area and blocker below came from running the
-//! actual Tick loop over candidate layouts and reading back what moved,
-//! what blocked cleanly, and what diagnosed, rather than from the language
-//! rules alone.
+//! Halt only ever locks the root directly south of itself, and that geometry
+//! decides which movers can be walled and which cannot:
 //!
-//! Two facts made the areas as small as they are:
-//!
-//! - A blocked mover's Span does not just stop; it becomes `**` for exactly
-//!   one Tick and then clears to empty on the Tick after — the same way a
-//!   Delay's own result Cell clears on a Tick it does not Bang. A settled
-//!   mover's area therefore reads as entirely blank, not as a Bang
-//!   permanently on display.
-//! - A blocking Cell only needs to be a complete two-Cell Language Unit
-//!   (`00` here throughout) placed where the mover's next full Span would
-//!   land — immediately adjacent for a vertical mover, and for a horizontal
-//!   mover, aligned so the *one* Cell it enters next is the near edge of
-//!   that Unit. Both give a clean block with no diagnostic, per ADR 0006's
-//!   "complete non-root contact adds no collision diagnostic."
-//!
-//! Each Directional Bang example's Bang source is a Delay, `~*1001`
-//! (cycle 16), rather than the Equality every other group uses. An Equality
-//! over two equal literals holds forever, so it Bangs every Tick — and once
-//! its emission's destination Cell is no longer empty (occupied by the
-//! mover it just wrote, or later by that mover's blocked `**`), every
-//! following Tick's re-attempt is refused and diagnoses, forever. A Delay
-//! whose cycle outlasts this module's own tick budget Bangs once, at Tick
-//! 0, which is enough to emit the mover and never fires again — the same
-//! reason `orcvs::source::tick`'s own
-//! `an_emitted_self_banging_function_first_moves_on_the_following_tick` test
-//! reaches for a Delay instead of an Equality.
-//!
-//! With those two facts, every mover in both bands is written, blocked, and
-//! cleared by the Tick indexed 2 (the third Tick), and nothing in either
-//! band's area changes again after that — `an_emitted_self_banging_function_
-//! first_moves_on_the_following_tick` is why a Directional Bang's own
-//! emission does not move until the Tick after it is written, one Tick later
-//! than a Self-Banging Function already sitting in the checked-in text.
-//!
-//! Rows: the tallest group decides the Grid's row count. Arithmetic's header
-//! plus 10 examples of 3 rows each reaches row 30; band 5's header plus its
-//! eight movement examples reaches row 31 — still the taller of the two —
-//! and both round up to 32, the next multiple of 8, so this ticket does not
-//! grow the Grid's row count. Conversion, Sequence, and Tick all start later
-//! (rows 1, 2, and 3) but finish well inside that height. Tick's column
-//! widens the Grid on its own: its widest row is Random's eight-Cell
-//! Expression, `~?010010`, reaching column 55 and rounding the Grid's width
-//! up from 48 to 56. Ticket 04 widened it again — band 5's West Directional
-//! Bang example's Delay Expression, `~*1001`, reaches column 91 — rounding
-//! the Grid's width up from 56 to 96, which is exactly band 5's own upper
-//! bound. This ticket widens it once more: Timed Play's and Monophonic
-//! Play's Expressions are ten Cells each (`!~0064E408`, `!%0164G404`),
-//! starting at column 96 like every MIDI example's Euclidean source above
-//! them and so reaching column 105 — rounding the Grid's width up from 96 to
-//! 112, exactly band 6's own upper bound. Band 6's five examples, each four
-//! rows tall (below), reach only row 26, well inside the height Arithmetic
-//! already pins, so this ticket does not grow the Grid's row count either.
+//! - **North** (`^^`, and the `^^` a Directional Bang North emits) travels
+//!   there cleanly. Rows are discrete: the row the mover is about to leave
+//!   is either fully occupied or not there yet, never partly one and partly
+//!   the other, so an already-active Halt several rows north locks it the
+//!   moment it arrives, with room to spare for the Directional Bang's own
+//!   one-shot Delay well away from Halt's own neighbourhood.
+//! - **West and East**, placed at rest from the outset (`<<`, `>>`), are
+//!   walled the same way — Halt is active before the mover ever exists, so
+//!   its own driving Equality has the whole neighbourhood to itself. Real
+//!   travel cannot do this safely: a horizontal Span slides through the
+//!   target one column at a time, so the Tick immediately before it fully
+//!   aligns leaves it overlapping only part of Halt's target, and Halt
+//!   reports "target is not an Expression root" for that partial match
+//!   rather than locking it silently.
+//! - **South** (`vv`), also placed at rest, hits a stricter version of the
+//!   same limit: reaching a Cell south of Halt from the north means passing
+//!   through Halt's own row first, which is impossible without colliding
+//!   with Halt outright, in flight or at rest. `vv` is instead placed
+//!   immediately south of its own Halt from Tick 0, the one Cell Halt can
+//!   reach without ever touching it.
+//! - **The Directional Bang South, West, and East Functions cannot be
+//!   walled at all**, in flight or at rest. Each needs its own one-shot
+//!   Delay touching it to emit exactly once, and that Delay's four-digit
+//!   operand always reaches into the same one or two Cells a second,
+//!   permanently active Bang source would need in order to keep the
+//!   mover's own Halt lit — every placement that avoids one collision runs
+//!   into the other. `*v`, `*<`, and `*>` therefore still emit into an
+//!   ordinary blocking Cell and clear the Tick after, the same as every
+//!   mover did before Halt walled the rest of them in.
 //!
 //! # MIDI activation needs no area, only a Bang source
 //!
-//! Every MIDI example is stable after the one Tick that computes it, the same
-//! as Arithmetic, Conversion, Sequence, and the Jumps: a Terminal Output
-//! Function "never writes a Cell result" (CONTEXT.md's Terminal Output
-//! Function entry), so nothing about a `!`-spelled Expression itself ever
-//! changes once checked in, and no row is reserved south of it the way every
-//! value-answering group reserves one for its result. What does change is
-//! each example's own Bang source, exactly as Tick's own Delay and Euclidean
-//! examples already do (ticket 03).
-//!
-//! Each of the five examples is gated by its own Euclidean, `~%0104` — the
-//! `X...` pattern, one Bang every four Ticks starting at Tick 0 — rather
-//! than a Delay or an always-true Equality, for a reason particular to this
-//! band: the ticket asks for a Bang source that "fires at a rate slow
-//! enough to hear distinct events at the default tempo" (20 BPM, 750 ms per
-//! Tick, from `orcvs::opts::Opts::new`), and neither alternative does that.
-//! A Delay whose cycle outlasts the tick budget — band 5's own choice —
-//! Bangs exactly once and never again, which does not "fire at a rate" at
-//! all. An always-true Equality Bangs every single Tick: band 5 avoids that
-//! choice because a Directional Bang's emission occupies a Cell, so every
-//! Tick after the first re-attempts a write into an occupied destination and
-//! diagnoses forever, but that failure mode does not apply here — a Terminal
-//! Output Function has no destination Cell to occupy, so an always-true
-//! Equality would perform cleanly on every Tick with no diagnostic. It would
-//! simply not read as a distinct event, firing on every Tick rather than at
-//! any chosen rate. Euclidean answers a Bang only on the Ticks its rhythm
-//! places an onset at (CONTEXT.md's Euclidean Function entry) and the
-//! Absence Marker on the rest, so `~% 01 04` gives a genuine repeating pulse
-//! at a rate the two operands choose, clearing to blank between Bangs the
-//! same way Delay's own result Cell does.
+//! A Terminal Output Function "never writes a Cell result" (CONTEXT.md's
+//! Terminal Output Function entry), so nothing about a `!`-spelled
+//! Expression itself ever changes once checked in, and no row is set aside
+//! south of it the way a value-answering group sets one aside for its result.
+//! What changes is each example's own Bang source: a Euclidean, `~%0104`
+//! (the `X...` pattern), Bangs once every four Ticks — slow enough to hear
+//! each event distinctly at the default tempo — and clears to blank between
+//! Bangs the same way Tick's own Delay and Euclidean examples do.
 //!
 //! Activation is vertical, the same alignment
 //! `orcvs::source::tick::a_select_bang_activates_an_aligned_terminal_root`
-//! proves for a Select-forwarded Bang activating a Raw Play root two rows
-//! south: each Euclidean's Expression sits on one row, its own Bang-display
-//! Cells sit one row south at the same column (the ordinary default Portal
-//! every Bang-capable Value Function uses), and the gated Terminal Output
-//! Function's root sits one row further south, at that same column — sharing
-//! the Bang-display Cells' anchor column one row south, exactly the
-//! "vertically aligned root" CONTEXT.md's Bang entry describes. A blank row
-//! then separates one example from the next, so each example spans four
-//! rows (Euclidean Expression, its Bang display, the gated Function, and a
-//! blank row) rather than the three-row cadence a value-answering group
-//! uses, since a Terminal Output Function's own row replaces a result row
-//! rather than sitting beside one.
+//! proves for a Select-forwarded Bang: each Euclidean's Expression, its own
+//! Bang-display Cells one row south, and the gated Terminal Output
+//! Function's root one row further south all share one column. A blank row
+//! then separates one example from the next, so each spans four rows
+//! (Euclidean Expression, its Bang display, the gated Function, and a blank
+//! row) rather than the three-row cadence a value-answering group uses,
+//! since a Terminal Output Function's own row replaces a result row rather
+//! than sitting beside one.
 //!
 //! The Function table's only other Terminal Output Function, Application
 //! Command `!$`, is not among these five: ADR 0008 and ADR 0019 defer it
@@ -183,62 +119,40 @@
 //! removed, and stops at the last line with any content — no trailing blank
 //! rows. Editors and formatters strip trailing whitespace on save, which
 //! would otherwise turn a checked-in padded rectangle ragged on its next
-//! untouched edit and fail a loader that demanded one. `source_from_reference_text`
-//! instead derives the Grid's width from the widest line and its height from
-//! the line count, each rounded up to the Sector Seam spacing, and pads
-//! every short line and every row past the last line with empty Cells — see
-//! its doc comment.
+//! untouched edit and fail a loader that demanded one.
+//! `source_from_reference_text` instead derives the Grid's width from the
+//! widest line and its height from the line count, each rounded up to the
+//! Sector Seam spacing, and pads every short line and every row past the
+//! last line with empty Cells — see its doc comment.
 //!
 //! # Completeness and diagnostic-cleanliness are proven, not asserted
 //!
-//! Two tests close the loop the intent states rather than leaving it as
-//! prose. `every_function_in_the_table_has_a_worked_example` reads
-//! `lang::Function::ALL` — the table's own enumeration, from
-//! `define_functions!` — and asserts each spelling anchors at least one
-//! `orcvs::source::LanguageUnitKind::Function` unit in the reference's own
-//! `LanguageMap`; a Function added to the table without an example fails
-//! the build rather than a checklist going stale. It reads the spelling
-//! through `Function`'s existing `Display` impl, so no new public API is
-//! needed.
+//! `every_function_in_the_table_has_a_worked_example` reads
+//! `lang::Function::ALL` and asserts every spelling anchors the root of some
+//! Expression in the reference's own `LanguageMap` — a Function nested
+//! inside another's operand does not count, since a worked example asks for
+//! the Function itself to be exercised, not merely referred to.
 //!
 //! `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`
 //! reads the same `LanguageMap`, built directly from the checked-in text
 //! before any Tick runs, and asserts every Diagnostic's Span sits wholly
-//! inside a named excluded area: the one-Tick result triples, the movement
-//! areas' non-Function Cells, or the MIDI band's Bang-display Cells. A
-//! written result such as `02` sits at a row start with no Function before
-//! it, so the Parser's greedy two-Cell Function read refuses it a Cell at a
-//! time (ADR 0018) — a fact about the checked-in placeholder, never about
-//! the example that computes it, and never a Tick-time Diagnostic: Tick
-//! scheduling only ever visits Expressions with a `function_candidate`, and
-//! a bare written result never parses as one.
+//! inside a written result Cell: a value such as `03` sits at a row start
+//! with no Function before it, so the Parser's greedy two-Cell Function read
+//! refuses it a Cell at a time (ADR 0018) — a fact about the checked-in
+//! placeholder rather than about the example that computes it, and never a
+//! Tick-time Diagnostic. Every other Cell, operands and Source Function
+//! areas alike, is held to the same standard.
 //!
-//! This diagnostic-cleanliness proof caught a real defect rather than only
-//! guarding against future ones. Ticket 02's Concatenate example,
-//! `:&01:-0203`, spelled its left operand as a bare literal `01` against
-//! its `AtomOrSequence`-declared slot, which the Parser resolves to
-//! `Token::Atom` for parsing purposes. `Token::Atom::decode` always refuses
-//! a literal by design (`lang/src/expression.rs`): a generic Atom operand
-//! "has no literal reading" because nothing in the declaration says
-//! whether it means a Number, a Note, or a Char, so "the only thing that
-//! can stand at the position is a nested Function's typed answer" — the
-//! same rule ADR 0007 states for a Sequence-typed operand, extended to the
-//! Atom alternative Concatenate accepts beside it. The Expression therefore
-//! diagnosed at the static parse stage, and Tick scheduling's
-//! `syntax_valid` carried the same fact forward: `syntax_blocks`
-//! (`orcvs/src/source/tick/execution.rs`) silently withheld Concatenate's
-//! own Turn every Tick, with no Diagnostic of its own, because its
-//! operands never changed from the checked-in text `syntax_valid` already
-//! judged invalid. The checked-in result, `010203`, was a hand-typed
-//! placeholder that happened to already match — never an actual Tick
-//! answer — which is exactly what
+//! Ticking the reference once is not enough on its own to prove a result was
+//! actually written rather than merely agreeing with a checked-in
+//! placeholder that already held the right answer — a Concatenate example
+//! once survived exactly that way, its Turn silently withheld by a static
+//! parse fault the Tick Plan never diagnosed, until the diagnostic sweep
+//! above caught the fault that had been masking it.
 //! `ticking_the_reference_once_writes_every_result_row_exactly_as_written`
-//! could not catch: it only reads settled Cells back, never asks whether a
-//! Tick wrote them. The fix, `:&.+0001:-0203`, gives the left operand a
-//! nested Function's Atom answer (Add's `01`) instead of a bare literal,
-//! keeping the same worked answer while letting Concatenate's Turn
-//! actually run: corrupting the result Cell by hand and re-ticking now
-//! shows it overwritten, where before the fix it stood untouched.
+//! therefore asserts a matching [`orcvs::source::CellWrite`] in the Tick
+//! Plan for every expected result, not only the settled Cell it reads back
+//! afterwards.
 //!
 
 use orcvs::grid::Grid;
@@ -304,9 +218,10 @@ fn round_up_to_sector_seam(value: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{function_reference, source_from_reference_text};
+    use orcvs::grid::{CellIndex, Grid};
     use orcvs::source::{
-        BendLsb, BendMsb, ControlValue, Controller, LanguageUnitKind, Length, MidiChannel, Note,
-        PlayCommand, Tick, Velocity,
+        BendLsb, BendMsb, CellContent, CellWrite, ControlValue, Controller, LanguageUnitKind,
+        Length, MidiChannel, Note, PlayCommand, Source, Tick, Velocity,
     };
 
     ///
@@ -329,66 +244,92 @@ mod tests {
         assert_eq!(grid.columns(), 8);
         assert_eq!(grid.rows(), 8);
 
-        let read = |x, y| {
-            let position = grid.position(x, y).expect("inside the rounded-up Grid");
-            source.get(grid.index(position))
-        };
-
-        assert_eq!(read(0, 0), Some(".".to_string()));
-        assert_eq!(read(5, 0), Some("2".to_string()));
+        assert_eq!(read_cell(&source, grid, 0, 0), Some(".".to_string()));
+        assert_eq!(read_cell(&source, grid, 5, 0), Some("2".to_string()));
         assert_eq!(
-            read(6, 0),
+            read_cell(&source, grid, 6, 0),
             None,
             "a short line pads with empty Cells rather than reaching into the next row"
         );
-        assert_eq!(read(0, 1), None, "a blank line stays entirely empty");
-        assert_eq!(read(0, 2), Some("0".to_string()));
-        assert_eq!(read(1, 2), Some("C".to_string()));
         assert_eq!(
-            read(0, 7),
+            read_cell(&source, grid, 0, 1),
+            None,
+            "a blank line stays entirely empty"
+        );
+        assert_eq!(read_cell(&source, grid, 0, 2), Some("0".to_string()));
+        assert_eq!(read_cell(&source, grid, 1, 2), Some("C".to_string()));
+        assert_eq!(
+            read_cell(&source, grid, 0, 7),
             None,
             "a row past the last line is empty padding, not an error"
         );
     }
 
+    /// One Cell of `source` at `(x, y)`, read back through `grid` — the one
+    /// read every test below shares rather than each writing its own copy.
+    fn read_cell(source: &Source, grid: Grid, x: usize, y: usize) -> Option<String> {
+        let position = grid.position(x, y).expect("inside the reference Grid");
+        source.get(grid.index(position))
+    }
+
+    /// The [`CellIndex`] `grid` mints for `(x, y)`.
+    fn cell_index(grid: Grid, x: usize, y: usize) -> CellIndex {
+        let position = grid.position(x, y).expect("inside the reference Grid");
+        grid.index(position)
+    }
+
+    /// One example's expected written result: the Cells starting at
+    /// `(column, row)`, read west to east, and the string one Tick writes
+    /// there — or a run of spaces when the example writes nothing there.
+    struct ExpectedResult {
+        column: usize,
+        row: usize,
+        expected: &'static str,
+    }
+
     /// Every result row the Arithmetic, Conversion, Sequence, and Tick
-    /// groups' examples write, one `(column, row, expected)` triple each,
-    /// where `column` is the group's own anchor column (Arithmetic 0,
-    /// Conversion 16, Sequence 32, Tick 48) since each group's result rows
-    /// are read back from its own Cells, not always the leftmost ones.
+    /// groups' examples write, where `column` is each group's own anchor
+    /// column (Arithmetic 0, Conversion 16, Sequence 32, Tick 48) since each
+    /// group's result rows are read back from its own Cells, not always the
+    /// leftmost ones.
     ///
     /// Shared by [`ticking_the_reference_once_writes_every_result_row_exactly_as_written`],
-    /// which reads these Cells back after ticking, and
+    /// which proves these are actually written, and
     /// `every_example_expression_parses_without_a_diagnostic_outside_a_result_row`,
     /// which excludes them from the pre-Tick diagnostic sweep: a written
     /// result such as `03` sits at a row start with no Function before it,
     /// so the Parser's greedy two-Cell Function read refuses it (ADR 0018)
     /// and diagnoses every one of its Cells, a fact about the checked-in
     /// placeholder rather than about the example that computes it.
-    fn one_tick_result_triples() -> Vec<(usize, usize, &'static str)> {
+    fn expected_results() -> Vec<ExpectedResult> {
+        let result = |column, row, expected| ExpectedResult {
+            column,
+            row,
+            expected,
+        };
         vec![
             // Arithmetic (column 0)
-            (0, 2, "03"),  // .+0102
-            (0, 5, "02"),  // .-0503
-            (0, 8, "04"),  // .|0307
-            (0, 11, "0C"), // .x0304
-            (0, 14, "04"), // ./0902
-            (0, 17, "01"), // .%0902
-            (0, 20, "03"), // .<0305
-            (0, 23, "05"), // .>0305
-            (0, 26, "**"), // .=0505 (equal)
-            (0, 29, "  "), // .=0506 (not equal: no Cell write)
+            result(0, 2, "03"),  // .+0102
+            result(0, 5, "02"),  // .-0503
+            result(0, 8, "04"),  // .|0307
+            result(0, 11, "0C"), // .x0304
+            result(0, 14, "04"), // ./0902
+            result(0, 17, "01"), // .%0902
+            result(0, 20, "03"), // .<0305
+            result(0, 23, "05"), // .>0305
+            result(0, 26, "**"), // .=0505 (equal)
+            result(0, 29, "  "), // .=0506 (not equal: no Cell write)
             // Conversion (column 16)
-            (16, 3, "C4"), // .^3C (Number to Note)
-            (16, 6, "3C"), // .vC4 (Note to Number)
+            result(16, 2, "C4"), // .^3C (Number to Note)
+            result(16, 5, "3C"), // .vC4 (Note to Number)
             // Sequence (column 32)
-            (32, 4, "01020304"),  // :-0104 (Number Range)
-            (32, 7, "C4c4D4"),    // :#C4D4 (Note Range)
-            (32, 10, "04030201"), // :<:-0104 (Reverse, over a nested Function operand)
-            (32, 13, "010203"), // :&.+0001:-0203 (Concatenate, over a nested Function's Atom answer)
-            (32, 16, "01"),     // :?00:-0103 (Select)
-            (32, 19, "010303"), // :=01.+0102:-0103 (Replace, over nested Functions)
-            (32, 22, "111213"), // .+10:-0103 (Add, pervasive over a Sequence)
+            result(32, 2, "01020304"), // :-0104 (Number Range)
+            result(32, 5, "C4c4D4"),   // :#C4D4 (Note Range)
+            result(32, 8, "04030201"), // :<:-0104 (Reverse, over a nested Function operand)
+            result(32, 11, "010203"), // :&.+0001:-0203 (Concatenate, over a nested Function's Atom answer)
+            result(32, 14, "01"),     // :?00:-0103 (Select)
+            result(32, 17, "010303"), // :=01.+0102:-0103 (Replace, over nested Functions)
+            result(32, 20, "111213"), // .+10:-0103 (Add, pervasive over a Sequence)
             // Tick (column 48). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
@@ -401,12 +342,37 @@ mod tests {
             // to make the change visible (Increment's `03`, Interpolation's
             // `00`), and this table asserts the value Tick 0 overwrites it
             // with — the two are deliberately not the same string.
-            (48, 5, "00"),  // ~.0204 (Clock: step 0 of a 2-Tick, 4-step cycle)
-            (48, 8, "**"),  // ~*0302 (Delay: every cycle Bangs at Tick 0)
-            (48, 11, "**"), // ~%0308 (Euclidean: 03-08's pattern Bangs its first step)
-            (48, 14, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
-            (48, 17, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
-            (48, 20, "10"), // ~?010010 (Random: seed 01 at Position (48, 19), Tick 0)
+            result(48, 2, "00"), // ~.0204 (Clock: step 0 of a 2-Tick, 4-step cycle)
+            result(48, 5, "**"), // ~*0302 (Delay: every cycle Bangs at Tick 0)
+            result(48, 8, "**"), // ~%0308 (Euclidean: 03-08's pattern Bangs its first step)
+            result(48, 11, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
+            result(48, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
+            result(48, 17, "07"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
+        ]
+    }
+
+    /// Every Cell a Jump reads as its spatial input, or an ordinary blocking
+    /// Language Unit occupies, in the checked-in text: present with no
+    /// Function before it, so the Parser's greedy two-Cell Function read
+    /// refuses it exactly as it refuses a written result — a fact about the
+    /// raw spatial value it carries, never about the Jump or the mover whose
+    /// Turn reads it. Named explicitly, the same way [`expected_results`]
+    /// is, rather than by a blanket area: a mistyped operand elsewhere in a
+    /// Source Function's own Expression is still expected to diagnose.
+    fn spatial_literal_cells() -> Vec<ExpectedResult> {
+        let literal = |column, row, expected| ExpectedResult {
+            column,
+            row,
+            expected,
+        };
+        vec![
+            literal(64, 3, "05"),  // &^'s input
+            literal(64, 5, "06"),  // &v's input
+            literal(68, 9, "07"),  // &<'s input
+            literal(64, 11, "08"), // &>'s input
+            literal(82, 10, "00"), // *v's blocker
+            literal(80, 13, "00"), // *<'s blocker
+            literal(86, 16, "00"), // *>'s blocker
         ]
     }
 
@@ -418,23 +384,51 @@ mod tests {
         let plan = source.execute(Tick::ZERO);
         assert!(
             plan.diagnostics.is_empty(),
-            "every worked example must be a valid Expression: {:?}",
+            "every included Expression must parse and schedule cleanly \
+             (this alone does not prove any Turn ran): {:?}",
             plan.diagnostics
         );
 
-        for (column, row, expected) in one_tick_result_triples() {
+        for result in expected_results() {
+            let ExpectedResult {
+                column,
+                row,
+                expected,
+            } = result;
             let width = expected.chars().count();
-            let actual: String = (0..width)
-                .map(|offset| {
-                    let position = grid
-                        .position(column + offset, row)
-                        .expect("inside the reference Grid");
-                    source
-                        .get(grid.index(position))
-                        .unwrap_or_else(|| " ".to_string())
-                })
+            let cells: Vec<CellIndex> = (0..width)
+                .map(|offset| cell_index(grid, column + offset, row))
                 .collect();
 
+            if expected.trim().is_empty() {
+                for &cell in &cells {
+                    assert!(
+                        !plan.writes.iter().any(|write| write.cell == cell),
+                        "row {row}, column {column} was written despite expecting no result"
+                    );
+                }
+            } else {
+                for (offset, ch) in expected.chars().enumerate() {
+                    let content =
+                        CellContent::new(ch as u8).expect("a printable ASCII result Cell");
+                    let write = CellWrite {
+                        cell: cells[offset],
+                        content,
+                    };
+                    assert!(
+                        plan.writes.contains(&write),
+                        "row {row}, column {column} was not written by this Tick, \
+                         though the checked-in text reads {expected:?} — a Turn withheld \
+                         by a fault the Tick Plan never diagnosed would pass a read-back \
+                         check alone"
+                    );
+                }
+            }
+
+            let actual: String = cells
+                .iter()
+                .map(|&cell| source.get(cell).unwrap_or_else(|| " ".to_string()))
+                .collect();
             assert_eq!(
                 actual, expected,
                 "row {row}, column {column} did not read as written"
@@ -446,14 +440,13 @@ mod tests {
     fn the_reference_grid_dimensions_are_multiples_of_the_sector_seam_spacing() {
         let grid = function_reference().grid();
 
-        assert_eq!(grid.columns() % 8, 0);
-        assert_eq!(grid.rows() % 8, 0);
+        assert_eq!(grid.columns() % super::SECTOR_SEAM, 0);
+        assert_eq!(grid.rows() % super::SECTOR_SEAM, 0);
     }
 
     /// A rectangle of Cells, half-open on both axes, matching one example's
-    /// own area — the Jump, Directional Bang, Self-Banging, and Halt
-    /// examples this ticket adds each own one, per the module doc's
-    /// "Movers need an area, not just a row".
+    /// own area.
+    #[derive(Clone)]
     struct Area {
         columns: std::ops::Range<usize>,
         rows: std::ops::Range<usize>,
@@ -465,197 +458,232 @@ mod tests {
         }
     }
 
-    /// Every area this ticket's own examples may act inside, band 4 then
-    /// band 5, top to bottom within each — the same rectangles the module
-    /// doc names and the same ones ticking determined, not a guess.
-    fn movement_areas() -> Vec<Area> {
+    /// One resting Cell a settled mover's own glyph must still occupy: the
+    /// two Cells `expected` names, at `(column, row)`.
+    struct RestingGlyph {
+        column: usize,
+        row: usize,
+        expected: &'static str,
+    }
+
+    /// Every area a Jump, Halt, Directional Bang, or Self-Banging example
+    /// may act inside — the Cells its own Expression, emission, or Halt
+    /// wall occupies — named rather than indexed positionally.
+    struct SourceFunctionAreas {
+        jump_north: Area,
+        jump_south: Area,
+        jump_west: Area,
+        jump_east: Area,
+        halt: Area,
+        directional_north: Area,
+        directional_south: Area,
+        directional_west: Area,
+        directional_east: Area,
+        self_banging_north: Area,
+        self_banging_south: Area,
+        self_banging_west: Area,
+        self_banging_east: Area,
+    }
+
+    impl SourceFunctionAreas {
+        fn new() -> Self {
+            Self {
+                // Band 4 (64..80): Jumps and Halt. Each Jump is stable after
+                // Tick 0 (re-reading and re-writing the same input every
+                // Tick), and a locked Halt target never runs, but every
+                // example still gets its own area for the same reason the
+                // one-Tick test excludes this group as a whole.
+                jump_north: Area {
+                    columns: 64..66,
+                    rows: 1..4,
+                }, // &^: output, jump, input
+                jump_south: Area {
+                    columns: 64..66,
+                    rows: 5..8,
+                }, // &v: input, jump, output
+                jump_west: Area {
+                    columns: 64..70,
+                    rows: 9..10,
+                }, // &<: output, jump, input, one row
+                jump_east: Area {
+                    columns: 64..70,
+                    rows: 11..12,
+                }, // &>: input, jump, output, one row
+                halt: Area {
+                    columns: 64..72,
+                    rows: 13..16,
+                }, // Halt: Equality, *!, locked root
+                // Band 5 (80..96): Directional Bangs and Self-Banging.
+                directional_north: Area {
+                    columns: 80..90,
+                    rows: 1..6,
+                }, // *^: Equality, Halt, target, Delay, *^
+                directional_south: Area {
+                    columns: 80..86,
+                    rows: 7..11,
+                }, // *v: Delay, *v, emission, blocker (cannot be walled — see module doc)
+                directional_west: Area {
+                    columns: 80..92,
+                    rows: 12..14,
+                }, // *<: blocker, *<, emission, Delay (cannot be walled)
+                directional_east: Area {
+                    columns: 80..88,
+                    rows: 15..17,
+                }, // *>: Delay, *>, emission, blocker (cannot be walled)
+                self_banging_north: Area {
+                    columns: 80..86,
+                    rows: 18..23,
+                }, // ^^: Equality, Halt, target, travel, start
+                self_banging_south: Area {
+                    columns: 80..86,
+                    rows: 24..27,
+                }, // vv: Equality, Halt, vv (at rest from Tick 0)
+                self_banging_west: Area {
+                    columns: 80..86,
+                    rows: 28..31,
+                }, // <<: Equality, Halt, << (at rest from Tick 0)
+                self_banging_east: Area {
+                    columns: 80..86,
+                    rows: 32..35,
+                }, // >>: Equality, Halt, >> (at rest from Tick 0)
+            }
+        }
+
+        fn all(&self) -> [&Area; 13] {
+            [
+                &self.jump_north,
+                &self.jump_south,
+                &self.jump_west,
+                &self.jump_east,
+                &self.halt,
+                &self.directional_north,
+                &self.directional_south,
+                &self.directional_west,
+                &self.directional_east,
+                &self.self_banging_north,
+                &self.self_banging_south,
+                &self.self_banging_west,
+                &self.self_banging_east,
+            ]
+        }
+    }
+
+    /// The five movers Halt actually walls in, and the glyph each must still
+    /// show at its own resting Cell once settled: the Directional Bang
+    /// North's emitted `^^`, the standalone `^^`, and the three Self-Banging
+    /// Functions placed at rest from Tick 0. `*v`, `*<`, and `*>`'s emitted
+    /// movers are not among these — the module doc's "Source Functions need
+    /// an area, not just a row" section is why Halt cannot reach them.
+    fn walled_resting_glyphs() -> Vec<RestingGlyph> {
+        let glyph = |column, row, expected| RestingGlyph {
+            column,
+            row,
+            expected,
+        };
         vec![
-            // Band 4 (64..80): Jumps and Halt. Each Jump is stable after
-            // Tick 0 (re-reading and re-writing the same input every Tick),
-            // and a locked Halt target never runs, but every example still
-            // gets its own area for the same reason the one-Tick test
-            // excludes this ticket's groups as a whole.
-            Area {
-                columns: 64..66,
-                rows: 5..8,
-            }, // &^: output(5), jump(6), input(7)
-            Area {
-                columns: 64..66,
-                rows: 9..12,
-            }, // &v: input(9), jump(10), output(11)
-            Area {
-                columns: 64..70,
-                rows: 13..14,
-            }, // &<: output, jump, input, one row
-            Area {
-                columns: 64..70,
-                rows: 15..16,
-            }, // &>: input, jump, output, one row
-            Area {
-                columns: 64..72,
-                rows: 17..20,
-            }, // Halt: Equality, *!, locked root
-            // Band 5 (80..96): Directional Bangs and Self-Banging. Each
-            // Directional Bang emits a Self-Banging Function that moves
-            // until a blocking `00` stops it; each standalone Self-Banging
-            // Function does the same without an emission step.
-            Area {
-                columns: 80..86,
-                rows: 6..10,
-            }, // *v: Delay, bang result + *v, emission, blocker
-            Area {
-                columns: 80..88,
-                rows: 11..13,
-            }, // *>: Delay, bang result + *> + emission + blocker
-            Area {
-                columns: 80..88,
-                rows: 14..17,
-            }, // *^: blocker, Delay + target, *^ + bang result
-            Area {
-                columns: 80..92,
-                rows: 18..20,
-            }, // *<: Delay, blocker + emission + *< + bang result
-            Area {
-                columns: 80..85,
-                rows: 21..22,
-            }, // >>: mover, gap, blocker
-            Area {
-                columns: 80..85,
-                rows: 23..24,
-            }, // <<: blocker, gap, mover
-            Area {
-                columns: 80..82,
-                rows: 25..28,
-            }, // ^^: blocker, gap, mover
-            Area {
-                columns: 80..82,
-                rows: 29..32,
-            }, // vv: mover, gap, blocker
+            glyph(82, 3, "^^"),  // *^'s emitted ^^, settled south of its Halt
+            glyph(82, 20, "^^"), // standalone ^^, settled south of its Halt
+            glyph(82, 26, "vv"), // standalone vv, at rest from Tick 0
+            glyph(82, 30, "<<"), // standalone <<, at rest from Tick 0
+            glyph(82, 34, ">>"), // standalone >>, at rest from Tick 0
         ]
     }
 
-    /// The Tick group's own six result rows (column 48; ticket 03), which
-    /// change every Tick by that group's own design — Clock, Delay, and
-    /// Euclidean from the absolute Tick, Increment and Interpolation from
-    /// their own previous value — and are therefore excluded from the "no
-    /// Cell outside an area changes" assertion below for a reason that has
-    /// nothing to do with this ticket's movers.
+    /// The Tick group's own six dynamic result Cells (column 48), derived
+    /// from [`expected_results`] rather than a second hand-kept coordinate
+    /// list: Clock, Delay, and Euclidean change with the absolute Tick,
+    /// Increment and Interpolation with their own previous value, so all six
+    /// change every Tick by that group's own design and are excluded from
+    /// the "no Cell outside an area changes" sweep below for a reason that
+    /// has nothing to do with Source Functions.
     fn tick_dynamic_result_areas() -> Vec<Area> {
-        vec![
-            Area {
-                columns: 48..50,
-                rows: 5..6,
-            },
-            Area {
-                columns: 48..50,
-                rows: 8..9,
-            },
-            Area {
-                columns: 48..50,
-                rows: 11..12,
-            },
-            Area {
-                columns: 48..50,
-                rows: 14..15,
-            },
-            Area {
-                columns: 48..50,
-                rows: 17..18,
-            },
-            Area {
-                columns: 48..50,
-                rows: 20..21,
-            },
-        ]
+        expected_results()
+            .into_iter()
+            .filter(|result| result.column == 48)
+            .map(|result| Area {
+                columns: result.column..result.column + 2,
+                rows: result.row..result.row + 1,
+            })
+            .collect()
     }
 
-    /// The MIDI group's own five Bang-display Cells (ticket 05), one pair per
-    /// Terminal Output example — column `96..98`, one row south of that
-    /// example's Euclidean root, exactly the default output Portal every
-    /// Value Function that can emit Bang uses (the same Cells `~*0302`'s `**`
-    /// occupies south of Tick's own Delay, and `~%0308`'s south of Tick's own
-    /// Euclidean). `~% 01 04` Bangs on the "X..." pattern
-    /// (`euclidean_places_its_hits_where_the_adr_formula_does` proves this
-    /// pattern from the same `~%` formula this module's own Euclidean
-    /// example uses), so this Cell reads `**` on every fourth Tick starting
-    /// at Tick 0 and clears to blank on the three Ticks between — the same
-    /// clearing behaviour ticket 04's Delay and Tick's own Euclidean already
-    /// rely on — which is why these five Cells, and no others in the MIDI
-    /// group, are excluded from "no Cell outside an example's own area
-    /// changes" below. Every Terminal Output Function's own Expression is
-    /// stable forever after being written once: it performs an effect and
-    /// never receives a Cell write of its own, so re-evaluating it on a
-    /// later Tick reads back exactly what ticket 05 checked in.
+    /// The column the MIDI group's band starts at.
+    const MIDI_BAND_COLUMN: usize = 96;
+
+    /// The MIDI group's own five Bang-display Cells, one pair per Terminal
+    /// Output example — column `96..98`, one row south of that example's
+    /// Euclidean root, exactly the default output Portal every Value
+    /// Function that can emit Bang uses. `~% 01 04` Bangs on the "X..."
+    /// pattern (`euclidean_places_its_hits_where_the_adr_formula_does`
+    /// proves this pattern from the same `~%` formula this module's own
+    /// Euclidean examples use), so each of these Cells reads `**` on every
+    /// fourth Tick starting at Tick 0 and clears to blank on the three Ticks
+    /// between — the same clearing behaviour Tick's own Delay and Euclidean
+    /// examples already rely on — which is why these five Cells, and no
+    /// others in the MIDI group, are excluded from "no Cell outside an
+    /// example's own area changes" below. Every Terminal Output Function's
+    /// own Expression is stable forever after being written once: it
+    /// performs an effect and never receives a Cell write of its own.
     fn midi_bang_result_areas() -> Vec<Area> {
-        [8, 12, 16, 20, 24]
+        [2, 6, 10, 14, 18]
             .into_iter()
             .map(|row| Area {
-                columns: 96..98,
+                columns: MIDI_BAND_COLUMN..MIDI_BAND_COLUMN + 2,
                 rows: row..(row + 1),
             })
             .collect()
     }
 
     /// `area`'s Cells, one `String` per row, each row read west to east with
-    /// an unset Cell standing for a space — the same shape
-    /// `orcvs::source::tick`'s own `rows_of` test helper reads a whole Grid
-    /// as, narrowed to one rectangle.
-    fn area_text(source: &super::Source, grid: super::Grid, area: &Area) -> Vec<String> {
+    /// an unset Cell standing for a space.
+    fn area_text(source: &Source, grid: Grid, area: &Area) -> Vec<String> {
         area.rows
             .clone()
             .map(|y| {
                 area.columns
                     .clone()
-                    .map(|x| {
-                        let position = grid.position(x, y).expect("inside the reference Grid");
-                        source
-                            .get(grid.index(position))
-                            .unwrap_or_else(|| " ".to_string())
-                    })
+                    .map(|x| read_cell(source, grid, x, y).unwrap_or_else(|| " ".to_string()))
                     .collect::<String>()
             })
             .collect()
     }
 
     ///
-    /// Playing the reference is not a one-Tick affair for this ticket's four
-    /// groups: a Directional Bang's emission and a Self-Banging Function's
-    /// own Span move every Tick until a blocking Cell stops them, per
-    /// ADR 0006. This ticks the reference five times — Ticks 0 through 4 —
-    /// and asserts two things throughout: no Cell outside an example's own
-    /// area ever changes (excepting the Tick group's own dynamic result
-    /// rows, unrelated to this ticket), and every mover has stopped moving,
-    /// and its Bang display has cleared, by the Tick indexed 2 — after
-    /// which nothing in any area changes again either. The module doc's
-    /// "Movers need an area, not just a row" section is where those two
-    /// Tick counts and the clearing behaviour come from: this module's own
-    /// Tick loop, read back, not the language rules alone.
+    /// Playing the reference is not a one-Tick affair for the Jump, Halt,
+    /// Directional Bang, and Self-Banging examples: a Directional Bang's
+    /// emission and a Self-Banging Function's own Span move every Tick until
+    /// something stops them, per ADR 0006. This ticks the reference five
+    /// times — Ticks 0 through 4 — and asserts three things: no Cell outside
+    /// an example's own area ever changes (excepting the Tick group's own
+    /// dynamic result rows and the MIDI group's own Bang-display Cells,
+    /// unrelated to Source Functions); every mover Halt can wall in still
+    /// shows its own glyph at rest by the Tick indexed 2; and nothing in any
+    /// Source Function area changes again after that.
     ///
     #[test]
     fn playing_the_reference_repeatedly_changes_only_each_examples_own_area() {
         let mut source = function_reference();
         let grid = source.grid();
 
-        let read = |source: &super::Source, x: usize, y: usize| -> Option<String> {
-            let position = grid.position(x, y).expect("inside the reference Grid");
-            source.get(grid.index(position))
-        };
-        let snapshot = |source: &super::Source| -> Vec<Option<String>> {
-            (0..grid.rows())
-                .flat_map(|y| (0..grid.columns()).map(move |x| (x, y)))
-                .map(|(x, y)| read(source, x, y))
-                .collect()
-        };
-        let index_of = |x: usize, y: usize| y * grid.columns() + x;
-
-        let movement = movement_areas();
+        let source_functions = SourceFunctionAreas::new();
         let tick_dynamic = tick_dynamic_result_areas();
         let midi_bang = midi_bang_result_areas();
         let excluded = |x: usize, y: usize| {
-            movement.iter().any(|area| area.contains(x, y))
+            source_functions
+                .all()
+                .iter()
+                .any(|area| area.contains(x, y))
                 || tick_dynamic.iter().any(|area| area.contains(x, y))
                 || midi_bang.iter().any(|area| area.contains(x, y))
         };
+
+        let snapshot = |source: &Source| -> Vec<Option<String>> {
+            (0..grid.rows())
+                .flat_map(|y| (0..grid.columns()).map(move |x| (x, y)))
+                .map(|(x, y)| read_cell(source, grid, x, y))
+                .collect()
+        };
+        let index_of = |x: usize, y: usize| y * grid.columns() + x;
 
         let before = snapshot(&source);
         let mut settled: Option<Vec<Option<String>>> = None;
@@ -683,11 +711,27 @@ mod tests {
             }
 
             if tick == 2 {
-                // Every mover has been written, blocked, and cleared by
-                // now — see the exact per-area content asserted just below —
-                // so this is the snapshot later Ticks must not move away
-                // from.
+                // Every mover Halt can wall in has been locked in place by
+                // now, and every mover it cannot has been written, blocked,
+                // and cleared — see the module doc's "Source Functions need
+                // an area, not just a row" — so this is the snapshot later
+                // Ticks must not move away from.
                 settled = Some(now);
+
+                for glyph in walled_resting_glyphs() {
+                    let width = glyph.expected.chars().count();
+                    let actual: String = (0..width)
+                        .map(|offset| {
+                            read_cell(&source, grid, glyph.column + offset, glyph.row)
+                                .unwrap_or_else(|| " ".to_string())
+                        })
+                        .collect();
+                    assert_eq!(
+                        actual, glyph.expected,
+                        "the mover settled at ({}, {}) did not keep its own glyph on display",
+                        glyph.column, glyph.row
+                    );
+                }
 
                 let expect_area = |area: &Area, expected: &[&str]| {
                     assert_eq!(
@@ -698,50 +742,45 @@ mod tests {
                         area.rows
                     );
                 };
-
-                let areas = movement_areas();
-                expect_area(&areas[0], &["05", "&^", "05"]); // &^
-                expect_area(&areas[1], &["06", "&v", "06"]); // &v
-                expect_area(&areas[2], &["07&<07"]); // &<
-                expect_area(&areas[3], &["08&>08"]); // &>
-                expect_area(&areas[4], &[".=0909  ", "***!    ", "  .+0304"]); // Halt
-                expect_area(&areas[5], &["~*1001", "  *v  ", "      ", "  00  "]); // *v
-                expect_area(&areas[6], &["~*1001  ", "  *>  00"]); // *>
-                expect_area(&areas[7], &["00      ", "  ~*1001", "*^      "]); // *^
-                expect_area(&areas[8], &["      ~*1001", "00  *<      "]); // *<
-                expect_area(&areas[9], &["   00"]); // >>
-                expect_area(&areas[10], &["00   "]); // <<
-                expect_area(&areas[11], &["00", "  ", "  "]); // ^^
-                expect_area(&areas[12], &["  ", "  ", "00"]); // vv
+                expect_area(&source_functions.jump_north, &["05", "&^", "05"]);
+                expect_area(&source_functions.jump_south, &["06", "&v", "06"]);
+                expect_area(&source_functions.jump_west, &["07&<07"]);
+                expect_area(&source_functions.jump_east, &["08&>08"]);
+                expect_area(
+                    &source_functions.halt,
+                    &[".=0909  ", "***!    ", "  .+0304"],
+                );
             }
         }
 
         let settled = settled.expect("Tick 2 ran");
         let after = snapshot(&source);
-        for area in &movement {
+        for area in source_functions.all() {
             for y in area.rows.clone() {
                 for x in area.columns.clone() {
                     assert_eq!(
                         after[index_of(x, y)],
                         settled[index_of(x, y)],
-                        "Cell ({x}, {y}), in a settled area, changed after Tick 2"
+                        "Cell ({x}, {y}), in a settled Source Function area, changed after Tick 2"
                     );
                 }
             }
         }
     }
 
-    /// The five expected [`PlayCommand`]s this ticket's MIDI examples emit
-    /// when their own Euclidean Bang source Bangs, in the group's own row
-    /// order (Raw Play, Timed Play, Monophonic Play, Control Change, Pitch
-    /// Bend) — the operands `console/assets/function_reference.orcvs` checks
-    /// in for each, read as the domain types the Function table binds them
-    /// to. Channel, velocity, note, controller, value, and bend operands were
+    /// The five expected [`PlayCommand`]s the MIDI examples emit when their
+    /// own Euclidean Bang source Bangs, in the group's own row order (Raw
+    /// Play, Timed Play, Monophonic Play, Control Change, Pitch Bend) — the
+    /// operands `console/assets/function_reference.orcvs` checks in for
+    /// each, read as the domain types the Function table binds them to.
+    /// Channel, velocity, note, controller, value, and bend operands were
     /// chosen to be plausible MIDI content (a mid-velocity Middle C on
     /// channel `00`, a Volume Control Change (`07`), a Pitch Bend above
     /// centre (`40`)) rather than boundary values, since this is a worked
     /// example and not a domain-boundary test — those already live in
-    /// `lang`.
+    /// `lang`. Timed Play's and Monophonic Play's lengths (`04` Ticks each)
+    /// match their own Euclidean's four-Tick period, so neither note is
+    /// asked to sound again before the one before it has ended.
     fn expected_midi_commands() -> [PlayCommand; 5] {
         [
             // !>0064C4 — Raw Play: channel 00, velocity 64 (100), note C4.
@@ -750,13 +789,13 @@ mod tests {
                 velocity: Velocity::try_from(0x64).unwrap(),
                 note: Note::try_from(0x3C).unwrap(),
             },
-            // !~0064E408 — Timed Play: channel 00, velocity 64, note E4,
-            // length 08 Ticks.
+            // !~0064E404 — Timed Play: channel 00, velocity 64, note E4,
+            // length 04 Ticks.
             PlayCommand::Timed {
                 channel: MidiChannel::try_from(0x00).unwrap(),
                 velocity: Velocity::try_from(0x64).unwrap(),
                 note: Note::try_from(0x40).unwrap(),
-                length: Length::from(0x08),
+                length: Length::from(0x04),
             },
             // !%0164G404 — Monophonic Play: channel 01, velocity 64, note G4,
             // length 04 Ticks.
@@ -784,29 +823,15 @@ mod tests {
     }
 
     ///
-    /// Ticket 05's MIDI group: five Terminal Output Functions (`!>`, `!~`,
-    /// `!%`, `!c`, `!b` — every Terminal Output Function the Function table
-    /// holds; `!$` Application Command is not among them, since ADR 0008 and
-    /// ADR 0019 defer it until Orcvs has a command value encoding, so it has
-    /// no variant in `lang::Function` to give an example of), each gated by
-    /// its own Euclidean Bang source, `~%0104` — the `X...` pattern
-    /// `euclidean_places_its_hits_where_the_adr_formula_does` in `lang`
-    /// checks, one Bang every four Ticks starting at Tick 0. At the default
-    /// 20 BPM tempo (`orcvs::opts::Opts::new`'s `Bpm::new(20)`, 750 ms per
-    /// Tick), that is a Bang roughly every three seconds — slow enough to
-    /// hear each group's note, chord change, controller sweep, or bend as
-    /// its own event, unlike a Bang that repeated every Tick. A Delay was
-    /// not used instead: cycle `~*1001` Bangs exactly once and never again
-    /// inside any tick budget this module ticks, which does not "fire at a
-    /// rate" the way this ticket calls for. An Equality that holds forever
-    /// was not used either: unlike ticket 04's Directional Bang, a Terminal
-    /// Output Function never receives a Cell write of its own to occupy, so
-    /// an always-true Equality would not diagnose here the way it does for a
-    /// mover — but it would Bang every single Tick, which does not read as a
-    /// distinct event at any tempo.
+    /// The MIDI group: five Terminal Output Functions (`!>`, `!~`, `!%`,
+    /// `!c`, `!b` — every Terminal Output Function the Function table
+    /// holds; `!$` Application Command is not among them, since ADR 0008
+    /// and ADR 0019 defer it until Orcvs has a command value encoding, so it
+    /// has no variant in `lang::Function` to give an example of), each
+    /// gated by its own Euclidean Bang source, `~%0104`.
     ///
     /// Every Terminal Output Function "never writes a Cell result"
-    /// (CONTEXT.md's Terminal Output Function entry), so no row is reserved
+    /// (CONTEXT.md's Terminal Output Function entry), so no row is set aside
     /// south of any of these five Expressions — unlike every value-answering
     /// group's own result row — and the only Cells that ever change while
     /// ticking this group are the Euclidean sources' own Bang-display Cells,
@@ -815,28 +840,20 @@ mod tests {
     /// between `**` and blank forever rather than settling.
     ///
     /// This ticks the reference across two full Euclidean cycles (Ticks `0`
-    /// through `8`) and asserts, at every Tick: no diagnostic, no
+    /// through `8`) and asserts, at every Tick: no diagnostic; no
     /// [`orcvs::source::CellWrite`] whose Position falls inside the MIDI
-    /// band (column `96` onward — no other group ever writes there), and no
-    /// Cell inside the MIDI band changes except the five Bang-display Cells.
-    /// Across the whole run it also asserts every one of the five expected
-    /// [`PlayCommand`]s was emitted on at least one Tick — proof the group
-    /// plays, not merely that it declines to write, which is what the Tick
-    /// Plan's own `play_commands` exposes for exactly this purpose (the same
-    /// field `orcvs::source::tick`'s own
-    /// `a_select_bang_activates_an_aligned_terminal_root` test reads).
+    /// band outside the five Bang-display Cells; and no Cell inside the
+    /// MIDI band changes except those same five Cells. Across the whole run
+    /// it also asserts every one of the five expected [`PlayCommand`]s was
+    /// emitted on at least one Tick — proof the group plays, not merely
+    /// that it declines to write.
     ///
     #[test]
     fn ticking_the_midi_group_writes_no_cell_and_emits_every_terminal_output_function() {
         let mut source = function_reference();
         let grid = source.grid();
 
-        let read = |source: &super::Source, x: usize, y: usize| -> Option<String> {
-            let position = grid.position(x, y).expect("inside the reference Grid");
-            source.get(grid.index(position))
-        };
-
-        let midi_columns = 96..grid.columns();
+        let midi_columns = MIDI_BAND_COLUMN..grid.columns();
         let midi_rows = 0..grid.rows();
         let midi_coordinates: Vec<(usize, usize)> = midi_rows
             .clone()
@@ -847,7 +864,7 @@ mod tests {
 
         let before: Vec<Option<String>> = midi_coordinates
             .iter()
-            .map(|&(x, y)| read(&source, x, y))
+            .map(|&(x, y)| read_cell(&source, grid, x, y))
             .collect();
 
         let expected = expected_midi_commands();
@@ -863,7 +880,7 @@ mod tests {
 
             for write in &plan.writes {
                 let position = grid.position_at(write.cell);
-                let in_midi_band = position.x() >= 96;
+                let in_midi_band = position.x() >= MIDI_BAND_COLUMN;
                 let is_bang_display = bang_cells
                     .iter()
                     .any(|area| area.contains(position.x(), position.y()));
@@ -883,7 +900,7 @@ mod tests {
 
             let now: Vec<Option<String>> = midi_coordinates
                 .iter()
-                .map(|&(x, y)| read(&source, x, y))
+                .map(|&(x, y)| read_cell(&source, grid, x, y))
                 .collect();
             for (offset, &(x, y)) in midi_coordinates.iter().enumerate() {
                 if excluded(x, y) {
@@ -906,12 +923,14 @@ mod tests {
     ///
     /// Every Function in `lang::Function::ALL` — the table's own
     /// enumeration, generated by `define_functions!` beside the enum itself
-    /// (`lang/src/atom.rs`) — anchors at least one
-    /// [`LanguageUnitKind::Function`] Language Unit somewhere in the
-    /// reference's own [`orcvs::source::LanguageMap`]. Deriving the list from
-    /// the table itself, rather than a hand-written one, is the point: a
-    /// Function added to `define_functions!` without an example here fails
-    /// this test instead of a checklist nobody remembered to update.
+    /// (`lang/src/atom.rs`) — anchors the root of at least one Expression in
+    /// the reference's own [`orcvs::source::LanguageMap`]: a Function nested
+    /// inside another's operand is not a worked example of that Function on
+    /// its own, so only an [`orcvs::source::ExpressionEntry::root`] counts.
+    /// Deriving the list from the table itself, rather than a hand-written
+    /// one, is the point: a Function added to `define_functions!` without a
+    /// worked example fails this test instead of a checklist nobody
+    /// remembered to update.
     ///
     /// A Function's spelling is read through its existing
     /// `impl std::fmt::Display for Function` (`f.write_str(self.spelling())`,
@@ -925,12 +944,20 @@ mod tests {
         let source = function_reference();
         let map = source.language_map();
 
-        let documented: Vec<lang::Function> = map
+        let function_at_anchor: std::collections::HashMap<(usize, usize), lang::Function> = map
             .units()
             .filter_map(|unit| match unit.kind() {
-                LanguageUnitKind::Function(function) => Some(function),
+                LanguageUnitKind::Function(function) => {
+                    Some(((unit.anchor().x(), unit.anchor().y()), function))
+                }
                 _ => None,
             })
+            .collect();
+
+        let documented: Vec<lang::Function> = map
+            .expressions()
+            .filter_map(|expression| expression.root())
+            .filter_map(|root| function_at_anchor.get(&(root.x(), root.y())).copied())
             .collect();
 
         let missing: Vec<String> = lang::Function::ALL
@@ -941,7 +968,7 @@ mod tests {
 
         assert!(
             missing.is_empty(),
-            "the Function reference has no worked example for: {missing:?}"
+            "the Function reference has no worked example, as the root of an Expression, for: {missing:?}"
         );
     }
 
@@ -964,47 +991,26 @@ mod tests {
     /// `ticking_the_reference_once_writes_every_result_row_exactly_as_written`'s
     /// `plan.diagnostics.is_empty()`).
     ///
-    /// A Diagnostic is excused only when its whole Span sits inside one of
-    /// three named areas, each reused from an existing helper rather than a
-    /// second hand-maintained coordinate list:
-    ///
-    /// - [`one_tick_result_triples`]'s result Cells (Arithmetic, Conversion,
-    ///   Sequence, and Tick's own answers);
-    /// - [`movement_areas`]'s non-Function Cells — the mover, jump, and
-    ///   blocker values a Jump, Halt, Directional Bang, or Self-Banging
-    ///   example writes or reads spatially — filtered to exclude whichever
-    ///   of an area's own Cells anchor a [`LanguageUnitKind::Function`]
-    ///   unit, so a mistyped Function spelling inside a movement area still
-    ///   fails this test;
-    /// - [`midi_bang_result_areas`]'s Bang-display Cells.
-    ///
-    /// This test caught a real defect rather than only guarding against
-    /// future ones: see the module doc's "Completeness and
-    /// diagnostic-cleanliness are proven, not asserted" section for what it
-    /// found in ticket 02's Concatenate example.
+    /// A Diagnostic is excused only when its whole Span sits inside a
+    /// written result Cell or a named spatial literal Cell —
+    /// [`expected_results`]'s and [`spatial_literal_cells`]'s own lists, no
+    /// blanket area — so a mistyped operand anywhere else in a Source
+    /// Function's own Expression still fails this test.
     ///
     #[test]
     fn every_example_expression_parses_without_a_diagnostic_outside_a_result_row() {
         let source = function_reference();
         let map = source.language_map();
 
-        let function_cells: std::collections::HashSet<(usize, usize)> = map
-            .units()
-            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Function(_)))
-            .flat_map(|unit| unit.span().positions())
-            .map(|position| (position.x(), position.y()))
+        let excused: Vec<ExpectedResult> = expected_results()
+            .into_iter()
+            .chain(spatial_literal_cells())
             .collect();
-
-        let one_tick = one_tick_result_triples();
-        let movement = movement_areas();
-        let midi_bang = midi_bang_result_areas();
-
         let excluded = |x: usize, y: usize| {
-            one_tick.iter().any(|&(column, row, expected)| {
-                row == y && (column..column + expected.chars().count()).contains(&x)
-            }) || (movement.iter().any(|area| area.contains(x, y))
-                && !function_cells.contains(&(x, y)))
-                || midi_bang.iter().any(|area| area.contains(x, y))
+            excused.iter().any(|result| {
+                result.row == y
+                    && (result.column..result.column + result.expected.chars().count()).contains(&x)
+            })
         };
 
         let offending: Vec<String> = map
@@ -1023,7 +1029,7 @@ mod tests {
 
         assert!(
             offending.is_empty(),
-            "unexpected Diagnostics outside every excluded result Cell range: {offending:?}"
+            "unexpected Diagnostics outside every excluded result Cell's Span: {offending:?}"
         );
     }
 }

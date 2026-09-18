@@ -479,9 +479,10 @@ async fn the_file_menu_loads_the_function_reference_on_demand() {
         "loading the Function reference did not reset the Cursor to the Grid origin"
     );
     let grid = harness.state().orcvs.render_frame().grid();
+    let reference_grid = crate::function_reference::function_reference().grid();
     assert_eq!(
         (grid.columns(), grid.rows()),
-        (112, 32),
+        (reference_grid.columns(), reference_grid.rows()),
         "loading the Function reference did not carry its own Grid"
     );
 }

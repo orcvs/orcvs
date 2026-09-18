@@ -67,3 +67,14 @@ MIDI band's five four-row examples reach only row 26, still inside the height Ar
 pins), but Timed Play's and Monophonic Play's ten-Cell Expressions, starting at column 96 like
 every MIDI example, reach column 105, rounding the Grid's width up from 96 to 112 — exactly band
 6's own upper bound.
+
+## Correction
+
+Timed Play's own example, `!~0064E408`, held a note for 8 Ticks while its `~%0104` Euclidean
+source fires every 4 — so the note was asked to sound again 4 Ticks before the one before it had
+finished, an internal inconsistency this ticket's own acceptance criteria did not catch because
+nothing here checked one example's rate against another's. Fixed by shortening the length to `04`
+Ticks (`!~0064E404`), matching the source's own period exactly, the same length Monophonic Play's
+own example already used. `expected_midi_commands`'s `PlayCommand::Timed` expectation in
+`console/src/function_reference.rs` was updated from `Length::from(0x08)` to `Length::from(0x04)`
+to match.
