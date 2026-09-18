@@ -301,11 +301,11 @@ The per-Cell decision of how the Positions a console draws of one Render Frame a
 _Avoid_: Shapes, draw list, painter
 
 **Source View**:
-The region of the Source's space the console shows, and the Cell size it shows it at. It never shows beyond the Grid's edges: the Grid is bounded, so its presentation is too.
+The region of the Source's space the console shows, and the Cell size it shows it at. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
 _Avoid_: Canvas, camera, viewport, document, scroll position
 
 **Pan**:
-Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan.
+Moving the Source View across the Source, as far as the margin past the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan.
 _Avoid_: Scroll, drag
 
 **Zoom**:

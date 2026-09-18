@@ -76,7 +76,7 @@
 //! test sleeps, reads the clock, or depends on Playback: the harness advances
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
 
-use egui::{Color32, Event, Key, Modifiers, PointerButton, Pos2, Vec2};
+use egui::{Color32, CursorIcon, Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
 use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, source_bounds};
@@ -313,8 +313,8 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// frame the keys reach the Source (`Console::ui` reads the Render Frame
 /// after `Orcvs::event_handler` runs).
 ///
-/// The default window shows the whole default Grid with nowhere to Pan, so
-/// this Zooms to `MAX_ZOOM` first — command Zoom is keyboard-only and leaves
+/// This Zooms to `MAX_ZOOM` first, so Column 40 lies past the default
+/// window's far edge — command Zoom is keyboard-only and leaves
 /// the window and its Panels exactly as they were, so the console's own width
 /// is still the default window's, `DEFAULT_VIEW_SIZE[0]`, with none of a
 /// resize's uncertainty about how tall the Panels leave the console.
@@ -355,12 +355,14 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
         "forty ArrowRight presses did not reach the Source"
     );
 
+    // The follow shows Column 40's far edge, which sits the Source View's
+    // margin of two Cells further along than the Column itself.
     let cell_at_max_zoom = CELL_SIZE * MAX_ZOOM;
     let console_width = DEFAULT_VIEW_SIZE[0];
     let pan = harness.state().source_view.pan;
     assert_eq!(
         pan,
-        Vec2::new(console_width - 41.0 * cell_at_max_zoom, 0.0),
+        Vec2::new(console_width - (41.0 + 2.0) * cell_at_max_zoom, 0.0),
         "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}"
     );
 
@@ -660,6 +662,84 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
 }
 
 ///
+/// The pointer announces a drag Pan: a grab hand while Alt is held over the
+/// console, a grabbing hand while the Alt-held primary drag or a middle-drag
+/// is Panning, and the ordinary pointer once neither is (ADR 0047).
+///
+#[tokio::test]
+async fn the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_pans() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let start = cell_centre(&harness, 6, 5);
+    let cursor_icon = |harness: &Harness<'_, Console>| harness.output().platform_output.cursor_icon;
+
+    harness.event(Event::PointerMoved(start));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Default,
+        "the pointer changed with no Pan gesture on offer"
+    );
+
+    harness.event(Event::ModifiersChanged(Modifiers::ALT));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Grab,
+        "holding Alt over the console did not offer a grab"
+    );
+
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::PointerMoved(start - Vec2::new(80.0, 60.0)));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Grabbing,
+        "an Alt-held primary drag did not show a grabbing hand"
+    );
+
+    harness.event(Event::PointerButton {
+        pos: start - Vec2::new(80.0, 60.0),
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::ModifiersChanged(Modifiers::default()));
+    harness.step();
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Middle,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.event(Event::PointerMoved(start - Vec2::new(40.0, 30.0)));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Grabbing,
+        "a middle-drag did not show a grabbing hand"
+    );
+
+    harness.event(Event::PointerButton {
+        pos: start - Vec2::new(40.0, 30.0),
+        button: PointerButton::Middle,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Default,
+        "the grabbing hand outlived the drag"
+    );
+}
+
+///
 /// Issue 05's own criterion for a click, end to end and under the one
 /// condition where nothing *Console-specific* repaints on its own: reduced
 /// motion zeroes the Cursor Effect's frequency and this console never starts
@@ -688,8 +768,9 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
 /// all.
 ///
 /// The console is resized to a width that is not a multiple of `CELL_SIZE`,
-/// so Column 12 (192..208 at Zoom 1.0) is cut off at the console's right edge
-/// (200) and a click on it needs the follow to bring it fully into view.
+/// so Column 10 (192..208 at Zoom 1.0, after the two-Cell margin) is cut off
+/// at the console's right edge (200) and a click on it needs the follow to
+/// bring it fully into view.
 ///
 #[tokio::test]
 async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped() {
@@ -706,7 +787,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
         "the resize alone Panned before anything moved the Cursor"
     );
 
-    let target = presented_source(&harness).cell_rect(12, 0).min + Vec2::new(3.0, 3.0);
+    let target = presented_source(&harness).cell_rect(10, 0).min + Vec2::new(3.0, 3.0);
     harness.event(Event::PointerMoved(target));
     harness.event(Event::PointerButton {
         pos: target,
@@ -724,15 +805,15 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 
     assert_eq!(
         cursor(harness.state()),
-        (12, 0),
-        "the click did not select Column 12"
+        (10, 0),
+        "the click did not select Column 10"
     );
 
-    let column_12 = presented_source(&harness).cell_rect(12, 0);
+    let column_10 = presented_source(&harness).cell_rect(10, 0);
     assert!(
-        column_12.max.x <= 200.0,
-        "the click's Cursor move did not Pan to bring Column 12 fully into a 200 point \
-         console: {column_12:?}"
+        column_10.max.x <= 200.0,
+        "the click's Cursor move did not Pan to bring Column 10 fully into a 200 point \
+         console: {column_10:?}"
     );
 }
 
