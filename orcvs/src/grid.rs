@@ -73,13 +73,13 @@ impl CellIndex {
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
 ///
-/// The default is 40 by 25 — a Grid that reads left to right in time, in the
+/// The default is 64 by 40 — a Grid that reads left to right in time, in the
 /// proportion a console is most often given. Cells are square, so these counts
 /// are the Grid's aspect ratio, and a console opened in that proportion spends
 /// all of its area on the Grid rather than on letterboxing.
 ///
-pub const DEFAULT_COL_COUNT: usize = 40;
-pub const DEFAULT_ROW_COUNT: usize = 25;
+pub const DEFAULT_COL_COUNT: usize = 64;
+pub const DEFAULT_ROW_COUNT: usize = 40;
 
 ///
 /// Which Grid a value bound to one Grid came from.
