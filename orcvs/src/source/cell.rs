@@ -14,7 +14,8 @@
 pub struct CellContent(u8);
 
 impl CellContent {
-    pub(super) const SPACE: Self = Self(b' ');
+    /// The empty Cell.
+    pub const SPACE: Self = Self(b' ');
 
     /// Accepts exactly the printable ASCII bytes, including space.
     pub fn new(byte: u8) -> Option<Self> {

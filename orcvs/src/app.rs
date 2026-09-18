@@ -9,7 +9,7 @@ use crate::grid::{Grid, Position};
 use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
 use crate::region::Region;
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
-use crate::source::{Source, SourceCommander};
+use crate::source::{CellContent, CellWrite, Source, SourceCommander};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputKey {
@@ -49,6 +49,11 @@ pub enum InputEvent {
     /// Escape: collapses the Region onto the Cursor.
     ///
     Collapse,
+    ///
+    /// Command Enter: the next event, when it is a character, fills every
+    /// Cell of the Region with it. Any other event disarms the fill.
+    ///
+    Fill,
     Text(String),
 }
 
@@ -95,6 +100,14 @@ pub struct Orcvs<S = MidiSelectionHandle> {
     /// step. It is running state and never stored with the Source.
     ///
     anchor: Position,
+    ///
+    /// Whether command Enter has armed a fill for the next character.
+    ///
+    /// Held across input batches, because the chord and the character are
+    /// two presses a viewer makes one after the other, and those may arrive in
+    /// different frames.
+    ///
+    fill_armed: bool,
     grid: Grid,
 
     source: SourceCommander,
@@ -222,6 +235,7 @@ impl<S> Orcvs<S> {
         Self {
             cursor: Cursor::new(grid.origin()),
             anchor: grid.origin(),
+            fill_armed: false,
             grid,
             opts,
             source,
@@ -413,6 +427,9 @@ impl<S> Orcvs<S> {
     pub fn event_handler(&mut self, events: Vec<InputEvent>) -> bool {
         let mut repaint = false;
         for event in &events {
+            // A fill is armed for exactly one event: the character it fills
+            // with, or whatever else arrived instead and so disarmed it.
+            let fill_armed = std::mem::take(&mut self.fill_armed);
             match event {
                 InputEvent::KeyPressed(InputKey::ArrowDown) => {
                     self.collapse_to(self.stepped(Arrow::Down))
@@ -433,7 +450,15 @@ impl<S> Orcvs<S> {
                     self.cursor.select(whole.cursor());
                 }
                 InputEvent::Collapse => self.anchor = self.cursor.position(),
-                InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => self.delete(),
+                InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => {
+                    if self.region().is_one_cell() {
+                        self.delete();
+                    } else {
+                        self.fill(CellContent::SPACE);
+                    }
+                    repaint = true;
+                }
+                InputEvent::Fill => self.fill_armed = true,
                 InputEvent::KeyPressed(InputKey::Space) => {
                     if self.playback_requested {
                         self.stop();
@@ -444,13 +469,33 @@ impl<S> Orcvs<S> {
                 InputEvent::Text(text_to_insert)
                     if text_to_insert.len() == 1 && text_to_insert != " " =>
                 {
-                    self.write(text_to_insert);
+                    match CellContent::new(text_to_insert.as_bytes()[0]) {
+                        Some(content) if fill_armed => self.fill(content),
+                        _ => self.write(text_to_insert),
+                    }
                     repaint = true;
                 }
                 InputEvent::Text(_) => {}
             }
         }
         repaint
+    }
+
+    ///
+    /// Writes `content` into every Cell of the Region, in one revision, and
+    /// keeps the Region.
+    ///
+    fn fill(&mut self, content: CellContent) {
+        let writes: Vec<CellWrite> = self
+            .region()
+            .positions_by_row()
+            .flatten()
+            .map(|position| CellWrite {
+                cell: self.grid.index(position),
+                content,
+            })
+            .collect();
+        self.source.write_cells(&writes);
     }
 
     ///
@@ -920,6 +965,122 @@ mod test {
             before,
             "a Region chord wrote to the Source"
         );
+    }
+
+    ///
+    /// The Source's rows, as a test reads them back.
+    ///
+    fn rows(app: &Orcvs) -> Vec<String> {
+        let snapshot = app.source.snapshot();
+        snapshot
+            .as_bytes()
+            .chunks(app.grid.columns())
+            .map(|row| String::from_utf8(row.to_vec()).expect("printable ASCII"))
+            .collect()
+    }
+
+    ///
+    /// An Orcvs of `text`'s rows, each padded to the widest.
+    ///
+    fn written(text: &[&str]) -> Orcvs {
+        let columns = text.iter().map(|row| row.len()).max().unwrap_or(1);
+        let mut app = Orcvs::new(columns, text.len()).expect("the test runtime");
+        for (y, row) in text.iter().enumerate() {
+            for (x, character) in row.chars().enumerate() {
+                app.set_at(x, y, &character.to_string());
+            }
+        }
+        app
+    }
+
+    #[tokio::test]
+    async fn backspace_and_delete_empty_a_region_larger_than_one_cell_and_keep_it() {
+        use super::{InputEvent, InputKey};
+
+        for key in [InputKey::Backspace, InputKey::Delete] {
+            let mut app = written(&["abcd", "efgh", "ijkl"]);
+            let grid = app.grid;
+            let at = |x, y| grid.position(x, y).expect("inside the Grid");
+            let (anchor, cursor) = (at(2, 2), at(1, 0));
+            app.select(anchor);
+            app.extend(cursor);
+
+            app.event_handler(vec![InputEvent::KeyPressed(key)]);
+
+            assert_eq!(rows(&app), ["a  d", "e  h", "i  l"], "{key:?}");
+            assert_eq!(app.region(), Region::span(grid, anchor, cursor));
+        }
+    }
+
+    #[tokio::test]
+    async fn backspace_and_delete_on_one_cell_empty_it_and_step_left() {
+        use super::{InputEvent, InputKey};
+
+        for key in [InputKey::Backspace, InputKey::Delete] {
+            let mut app = written(&["abcd"]);
+            let grid = app.grid;
+            let at = |x| grid.position(x, 0).expect("inside the Grid");
+            app.select(at(2));
+
+            app.event_handler(vec![InputEvent::KeyPressed(key)]);
+
+            assert_eq!(rows(&app), ["ab d"], "{key:?}");
+            assert_eq!(app.region(), Region::at(grid, at(1)));
+        }
+    }
+
+    #[tokio::test]
+    async fn typing_in_a_region_writes_at_the_cursor_steps_right_and_collapses() {
+        use super::InputEvent;
+
+        let mut app = written(&["....", "...."]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(0, 0));
+        app.extend(at(2, 1));
+
+        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
+
+        assert_eq!(rows(&app), ["....", "..x."]);
+        assert_eq!(app.region(), Region::at(grid, at(3, 1)));
+    }
+
+    ///
+    /// Command Enter arms a fill that the next character carries into every
+    /// Cell of the Region. A keystroke on its own never fills, and any other
+    /// event between the chord and the character disarms it.
+    ///
+    #[tokio::test]
+    async fn command_enter_then_a_character_fills_the_region() {
+        use super::{Arrow, InputEvent};
+
+        let mut app = written(&["....", "....", "...."]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(1, 0));
+        app.extend(at(2, 1));
+        let region = app.region();
+
+        app.event_handler(vec![InputEvent::Fill]);
+        app.event_handler(vec![InputEvent::Text("#".to_owned())]);
+
+        assert_eq!(rows(&app), [".##.", ".##.", "...."]);
+        assert_eq!(app.region(), region, "a fill keeps the Region");
+
+        // Disarmed by an arrow between the chord and the character: the
+        // character is typed rather than filled.
+        app.event_handler(vec![
+            InputEvent::Fill,
+            InputEvent::Extend(Arrow::Down),
+            InputEvent::Text("*".to_owned()),
+        ]);
+        assert_eq!(rows(&app), [".##.", ".##.", "..*."]);
+
+        // A plain keystroke with a Region never fills.
+        app.select(at(0, 0));
+        app.extend(at(3, 2));
+        app.event_handler(vec![InputEvent::Text("=".to_owned())]);
+        assert_eq!(rows(&app), [".##.", ".##.", "..*="]);
     }
 
     #[tokio::test]

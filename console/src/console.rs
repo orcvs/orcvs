@@ -397,6 +397,12 @@ fn translate_event(event: Event) -> Option<InputEvent> {
             ..
         } if modifiers.command => Some(InputEvent::SelectAll),
         Event::Key {
+            key: Key::Enter,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => Some(InputEvent::Fill),
+        Event::Key {
             key, pressed: true, ..
         } => match key {
             Key::ArrowDown => Some(InputEvent::KeyPressed(InputKey::ArrowDown)),
@@ -1981,6 +1987,11 @@ mod tests {
         assert_eq!(
             translate_event(command_key_event(Key::A)),
             Some(InputEvent::SelectAll)
+        );
+        // Command Enter arms a fill; a bare Enter is still nothing.
+        assert_eq!(
+            translate_event(command_key_event(Key::Enter)),
+            Some(InputEvent::Fill)
         );
         assert_eq!(translate_event(key_event(Key::A, true)), None);
         assert_eq!(
