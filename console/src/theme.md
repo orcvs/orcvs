@@ -36,8 +36,9 @@ around the whole Region: the lasso. Each Cell-length of its edges carries the
 Cursor frame's fragments at the Cursor frame's weight, and the Cursor's own
 Cell border is hidden while the lasso stands. Every other Cell of the Region
 takes the Region fill; the Cursor's Cell takes the Cursor colour in a Region,
-which is unset by default and then leaves that Cell as it would be with no
-Region.
+which is unset by default and then leaves that Cell the Cursor cell colour, or
+the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
+ruled as every other Cell of the Region, sector seams included.
 
 `Theme → Cursor effects` holds the deliberate adjustments: Cursor colour,
 Area colour, Region colour (with opacity), Cursor colour in a Region (with

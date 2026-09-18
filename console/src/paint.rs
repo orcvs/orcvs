@@ -189,7 +189,9 @@ impl Paint {
     /// Cursor's Cell. While a Region spans more than one Cell,
     /// `region_colour` fills the rest of it, and `region_cursor_colour` fills
     /// the Cursor's Cell independently — or, when `None`, `cursor_colour`
-    /// still does, as it would with no Region.
+    /// still does. Only the fill carries over: the Cursor's Cell in such a
+    /// Region takes the grid line and its sector seams, as every other Cell
+    /// of the Region does.
     ///
     pub fn derive_with_colours(
         input: FramePaint<'_>,
@@ -255,7 +257,10 @@ impl Paint {
                     border: visuals.border,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the Cursor's Cell, so the
-                    // Cursor is never crossed by one. It is decided here rather
+                    // Cursor's frame is never crossed by one. While a Region
+                    // spans more than one Cell the lasso is the frame and the
+                    // Cursor's Cell is not `selected`, so it keeps its seams
+                    // as every other Cell of the Region does. It is decided here rather
                     // than left to the step that draws it: in the loop this
                     // replaced the rule was structural — the selected Cell took
                     // a branch the seams were not in — and a rule that survives
@@ -651,8 +656,8 @@ mod tests {
     /// the Cursor's included, the grid line: the lasso around the Region is
     /// the Cursor's border then. A Region of one Cell fills none.
     ///
-    /// The Cursor's Cell takes its own colour. Unset, it is the Cursor's
-    /// colour as it would be with no Region; set, it is independent of both.
+    /// The Cursor's Cell takes its own fill. Unset, it is the Cursor's cell
+    /// colour, as with no Region; set, it is independent of both.
     ///
     #[tokio::test]
     async fn a_region_larger_than_one_cell_is_filled_around_an_independently_coloured_cursor() {
@@ -707,7 +712,7 @@ mod tests {
 
     ///
     /// Sector seams stand where Paint derives them, and nowhere on the Cursor's
-    /// own Cell.
+    /// own Cell while it is framed on its own.
     ///
     /// The suppression is the derive's, so no later step learns the rule. The
     /// Cursor is put on a Cell that wants a seam — the corner of a sector,
@@ -762,6 +767,34 @@ mod tests {
         }
 
         assert!(seams > 0, "no Cell but the Cursor's was asked for a seam");
+    }
+
+    ///
+    /// While a Region spans more than one Cell the lasso is the Cursor's frame,
+    /// so the Cursor's Cell keeps the sector seams it would carry as any other
+    /// Cell of the Region.
+    ///
+    #[tokio::test]
+    async fn a_cursor_inside_a_spanning_region_keeps_its_seams() {
+        let mut orcvs = running_orcvs(24, 24);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        // A sector corner at the default Sector Seam spacing of eight.
+        orcvs.select(at(4, 4));
+        orcvs.extend(at(8, 8));
+
+        let frame = orcvs.render_frame();
+        let spacing = frame.sector_seam_spacing().cells();
+        let painted = *whole(&frame).at(at(8, 8));
+
+        let left = sector_left_strength(at(8, 8), spacing);
+        let top = sector_top_strength(at(8, 8), spacing);
+        assert!(
+            left.is_some() && top.is_some(),
+            "the Cursor is off a sector corner"
+        );
+        assert_eq!(painted.sector_left, left.map(sector_line));
+        assert_eq!(painted.sector_top, top.map(sector_line));
     }
 
     ///

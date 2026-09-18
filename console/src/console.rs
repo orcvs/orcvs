@@ -1084,14 +1084,16 @@ struct SourceShapes {
     area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
     backgrounds: Vec<Shape>,
-    /// Every Cell's own border but the Cursor's.
+    /// Every Cell's own border but the Cursor's, and the Cursor's too while a
+    /// Region spans more than one Cell.
     borders: Vec<Shape>,
     /// One galley per Cell that shows a character other than the space.
     glyphs: Vec<Shape>,
     /// The sector seams, left edge then top edge, Cell by Cell.
     seams: Vec<Shape>,
-    /// The Cursor's own stroke, which is the selected Cell's border painted
-    /// last.
+    /// The Cursor's own stroke, painted last: the Cursor Effect's frame — its
+    /// Cell's, or the lasso around a Region larger than one Cell — or the
+    /// selected Cell's border when no effect frame was built.
     cursor: Vec<Shape>,
 }
 
@@ -1198,8 +1200,9 @@ impl SourceShapes {
                 borders.push(border);
             }
 
-            // A seam is absent on the Cursor's Cell because the derive
-            // suppressed it there, so this step never learns that rule.
+            // A seam is absent on the Cursor's Cell, while it is framed on its
+            // own, because the derive suppressed it there, so this step never
+            // learns that rule.
             for (colour, ends) in [
                 (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
                 (cell.sector_top, [rect.left_top(), rect.right_top()]),
@@ -5223,7 +5226,8 @@ mod tests {
     /// colour it asks for, one sector line wide.
     ///
     /// Which Cells carry a seam, at what strength, and that the Cursor's own
-    /// Cell carries none, are the Render Frame's and the derive's answers and
+    /// Cell carries none while it is framed on its own, are the Render
+    /// Frame's and the derive's answers and
     /// are asserted in `paint.rs` with no Context at all. The seam's *width*
     /// scales with the Cell side, so it is geometry and belongs here.
     ///
