@@ -401,6 +401,79 @@ fn translate_event(event: Event) -> Option<InputEvent> {
     }
 }
 
+///
+/// A keyboard Zoom command: a command chord for `=`/`+`, `-`, or `0`.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ZoomCommand {
+    In,
+    Out,
+    Reset,
+}
+
+///
+/// The Zoom command a toolkit event asks for, or none.
+///
+/// Only a held [`egui::Modifiers::command`] turns `=`, `+`, `-` or `0` into a
+/// Zoom step. Bare, they are Source characters — [`translate_event`] reaches
+/// them as [`Event::Text`], never through this — so this answers `None` for
+/// an unmodified key and [`show_source_scene`] leaves the Zoom exactly where
+/// it was.
+///
+fn zoom_command(event: &Event) -> Option<ZoomCommand> {
+    match event {
+        Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => match key {
+            Key::Equals | Key::Plus => Some(ZoomCommand::In),
+            Key::Minus => Some(ZoomCommand::Out),
+            Key::Num0 => Some(ZoomCommand::Reset),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+///
+/// The Text an integration can still send as the side effect of the same key
+/// press a command Zoom chord already answered through [`zoom_command`].
+///
+/// `egui-winit` and eframe's web backend both withhold [`Event::Text`] while
+/// a command modifier is held, so a shipped build never raises this from a
+/// real chord. This does not lean on that: dropping the matching character
+/// here as well is what makes "a command chord never reaches the Source"
+/// this module's own guarantee rather than an assumption about the toolkit
+/// underneath it.
+///
+fn is_zoom_chord_text(event: &Event) -> bool {
+    matches!(event, Event::Text(text) if matches!(text.as_str(), "+" | "-" | "=" | "0"))
+}
+
+///
+/// `zoom` after one keyboard Zoom command: stepped by [`GLYPH_SCALE_STEP`] and
+/// clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`].
+///
+/// Stepped from the nearest multiple of the step rather than by adding it, so
+/// a long session stays exactly on the grid [`glyph_scale`] quantises to
+/// instead of drifting off it through repeated float addition. `Reset`
+/// answers 1.0 outright, whatever step `zoom` was on.
+///
+fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
+    if command == ZoomCommand::Reset {
+        return 1.0;
+    }
+    let direction = if command == ZoomCommand::In {
+        1.0
+    } else {
+        -1.0
+    };
+    let steps = (zoom / GLYPH_SCALE_STEP).round() + direction;
+    (steps * GLYPH_SCALE_STEP).clamp(MIN_ZOOM, MAX_ZOOM)
+}
+
 fn source_bounds(grid: Grid) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
@@ -547,6 +620,15 @@ impl Console {
         let style = style();
         cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
         cc.egui_ctx.set_theme(egui::Theme::Dark);
+
+        // egui's own `Context::end_pass` answers the same command `=`/`+`,
+        // `-` and `0` chords by changing `zoom_factor` — the whole UI's
+        // scale, not the Source View's (`egui-0.36.1/src/gui_zoom.rs`,
+        // `Options::zoom_with_keyboard`, on by default). Those chords are the
+        // Source View's Zoom here, so egui's own reading of them is turned
+        // off rather than left to race it.
+        cc.egui_ctx
+            .options_mut(|options| options.zoom_with_keyboard = false);
 
         // Start with the default fonts (we will be adding to them rather than replacing them).
         let mut fonts = egui::FontDefinitions::default();
@@ -1227,8 +1309,11 @@ struct PresentedSource {
 /// `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
 ///
 /// Pan is by wheel or two-finger scroll and by middle-drag, bounded by the
-/// Grid's edges. Pinch and command-wheel do not Zoom: Zoom is a change of Cell
-/// size from the keyboard alone.
+/// Grid's edges. Pinch and command-wheel do not Zoom: Zoom is a command `=`,
+/// `+`, `-` or `0` chord from the keyboard alone, stepped by
+/// [`GLYPH_SCALE_STEP`] and clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom
+/// that would open a gap past an edge settles back inside through the same
+/// `clamp_pan` a Pan does.
 ///
 fn show_source_scene(
     ui: &mut egui::Ui,
@@ -1247,6 +1332,10 @@ fn show_source_scene(
         view.zoom = 1.0;
     }
     view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+
+    if let Some(command) = ui.input(|i| i.events.iter().find_map(zoom_command)) {
+        view.zoom = stepped_zoom(view.zoom, command);
+    }
 
     if pan.dragged_by(PointerButton::Middle) {
         view.pan += pan.drag_delta();
@@ -1451,9 +1540,15 @@ impl eframe::App for Console {
             ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
         }
         if !self.bpm_field_focused && !self.destination_combo_focused {
+            // A command Zoom chord answers `show_source_scene`, not the
+            // Source; `is_zoom_chord_text` is the guard that keeps its Text
+            // side effect from also reaching it. See its own comment for why
+            // this does not merely trust the toolkit to withhold that Text.
+            let chorded = ctx.input(|i| i.events.iter().any(|event| zoom_command(event).is_some()));
             let events = ctx.input(|i| {
                 i.filtered_events(&event_filter)
                     .into_iter()
+                    .filter(|event| !(chorded && is_zoom_chord_text(event)))
                     .filter_map(translate_event)
                     .collect()
             });
@@ -1680,8 +1775,9 @@ mod tests {
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
         GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SourceShapes,
-        SourceView, TOP_PANEL_HEIGHT, clamp_pan, frames_per_second, glyph_scale, is_presentable,
-        show_source_scene, source_bounds, source_panel_frame, translate_event,
+        SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale,
+        is_presentable, is_zoom_chord_text, show_source_scene, source_bounds, source_panel_frame,
+        stepped_zoom, translate_event, zoom_command,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -1692,6 +1788,27 @@ mod tests {
             repeat: false,
             modifiers: Modifiers::NONE,
         }
+    }
+
+    fn command_key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        }
+    }
+
+    ///
+    /// A command Zoom chord for `key`, as `pinch_at` and `command_wheel_at`
+    /// stage a pointer gesture: the one event a real `=`/`+`/`-`/`0` press
+    /// under a held command modifier delivers, with no accompanying
+    /// `Event::Text` — `egui-winit` and eframe's web backend both withhold it
+    /// while a command modifier is held.
+    ///
+    fn command_zoom_at(key: Key) -> Vec<Event> {
+        vec![command_key_event(key)]
     }
 
     #[test]
@@ -1719,6 +1836,118 @@ mod tests {
         assert_eq!(translate_event(key_event(Key::Enter, true)), None);
         assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
         assert_eq!(translate_event(Event::Copy), None);
+
+        // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
+        // reports them as `Event::Text`, which `translate_event` reaches
+        // regardless of what key produced it, and never as one of the Key
+        // variants matched above.
+        for character in ["+", "-", "=", "0"] {
+            assert_eq!(
+                translate_event(Event::Text(character.to_owned())),
+                Some(InputEvent::Text(character.to_owned())),
+                "bare {character:?} did not reach the Source as Cell input"
+            );
+        }
+        for key in [Key::Equals, Key::Plus, Key::Minus, Key::Num0] {
+            assert_eq!(
+                translate_event(key_event(key, true)),
+                None,
+                "bare {key:?} was translated as Source input on its own"
+            );
+        }
+    }
+
+    ///
+    /// The command chord [`zoom_command`] answers, and the bare key it never
+    /// answers for: `=`, `+`, `-` and `0` ask for a Zoom only with
+    /// [`egui::Modifiers::command`] held, and an unrelated command chord asks
+    /// for nothing.
+    ///
+    #[test]
+    fn only_a_command_chord_of_the_four_keys_asks_for_a_zoom() {
+        let cases = [
+            (Key::Equals, ZoomCommand::In),
+            (Key::Plus, ZoomCommand::In),
+            (Key::Minus, ZoomCommand::Out),
+            (Key::Num0, ZoomCommand::Reset),
+        ];
+        for (key, command) in cases {
+            assert_eq!(
+                zoom_command(&command_key_event(key)),
+                Some(command),
+                "command {key:?} did not ask for a Zoom"
+            );
+            assert_eq!(
+                zoom_command(&key_event(key, true)),
+                None,
+                "bare {key:?} asked for a Zoom"
+            );
+            assert_eq!(
+                zoom_command(&Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: false,
+                    repeat: false,
+                    modifiers: Modifiers::COMMAND,
+                }),
+                None,
+                "a released command {key:?} asked for a Zoom"
+            );
+        }
+
+        assert_eq!(
+            zoom_command(&command_key_event(Key::C)),
+            None,
+            "an unrelated command chord asked for a Zoom"
+        );
+        assert!(!is_zoom_chord_text(&Event::Text("x".to_owned())));
+        for character in ["+", "-", "=", "0"] {
+            assert!(
+                is_zoom_chord_text(&Event::Text(character.to_owned())),
+                "{character:?} is exactly what a leaked Zoom chord would send as Text"
+            );
+        }
+    }
+
+    ///
+    /// A Zoom step is exact: `In` and `Out` move by one [`GLYPH_SCALE_STEP`]
+    /// from the nearest multiple of it, `Reset` always lands on 1.0, and every
+    /// step stops at [`MIN_ZOOM`] or [`MAX_ZOOM`] rather than passing it.
+    ///
+    #[test]
+    fn a_zoom_step_moves_by_one_step_and_stops_at_the_range() {
+        assert_eq!(stepped_zoom(1.0, ZoomCommand::In), 1.125);
+        assert_eq!(stepped_zoom(1.0, ZoomCommand::Out), 0.875);
+        assert_eq!(stepped_zoom(1.375, ZoomCommand::Reset), 1.0);
+        assert_eq!(stepped_zoom(MIN_ZOOM, ZoomCommand::Reset), 1.0);
+
+        assert_eq!(stepped_zoom(MAX_ZOOM, ZoomCommand::In), MAX_ZOOM);
+        assert_eq!(stepped_zoom(MIN_ZOOM, ZoomCommand::Out), MIN_ZOOM);
+
+        // Every step a keyboard Zoom can reach is a whole number of eighths,
+        // and `glyph_scale` — the atlas budget `GLYPH_SCALE_STEP` states —
+        // has to floor every one of them to itself rather than to the step
+        // below.
+        let mut zoom = MIN_ZOOM;
+        let mut steps = 0;
+        while zoom < MAX_ZOOM {
+            let stepped = stepped_zoom(zoom, ZoomCommand::In);
+            assert!(
+                stepped > zoom,
+                "In did not move the Zoom forward from {zoom}"
+            );
+            assert_eq!(
+                glyph_scale(stepped),
+                stepped,
+                "the Glyph was not laid out at the Cell size of the {stepped} step"
+            );
+            zoom = stepped;
+            steps += 1;
+        }
+        assert_eq!(
+            steps, 14,
+            "the keyboard range holds fifteen steps, not {steps} moves between them"
+        );
     }
 
     ///
@@ -5019,6 +5248,192 @@ mod tests {
         assert_eq!(
             view.to_global.scaling, 1.0,
             "a command-wheel changed the presented scale"
+        );
+    }
+
+    ///
+    /// Command `=` and command `+` step the Zoom in; command `-` steps it
+    /// out; command `0` returns it to 1.0 whatever step it was on.
+    ///
+    #[tokio::test]
+    async fn command_chords_step_the_zoom_and_command_zero_resets_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.zoom, 1.0);
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Equals),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.125, "command Equals did not step the Zoom in");
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Plus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.25, "command Plus did not step the Zoom in");
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(
+            view.zoom, 1.0,
+            "two command Minus did not undo two steps in"
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 0.875, "command Minus did not step the Zoom out");
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Num0),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.0, "command Num0 did not reset the Zoom to 1.0");
+    }
+
+    ///
+    /// The Zoom stops exactly at [`MIN_ZOOM`] and [`MAX_ZOOM`] rather than
+    /// passing them, however many times the chord repeats.
+    ///
+    #[tokio::test]
+    async fn command_zoom_stops_at_the_range_limits() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        for _ in 0..16 {
+            console_frame(
+                &ctx,
+                screen,
+                command_zoom_at(Key::Equals),
+                &mut orcvs,
+                &mut view,
+            );
+        }
+        assert_eq!(
+            view.zoom, MAX_ZOOM,
+            "command Equals passed the Zoom's ceiling"
+        );
+
+        for _ in 0..32 {
+            console_frame(
+                &ctx,
+                screen,
+                command_zoom_at(Key::Minus),
+                &mut orcvs,
+                &mut view,
+            );
+        }
+        assert_eq!(view.zoom, MIN_ZOOM, "command Minus passed the Zoom's floor");
+    }
+
+    ///
+    /// A command Zoom that would open a gap past an edge settles the Source
+    /// View back inside the Grid, through the same `clamp_pan` a Pan uses.
+    ///
+    #[tokio::test]
+    async fn a_command_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        // 32 Cells of 16 points is 512 points; at `MAX_ZOOM` that is 1024, and
+        // panning fully to the far edge of a 200 point console takes -824.
+        pinned_at(&mut view, Vec2::new(-824.0, -824.0), MAX_ZOOM);
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::new(-824.0, -824.0),
+            "the fixture did not open already pinned to the far edge"
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.875, "command Minus did not step the Zoom out");
+        // At 1.875 the source is 960 points, so the far edge of a 200 point
+        // console is -760: the old -824 Pan now opens a 64 point gap past it.
+        assert_eq!(
+            view.pan,
+            Vec2::new(-760.0, -760.0),
+            "the Zoom left a gap past the Grid: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A command Zoom chord never reaches the Source, and the bare characters
+    /// it is built from still do — the whole input path, through
+    /// `Console::ui`'s own event routing rather than `show_source_scene`
+    /// alone. `console::kittest_tests` proves the same claim end to end
+    /// through the shipped `Console`; this pins the lower half of it, that
+    /// `translate_event`'s callers withhold the chord's Text side effect even
+    /// when a synthetic one is present.
+    ///
+    #[test]
+    fn a_command_zoom_chord_is_withheld_even_if_its_text_leaks() {
+        let events = vec![command_key_event(Key::Equals), Event::Text("=".to_owned())];
+        let chorded = events.iter().any(|event| zoom_command(event).is_some());
+        assert!(chorded, "the fixture did not contain a Zoom chord");
+        let translated: Vec<_> = events
+            .into_iter()
+            .filter(|event| !(chorded && is_zoom_chord_text(event)))
+            .filter_map(translate_event)
+            .collect();
+        assert_eq!(
+            translated,
+            Vec::new(),
+            "a command Zoom chord reached the Source: {translated:?}"
+        );
+
+        let bare = vec![Event::Text("=".to_owned())];
+        let chorded = bare.iter().any(|event| zoom_command(event).is_some());
+        assert!(!chorded, "a bare character was read as a Zoom chord");
+        let translated: Vec<_> = bare
+            .into_iter()
+            .filter(|event| !(chorded && is_zoom_chord_text(event)))
+            .filter_map(translate_event)
+            .collect();
+        assert_eq!(
+            translated,
+            vec![InputEvent::Text("=".to_owned())],
+            "a bare \"=\" did not reach the Source as Cell input"
         );
     }
 

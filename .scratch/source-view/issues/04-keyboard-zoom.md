@@ -4,10 +4,10 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Command `=` and command `+` Zoom in one step; command `-` Zooms out one step; command `0` returns to Zoom 1.0.
-- [ ] Zoom stops at 0.25 and at 2.0.
-- [ ] Bare `+`, `-`, `=` and `0` still reach the Source as Cell input, and a command chord never does.
-- [ ] A Zoom that would open a gap past an edge settles the Source View back inside the Grid.
-- [ ] The Glyph is laid out at the Cell size of each step.
+- [x] Command `=` and command `+` Zoom in one step; command `-` Zooms out one step; command `0` returns to Zoom 1.0.
+- [x] Zoom stops at 0.25 and at 2.0.
+- [x] Bare `+`, `-`, `=` and `0` still reach the Source as Cell input, and a command chord never does.
+- [x] A Zoom that would open a gap past an edge settles the Source View back inside the Grid.
+- [x] The Glyph is laid out at the Cell size of each step.

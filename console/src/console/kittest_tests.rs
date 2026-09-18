@@ -76,7 +76,7 @@
 //! test sleeps, reads the clock, or depends on Playback: the harness advances
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
 
-use egui::{Event, Modifiers, PointerButton, Pos2, Vec2};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
 use super::{Console, DEFAULT_VIEW_SIZE, source_bounds};
@@ -103,6 +103,15 @@ fn running_console(size: Vec2) -> Harness<'static, Console> {
 fn cursor(console: &Console) -> (usize, usize) {
     let cursor = console.orcvs.render_frame().cursor();
     (cursor.x(), cursor.y())
+}
+
+///
+/// What the Cell under the Cursor holds right now, or `None` when it is
+/// empty.
+///
+fn cell_under_cursor(console: &Console) -> Option<char> {
+    let frame = console.orcvs.render_frame();
+    frame.at(frame.cursor()).content()
 }
 
 ///
@@ -240,6 +249,76 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
         cursor(harness.state()),
         (3, 1),
         "quiet frames moved the Cursor"
+    );
+}
+
+///
+/// Keyboard Zoom end to end: a command `=`/`0` chord reaches
+/// `Console::ui`'s own event routing exactly like an arrow key does, and
+/// changes the Source View rather than the Source. The bare `=` the chord is
+/// built from is still Source input, egui's own Cmd `=` UI zoom
+/// (`Options::zoom_with_keyboard`, `Console::new` turns it off) never fires
+/// for it, and a fresh console opens with `zoom_with_keyboard` already off —
+/// otherwise the first chord below would move `harness.ctx.zoom_factor()`
+/// too, and pass for the wrong reason.
+///
+#[tokio::test]
+async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    assert_eq!(harness.state().source_view.zoom, 1.0);
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "a fresh console did not open with an empty Cell under the Cursor"
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness.state().source_view.zoom,
+        1.125,
+        "command Equals did not Zoom the Source View"
+    );
+    assert_eq!(
+        harness.ctx.zoom_factor(),
+        1.0,
+        "egui's own UI zoom fired for the Source View's Zoom chord"
+    );
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "a command Equals chord reached the Source"
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num0);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().source_view.zoom,
+        1.0,
+        "command Num0 did not reset the Zoom"
+    );
+
+    // Bare "=" is still Source input: it types into the Cell under the
+    // Cursor, the same path the arrow keys above take.
+    let cell = harness.state().orcvs.render_frame().cursor();
+    harness.event(Event::Text("=".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness.state().orcvs.render_frame().at(cell).content(),
+        Some('='),
+        "a bare \"=\" did not reach the Source as Cell input"
+    );
+    assert_eq!(
+        harness.state().source_view.zoom,
+        1.0,
+        "a bare \"=\" changed the Zoom"
     );
 }
 
