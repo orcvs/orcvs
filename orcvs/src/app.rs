@@ -393,6 +393,14 @@ impl<S> Orcvs<S> {
     }
 
     ///
+    /// Moves the anchor and the Cursor to the two ends of `region`.
+    ///
+    fn set_region(&mut self, region: Region) {
+        self.anchor = region.anchor();
+        self.cursor.select(region.cursor());
+    }
+
+    ///
     /// Moves the Cursor to `position` and the anchor with it, so the Region
     /// is that one Cell.
     ///
@@ -473,11 +481,7 @@ impl<S> Orcvs<S> {
                     self.collapse_to(self.stepped(Arrow::Up))
                 }
                 InputEvent::Extend(arrow) => self.cursor.select(self.stepped(*arrow)),
-                InputEvent::SelectAll => {
-                    let whole = Region::whole(self.grid);
-                    self.anchor = whole.anchor();
-                    self.cursor.select(whole.cursor());
-                }
+                InputEvent::SelectAll => self.set_region(Region::whole(self.grid)),
                 InputEvent::Collapse => self.anchor = self.cursor.position(),
                 InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => {
                     if self.region().is_one_cell() {
@@ -541,46 +545,57 @@ impl<S> Orcvs<S> {
     /// Writes `text` from the Region's top-left, in one revision, and spans
     /// the Region over the rectangle that landed.
     ///
-    /// Every character lands, a space included, so a pasted block replaces
-    /// what was under it. A character that cannot be a Cell lands as an empty
-    /// Cell rather than shifting the rest of its row. `\r\n` and `\n` both
-    /// break a row, and a break at the very end adds no row of its own. What
-    /// runs past the Grid's right or bottom edge is dropped. The Cursor stays
-    /// on the top-left, so the Source View does not move to follow it.
+    /// The text lands as a block, spaces included, so it replaces what was
+    /// under it: a row shorter than the longest lands empty Cells to the
+    /// block's width, which is what makes the Region the rectangle that
+    /// landed and a copy of it the text that was pasted. A character that
+    /// cannot be a Cell lands as an empty Cell rather than shifting the rest
+    /// of its row. `\r\n` and `\n` both break a row, and a break at the very
+    /// end adds no row of its own. What runs past the Grid's right or bottom
+    /// edge is dropped. The Cursor stays on the top-left, so the Source View
+    /// does not move to follow it.
     ///
     fn paste(&mut self, text: &str) {
         let text = text.strip_suffix('\n').unwrap_or(text);
         let text = text.strip_suffix('\r').unwrap_or(text);
         let top_left = self.region().top_left();
-        let mut writes = Vec::new();
-        let mut far_corner = None;
-        for (dy, line) in text.split('\n').enumerate() {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            for (dx, character) in line.chars().enumerate() {
-                let Some(position) = self.grid.position(top_left.x() + dx, top_left.y() + dy)
-                else {
-                    continue;
-                };
-                let content = u8::try_from(character)
-                    .ok()
+        let rows: Vec<Vec<char>> = text
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line).chars().collect())
+            .take(self.grid.rows() - top_left.y())
+            .collect();
+        let width = rows
+            .iter()
+            .map(Vec::len)
+            .max()
+            .unwrap_or(0)
+            .min(self.grid.columns() - top_left.x());
+        if width == 0 {
+            return;
+        }
+        let mut writes = Vec::with_capacity(width * rows.len());
+        for (dy, row) in rows.iter().enumerate() {
+            for dx in 0..width {
+                let position = self
+                    .grid
+                    .position(top_left.x() + dx, top_left.y() + dy)
+                    .expect("the block is clipped to the Grid");
+                let content = row
+                    .get(dx)
+                    .and_then(|character| u8::try_from(*character).ok())
                     .and_then(CellContent::new)
                     .unwrap_or(CellContent::SPACE);
                 writes.push(CellWrite {
                     cell: self.grid.index(position),
                     content,
                 });
-                let (x, y) = far_corner.unwrap_or((position.x(), position.y()));
-                far_corner = Some((x.max(position.x()), y.max(position.y())));
             }
         }
-        let Some((x, y)) = far_corner else {
-            return;
-        };
         self.source.write_cells(&writes);
         self.anchor = self
             .grid
-            .position(x, y)
-            .expect("the far corner of what landed is a Cell of the Grid");
+            .position(top_left.x() + width - 1, top_left.y() + rows.len() - 1)
+            .expect("the far corner of the block is clipped to the Grid");
         self.cursor.select(top_left);
     }
 
@@ -1258,7 +1273,9 @@ mod test {
 
         app.event_handler(vec![InputEvent::Paste("aé\tb\r\ncd\r\n".to_owned())]);
 
-        assert_eq!(rows(&app), ["a  b", "cd..", "...."]);
+        // The shorter row lands empty Cells to the width of what landed, so
+        // the Region holds exactly the block that was pasted.
+        assert_eq!(rows(&app), ["a  b", "cd  ", "...."]);
         let landed = app.region();
         assert_eq!((landed.columns(), landed.rows()), (0..4, 0..2));
         assert_eq!(landed.cursor(), at(0, 0));

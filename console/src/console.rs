@@ -635,11 +635,11 @@ fn overshoot(console: Rect, pointer: Pos2) -> Vec2 {
 
 ///
 /// The part of a follow Pan of `wanted` that a Region drag takes this frame:
-/// more the further the pointer `overshoot`s the console, never more than one
+/// more the further the pointer is `past` the console's edge, never more than one
 /// Cell of `side`, and none on an axis the pointer has not left.
 ///
-fn edge_scroll(wanted: Vec2, overshoot: Vec2, side: f32) -> Vec2 {
-    let most = (overshoot / EDGE_SCROLL_REACH).min(Vec2::splat(side));
+fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
+    let most = (past / EDGE_SCROLL_REACH).min(Vec2::splat(side));
     Vec2::new(
         wanted.x.clamp(-most.x, most.x),
         wanted.y.clamp(-most.y, most.y),
@@ -1563,7 +1563,10 @@ fn show_source_scene(
     // keeps scrolling each frame the pointer stays there, which is why this
     // frame asks for the next.
     let pointer = ui.input(|i| i.pointer.interact_pos());
-    let dragging_region = view.region_drag.is_some() && pan.dragged_by(PointerButton::Primary);
+    // Still paced on the frame the button comes up — `region_drag` is cleared
+    // only once this frame has answered it — so a release with the Cursor
+    // many Cells past the edge does not jump the Source View to it.
+    let dragging_region = view.region_drag.is_some();
     if zoomed || (cursor_moved && !dragging_region) {
         view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side));
     } else if dragging_region && let Some(pointer) = pointer {
@@ -1614,13 +1617,22 @@ fn show_source_scene(
     }
     let spanned = view
         .region_drag
+        .filter(|_| pan.dragged_by(PointerButton::Primary))
         .zip(
             pointer
                 .and_then(|pointer| grid.nearest_cell(pointer, source_grid))
                 .and_then(|(column, row)| source_grid.position(column, row)),
         )
         .map(|(anchor, cursor)| PointerSelection::Span { anchor, cursor });
-    // Release keeps the Region the drag last spanned.
+    // Answered on every frame of the drag, not only when the pointer moves:
+    // a pointer held past the edge moves no further while the Source View
+    // scrolls under it, so the Cell nearest it changes without an event.
+    // Asking for the same Region again is idempotent, so a repeated frame
+    // changes nothing.
+    //
+    // Release keeps the Region the drag last spanned, and spans no further:
+    // a Cursor moved on the release frame would be followed in full on the
+    // next, once the drag no longer paces it.
     if !pan.dragged_by(PointerButton::Primary) {
         view.region_drag = None;
     }
@@ -5484,6 +5496,40 @@ mod tests {
         // Never past the Grid: the console's right edge meets the Grid's.
         assert_eq!(view.pan.x, screen.width() - 32.0 * side);
         assert_eq!(selected_cell(&orcvs), (31, 5));
+    }
+
+    ///
+    /// Releasing a drag held past the edge does not jump the Source View to
+    /// the Cursor: the frame the button comes up still scrolls at most a Cell.
+    ///
+    #[tokio::test]
+    async fn releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(64, 32);
+        let mut view = SourceView::default();
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let from = viewport.cell_rect(20, 5).center();
+        let far = Pos2::new(screen.max.x + 400.0, from.y);
+        console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+        // Far enough out that the Cursor is many Cells past the edge.
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(far)],
+            &mut orcvs,
+            &mut view,
+        );
+
+        for events in [release_at(far), Vec::new(), Vec::new()] {
+            let before = view.pan.x;
+            console_frame(&ctx, screen, events, &mut orcvs, &mut view);
+            assert!(
+                before - view.pan.x <= CELL_SIZE,
+                "a frame around the release scrolled {}",
+                before - view.pan.x
+            );
+        }
     }
 
     ///

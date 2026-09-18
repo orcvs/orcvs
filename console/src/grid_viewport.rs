@@ -548,11 +548,6 @@ mod tests {
     }
 
     ///
-    /// The Grid's far corner belongs to the last Cell rather than to a Cell one
-    /// past it, and any point outside the presented rectangle — wherever that
-    /// rectangle sits in the console — belongs to no Cell at all.
-    ///
-    ///
     /// A point past the presented Grid resolves to the edge Cell it is past,
     /// on each axis on its own, and a point on the Grid to the Cell under it.
     ///
@@ -581,6 +576,11 @@ mod tests {
         );
     }
 
+    ///
+    /// The Grid's far corner belongs to the last Cell rather than to a Cell one
+    /// past it, and any point outside the presented rectangle — wherever that
+    /// rectangle sits in the console — belongs to no Cell at all.
+    ///
     #[test]
     fn the_grid_edge_resolves_to_the_last_cell_and_outside_it_to_none() {
         let available = area(1200.0, 700.0);
