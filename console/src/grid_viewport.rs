@@ -25,7 +25,8 @@ pub(crate) const CELL_SIZE: f32 = 16.0;
 pub(crate) struct GridViewport {
     /// The side of one square Cell, in points.
     pub(crate) cell_size: f32,
-    /// The presented Grid rectangle, centred in the available area.
+    /// The presented Grid rectangle, anchored at the corner its transform put
+    /// the Source's top-left at.
     pub(crate) rect: Rect,
 }
 
@@ -232,6 +233,34 @@ impl GridViewport {
 }
 
 ///
+/// `side` points snapped down to a whole number of physical pixels at
+/// `pixels_per_point`, the Cell side [`presented_grid`] draws at.
+///
+/// Floored rather than rounded, so a Grid of `columns` Cells never exceeds
+/// the extent the unsnapped side asked for, and at least one physical pixel
+/// wherever there is any Cell at all, so a Grid that is merely very small is
+/// still drawn rather than floored away. A `side` or a device scale that is not
+/// positive and finite answers no Cell: see [`presented_grid`] for why a
+/// device scale is refused on those terms.
+///
+/// The console reads its Pan bounds and its Cursor follow through this same
+/// function, so what it clamps is the Grid [`presented_grid`] draws.
+///
+pub(crate) fn snapped_cell_side(side: f32, pixels_per_point: f32) -> f32 {
+    match device_scale(pixels_per_point) {
+        Some(scale) if side.is_finite() && side > 0.0 => (side * scale).floor().max(1.0) / scale,
+        _ => 0.0,
+    }
+}
+
+///
+/// `pixels_per_point` where it is a scale at all: positive and finite.
+///
+fn device_scale(pixels_per_point: f32) -> Option<f32> {
+    (pixels_per_point.is_finite() && pixels_per_point > 0.0).then_some(pixels_per_point)
+}
+
+///
 /// The Grid rectangle `to_global` presents, with Cell geometry snapped to whole
 /// physical pixels.
 ///
@@ -250,12 +279,15 @@ impl GridViewport {
 /// the Grid as irregularly spaced. Snapping the Cell side to a whole physical
 /// pixel makes every row identical.
 ///
-/// The snap floors rather than rounds, and the Grid is re-centred on the
-/// rectangle the transform asked for afterwards. Rounding up would let a Grid
-/// of `columns` Cells exceed the rectangle `to_global` asked for by half a
-/// pixel per column, and the surplus would be clipped rather than absorbed by
-/// the re-centring. Flooring spends that same half-pixel error as slack around
-/// the Grid instead.
+/// The snap is [`snapped_cell_side`]'s, and the snapped Grid is anchored at
+/// the transform's origin — the corner `to_global` puts the Source's own
+/// top-left at — rather than re-centred on the rectangle it asked for. The
+/// console bounds its Pan and follows its Cursor at that same snapped side, so
+/// the Grid it clamps is the Grid drawn here: a Source smaller than the console
+/// starts at the console's top-left, and a Pan to the far edge leaves no gap
+/// past the last Cell. Re-centring would move the Grid in by half the snap's
+/// shortfall at both ends, which is exactly what the console's bounds cannot
+/// see.
 ///
 pub(crate) fn presented_grid(
     to_global: TSTransform,
@@ -273,18 +305,11 @@ pub(crate) fn presented_grid(
     // that `cell_rect` paints inverted and `cell_at` refuses every click on.
     // Refused, the Grid keeps its unsnapped corner and no Cell at all, which is
     // the same nothing a console with no area presents.
-    let device_scale =
-        (pixels_per_point.is_finite() && pixels_per_point > 0.0).then_some(pixels_per_point);
+    let device_scale = device_scale(pixels_per_point);
     // `Grid` makes a zero-column Grid unrepresentable, so the division is safe.
-    let raw = presented.width() / columns as f32;
-    // At least one physical pixel wherever there is any Cell at all, so a Grid
-    // that is merely very small is still drawn rather than floored away.
-    let cell_size = match device_scale {
-        Some(scale) if raw.is_finite() && raw > 0.0 => (raw * scale).floor().max(1.0) / scale,
-        _ => 0.0,
-    };
+    let cell_size = snapped_cell_side(presented.width() / columns as f32, pixels_per_point);
     let size = Vec2::new(columns as f32, rows as f32) * cell_size;
-    let corner = presented.center() - size / 2.0;
+    let corner = presented.min;
 
     GridViewport {
         cell_size,

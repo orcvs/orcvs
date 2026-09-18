@@ -11,7 +11,7 @@ use crate::cursor_effects::{
     CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, DEFAULT_CURSOR_COLOUR,
     cursor_effect_shapes, effect_bounds,
 };
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
@@ -528,11 +528,10 @@ fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
 }
 
 ///
-/// The Cursor's Cell as a rectangle in the same unpanned, zoomed Source-local
-/// points [`source_bounds`] and [`clamp_pan`] already share.
+/// The Cursor's Cell as a rectangle in unpanned Source-local points, at the
+/// snapped Cell `side` [`show_source_scene`] also bounds [`clamp_pan`] by.
 ///
-fn cursor_cell(cursor: Position, zoom: f32) -> Rect {
-    let side = CELL_SIZE * zoom;
+fn cursor_cell(cursor: Position, side: f32) -> Rect {
     Rect::from_min_size(
         Pos2::new(cursor.x() as f32, cursor.y() as f32) * side,
         Vec2::splat(side),
@@ -1431,11 +1430,16 @@ fn show_source_scene(
         .is_some_and(|previous| previous != cursor);
     view.previous_cursor = Some(cursor);
 
+    // The Cell side `presented_grid` will draw at, snapped to whole physical
+    // pixels, so the follow and the bounds below are measured against the
+    // Grid as drawn rather than the unsnapped extent the Zoom asked for.
+    let side = snapped_cell_side(CELL_SIZE * view.zoom, ui.ctx().pixels_per_point());
+
     if cursor_moved || zoomed {
-        view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, view.zoom));
+        view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side));
     }
 
-    let source_size = source.size() * view.zoom;
+    let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * side;
     view.pan = clamp_pan(view.pan, console.size(), source_size);
 
     let to_global = TSTransform::new(console.min.to_vec2() + view.pan, view.zoom);
@@ -5774,6 +5778,127 @@ mod tests {
             Vec2::ZERO,
             "clamp_pan did not settle the follow's own Pan back inside the Grid: {:?}",
             view.pan
+        );
+    }
+
+    /// A device scale at which a Zoom step's Cell is not a whole number of
+    /// physical pixels, and the Zoom step that shows it: 18 points at 1.25 is
+    /// 22.5 pixels, which `presented_grid` floors to 22 — a Cell of 17.6
+    /// points rather than the 18 a Zoom of 1.125 asks for.
+    const FRACTIONAL_PPP: f32 = 1.25;
+    const FRACTIONAL_ZOOM: f32 = 1.125;
+
+    /// Half a physical pixel at [`FRACTIONAL_PPP`], the most the corner's own
+    /// pixel rounding can move an edge.
+    const HALF_A_PIXEL: f32 = 0.5 / FRACTIONAL_PPP;
+
+    ///
+    /// A Source smaller than the console starts at the console's top-left even
+    /// where the snap has shrunk its Cells, rather than re-centred inside the
+    /// unsnapped extent and drawn in from the corner.
+    ///
+    #[tokio::test]
+    async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(8, 8);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, FRACTIONAL_ZOOM);
+
+        let (viewport, _) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+
+        assert!(
+            viewport.cell_size < CELL_SIZE * FRACTIONAL_ZOOM,
+            "the fixture snapped nothing, so it asserts nothing: {}",
+            viewport.cell_size
+        );
+        assert_eq!(
+            viewport.rect.min, screen.min,
+            "a snapped Grid smaller than the console left its top-left"
+        );
+    }
+
+    ///
+    /// A Pan to the far edge of a Source larger than the console leaves no
+    /// gap past the Grid where the snap has shrunk its Cells: the bound is
+    /// the extent the Cells are drawn at, not the one the Zoom asked for.
+    ///
+    #[tokio::test]
+    async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(64, 64);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::splat(-1_000_000.0), FRACTIONAL_ZOOM);
+
+        let (viewport, _) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+
+        assert!(
+            viewport.cell_size < CELL_SIZE * FRACTIONAL_ZOOM,
+            "the fixture snapped nothing, so it asserts nothing: {}",
+            viewport.cell_size
+        );
+        let gap = screen.max - viewport.rect.max;
+        assert!(
+            gap.x.abs() <= HALF_A_PIXEL && gap.y.abs() <= HALF_A_PIXEL,
+            "the far-edge Pan left {gap:?} between the Grid and the console's edge"
+        );
+    }
+
+    ///
+    /// A Cursor move past the console's far edge Pans the whole Cursor Cell,
+    /// as drawn, into view — measured at the snapped Cell side the Cells are
+    /// painted at rather than the unsnapped side the Zoom asked for.
+    ///
+    #[tokio::test]
+    async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(64, 64);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, FRACTIONAL_ZOOM);
+
+        console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+        // Column and row 22 end at 23 Cells, past a 400 point console at
+        // either Cell side.
+        orcvs.select(orcvs.grid().position(22, 22).expect("inside the grid"));
+        let (viewport, _) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+
+        let cell = viewport.cell_rect(22, 22);
+        assert!(
+            cell.min.x >= screen.min.x - HALF_A_PIXEL
+                && cell.min.y >= screen.min.y - HALF_A_PIXEL
+                && cell.max.x <= screen.max.x + HALF_A_PIXEL
+                && cell.max.y <= screen.max.y + HALF_A_PIXEL,
+            "the followed Cursor Cell {cell:?} is not wholly inside {screen:?}"
         );
     }
 
