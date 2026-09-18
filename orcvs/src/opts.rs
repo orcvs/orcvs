@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use lang::Tick;
 
-pub const DEFAULT_FONT_SIZE: f32 = 18.0;
+pub const DEFAULT_FONT_SIZE: f32 = 11.5;
 pub const DEFAULT_SECTOR_SEAM_SPACING: usize = 8;
 
 pub const DEFAULT_CURSOR_BLOOM_RADIUS: usize = 7;

@@ -40,7 +40,7 @@
 //! `GridViewport::cell_rect` hands out a Cell's rectangle and
 //! `GridViewport::cell_at` inverts it — so every pointer coordinate below is
 //! *derived from the live transform at the moment of the click* rather than
-//! written down. That is what makes the resize and zoom cases mean anything: a
+//! written down. That is what makes the resize and Pan cases mean anything: a
 //! hardcoded coordinate would either keep passing after the mapping broke or
 //! start failing for reasons that have nothing to do with it.
 //!
@@ -50,19 +50,19 @@
 //! that `cell_rect` and `cell_at` remain mutual inverses under a transform the
 //! console has moved, and that a click at the coordinate `cell_rect` answers
 //! reaches the Source as that Cell. An error inside `presented_grid` itself — a
-//! mishandled `pixels_per_point`, a letterbox origin off by a Cell — would move
+//! mishandled `pixels_per_point`, a rounded corner off by a Cell — would move
 //! both sides of that equality and pass here.
 //!
 //! Where the Grid actually lands is asserted where nothing cancels, and is not
 //! restated here. `console::tests` holds it for a whole console pass:
 //! `the_default_window_presents_the_default_grid_at_its_own_scale` pins the
 //! presented rectangle and Cell side against written-down values,
-//! `the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell`
-//! pins the corners and the letterboxing, and
+//! `a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cell_in_the_surplus`
+//! pins the corners of a Source with nowhere to Pan, and
 //! `the_presented_viewport_is_the_one_a_console_pass_presents` holds a pass to
 //! the helper at a fractional device scale as well as at one.
-//! `grid_viewport::tests` holds `presented_grid`'s own centring, letterboxing
-//! and whole-physical-pixel snap. Making the cases below independent of
+//! `grid_viewport::tests` holds `presented_grid`'s own whole-physical-pixel
+//! snap and its Pan translation. Making the cases below independent of
 //! `presented_grid` would mean writing a second copy of it in a test, which is
 //! the arrangement those modules already cover better.
 //!
@@ -247,10 +247,10 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// The pointer-to-Cell round trip after the transform has moved, which is the
 /// one thing a fixed coordinate cannot test.
 ///
-/// Three transforms, in order: the fit the default window opens on, the fit a
-/// resize re-derives, and a zoom the viewer pinned. After each, the click
-/// target is read back out of the transform the console is presenting under,
-/// and the Cell it selects has to be the Cell that coordinate was painted from.
+/// Two stages, in order: a resize, and a middle-drag Pan. After each, the
+/// click target is read back out of the transform the console is presenting
+/// under, and the Cell it selects has to be the Cell that coordinate was
+/// painted from.
 ///
 /// That is a round trip and not a geometry assertion: the target comes from
 /// the same `presented_grid` call `show_source_scene` makes, so this holds
@@ -262,32 +262,36 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// and `grid_viewport::tests`' to assert; the module documentation names which
 /// tests those are.
 ///
-/// Each stage guards the premise it rests on, because a round trip through a
-/// transform that did not move proves nothing about the transform: the
-/// `assert_ne` on Cell (3, 1)'s centre across the resize, and the scale
-/// recorded before the zoom, are those guards.
+/// The resize on its own moves nothing to click at: the Source View opens
+/// unpanned and anchored at the console's top-left, and a Pan of zero is
+/// already inside whatever clamp a smaller console asks for, so Cell (3, 1)
+/// stays exactly where it was — only how much of the Grid is on screen has
+/// changed. That is asserted rather than assumed, because a round trip
+/// through a transform that did not move proves nothing about it. The drag is
+/// what actually moves the transform, and the Pan recorded before it guards
+/// that stage the same way.
 ///
 /// The selection is also asserted across the resize itself. The Cursor belongs
 /// to the Source and the transform belongs to the console, so a resize that
 /// moved it would mean a presentation change had reached the Source.
 ///
 #[tokio::test]
-async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer() {
+async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    let fitted = cell_centre(&harness, 3, 1);
-    click_at(&mut harness, fitted);
+    let opened = cell_centre(&harness, 3, 1);
+    click_at(&mut harness, opened);
     assert_eq!(
         cursor(harness.state()),
         (3, 1),
-        "a click at {fitted:?} on the fitted Grid"
+        "a click at {opened:?} on the console the default window opens at"
     );
 
-    // Smaller and a different shape, so the re-fit changes both the scale and
-    // the letterboxing. The view has not been pinned, so the console re-fits
-    // rather than cropping.
-    harness.set_size(Vec2::new(640.0, 480.0));
+    // Smaller than the Source on both axes, so the Pan stage below has
+    // somewhere to go — the default window is an exact fit at Zoom 1.0 and
+    // leaves no room to Pan at all.
+    harness.set_size(Vec2::new(320.0, 300.0));
     harness.run_steps(2);
 
     assert_eq!(
@@ -296,47 +300,53 @@ async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer()
         "resizing the console moved the Cursor"
     );
 
-    // Same Cell as `fitted`. Comparing (7, 5) after a resize against (3, 1)
-    // before it is true under one transform, so it cannot prove the re-fit.
     let after_resize = cell_centre(&harness, 3, 1);
-    assert_ne!(
-        after_resize, fitted,
-        "the resize left Cell (3, 1) exactly where it was, so this proves nothing"
+    assert_eq!(
+        after_resize, opened,
+        "an unpanned Source View moved Cell (3, 1) on a resize alone"
     );
-    let resized = cell_centre(&harness, 7, 5);
-    click_at(&mut harness, resized);
+    click_at(&mut harness, after_resize);
     assert_eq!(
         cursor(harness.state()),
-        (7, 5),
-        "a click at {resized:?} on the re-fitted Grid"
+        (3, 1),
+        "a click at {after_resize:?} on the resized console"
     );
 
-    // A pinch over the Grid, which pins the view: `register_pan_and_zoom` moves
-    // the owned transform and `show_source_scene` records that the viewer
-    // adjusted it. Every later coordinate has to come back through the moved
-    // transform.
-    let scale_before_zoom = harness.state().source_view.to_global.scaling;
-    let over = cell_centre(&harness, 7, 5);
-    harness.event(Event::PointerMoved(over));
-    harness.event(Event::Zoom(1.5));
+    // A middle-drag Pan over the Grid, the one gesture here that actually
+    // moves the owned transform: `show_source_scene` folds the drag into
+    // `SourceView::pan`. Every later coordinate has to come back through the
+    // moved transform.
+    let pan_before = harness.state().source_view.pan;
+    let start = cell_centre(&harness, 6, 5);
+    let dragged_to = start - Vec2::new(80.0, 60.0);
+    harness.event(Event::PointerMoved(start));
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Middle,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.event(Event::PointerMoved(dragged_to));
+    harness.event(Event::PointerButton {
+        pos: dragged_to,
+        button: PointerButton::Middle,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
     harness.step();
     harness.run_steps(1);
 
-    let scaling = harness.state().source_view.to_global.scaling;
+    let pan_after = harness.state().source_view.pan;
     assert_ne!(
-        scaling, scale_before_zoom,
-        "the zoom left the Grid at the same scale"
-    );
-    assert!(
-        harness.state().source_view.adjusted,
-        "the zoom did not pin the view"
+        pan_after, pan_before,
+        "the middle drag left the Source View exactly where it was, so this proves nothing"
     );
 
-    let zoomed = cell_centre(&harness, 9, 6);
-    click_at(&mut harness, zoomed);
+    let panned = cell_centre(&harness, 10, 9);
+    click_at(&mut harness, panned);
     assert_eq!(
         cursor(harness.state()),
-        (9, 6),
-        "a click at {zoomed:?} on a Grid presented at {scaling}x"
+        (10, 9),
+        "a click at {panned:?} on a Grid panned to {pan_after:?}"
     );
 }

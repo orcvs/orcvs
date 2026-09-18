@@ -1,10 +1,12 @@
 //! Source Grid viewport geometry.
 //!
-//! The console spends the area the window leaves it on the largest Grid
-//! viewport whose Cells are square, and centres that viewport so the surplus on
-//! the longer axis falls away as letterboxing on both sides. The geometry lives
-//! here, apart from the rendering, so the wide, tall and square cases are
-//! settled by arithmetic a test can ask about without a window.
+//! The console presents the Source at a Zoom and a Pan it owns (see
+//! `docs/adr/0045-the-source-view-is-a-bounded-space.md`), never fitted to the
+//! window. What lives here is the geometry that follows from a presented Grid
+//! rectangle whatever put it there: a Cell's own rectangle, the Cell a point
+//! falls in, and the Positions a clip rectangle shows. The geometry lives apart
+//! from the rendering so it is settled by arithmetic a test can ask about
+//! without a window.
 
 use std::ops::Range;
 
@@ -14,7 +16,7 @@ use orcvs::grid::{Grid, GridIdentity};
 ///
 /// The side of one Source Cell in points, before any zoom.
 ///
-pub(crate) const CELL_SIZE: f32 = 25.0;
+pub(crate) const CELL_SIZE: f32 = 16.0;
 
 ///
 /// The Grid viewport the console presents inside an available area.
@@ -32,8 +34,7 @@ impl GridViewport {
     /// The presented Cell side over the Source's own Cell side.
     ///
     /// Stroke widths multiply by this so Grid lines and sector seams stay one
-    /// Source point wide at every zoom. Named apart from [`Self::scale`], which
-    /// is the fit from the Source's own coordinates onto presented points.
+    /// Source point wide at every zoom.
     ///
     pub(crate) fn cell_scale(&self) -> f32 {
         self.cell_size / CELL_SIZE
@@ -100,40 +101,6 @@ impl VisiblePositions {
 }
 
 impl GridViewport {
-    ///
-    /// The scale from the Source's own coordinates to presented points.
-    ///
-    /// `source` is the Grid measured in the Cell size the Source is laid out
-    /// with, so this is the one factor both axes are presented under. A console
-    /// with no area to spend answers zero.
-    ///
-    pub(crate) fn scale(&self, source: Rect) -> f32 {
-        let scale = self.rect.width() / source.width();
-        if scale.is_normal() { scale } else { 0.0 }
-    }
-
-    ///
-    /// The transform that presents this viewport: the scale and translation
-    /// that carry the Source's own coordinates onto it.
-    ///
-    /// This is the fit rebuilt rather than borrowed. `egui::Scene` computes the
-    /// same thing in a private `fit_to_rect_in_scene`, and the numbers it needs
-    /// are the ones this viewport already holds: one scale for both axes, and
-    /// the translation that puts the Source's corner on the viewport's.
-    ///
-    /// A console with no area answers a scale of zero, which is no fit to
-    /// reach; the caller guards that rather than this returning a transform it
-    /// cannot invert.
-    ///
-    pub(crate) fn fit_transform(&self, source: Rect) -> TSTransform {
-        let scale = self.scale(source);
-
-        TSTransform::new(
-            self.rect.min.to_vec2() - scale * source.min.to_vec2(),
-            scale,
-        )
-    }
-
     ///
     /// The rectangle the Cell at `column` and `row` occupies.
     ///
@@ -265,33 +232,6 @@ impl GridViewport {
 }
 
 ///
-/// The largest viewport with square Cells that fits `available`, centred so the
-/// surplus becomes letterboxing.
-///
-pub(crate) fn grid_viewport(available: Rect, grid: Grid) -> GridViewport {
-    let columns = grid.columns() as f32;
-    let rows = grid.rows() as f32;
-    // One Cell size for both axes is what keeps a Cell square: neither axis can
-    // be stretched without the other, whatever shape the console is.
-    let cell_size = (available.width() / columns)
-        .min(available.height() / rows)
-        .max(0.0);
-    let cell_size = if cell_size.is_finite() {
-        cell_size
-    } else {
-        0.0
-    };
-
-    GridViewport {
-        cell_size,
-        rect: Rect::from_center_size(
-            available.center(),
-            Vec2::new(columns * cell_size, rows * cell_size),
-        ),
-    }
-}
-
-///
 /// The Grid rectangle `to_global` presents, with Cell geometry snapped to whole
 /// physical pixels.
 ///
@@ -312,10 +252,10 @@ pub(crate) fn grid_viewport(available: Rect, grid: Grid) -> GridViewport {
 ///
 /// The snap floors rather than rounds, and the Grid is re-centred on the
 /// rectangle the transform asked for afterwards. Rounding up would let a Grid
-/// of `columns` Cells exceed the area the fit gave it by half a pixel per
-/// column — twenty points at the default forty — and the surplus would be
-/// clipped rather than letterboxed. Flooring spends the same error as
-/// letterboxing, which is what the surplus already is.
+/// of `columns` Cells exceed the rectangle `to_global` asked for by half a
+/// pixel per column, and the surplus would be clipped rather than absorbed by
+/// the re-centring. Flooring spends that same half-pixel error as slack around
+/// the Grid instead.
 ///
 pub(crate) fn presented_grid(
     to_global: TSTransform,
@@ -361,9 +301,65 @@ mod tests {
 
     use orcvs::grid::Grid;
 
-    use super::{GridViewport, VisiblePositions, grid_viewport, presented_grid};
+    use super::{CELL_SIZE, GridViewport, VisiblePositions, presented_grid};
 
     const GRID: usize = 32;
+
+    ///
+    /// The Source's own Cell is 16 points so every Zoom step of an eighth is a
+    /// whole number of points, and a Cell is a whole number of physical pixels
+    /// at 1×, 1.5× and 2× with nothing to snap.
+    ///
+    #[test]
+    fn the_source_cell_is_sixteen_points() {
+        assert_eq!(CELL_SIZE, 16.0);
+    }
+
+    #[test]
+    fn every_eighth_from_a_quarter_to_double_is_a_whole_number_of_points() {
+        let mut thousandths = 250_u32;
+        while thousandths <= 2_000 {
+            let zoom = thousandths as f32 / 1_000.0;
+            if (zoom / 0.125 - (zoom / 0.125).round()).abs() < 1e-6 {
+                let points = CELL_SIZE * zoom;
+                assert!(
+                    (points - points.round()).abs() < 1e-6,
+                    "zoom {zoom} presented a Cell of {points} points"
+                );
+            }
+            thousandths += 125;
+        }
+    }
+
+    #[test]
+    fn a_cell_is_a_whole_number_of_pixels_at_one_one_and_a_half_and_two_with_nothing_to_snap() {
+        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(CELL_SIZE * 8.0));
+        let mut thousandths = 250_u32;
+        while thousandths <= 2_000 {
+            let zoom = thousandths as f32 / 1_000.0;
+            for pixels_per_point in [1.0_f32, 1.5, 2.0] {
+                let presented = presented_grid(
+                    TSTransform::from_scaling(zoom),
+                    source,
+                    sized(8, 8),
+                    pixels_per_point,
+                );
+                let asked = CELL_SIZE * zoom;
+                let in_pixels = asked * pixels_per_point;
+
+                assert!(
+                    (in_pixels - in_pixels.round()).abs() < 1e-6,
+                    "zoom {zoom} at {pixels_per_point} ppp is {in_pixels} pixels"
+                );
+                assert_eq!(
+                    presented.cell_size, asked,
+                    "zoom {zoom} at {pixels_per_point} ppp snapped {asked} to {}",
+                    presented.cell_size
+                );
+            }
+            thousandths += 125;
+        }
+    }
 
     fn square() -> Grid {
         Grid::new(GRID, GRID)
@@ -377,95 +373,34 @@ mod tests {
         Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(width, height))
     }
 
-    fn cell_sides(viewport: GridViewport, columns: usize, rows: usize) -> (f32, f32) {
-        (
-            viewport.rect.width() / columns as f32,
-            viewport.rect.height() / rows as f32,
-        )
-    }
-
     fn assert_close(left: f32, right: f32, what: &str) {
         assert!((left - right).abs() < 1e-3, "{what}: {left} is not {right}");
     }
 
-    #[test]
-    fn a_cell_is_square_in_wide_tall_and_square_consoles() {
-        for available in [
-            area(1200.0, 700.0),
-            area(700.0, 1200.0),
-            area(800.0, 800.0),
-            area(301.0, 217.0),
-        ] {
-            let viewport = grid_viewport(available, square());
-            let (width, height) = cell_sides(viewport, GRID, GRID);
+    ///
+    /// A square-Cell `GridViewport` centred in `available`, for the tests below
+    /// that need an arbitrary non-degenerate viewport to drive `cell_rect`,
+    /// `cell_at` and `visible_positions` through.
+    ///
+    /// Test-only: no shipped code fits a viewport to an area any more — the
+    /// Source View pans and zooms instead of fitting, and `presented_grid` is
+    /// the one place a viewport comes from a transform the console owns. This
+    /// is that arithmetic rebuilt beside the tests that still need a viewport
+    /// with no transform to hand.
+    ///
+    fn square_cell_viewport(available: Rect, grid: Grid) -> GridViewport {
+        let columns = grid.columns() as f32;
+        let rows = grid.rows() as f32;
+        let cell_size = (available.width() / columns)
+            .min(available.height() / rows)
+            .max(0.0);
 
-            assert_close(width, height, "Cell axes");
-            assert_close(width, viewport.cell_size, "answered Cell size");
-        }
-    }
-
-    #[test]
-    fn a_cell_is_square_even_when_the_grid_is_not() {
-        let viewport = grid_viewport(area(1200.0, 700.0), sized(10, 4));
-        let (width, height) = cell_sides(viewport, 10, 4);
-
-        assert_close(width, height, "Cell axes");
-        assert_close(viewport.cell_size, 120.0, "Cell size");
-    }
-
-    #[test]
-    fn a_square_grid_is_presented_square_and_centred_in_the_surplus() {
-        let available = area(1200.0, 700.0);
-        let viewport = grid_viewport(available, square());
-
-        assert_close(
-            viewport.rect.width(),
-            viewport.rect.height(),
-            "viewport axes",
-        );
-        assert_close(viewport.rect.height(), 700.0, "filled axis");
-        assert_close(
-            viewport.rect.left() - available.left(),
-            available.right() - viewport.rect.right(),
-            "horizontal letterboxing",
-        );
-        assert_close(viewport.rect.center().y, available.center().y, "centre");
-    }
-
-    #[test]
-    fn a_tall_console_letterboxes_above_and_below() {
-        let available = area(700.0, 1200.0);
-        let viewport = grid_viewport(available, square());
-
-        assert_close(viewport.rect.width(), 700.0, "filled axis");
-        assert_close(
-            viewport.rect.top() - available.top(),
-            available.bottom() - viewport.rect.bottom(),
-            "vertical letterboxing",
-        );
-        assert_close(viewport.rect.center().x, available.center().x, "centre");
-    }
-
-    #[test]
-    fn resizing_never_stretches_one_cell_axis_past_the_other() {
-        for width in [120.0_f32, 301.0, 640.0, 1201.0, 2560.0] {
-            for height in [90.0_f32, 217.0, 480.0, 1199.0, 1440.0] {
-                let available = area(width, height);
-                let viewport = grid_viewport(available, square());
-                let (cell_width, cell_height) = cell_sides(viewport, GRID, GRID);
-
-                assert_close(cell_width, cell_height, "Cell axes");
-                assert!(
-                    viewport.rect.width() <= available.width() + 1e-3
-                        && viewport.rect.height() <= available.height() + 1e-3,
-                    "the viewport {viewport:?} left the console area {available:?}"
-                );
-                // The viewport is the largest that fits, so it fills the
-                // shorter axis exactly.
-                let filled = (viewport.rect.width() - available.width()).abs() < 1e-3
-                    || (viewport.rect.height() - available.height()).abs() < 1e-3;
-                assert!(filled, "the viewport {viewport:?} wasted both axes");
-            }
+        GridViewport {
+            cell_size,
+            rect: Rect::from_center_size(
+                available.center(),
+                Vec2::new(columns * cell_size, rows * cell_size),
+            ),
         }
     }
 
@@ -481,10 +416,12 @@ mod tests {
     /// a Cell size of `34.436707` puts the corner of column 19 just under its
     /// own boundary.
     ///
-    /// Today's console never reaches it — `show_source` paints at the
-    /// `CELL_SIZE` constant, where the division is exact for every origin — so
-    /// this pins the inverse before `source-grid-rendering/03` moves the
-    /// transform into the console and starts painting at a fitted Cell size.
+    /// At Zoom 1.0 from an unpanned origin `show_source` paints at the
+    /// `CELL_SIZE` constant, where the division is exact for every origin a
+    /// resize can produce. A Zoom step or a Pan puts `rect.min` and
+    /// `cell_size` wherever the transform and the physical-pixel snap answer,
+    /// which need not divide evenly — this pins the inverse for that case
+    /// ahead of a viewer finding it by panning or zooming into it.
     ///
     #[test]
     fn a_cell_corner_answers_its_own_cell_whatever_the_cell_measures() {
@@ -545,7 +482,7 @@ mod tests {
     ///
     #[test]
     fn a_point_in_a_cell_answers_the_cell_that_was_painted_there() {
-        let viewport = grid_viewport(area(1200.0, 700.0), sized(10, 4));
+        let viewport = square_cell_viewport(area(1200.0, 700.0), sized(10, 4));
 
         for row in 0..4 {
             for column in 0..10 {
@@ -567,13 +504,13 @@ mod tests {
 
     ///
     /// The Grid's far corner belongs to the last Cell rather than to a Cell one
-    /// past it, and everything outside the Grid belongs to no Cell at all —
-    /// which is what leaves the letterboxing to the Scene.
+    /// past it, and any point outside the presented rectangle — wherever that
+    /// rectangle sits in the console — belongs to no Cell at all.
     ///
     #[test]
-    fn the_grid_edge_and_the_letterboxing_resolve_to_no_cell_past_the_last() {
+    fn the_grid_edge_resolves_to_the_last_cell_and_outside_it_to_none() {
         let available = area(1200.0, 700.0);
-        let viewport = grid_viewport(available, square());
+        let viewport = square_cell_viewport(available, square());
 
         assert_eq!(
             viewport.cell_at(viewport.rect.max, square()),
@@ -583,26 +520,25 @@ mod tests {
         assert_eq!(
             viewport.cell_at(available.left_center(), square()),
             None,
-            "a point in the letterboxing answered a Cell"
+            "a point outside the presented Grid answered a Cell"
         );
         assert_eq!(viewport.cell_at(Pos2::new(f32::NAN, 0.0), square()), None);
 
-        // The wide console above letterboxes left and right, so `left_center`
-        // is the surplus and `top_center` is inside the Grid. A tall console
-        // swaps the two, and the assertion is only about letterboxing if both
-        // orientations are asked.
+        // A wide `available` puts the surplus at `left_center`; a tall one
+        // puts it at `center_top` instead, so the "outside the Grid" claim is
+        // only proven if both orientations are asked.
         let tall = area(700.0, 1200.0);
-        let viewport = grid_viewport(tall, square());
+        let viewport = square_cell_viewport(tall, square());
 
         assert_eq!(
             viewport.cell_at(tall.center_top(), square()),
             None,
-            "a point in the letterboxing above a tall Grid answered a Cell"
+            "a point above the presented Grid answered a Cell"
         );
         assert_eq!(
             viewport.cell_at(tall.left_center(), square()),
             Some((0, GRID / 2)),
-            "a tall console letterboxes above and below, not left and right"
+            "a point inside the presented Grid answered no Cell"
         );
     }
 
@@ -632,7 +568,7 @@ mod tests {
     #[test]
     fn the_visible_range_is_the_shown_positions_and_one_cell_more_each_way() {
         let grid = square();
-        let viewport = grid_viewport(area(800.0, 800.0), grid);
+        let viewport = square_cell_viewport(area(800.0, 800.0), grid);
         assert_close(viewport.cell_size, 25.0, "Cell size");
         // Deliberately not on Cell boundaries: a clip that ends exactly on one
         // would not distinguish the margin from the rounding.
@@ -680,7 +616,7 @@ mod tests {
     fn a_console_showing_the_whole_grid_ranges_over_the_whole_grid() {
         let available = area(800.0, 800.0);
         let grid = square();
-        let viewport = grid_viewport(available, grid);
+        let viewport = square_cell_viewport(available, grid);
 
         let visible = viewport.visible_positions(available, grid);
 
@@ -697,7 +633,7 @@ mod tests {
     #[test]
     fn a_console_showing_no_part_of_the_grid_ranges_over_nothing() {
         let available = area(800.0, 800.0);
-        let viewport = grid_viewport(available, square());
+        let viewport = square_cell_viewport(available, square());
 
         for clip in [
             Rect::from_min_size(Pos2::new(2000.0, 2000.0), Vec2::splat(100.0)),
@@ -710,12 +646,11 @@ mod tests {
             assert_eq!(visible.count(), 0, "{clip:?} reached {visible:?}");
         }
 
-        assert_eq!(
-            grid_viewport(Rect::ZERO, square())
-                .visible_positions(available, square())
-                .count(),
-            0
-        );
+        let no_area = GridViewport {
+            cell_size: 0.0,
+            rect: Rect::ZERO,
+        };
+        assert_eq!(no_area.visible_positions(available, square()).count(), 0);
     }
 
     #[test]
@@ -774,7 +709,7 @@ mod tests {
     ///
     #[test]
     fn a_clip_that_only_touches_the_grid_ranges_over_nothing() {
-        let viewport = grid_viewport(area(800.0, 800.0), square());
+        let viewport = square_cell_viewport(area(800.0, 800.0), square());
         let rect = viewport.rect;
 
         // Just past each edge in turn, sharing exactly that edge with the Grid.
@@ -804,85 +739,12 @@ mod tests {
 
     #[test]
     fn a_viewport_with_no_area_answers_no_cell() {
-        let viewport = grid_viewport(Rect::ZERO, square());
+        let viewport = GridViewport {
+            cell_size: 0.0,
+            rect: Rect::ZERO,
+        };
 
         assert_eq!(viewport.cell_at(Pos2::ZERO, square()), None);
-    }
-
-    #[test]
-    fn a_console_with_no_area_presents_no_viewport() {
-        let viewport = grid_viewport(Rect::ZERO, square());
-
-        assert_eq!(viewport.cell_size, 0.0);
-        assert_eq!(viewport.rect.size(), Vec2::ZERO);
-        assert_eq!(
-            viewport.scale(Rect::from_min_size(Pos2::ZERO, Vec2::splat(800.0))),
-            0.0
-        );
-    }
-
-    ///
-    /// The fit the console owns puts the Source exactly where the fitted
-    /// viewport says it goes — which is what lets `egui::Scene`, and the
-    /// private `fit_to_rect_in_scene` inside it, be retired rather than
-    /// reached for.
-    ///
-    #[test]
-    fn the_fit_transform_presents_exactly_the_fitted_viewport() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(GRID as f32 * 25.0));
-        for available in [area(1200.0, 700.0), area(700.0, 1200.0), area(800.0, 800.0)] {
-            let viewport = grid_viewport(available, square());
-            let presented = viewport.fit_transform(source) * source;
-
-            assert_close(presented.left(), viewport.rect.left(), "presented left");
-            assert_close(presented.top(), viewport.rect.top(), "presented top");
-            assert_close(presented.width(), viewport.rect.width(), "presented width");
-            assert_close(
-                presented.height(),
-                viewport.rect.height(),
-                "presented height",
-            );
-        }
-    }
-
-    ///
-    /// The Grid the fit presents is the fitted viewport, Cell for Cell, so
-    /// nothing about owning the transform moves the square-Cell fit or the
-    /// letterboxing it produces.
-    ///
-    #[test]
-    fn the_fit_transform_presents_the_viewport_it_was_built_from() {
-        let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(GRID as f32 * 25.0));
-        for available in [area(1200.0, 700.0), area(700.0, 1200.0), area(800.0, 800.0)] {
-            let viewport = grid_viewport(available, square());
-            let presented = presented_grid(viewport.fit_transform(source), source, square(), 1.0);
-
-            // Whole physical pixels, so the presented Cell is at most a pixel
-            // short of the fit and the Grid is at most `GRID` pixels narrower.
-            assert!(
-                viewport.cell_size - presented.cell_size < 1.0
-                    && presented.cell_size <= viewport.cell_size,
-                "{} is not the snapped {}",
-                presented.cell_size,
-                viewport.cell_size
-            );
-            assert_close(
-                presented.rect.center().x,
-                viewport.rect.center().x,
-                "presented centre x",
-            );
-            assert_close(
-                presented.rect.center().y,
-                viewport.rect.center().y,
-                "presented centre y",
-            );
-            assert!(
-                presented.rect.width() <= available.width() + 1e-3
-                    && presented.rect.height() <= available.height() + 1e-3,
-                "the presented Grid {:?} left the console area {available:?}",
-                presented.rect
-            );
-        }
     }
 
     ///
@@ -943,19 +805,20 @@ mod tests {
     }
 
     ///
-    /// A console with no area answers a transform that cannot be inverted, and
-    /// a Grid with no Cell to click. The console replaces the transform before
-    /// it reaches `inverse()`; this pins the half that belongs to the geometry.
+    /// A `to_global` with no scale of its own presents no Cell rather than a
+    /// NaN one. `TSTransform::inverse` divides by the scaling, so a zero there
+    /// would resolve every pointer position to NaN; the console clamps Zoom
+    /// before a transform like this ever reaches `presented_grid`, but the
+    /// geometry refuses it on its own terms rather than trusting the caller.
     ///
     #[test]
-    fn a_degenerate_fit_presents_no_cell_rather_than_a_nan_one() {
+    fn a_transform_with_no_scale_presents_no_cell_rather_than_a_nan_one() {
         let source = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
-        let viewport = grid_viewport(Rect::ZERO, square());
+        let degenerate = TSTransform::from_scaling(0.0);
 
-        assert_eq!(viewport.fit_transform(source).scaling, 0.0);
-        assert!(!viewport.fit_transform(source).is_valid());
+        assert!(!degenerate.is_valid());
 
-        let presented = presented_grid(viewport.fit_transform(source), source, square(), 1.0);
+        let presented = presented_grid(degenerate, source, square(), 1.0);
 
         assert_eq!(presented.cell_size, 0.0);
         assert_eq!(presented.cell_at(Pos2::ZERO, square()), None);
