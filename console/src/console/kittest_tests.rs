@@ -557,3 +557,80 @@ async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
         "an Alt-held primary drag reached the Source"
     );
 }
+
+///
+/// Issue 05's own criterion for a click, end to end and under the one
+/// condition where nothing *Console-specific* repaints on its own: reduced
+/// motion zeroes the Cursor Effect's frequency and this console never starts
+/// Playback, so `Console::ui` itself asks for no further frame once the click
+/// has been handled.
+///
+/// A click's Cursor move reaches the Source only once `Console::ui` calls
+/// `orcvs.select` after `show_source_scene` returns (see that function's own
+/// doc comment), so the follow needs a further frame in which
+/// `show_source_scene` reads the moved Cursor back. `Harness::run` is used
+/// rather than a fixed `run_steps` count precisely so that frame either runs
+/// because something asked for it, or does not run at all — a fixed count
+/// would paper over a missing repaint request by supplying the frame anyway.
+///
+/// It runs regardless: pinned egui 0.36.1's own `InputState::wants_repaint_after`
+/// (`egui-0.36.1/src/input_state/mod.rs:657-680`) answers an immediate repaint
+/// for any pass whose `RawInput` carries events — which the click's own
+/// resolving `PointerButton` release does — and `Context::request_repaint_after`
+/// answers that with *two* repaints rather than one, "to give some things
+/// time to settle" and "solve some corner-cases of missing repaints on
+/// frame-delayed responses" (`egui-0.36.1/src/context.rs:127-136`). That
+/// second, free repaint is exactly the frame after a click needs, supplied by
+/// the toolkit itself rather than by anything Console asks for — so this
+/// holds even with reduced motion on and Playback stopped, the one
+/// combination in which Console's own repaint scheduling asks for nothing at
+/// all.
+///
+/// The console is resized to a width that is not a multiple of `CELL_SIZE`,
+/// so Column 12 (192..208 at Zoom 1.0) is cut off at the console's right edge
+/// (200) and a click on it needs the follow to bring it fully into view.
+///
+#[tokio::test]
+async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.state_mut().reduced_motion = true;
+    harness.set_size(Vec2::new(200.0, 300.0));
+    harness.run_steps(2);
+
+    assert_eq!(
+        harness.state().source_view.pan,
+        Vec2::ZERO,
+        "the resize alone Panned before anything moved the Cursor"
+    );
+
+    let target = presented_source(&harness).cell_rect(12, 0).min + Vec2::new(3.0, 3.0);
+    harness.event(Event::PointerMoved(target));
+    harness.event(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.event(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run();
+
+    assert_eq!(
+        cursor(harness.state()),
+        (12, 0),
+        "the click did not select Column 12"
+    );
+
+    let column_12 = presented_source(&harness).cell_rect(12, 0);
+    assert!(
+        column_12.max.x <= 200.0,
+        "the click's Cursor move did not Pan to bring Column 12 fully into a 200 point \
+         console: {column_12:?}"
+    );
+}
