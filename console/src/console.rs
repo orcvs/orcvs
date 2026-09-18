@@ -438,21 +438,6 @@ fn zoom_command(event: &Event) -> Option<ZoomCommand> {
 }
 
 ///
-/// The Text an integration can still send as the side effect of the same key
-/// press a command Zoom chord already answered through [`zoom_command`].
-///
-/// `egui-winit` and eframe's web backend both withhold [`Event::Text`] while
-/// a command modifier is held, so a shipped build never raises this from a
-/// real chord. This does not lean on that: dropping the matching character
-/// here as well is what makes "a command chord never reaches the Source"
-/// this module's own guarantee rather than an assumption about the toolkit
-/// underneath it.
-///
-fn is_zoom_chord_text(event: &Event) -> bool {
-    matches!(event, Event::Text(text) if matches!(text.as_str(), "+" | "-" | "=" | "0"))
-}
-
-///
 /// `zoom` after one keyboard Zoom command: stepped by [`GLYPH_SCALE_STEP`] and
 /// clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`].
 ///
@@ -1641,14 +1626,15 @@ impl eframe::App for Console {
         }
         if !self.bpm_field_focused && !self.destination_combo_focused {
             // A command Zoom chord answers `show_source_scene`, not the
-            // Source; `is_zoom_chord_text` is the guard that keeps its Text
-            // side effect from also reaching it. See its own comment for why
-            // this does not merely trust the toolkit to withhold that Text.
-            let chorded = ctx.input(|i| i.events.iter().any(|event| zoom_command(event).is_some()));
+            // Source. `egui-winit` and eframe's web backend both withhold
+            // `Event::Text` while a command modifier is held
+            // (`egui-winit-0.36.1/src/lib.rs:1059-1065`,
+            // `eframe-0.36.1/src/web/events.rs:155-162`), so a shipped build
+            // never raises the matching bare character alongside the chord
+            // that already answered it.
             let events = ctx.input(|i| {
                 i.filtered_events(&event_filter)
                     .into_iter()
-                    .filter(|event| !(chorded && is_zoom_chord_text(event)))
                     .filter_map(translate_event)
                     .collect()
             });
@@ -1876,8 +1862,8 @@ mod tests {
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
         GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SourceShapes,
         SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale,
-        is_presentable, is_zoom_chord_text, show_source_scene, source_bounds, source_panel_frame,
-        stepped_zoom, translate_event, zoom_command,
+        is_presentable, show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
+        translate_event, zoom_command,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -2000,13 +1986,6 @@ mod tests {
             None,
             "an unrelated command chord asked for a Zoom"
         );
-        assert!(!is_zoom_chord_text(&Event::Text("x".to_owned())));
-        for character in ["+", "-", "=", "0"] {
-            assert!(
-                is_zoom_chord_text(&Event::Text(character.to_owned())),
-                "{character:?} is exactly what a leaked Zoom chord would send as Text"
-            );
-        }
     }
 
     ///
@@ -5795,46 +5774,6 @@ mod tests {
             Vec2::ZERO,
             "clamp_pan did not settle the follow's own Pan back inside the Grid: {:?}",
             view.pan
-        );
-    }
-
-    ///
-    /// A command Zoom chord never reaches the Source, and the bare characters
-    /// it is built from still do — the whole input path, through
-    /// `Console::ui`'s own event routing rather than `show_source_scene`
-    /// alone. `console::kittest_tests` proves the same claim end to end
-    /// through the shipped `Console`; this pins the lower half of it, that
-    /// `translate_event`'s callers withhold the chord's Text side effect even
-    /// when a synthetic one is present.
-    ///
-    #[test]
-    fn a_command_zoom_chord_is_withheld_even_if_its_text_leaks() {
-        let events = vec![command_key_event(Key::Equals), Event::Text("=".to_owned())];
-        let chorded = events.iter().any(|event| zoom_command(event).is_some());
-        assert!(chorded, "the fixture did not contain a Zoom chord");
-        let translated: Vec<_> = events
-            .into_iter()
-            .filter(|event| !(chorded && is_zoom_chord_text(event)))
-            .filter_map(translate_event)
-            .collect();
-        assert_eq!(
-            translated,
-            Vec::new(),
-            "a command Zoom chord reached the Source: {translated:?}"
-        );
-
-        let bare = vec![Event::Text("=".to_owned())];
-        let chorded = bare.iter().any(|event| zoom_command(event).is_some());
-        assert!(!chorded, "a bare character was read as a Zoom chord");
-        let translated: Vec<_> = bare
-            .into_iter()
-            .filter(|event| !(chorded && is_zoom_chord_text(event)))
-            .filter_map(translate_event)
-            .collect();
-        assert_eq!(
-            translated,
-            vec![InputEvent::Text("=".to_owned())],
-            "a bare \"=\" did not reach the Source as Cell input"
         );
     }
 
