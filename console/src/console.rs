@@ -1190,8 +1190,9 @@ impl SourceShapes {
             // The selected Cell's border is the Cursor, and the Cursor is
             // painted last. A Cursor the viewport does not reach is no Cell of
             // this Paint, so the comparison never matches and the group stays
-            // empty.
-            if paint.cursor() == Some(position) {
+            // empty. While a Region spans more than one Cell the lasso around
+            // it is the Cursor, and the Cursor's Cell keeps an ordinary border.
+            if paint.cursor() == Some(position) && !paint.region_spans() {
                 cursor.push(border);
             } else {
                 borders.push(border);
@@ -1265,6 +1266,19 @@ impl SourceShapes {
             .chain(self.seams)
             .chain(self.cursor)
     }
+}
+
+///
+/// The rectangle the Cursor Effect's frame outlines: the Cursor's Cell, or the
+/// whole Region when it spans more than one Cell — the lasso.
+///
+fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Rect {
+    let region = frame.region();
+    let (columns, rows) = (region.columns(), region.rows());
+    Rect::from_min_max(
+        viewport.cell_rect(columns.start, rows.start).min,
+        viewport.cell_rect(columns.end - 1, rows.end - 1).max,
+    )
 }
 
 ///
@@ -1366,13 +1380,16 @@ fn show_source(
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
-    let paint = Paint::derive_with_cursor_colour(
+    let paint = Paint::derive_with_colours(
         FramePaint::new(frame, visible),
         cursor_effect_settings.cell_colour(),
+        cursor_effect_settings.region_colour(),
+        cursor_effect_settings.region_cursor_colour(),
     );
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
+        effect_outline(frame, &viewport),
         clip,
         viewport.cell_size,
         cursor_effect_sample,
@@ -1729,6 +1746,35 @@ impl eframe::App for Console {
                             egui::color_picker::Alpha::Opaque,
                         );
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Region colour");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.cursor_effects.region_colour_mut(),
+                            egui::color_picker::Alpha::OnlyBlend,
+                        );
+                    });
+                    let mut region_cursor_enabled =
+                        self.cursor_effects.region_cursor_colour().is_some();
+                    if ui
+                        .checkbox(&mut region_cursor_enabled, "Cursor colour in a Region")
+                        .changed()
+                    {
+                        self.cursor_effects.set_region_cursor_colour(
+                            region_cursor_enabled
+                                .then_some(crate::cursor_effects::DEFAULT_REGION_COLOUR),
+                        );
+                    }
+                    if let Some(mut colour) = self.cursor_effects.region_cursor_colour()
+                        && egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            &mut colour,
+                            egui::color_picker::Alpha::OnlyBlend,
+                        )
+                        .changed()
+                    {
+                        self.cursor_effects.set_region_cursor_colour(Some(colour));
+                    }
                     let mut cell_colour_enabled = self.cursor_effects.cell_colour().is_some();
                     if ui
                         .checkbox(&mut cell_colour_enabled, "Cursor cell colour")
@@ -1990,7 +2036,10 @@ impl eframe::App for Console {
                 let cursor_rect = presented
                     .viewport
                     .cell_rect(frame.cursor().x(), frame.cursor().y());
-                if effect_bounds(cursor_rect, presented.viewport.cell_size).intersects(console_area)
+                let outline = effect_outline(&frame, &presented.viewport);
+                if effect_bounds(cursor_rect, presented.viewport.cell_size)
+                    .union(outline.expand(presented.viewport.cell_size))
+                    .intersects(console_area)
                 {
                     self.cursor_effect_animation
                         .repaint_after(effect_now, cursor_effect_settings)
@@ -4450,12 +4499,12 @@ mod tests {
     }
 
     ///
-    /// A Region larger than one Cell leaves the Cursor one stroke on the
-    /// Cursor's own Cell: the Region is a tint and the Cursor Effect names one
-    /// Cell whatever the Region spans.
+    /// A Region larger than one Cell hides the Cursor's own Cell border: the
+    /// lasso around the Region is the Cursor's presentation then, so the
+    /// Cursor's Cell is stroked as every other Cell is.
     ///
     #[tokio::test]
-    async fn a_region_leaves_the_cursor_one_stroke_on_the_cursors_cell() {
+    async fn a_region_hides_the_cursors_cell_border() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = running_orcvs(8, 8);
         let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
@@ -4466,14 +4515,37 @@ mod tests {
         let viewport = presented(screen, 8, 8, 1.0);
         let shapes = source_geometry(&painted(&frame, viewport, screen), viewport, 1.0);
 
-        assert_eq!(shapes.cursor.len(), 1, "the Cursor is one stroke");
-        assert!(close(rect_of(&shapes.cursor[0]), viewport.cell_rect(4, 3)));
-        assert_eq!(
-            shapes.borders.len(),
-            63,
-            "every other Cell keeps its border"
+        assert!(
+            shapes.cursor.is_empty(),
+            "the Cursor's Cell kept its border"
         );
-        assert!(!shapes.backgrounds.is_empty(), "the Region was not tinted");
+        assert_eq!(shapes.borders.len(), 64, "every Cell keeps its grid line");
+        assert!(!shapes.backgrounds.is_empty(), "the Region was not filled");
+    }
+
+    ///
+    /// The lasso outlines the whole Region rather than the Cursor's Cell.
+    ///
+    #[tokio::test]
+    async fn the_effect_outline_is_the_region_when_it_spans_and_the_cursor_otherwise() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(8, 8);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let viewport = presented(screen, 8, 8, 1.0);
+
+        orcvs.select(at(4, 3));
+        assert!(close(
+            super::effect_outline(&orcvs.render_frame(), &viewport),
+            viewport.cell_rect(4, 3)
+        ));
+
+        orcvs.select(at(4, 3));
+        orcvs.extend(at(1, 1));
+        assert!(close(
+            super::effect_outline(&orcvs.render_frame(), &viewport),
+            Rect::from_min_max(viewport.cell_rect(1, 1).min, viewport.cell_rect(4, 3).max)
+        ));
     }
 
     ///
@@ -5015,12 +5087,14 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_cursor_colour(
+        let paint = Paint::derive_with_colours(
             FramePaint::new(
                 &frame,
                 viewport.visible_positions(viewport.rect, frame.grid()),
             ),
             Some(PALETTE.selection_fill),
+            crate::cursor_effects::DEFAULT_REGION_COLOUR,
+            None,
         );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
@@ -5131,8 +5205,10 @@ mod tests {
         // background run to snap. Explicit colours are covered by the Paint
         // seam tests.
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_cursor_colour(
+        let paint = Paint::derive_with_colours(
             FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
+            None,
+            crate::cursor_effects::DEFAULT_REGION_COLOUR,
             None,
         );
         let runs = paint.background_runs();
