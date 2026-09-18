@@ -7,6 +7,7 @@ use crate::opts::{Bpm, Opts};
 use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
+use crate::region::Region;
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
 use crate::source::{Source, SourceCommander};
 
@@ -62,6 +63,14 @@ pub enum InputEvent {
 pub struct Orcvs<S = MidiSelectionHandle> {
     opts: Opts,
     cursor: Cursor,
+    ///
+    /// The Cell the Region is spanned from; the Cursor is its other end.
+    ///
+    /// A Position rather than a `Region`, because the Cursor already holds the
+    /// live end and a second copy of it would be a second truth to keep in
+    /// step. It is running state and never stored with the Source.
+    ///
+    anchor: Position,
     grid: Grid,
 
     source: SourceCommander,
@@ -188,6 +197,7 @@ impl<S> Orcvs<S> {
         let opts = Opts::new();
         Self {
             cursor: Cursor::new(grid.origin()),
+            anchor: grid.origin(),
             grid,
             opts,
             source,
@@ -277,11 +287,53 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// Moves the Cursor to `position`, refusing one minted by another Grid.
+    /// Moves the Cursor to `position` and collapses the Region onto it,
+    /// refusing a Position minted by another Grid.
     ///
     pub fn select(&mut self, position: Position) {
         self.grid.assert_owns(position);
+        self.collapse_to(position);
+    }
+
+    ///
+    /// Moves the Cursor to `position` and keeps the anchor, so the Region
+    /// spans from the anchor to `position`.
+    ///
+    /// ```
+    /// use orcvs::app::Orcvs;
+    ///
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _runtime = runtime.enter();
+    /// let mut orcvs = Orcvs::new(8, 4).expect("a Tokio runtime");
+    /// let grid = orcvs.grid();
+    /// let at = |x, y| grid.position(x, y).expect("inside the Grid");
+    ///
+    /// orcvs.select(at(5, 3));
+    /// orcvs.extend(at(2, 1));
+    ///
+    /// let region = orcvs.render_frame().region();
+    /// assert_eq!((region.columns(), region.rows()), (2..6, 1..4));
+    /// ```
+    ///
+    pub fn extend(&mut self, position: Position) {
+        self.grid.assert_owns(position);
         self.cursor.select(position);
+    }
+
+    ///
+    /// The Region from the anchor to the Cursor.
+    ///
+    pub fn region(&self) -> Region {
+        Region::span(self.grid, self.anchor, self.cursor.position())
+    }
+
+    ///
+    /// Moves the Cursor to `position` and the anchor with it, so the Region
+    /// is that one Cell.
+    ///
+    fn collapse_to(&mut self, position: Position) {
+        self.cursor.select(position);
+        self.anchor = position;
     }
 
     ///
@@ -303,7 +355,7 @@ impl<S> Orcvs<S> {
         let cell = self.grid.index(self.cursor.position());
 
         match self.source.set(cell, s) {
-            Ok(_) => self.cursor.select(self.grid.right(self.cursor.position())),
+            Ok(_) => self.collapse_to(self.grid.right(self.cursor.position())),
             Err(e) => error!("rejected edit: {e}"),
         }
     }
@@ -316,13 +368,13 @@ impl<S> Orcvs<S> {
     ///
     fn delete(&mut self) {
         self.source.unset(self.grid.index(self.cursor.position()));
-        self.cursor.select(self.grid.left(self.cursor.position()));
+        self.collapse_to(self.grid.left(self.cursor.position()));
     }
 
     pub fn render_frame(&self) -> RenderFrame {
         RenderFrame::derive(
             self.source.read_revision(),
-            self.cursor.position(),
+            self.region(),
             self.cursor.on,
             RenderFrameConfig {
                 sector_seam_spacing: self.opts.sector_seam_spacing,
@@ -339,16 +391,16 @@ impl<S> Orcvs<S> {
         for event in &events {
             match event {
                 InputEvent::KeyPressed(InputKey::ArrowDown) => {
-                    self.cursor.select(self.grid.down(self.cursor.position()))
+                    self.collapse_to(self.grid.down(self.cursor.position()))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowLeft) => {
-                    self.cursor.select(self.grid.left(self.cursor.position()))
+                    self.collapse_to(self.grid.left(self.cursor.position()))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowRight) => {
-                    self.cursor.select(self.grid.right(self.cursor.position()))
+                    self.collapse_to(self.grid.right(self.cursor.position()))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowUp) => {
-                    self.cursor.select(self.grid.up(self.cursor.position()))
+                    self.collapse_to(self.grid.up(self.cursor.position()))
                 }
                 InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => self.delete(),
                 InputEvent::KeyPressed(InputKey::Space) => {
@@ -734,6 +786,40 @@ mod test {
     }
 
     #[tokio::test]
+    async fn a_fresh_orcvs_has_a_region_of_the_cursors_one_cell() {
+        let app = Orcvs::new(4, 3).expect("the test runtime");
+
+        let region = app.render_frame().region();
+
+        assert!(region.is_one_cell());
+        assert_eq!(region.cursor(), app.grid.origin());
+    }
+
+    ///
+    /// `extend` keeps the anchor, `select` moves it with the Cursor, and a
+    /// write collapses the Region onto the Cell it stepped to.
+    ///
+    #[tokio::test]
+    async fn extend_spans_a_region_that_select_and_a_write_collapse() {
+        let mut app = Orcvs::new(6, 4).expect("the test runtime");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+        app.select(at(1, 1));
+        app.extend(at(3, 2));
+        let spanned = app.render_frame().region();
+        assert_eq!((spanned.columns(), spanned.rows()), (1..4, 1..3));
+        assert_eq!(app.render_frame().cursor(), at(3, 2));
+
+        app.select(at(4, 0));
+        assert_eq!(app.region(), crate::region::Region::at(grid, at(4, 0)));
+
+        app.extend(at(0, 0));
+        app.write("x");
+        assert_eq!(app.region(), crate::region::Region::at(grid, at(1, 0)));
+    }
+
+    #[tokio::test]
     async fn deriving_a_render_frame_does_not_change_cursor_visibility() {
         let mut app = orcvs();
         app.cursor.on = false;
@@ -785,7 +871,7 @@ mod test {
                 .grid
                 .position(x, y)
                 .unwrap_or_else(|| panic!("test position ({x}, {y}) is outside the Grid"));
-            self.cursor.select(position);
+            self.collapse_to(position);
         }
 
         pub fn delete_at(&mut self, x: usize, y: usize) {

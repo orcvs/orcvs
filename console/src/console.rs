@@ -4169,6 +4169,33 @@ mod tests {
     }
 
     ///
+    /// A Region larger than one Cell leaves the Cursor one stroke on the
+    /// Cursor's own Cell: the Region is a tint and the Cursor Effect names one
+    /// Cell whatever the Region spans.
+    ///
+    #[tokio::test]
+    async fn a_region_leaves_the_cursor_one_stroke_on_the_cursors_cell() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(8, 8);
+        let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
+        let (anchor, cursor) = (at(1, 1), at(4, 3));
+        orcvs.select(anchor);
+        orcvs.extend(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 8, 8, 1.0);
+        let shapes = source_geometry(&painted(&frame, viewport, screen), viewport, 1.0);
+
+        assert_eq!(shapes.cursor.len(), 1, "the Cursor is one stroke");
+        assert!(close(rect_of(&shapes.cursor[0]), viewport.cell_rect(4, 3)));
+        assert_eq!(
+            shapes.borders.len(),
+            63,
+            "every other Cell keeps its border"
+        );
+        assert!(!shapes.backgrounds.is_empty(), "the Region was not tinted");
+    }
+
+    ///
     /// A Cell's background never paints over a Glyph, whichever Cell that Glyph
     /// belongs to, and the Cursor is painted over both.
     ///

@@ -191,6 +191,15 @@ impl Paint {
         let cursor = (drawn.columns.contains(&frame_cursor.x())
             && drawn.rows.contains(&frame_cursor.y()))
         .then_some(frame_cursor);
+        // The Region's extent, read once. A Region of one Cell is the Cursor's
+        // own Cell and is tinted nowhere, so it answers empty ranges rather
+        // than a per-Cell question the answer to which is always no.
+        let region = frame.region();
+        let (region_columns, region_rows) = if region.is_one_cell() {
+            (0..0, 0..0)
+        } else {
+            (region.columns(), region.rows())
+        };
         // What each Cell says, read once for the blank spellings and never
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
         // of the Token, and only drawing it reaches the font atlas.
@@ -211,9 +220,14 @@ impl Paint {
                     selected && cursor_visible,
                     cursor_colour,
                 );
+                // The Cursor's own Cell keeps what `cell_visuals` answered for
+                // it, tinted or not, so the Region never paints over the
+                // Cursor Effect's presentation there.
+                let in_region = region_columns.contains(&column) && region_rows.contains(&row);
+                let region_tint = (in_region && !selected).then_some(PALETTE.selection_fill);
 
                 cells.push(CellPaint {
-                    background: visuals.background,
+                    background: visuals.background.or(region_tint),
                     border: visuals.border,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the Cursor's Cell, so the
@@ -596,6 +610,45 @@ mod tests {
         let paint = whole(&orcvs.render_frame());
 
         assert_eq!(paint.cursor(), Some(selected));
+    }
+
+    ///
+    /// A Region larger than one Cell tints every Cell it covers but the
+    /// Cursor's, which keeps the Cursor Effect's own presentation; a Region of
+    /// one Cell tints none.
+    ///
+    #[tokio::test]
+    async fn a_region_larger_than_one_cell_is_tinted_and_one_cell_is_not() {
+        let mut orcvs = running_orcvs(6, 4);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+        // The console's default: the Cursor's Cell has no colour of its own.
+        let painted = |orcvs: &Orcvs| {
+            Paint::derive_with_cursor_colour(FramePaint::whole(&orcvs.render_frame()), None)
+        };
+
+        orcvs.select(at(1, 1));
+        let collapsed = painted(&orcvs);
+        assert!(
+            collapsed.cells().all(|(_, cell)| cell.background.is_none()),
+            "a Region of one Cell was tinted"
+        );
+
+        orcvs.extend(at(3, 2));
+        let spanned = painted(&orcvs);
+        for (position, cell) in spanned.cells() {
+            let inside = (1..4).contains(&position.x()) && (1..3).contains(&position.y());
+            let expected = (inside && position != at(3, 2)).then_some(PALETTE.selection_fill);
+            assert_eq!(cell.background, expected, "the background at {position:?}");
+        }
+        assert_eq!(
+            spanned.background_runs(),
+            vec![
+                run(PALETTE.selection_fill, 1, 1..4),
+                run(PALETTE.selection_fill, 2, 1..3),
+            ]
+        );
     }
 
     ///
