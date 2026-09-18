@@ -276,6 +276,10 @@ _Avoid_: Selection, range, block, marquee
 The console presentation surrounding the Cursor: an eroded frame on its Cell and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
 _Avoid_: Cell highlight, radial glow, focus matrix
 
+**Sector**:
+One square block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. A Sector is console presentation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.
+_Avoid_: Block, tile, chunk, page
+
 **Sector Seam**:
 The graded registration mark the console draws along every sector boundary of the Source Grid, at the configured interval in both axes. It is geometry drawn over Cell edges and carries no content, occupies no Cell, and belongs to no Expression.
 _Avoid_: Marker, guide, gridline, ruler dot
