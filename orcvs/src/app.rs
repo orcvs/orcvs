@@ -54,7 +54,34 @@ pub enum InputEvent {
     /// Cell of the Region with it. Any other event disarms the fill.
     ///
     Fill,
+    ///
+    /// Puts the Region's rows on the clipboard.
+    ///
+    Copy,
+    ///
+    /// Puts the Region's rows on the clipboard, then empties the Region.
+    ///
+    Cut,
+    ///
+    /// Writes the text from the Region's top-left and spans the Region over
+    /// what landed.
+    ///
+    Paste(String),
     Text(String),
+}
+
+///
+/// What one input batch asks of the console that delivered it.
+///
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Handled {
+    /// Whether the batch wrote to the Source.
+    pub repaint: bool,
+    ///
+    /// The text a Copy or a Cut in the batch put on the clipboard, for the
+    /// console to hand the platform. The last one in the batch wins.
+    ///
+    pub copied: Option<String>,
 }
 
 ///
@@ -422,10 +449,12 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// Handles event and returns boolean indicating if repating is required
+    /// Handles one batch of input, and answers whether it wrote to the Source
+    /// and what it put on the clipboard.
     ///
-    pub fn event_handler(&mut self, events: Vec<InputEvent>) -> bool {
+    pub fn event_handler(&mut self, events: Vec<InputEvent>) -> Handled {
         let mut repaint = false;
+        let mut copied = None;
         for event in &events {
             // A fill is armed for exactly one event: the character it fills
             // with, or whatever else arrived instead and so disarmed it.
@@ -459,6 +488,16 @@ impl<S> Orcvs<S> {
                     repaint = true;
                 }
                 InputEvent::Fill => self.fill_armed = true,
+                InputEvent::Copy => copied = Some(self.region_text()),
+                InputEvent::Cut => {
+                    copied = Some(self.region_text());
+                    self.fill(CellContent::SPACE);
+                    repaint = true;
+                }
+                InputEvent::Paste(text) => {
+                    self.paste(text);
+                    repaint = true;
+                }
                 InputEvent::KeyPressed(InputKey::Space) => {
                     if self.playback_requested {
                         self.stop();
@@ -478,7 +517,71 @@ impl<S> Orcvs<S> {
                 InputEvent::Text(_) => {}
             }
         }
-        repaint
+        Handled { repaint, copied }
+    }
+
+    ///
+    /// The Region's rows as text joined by newlines, an empty Cell as a
+    /// space, so trailing spaces keep the Region's shape.
+    ///
+    fn region_text(&self) -> String {
+        let revision = self.source.read_revision();
+        let rows: Vec<String> = self
+            .region()
+            .positions_by_row()
+            .map(|row| {
+                row.map(|position| revision.content_at(position).unwrap_or(' '))
+                    .collect()
+            })
+            .collect();
+        rows.join("\n")
+    }
+
+    ///
+    /// Writes `text` from the Region's top-left, in one revision, and spans
+    /// the Region over the rectangle that landed.
+    ///
+    /// Every character lands, a space included, so a pasted block replaces
+    /// what was under it. A character that cannot be a Cell lands as an empty
+    /// Cell rather than shifting the rest of its row. `\r\n` and `\n` both
+    /// break a row, and a break at the very end adds no row of its own. What
+    /// runs past the Grid's right or bottom edge is dropped. The Cursor stays
+    /// on the top-left, so the Source View does not move to follow it.
+    ///
+    fn paste(&mut self, text: &str) {
+        let text = text.strip_suffix('\n').unwrap_or(text);
+        let text = text.strip_suffix('\r').unwrap_or(text);
+        let top_left = self.region().top_left();
+        let mut writes = Vec::new();
+        let mut far_corner = None;
+        for (dy, line) in text.split('\n').enumerate() {
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            for (dx, character) in line.chars().enumerate() {
+                let Some(position) = self.grid.position(top_left.x() + dx, top_left.y() + dy)
+                else {
+                    continue;
+                };
+                let content = u8::try_from(character)
+                    .ok()
+                    .and_then(CellContent::new)
+                    .unwrap_or(CellContent::SPACE);
+                writes.push(CellWrite {
+                    cell: self.grid.index(position),
+                    content,
+                });
+                let (x, y) = far_corner.unwrap_or((position.x(), position.y()));
+                far_corner = Some((x.max(position.x()), y.max(position.y())));
+            }
+        }
+        let Some((x, y)) = far_corner else {
+            return;
+        };
+        self.source.write_cells(&writes);
+        self.anchor = self
+            .grid
+            .position(x, y)
+            .expect("the far corner of what landed is a Cell of the Grid");
+        self.cursor.select(top_left);
     }
 
     ///
@@ -1081,6 +1184,84 @@ mod test {
         app.extend(at(3, 2));
         app.event_handler(vec![InputEvent::Text("=".to_owned())]);
         assert_eq!(rows(&app), [".##.", ".##.", "..*="]);
+    }
+
+    #[tokio::test]
+    async fn copy_puts_the_regions_rows_on_the_clipboard_with_trailing_spaces() {
+        use super::InputEvent;
+
+        let mut app = written(&["ab  ", "c d ", "    "]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(3, 2));
+        app.extend(at(0, 0));
+        let before = rows(&app);
+
+        let handled = app.event_handler(vec![InputEvent::Copy]);
+
+        assert_eq!(handled.copied.as_deref(), Some("ab  \nc d \n    "));
+        assert_eq!(rows(&app), before, "a copy wrote to the Source");
+        assert_eq!(app.region(), Region::span(grid, at(3, 2), at(0, 0)));
+    }
+
+    #[tokio::test]
+    async fn cut_copies_and_then_empties_the_region() {
+        use super::InputEvent;
+
+        let mut app = written(&["abcd", "efgh"]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(1, 0));
+        app.extend(at(2, 1));
+
+        let handled = app.event_handler(vec![InputEvent::Cut]);
+
+        assert_eq!(handled.copied.as_deref(), Some("bc\nfg"));
+        assert_eq!(rows(&app), ["a  d", "e  h"]);
+        assert_eq!(app.region(), Region::span(grid, at(1, 0), at(2, 1)));
+    }
+
+    ///
+    /// A paste writes from the Region's top-left, spaces included, clips at
+    /// the Grid's edges, and leaves the Region on the rectangle that landed.
+    ///
+    #[tokio::test]
+    async fn paste_writes_from_the_top_left_clipped_and_spans_what_landed() {
+        use super::InputEvent;
+
+        let mut app = written(&["....", "....", "...."]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(3, 2));
+        app.extend(at(2, 1));
+
+        app.event_handler(vec![InputEvent::Paste("a b\nxyz\n123".to_owned())]);
+
+        // Two columns and two rows of the three-by-three block fit.
+        assert_eq!(rows(&app), ["....", "..a ", "..xy"]);
+        let landed = app.region();
+        assert_eq!((landed.columns(), landed.rows()), (2..4, 1..3));
+    }
+
+    ///
+    /// A character that cannot be a Cell lands as an empty Cell, `\r\n` is one
+    /// row break, and a trailing break adds no row.
+    ///
+    #[tokio::test]
+    async fn a_pasted_character_that_cannot_be_a_cell_lands_empty() {
+        use super::InputEvent;
+
+        let mut app = written(&["....", "....", "...."]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(0, 0));
+
+        app.event_handler(vec![InputEvent::Paste("aé\tb\r\ncd\r\n".to_owned())]);
+
+        assert_eq!(rows(&app), ["a  b", "cd..", "...."]);
+        let landed = app.region();
+        assert_eq!((landed.columns(), landed.rows()), (0..4, 0..2));
+        assert_eq!(landed.cursor(), at(0, 0));
     }
 
     #[tokio::test]

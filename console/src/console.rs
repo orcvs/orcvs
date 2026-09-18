@@ -416,6 +416,9 @@ fn translate_event(event: Event) -> Option<InputEvent> {
             _ => None,
         },
         Event::Text(text) => Some(InputEvent::Text(text)),
+        Event::Copy => Some(InputEvent::Copy),
+        Event::Cut => Some(InputEvent::Cut),
+        Event::Paste(text) => Some(InputEvent::Paste(text)),
         // The running Orcvs models only input it acts on; all other toolkit
         // events remain presentation concerns and are dropped here.
         _ => None,
@@ -1676,7 +1679,12 @@ impl eframe::App for Console {
                     .filter_map(translate_event)
                     .collect()
             });
-            self.orcvs.event_handler(events);
+            // A Copy or Cut answers the text the platform clipboard is to
+            // hold; `copy_text` is how egui hands it to the native and the
+            // browser backend alike.
+            if let Some(copied) = self.orcvs.event_handler(events).copied {
+                ctx.copy_text(copied);
+            }
         }
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
@@ -1998,7 +2006,17 @@ mod tests {
             translate_event(key_event(Key::Escape, true)),
             Some(InputEvent::Collapse)
         );
-        assert_eq!(translate_event(Event::Copy), None);
+        // The clipboard arrives as its own events, never as the characters
+        // of the chord that raised it.
+        assert_eq!(translate_event(Event::Copy), Some(InputEvent::Copy));
+        assert_eq!(translate_event(Event::Cut), Some(InputEvent::Cut));
+        assert_eq!(
+            translate_event(Event::Paste("ab".to_owned())),
+            Some(InputEvent::Paste("ab".to_owned()))
+        );
+        for key in [Key::C, Key::X, Key::V] {
+            assert_eq!(translate_event(command_key_event(key)), None);
+        }
 
         // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
         // reports them as `Event::Text`, which `translate_event` reaches
@@ -3296,6 +3314,51 @@ mod tests {
             console.orcvs.region(),
             region,
             "Escape in the BPM field collapsed the Region"
+        );
+    }
+
+    ///
+    /// A copy with the Source focused hands the Region's rows to the platform
+    /// clipboard, and a paste writes the text the platform delivered.
+    ///
+    #[tokio::test]
+    async fn copy_reaches_the_platform_clipboard_and_paste_writes_the_source() {
+        use eframe::App as _;
+
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let grid = console.orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Paste("ab\ncd".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(origin_content(&console.orcvs), Some('a'));
+        let landed = console.orcvs.region();
+        assert_eq!((landed.columns(), landed.rows()), (0..2, 0..2));
+
+        console.orcvs.select(at(1, 0));
+        console.orcvs.extend(at(1, 1));
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![Event::Copy],
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |root| console.ui(root, &mut host));
+        assert!(
+            output
+                .platform_output
+                .commands
+                .contains(&egui::OutputCommand::CopyText("b\nd".to_owned())),
+            "the copy never reached the platform: {:?}",
+            output.platform_output.commands
         );
     }
 
