@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** done
+**Status:** resolved
 
 - [x] The default Grid is 64 columns by 40 rows.
 - [x] The default window presents the whole default Grid at Zoom 1.0 with no surplus on either axis.

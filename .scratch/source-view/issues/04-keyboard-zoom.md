@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** done
+**Status:** resolved
 
 - [x] Command `=` and command `+` Zoom in one step; command `-` Zooms out one step; command `0` returns to Zoom 1.0.
 - [x] Zoom stops at 0.25 and at 2.0.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 04
 
-**Status:** done
+**Status:** resolved
 
 - [x] A Cursor move that would leave the Cursor outside the Source View Pans the least distance that shows it.
 - [x] A Zoom that would leave the Cursor outside the Source View Pans the least distance that shows it.

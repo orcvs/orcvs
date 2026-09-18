@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** done
+**Status:** resolved
 
 - [x] The Source's own Cell is 16 points and the Glyph laid out in it at Zoom 1.0 is 11.5 points.
 - [x] Every multiple of an eighth from 0.25 to 2.0 presents a Cell that is a whole number of points.

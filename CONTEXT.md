@@ -268,6 +268,10 @@ _Avoid_: Host Command, shell command, process execution
 The one Cell the console is editing: a Position drawn with the active Cursor Effect. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
+**Region**:
+A rectangle of Positions within the Grid, spanned from an anchor Cell to the Cursor. The Cursor stays one Cell at the Region's live corner; the Region is what holds the extent.
+_Avoid_: Selection, range, block, marquee
+
 **Cursor Effect**:
 The console presentation surrounding the Cursor: an eroded frame on its Cell and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
 _Avoid_: Cell highlight, radial glow, focus matrix

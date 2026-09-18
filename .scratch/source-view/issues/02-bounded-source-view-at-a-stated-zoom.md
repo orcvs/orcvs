@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** done
+**Status:** resolved
 
 - [x] The console opens at Zoom 1.0 whatever the window size.
 - [x] Where the Source is smaller than the console on an axis, it sits at the console's top-left on that axis and does not Pan.
