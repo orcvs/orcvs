@@ -269,7 +269,7 @@ The one Cell the console is editing: a Position drawn with the active Cursor Eff
 _Avoid_: Caret, pointer, insertion point
 
 **Region**:
-A rectangle of Positions within the Grid, spanned from an anchor Cell to the Cursor. The Cursor stays one Cell at the Region's live corner; the Region is what holds the extent.
+A rectangle of Positions within the Grid, spanned from an anchor Cell to a live end, with the Cursor on one of its Cells. The Cursor stays one Cell, at the live end except after command `A` spans the whole Grid around it; the Region is what holds the extent.
 _Avoid_: Selection, range, block, marquee
 
 **Cursor Effect**:

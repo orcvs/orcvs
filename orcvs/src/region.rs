@@ -3,13 +3,15 @@ use std::ops::Range;
 use crate::grid::{Grid, Position};
 
 ///
-/// A rectangle of Positions within a Grid, spanned from an anchor Cell to the
-/// Cursor.
+/// A rectangle of Positions within a Grid, spanned from an anchor Cell to a
+/// live end, with the Cursor on one of its Cells.
 ///
-/// The Region has no corner of its own: it is the span between the two, so
-/// moving the Cursor past the anchor flips the rectangle rather than leaving a
-/// corner behind. A Region always exists, and when the anchor sits on the
-/// Cursor it is that one Cell — the ordinary state. See
+/// The Region has no corner of its own: it is the span between the anchor and
+/// the live end, so moving the live end past the anchor flips the rectangle
+/// rather than leaving a corner behind. The Cursor sits on the live end, except
+/// after command A spans the whole Grid around it and leaves it where it was.
+/// A Region always exists, and when the anchor sits on the live end it is that
+/// one Cell — the ordinary state. See
 /// `docs/adr/0046-the-primary-drag-selects-a-region.md`.
 ///
 /// ```
@@ -30,6 +32,7 @@ use crate::grid::{Grid, Position};
 pub struct Region {
     grid: Grid,
     anchor: Position,
+    end: Position,
     cursor: Position,
 }
 
@@ -42,8 +45,8 @@ impl Region {
     }
 
     ///
-    /// The Region from `anchor` to `cursor`, refusing a Position `grid` did
-    /// not mint.
+    /// The Region from `anchor` to `cursor`, which is its live end, refusing a
+    /// Position `grid` did not mint.
     ///
     pub fn span(grid: Grid, anchor: Position, cursor: Position) -> Self {
         grid.assert_owns(anchor);
@@ -51,23 +54,46 @@ impl Region {
         Self {
             grid,
             anchor,
+            end: cursor,
             cursor,
         }
     }
 
     ///
-    /// Every Cell of `grid`, anchored at its last Cell with the Cursor on its
-    /// origin.
+    /// The Region from `anchor` to `end` with the Cursor on `cursor`, which
+    /// has to be one of its Cells.
     ///
-    /// The Cursor takes the origin so the Cursor follow of ADR 0045 brings the
-    /// Grid's start into view rather than its far corner, and so the Cell a
-    /// keystroke writes to next is the first one.
+    pub(crate) fn with_cursor(
+        grid: Grid,
+        anchor: Position,
+        end: Position,
+        cursor: Position,
+    ) -> Self {
+        grid.assert_owns(anchor);
+        grid.assert_owns(end);
+        let region = Self {
+            grid,
+            anchor,
+            end,
+            cursor,
+        };
+        assert!(region.contains(cursor), "the Cursor is outside its Region");
+        region
+    }
+
     ///
-    pub fn whole(grid: Grid) -> Self {
+    /// Every Cell of `grid`, from its origin to its last Cell, with the Cursor
+    /// left on `cursor`.
+    ///
+    /// The Cursor stays where it was, as a spreadsheet's active Cell does, so
+    /// the Cursor follow of ADR 0045 does not move the Source View and the Cell
+    /// a keystroke writes to next is the one it would have written to anyway.
+    ///
+    pub fn whole(grid: Grid, cursor: Position) -> Self {
         let last = grid
             .position(grid.columns() - 1, grid.rows() - 1)
             .expect("a Grid has at least one Cell");
-        Self::span(grid, last, grid.origin())
+        Self::with_cursor(grid, grid.origin(), last, cursor)
     }
 
     ///
@@ -78,7 +104,16 @@ impl Region {
     }
 
     ///
-    /// The Region's live end, which is the Cursor.
+    /// The corner opposite the anchor: where a drag or Shift with an arrow
+    /// moves the Region from.
+    ///
+    pub fn end(&self) -> Position {
+        self.end
+    }
+
+    ///
+    /// The Cursor: one of the Region's Cells, and its live end but for a
+    /// Region command A spanned around it.
     ///
     pub fn cursor(&self) -> Position {
         self.cursor
@@ -88,7 +123,7 @@ impl Region {
     /// The columns the Region covers, left to right.
     ///
     pub fn columns(&self) -> Range<usize> {
-        let (a, b) = (self.anchor.x(), self.cursor.x());
+        let (a, b) = (self.anchor.x(), self.end.x());
         a.min(b)..a.max(b) + 1
     }
 
@@ -96,7 +131,7 @@ impl Region {
     /// The rows the Region covers, top to bottom.
     ///
     pub fn rows(&self) -> Range<usize> {
-        let (a, b) = (self.anchor.y(), self.cursor.y());
+        let (a, b) = (self.anchor.y(), self.end.y());
         a.min(b)..a.max(b) + 1
     }
 
@@ -111,10 +146,11 @@ impl Region {
     }
 
     ///
-    /// Whether the Region is the one Cell its anchor and Cursor share.
+    /// Whether the Region is the one Cell its anchor, live end and Cursor
+    /// share.
     ///
     pub fn is_one_cell(&self) -> bool {
-        self.anchor == self.cursor
+        self.anchor == self.end
     }
 
     ///
@@ -207,14 +243,25 @@ mod tests {
     }
 
     #[test]
-    fn the_whole_region_is_every_cell_of_the_grid() {
+    fn the_whole_region_is_every_cell_of_the_grid_around_the_cursor() {
         let grid = Grid::new(4, 3);
+        let cursor = grid.position(2, 1).expect("inside the Grid");
 
-        let region = Region::whole(grid);
+        let region = Region::whole(grid, cursor);
 
         assert_eq!((region.columns(), region.rows()), (0..4, 0..3));
-        assert_eq!(region.cursor(), grid.origin());
+        assert_eq!(region.cursor(), cursor);
+        assert_eq!(region.anchor(), grid.origin());
+        assert_eq!(region.end(), grid.position(3, 2).expect("inside the Grid"));
+        assert!(!region.is_one_cell());
         assert_eq!(region.positions_by_row().flatten().count(), grid.count());
+    }
+
+    #[test]
+    fn the_whole_region_of_a_one_cell_grid_is_one_cell() {
+        let grid = Grid::new(1, 1);
+
+        assert!(Region::whole(grid, grid.origin()).is_one_cell());
     }
 
     #[test]

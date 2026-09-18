@@ -128,6 +128,12 @@ pub struct Orcvs<S = MidiSelectionHandle> {
     ///
     anchor: Position,
     ///
+    /// The Region's live end: the corner opposite the anchor, which a drag or
+    /// Shift with an arrow moves. The Cursor sits on it, except after command
+    /// A spans the whole Grid and leaves the Cursor where it was.
+    ///
+    end: Position,
+    ///
     /// Whether command Enter has armed a fill for the next character.
     ///
     /// Held across input batches, because the chord and the character are
@@ -262,6 +268,7 @@ impl<S> Orcvs<S> {
         Self {
             cursor: Cursor::new(grid.origin()),
             anchor: grid.origin(),
+            end: grid.origin(),
             fill_armed: false,
             grid,
             opts,
@@ -353,16 +360,19 @@ impl<S> Orcvs<S> {
 
     ///
     /// Moves the Cursor to `position` and collapses the Region onto it,
-    /// refusing a Position minted by another Grid.
+    /// refusing a Position minted by another Grid. Disarms a fill, as any
+    /// event between command Enter and its character does.
     ///
     pub fn select(&mut self, position: Position) {
         self.grid.assert_owns(position);
+        self.fill_armed = false;
         self.collapse_to(position);
     }
 
     ///
     /// Moves the Cursor to `position` and keeps the anchor, so the Region
-    /// spans from the anchor to `position`.
+    /// spans from the anchor to `position`. Disarms a fill, as
+    /// [`select`](Self::select) does.
     ///
     /// ```
     /// use orcvs::app::Orcvs;
@@ -382,6 +392,8 @@ impl<S> Orcvs<S> {
     ///
     pub fn extend(&mut self, position: Position) {
         self.grid.assert_owns(position);
+        self.fill_armed = false;
+        self.end = position;
         self.cursor.select(position);
     }
 
@@ -389,7 +401,7 @@ impl<S> Orcvs<S> {
     /// The Region from the anchor to the Cursor.
     ///
     pub fn region(&self) -> Region {
-        Region::span(self.grid, self.anchor, self.cursor.position())
+        Region::with_cursor(self.grid, self.anchor, self.end, self.cursor.position())
     }
 
     ///
@@ -397,6 +409,7 @@ impl<S> Orcvs<S> {
     ///
     fn set_region(&mut self, region: Region) {
         self.anchor = region.anchor();
+        self.end = region.end();
         self.cursor.select(region.cursor());
     }
 
@@ -407,6 +420,7 @@ impl<S> Orcvs<S> {
     fn collapse_to(&mut self, position: Position) {
         self.cursor.select(position);
         self.anchor = position;
+        self.end = position;
     }
 
     ///
@@ -469,20 +483,29 @@ impl<S> Orcvs<S> {
             let fill_armed = std::mem::take(&mut self.fill_armed);
             match event {
                 InputEvent::KeyPressed(InputKey::ArrowDown) => {
-                    self.collapse_to(self.stepped(Arrow::Down))
+                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Down))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowLeft) => {
-                    self.collapse_to(self.stepped(Arrow::Left))
+                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Left))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowRight) => {
-                    self.collapse_to(self.stepped(Arrow::Right))
+                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Right))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowUp) => {
-                    self.collapse_to(self.stepped(Arrow::Up))
+                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Up))
                 }
-                InputEvent::Extend(arrow) => self.cursor.select(self.stepped(*arrow)),
-                InputEvent::SelectAll => self.set_region(Region::whole(self.grid)),
-                InputEvent::Collapse => self.anchor = self.cursor.position(),
+                // Stepped from the live end rather than the Cursor, which
+                // command A may have left inside the Region; the Cursor
+                // rejoins the live end.
+                InputEvent::Extend(arrow) => {
+                    let end = self.stepped(self.end, *arrow);
+                    self.end = end;
+                    self.cursor.select(end);
+                }
+                InputEvent::SelectAll => {
+                    self.set_region(Region::whole(self.grid, self.cursor.position()))
+                }
+                InputEvent::Collapse => self.collapse_to(self.cursor.position()),
                 InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => {
                     if self.region().is_one_cell() {
                         self.delete();
@@ -592,11 +615,11 @@ impl<S> Orcvs<S> {
             }
         }
         self.source.write_cells(&writes);
-        self.anchor = self
+        let far_corner = self
             .grid
             .position(top_left.x() + width - 1, top_left.y() + rows.len() - 1)
             .expect("the far corner of the block is clipped to the Grid");
-        self.cursor.select(top_left);
+        self.set_region(Region::span(self.grid, far_corner, top_left));
     }
 
     ///
@@ -617,16 +640,15 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// The Cell one step from the Cursor towards `arrow`, clamped at the
+    /// The Cell one step from `from` towards `arrow`, clamped at the
     /// Grid's edge.
     ///
-    fn stepped(&self, arrow: Arrow) -> Position {
-        let cursor = self.cursor.position();
+    fn stepped(&self, from: Position, arrow: Arrow) -> Position {
         match arrow {
-            Arrow::Down => self.grid.down(cursor),
-            Arrow::Left => self.grid.left(cursor),
-            Arrow::Right => self.grid.right(cursor),
-            Arrow::Up => self.grid.up(cursor),
+            Arrow::Down => self.grid.down(from),
+            Arrow::Left => self.grid.left(from),
+            Arrow::Right => self.grid.right(from),
+            Arrow::Up => self.grid.up(from),
         }
     }
 
@@ -1065,24 +1087,71 @@ mod test {
     ///
     #[tokio::test]
     async fn select_all_spans_the_grid_and_collapse_returns_to_the_cursor() {
-        use super::{Arrow, InputEvent};
+        use super::InputEvent;
 
         let mut app = Orcvs::new(5, 4).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(2, 1));
         let before = app.source.snapshot();
 
+        // Command A spans the Grid around the Cursor and leaves it where it
+        // was, so nothing follows it and the next keystroke writes there.
         app.event_handler(vec![InputEvent::SelectAll]);
-        assert_eq!(app.region(), Region::whole(grid));
+        let whole = app.region();
+        assert_eq!((whole.columns(), whole.rows()), (0..5, 0..4));
+        assert_eq!(app.render_frame().cursor(), at(2, 1));
 
-        app.event_handler(vec![InputEvent::Extend(Arrow::Right), InputEvent::Collapse]);
-        assert_eq!(app.region(), Region::at(grid, at(1, 0)));
+        app.event_handler(vec![InputEvent::Collapse]);
+        assert_eq!(app.region(), Region::at(grid, at(2, 1)));
 
         assert_eq!(
             app.source.snapshot(),
             before,
             "a Region chord wrote to the Source"
         );
+    }
+
+    ///
+    /// After command A, Shift with an arrow moves the Region's live corner,
+    /// and the Cursor rejoins it there.
+    ///
+    #[tokio::test]
+    async fn a_shift_arrow_after_select_all_moves_the_live_corner() {
+        use super::{Arrow, InputEvent};
+
+        let mut app = Orcvs::new(5, 4).expect("the test runtime");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(2, 1));
+
+        app.event_handler(vec![InputEvent::SelectAll, InputEvent::Extend(Arrow::Left)]);
+
+        let region = app.region();
+        assert_eq!((region.columns(), region.rows()), (0..4, 0..4));
+        assert_eq!(region.cursor(), at(3, 3));
+    }
+
+    ///
+    /// Typing after command A writes at the Cursor, steps right, and
+    /// collapses the Region.
+    ///
+    #[tokio::test]
+    async fn typing_after_select_all_writes_at_the_cursor() {
+        use super::InputEvent;
+
+        let mut app = Orcvs::new(5, 2).expect("the test runtime");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(2, 1));
+
+        app.event_handler(vec![
+            InputEvent::SelectAll,
+            InputEvent::Text("x".to_owned()),
+        ]);
+
+        assert_eq!(rows(&app), ["     ", "  x  "]);
+        assert_eq!(app.region(), Region::at(grid, at(3, 1)));
     }
 
     ///
@@ -1199,6 +1268,42 @@ mod test {
         app.extend(at(3, 2));
         app.event_handler(vec![InputEvent::Text("=".to_owned())]);
         assert_eq!(rows(&app), [".##.", ".##.", "..*="]);
+    }
+
+    ///
+    /// A pointer that moves the Region between the chord and the character
+    /// is an event like any other, so it disarms the fill: the character is
+    /// typed at the Cursor, which steps right.
+    ///
+    #[tokio::test]
+    async fn selecting_or_extending_between_command_enter_and_a_character_disarms_the_fill() {
+        use super::InputEvent;
+
+        let mut app = written(&["....", "...."]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+        // A drag: the Region is spanned anew after the chord.
+        app.event_handler(vec![InputEvent::Fill]);
+        app.select(at(0, 0));
+        app.extend(at(1, 1));
+        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
+        assert_eq!(rows(&app), ["....", ".x.."]);
+        assert_eq!(app.region(), Region::at(grid, at(2, 1)));
+
+        // A click: the Region collapses onto one Cell after the chord.
+        app.event_handler(vec![InputEvent::Fill]);
+        app.select(at(2, 0));
+        app.event_handler(vec![InputEvent::Text("y".to_owned())]);
+        assert_eq!(rows(&app), ["..y.", ".x.."]);
+        assert_eq!(app.region(), Region::at(grid, at(3, 0)));
+
+        // A Shift click: the Region grows from the anchor after the chord.
+        app.event_handler(vec![InputEvent::Fill]);
+        app.extend(at(0, 0));
+        app.event_handler(vec![InputEvent::Text("z".to_owned())]);
+        assert_eq!(rows(&app), ["z.y.", ".x.."]);
+        assert_eq!(app.region(), Region::at(grid, at(1, 0)));
     }
 
     #[tokio::test]
