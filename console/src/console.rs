@@ -3,15 +3,15 @@ use std::time::Duration;
 
 use egui::{
     Color32, CornerRadius, Event, EventFilter, FontId, Key, PointerButton, Pos2, Rect, Sense,
-    Shape, Stroke, StrokeKind, Vec2, containers::DragPanButtons, emath::GuiRounding as _,
-    emath::TSTransform, epaint::RectShape, text::Galley,
+    Shape, Stroke, StrokeKind, Vec2, emath::GuiRounding as _, emath::TSTransform,
+    epaint::RectShape, text::Galley,
 };
 
 use crate::cursor_effects::{
     CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, DEFAULT_CURSOR_COLOUR,
     cursor_effect_shapes, effect_bounds,
 };
-use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
 use crate::midi::{MidiDeviceSelection, destination_presentation};
 use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
@@ -59,17 +59,10 @@ const MAX_ZOOM: f32 = 2.0;
 /// so the default window and either end of the range land on it rather than
 /// beside it.
 ///
-/// Fifteen is the floor of the budget, not its ceiling, and the honest
-/// statement is that the step bounds a sweep rather than eliminating it. The
-/// range the console actually offers is `min_zoom..=MAX_ZOOM.max(fitted_zoom)`
-/// (see `show_source_scene`), because the fitted scale has to stay reachable,
-/// and a console large enough to fit the Grid above `MAX_ZOOM` widens it: a
-/// 2560-point-wide window on the default Grid fits at about 2.25 and offers
-/// seventeen steps, and one twice that wide fits at about 4.5 and offers
-/// thirty-five — some 13,000 rasters, which would pass the fill ratio. That is
-/// a sweep across the whole of a very large console's range, not a zoom a
-/// viewer holds, and the cost of passing it is a re-rasterisation rather than a
-/// fault.
+/// Fifteen is the whole range, not a floor a large window can widen: Zoom is
+/// a stated step between [`MIN_ZOOM`] and [`MAX_ZOOM`], and no window size
+/// changes the Cell size. The atlas budget ADR 0038 and ADR 0040 state is now
+/// the whole range rather than its floor.
 ///
 /// The step costs a Glyph at most an eighth of the Source's Cell scale in size,
 /// taken downwards so a Glyph is never larger than its share of the Cell — see
@@ -149,14 +142,13 @@ const OUTPUT_READOUT_WIDTH: f32 = 196.0;
 const OUTPUT_SCAN: &str = "Scan";
 
 ///
-/// The window size that presents the default Grid at the Source's own Cell
-/// size: the Source's own points, and the chrome above and below the console.
+/// The window size that presents the default Grid at Zoom 1.0: the Source's
+/// own points, and the chrome above and below the console.
 ///
-/// A console opened at this size fits the Grid at a scale of exactly one, so
-/// the Grid fills it with no letterboxing and Glyphs are drawn at the size they
-/// are rasterised at. Every other window size still presents the Grid — fitted,
-/// centred, and letterboxed on the longer axis — so this is where the console
-/// opens, not a shape it holds the viewer to.
+/// A console opened at this size shows the whole default Grid at the Source's
+/// own Cell size, with no surplus on either axis. A larger window shows more
+/// empty console around the Grid rather than larger Cells; a smaller one shows
+/// less of the Grid.
 ///
 pub const DEFAULT_VIEW_SIZE: [f32; 2] = [
     DEFAULT_COL_COUNT as f32 * CELL_SIZE,
@@ -409,6 +401,64 @@ fn translate_event(event: Event) -> Option<InputEvent> {
     }
 }
 
+///
+/// A keyboard Zoom command: a command chord for `=`/`+`, `-`, or `0`.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ZoomCommand {
+    In,
+    Out,
+    Reset,
+}
+
+///
+/// The Zoom command a toolkit event asks for, or none.
+///
+/// Only a held [`egui::Modifiers::command`] turns `=`, `+`, `-` or `0` into a
+/// Zoom step. Bare, they are Source characters — [`translate_event`] reaches
+/// them as [`Event::Text`], never through this — so this answers `None` for
+/// an unmodified key and [`show_source_scene`] leaves the Zoom exactly where
+/// it was.
+///
+fn zoom_command(event: &Event) -> Option<ZoomCommand> {
+    match event {
+        Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => match key {
+            Key::Equals | Key::Plus => Some(ZoomCommand::In),
+            Key::Minus => Some(ZoomCommand::Out),
+            Key::Num0 => Some(ZoomCommand::Reset),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+///
+/// `zoom` after one keyboard Zoom command: stepped by [`GLYPH_SCALE_STEP`] and
+/// clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`].
+///
+/// Stepped from the nearest multiple of the step rather than by adding it, so
+/// a long session stays exactly on the grid [`glyph_scale`] quantises to
+/// instead of drifting off it through repeated float addition. `Reset`
+/// answers 1.0 outright, whatever step `zoom` was on.
+///
+fn stepped_zoom(zoom: f32, command: ZoomCommand) -> f32 {
+    if command == ZoomCommand::Reset {
+        return 1.0;
+    }
+    let direction = if command == ZoomCommand::In {
+        1.0
+    } else {
+        -1.0
+    };
+    let steps = (zoom / GLYPH_SCALE_STEP).round() + direction;
+    (steps * GLYPH_SCALE_STEP).clamp(MIN_ZOOM, MAX_ZOOM)
+}
+
 fn source_bounds(grid: Grid) -> Rect {
     Rect::from_min_size(
         Pos2::ZERO,
@@ -417,21 +467,108 @@ fn source_bounds(grid: Grid) -> Rect {
 }
 
 ///
-/// The scale and translation the Source is presented under, and whether the
-/// viewer has moved it.
+/// The Source View: a Zoom and a Pan, presented as the scale and translation
+/// the Cells are drawn under.
 ///
-/// This is what the console holds instead of handing a region to an
-/// `egui::Scene`. It carries a transform rather than a Scene-space rectangle
-/// because a rectangle only describes a fit: it cannot say where the Source
-/// sits once a viewer has panned to somewhere the fit never chose.
+/// Zoom opens at 1.0 — the Source's own Cell — and is a stated step, never a
+/// property of the window. Pan is anchored at the console's top-left and is
+/// bounded by the Grid: an axis the whole Source already fills has nowhere to
+/// Pan, and a Pan that would open a gap past an edge settles back inside.
 ///
-/// While the viewer has not panned or zoomed, the transform follows the fitted
-/// square viewport, so every resize re-fits rather than cropping.
+/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
+/// console Pans the least distance that brings the whole Cell back into view,
+/// still bounded by the Grid; a Pan on its own does not chase the Cursor.
+/// `previous_cursor` is what tells a Cursor move apart from a frame that
+/// merely redrew it — see `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
 ///
-#[derive(Default)]
+/// `to_global` is derived each frame from Zoom, Pan and the console's origin
+/// so `presented_grid` and the diagnostics still read one transform.
+///
 struct SourceView {
+    zoom: f32,
+    pan: Vec2,
+    /// The Cursor [`show_source_scene`] last saw, so a change from one frame
+    /// to the next reads as a Cursor move worth following rather than every
+    /// frame answering yes. `None` before the first frame a fresh `SourceView`
+    /// presents, so it does not Pan away from wherever the console opened
+    /// merely because there was nothing yet to compare the Cursor against.
+    previous_cursor: Option<Position>,
     to_global: TSTransform,
-    adjusted: bool,
+}
+
+impl Default for SourceView {
+    fn default() -> Self {
+        Self {
+            zoom: 1.0,
+            pan: Vec2::ZERO,
+            previous_cursor: None,
+            to_global: TSTransform::IDENTITY,
+        }
+    }
+}
+
+///
+/// The Pan that keeps the Source inside the console: top-left when the Source
+/// is smaller on an axis, and between the two edges when it is larger.
+///
+fn clamp_pan(pan: Vec2, console: Vec2, source: Vec2) -> Vec2 {
+    Vec2::new(
+        clamp_pan_axis(pan.x, console.x, source.x),
+        clamp_pan_axis(pan.y, console.y, source.y),
+    )
+}
+
+fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
+    let slack = console - source;
+    if !slack.is_finite() || slack >= 0.0 {
+        0.0
+    } else {
+        pan.clamp(slack, 0.0)
+    }
+}
+
+///
+/// The Cursor's Cell as a rectangle in unpanned Source-local points, at the
+/// snapped Cell `side` [`show_source_scene`] also bounds [`clamp_pan`] by.
+///
+fn cursor_cell(cursor: Position, side: f32) -> Rect {
+    Rect::from_min_size(
+        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side,
+        Vec2::splat(side),
+    )
+}
+
+///
+/// The Pan that brings `cell` — already in the same units as `pan` once
+/// translated by it — fully inside a console of `console_size`, moving the
+/// least distance along each axis and leaving an axis alone where the Cell
+/// already shows in full.
+///
+/// Not itself bounded by the Grid: [`clamp_pan`] runs after this wherever it
+/// is called, so a Cell nearer an edge than the console is wide settles
+/// against that edge rather than opening a gap past it.
+///
+fn follow_cursor(pan: Vec2, console_size: Vec2, cell: Rect) -> Vec2 {
+    let shown = cell.translate(pan);
+    Vec2::new(
+        follow_axis(pan.x, shown.min.x, shown.max.x, console_size.x),
+        follow_axis(pan.y, shown.min.y, shown.max.y, console_size.y),
+    )
+}
+
+///
+/// One axis of [`follow_cursor`]: shift `pan` by exactly the overflow past
+/// whichever edge the Cell has fallen outside, or leave it be when the Cell
+/// already sits between the two.
+///
+fn follow_axis(pan: f32, min: f32, max: f32, console: f32) -> f32 {
+    if min < 0.0 {
+        pan - min
+    } else if max > console {
+        pan - (max - console)
+    } else {
+        pan
+    }
 }
 
 ///
@@ -463,8 +600,8 @@ fn is_presentable(to_global: TSTransform) -> bool {
 ///
 /// The step is absolute, so rounding to the nearest one is disproportionate at
 /// a small scale: a console fitting at 0.2 would round up to 0.25 and lay an
-/// 18 point Glyph out at 4.5 points inside a 5 point Cell, where the same Glyph
-/// at the Source's own scale takes 18 of 25. Flooring keeps a Glyph's share of
+/// 11.5 point Glyph out at 2.875 points inside a 3.2 point Cell, where the same Glyph
+/// at the Source's own scale takes 11.5 of 16. Flooring keeps a Glyph's share of
 /// its Cell at or under what the fit gave it at every scale, and costs at most
 /// one step of sharpness rather than a Cell's worth of proportion. Both zoom
 /// limits and the Source's own scale are exact multiples of the step, so
@@ -525,6 +662,15 @@ impl Console {
         let style = style();
         cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
         cc.egui_ctx.set_theme(egui::Theme::Dark);
+
+        // egui's own `Context::end_pass` answers the same command `=`/`+`,
+        // `-` and `0` chords by changing `zoom_factor` — the whole UI's
+        // scale, not the Source View's (`egui-0.36.1/src/gui_zoom.rs`,
+        // `Options::zoom_with_keyboard`, on by default). Those chords are the
+        // Source View's Zoom here, so egui's own reading of them is turned
+        // off rather than left to race it.
+        cc.egui_ctx
+            .options_mut(|options| options.zoom_with_keyboard = false);
 
         // Start with the default fonts (we will be adding to them rather than replacing them).
         let mut fonts = egui::FontDefinitions::default();
@@ -1081,14 +1227,13 @@ fn show_source(
     // Within a layer a later-registered child wins the click tie, and would win
     // the drag too if it sensed drag. The pan rectangle `show_source_scene`
     // allocates is registered before this one, so sensing clicks alone takes
-    // the clicks and leaves the middle-drag pan to it. `Sense::CLICK` rather
-    // than `Sense::click()`, which is `CLICK | FOCUSABLE` and would put the
-    // Grid in the tab order where a thousand Buttons never were.
+    // the clicks and leaves the middle-drag and the Alt-held primary-drag Pan
+    // to it. `Sense::CLICK` rather than `Sense::click()`, which is
+    // `CLICK | FOCUSABLE` and would put the Grid in the tab order where a
+    // thousand Buttons never were.
     //
-    // The rectangle is the Grid, not the console area. The letterboxing is the
-    // only territory where the pan rectangle's own `double_clicked()` still
-    // fires, and that double click is what hands a pinned view back to the fit.
-    //
+    // The rectangle is the Grid, not the console area. Surplus console past the
+    // Grid's edges is not a Cell, so a click there selects nothing.
     // Clipped to the console, because `Ui::interact` bounds a widget by the
     // `Ui`'s clip rect rather than by the console area, and a zoomed-in Grid
     // reaches past the console on every side. `Scene::show` used to set that
@@ -1194,24 +1339,38 @@ struct PresentedSource {
 }
 
 ///
-/// Shows the Source in the largest square-Celled viewport the console area
-/// holds, centred so the surplus is letterboxing, and answers the geometry it
-/// was presented under along with the Cell a click asked for.
+/// Shows the Source in the console area at the Source View's Zoom and Pan, and
+/// answers the geometry it was presented under along with the Cell a click
+/// asked for.
 ///
 /// The console owns the scale and translation the Source is presented under —
 /// `view.to_global` — and `grid_viewport::presented_grid` is the one place that
 /// scale is applied, so a Cell's two axes still cannot part company: one
 /// `scaling` serves both. Every Cell, and so every click that lands on one,
-/// goes through that one arithmetic. Nothing here sets a layer transform, which
-/// is the point: a transformed layer reaches every `TextShape` in it through
-/// `Arc::make_mut` at end of pass, and a cached galley's refcount is never one.
-/// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
+/// goes through that one arithmetic. Nothing here sets a layer transform.
+/// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md` and
+/// `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
 ///
-/// The pan and zoom *input* handling is still `egui::Scene`'s:
-/// `Scene::register_pan_and_zoom` is public, takes the `&mut TSTransform` its
-/// caller owns, and touches no layer. Only its drag-pan branch has to be
-/// replaced, and only because that branch corrects for a division that happens
-/// nowhere but inside a transformed layer.
+/// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
+/// held with a primary drag, bounded by the Grid's edges. A primary click
+/// alone, and a primary drag without Alt, still select a Cell and do not Pan
+/// — [`show_source`]'s own click-sensing rect is what answers those; nothing
+/// here needs to tell the two gestures apart, because a real drag never
+/// resolves as a click regardless of Alt. Pinch and command-wheel do not
+/// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
+/// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
+/// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
+/// settles back inside through the same `clamp_pan` a Pan does.
+///
+/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
+/// console Pans just far enough to bring it back, before that same
+/// `clamp_pan` settles the result inside the Grid; a Pan with neither is not
+/// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
+/// from this same Render Frame — `Console::ui` reads it after
+/// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
+/// A click's Cursor move reaches the Source only after this call returns
+/// (`Console::ui` calls `orcvs.select` next), so a click that would scroll
+/// its own Cell out of view is followed on the frame after, not this one.
 ///
 fn show_source_scene(
     ui: &mut egui::Ui,
@@ -1221,72 +1380,74 @@ fn show_source_scene(
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
 ) -> PresentedSource {
-    // The shape the Render Frame was derived from, named apart from the
-    // `GridViewport` this function goes on to present it at.
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
-    // The whole console area, sensing clicks and drags, allocated before any
-    // Cell rectangle so the Grid's own click rectangle registers after it. This
-    // is also what `Scene::show` reached `force_set_min_rect` for: the space
-    // the Source is presented in is claimed from the parent layout whether the
-    // Grid fills it or letterboxes inside it.
     let (console, mut pan) =
         ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
-    let viewport = grid_viewport(console, source_grid);
-    let fitted = viewport.fit_transform(source);
 
-    if !view.adjusted {
-        view.to_global = fitted;
+    if !view.zoom.is_finite() || view.zoom <= 0.0 {
+        view.zoom = 1.0;
     }
-    if !is_presentable(view.to_global) {
-        // A console with no area has no fit to reach either, and the identity
-        // is the one transform that is always invertible. The Grid it presents
-        // is clipped away to nothing, which is what a console with no area
-        // shows regardless.
-        view.to_global = if is_presentable(fitted) {
-            fitted
-        } else {
-            TSTransform::IDENTITY
-        };
+    view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+
+    let zoom_before_command = view.zoom;
+    if let Some(command) = ui.input(|i| i.events.iter().find_map(zoom_command)) {
+        view.zoom = stepped_zoom(view.zoom, command);
     }
+    let zoomed = view.zoom != zoom_before_command;
 
-    // The fitted scale has to be reachable, or the clamp inside
-    // `register_pan_and_zoom` pulls the Grid off the console. A console smaller
-    // than the viewer's zoom limits allows fits it out on either side, so both
-    // ends give. A console with no area answers a scale of zero, which is no
-    // fit to reach.
-    let fitted_zoom = viewport.scale(source);
-    let min_zoom = if fitted_zoom > 0.0 {
-        MIN_ZOOM.min(fitted_zoom)
-    } else {
-        MIN_ZOOM
-    };
-    let pan_and_zoom = egui::Scene::new()
-        .zoom_range(min_zoom..=MAX_ZOOM.max(fitted_zoom))
-        // The helper's own drag-pan branch is dead here, and deliberately.
-        // It computes `to_global.translation += to_global.scaling *
-        // resp.drag_delta()` (`scene.rs:239`), and `Response::drag_delta`
-        // divides by the layer transform's scaling *only when the layer has
-        // one* (`response.rs:452-465`). Inside `Scene::show` the two cancel and
-        // the pan is 1:1 with the pointer. With the transform owned here there
-        // is no layer transform, nothing divides, and the multiply would
-        // over-pan by the zoom factor — invisibly at the fitted scale of one,
-        // which is exactly where a test would be looking.
-        .drag_pan_buttons(DragPanButtons::empty());
-
-    // Where the view sits before any gesture reaches it, so the pin below can
-    // ask whether one moved it.
-    let before_the_gesture = view.to_global;
-
-    if pan.dragged_by(PointerButton::Middle) {
-        // The pointer moved this far in presented points, and the translation
-        // is in presented points, so it is added and not scaled.
-        view.to_global.translation += pan.drag_delta();
+    // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
+    // held, so a trackpad with no middle button still has a way to Pan by
+    // dragging. Without Alt this branch is simply skipped: a primary
+    // gesture that stayed inside the click threshold still resolves to
+    // `show_source`'s own click on release, and one that moved past it
+    // resolves to neither a click nor, now, a Pan — see this function's own
+    // doc comment for why Alt needs no extra guard against either.
+    if pan.dragged_by(PointerButton::Middle)
+        || (pan.dragged_by(PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
+    {
+        view.pan += pan.drag_delta();
         pan.mark_changed();
     }
-    // Zoom at the pointer, the smooth-scroll pan and the `zoom_range` clamp are
-    // kept rather than reimplemented: all three are layer-independent.
-    pan_and_zoom.register_pan_and_zoom(ui, &mut pan, &mut view.to_global);
+
+    if pan.contains_pointer() {
+        let pan_delta = ui.input(|i| i.smooth_scroll_delta());
+        if pan_delta != Vec2::ZERO {
+            view.pan += pan_delta;
+            pan.mark_changed();
+        }
+    }
+
+    // A Cursor move is a change from the Cursor `previous_cursor` last saw,
+    // not every frame the Cursor happens to be drawn — otherwise an ordinary
+    // Pan with the Cursor already out of view would be pulled straight back
+    // to it. `None` on a fresh `SourceView`'s first frame answers no move, so
+    // the console does not Pan away from where it opened before anything has
+    // moved the Cursor at all.
+    let cursor = frame.cursor();
+    let cursor_moved = view
+        .previous_cursor
+        .is_some_and(|previous| previous != cursor);
+    view.previous_cursor = Some(cursor);
+
+    // The Cell side `presented_grid` will draw at, snapped to whole physical
+    // pixels, so the follow and the bounds below are measured against the
+    // Grid as drawn rather than the unsnapped extent the Zoom asked for.
+    let side = snapped_cell_side(CELL_SIZE * view.zoom, ui.ctx().pixels_per_point());
+
+    if cursor_moved || zoomed {
+        view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side));
+    }
+
+    let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * side;
+    view.pan = clamp_pan(view.pan, console.size(), source_size);
+
+    let to_global = TSTransform::new(console.min.to_vec2() + view.pan, view.zoom);
+    view.to_global = if is_presentable(to_global) {
+        to_global
+    } else {
+        TSTransform::IDENTITY
+    };
 
     let grid = presented_grid(
         view.to_global,
@@ -1303,35 +1464,6 @@ fn show_source_scene(
         cursor_effect_sample,
         cursor_effect_settings,
     );
-
-    // Panning or zooming moves the view off the fitted viewport and holds it
-    // there; a double click on the letterboxing hands it back. A frame that
-    // does both is a reset: the double click is the later intent.
-    //
-    // Only on the letterboxing. The Grid's own click rectangle is registered
-    // after this one and wins every tie inside the Grid, so a double click on
-    // a Cell selects it and leaves the view pinned. That is what the field of
-    // Cell Buttons did before the Grid was painted, and it means the gesture
-    // is unreachable at a window the Grid fills exactly — `DEFAULT_VIEW_SIZE`
-    // included, where the fit is 1.0 and there is no letterboxing to hit. A
-    // viewer pinned there zooms back out rather than double clicking. Giving
-    // the reset a gesture that does not depend on surplus area is a change to
-    // what the console offers, not to how it draws, so it is not made here.
-    //
-    // The pin asks the transform whether it moved rather than asking the
-    // `Response` whether it changed. `register_pan_and_zoom` calls
-    // `mark_changed` whenever a zoom or scroll event arrived at all, whether or
-    // not the `zoom_range` clamp left `to_global` exactly where it was
-    // (`scene.rs:265-274`). A console already sitting at either end of its zoom
-    // range therefore reports a change for a gesture the clamp reverted, and
-    // pinning on that costs the viewer every later re-fit: the owned transform
-    // is absolute, and unlike the Scene-space rectangle it replaces it does not
-    // track the window across a resize.
-    if pan.double_clicked() {
-        view.adjusted = false;
-    } else if view.to_global != before_the_gesture {
-        view.adjusted = true;
-    }
 
     PresentedSource {
         viewport: grid,
@@ -1497,6 +1629,13 @@ impl eframe::App for Console {
             ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
         }
         if !self.bpm_field_focused && !self.destination_combo_focused {
+            // A command Zoom chord answers `show_source_scene`, not the
+            // Source. `egui-winit` and eframe's web backend both withhold
+            // `Event::Text` while a command modifier is held
+            // (`egui-winit-0.36.1/src/lib.rs:1059-1065`,
+            // `eframe-0.36.1/src/web/events.rs:155-162`), so a shipped build
+            // never raises the matching bare character alongside the chord
+            // that already answered it.
             let events = ctx.input(|i| {
                 i.filtered_events(&event_filter)
                     .into_iter()
@@ -1711,13 +1850,13 @@ mod kittest_tests;
 #[cfg(test)]
 mod tests {
     use egui::{
-        Color32, Event, Key, Modifiers, Pos2, Rect, Shape, Vec2, emath::GuiRounding as _,
-        emath::TSTransform,
+        Color32, Event, Key, Modifiers, MouseWheelUnit, Pos2, Rect, Shape, TouchPhase, Vec2,
+        emath::GuiRounding as _, emath::TSTransform,
     };
     use orcvs::app::{InputEvent, InputKey, Orcvs};
     use orcvs::render_frame::RenderFrame;
 
-    use crate::grid_viewport::{CELL_SIZE, GridViewport, grid_viewport, presented_grid};
+    use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
     use crate::paint::{FramePaint, Paint};
     use crate::style::PALETTE;
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
@@ -1726,8 +1865,9 @@ mod tests {
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
         GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SourceShapes,
-        SourceView, TOP_PANEL_HEIGHT, frames_per_second, glyph_scale, is_presentable,
-        show_source_scene, source_bounds, source_panel_frame, translate_event,
+        SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale,
+        is_presentable, show_source_scene, source_bounds, source_panel_frame, stepped_zoom,
+        translate_event, zoom_command,
     };
 
     fn key_event(key: Key, pressed: bool) -> Event {
@@ -1738,6 +1878,27 @@ mod tests {
             repeat: false,
             modifiers: Modifiers::NONE,
         }
+    }
+
+    fn command_key_event(key: Key) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        }
+    }
+
+    ///
+    /// A command Zoom chord for `key`, as `pinch_at` and `command_wheel_at`
+    /// stage a pointer gesture: the one event a real `=`/`+`/`-`/`0` press
+    /// under a held command modifier delivers, with no accompanying
+    /// `Event::Text` — `egui-winit` and eframe's web backend both withhold it
+    /// while a command modifier is held.
+    ///
+    fn command_zoom_at(key: Key) -> Vec<Event> {
+        vec![command_key_event(key)]
     }
 
     #[test]
@@ -1765,6 +1926,111 @@ mod tests {
         assert_eq!(translate_event(key_event(Key::Enter, true)), None);
         assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
         assert_eq!(translate_event(Event::Copy), None);
+
+        // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
+        // reports them as `Event::Text`, which `translate_event` reaches
+        // regardless of what key produced it, and never as one of the Key
+        // variants matched above.
+        for character in ["+", "-", "=", "0"] {
+            assert_eq!(
+                translate_event(Event::Text(character.to_owned())),
+                Some(InputEvent::Text(character.to_owned())),
+                "bare {character:?} did not reach the Source as Cell input"
+            );
+        }
+        for key in [Key::Equals, Key::Plus, Key::Minus, Key::Num0] {
+            assert_eq!(
+                translate_event(key_event(key, true)),
+                None,
+                "bare {key:?} was translated as Source input on its own"
+            );
+        }
+    }
+
+    ///
+    /// The command chord [`zoom_command`] answers, and the bare key it never
+    /// answers for: `=`, `+`, `-` and `0` ask for a Zoom only with
+    /// [`egui::Modifiers::command`] held, and an unrelated command chord asks
+    /// for nothing.
+    ///
+    #[test]
+    fn only_a_command_chord_of_the_four_keys_asks_for_a_zoom() {
+        let cases = [
+            (Key::Equals, ZoomCommand::In),
+            (Key::Plus, ZoomCommand::In),
+            (Key::Minus, ZoomCommand::Out),
+            (Key::Num0, ZoomCommand::Reset),
+        ];
+        for (key, command) in cases {
+            assert_eq!(
+                zoom_command(&command_key_event(key)),
+                Some(command),
+                "command {key:?} did not ask for a Zoom"
+            );
+            assert_eq!(
+                zoom_command(&key_event(key, true)),
+                None,
+                "bare {key:?} asked for a Zoom"
+            );
+            assert_eq!(
+                zoom_command(&Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: false,
+                    repeat: false,
+                    modifiers: Modifiers::COMMAND,
+                }),
+                None,
+                "a released command {key:?} asked for a Zoom"
+            );
+        }
+
+        assert_eq!(
+            zoom_command(&command_key_event(Key::C)),
+            None,
+            "an unrelated command chord asked for a Zoom"
+        );
+    }
+
+    ///
+    /// A Zoom step is exact: `In` and `Out` move by one [`GLYPH_SCALE_STEP`]
+    /// from the nearest multiple of it, `Reset` always lands on 1.0, and every
+    /// step stops at [`MIN_ZOOM`] or [`MAX_ZOOM`] rather than passing it.
+    ///
+    #[test]
+    fn a_zoom_step_moves_by_one_step_and_stops_at_the_range() {
+        assert_eq!(stepped_zoom(1.0, ZoomCommand::In), 1.125);
+        assert_eq!(stepped_zoom(1.0, ZoomCommand::Out), 0.875);
+        assert_eq!(stepped_zoom(1.375, ZoomCommand::Reset), 1.0);
+        assert_eq!(stepped_zoom(MIN_ZOOM, ZoomCommand::Reset), 1.0);
+
+        assert_eq!(stepped_zoom(MAX_ZOOM, ZoomCommand::In), MAX_ZOOM);
+        assert_eq!(stepped_zoom(MIN_ZOOM, ZoomCommand::Out), MIN_ZOOM);
+
+        // Every step a keyboard Zoom can reach is a whole number of eighths,
+        // and `glyph_scale` — the atlas budget `GLYPH_SCALE_STEP` states —
+        // has to floor every one of them to itself rather than to the step
+        // below.
+        let mut zoom = MIN_ZOOM;
+        let mut steps = 0;
+        while zoom < MAX_ZOOM {
+            let stepped = stepped_zoom(zoom, ZoomCommand::In);
+            assert!(
+                stepped > zoom,
+                "In did not move the Zoom forward from {zoom}"
+            );
+            assert_eq!(
+                glyph_scale(stepped),
+                stepped,
+                "the Glyph was not laid out at the Cell size of the {stepped} step"
+            );
+            zoom = stepped;
+            steps += 1;
+        }
+        assert_eq!(
+            steps, 14,
+            "the keyboard range holds fifteen steps, not {steps} moves between them"
+        );
     }
 
     ///
@@ -1802,6 +2068,14 @@ mod tests {
                 "{unpresentable:?} reached the diagnostics"
             );
         }
+    }
+
+    ///
+    /// At Zoom 1.0 the Glyph is 11.5 points inside the Source's 16 point Cell.
+    ///
+    #[test]
+    fn the_glyph_at_zoom_one_is_eleven_point_five_points() {
+        assert_eq!(DEFAULT_FONT_SIZE * glyph_scale(1.0), 11.5);
     }
 
     ///
@@ -1855,9 +2129,9 @@ mod tests {
     ///
     /// The quantisation step is an absolute one, so rounding to the nearest
     /// step is disproportionate at a small scale: a console fitting at 0.2
-    /// rounds up to 0.25 and lays an 18 point Glyph out at 4.5 points inside a
-    /// 5 point Cell, where the same Glyph at the Source's own scale takes 18 of
-    /// 25. Under the retired Scene the layer scaled the Glyph exactly, so this
+    /// rounds up to 0.25 and lays an 11.5 point Glyph out at 2.875 points inside a
+    /// 3.2 point Cell, where the same Glyph at the Source's own scale takes 11.5 of
+    /// 16. Under the retired Scene the layer scaled the Glyph exactly, so this
     /// is the proportion the effort's strict-parity rule is about. Quantising
     /// downwards keeps it and costs at most one step of sharpness.
     ///
@@ -2024,11 +2298,82 @@ mod tests {
     }
 
     ///
-    /// A pinch zoom over `point`. Zoom is not smoothed over later frames the
-    /// way a wheel scroll is, so the frames after it are quiet.
+    /// The primary button pressed at `point` while Alt (Option) is held —
+    /// the gesture that Pans without a middle button.
     ///
-    fn zoom_at(point: Pos2) -> Vec<Event> {
+    /// `Event::ModifiersChanged` first, the way a real backend reports the
+    /// Option key going down: `ui.input(|i| i.modifiers)` is carried across
+    /// frames from that event alone (`egui`'s own `InputState::begin_pass`),
+    /// not from a `PointerButton` event's own `modifiers` field, so a
+    /// `PointerMoved`-only frame later in the same drag still reads Alt as
+    /// held only because of this.
+    ///
+    fn alt_primary_press_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::ModifiersChanged(Modifiers::ALT),
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::ALT,
+            },
+        ]
+    }
+
+    ///
+    /// Alt released along with the primary button at `point`, ending an
+    /// Alt-drag Pan.
+    ///
+    fn alt_primary_release_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::ALT,
+            },
+            Event::ModifiersChanged(Modifiers::NONE),
+        ]
+    }
+
+    ///
+    /// A pinch over `point`. Zoom is from the keyboard alone, so this must
+    /// leave the Cell size where it was.
+    ///
+    fn pinch_at(point: Pos2) -> Vec<Event> {
         vec![Event::PointerMoved(point), Event::Zoom(1.2)]
+    }
+
+    ///
+    /// A two-finger or wheel Pan over `point`.
+    ///
+    fn wheel_at(point: Pos2, delta: Vec2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::MouseWheel {
+                unit: MouseWheelUnit::Point,
+                delta,
+                phase: TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            },
+        ]
+    }
+
+    ///
+    /// A command-wheel over `point`. Zoom is from the keyboard alone, so this
+    /// must leave the Cell size where it was.
+    ///
+    fn command_wheel_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::MouseWheel {
+                unit: MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, 80.0),
+                phase: TouchPhase::Move,
+                modifiers: Modifiers::COMMAND,
+            },
+        ]
     }
 
     fn double_click(
@@ -2045,16 +2390,16 @@ mod tests {
     ///
     /// A point in the surplus the viewport does not cover, if there is any.
     ///
-    fn letterboxing(screen: Rect, viewport: Rect) -> Option<Pos2> {
+    fn surplus(screen: Rect, viewport: Rect) -> Option<Pos2> {
         if screen.width() > viewport.width() + 1.0 {
             Some(Pos2::new(
-                (screen.left() + viewport.left()) / 2.0,
-                screen.center().y,
+                (viewport.right() + screen.right()) / 2.0,
+                viewport.center().y,
             ))
         } else if screen.height() > viewport.height() + 1.0 {
             Some(Pos2::new(
-                screen.center().x,
-                (screen.top() + viewport.top()) / 2.0,
+                viewport.center().x,
+                (viewport.bottom() + screen.bottom()) / 2.0,
             ))
         } else {
             None
@@ -2071,10 +2416,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_click_selects_the_cell_under_the_pointer_in_a_letterboxed_console() {
-        // The last shape fits the Source at a scale above MAX_ZOOM, where a
-        // Scene whose zoom range excluded the fitted scale would clamp it and
-        // put the Cells somewhere else.
+    async fn a_click_selects_the_cell_under_the_pointer_whatever_the_window_size() {
         for screen_size in [
             Vec2::new(400.0, 200.0),
             Vec2::new(200.0, 400.0),
@@ -2087,6 +2429,10 @@ mod tests {
 
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
             assert_eq!(selected_cell(&orcvs), (0, 0));
+            assert_eq!(
+                viewport.cell_size, CELL_SIZE,
+                "a {screen_size:?} console opened at a Cell size other than the Source's own"
+            );
 
             let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
             click(&ctx, screen, target, &mut orcvs, &mut view);
@@ -2100,25 +2446,21 @@ mod tests {
     }
 
     ///
-    /// The other end of the same clamp: a console too small for the Source fits
-    /// it at a scale below MIN_ZOOM, where a Scene whose zoom range excluded the
-    /// fitted scale would clamp it up and spill the Grid out of the console.
+    /// A console too small for the Source still opens at Zoom 1.0 and shows the
+    /// top-left of the Grid. A click still selects the Cell under the pointer.
     ///
     #[tokio::test]
-    async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_the_zoom_floor() {
-        // A 32 by 32 Source is 800 points wide, so these shapes fit it at 0.2:
-        // below the 0.25 floor.
-        for screen_size in [Vec2::new(400.0, 160.0), Vec2::new(160.0, 400.0)] {
+    async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_the_source() {
+        for screen_size in [Vec2::new(400.0, 102.0), Vec2::new(102.0, 400.0)] {
             let ctx = egui::Context::default();
             let screen = Rect::from_min_size(Pos2::ZERO, screen_size);
             let mut orcvs = running_orcvs(32, 32);
             let mut view = SourceView::default();
 
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-            assert!(
-                viewport.rect.width() <= screen.width() + 1e-3
-                    && viewport.rect.height() <= screen.height() + 1e-3,
-                "the viewport {viewport:?} left the {screen_size:?} console"
+            assert_eq!(
+                viewport.cell_size, CELL_SIZE,
+                "a {screen_size:?} console opened at a Cell size other than the Source's own"
             );
 
             let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
@@ -3141,7 +3483,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell() {
+    async fn a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cell_in_the_surplus()
+     {
         for screen_size in [
             Vec2::new(400.0, 200.0),
             Vec2::new(200.0, 400.0),
@@ -3155,8 +3498,15 @@ mod tests {
             let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
             let half_cell = Vec2::splat(viewport.cell_size / 2.0);
 
-            // The far corner Cell of the Grid sits in the far corner of the
-            // viewport, so the Grid fills it rather than a part of it.
+            assert_eq!(
+                viewport.cell_size, CELL_SIZE,
+                "a {screen_size:?} console opened at a Cell size other than the Source's own"
+            );
+            assert_eq!(
+                viewport.rect.min, screen.min,
+                "a {screen_size:?} console did not sit the Source at its top-left"
+            );
+
             click(
                 &ctx,
                 screen,
@@ -3170,14 +3520,12 @@ mod tests {
                 "the last Cell of a {screen_size:?} console"
             );
 
-            // The surplus is letterboxing rather than stretched Cells, so a
-            // click there selects nothing and the Cursor stays where it was.
-            if let Some(surplus) = letterboxing(screen, viewport.rect) {
-                click(&ctx, screen, surplus, &mut orcvs, &mut view);
+            if let Some(past_the_grid) = surplus(screen, viewport.rect) {
+                click(&ctx, screen, past_the_grid, &mut orcvs, &mut view);
                 assert_eq!(
                     selected_cell(&orcvs),
                     (7, 7),
-                    "a click on the letterboxing of a {screen_size:?} console"
+                    "a click past the Grid of a {screen_size:?} console"
                 );
             }
 
@@ -3199,7 +3547,7 @@ mod tests {
     ///
     /// The console opens on the whole Grid at the Source's own Cell size, so
     /// the default window spends every point it has on Cells and none on
-    /// letterboxing, and no Glyph is resampled to be shown.
+    /// surplus, and no Glyph is resampled to be shown.
     ///
     #[tokio::test]
     async fn the_default_window_presents_the_default_grid_at_its_own_scale() {
@@ -3216,11 +3564,15 @@ mod tests {
 
         assert_eq!(
             viewport.cell_size, CELL_SIZE,
-            "the default console fits the Grid at a scale other than one"
+            "the default console opened at a scale other than one"
+        );
+        assert_eq!(
+            view.zoom, 1.0,
+            "the default console opened at a Zoom other than 1.0"
         );
         assert_eq!(
             viewport.rect, screen,
-            "the default console letterboxes the Grid it was sized for"
+            "the default console left surplus around the Grid it was sized for"
         );
     }
 
@@ -3638,7 +3990,7 @@ mod tests {
 
         assert_eq!(
             bounds,
-            Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0))
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(CELL_SIZE * 32.0, CELL_SIZE * 16.0))
         );
     }
 
@@ -3646,18 +3998,17 @@ mod tests {
     /// The viewport `show_source_scene` presents a Grid of this shape at, in a
     /// console of this size, before any gesture has moved the view.
     ///
-    /// The same three calls that function makes, so nothing about the geometry
-    /// is restated here: the fit is `GridViewport::fit_transform`'s and the
-    /// presented Cell side is `presented_grid`'s, both asserted in
+    /// The same transform that function builds at Zoom 1.0 with the Source at
+    /// the console's top-left, so nothing about the geometry is restated here:
+    /// the presented Cell side is `presented_grid`'s, asserted in
     /// `grid_viewport.rs`.
     ///
     fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
         let grid = Grid::new(columns, rows);
         let source = source_bounds(grid);
-        let viewport = grid_viewport(screen, grid);
 
         presented_grid(
-            viewport.fit_transform(source),
+            TSTransform::new(screen.min.to_vec2(), 1.0),
             source,
             grid,
             pixels_per_point,
@@ -4060,7 +4411,7 @@ mod tests {
     ///
     #[tokio::test]
     async fn a_cell_border_is_one_grid_line_wide_whatever_the_cell_is_doing() {
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(320.0, 320.0));
         let orcvs = running_orcvs(20, 20);
         let frame = orcvs.render_frame();
         let viewport = presented(screen, 20, 20, 1.0);
@@ -4330,7 +4681,7 @@ mod tests {
     /// A coalesced run becomes the rectangle its columns span, at coordinates
     /// written out here rather than re-derived.
     ///
-    /// The viewport is stated instead of presented — a 25 point Cell with the
+    /// The viewport is stated instead of presented — a 16 point Cell with the
     /// Grid's corner at the origin — so every expected rectangle below is a
     /// literal. That is the point: the assertion this replaced re-ran
     /// `SourceShapes::new`'s own `Rect::from_min_max(cell_rect(start).min,
@@ -4351,8 +4702,8 @@ mod tests {
     #[tokio::test]
     async fn a_background_run_is_the_rectangle_its_columns_span() {
         let viewport = GridViewport {
-            cell_size: 25.0,
-            rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0)),
+            cell_size: 16.0,
+            rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(128.0)),
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
@@ -4377,7 +4728,7 @@ mod tests {
         let (row, columns, expected) = (
             0,
             0..1,
-            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(25.0, 25.0)),
+            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(16.0, 16.0)),
         );
         let index = runs
             .iter()
@@ -4408,18 +4759,19 @@ mod tests {
     /// screen whose pixels are not whole points.
     ///
     /// The geometry is chosen so neither argument can be mistaken for one. A
-    /// 201 point console over a 20 Cell Grid fits the Source at 0.4, and at a
-    /// device scale of 1.5 the presented Grid's corner is floored two physical
-    /// pixels in — two thirds of a point — so every run edge is snapped
+    /// 161 point console over a 20 Cell Grid at Zoom 0.5, and at a
+    /// device scale of 1.5 the presented Grid's corner is floored a physical
+    /// pixel in — two thirds of a point — so every run edge is snapped
     /// somewhere a snap to whole points would not put it.
     ///
     #[tokio::test]
     async fn a_console_pass_strokes_at_its_own_zoom_and_snaps_its_runs_to_its_own_device_scale() {
         const DEVICE_SCALE: f32 = 1.5;
         let ctx = egui::Context::default();
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(201.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(161.0));
         let mut orcvs = running_orcvs(20, 20);
         let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, 0.5);
 
         let (viewport, shapes) = console_pass_at(
             &ctx,
@@ -4432,7 +4784,7 @@ mod tests {
         let scale = viewport.cell_scale();
 
         assert!(
-            (scale - 0.4).abs() < 1e-6,
+            (scale - 0.5).abs() < 1e-6,
             "the pass fitted the Source at {scale}, and a zoom of one would be \
              indistinguishable from the constant"
         );
@@ -4560,59 +4912,145 @@ mod tests {
     /// a later-registered child wins the click tie and would win the drag tie
     /// too if it sensed drag, and the Grid is registered after the pan
     /// response. Sensing clicks alone is what leaves the drag to the pan
-    /// rectangle, and the drag has to be started *over the Grid* to assert it:
-    /// the letterboxing is territory the Grid never covered.
+    /// rectangle, and the drag has to be started *over the Grid* to assert it.
     ///
     #[tokio::test]
     async fn a_middle_drag_that_starts_on_a_cell_still_pans_the_source() {
         let ctx = egui::Context::default();
-        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
-        let mut orcvs = running_orcvs(8, 8);
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
         let mut view = SourceView::default();
 
-        let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        // The middle of the Grid, which is a Cell rather than letterboxing.
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
         let over_a_cell = viewport.cell_rect(4, 4).center();
         assert!(
             viewport.rect.contains(over_a_cell),
             "the drag did not start over the Grid"
         );
-        let fitted = view.to_global;
+        let before = view.pan;
 
         console_frame(
             &ctx,
-            wide,
+            screen,
             middle_press_at(over_a_cell),
             &mut orcvs,
             &mut view,
         );
         console_frame(
             &ctx,
-            wide,
-            vec![Event::PointerMoved(over_a_cell + Vec2::new(40.0, 25.0))],
+            screen,
+            vec![Event::PointerMoved(over_a_cell + Vec2::new(-40.0, -25.0))],
             &mut orcvs,
             &mut view,
         );
 
-        assert!(
-            view.adjusted,
+        assert_ne!(
+            view.pan, before,
             "a middle drag over a Cell did not pan the Source"
         );
-        assert_ne!(view.to_global, fitted, "the pan did not move the view");
+    }
+
+    ///
+    /// Alt (Option) held with a primary drag Pans by exactly what the
+    /// pointer moved, at a scale that is not one — the same claim
+    /// `a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_under_it`
+    /// makes for the middle button, and the same reason Zoom 2.0 is chosen:
+    /// a leftover multiply by the Zoom would move the Source by the Zoom
+    /// times the pointer.
+    ///
+    #[tokio::test]
+    async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, 2.0);
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.to_global.scaling, 2.0);
+        let anchor = view.to_global.translation;
+
+        let from = screen.min + Vec2::splat(40.0);
+        let moved = Vec2::new(-40.0, -24.0);
+        console_frame(
+            &ctx,
+            screen,
+            alt_primary_press_at(from),
+            &mut orcvs,
+            &mut view,
+        );
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(from + moved)],
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(
+            view.to_global.translation - anchor,
+            moved,
+            "the Source panned by {:?} for a pointer that moved {moved:?}",
+            view.to_global.translation - anchor
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            alt_primary_release_at(from + moved),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(
+            selected_cell(&orcvs),
+            (0, 0),
+            "an Alt-drag moved the Cursor"
+        );
+    }
+
+    ///
+    /// A primary drag without Alt does not Pan — it is either a click, which
+    /// `a_click_selects_the_cell_under_the_pointer_whatever_the_window_size`
+    /// already covers, or a real drag that never resolves as a click either,
+    /// so nothing here reads it as a Pan or a selection.
+    ///
+    #[tokio::test]
+    async fn a_primary_drag_without_alt_does_not_pan() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let over_a_cell = viewport.cell_rect(4, 4).center();
+        let before = view.pan;
+
+        console_frame(&ctx, screen, click_at(over_a_cell), &mut orcvs, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(over_a_cell + Vec2::new(-40.0, -25.0))],
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(
+            view.pan, before,
+            "a primary drag without Alt panned the Source"
+        );
     }
 
     ///
     /// The view a viewer reaches by zooming and panning, set directly.
     ///
-    /// `register_pan_and_zoom` would reach the same transform over a sequence
-    /// of wheel events, and the console holds it in exactly these two fields
-    /// afterwards. This is a test building its own input below the shipped
-    /// entry point rather than a seam cut into one: nothing in `show_source`
-    /// or `show_source_scene` exists for it.
+    /// The gestures that write these fields are asserted elsewhere. This is a
+    /// test building its own input below the shipped entry point rather than a
+    /// seam cut into one: nothing in `show_source` or `show_source_scene`
+    /// exists for it.
     ///
-    fn pinned_at(view: &mut SourceView, translation: Vec2, scaling: f32) {
-        view.to_global = TSTransform::new(translation, scaling);
-        view.adjusted = true;
+    fn pinned_at(view: &mut SourceView, pan: Vec2, zoom: f32) {
+        view.zoom = zoom;
+        view.pan = pan;
     }
 
     ///
@@ -4654,12 +5092,15 @@ mod tests {
         let mut view = SourceView::default();
 
         let (whole, every_shape) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        assert_eq!(whole.cell_size, CELL_SIZE, "the console did not fit at one");
+        assert_eq!(
+            whole.cell_size, CELL_SIZE,
+            "the console did not open at Zoom 1.0"
+        );
         let all_positions = whole.visible_positions(screen, orcvs.grid());
         assert_eq!(
             all_positions.count(),
             DEFAULT_COL_COUNT * DEFAULT_ROW_COUNT,
-            "the fitted console did not show the whole Grid"
+            "the console did not show the whole Grid at Zoom 1.0"
         );
 
         pinned_at(&mut view, Vec2::new(-500.0, -300.0), MAX_ZOOM);
@@ -4817,7 +5258,7 @@ mod tests {
     /// own comment describes.
     ///
     /// Two pans rather than one, because which seams land strictly inside the
-    /// clip is a property of the pan. The Sector Seam spacing is 8 and a Cell is 50
+    /// clip is a property of the pan. The Sector Seam spacing is 8 and a Cell is 32
     /// points at this zoom, so one pan is chosen to put a seam column
     /// immediately inside the first drawn column and the other to put one on
     /// the last: between them a cull that is short by a Cell on any of the four
@@ -4830,7 +5271,7 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
 
         let mut asserted = 0;
-        for translation in [Vec2::new(-760.0, -520.0), Vec2::new(-820.0, -520.0)] {
+        for translation in [Vec2::new(-486.0, -333.0), Vec2::new(-525.0, -333.0)] {
             let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
             let mut view = SourceView::default();
 
@@ -4904,210 +5345,621 @@ mod tests {
     const WIDE: Vec2 = Vec2::new(400.0, 200.0);
     const TALL: Vec2 = Vec2::new(200.0, 400.0);
 
+    ///
+    /// A Source smaller than the console has nowhere to Pan; one larger than
+    /// the console reaches its own edges and no further.
+    ///
+    #[test]
+    fn clamp_pan_pins_a_smaller_source_at_the_origin_and_a_larger_one_to_its_edges() {
+        assert_eq!(
+            clamp_pan(
+                Vec2::new(-10.0, 5.0),
+                Vec2::new(400.0, 200.0),
+                Vec2::new(128.0, 128.0)
+            ),
+            Vec2::ZERO,
+            "a smaller Source left the top-left"
+        );
+        assert_eq!(
+            clamp_pan(
+                Vec2::new(-200.0, -50.0),
+                Vec2::new(400.0, 200.0),
+                Vec2::new(512.0, 512.0)
+            ),
+            Vec2::new(-112.0, -50.0)
+        );
+        assert_eq!(
+            clamp_pan(
+                Vec2::new(20.0, -400.0),
+                Vec2::new(400.0, 200.0),
+                Vec2::new(512.0, 512.0)
+            ),
+            Vec2::new(0.0, -312.0)
+        );
+    }
+
+    ///
+    /// The console opens at Zoom 1.0 whatever the window size, so a resize
+    /// shows more or less of the Source and never a different Cell size.
+    ///
     #[tokio::test]
-    async fn a_resize_re_fits_the_viewport_while_the_view_is_unpinned() {
+    async fn a_resize_keeps_the_cell_size_and_shows_more_or_less_of_the_source() {
         let ctx = egui::Context::default();
         let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
         let tall = Rect::from_min_size(Pos2::ZERO, TALL);
-        let mut orcvs = running_orcvs(8, 8);
+        let mut orcvs = running_orcvs(32, 32);
         let mut view = SourceView::default();
 
-        console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        let wide_fit = view.to_global;
-        let viewport = console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
+        let before = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.zoom, 1.0);
+        assert_eq!(before.cell_size, CELL_SIZE);
+        let after = console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
 
-        assert!(!view.adjusted, "an untouched view was pinned");
-        assert_ne!(view.to_global, wide_fit, "the resize did not re-fit");
-        // The Grid follows the re-fitted viewport rather than the old one.
+        assert_eq!(view.zoom, 1.0, "a resize changed the Zoom");
+        assert_eq!(after.cell_size, CELL_SIZE, "a resize changed the Cell size");
+        assert_eq!(
+            after.rect.min, tall.min,
+            "a resize moved the Source off the top-left"
+        );
         click(
             &ctx,
             tall,
-            viewport.rect.max - Vec2::splat(viewport.cell_size / 2.0),
+            after.rect.min + Vec2::new(3.5, 1.5) * after.cell_size,
             &mut orcvs,
             &mut view,
         );
-        assert_eq!(selected_cell(&orcvs), (7, 7));
+        assert_eq!(selected_cell(&orcvs), (3, 1));
     }
 
+    ///
+    /// A Pan that would open a gap past an edge after a resize settles back
+    /// inside the Grid.
+    ///
     #[tokio::test]
-    async fn a_zoom_pins_the_view_and_a_later_resize_leaves_it_where_the_viewer_put_it() {
+    async fn a_resize_that_would_open_a_gap_settles_the_source_view_back_inside() {
         let ctx = egui::Context::default();
-        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
-        let tall = Rect::from_min_size(Pos2::ZERO, TALL);
-        let mut orcvs = running_orcvs(8, 8);
+        let small = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let large = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(32, 32);
         let mut view = SourceView::default();
 
-        let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        let over_the_scene = letterboxing(wide, viewport.rect).expect("a wide console letterboxes");
-        console_frame(&ctx, wide, zoom_at(over_the_scene), &mut orcvs, &mut view);
+        pinned_at(&mut view, Vec2::new(-200.0, -200.0), 1.0);
+        console_frame(&ctx, small, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::new(-200.0, -200.0));
 
-        assert!(view.adjusted, "zooming did not pin the view");
-        let pinned = view.to_global;
-        console_frame(&ctx, tall, Vec::new(), &mut orcvs, &mut view);
-
+        console_frame(&ctx, large, Vec::new(), &mut orcvs, &mut view);
         assert_eq!(
-            view.to_global, pinned,
-            "the resize discarded the viewer's zoom"
+            view.pan,
+            Vec2::new(-112.0, -112.0),
+            "the resize left a gap past the Grid: {:?}",
+            view.pan
         );
     }
 
     ///
-    /// A zoom the `zoom_range` clamp reverts is not a zoom, so it leaves the
-    /// view unpinned and still re-fitting.
-    ///
-    /// `Scene::register_pan_and_zoom` calls `mark_changed` whenever a zoom or
-    /// scroll event arrived at all, whether or not the clamp left `to_global`
-    /// exactly where it was (`scene.rs:265-274`), so `Response::changed` cannot
-    /// say whether the view moved. Pinning on it costs the viewer every later
-    /// re-fit: the owned transform is absolute, and unlike the Scene-space
-    /// rectangle it replaces it does not track the window across a resize.
+    /// Pinch and command-wheel no longer Zoom. Zoom is a change of Cell size
+    /// from the keyboard alone.
     ///
     #[tokio::test]
-    async fn a_zoom_the_clamp_reverts_leaves_the_view_unpinned_and_re_fitting() {
+    async fn pinch_and_command_wheel_do_not_zoom() {
         let ctx = egui::Context::default();
-        // An 8 by 8 Source is 200 points square, so a 400 point console fits it
-        // at exactly two — which is `MAX_ZOOM`, leaving a zoom in nowhere to go.
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
-        let larger = Rect::from_min_size(Pos2::ZERO, Vec2::splat(800.0));
-        let mut orcvs = running_orcvs(8, 8);
-        let mut view = SourceView::default();
-
-        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        assert_eq!(
-            view.to_global.scaling, MAX_ZOOM,
-            "the console did not fit at the zoom ceiling"
-        );
-        let fitted = view.to_global;
-
-        console_frame(
-            &ctx,
-            screen,
-            zoom_at(screen.center()),
-            &mut orcvs,
-            &mut view,
-        );
-
-        assert_eq!(view.to_global, fitted, "the clamp let the zoom through");
-        assert!(!view.adjusted, "a zoom that moved nothing pinned the view");
-
-        // And the view is still the console's to re-fit.
-        console_frame(&ctx, larger, Vec::new(), &mut orcvs, &mut view);
-        assert_eq!(
-            view.to_global.scaling, 4.0,
-            "the resize did not re-fit the Grid the viewer never moved"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_double_click_unpins_the_view_and_hands_it_back_to_the_fit() {
-        let ctx = egui::Context::default();
-        let wide = Rect::from_min_size(Pos2::ZERO, WIDE);
-        let mut orcvs = running_orcvs(8, 8);
-        let mut view = SourceView::default();
-
-        let viewport = console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        let fitted = view.to_global;
-        let over_the_scene = letterboxing(wide, viewport.rect).expect("a wide console letterboxes");
-        console_frame(&ctx, wide, zoom_at(over_the_scene), &mut orcvs, &mut view);
-        assert!(view.adjusted, "zooming did not pin the view");
-
-        double_click(&ctx, wide, over_the_scene, &mut orcvs, &mut view);
-        assert!(!view.adjusted, "the double click did not unpin the view");
-
-        console_frame(&ctx, wide, Vec::new(), &mut orcvs, &mut view);
-        assert_eq!(view.to_global, fitted, "the view did not return to the fit");
-    }
-
-    ///
-    /// A double click inside the Grid selects the Cell and leaves the view
-    /// where the viewer put it.
-    ///
-    /// The reset is the letterboxing's gesture alone, because the Grid's click
-    /// rectangle is registered after the pan rectangle and wins every tie
-    /// inside the Grid. That is the Cell Buttons' own resolution, kept
-    /// deliberately, and it has a consequence worth pinning rather than
-    /// leaving to the comment beside the branch: a console the Grid fills
-    /// exactly has no letterboxing, so it offers no way to double click back
-    /// to the fit. `DEFAULT_VIEW_SIZE` is such a console.
-    ///
-    #[tokio::test]
-    async fn a_double_click_inside_the_grid_selects_a_cell_and_holds_the_view() {
-        let ctx = egui::Context::default();
-        // A 8 by 8 Source is 200 points square, so this console fits it
-        // exactly and letterboxes nowhere — the shape `DEFAULT_VIEW_SIZE` has.
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
-        let mut orcvs = running_orcvs(8, 8);
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
         let mut view = SourceView::default();
 
         let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        assert!(
-            letterboxing(screen, viewport.rect).is_none(),
-            "the console letterboxes, so it is not the case this test is about"
+        let over = viewport.rect.min + Vec2::splat(viewport.cell_size);
+        console_frame(&ctx, screen, pinch_at(over), &mut orcvs, &mut view);
+        assert_eq!(view.zoom, 1.0, "a pinch changed the Zoom");
+        assert_eq!(
+            view.to_global.scaling, 1.0,
+            "a pinch changed the presented scale"
+        );
+
+        console_frame(&ctx, screen, command_wheel_at(over), &mut orcvs, &mut view);
+        assert_eq!(view.zoom, 1.0, "a command-wheel changed the Zoom");
+        assert_eq!(
+            view.to_global.scaling, 1.0,
+            "a command-wheel changed the presented scale"
+        );
+    }
+
+    ///
+    /// Command `=` and command `+` step the Zoom in; command `-` steps it
+    /// out; command `0` returns it to 1.0 whatever step it was on.
+    ///
+    #[tokio::test]
+    async fn command_chords_step_the_zoom_and_command_zero_resets_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.zoom, 1.0);
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Equals),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.125, "command Equals did not step the Zoom in");
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Plus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.25, "command Plus did not step the Zoom in");
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(
+            view.zoom, 1.0,
+            "two command Minus did not undo two steps in"
         );
 
         console_frame(
             &ctx,
             screen,
-            zoom_at(screen.center()),
+            command_zoom_at(Key::Minus),
             &mut orcvs,
             &mut view,
         );
-        assert!(view.adjusted, "zooming did not pin the view");
-        let pinned = view.to_global;
+        assert_eq!(view.zoom, 0.875, "command Minus did not step the Zoom out");
 
-        let target = viewport.rect.min + Vec2::new(2.5, 3.5) * viewport.cell_size;
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Num0),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.0, "command Num0 did not reset the Zoom to 1.0");
+    }
+
+    ///
+    /// The Zoom stops exactly at [`MIN_ZOOM`] and [`MAX_ZOOM`] rather than
+    /// passing them, however many times the chord repeats.
+    ///
+    #[tokio::test]
+    async fn command_zoom_stops_at_the_range_limits() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        for _ in 0..16 {
+            console_frame(
+                &ctx,
+                screen,
+                command_zoom_at(Key::Equals),
+                &mut orcvs,
+                &mut view,
+            );
+        }
+        assert_eq!(
+            view.zoom, MAX_ZOOM,
+            "command Equals passed the Zoom's ceiling"
+        );
+
+        for _ in 0..32 {
+            console_frame(
+                &ctx,
+                screen,
+                command_zoom_at(Key::Minus),
+                &mut orcvs,
+                &mut view,
+            );
+        }
+        assert_eq!(view.zoom, MIN_ZOOM, "command Minus passed the Zoom's floor");
+    }
+
+    ///
+    /// A command Zoom that would open a gap past an edge settles the Source
+    /// View back inside the Grid, through the same `clamp_pan` a Pan uses.
+    ///
+    /// The Cursor is moved to the Cell the pinned Pan already shows, at the
+    /// far corner, so issue 05's follow has nothing to do here: what settles
+    /// the gap below is `clamp_pan` alone, which is this test's own claim.
+    ///
+    #[tokio::test]
+    async fn a_command_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
+
+        // 32 Cells of 16 points is 512 points; at `MAX_ZOOM` that is 1024, and
+        // panning fully to the far edge of a 200 point console takes -824.
+        pinned_at(&mut view, Vec2::new(-824.0, -824.0), MAX_ZOOM);
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::new(-824.0, -824.0),
+            "the fixture did not open already pinned to the far edge"
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Minus),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(view.zoom, 1.875, "command Minus did not step the Zoom out");
+        // At 1.875 the source is 960 points, so the far edge of a 200 point
+        // console is -760: the old -824 Pan now opens a 64 point gap past it.
+        assert_eq!(
+            view.pan,
+            Vec2::new(-760.0, -760.0),
+            "the Zoom left a gap past the Grid: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A fresh `SourceView`'s first frame does not Pan to the Cursor, however
+    /// far a fixture puts it from an unpanned top-left origin. Issue 05's
+    /// follow needs a previous Cursor to compare against, and there is none
+    /// yet on the very first frame — the same reason a Source reload would
+    /// not surprise a viewer either.
+    ///
+    #[tokio::test]
+    async fn a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        // Column 30 at Zoom 1.0 is far outside a 200 point console.
+        orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "the first frame panned to a Cursor it had no previous position for"
+        );
+    }
+
+    ///
+    /// A Cursor move that would leave the Cursor outside the Source View Pans
+    /// the least distance that shows the whole Cursor Cell, still bounded by
+    /// the Grid's edges.
+    ///
+    #[tokio::test]
+    async fn a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
+
+        // Column and row 30 at Zoom 1.0 sit at 480..496, entirely past a 200
+        // point console on both axes.
+        orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            view.pan,
+            Vec2::new(-296.0, -296.0),
+            "the Cursor move did not Pan the least distance that shows it: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A Zoom that would leave the Cursor outside the Source View Pans the
+    /// least distance that shows it, the same as a Cursor move does.
+    ///
+    #[tokio::test]
+    async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        // Already past a 200 point console at Zoom 1.0 (240..256), but the
+        // first frame below only records it: see
+        // `a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame`.
+        orcvs.select(orcvs.grid().position(15, 15).expect("inside the grid"));
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "the fixture's first frame already Panned"
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Equals),
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(view.zoom, 1.125, "command Equals did not step the Zoom in");
+        assert_eq!(
+            view.pan,
+            Vec2::new(-88.0, -88.0),
+            "the Zoom did not Pan the least distance that shows the Cursor: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A Pan with no Cursor move and no Zoom is not pulled back to the
+    /// Cursor, even while the Cursor sits outside the Source View.
+    ///
+    #[tokio::test]
+    async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
+
+        // First frame: no previous Cursor to compare against, so no follow.
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO);
+
+        // A wheel Pan all the way to the Grid's far edge, with the Cursor
+        // still unmoved at (30, 30) and no Zoom. Large enough that
+        // `smooth_scroll_delta` settles it in one frame the way
+        // `wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere`
+        // already relies on. Left to the follow this would land at
+        // (-296, -296) instead — see
+        // `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`
+        // — so landing on the Grid's own edge at (-312, -312) is what proves
+        // a Pan alone is not chasing the Cursor.
+        let over = screen.min + Vec2::splat(50.0);
+        console_frame(
+            &ctx,
+            screen,
+            wheel_at(over, Vec2::new(-1_000.0, -1_000.0)),
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(
+            view.pan,
+            Vec2::new(-312.0, -312.0),
+            "a Pan alone was pulled back toward the Cursor: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// The follow Pan is itself naive — it only asks whether the Cursor's
+    /// Cell already shows inside the console — so an already out-of-bounds
+    /// Pan it leaves untouched still has to settle back inside the Grid
+    /// through `clamp_pan`, the same as an ordinary Pan or Zoom does.
+    ///
+    #[tokio::test]
+    async fn the_follow_pan_is_still_bounded_by_the_grids_edges() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
+
+        // A Pan past the Grid's near edge, which nothing but `clamp_pan` can
+        // answer: at Zoom 1.0 the Cursor's new Cell (5, 0) sits at 80..96,
+        // already inside a 200 point console once this Pan is applied, so the
+        // follow itself has nothing to add.
+        pinned_at(&mut view, Vec2::new(50.0, 50.0), 1.0);
+        orcvs.select(orcvs.grid().position(5, 0).expect("inside the grid"));
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "clamp_pan did not settle the follow's own Pan back inside the Grid: {:?}",
+            view.pan
+        );
+    }
+
+    /// A device scale at which a Zoom step's Cell is not a whole number of
+    /// physical pixels, and the Zoom step that shows it: 18 points at 1.25 is
+    /// 22.5 pixels, which `presented_grid` floors to 22 — a Cell of 17.6
+    /// points rather than the 18 a Zoom of 1.125 asks for.
+    const FRACTIONAL_PPP: f32 = 1.25;
+    const FRACTIONAL_ZOOM: f32 = 1.125;
+
+    /// Half a physical pixel at [`FRACTIONAL_PPP`], the most the corner's own
+    /// pixel rounding can move an edge.
+    const HALF_A_PIXEL: f32 = 0.5 / FRACTIONAL_PPP;
+
+    ///
+    /// A Source smaller than the console starts at the console's top-left even
+    /// where the snap has shrunk its Cells, rather than re-centred inside the
+    /// unsnapped extent and drawn in from the corner.
+    ///
+    #[tokio::test]
+    async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(8, 8);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, FRACTIONAL_ZOOM);
+
+        let (viewport, _) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+
+        assert!(
+            viewport.cell_size < CELL_SIZE * FRACTIONAL_ZOOM,
+            "the fixture snapped nothing, so it asserts nothing: {}",
+            viewport.cell_size
+        );
+        assert_eq!(
+            viewport.rect.min, screen.min,
+            "a snapped Grid smaller than the console left its top-left"
+        );
+    }
+
+    ///
+    /// A Pan to the far edge of a Source larger than the console leaves no
+    /// gap past the Grid where the snap has shrunk its Cells: the bound is
+    /// the extent the Cells are drawn at, not the one the Zoom asked for.
+    ///
+    #[tokio::test]
+    async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(64, 64);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::splat(-1_000_000.0), FRACTIONAL_ZOOM);
+
+        let (viewport, _) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+
+        assert!(
+            viewport.cell_size < CELL_SIZE * FRACTIONAL_ZOOM,
+            "the fixture snapped nothing, so it asserts nothing: {}",
+            viewport.cell_size
+        );
+        let gap = screen.max - viewport.rect.max;
+        assert!(
+            gap.x.abs() <= HALF_A_PIXEL && gap.y.abs() <= HALF_A_PIXEL,
+            "the far-edge Pan left {gap:?} between the Grid and the console's edge"
+        );
+    }
+
+    ///
+    /// A Cursor move past the console's far edge Pans the whole Cursor Cell,
+    /// as drawn, into view — measured at the snapped Cell side the Cells are
+    /// painted at rather than the unsnapped side the Zoom asked for.
+    ///
+    #[tokio::test]
+    async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+        let mut orcvs = running_orcvs(64, 64);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, FRACTIONAL_ZOOM);
+
+        console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+        // Column and row 22 end at 23 Cells, past a 400 point console at
+        // either Cell side.
+        orcvs.select(orcvs.grid().position(22, 22).expect("inside the grid"));
+        let (viewport, _) = console_pass_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut orcvs,
+            &mut view,
+            FRACTIONAL_PPP,
+        );
+
+        let cell = viewport.cell_rect(22, 22);
+        assert!(
+            cell.min.x >= screen.min.x - HALF_A_PIXEL
+                && cell.min.y >= screen.min.y - HALF_A_PIXEL
+                && cell.max.x <= screen.max.x + HALF_A_PIXEL
+                && cell.max.y <= screen.max.y + HALF_A_PIXEL,
+            "the followed Cursor Cell {cell:?} is not wholly inside {screen:?}"
+        );
+    }
+
+    ///
+    /// The double click that returned to the fit is gone, along with the fit.
+    /// A double click inside the Grid still selects the Cell under it.
+    ///
+    #[tokio::test]
+    async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::new(-48.0, -32.0), 1.0);
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let before = view.to_global;
+        let target = viewport.cell_rect(5, 5).center();
         double_click(&ctx, screen, target, &mut orcvs, &mut view);
 
         assert_eq!(
             selected_cell(&orcvs),
-            (2, 3),
+            (5, 5),
             "the double click did not reach the Cell under it"
         );
-        assert!(
-            view.adjusted,
-            "the double click unpinned a view with no letterboxing to hit"
-        );
         assert_eq!(
-            view.to_global, pinned,
-            "the double click moved a view it should have left alone"
+            view.to_global, before,
+            "the double click reset a view that no longer has a fit to return to"
         );
+        assert_eq!(view.zoom, 1.0);
+        assert_eq!(view.pan, Vec2::new(-48.0, -32.0));
     }
 
     ///
     /// A middle-button drag pans the Source by exactly what the pointer moved,
-    /// at a scale that is not one.
+    /// at a scale that is not one, and a later click still selects the Cell
+    /// under the pointer.
     ///
-    /// This is the one behaviour retiring the container could break silently.
-    /// `Scene::register_pan_and_zoom` pans with `to_global.translation +=
-    /// to_global.scaling * resp.drag_delta()` (`scene.rs:239`), and
     /// `Response::drag_delta` divides by the layer transform's scaling *only
-    /// when the layer has one* (`response.rs:452-465`). Inside `Scene::show`
-    /// those cancel; with the transform owned by the console there is no layer
-    /// transform, nothing divides, and the multiply would move the Source by
-    /// the zoom factor times the pointer. At the default window the fitted
-    /// scale is exactly one and that bug is invisible, so this console is sized
-    /// to fit at two.
+    /// when the layer has one* (`response.rs:452-465`). With the transform
+    /// owned by the console there is no layer transform, so a leftover
+    /// multiply by the Zoom would move the Source by the Zoom times the
+    /// pointer. Zoom 2.0 is what makes that bug visible.
     ///
     #[tokio::test]
-    async fn a_middle_drag_pans_by_the_pointer_and_not_by_the_pointer_times_the_zoom() {
+    async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_under_it() {
         let ctx = egui::Context::default();
-        // A 8 by 8 Source is 200 points square, so a 400 point console fits it
-        // at exactly two.
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
-        let mut orcvs = running_orcvs(8, 8);
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
         let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, 2.0);
 
         let before = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-        assert_eq!(
-            view.to_global.scaling, 2.0,
-            "the console did not fit at two"
-        );
+        assert_eq!(view.to_global.scaling, 2.0);
         let anchor = view.to_global.translation;
 
         // Press, then move further than `max_click_dist` so the gesture
-        // resolves as a drag rather than a click.
-        let from = screen.center();
-        let moved = Vec2::new(40.0, 24.0);
+        // resolves as a drag rather than a click. Drag left and up: the Pan
+        // is top-left-anchored, so a drag the other way is clamped at zero.
+        let from = screen.min + Vec2::splat(40.0);
+        let moved = Vec2::new(-40.0, -24.0);
         console_frame(&ctx, screen, middle_press_at(from), &mut orcvs, &mut view);
         let after = console_frame(
             &ctx,
@@ -5117,7 +5969,6 @@ mod tests {
             &mut view,
         );
 
-        assert!(view.adjusted, "the pan did not pin the view");
         assert_eq!(
             view.to_global.translation - anchor,
             moved,
@@ -5135,9 +5986,6 @@ mod tests {
             "the pan changed the Cell size"
         );
 
-        // The click arithmetic followed the pan: painting and clicking go
-        // through the one presented viewport, at a scale and an offset the fit
-        // never chose.
         console_frame(
             &ctx,
             screen,
@@ -5157,6 +6005,50 @@ mod tests {
     }
 
     ///
+    /// Wheel and two-finger scroll Pan a Source larger than the console as far
+    /// as its edges and no further. A Source that already fits does not Pan.
+    ///
+    #[tokio::test]
+    async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let over = screen.min + Vec2::splat(16.0);
+
+        let mut large = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        console_frame(&ctx, screen, Vec::new(), &mut large, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            wheel_at(over, Vec2::new(-1_000.0, -1_000.0)),
+            &mut large,
+            &mut view,
+        );
+        assert_eq!(
+            view.pan,
+            Vec2::new(WIDE.x - CELL_SIZE * 32.0, WIDE.y - CELL_SIZE * 32.0),
+            "the wheel left the Source short of its edge: {:?}",
+            view.pan
+        );
+
+        let mut small = running_orcvs(8, 8);
+        let mut small_view = SourceView::default();
+        console_frame(&ctx, screen, Vec::new(), &mut small, &mut small_view);
+        console_frame(
+            &ctx,
+            screen,
+            wheel_at(over, Vec2::new(-80.0, -40.0)),
+            &mut small,
+            &mut small_view,
+        );
+        assert_eq!(
+            small_view.pan,
+            Vec2::ZERO,
+            "a Source smaller than the console panned"
+        );
+    }
+
+    ///
     /// **The acceptance criterion the whole effort exists for.**
     ///
     /// No layer the Source Grid is painted into carries a transform, so no
@@ -5171,17 +6063,18 @@ mod tests {
     /// would not show it anyway, because the clone happens inside `end_pass`
     /// rather than in `tessellate_shapes`.
     ///
-    /// The console is sized to fit at two rather than at one on purpose:
+    /// Zoom is pinned at two rather than left at one on purpose:
     /// `Context::set_transform_layer` *removes* the entry for an identity
-    /// transform, so a fit of one would let a Scene pass this.
+    /// transform, so Zoom 1.0 would let a Scene pass this.
     ///
     #[tokio::test]
     async fn no_layer_carrying_the_source_grid_is_transformed() {
         let ctx = egui::Context::default();
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(256.0));
         let mut orcvs = running_orcvs(8, 8);
         orcvs.write("1");
         let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, 2.0);
         let frame = orcvs.render_frame();
         let mut grid_layer = None;
 
@@ -5214,7 +6107,7 @@ mod tests {
 
         assert_eq!(
             view.to_global.scaling, 2.0,
-            "the console did not fit at two"
+            "the console did not present at Zoom 2.0"
         );
         assert!(
             painted.iter().any(|shape| matches!(shape, Shape::Text(_))),

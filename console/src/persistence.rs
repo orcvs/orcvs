@@ -564,6 +564,34 @@ mod stored_source_tests {
         );
     }
 
+    ///
+    /// ADR 0045: "Nothing resizes a Grid, so a Source stored at the previous
+    /// 40 by 25 default opens at 40 by 25." The default has since moved to 64
+    /// by 40 (`orcvs/src/grid.rs`), so this pins the Grid dimensions
+    /// themselves to the stored Source rather than to whatever the console
+    /// opens with no storage — a restore that read today's default instead of
+    /// the stored Grid would silently resize a Source nothing asked to
+    /// resize.
+    ///
+    #[test]
+    fn a_source_stored_at_the_previous_default_grid_reopens_at_that_grid() {
+        use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
+
+        assert_ne!(
+            (DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT),
+            (40, 25),
+            "the default Grid is 40 by 25 again, so this test no longer proves anything"
+        );
+
+        let stored = SourceCommander::new(Grid::new(40, 25));
+        let mut storage = InMemoryStorage::default();
+        store(&mut storage, &stored);
+
+        let restored = starting_source(Some(&storage)).source;
+        assert_eq!(restored.grid().columns(), 40);
+        assert_eq!(restored.grid().rows(), 25);
+    }
+
     #[test]
     fn an_absent_value_starts_the_default_grid() {
         let storage = InMemoryStorage::default();

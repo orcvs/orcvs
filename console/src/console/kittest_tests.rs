@@ -40,7 +40,7 @@
 //! `GridViewport::cell_rect` hands out a Cell's rectangle and
 //! `GridViewport::cell_at` inverts it — so every pointer coordinate below is
 //! *derived from the live transform at the moment of the click* rather than
-//! written down. That is what makes the resize and zoom cases mean anything: a
+//! written down. That is what makes the resize and Pan cases mean anything: a
 //! hardcoded coordinate would either keep passing after the mapping broke or
 //! start failing for reasons that have nothing to do with it.
 //!
@@ -50,19 +50,19 @@
 //! that `cell_rect` and `cell_at` remain mutual inverses under a transform the
 //! console has moved, and that a click at the coordinate `cell_rect` answers
 //! reaches the Source as that Cell. An error inside `presented_grid` itself — a
-//! mishandled `pixels_per_point`, a letterbox origin off by a Cell — would move
+//! mishandled `pixels_per_point`, a rounded corner off by a Cell — would move
 //! both sides of that equality and pass here.
 //!
 //! Where the Grid actually lands is asserted where nothing cancels, and is not
 //! restated here. `console::tests` holds it for a whole console pass:
 //! `the_default_window_presents_the_default_grid_at_its_own_scale` pins the
 //! presented rectangle and Cell side against written-down values,
-//! `the_grid_fills_the_centred_viewport_and_the_letterboxing_holds_no_cell`
-//! pins the corners and the letterboxing, and
+//! `a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cell_in_the_surplus`
+//! pins the corners of a Source with nowhere to Pan, and
 //! `the_presented_viewport_is_the_one_a_console_pass_presents` holds a pass to
 //! the helper at a fractional device scale as well as at one.
-//! `grid_viewport::tests` holds `presented_grid`'s own centring, letterboxing
-//! and whole-physical-pixel snap. Making the cases below independent of
+//! `grid_viewport::tests` holds `presented_grid`'s own whole-physical-pixel
+//! snap and its Pan translation. Making the cases below independent of
 //! `presented_grid` would mean writing a second copy of it in a test, which is
 //! the arrangement those modules already cover better.
 //!
@@ -76,11 +76,11 @@
 //! test sleeps, reads the clock, or depends on Playback: the harness advances
 //! `predicted_dt` itself and the Cursor moves only because an event moved it.
 
-use egui::{Event, Modifiers, PointerButton, Pos2, Vec2};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
-use super::{Console, DEFAULT_VIEW_SIZE, source_bounds};
-use crate::grid_viewport::{GridViewport, presented_grid};
+use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, source_bounds};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
@@ -103,6 +103,15 @@ fn running_console(size: Vec2) -> Harness<'static, Console> {
 fn cursor(console: &Console) -> (usize, usize) {
     let cursor = console.orcvs.render_frame().cursor();
     (cursor.x(), cursor.y())
+}
+
+///
+/// What the Cell under the Cursor holds right now, or `None` when it is
+/// empty.
+///
+fn cell_under_cursor(console: &Console) -> Option<char> {
+    let frame = console.orcvs.render_frame();
+    frame.at(frame.cursor()).content()
 }
 
 ///
@@ -244,13 +253,147 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 }
 
 ///
+/// Issue 05's own criterion, end to end: an ArrowRight run that pushes the
+/// Cursor past the console Pans the Source View to bring it back, the same
+/// frame the keys reach the Source (`Console::ui` reads the Render Frame
+/// after `Orcvs::event_handler` runs).
+///
+/// The default window shows the whole default Grid with nowhere to Pan, so
+/// this Zooms to `MAX_ZOOM` first — command Zoom is keyboard-only and leaves
+/// the window and its Panels exactly as they were, so the console's own width
+/// is still the default window's, `DEFAULT_VIEW_SIZE[0]`, with none of a
+/// resize's uncertainty about how tall the Panels leave the console.
+///
+#[tokio::test]
+async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_follow_it() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    for _ in 0..8 {
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    }
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().source_view.zoom,
+        MAX_ZOOM,
+        "eight command Equals did not reach MAX_ZOOM"
+    );
+    assert_eq!(
+        harness.state().source_view.pan,
+        Vec2::ZERO,
+        "Zooming in on an unmoved Cursor already in view Panned regardless"
+    );
+
+    // At `MAX_ZOOM` a Cell is `CELL_SIZE * MAX_ZOOM` points, and the default
+    // window is `DEFAULT_VIEW_SIZE[0]` points wide whatever the Zoom — so
+    // Column 40 sits well past it.
+    for _ in 0..40 {
+        harness.key_press(egui::Key::ArrowRight);
+    }
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        cursor(harness.state()),
+        (40, 0),
+        "forty ArrowRight presses did not reach the Source"
+    );
+
+    let cell_at_max_zoom = CELL_SIZE * MAX_ZOOM;
+    let console_width = DEFAULT_VIEW_SIZE[0];
+    let pan = harness.state().source_view.pan;
+    assert_eq!(
+        pan,
+        Vec2::new(console_width - 41.0 * cell_at_max_zoom, 0.0),
+        "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}"
+    );
+
+    let column_40 = presented_source(&harness).cell_rect(40, 0);
+    assert!(
+        column_40.min.x >= 0.0 && column_40.max.x <= console_width,
+        "Column 40 is still out of view at {column_40:?} in a console {console_width} points wide"
+    );
+}
+
+///
+/// Keyboard Zoom end to end: a command `=`/`0` chord reaches
+/// `Console::ui`'s own event routing exactly like an arrow key does, and
+/// changes the Source View rather than the Source. The bare `=` the chord is
+/// built from is still Source input, egui's own Cmd `=` UI zoom
+/// (`Options::zoom_with_keyboard`, `Console::new` turns it off) never fires
+/// for it, and a fresh console opens with `zoom_with_keyboard` already off —
+/// otherwise the first chord below would move `harness.ctx.zoom_factor()`
+/// too, and pass for the wrong reason.
+///
+#[tokio::test]
+async fn command_zoom_chords_change_the_source_view_and_never_the_source() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    assert_eq!(harness.state().source_view.zoom, 1.0);
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "a fresh console did not open with an empty Cell under the Cursor"
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness.state().source_view.zoom,
+        1.125,
+        "command Equals did not Zoom the Source View"
+    );
+    assert_eq!(
+        harness.ctx.zoom_factor(),
+        1.0,
+        "egui's own UI zoom fired for the Source View's Zoom chord"
+    );
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "a command Equals chord reached the Source"
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num0);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().source_view.zoom,
+        1.0,
+        "command Num0 did not reset the Zoom"
+    );
+
+    // Bare "=" is still Source input: it types into the Cell under the
+    // Cursor, the same path the arrow keys above take.
+    let cell = harness.state().orcvs.render_frame().cursor();
+    harness.event(Event::Text("=".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness.state().orcvs.render_frame().at(cell).content(),
+        Some('='),
+        "a bare \"=\" did not reach the Source as Cell input"
+    );
+    assert_eq!(
+        harness.state().source_view.zoom,
+        1.0,
+        "a bare \"=\" changed the Zoom"
+    );
+}
+
+///
 /// The pointer-to-Cell round trip after the transform has moved, which is the
 /// one thing a fixed coordinate cannot test.
 ///
-/// Three transforms, in order: the fit the default window opens on, the fit a
-/// resize re-derives, and a zoom the viewer pinned. After each, the click
-/// target is read back out of the transform the console is presenting under,
-/// and the Cell it selects has to be the Cell that coordinate was painted from.
+/// Two stages, in order: a resize, and a middle-drag Pan. After each, the
+/// click target is read back out of the transform the console is presenting
+/// under, and the Cell it selects has to be the Cell that coordinate was
+/// painted from.
 ///
 /// That is a round trip and not a geometry assertion: the target comes from
 /// the same `presented_grid` call `show_source_scene` makes, so this holds
@@ -262,32 +405,36 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// and `grid_viewport::tests`' to assert; the module documentation names which
 /// tests those are.
 ///
-/// Each stage guards the premise it rests on, because a round trip through a
-/// transform that did not move proves nothing about the transform: the
-/// `assert_ne` on Cell (3, 1)'s centre across the resize, and the scale
-/// recorded before the zoom, are those guards.
+/// The resize on its own moves nothing to click at: the Source View opens
+/// unpanned and anchored at the console's top-left, and a Pan of zero is
+/// already inside whatever clamp a smaller console asks for, so Cell (3, 1)
+/// stays exactly where it was — only how much of the Grid is on screen has
+/// changed. That is asserted rather than assumed, because a round trip
+/// through a transform that did not move proves nothing about it. The drag is
+/// what actually moves the transform, and the Pan recorded before it guards
+/// that stage the same way.
 ///
 /// The selection is also asserted across the resize itself. The Cursor belongs
 /// to the Source and the transform belongs to the console, so a resize that
 /// moved it would mean a presentation change had reached the Source.
 ///
 #[tokio::test]
-async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer() {
+async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    let fitted = cell_centre(&harness, 3, 1);
-    click_at(&mut harness, fitted);
+    let opened = cell_centre(&harness, 3, 1);
+    click_at(&mut harness, opened);
     assert_eq!(
         cursor(harness.state()),
         (3, 1),
-        "a click at {fitted:?} on the fitted Grid"
+        "a click at {opened:?} on the console the default window opens at"
     );
 
-    // Smaller and a different shape, so the re-fit changes both the scale and
-    // the letterboxing. The view has not been pinned, so the console re-fits
-    // rather than cropping.
-    harness.set_size(Vec2::new(640.0, 480.0));
+    // Smaller than the Source on both axes, so the Pan stage below has
+    // somewhere to go — the default window is an exact fit at Zoom 1.0 and
+    // leaves no room to Pan at all.
+    harness.set_size(Vec2::new(320.0, 300.0));
     harness.run_steps(2);
 
     assert_eq!(
@@ -296,47 +443,194 @@ async fn a_resized_and_zoomed_console_still_selects_the_cell_under_the_pointer()
         "resizing the console moved the Cursor"
     );
 
-    // Same Cell as `fitted`. Comparing (7, 5) after a resize against (3, 1)
-    // before it is true under one transform, so it cannot prove the re-fit.
     let after_resize = cell_centre(&harness, 3, 1);
-    assert_ne!(
-        after_resize, fitted,
-        "the resize left Cell (3, 1) exactly where it was, so this proves nothing"
+    assert_eq!(
+        after_resize, opened,
+        "an unpanned Source View moved Cell (3, 1) on a resize alone"
     );
-    let resized = cell_centre(&harness, 7, 5);
-    click_at(&mut harness, resized);
+    click_at(&mut harness, after_resize);
     assert_eq!(
         cursor(harness.state()),
-        (7, 5),
-        "a click at {resized:?} on the re-fitted Grid"
+        (3, 1),
+        "a click at {after_resize:?} on the resized console"
     );
 
-    // A pinch over the Grid, which pins the view: `register_pan_and_zoom` moves
-    // the owned transform and `show_source_scene` records that the viewer
-    // adjusted it. Every later coordinate has to come back through the moved
-    // transform.
-    let scale_before_zoom = harness.state().source_view.to_global.scaling;
-    let over = cell_centre(&harness, 7, 5);
-    harness.event(Event::PointerMoved(over));
-    harness.event(Event::Zoom(1.5));
+    // A middle-drag Pan over the Grid, the one gesture here that actually
+    // moves the owned transform: `show_source_scene` folds the drag into
+    // `SourceView::pan`. Every later coordinate has to come back through the
+    // moved transform.
+    let pan_before = harness.state().source_view.pan;
+    let start = cell_centre(&harness, 6, 5);
+    let dragged_to = start - Vec2::new(80.0, 60.0);
+    harness.event(Event::PointerMoved(start));
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Middle,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.event(Event::PointerMoved(dragged_to));
+    harness.event(Event::PointerButton {
+        pos: dragged_to,
+        button: PointerButton::Middle,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
     harness.step();
     harness.run_steps(1);
 
-    let scaling = harness.state().source_view.to_global.scaling;
+    let pan_after = harness.state().source_view.pan;
     assert_ne!(
-        scaling, scale_before_zoom,
-        "the zoom left the Grid at the same scale"
-    );
-    assert!(
-        harness.state().source_view.adjusted,
-        "the zoom did not pin the view"
+        pan_after, pan_before,
+        "the middle drag left the Source View exactly where it was, so this proves nothing"
     );
 
-    let zoomed = cell_centre(&harness, 9, 6);
-    click_at(&mut harness, zoomed);
+    let panned = cell_centre(&harness, 10, 9);
+    click_at(&mut harness, panned);
     assert_eq!(
         cursor(harness.state()),
-        (9, 6),
-        "a click at {zoomed:?} on a Grid presented at {scaling}x"
+        (10, 9),
+        "a click at {panned:?} on a Grid panned to {pan_after:?}"
+    );
+}
+
+///
+/// Issue 06's own criterion, end to end: Alt (Option) held with a primary
+/// drag Pans the Source View through the shipped `Console`, moves the Cursor
+/// nowhere, and reaches the Source as nothing — the whole input path a
+/// trackpad with no middle button takes to Pan by dragging.
+///
+#[tokio::test]
+async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    assert_eq!(
+        cursor(harness.state()),
+        (0, 0),
+        "a fresh console did not open with the Cursor in the corner"
+    );
+
+    // Smaller than the Source on both axes, so there is somewhere to Pan —
+    // the default window is an exact fit at Zoom 1.0 and leaves no room to
+    // Pan at all, the same reason
+    // `a_resized_and_panned_console_still_selects_the_cell_under_the_pointer`
+    // resizes before its own middle-drag Pan.
+    harness.set_size(Vec2::new(320.0, 300.0));
+    harness.run_steps(2);
+
+    let pan_before = harness.state().source_view.pan;
+    let start = cell_centre(&harness, 6, 5);
+    let dragged_to = start - Vec2::new(80.0, 60.0);
+    harness.event(Event::PointerMoved(start));
+    harness.event(Event::ModifiersChanged(Modifiers::ALT));
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::PointerMoved(dragged_to));
+    harness.event(Event::PointerButton {
+        pos: dragged_to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::ModifiersChanged(Modifiers::default()));
+    harness.step();
+    harness.run_steps(1);
+
+    let pan_after = harness.state().source_view.pan;
+    assert_ne!(
+        pan_after, pan_before,
+        "an Alt-held primary drag left the Source View exactly where it was, so this proves nothing"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        (0, 0),
+        "an Alt-held primary drag moved the Cursor"
+    );
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "an Alt-held primary drag reached the Source"
+    );
+}
+
+///
+/// Issue 05's own criterion for a click, end to end and under the one
+/// condition where nothing *Console-specific* repaints on its own: reduced
+/// motion zeroes the Cursor Effect's frequency and this console never starts
+/// Playback, so `Console::ui` itself asks for no further frame once the click
+/// has been handled.
+///
+/// A click's Cursor move reaches the Source only once `Console::ui` calls
+/// `orcvs.select` after `show_source_scene` returns (see that function's own
+/// doc comment), so the follow needs a further frame in which
+/// `show_source_scene` reads the moved Cursor back. `Harness::run` is used
+/// rather than a fixed `run_steps` count precisely so that frame either runs
+/// because something asked for it, or does not run at all — a fixed count
+/// would paper over a missing repaint request by supplying the frame anyway.
+///
+/// It runs regardless: pinned egui 0.36.1's own `InputState::wants_repaint_after`
+/// (`egui-0.36.1/src/input_state/mod.rs:657-680`) answers an immediate repaint
+/// for any pass whose `RawInput` carries events — which the click's own
+/// resolving `PointerButton` release does — and `Context::request_repaint_after`
+/// answers that with *two* repaints rather than one, "to give some things
+/// time to settle" and "solve some corner-cases of missing repaints on
+/// frame-delayed responses" (`egui-0.36.1/src/context.rs:127-136`). That
+/// second, free repaint is exactly the frame after a click needs, supplied by
+/// the toolkit itself rather than by anything Console asks for — so this
+/// holds even with reduced motion on and Playback stopped, the one
+/// combination in which Console's own repaint scheduling asks for nothing at
+/// all.
+///
+/// The console is resized to a width that is not a multiple of `CELL_SIZE`,
+/// so Column 12 (192..208 at Zoom 1.0) is cut off at the console's right edge
+/// (200) and a click on it needs the follow to bring it fully into view.
+///
+#[tokio::test]
+async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.state_mut().reduced_motion = true;
+    harness.set_size(Vec2::new(200.0, 300.0));
+    harness.run_steps(2);
+
+    assert_eq!(
+        harness.state().source_view.pan,
+        Vec2::ZERO,
+        "the resize alone Panned before anything moved the Cursor"
+    );
+
+    let target = presented_source(&harness).cell_rect(12, 0).min + Vec2::new(3.0, 3.0);
+    harness.event(Event::PointerMoved(target));
+    harness.event(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.event(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run();
+
+    assert_eq!(
+        cursor(harness.state()),
+        (12, 0),
+        "the click did not select Column 12"
+    );
+
+    let column_12 = presented_source(&harness).cell_rect(12, 0);
+    assert!(
+        column_12.max.x <= 200.0,
+        "the click's Cursor move did not Pan to bring Column 12 fully into a 200 point \
+         console: {column_12:?}"
     );
 }

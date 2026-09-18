@@ -213,7 +213,7 @@ fn cursor_effects(c: &mut Criterion) {
     let settings = CursorEffectSettings::default();
     let mut animation = CursorEffectAnimation::default();
     let sample = animation.advance(std::time::Duration::ZERO, settings);
-    let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(25.0));
+    let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(16.0));
     let clip = cursor.expand(175.0);
 
     c.bench_function("cursor effects/frame and living area", |b| {
@@ -221,7 +221,7 @@ fn cursor_effects(c: &mut Criterion) {
             black_box(cursor_effect_shapes(
                 black_box(cursor),
                 black_box(clip),
-                black_box(25.0),
+                black_box(16.0),
                 black_box(sample),
                 black_box(settings),
             ))

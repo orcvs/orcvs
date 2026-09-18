@@ -264,7 +264,7 @@ and a label, so `query_tree` finds them and a locator is the right way to reach
 them. This is what `console::kittest_tests` queries and what `egui-mcp` should
 click.
 
-**The Source Grid is one rectangle.** Forty by twenty-five Cells are painted
+**The Source Grid is one rectangle.** Sixty-four by forty Cells are painted
 into a single interactive rectangle. `query_tree` will not find a Cell; the
 Cursor is not in the tree either. Confirm selection from geometry, Diagnostics,
 or a screenshot.
@@ -272,8 +272,8 @@ or a screenshot.
 A `query_tree` against a default console bears this out: five `Button` nodes
 labelled `File`, `MIDI`, `View`, `Theme` and `Tempo`, a handful of unlabelled
 `GenericContainer`s, and one `Unknown` node whose bounds are the whole console
-area below the menu bar — 1000 by 625 points at the default window, holding
-1000 Cells and reporting none of them.
+area below the menu bar — 1024 by 640 points at the default window, holding
+2560 Cells and reporting none of them.
 
 So the Source view is reached four ways, and each answers a different question:
 

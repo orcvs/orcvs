@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use egui::{Color32, Pos2, Rect, Shape, Stroke, Vec2, epaint::RectShape};
 
+use crate::grid_viewport::CELL_SIZE;
+
 pub(crate) const DEFAULT_CURSOR_COLOUR: Color32 = Color32::from_rgb(234, 235, 229);
 pub(crate) const DEFAULT_AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
 
@@ -279,8 +281,8 @@ fn area_shapes(
         }
         let length_noise = unit(hash(sample.grain ^ candidate.rotate_left(41)));
         let width = cell_size * (0.025 + length_noise.powi(3) * 0.9);
-        let height =
-            (0.35 + unit(hash(sample.grain ^ !candidate)) * 0.8) * (cell_size / 25.0).max(0.25);
+        let height = (0.35 + unit(hash(sample.grain ^ !candidate)) * 0.8)
+            * (cell_size / CELL_SIZE).max(0.25);
         let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(width, height));
         if !rect.intersects(clip) {
             continue;
@@ -335,7 +337,7 @@ fn frame_shapes(
 ) {
     let colour = settings.cursor_colour();
     let side = cursor.width().min(cursor.height());
-    let scale = side / 25.0;
+    let scale = side / CELL_SIZE;
     if amount == 0.0 {
         out.push(Shape::Rect(RectShape::stroke(
             cursor,
@@ -527,11 +529,11 @@ mod tests {
 
     #[test]
     fn frame_fragments_cover_all_four_edges_and_evolve() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(25.0));
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
         let clip = cursor.expand(200.0);
         let settings = CursorEffectSettings::default();
-        let first = cursor_effect_shapes(cursor, clip, 25.0, sample(1, 2, 3), settings);
-        let second = cursor_effect_shapes(cursor, clip, 25.0, sample(4, 2, 3), settings);
+        let first = cursor_effect_shapes(cursor, clip, CELL_SIZE, sample(1, 2, 3), settings);
+        let second = cursor_effect_shapes(cursor, clip, CELL_SIZE, sample(4, 2, 3), settings);
         assert_ne!(format!("{:?}", first.frame), format!("{:?}", second.frame));
 
         for edge in [
@@ -569,18 +571,18 @@ mod tests {
 
     #[test]
     fn area_is_bounded_crosses_cell_boundaries_and_can_reach_in_from_outside_clip() {
-        let cursor = Rect::from_min_size(Pos2::new(-35.0, 100.0), Vec2::splat(25.0));
+        let cursor = Rect::from_min_size(Pos2::new(-35.0, 100.0), Vec2::splat(CELL_SIZE));
         let clip = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::splat(300.0));
         let effects = cursor_effect_shapes(
             cursor,
             clip,
-            25.0,
+            CELL_SIZE,
             sample(1, 0x1234, 0x5678),
             CursorEffectSettings::default(),
         );
         assert!(!effects.area.is_empty());
         assert!(effects.area.len() <= 254);
-        let bounds = effect_bounds(cursor, 25.0).expand(2.0);
+        let bounds = effect_bounds(cursor, CELL_SIZE).expand(2.0);
         assert!(
             effects
                 .area
@@ -589,19 +591,19 @@ mod tests {
         );
         assert!(effects.area.iter().any(|shape| {
             let rect = shape.visual_bounding_rect();
-            (rect.left() / 25.0).floor() != (rect.right() / 25.0).floor()
+            (rect.left() / CELL_SIZE).floor() != (rect.right() / CELL_SIZE).floor()
         }));
     }
 
     #[test]
     fn advertised_bounds_contain_the_outer_area_tails() {
-        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(25.0));
-        let bounds = effect_bounds(cursor, 25.0);
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let bounds = effect_bounds(cursor, CELL_SIZE);
         for field in 0..32 {
             let effects = cursor_effect_shapes(
                 cursor,
                 bounds.expand(100.0),
-                25.0,
+                CELL_SIZE,
                 sample(1, field, field.rotate_left(7)),
                 CursorEffectSettings::default(),
             );
@@ -614,12 +616,12 @@ mod tests {
 
     #[test]
     fn a_fully_clipped_effect_builds_no_shapes() {
-        let cursor = Rect::from_min_size(Pos2::ZERO, Vec2::splat(25.0));
+        let cursor = Rect::from_min_size(Pos2::ZERO, Vec2::splat(CELL_SIZE));
         let clip = Rect::from_min_size(Pos2::new(1_000.0, 1_000.0), Vec2::splat(100.0));
         let effects = cursor_effect_shapes(
             cursor,
             clip,
-            25.0,
+            CELL_SIZE,
             sample(1, 2, 3),
             CursorEffectSettings::default(),
         );

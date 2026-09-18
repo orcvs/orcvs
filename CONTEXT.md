@@ -10,7 +10,7 @@ _Avoid_: App, Session, Instance, Machine
 
 **Source**:
 The rectangular grid that holds the current Orcvs program as Cells.
-_Avoid_: Document, buffer
+_Avoid_: Document, buffer, canvas
 
 **Grid**:
 The fixed rectangular shape a Source occupies: its column and row counts, and the valid positions within them. The Grid is the shape; the Source is the contents. A Grid has at least one column and one row, and a position outside it does not exist.
@@ -268,6 +268,10 @@ _Avoid_: Host Command, shell command, process execution
 The one Cell the console is editing: a Position drawn with the active Cursor Effect. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
 
+**Region**:
+A rectangle of Positions within the Grid, spanned from an anchor Cell to the Cursor. The Cursor stays one Cell at the Region's live corner; the Region is what holds the extent.
+_Avoid_: Selection, range, block, marquee
+
 **Cursor Effect**:
 The console presentation surrounding the Cursor: an eroded frame on its Cell and a faint animated Area extending through continuous space around it. It changes no Cell content or Token, and its presentation time is independent of Playback and Source revisions.
 _Avoid_: Cell highlight, radial glow, focus matrix
@@ -283,6 +287,18 @@ _Avoid_: Frame, Tick, refresh
 **Paint**:
 The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
 _Avoid_: Shapes, draw list, painter
+
+**Source View**:
+The region of the Source's space the console shows, and the Cell size it shows it at. It never shows beyond the Grid's edges: the Grid is bounded, so its presentation is too.
+_Avoid_: Canvas, camera, viewport, document, scroll position
+
+**Pan**:
+Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan.
+_Avoid_: Scroll, drag
+
+**Zoom**:
+A change of the Source View's Cell size, in stated steps.
+_Avoid_: Scale, pinch, fit
 
 **Panel**:
 The console's performer-facing telemetry surface for one running Orcvs. It is static: it does not move.
