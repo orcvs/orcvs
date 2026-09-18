@@ -75,8 +75,8 @@ impl CellIndex {
 ///
 /// The default is 64 by 40 — a Grid that reads left to right in time, in the
 /// proportion a console is most often given. Cells are square, so these counts
-/// are the Grid's aspect ratio, and a console opened in that proportion spends
-/// all of its area on the Grid rather than on letterboxing.
+/// are the Grid's aspect ratio, and at Zoom 1.0 the default Grid fills the
+/// default window exactly.
 ///
 pub const DEFAULT_COL_COUNT: usize = 64;
 pub const DEFAULT_ROW_COUNT: usize = 40;
