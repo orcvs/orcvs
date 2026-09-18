@@ -493,3 +493,67 @@ async fn a_resized_and_panned_console_still_selects_the_cell_under_the_pointer()
         "a click at {panned:?} on a Grid panned to {pan_after:?}"
     );
 }
+
+///
+/// Issue 06's own criterion, end to end: Alt (Option) held with a primary
+/// drag Pans the Source View through the shipped `Console`, moves the Cursor
+/// nowhere, and reaches the Source as nothing — the whole input path a
+/// trackpad with no middle button takes to Pan by dragging.
+///
+#[tokio::test]
+async fn alt_held_with_a_primary_drag_pans_and_reaches_the_source_as_nothing() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    assert_eq!(
+        cursor(harness.state()),
+        (0, 0),
+        "a fresh console did not open with the Cursor in the corner"
+    );
+
+    // Smaller than the Source on both axes, so there is somewhere to Pan —
+    // the default window is an exact fit at Zoom 1.0 and leaves no room to
+    // Pan at all, the same reason
+    // `a_resized_and_panned_console_still_selects_the_cell_under_the_pointer`
+    // resizes before its own middle-drag Pan.
+    harness.set_size(Vec2::new(320.0, 300.0));
+    harness.run_steps(2);
+
+    let pan_before = harness.state().source_view.pan;
+    let start = cell_centre(&harness, 6, 5);
+    let dragged_to = start - Vec2::new(80.0, 60.0);
+    harness.event(Event::PointerMoved(start));
+    harness.event(Event::ModifiersChanged(Modifiers::ALT));
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::PointerMoved(dragged_to));
+    harness.event(Event::PointerButton {
+        pos: dragged_to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::ModifiersChanged(Modifiers::default()));
+    harness.step();
+    harness.run_steps(1);
+
+    let pan_after = harness.state().source_view.pan;
+    assert_ne!(
+        pan_after, pan_before,
+        "an Alt-held primary drag left the Source View exactly where it was, so this proves nothing"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        (0, 0),
+        "an Alt-held primary drag moved the Cursor"
+    );
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "an Alt-held primary drag reached the Source"
+    );
+}

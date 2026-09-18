@@ -1243,9 +1243,10 @@ fn show_source(
     // Within a layer a later-registered child wins the click tie, and would win
     // the drag too if it sensed drag. The pan rectangle `show_source_scene`
     // allocates is registered before this one, so sensing clicks alone takes
-    // the clicks and leaves the middle-drag pan to it. `Sense::CLICK` rather
-    // than `Sense::click()`, which is `CLICK | FOCUSABLE` and would put the
-    // Grid in the tab order where a thousand Buttons never were.
+    // the clicks and leaves the middle-drag and the Alt-held primary-drag Pan
+    // to it. `Sense::CLICK` rather than `Sense::click()`, which is
+    // `CLICK | FOCUSABLE` and would put the Grid in the tab order where a
+    // thousand Buttons never were.
     //
     // The rectangle is the Grid, not the console area. Surplus console past the
     // Grid's edges is not a Cell, so a click there selects nothing.
@@ -1366,12 +1367,16 @@ struct PresentedSource {
 /// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md` and
 /// `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
 ///
-/// Pan is by wheel or two-finger scroll and by middle-drag, bounded by the
-/// Grid's edges. Pinch and command-wheel do not Zoom: Zoom is a command `=`,
-/// `+`, `-` or `0` chord from the keyboard alone, stepped by
-/// [`GLYPH_SCALE_STEP`] and clamped to [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom
-/// that would open a gap past an edge settles back inside through the same
-/// `clamp_pan` a Pan does.
+/// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
+/// held with a primary drag, bounded by the Grid's edges. A primary click
+/// alone, and a primary drag without Alt, still select a Cell and do not Pan
+/// — [`show_source`]'s own click-sensing rect is what answers those; nothing
+/// here needs to tell the two gestures apart, because a real drag never
+/// resolves as a click regardless of Alt. Pinch and command-wheel do not
+/// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
+/// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
+/// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
+/// settles back inside through the same `clamp_pan` a Pan does.
 ///
 /// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
 /// console Pans just far enough to bring it back, before that same
@@ -1407,7 +1412,16 @@ fn show_source_scene(
     }
     let zoomed = view.zoom != zoom_before_command;
 
-    if pan.dragged_by(PointerButton::Middle) {
+    // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
+    // held, so a trackpad with no middle button still has a way to Pan by
+    // dragging. Without Alt this branch is simply skipped: a primary
+    // gesture that stayed inside the click threshold still resolves to
+    // `show_source`'s own click on release, and one that moved past it
+    // resolves to neither a click nor, now, a Pan — see this function's own
+    // doc comment for why Alt needs no extra guard against either.
+    if pan.dragged_by(PointerButton::Middle)
+        || (pan.dragged_by(PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
+    {
         view.pan += pan.drag_delta();
         pan.mark_changed();
     }
@@ -2297,6 +2311,46 @@ mod tests {
                 pressed: true,
                 modifiers: Modifiers::NONE,
             },
+        ]
+    }
+
+    ///
+    /// The primary button pressed at `point` while Alt (Option) is held —
+    /// the gesture that Pans without a middle button.
+    ///
+    /// `Event::ModifiersChanged` first, the way a real backend reports the
+    /// Option key going down: `ui.input(|i| i.modifiers)` is carried across
+    /// frames from that event alone (`egui`'s own `InputState::begin_pass`),
+    /// not from a `PointerButton` event's own `modifiers` field, so a
+    /// `PointerMoved`-only frame later in the same drag still reads Alt as
+    /// held only because of this.
+    ///
+    fn alt_primary_press_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(point),
+            Event::ModifiersChanged(Modifiers::ALT),
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::ALT,
+            },
+        ]
+    }
+
+    ///
+    /// Alt released along with the primary button at `point`, ending an
+    /// Alt-drag Pan.
+    ///
+    fn alt_primary_release_at(point: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::ALT,
+            },
+            Event::ModifiersChanged(Modifiers::NONE),
         ]
     }
 
@@ -4910,6 +4964,96 @@ mod tests {
         assert_ne!(
             view.pan, before,
             "a middle drag over a Cell did not pan the Source"
+        );
+    }
+
+    ///
+    /// Alt (Option) held with a primary drag Pans by exactly what the
+    /// pointer moved, at a scale that is not one — the same claim
+    /// `a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_under_it`
+    /// makes for the middle button, and the same reason Zoom 2.0 is chosen:
+    /// a leftover multiply by the Zoom would move the Source by the Zoom
+    /// times the pointer.
+    ///
+    #[tokio::test]
+    async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        pinned_at(&mut view, Vec2::ZERO, 2.0);
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.to_global.scaling, 2.0);
+        let anchor = view.to_global.translation;
+
+        let from = screen.min + Vec2::splat(40.0);
+        let moved = Vec2::new(-40.0, -24.0);
+        console_frame(
+            &ctx,
+            screen,
+            alt_primary_press_at(from),
+            &mut orcvs,
+            &mut view,
+        );
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(from + moved)],
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(
+            view.to_global.translation - anchor,
+            moved,
+            "the Source panned by {:?} for a pointer that moved {moved:?}",
+            view.to_global.translation - anchor
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            alt_primary_release_at(from + moved),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(
+            selected_cell(&orcvs),
+            (0, 0),
+            "an Alt-drag moved the Cursor"
+        );
+    }
+
+    ///
+    /// A primary drag without Alt does not Pan — it is either a click, which
+    /// `a_click_selects_the_cell_under_the_pointer_whatever_the_window_size`
+    /// already covers, or a real drag that never resolves as a click either,
+    /// so nothing here reads it as a Pan or a selection.
+    ///
+    #[tokio::test]
+    async fn a_primary_drag_without_alt_does_not_pan() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let over_a_cell = viewport.cell_rect(4, 4).center();
+        let before = view.pan;
+
+        console_frame(&ctx, screen, click_at(over_a_cell), &mut orcvs, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(over_a_cell + Vec2::new(-40.0, -25.0))],
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(
+            view.pan, before,
+            "a primary drag without Alt panned the Source"
         );
     }
 

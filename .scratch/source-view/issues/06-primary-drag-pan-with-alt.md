@@ -4,8 +4,8 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Alt with a primary drag Pans by exactly what the pointer moved, bounded by the Grid's edges.
-- [ ] A primary click alone, and a primary drag without Alt, still select a Cell and do not Pan.
-- [ ] Alt with a primary drag writes nothing to the Source.
+- [x] Alt with a primary drag Pans by exactly what the pointer moved, bounded by the Grid's edges.
+- [x] A primary click alone, and a primary drag without Alt, still select a Cell and do not Pan.
+- [x] Alt with a primary drag writes nothing to the Source.
