@@ -30,6 +30,12 @@ const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 2.0;
+///
+/// How far past the console's edge, in points, a Region drag's pointer has to
+/// be for each point the Source View scrolls a frame after it. A pointer four
+/// Cells out scrolls one Cell a frame, which is the most a frame scrolls.
+///
+const EDGE_SCROLL_REACH: f32 = 4.0;
 
 ///
 /// The step the scale is quantised to before it reaches a [`FontId`].
@@ -530,6 +536,9 @@ struct SourceView {
     /// presents, so it does not Pan away from wherever the console opened
     /// merely because there was nothing yet to compare the Cursor against.
     previous_cursor: Option<Position>,
+    /// The anchor of the primary drag selecting a Region, while one is in
+    /// progress. The Cursor follow is paced to the pointer while it is.
+    region_drag: Option<Position>,
     to_global: TSTransform,
 }
 
@@ -539,6 +548,7 @@ impl Default for SourceView {
             zoom: 1.0,
             pan: Vec2::ZERO,
             previous_cursor: None,
+            region_drag: None,
             to_global: TSTransform::IDENTITY,
         }
     }
@@ -606,6 +616,34 @@ fn follow_axis(pan: f32, min: f32, max: f32, console: f32) -> f32 {
     } else {
         pan
     }
+}
+
+///
+/// How far `pointer` is past each edge of `console`, and zero on an axis where
+/// it is between the two.
+///
+fn overshoot(console: Rect, pointer: Pos2) -> Vec2 {
+    Vec2::new(
+        (console.min.x - pointer.x)
+            .max(pointer.x - console.max.x)
+            .max(0.0),
+        (console.min.y - pointer.y)
+            .max(pointer.y - console.max.y)
+            .max(0.0),
+    )
+}
+
+///
+/// The part of a follow Pan of `wanted` that a Region drag takes this frame:
+/// more the further the pointer `overshoot`s the console, never more than one
+/// Cell of `side`, and none on an axis the pointer has not left.
+///
+fn edge_scroll(wanted: Vec2, overshoot: Vec2, side: f32) -> Vec2 {
+    let most = (overshoot / EDGE_SCROLL_REACH).min(Vec2::splat(side));
+    Vec2::new(
+        wanted.x.clamp(-most.x, most.x),
+        wanted.y.clamp(-most.y, most.y),
+    )
 }
 
 ///
@@ -1230,7 +1268,8 @@ impl SourceShapes {
 }
 
 ///
-/// Draws the Source Grid and answers the one question a click asks of it.
+/// Draws the Source Grid and answers the one question a click asks of it:
+/// which Cell, and whether Shift extends the Region to it.
 ///
 /// The whole Grid is one allocated rectangle and no Cell is a widget, so the
 /// cost of a Render Frame is shapes rather than interaction rects and widget
@@ -1244,8 +1283,8 @@ impl SourceShapes {
 ///
 /// The click is answered rather than acted on. Selecting a Cell is the Source's
 /// business and `Console::ui` owns the running Orcvs it is asked of; handing the
-/// Position back is what leaves this function with nothing but a Render Frame
-/// and a place to draw it.
+/// [`PointerSelection`] back is what leaves this function with nothing but a
+/// Render Frame and a place to draw it.
 ///
 fn show_source(
     ui: &mut egui::Ui,
@@ -1255,7 +1294,7 @@ fn show_source(
     clip: Rect,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
-) -> Option<Position> {
+) -> Option<PointerSelection> {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` the Cells are painted at.
     let source_grid = frame.grid();
@@ -1350,13 +1389,54 @@ fn show_source(
     // The click resolves by division through the viewport the Cells were
     // painted at. With no layer transform, `interact_pointer_pos` is in global
     // points, which is the space the presented Grid is in.
+    // Shift with a click extends the Region from its anchor; a click on its
+    // own collapses it.
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && let Some((column, row)) = viewport.cell_at(pointer, source_grid)
     {
-        source_grid.position(column, row)
+        let extend = ui.input(|i| i.modifiers.shift);
+        source_grid.position(column, row).map(|position| {
+            if extend {
+                PointerSelection::Extend(position)
+            } else {
+                PointerSelection::Select(position)
+            }
+        })
     } else {
         None
+    }
+}
+
+///
+/// What the pointer asked of the Region in one Render Frame.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PointerSelection {
+    /// A click: the Region collapses onto the Cell.
+    Select(Position),
+    /// Shift with a click: the Cursor moves to the Cell and the anchor stays.
+    Extend(Position),
+    /// A primary drag: the Region spans from the pressed Cell to the Cell
+    /// nearest the pointer.
+    Span { anchor: Position, cursor: Position },
+}
+
+impl PointerSelection {
+    ///
+    /// Asks `orcvs` for the Region this selection names. Where the Cursor and
+    /// the anchor are is the running Orcvs's business; the pointer only
+    /// answers which Cells it asked for.
+    ///
+    fn apply(self, orcvs: &mut Orcvs) {
+        match self {
+            Self::Select(position) => orcvs.select(position),
+            Self::Extend(position) => orcvs.extend(position),
+            Self::Span { anchor, cursor } => {
+                orcvs.select(anchor);
+                orcvs.extend(cursor);
+            }
+        }
     }
 }
 
@@ -1370,15 +1450,15 @@ fn show_source(
 struct PresentedSource {
     /// The viewport the Cells were drawn at.
     viewport: GridViewport,
-    /// The Cell the viewer clicked, for the caller that owns the Source to
-    /// select.
-    clicked: Option<Position>,
+    /// The Region the viewer's click or drag asked for, for the caller that
+    /// owns the Source to select.
+    selection: Option<PointerSelection>,
 }
 
 ///
 /// Shows the Source in the console area at the Source View's Zoom and Pan, and
-/// answers the geometry it was presented under along with the Cell a click
-/// asked for.
+/// answers the geometry it was presented under along with the Region a click
+/// or a drag asked for.
 ///
 /// The console owns the scale and translation the Source is presented under —
 /// `view.to_global` — and `grid_viewport::presented_grid` is the one place that
@@ -1390,10 +1470,12 @@ struct PresentedSource {
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
 /// held with a primary drag, bounded by the Grid's edges. A primary click
-/// alone, and a primary drag without Alt, still select a Cell and do not Pan
-/// — [`show_source`]'s own click-sensing rect is what answers those; nothing
-/// here needs to tell the two gestures apart, because a real drag never
-/// resolves as a click regardless of Alt. Pinch and command-wheel do not
+/// selects a Cell — [`show_source`]'s own click-sensing rect answers it, with
+/// Shift extending the Region rather than collapsing it — and a primary drag
+/// without Alt selects a Region from the pressed Cell to the Cell nearest the
+/// pointer; neither Pans. A drag past the console's edge scrolls after the
+/// Cursor at the pointer's pace, at most one Cell a frame — see
+/// `docs/adr/0046-the-primary-drag-selects-a-region.md`. Pinch and command-wheel do not
 /// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
 /// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
 /// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
@@ -1405,9 +1487,9 @@ struct PresentedSource {
 /// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
 /// from this same Render Frame — `Console::ui` reads it after
 /// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
-/// A click's Cursor move reaches the Source only after this call returns
-/// (`Console::ui` calls `orcvs.select` next), so a click that would scroll
-/// its own Cell out of view is followed on the frame after, not this one.
+/// A click's or a drag's Cursor move reaches the Source only after this call
+/// returns (`Console::ui` applies the [`PointerSelection`] next), so it is
+/// followed on the frame after, not this one.
 ///
 fn show_source_scene(
     ui: &mut egui::Ui,
@@ -1435,13 +1517,16 @@ fn show_source_scene(
 
     // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
     // held, so a trackpad with no middle button still has a way to Pan by
-    // dragging. Without Alt this branch is simply skipped: a primary
-    // gesture that stayed inside the click threshold still resolves to
-    // `show_source`'s own click on release, and one that moved past it
-    // resolves to neither a click nor, now, a Pan — see this function's own
-    // doc comment for why Alt needs no extra guard against either.
+    // dragging. Without Alt this branch is skipped: a primary gesture that
+    // stayed inside the click threshold resolves to `show_source`'s own click
+    // on release, and one that moved past it selects a Region below.
+    //
+    // A primary drag that began selecting a Region stays one if Alt is
+    // pressed partway through it.
     if pan.dragged_by(PointerButton::Middle)
-        || (pan.dragged_by(PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
+        || (pan.dragged_by(PointerButton::Primary)
+            && view.region_drag.is_none()
+            && ui.input(|i| i.modifiers.alt))
     {
         view.pan += pan.drag_delta();
         pan.mark_changed();
@@ -1472,8 +1557,22 @@ fn show_source_scene(
     // Grid as drawn rather than the unsnapped extent the Zoom asked for.
     let side = snapped_cell_side(CELL_SIZE * view.zoom, ui.ctx().pixels_per_point());
 
-    if cursor_moved || zoomed {
+    // A Region drag follows the Cursor at the pointer's pace rather than in
+    // one jump, so the Source View scrolls after a pointer held past the edge
+    // — the Cursor is the Cell nearest the pointer, one past the edge — and
+    // keeps scrolling each frame the pointer stays there, which is why this
+    // frame asks for the next.
+    let pointer = ui.input(|i| i.pointer.interact_pos());
+    let dragging_region = view.region_drag.is_some() && pan.dragged_by(PointerButton::Primary);
+    if zoomed || (cursor_moved && !dragging_region) {
         view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side));
+    } else if dragging_region && let Some(pointer) = pointer {
+        let past = overshoot(console, pointer);
+        let wanted = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side)) - view.pan;
+        view.pan += edge_scroll(wanted, past, side);
+        if past != Vec2::ZERO {
+            ui.ctx().request_repaint();
+        }
     }
 
     let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * side;
@@ -1502,9 +1601,33 @@ fn show_source_scene(
         cursor_effect_settings,
     );
 
+    // A primary drag without Alt selects a Region: its anchor is the Cell the
+    // press landed on, and a press off the Grid selects nothing. The drag is
+    // decided once the pointer has moved past egui's click distance, so the
+    // anchor is read from where the press began rather than where the
+    // pointer is now.
+    if pan.drag_started_by(PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
+        view.region_drag = ui
+            .input(|i| i.pointer.press_origin())
+            .and_then(|origin| grid.cell_at(origin, source_grid))
+            .and_then(|(column, row)| source_grid.position(column, row));
+    }
+    let spanned = view
+        .region_drag
+        .zip(
+            pointer
+                .and_then(|pointer| grid.nearest_cell(pointer, source_grid))
+                .and_then(|(column, row)| source_grid.position(column, row)),
+        )
+        .map(|(anchor, cursor)| PointerSelection::Span { anchor, cursor });
+    // Release keeps the Region the drag last spanned.
+    if !pan.dragged_by(PointerButton::Primary) {
+        view.region_drag = None;
+    }
+
     PresentedSource {
         viewport: grid,
-        clicked,
+        selection: spanned.or(clicked),
     }
 }
 
@@ -1845,11 +1968,11 @@ impl eframe::App for Console {
                     cursor_effect_settings,
                 );
                 cell_size = presented.viewport.cell_size;
-                // The Source Grid answers which Cell was clicked; moving the
-                // Cursor there is the Source's own business, and this is where
-                // the running Orcvs is owned.
-                if let Some(position) = presented.clicked {
-                    orcvs.select(position);
+                // The Source Grid answers which Cells the pointer asked for;
+                // moving the Cursor and the anchor there is the Source's own
+                // business, and this is where the running Orcvs is owned.
+                if let Some(selection) = presented.selection {
+                    selection.apply(orcvs);
                 }
 
                 let cursor_rect = presented
@@ -2313,8 +2436,8 @@ mod tests {
         // What `Console::ui` does with the answer, done here for the same
         // reason: the Source Grid reports the Cell and the caller that owns the
         // running Orcvs moves the Cursor to it.
-        if let Some(position) = presented.clicked {
-            orcvs.select(position);
+        if let Some(selection) = presented.selection {
+            selection.apply(orcvs);
         }
 
         (presented.viewport, painted)
@@ -5184,8 +5307,8 @@ mod tests {
     ///
     /// A primary drag without Alt does not Pan — it is either a click, which
     /// `a_click_selects_the_cell_under_the_pointer_whatever_the_window_size`
-    /// already covers, or a real drag that never resolves as a click either,
-    /// so nothing here reads it as a Pan or a selection.
+    /// already covers, or a drag that selects a Region, which
+    /// `a_primary_drag_spans_a_region_that_release_keeps` covers.
     ///
     #[tokio::test]
     async fn a_primary_drag_without_alt_does_not_pan() {
@@ -5211,6 +5334,201 @@ mod tests {
             view.pan, before,
             "a primary drag without Alt panned the Source"
         );
+    }
+
+    fn region_of(orcvs: &Orcvs) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+        let region = orcvs.region();
+        (region.columns(), region.rows())
+    }
+
+    ///
+    /// A primary press sets the anchor on the pressed Cell, the drag moves the
+    /// Cursor to the Cell under the pointer, and release keeps the Region.
+    ///
+    #[tokio::test]
+    async fn a_primary_drag_spans_a_region_that_release_keeps() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let (from, to) = (
+            viewport.cell_rect(6, 4).center(),
+            viewport.cell_rect(2, 2).center(),
+        );
+        console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(to)],
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(region_of(&orcvs), (2..7, 2..5));
+        assert_eq!(selected_cell(&orcvs), (2, 2), "the Cursor is the live end");
+
+        console_frame(&ctx, screen, release_at(to), &mut orcvs, &mut view);
+        assert_eq!(
+            region_of(&orcvs),
+            (2..7, 2..5),
+            "release dropped the Region"
+        );
+    }
+
+    ///
+    /// A primary click collapses the Region onto the clicked Cell, and Shift
+    /// with a click extends it from the anchor it already has.
+    ///
+    #[tokio::test]
+    async fn a_click_collapses_the_region_and_a_shift_click_extends_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        let grid = orcvs.grid();
+        orcvs.select(grid.position(1, 1).expect("inside the Grid"));
+        orcvs.extend(grid.position(9, 9).expect("inside the Grid"));
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        click(
+            &ctx,
+            screen,
+            viewport.cell_rect(3, 2).center(),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(region_of(&orcvs), (3..4, 2..3));
+
+        let shift_at = viewport.cell_rect(7, 5).center();
+        let shifted = |pressed| Event::PointerButton {
+            pos: shift_at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::SHIFT,
+        };
+        console_frame(
+            &ctx,
+            screen,
+            vec![
+                Event::PointerMoved(shift_at),
+                Event::ModifiersChanged(Modifiers::SHIFT),
+                shifted(true),
+            ],
+            &mut orcvs,
+            &mut view,
+        );
+        // Shift is let go after the button, as a viewer lets it go: the
+        // click resolves on release and reads Shift then.
+        console_frame(&ctx, screen, vec![shifted(false)], &mut orcvs, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::ModifiersChanged(Modifiers::NONE)],
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(region_of(&orcvs), (3..8, 2..6));
+        assert_eq!(selected_cell(&orcvs), (7, 5));
+    }
+
+    ///
+    /// A drag past the console's edge moves the Cursor past it and scrolls
+    /// after it: faster the further the pointer is outside, never more than
+    /// one Cell a frame, and never past the Grid.
+    ///
+    #[tokio::test]
+    async fn a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_grid() {
+        // The Pan step each of `frames` frames takes with the pointer held
+        // `outside` points past the console's right edge.
+        fn steps(outside: f32, frames: usize) -> (Vec<f32>, Orcvs, SourceView, Rect) {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+            let mut orcvs = running_orcvs(32, 32);
+            let mut view = SourceView::default();
+            let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            let from = viewport.cell_rect(20, 5).center();
+            console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+            console_frame(
+                &ctx,
+                screen,
+                vec![Event::PointerMoved(Pos2::new(
+                    screen.max.x + outside,
+                    from.y,
+                ))],
+                &mut orcvs,
+                &mut view,
+            );
+            let mut steps = Vec::new();
+            for _ in 0..frames {
+                let before = view.pan.x;
+                console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+                steps.push(before - view.pan.x);
+            }
+            (steps, orcvs, view, screen)
+        }
+
+        let (near, ..) = steps(8.0, 3);
+        let (far, orcvs, view, screen) = steps(200.0, 40);
+        let side = CELL_SIZE;
+
+        assert!(near[0] > 0.0, "a drag just past the edge did not scroll");
+        assert!(
+            far[0] > near[0],
+            "a drag further out scrolled no faster: {far:?} against {near:?}"
+        );
+        assert!(
+            far.iter().chain(&near).all(|step| *step <= side),
+            "a frame scrolled more than one Cell: {far:?}"
+        );
+        // Never past the Grid: the console's right edge meets the Grid's.
+        assert_eq!(view.pan.x, screen.width() - 32.0 * side);
+        assert_eq!(selected_cell(&orcvs), (31, 5));
+    }
+
+    ///
+    /// Alt with a primary drag, and a middle drag, Pan and leave the Region as
+    /// it was.
+    ///
+    #[tokio::test]
+    async fn an_alt_drag_and_a_middle_drag_leave_the_region() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        let grid = orcvs.grid();
+        orcvs.select(grid.position(1, 1).expect("inside the Grid"));
+        orcvs.extend(grid.position(4, 3).expect("inside the Grid"));
+        let region = orcvs.region();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let from = viewport.cell_rect(8, 8).center();
+        let to = from + Vec2::new(-60.0, -40.0);
+        for (press, release) in [
+            (alt_primary_press_at(from), alt_primary_release_at(to)),
+            (
+                middle_press_at(from),
+                vec![Event::PointerButton {
+                    pos: to,
+                    button: egui::PointerButton::Middle,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            ),
+        ] {
+            let before = view.pan;
+            console_frame(&ctx, screen, press, &mut orcvs, &mut view);
+            console_frame(
+                &ctx,
+                screen,
+                vec![Event::PointerMoved(to)],
+                &mut orcvs,
+                &mut view,
+            );
+            console_frame(&ctx, screen, release, &mut orcvs, &mut view);
+            assert_ne!(view.pan, before, "the drag did not Pan");
+            assert_eq!(orcvs.region(), region, "the drag moved the Region");
+        }
     }
 
     ///
