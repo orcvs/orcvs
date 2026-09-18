@@ -490,12 +490,24 @@ fn source_bounds(grid: Grid) -> Rect {
 /// bounded by the Grid: an axis the whole Source already fills has nowhere to
 /// Pan, and a Pan that would open a gap past an edge settles back inside.
 ///
+/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
+/// console Pans the least distance that brings the whole Cell back into view,
+/// still bounded by the Grid; a Pan on its own does not chase the Cursor.
+/// `previous_cursor` is what tells a Cursor move apart from a frame that
+/// merely redrew it — see `docs/adr/0045-the-source-view-is-a-bounded-space.md`.
+///
 /// `to_global` is derived each frame from Zoom, Pan and the console's origin
 /// so `presented_grid` and the diagnostics still read one transform.
 ///
 struct SourceView {
     zoom: f32,
     pan: Vec2,
+    /// The Cursor [`show_source_scene`] last saw, so a change from one frame
+    /// to the next reads as a Cursor move worth following rather than every
+    /// frame answering yes. `None` before the first frame a fresh `SourceView`
+    /// presents, so it does not Pan away from wherever the console opened
+    /// merely because there was nothing yet to compare the Cursor against.
+    previous_cursor: Option<Position>,
     to_global: TSTransform,
 }
 
@@ -504,6 +516,7 @@ impl Default for SourceView {
         Self {
             zoom: 1.0,
             pan: Vec2::ZERO,
+            previous_cursor: None,
             to_global: TSTransform::IDENTITY,
         }
     }
@@ -526,6 +539,51 @@ fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
         0.0
     } else {
         pan.clamp(slack, 0.0)
+    }
+}
+
+///
+/// The Cursor's Cell as a rectangle in the same unpanned, zoomed Source-local
+/// points [`source_bounds`] and [`clamp_pan`] already share.
+///
+fn cursor_cell(cursor: Position, zoom: f32) -> Rect {
+    let side = CELL_SIZE * zoom;
+    Rect::from_min_size(
+        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side,
+        Vec2::splat(side),
+    )
+}
+
+///
+/// The Pan that brings `cell` — already in the same units as `pan` once
+/// translated by it — fully inside a console of `console_size`, moving the
+/// least distance along each axis and leaving an axis alone where the Cell
+/// already shows in full.
+///
+/// Not itself bounded by the Grid: [`clamp_pan`] runs after this wherever it
+/// is called, so a Cell nearer an edge than the console is wide settles
+/// against that edge rather than opening a gap past it.
+///
+fn follow_cursor(pan: Vec2, console_size: Vec2, cell: Rect) -> Vec2 {
+    let shown = cell.translate(pan);
+    Vec2::new(
+        follow_axis(pan.x, shown.min.x, shown.max.x, console_size.x),
+        follow_axis(pan.y, shown.min.y, shown.max.y, console_size.y),
+    )
+}
+
+///
+/// One axis of [`follow_cursor`]: shift `pan` by exactly the overflow past
+/// whichever edge the Cell has fallen outside, or leave it be when the Cell
+/// already sits between the two.
+///
+fn follow_axis(pan: f32, min: f32, max: f32, console: f32) -> f32 {
+    if min < 0.0 {
+        pan - min
+    } else if max > console {
+        pan - (max - console)
+    } else {
+        pan
     }
 }
 
@@ -1315,6 +1373,16 @@ struct PresentedSource {
 /// that would open a gap past an edge settles back inside through the same
 /// `clamp_pan` a Pan does.
 ///
+/// A Cursor move or a Zoom that would leave the Cursor's Cell outside the
+/// console Pans just far enough to bring it back, before that same
+/// `clamp_pan` settles the result inside the Grid; a Pan with neither is not
+/// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
+/// from this same Render Frame — `Console::ui` reads it after
+/// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
+/// A click's Cursor move reaches the Source only after this call returns
+/// (`Console::ui` calls `orcvs.select` next), so a click that would scroll
+/// its own Cell out of view is followed on the frame after, not this one.
+///
 fn show_source_scene(
     ui: &mut egui::Ui,
     frame: &RenderFrame,
@@ -1333,9 +1401,11 @@ fn show_source_scene(
     }
     view.zoom = view.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
 
+    let zoom_before_command = view.zoom;
     if let Some(command) = ui.input(|i| i.events.iter().find_map(zoom_command)) {
         view.zoom = stepped_zoom(view.zoom, command);
     }
+    let zoomed = view.zoom != zoom_before_command;
 
     if pan.dragged_by(PointerButton::Middle) {
         view.pan += pan.drag_delta();
@@ -1348,6 +1418,22 @@ fn show_source_scene(
             view.pan += pan_delta;
             pan.mark_changed();
         }
+    }
+
+    // A Cursor move is a change from the Cursor `previous_cursor` last saw,
+    // not every frame the Cursor happens to be drawn — otherwise an ordinary
+    // Pan with the Cursor already out of view would be pulled straight back
+    // to it. `None` on a fresh `SourceView`'s first frame answers no move, so
+    // the console does not Pan away from where it opened before anything has
+    // moved the Cursor at all.
+    let cursor = frame.cursor();
+    let cursor_moved = view
+        .previous_cursor
+        .is_some_and(|previous| previous != cursor);
+    view.previous_cursor = Some(cursor);
+
+    if cursor_moved || zoomed {
+        view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, view.zoom));
     }
 
     let source_size = source.size() * view.zoom;
@@ -5362,12 +5448,17 @@ mod tests {
     /// A command Zoom that would open a gap past an edge settles the Source
     /// View back inside the Grid, through the same `clamp_pan` a Pan uses.
     ///
+    /// The Cursor is moved to the Cell the pinned Pan already shows, at the
+    /// far corner, so issue 05's follow has nothing to do here: what settles
+    /// the gap below is `clamp_pan` alone, which is this test's own claim.
+    ///
     #[tokio::test]
     async fn a_command_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = running_orcvs(32, 32);
         let mut view = SourceView::default();
+        orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
 
         // 32 Cells of 16 points is 512 points; at `MAX_ZOOM` that is 1024, and
         // panning fully to the far edge of a 200 point console takes -824.
@@ -5393,6 +5484,172 @@ mod tests {
             view.pan,
             Vec2::new(-760.0, -760.0),
             "the Zoom left a gap past the Grid: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A fresh `SourceView`'s first frame does not Pan to the Cursor, however
+    /// far a fixture puts it from an unpanned top-left origin. Issue 05's
+    /// follow needs a previous Cursor to compare against, and there is none
+    /// yet on the very first frame — the same reason a Source reload would
+    /// not surprise a viewer either.
+    ///
+    #[tokio::test]
+    async fn a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        // Column 30 at Zoom 1.0 is far outside a 200 point console.
+        orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "the first frame panned to a Cursor it had no previous position for"
+        );
+    }
+
+    ///
+    /// A Cursor move that would leave the Cursor outside the Source View Pans
+    /// the least distance that shows the whole Cursor Cell, still bounded by
+    /// the Grid's edges.
+    ///
+    #[tokio::test]
+    async fn a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
+
+        // Column and row 30 at Zoom 1.0 sit at 480..496, entirely past a 200
+        // point console on both axes.
+        orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            view.pan,
+            Vec2::new(-296.0, -296.0),
+            "the Cursor move did not Pan the least distance that shows it: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A Zoom that would leave the Cursor outside the Source View Pans the
+    /// least distance that shows it, the same as a Cursor move does.
+    ///
+    #[tokio::test]
+    async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        // Already past a 200 point console at Zoom 1.0 (240..256), but the
+        // first frame below only records it: see
+        // `a_fresh_source_view_does_not_pan_to_the_cursor_on_its_first_frame`.
+        orcvs.select(orcvs.grid().position(15, 15).expect("inside the grid"));
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "the fixture's first frame already Panned"
+        );
+
+        console_frame(
+            &ctx,
+            screen,
+            command_zoom_at(Key::Equals),
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(view.zoom, 1.125, "command Equals did not step the Zoom in");
+        assert_eq!(
+            view.pan,
+            Vec2::new(-88.0, -88.0),
+            "the Zoom did not Pan the least distance that shows the Cursor: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// A Pan with no Cursor move and no Zoom is not pulled back to the
+    /// Cursor, even while the Cursor sits outside the Source View.
+    ///
+    #[tokio::test]
+    async fn a_pan_with_no_cursor_move_and_no_zoom_is_not_pulled_back_to_the_cursor() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        orcvs.select(orcvs.grid().position(30, 30).expect("inside the grid"));
+
+        // First frame: no previous Cursor to compare against, so no follow.
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO);
+
+        // A wheel Pan all the way to the Grid's far edge, with the Cursor
+        // still unmoved at (30, 30) and no Zoom. Large enough that
+        // `smooth_scroll_delta` settles it in one frame the way
+        // `wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere`
+        // already relies on. Left to the follow this would land at
+        // (-296, -296) instead — see
+        // `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`
+        // — so landing on the Grid's own edge at (-312, -312) is what proves
+        // a Pan alone is not chasing the Cursor.
+        let over = screen.min + Vec2::splat(50.0);
+        console_frame(
+            &ctx,
+            screen,
+            wheel_at(over, Vec2::new(-1_000.0, -1_000.0)),
+            &mut orcvs,
+            &mut view,
+        );
+
+        assert_eq!(
+            view.pan,
+            Vec2::new(-312.0, -312.0),
+            "a Pan alone was pulled back toward the Cursor: {:?}",
+            view.pan
+        );
+    }
+
+    ///
+    /// The follow Pan is itself naive — it only asks whether the Cursor's
+    /// Cell already shows inside the console — so an already out-of-bounds
+    /// Pan it leaves untouched still has to settle back inside the Grid
+    /// through `clamp_pan`, the same as an ordinary Pan or Zoom does.
+    ///
+    #[tokio::test]
+    async fn the_follow_pan_is_still_bounded_by_the_grids_edges() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
+
+        // A Pan past the Grid's near edge, which nothing but `clamp_pan` can
+        // answer: at Zoom 1.0 the Cursor's new Cell (5, 0) sits at 80..96,
+        // already inside a 200 point console once this Pan is applied, so the
+        // follow itself has nothing to add.
+        pinned_at(&mut view, Vec2::new(50.0, 50.0), 1.0);
+        orcvs.select(orcvs.grid().position(5, 0).expect("inside the grid"));
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "clamp_pan did not settle the follow's own Pan back inside the Grid: {:?}",
             view.pan
         );
     }

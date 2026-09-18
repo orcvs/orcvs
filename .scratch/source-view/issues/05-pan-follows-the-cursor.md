@@ -4,9 +4,9 @@
 
 **Blocked by:** 02, 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A Cursor move that would leave the Cursor outside the Source View Pans the least distance that shows it.
-- [ ] A Zoom that would leave the Cursor outside the Source View Pans the least distance that shows it.
-- [ ] A Pan with no Cursor move and no Zoom is not pulled back to the Cursor.
-- [ ] The follow Pan is still bounded by the Grid's edges.
+- [x] A Cursor move that would leave the Cursor outside the Source View Pans the least distance that shows it.
+- [x] A Zoom that would leave the Cursor outside the Source View Pans the least distance that shows it.
+- [x] A Pan with no Cursor move and no Zoom is not pulled back to the Cursor.
+- [x] The follow Pan is still bounded by the Grid's edges.

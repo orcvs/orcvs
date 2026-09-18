@@ -79,8 +79,8 @@
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
-use super::{Console, DEFAULT_VIEW_SIZE, source_bounds};
-use crate::grid_viewport::{GridViewport, presented_grid};
+use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, source_bounds};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
@@ -249,6 +249,70 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
         cursor(harness.state()),
         (3, 1),
         "quiet frames moved the Cursor"
+    );
+}
+
+///
+/// Issue 05's own criterion, end to end: an ArrowRight run that pushes the
+/// Cursor past the console Pans the Source View to bring it back, the same
+/// frame the keys reach the Source (`Console::ui` reads the Render Frame
+/// after `Orcvs::event_handler` runs).
+///
+/// The default window shows the whole default Grid with nowhere to Pan, so
+/// this Zooms to `MAX_ZOOM` first — command Zoom is keyboard-only and leaves
+/// the window and its Panels exactly as they were, so the console's own width
+/// is still the default window's, `DEFAULT_VIEW_SIZE[0]`, with none of a
+/// resize's uncertainty about how tall the Panels leave the console.
+///
+#[tokio::test]
+async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_follow_it() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    for _ in 0..8 {
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+    }
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().source_view.zoom,
+        MAX_ZOOM,
+        "eight command Equals did not reach MAX_ZOOM"
+    );
+    assert_eq!(
+        harness.state().source_view.pan,
+        Vec2::ZERO,
+        "Zooming in on an unmoved Cursor already in view Panned regardless"
+    );
+
+    // At `MAX_ZOOM` a Cell is `CELL_SIZE * MAX_ZOOM` points, and the default
+    // window is `DEFAULT_VIEW_SIZE[0]` points wide whatever the Zoom — so
+    // Column 40 sits well past it.
+    for _ in 0..40 {
+        harness.key_press(egui::Key::ArrowRight);
+    }
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        cursor(harness.state()),
+        (40, 0),
+        "forty ArrowRight presses did not reach the Source"
+    );
+
+    let cell_at_max_zoom = CELL_SIZE * MAX_ZOOM;
+    let console_width = DEFAULT_VIEW_SIZE[0];
+    let pan = harness.state().source_view.pan;
+    assert_eq!(
+        pan,
+        Vec2::new(console_width - 41.0 * cell_at_max_zoom, 0.0),
+        "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}"
+    );
+
+    let column_40 = presented_source(&harness).cell_rect(40, 0);
+    assert!(
+        column_40.min.x >= 0.0 && column_40.max.x <= console_width,
+        "Column 40 is still out of view at {column_40:?} in a console {console_width} points wide"
     );
 }
 
