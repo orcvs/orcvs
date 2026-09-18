@@ -708,13 +708,16 @@ pub struct Console {
     /// occupied and so focus is the same id the field is shown under.
     #[cfg(test)]
     bpm_widget_id: egui::Id,
-    /// Focus is from the previous frame: `event_handler` runs before widgets,
-    /// so this frame's keys would reach Source and Playback while the field
-    /// is already focused unless they are held back here.
-    bpm_field_focused: bool,
-    /// Same last-frame latch as `bpm_field_focused`, for the destination
-    /// ComboBox: digits typed while it is open would otherwise write Source.
-    destination_combo_focused: bool,
+    /// Whether keyboard input belonged to a control rather than the Source
+    /// when the last frame's widgets were done: any widget holding egui's
+    /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
+    /// `Memory::focused().is_some()`, `egui-0.36.1/src/context.rs:2982-2985`),
+    /// or the destination ComboBox while its list is open, which takes no
+    /// focus. Latched rather than asked where it is read, because
+    /// `event_handler` runs before this frame's widgets are shown, and
+    /// `Memory::begin_pass` has already let Escape clear the focus it was
+    /// pressed to leave (`egui-0.36.1/src/memory/mod.rs:596-601`).
+    keyboard_elsewhere: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
     reduced_motion: bool,
@@ -791,8 +794,7 @@ impl Console {
             diagnostics_open: false,
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
-            bpm_field_focused: false,
-            destination_combo_focused: false,
+            keyboard_elsewhere: false,
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
             reduced_motion: prefers_reduced_motion(),
@@ -1521,8 +1523,12 @@ fn show_source_scene(
 ) -> PresentedSource {
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
+    // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
+    // which adds `FOCUSABLE` (`egui-0.36.1/src/sense.rs:81-83`) and would let
+    // Tab focus the console area, where a focused widget keeps every key from
+    // the Source.
     let (console, mut pan) =
-        ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
+        ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
 
     if !view.zoom.is_finite() || view.zoom <= 0.0 {
         view.zoom = 1.0;
@@ -1842,14 +1848,19 @@ impl eframe::App for Console {
             escape: true,
         };
 
-        // Keys belong to the field or ComboBox while it has focus. The flag
-        // is last frame's, because this frame's events are collected before
-        // the widgets are shown and would otherwise write Source or toggle
-        // Playback in the same pass they are already editing.
-        if self.bpm_field_focused {
+        // Keys belong to whichever control held focus when last frame's
+        // widgets were done. Last frame's, because this frame's events are
+        // collected before the widgets are shown and would otherwise write
+        // Source or toggle Playback in the same pass a control is already
+        // editing. egui offers no per-event answer to whether a widget used
+        // an event — `TextEdit` reads its events without consuming them
+        // (`egui-0.36.1/src/widgets/text_edit/builder.rs:1081`) — and names
+        // `egui_wants_keyboard_input` as the question to ask instead
+        // (`egui-0.36.1/src/data/input/raw_input.rs:56-60`).
+        if ctx.memory(|memory| memory.had_focus_last_frame(egui::Id::new(BPM_FIELD_ID))) {
             ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
         }
-        if !self.bpm_field_focused && !self.destination_combo_focused {
+        if !self.keyboard_elsewhere {
             // A command Zoom chord answers `show_source_scene`, not the
             // Source. `egui-winit` and eframe's web backend both withhold
             // `Event::Text` while a command modifier is held
@@ -1869,6 +1880,10 @@ impl eframe::App for Console {
             if let Some(copied) = self.orcvs.event_handler(events).copied {
                 ctx.copy_text(copied);
             }
+        } else {
+            // Keys a control took are still the event that follows a command
+            // Enter, so they disarm its fill as one reaching the Source would.
+            self.orcvs.disarm_fill();
         }
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
@@ -1890,6 +1905,7 @@ impl eframe::App for Console {
         // while Playback is stopped. Tick and Run Clock are the engine's
         // published Readouts. Destination is chosen from the ComboBox;
         // Scan asks the engine to discover again. There is no periodic polling.
+        let mut destination_combo_open = false;
         egui::Panel::bottom("bottom_panel")
             .resizable(false)
             .min_size(BOTTOM_PANEL_HEIGHT)
@@ -1904,18 +1920,15 @@ impl eframe::App for Console {
                         panel_label(ui, "B");
                         ui.add_space(label_value_gap);
                         let mut bpm = self.orcvs.bpm().beats_per_minute();
-                        let (response, committed) = add_bpm_field(ui, &mut bpm);
+                        // The field is shown under `BPM_FIELD_ID`, the id
+                        // `Console::new` already gave `bpm_widget_id`.
+                        let (_, committed) = add_bpm_field(ui, &mut bpm);
                         if committed
                             && let Some(next) = Bpm::new(bpm)
                             && next != self.orcvs.bpm()
                         {
                             self.orcvs.set_bpm(next);
                         }
-                        #[cfg(test)]
-                        {
-                            self.bpm_widget_id = response.id;
-                        }
-                        self.bpm_field_focused = response.has_focus();
                         ui.add_space(label_value_gap);
                         let beat_text = format_beat_marker(observation.state, observation.on_beat);
                         let beat_width = monospace_width(ui, BEAT_MARKER);
@@ -1983,8 +1996,8 @@ impl eframe::App for Console {
                             {
                                 self.midi.refresh_destinations();
                             }
-                            self.destination_combo_focused = combo_response.response.has_focus()
-                                || egui::ComboBox::is_open(ui.ctx(), combo_response.response.id);
+                            destination_combo_open =
+                                egui::ComboBox::is_open(ui.ctx(), combo_response.response.id);
                             if selected != selected_id
                                 && let Some(id) = selected.as_ref()
                             {
@@ -2012,8 +2025,7 @@ impl eframe::App for Console {
                     diagnostics_open: _,
                     #[cfg(test)]
                         bpm_widget_id: _,
-                    bpm_field_focused: _,
-                    destination_combo_focused: _,
+                    keyboard_elsewhere: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
                     reduced_motion: _,
@@ -2070,6 +2082,10 @@ impl eframe::App for Console {
                 cell_size,
             );
         }
+
+        // Sampled once every widget, the Diagnostics window's included, has
+        // been shown and has taken or surrendered focus.
+        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || destination_combo_open;
     }
 }
 
@@ -3501,6 +3517,68 @@ mod tests {
             console.orcvs.region(),
             region,
             "Escape in the BPM field collapsed the Region"
+        );
+    }
+
+    ///
+    /// A fill armed by command Enter waits for the next event, and typing into
+    /// the BPM field is that event even though the field, not the Source,
+    /// received it. A character typed back in the Source afterwards writes one
+    /// Cell rather than filling the Region the chord was pressed over.
+    ///
+    #[tokio::test]
+    async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let grid = console.orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        console.orcvs.extend(at(2, 1));
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![command_key_event(Key::Enter)],
+            &mut console,
+            &mut host,
+        );
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("120".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Enter, true)],
+            &mut console,
+            &mut host,
+        );
+        assert!(
+            !ctx.memory(|memory| memory.has_focus(bpm_field_id(&console))),
+            "Enter left the BPM field focused"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("x".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        let frame = console.orcvs.render_frame();
+        assert_eq!(
+            frame.at(at(0, 0)).content(),
+            None,
+            "a fill armed before the BPM field took the keys filled the Region"
         );
     }
 

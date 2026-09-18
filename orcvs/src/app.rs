@@ -370,6 +370,16 @@ impl<S> Orcvs<S> {
     }
 
     ///
+    /// Disarms a fill armed by command Enter, for input that went to
+    /// something other than the Source and so never reaches
+    /// [`event_handler`](Self::event_handler) as the event that would have
+    /// disarmed it.
+    ///
+    pub fn disarm_fill(&mut self) {
+        self.fill_armed = false;
+    }
+
+    ///
     /// Moves the Cursor to `position` and keeps the anchor, so the Region
     /// spans from the anchor to `position`. Disarms a fill, as
     /// [`select`](Self::select) does.
@@ -1304,6 +1314,29 @@ mod test {
         app.event_handler(vec![InputEvent::Text("z".to_owned())]);
         assert_eq!(rows(&app), ["z.y.", ".x.."]);
         assert_eq!(app.region(), Region::at(grid, at(1, 0)));
+    }
+
+    ///
+    /// Keys another control took between the chord and the character are
+    /// events the Source never sees, so its presenter disarms the fill for
+    /// them and the character is typed at the Cursor.
+    ///
+    #[tokio::test]
+    async fn a_fill_disarmed_for_input_elsewhere_types_the_next_character() {
+        use super::InputEvent;
+
+        let mut app = written(&["....", "...."]);
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(0, 0));
+        app.extend(at(1, 1));
+
+        app.event_handler(vec![InputEvent::Fill]);
+        app.disarm_fill();
+        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
+
+        assert_eq!(rows(&app), ["....", ".x.."]);
+        assert_eq!(app.region(), Region::at(grid, at(2, 1)));
     }
 
     #[tokio::test]

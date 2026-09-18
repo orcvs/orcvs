@@ -634,3 +634,116 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
          console: {column_12:?}"
     );
 }
+
+///
+/// Keyboard input belongs to whichever control holds egui's focus, not only
+/// to the two the console named. The Theme menu's "Glitch amount" Slider
+/// carries an editable `DragValue`; with its value box focused, command A,
+/// Backspace, and a paste are that box's text editing and must reach nothing
+/// in the Source.
+///
+/// Egui states the rule itself: `RawInput::events` has "no way to know if
+/// egui handles a particular event, but you can check if egui is using the
+/// keyboard with `Context::egui_wants_keyboard_input`"
+/// (`egui-0.36.1/src/data/input/raw_input.rs:56-60`).
+///
+#[tokio::test]
+async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from_the_source() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    let origin_content = |console: &Console| {
+        let frame = console.orcvs.render_frame();
+        frame.at(frame.grid().origin()).content()
+    };
+    assert_eq!(
+        origin_content(harness.state()),
+        Some('x'),
+        "the setup character never reached the Source"
+    );
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+    // A pointer click on the value box closes the menu it sits in
+    // (`PopupCloseBehavior::CloseOnClick`, `egui-0.36.1/src/containers/popup.rs:78-82`),
+    // so the viewer who edits it arrives by keyboard: Tab walks egui's focus
+    // order into the open menu.
+    let value_box_focused = |harness: &Harness<'_, Console>| {
+        harness
+            .query_all_by_role(egui::accesskit::Role::SpinButton)
+            .any(|node| node.is_focused())
+    };
+    for _ in 0..32 {
+        if value_box_focused(&harness) {
+            break;
+        }
+        harness.key_press(Key::Tab);
+        harness.step();
+    }
+    assert!(
+        value_box_focused(&harness) && harness.ctx.egui_wants_keyboard_input(),
+        "Tab never gave a Theme menu value box keyboard focus"
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.key_press(Key::Backspace);
+    harness.event(Event::Paste("zz".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        origin_content(harness.state()),
+        Some('x'),
+        "command A, Backspace, or a paste in a focused value box reached the Source"
+    );
+    let region = harness.state().orcvs.region();
+    assert!(
+        region.is_one_cell(),
+        "command A in a focused value box selected the whole Source: {region:?}"
+    );
+    // The paste would land at the Cursor, which the setup character left on
+    // the Cell after the origin.
+    let frame = harness.state().orcvs.render_frame();
+    let after_origin = frame.grid().position(1, 0).expect("inside the Grid");
+    assert_eq!(
+        frame.at(after_origin).content(),
+        None,
+        "a paste into a focused value box wrote the Source"
+    );
+}
+
+///
+/// Tab walks egui's focus order through the chrome and never onto the console
+/// area the Source is shown in. The pan rectangle there senses clicks and
+/// drags, and `Sense::click_and_drag()` is `CLICK | FOCUSABLE | DRAG`
+/// (`egui-0.36.1/src/sense.rs:81-83`): focused, it would count as a control
+/// holding the keyboard, and the Source would get no keys until Escape or a
+/// click.
+///
+#[tokio::test]
+async fn tab_never_focuses_the_console_area_the_source_is_shown_in() {
+    let size = Vec2::from(DEFAULT_VIEW_SIZE);
+    let mut harness = running_console(size);
+    harness.run_steps(2);
+    let console_centre = Pos2::ZERO + size / 2.0;
+
+    for _ in 0..64 {
+        harness.key_press(Key::Tab);
+        harness.step();
+        let focused = harness
+            .ctx
+            .memory(|memory| memory.focused())
+            .and_then(|id| harness.ctx.read_response(id));
+        if let Some(response) = focused {
+            assert!(
+                !response.rect.contains(console_centre),
+                "Tab focused a widget covering the console area: {:?}",
+                response.rect
+            );
+        }
+    }
+}
