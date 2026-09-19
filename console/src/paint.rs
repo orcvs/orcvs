@@ -27,7 +27,7 @@
 //!
 //! A Paint covers the Positions `GridViewport::visible_positions` answers and
 //! no others, so a console showing a tenth of a Grid pays for a tenth of it:
-//! neither the per-Cell call to `cell_visuals` nor the `Vec` holding its
+//! neither the per-Cell call to `cell_visuals_with_cursor_colour` nor the `Vec` holding its
 //! answers follows the Source's size. Everything the derivation reads is local
 //! to its own Cell, which makes the cull a saving rather than a change of answer.
 //!
@@ -40,18 +40,20 @@
 //! Positions each covers.
 //!
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use egui::Color32;
 
 use orcvs::{
     grid::{Grid, Position},
-    render_frame::{RenderCell, RenderFrame},
-    source::Token,
+    render_frame::RenderFrame,
+    source::Claim,
 };
 
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
+    source_paint::SourcePaintSettings,
     style::{PALETTE, cell_visuals_with_cursor_colour, sector_line},
 };
 
@@ -60,7 +62,7 @@ pub use crate::grid_viewport::VisiblePositions;
 ///
 /// What one Cell of a Render Frame is drawn as.
 ///
-/// Flat. The background is already decided at `cell_visuals`: `None` means the
+/// Flat. The background is already decided at `cell_visuals_with_cursor_colour`: `None` means the
 /// panel behind the Grid has painted the Source colour, and `Some` means this
 /// Cell needs a fill of its own.
 ///
@@ -140,6 +142,27 @@ impl<'a> FramePaint<'a> {
 }
 
 ///
+/// Whether any Cell of `claim`'s own slot (`claim.cells`) holds written
+/// content.
+///
+/// `Claim { cells, token, atom }` cannot answer Pending versus Invalid on its
+/// own — both cover `atom: None` alike — so this reads the Render Frame's
+/// own Cell contents over the claim's range, converting each raw index
+/// through the Frame's Grid the way `orcvs::source::Span::positions` already
+/// does (ADR 0044). A slot with any written Cell is Invalid; one that is
+/// entirely blank is Pending — `cell_visuals_with_cursor_colour` is where
+/// that distinction is spent.
+///
+fn slot_written(frame: &RenderFrame, claim: &Claim) -> bool {
+    let grid = frame.grid();
+
+    claim.cells.clone().any(|index| {
+        grid.cell_index(index)
+            .is_some_and(|cell_index| frame.at(grid.position_at(cell_index)).content().is_some())
+    })
+}
+
+///
 /// How one Render Frame is drawn, Cell by Cell.
 ///
 /// Derived from a Render Frame and nothing else — no running Orcvs, no
@@ -164,8 +187,14 @@ impl Paint {
     /// Reads a paired Render Frame and drawn range and answers what each Cell
     /// is drawn as.
     ///
-    /// `cell_visuals` is called once per drawn Cell and is unchanged: this
-    /// decides what to do with its answer, not what the answer is.
+    /// `cell_visuals_with_cursor_colour` is called once per drawn Cell and is
+    /// unchanged: this decides what to do with its answer, not what the
+    /// answer is. It reads the claim on the Cell (`RenderCell::claim`),
+    /// whether that claim's slot holds written content — `slot_written`,
+    /// below, answers the latter once per claim rather than once per Cell —
+    /// and whether the Cell lies in a root Function's Output Portal
+    /// Reservation (`RenderCell::output_portal`, `.scratch/syntax-
+    /// highlighting/issues/06`).
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -181,6 +210,7 @@ impl Paint {
             Some(PALETTE.selection_fill),
             crate::cursor_effects::DEFAULT_REGION_COLOUR,
             None,
+            SourcePaintSettings::default(),
         )
     }
 
@@ -198,6 +228,7 @@ impl Paint {
         cursor_colour: Option<Color32>,
         region_colour: Color32,
         region_cursor_colour: Option<Color32>,
+        source_paint: SourcePaintSettings,
     ) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
@@ -220,13 +251,15 @@ impl Paint {
         } else {
             (0..0, 0..0)
         };
-        // What each Cell says, read once for the blank spellings and never
-        // per Cell. It needs no `egui::Context`: what a Cell says is a reading
-        // of the Token, and only drawing it reaches the font atlas.
-        let characters = CellCharacters::new();
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
+        // `slot_written` walks every Cell of a claim's slot, so a claim
+        // spanning many Cells — a whole-row Comment among them — is answered
+        // once here rather than once per Cell it covers. Every Cell of one
+        // claim shares one `Arc` (ADR 0044), so the claim's own address is
+        // the cache key.
+        let mut written_cache: HashMap<*const Claim, bool> = HashMap::new();
         for row in drawn.rows.clone() {
             for column in drawn.columns.clone() {
                 let position = grid
@@ -239,11 +272,20 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
+                let claim = cell.claim();
+                let written = claim.is_some_and(|claim| {
+                    *written_cache
+                        .entry(claim as *const Claim)
+                        .or_insert_with(|| slot_written(frame, claim))
+                });
                 let visuals = cell_visuals_with_cursor_colour(
-                    cell.token(),
+                    claim,
+                    written,
+                    cell.output_portal(),
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
+                    source_paint,
                 );
                 let in_region = region_columns.contains(&column) && region_rows.contains(&row);
                 let background = if is_cursor && region_spans {
@@ -280,7 +322,16 @@ impl Paint {
                             sector_top_strength(position, sector_seam_spacing).map(sector_line)
                         })
                         .flatten(),
-                    character: characters.character(cell),
+                    // A Cell's own content when it has one; the space
+                    // otherwise, which `place_glyphs` (`console.rs`) draws no
+                    // Glyph for. `syntax-highlighting/03` retired the blank
+                    // spelling table that used to stand a placeholder letter
+                    // in here: an empty claimed operand Cell now answers the
+                    // same space an empty unclaimed one always has, and reads
+                    // as its Token tint alone (`cell_visuals_with_cursor_
+                    // colour`'s `fill_tint_colour`), never as a spelled
+                    // letter.
+                    character: cell.content().unwrap_or(' '),
                 });
             }
         }
@@ -464,102 +515,13 @@ impl Paint {
     }
 }
 
-///
-/// Every Token a Render Frame can carry, in the order
-/// [`blank_token_index`] gives them.
-///
-const BLANK_TOKENS: [Option<Token>; 8] = [
-    Some(Token::Bang),
-    Some(Token::Char),
-    Some(Token::Comment),
-    Some(Token::Function),
-    Some(Token::Note),
-    Some(Token::Number),
-    Some(Token::Atom),
-    Some(Token::Sequence),
-];
-
-///
-/// Where `token` sits in [`BLANK_TOKENS`], or the empty-unclaimed slot.
-///
-/// The match is exhaustive, so a `Token` added to the vocabulary fails to build
-/// here rather than quietly painting the wrong character.
-///
-fn blank_token_index(token: Option<Token>) -> usize {
-    match token {
-        Some(Token::Bang) => 0,
-        Some(Token::Char) => 1,
-        Some(Token::Comment) => 2,
-        Some(Token::Function) => 3,
-        Some(Token::Note) => 4,
-        Some(Token::Number) => 5,
-        Some(Token::Atom) => 6,
-        Some(Token::Sequence) => 7,
-        None => 8,
-    }
-}
-
-///
-/// What an empty Cell of `token` shows.
-///
-fn blank_character(token: Option<Token>) -> char {
-    match token {
-        Some(Token::Bang) => '*',
-        Some(Token::Char | Token::Atom | Token::Sequence) => 'c',
-        Some(Token::Comment) | None => ' ',
-        Some(Token::Function) => 'F',
-        Some(Token::Note) => 'n',
-        Some(Token::Number) => 'h',
-    }
-}
-
-///
-/// What each Cell of a Render Frame shows: its own content, or the character
-/// its Token spells when it holds none.
-///
-/// This is the whole of deciding what a Cell says, and it is in this layer
-/// because it needs nothing this layer does not have: a Token and no
-/// `egui::Context` at all. Only *drawing* that character needs one —
-/// `GlyphTable` in `console.rs` holds the galleys and nothing else — so the
-/// split is the same one the rest of this module makes, between deciding
-/// what a Cell looks like and painting it.
-///
-/// The blank spellings are read once. The table is an array of `char`s indexed
-/// by [`blank_token_index`], so building it is far cheaper than the per-Cell
-/// reads it saves.
-///
-struct CellCharacters {
-    /// The character an empty Cell shows, indexed by [`blank_token_index`].
-    blanks: [char; BLANK_TOKENS.len() + 1],
-}
-
-impl CellCharacters {
-    /// Reads what an empty Cell of each Token spells.
-    fn new() -> Self {
-        let mut blanks = [' '; BLANK_TOKENS.len() + 1];
-        for token in BLANK_TOKENS {
-            blanks[blank_token_index(token)] = blank_character(token);
-        }
-        blanks[blank_token_index(None)] = blank_character(None);
-        Self { blanks }
-    }
-
-    /// The character `cell` shows.
-    fn character(&self, cell: &RenderCell) -> char {
-        cell.content()
-            .unwrap_or_else(|| self.blanks[blank_token_index(cell.token())])
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        BLANK_TOKENS, BackgroundRun, CellCharacters, CellPaint, FramePaint, Paint,
-        blank_token_index,
-    };
+    use super::{BackgroundRun, CellPaint, FramePaint, Paint, slot_written};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
-    use crate::style::{PALETTE, cell_visuals, sector_line};
+    use crate::source_paint::{DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings};
+    use crate::style::{PALETTE, cell_visuals_with_cursor_colour, sector_line};
     use egui::Color32;
     use orcvs::source::Token;
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
@@ -583,6 +545,34 @@ mod tests {
     }
 
     ///
+    /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
+    /// claim, its slot's own written fact, and its own Output Portal fact
+    /// straight from `frame` and `cell` — the same three inputs
+    /// `Paint::derive_with_colours` reads, so a test comparing against this
+    /// needs no `SourcePaintSettings::default()`-only shim.
+    ///
+    fn expected_visuals(
+        frame: &RenderFrame,
+        cell: &orcvs::render_frame::RenderCell,
+        selected: bool,
+        cursor_visible: bool,
+        cursor_colour: Option<Color32>,
+        source_paint: SourcePaintSettings,
+    ) -> crate::style::CellVisuals {
+        let claim = cell.claim();
+        let written = claim.is_some_and(|claim| slot_written(frame, claim));
+        cell_visuals_with_cursor_colour(
+            claim,
+            written,
+            cell.output_portal(),
+            selected,
+            cursor_visible,
+            cursor_colour,
+            source_paint,
+        )
+    }
+
+    ///
     /// Every Position answers the Cell the Grid indexes, not its neighbour.
     ///
     /// The Cursor grades its selected Cell and written Cells carry Glyph
@@ -592,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn a_cell_is_answered_at_the_position_the_grid_indexes() {
         let mut orcvs = running_orcvs(6, 4);
-        for (x, character) in "#a#".chars().enumerate() {
+        for (x, character) in ".+a".chars().enumerate() {
             orcvs.select(orcvs.grid().position(x + 1, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
@@ -607,7 +597,14 @@ mod tests {
         for cell in frame.cells() {
             let position = cell.position();
             let selected = position == cursor;
-            let visuals = cell_visuals(cell.token(), selected, selected && frame.cursor_visible());
+            let visuals = expected_visuals(
+                &frame,
+                cell,
+                selected,
+                selected && frame.cursor_visible(),
+                Some(PALETTE.selection_fill),
+                SourcePaintSettings::default(),
+            );
             let painted = paint.at(position);
 
             assert_eq!(
@@ -674,6 +671,7 @@ mod tests {
                 cursor,
                 fill,
                 region_cursor,
+                SourcePaintSettings::default(),
             )
         };
 
@@ -798,15 +796,20 @@ mod tests {
     }
 
     ///
-    /// Each Cell shows what the character table answers for it: its own
-    /// content, or the character its Glyph spells when it holds none.
+    /// Each Cell shows exactly its own content, or the space when it holds
+    /// none — never a placeholder letter standing in for its Token.
     ///
-    /// The Grid carries an Addition, whose claim reaches past the two Cells it
-    /// is spelled in and leaves classified but empty operand Cells behind it,
-    /// so the blank spellings the table answers are not all the space.
+    /// `syntax-highlighting/03` retired the blank spelling table
+    /// `each_cell_shows_the_character_the_table_answers` used to pin: what a
+    /// Cell shows is answered from the Render Frame alone, with no Token
+    /// lookup at all. The Grid carries an Addition, whose claim reaches past
+    /// the two Cells it is spelled in and leaves classified but empty operand
+    /// Cells behind it — this is the Cell this test is about, and it answers
+    /// the space like any other empty Cell, not a letter the deleted table
+    /// used to spell for it.
     ///
     #[tokio::test]
-    async fn each_cell_shows_the_character_the_table_answers() {
+    async fn every_cell_shows_only_its_own_content_or_the_space() {
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
             orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
@@ -816,111 +819,570 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let characters = CellCharacters::new();
-        let mut spellings = std::collections::BTreeSet::new();
 
         for cell in frame.cells() {
             let shown = paint.at(cell.position()).character;
 
             assert_eq!(
                 shown,
-                characters.character(cell),
+                cell.content().unwrap_or(' '),
                 "the character at {:?}",
                 cell.position()
             );
-            spellings.insert(shown);
+        }
+    }
+
+    ///
+    /// An empty claimed operand Cell of every Token a signature can declare —
+    /// Number, Note, Atom, Sequence — shows no character at all: the tint
+    /// `style::fill_tint_colour` paints is the whole of what marks it as
+    /// Pending, and the space it shows is the same one an empty unclaimed
+    /// Cell always has. `Token::Char` is not one of the Tokens exercised
+    /// here: `style::fill_tint_colour`'s own doc explains why no operand ever
+    /// declares it, so there is no empty *claimed* Char Cell to write this
+    /// test against — a Leftover Char is never empty, since content is what
+    /// makes it Char at all.
+    ///
+    /// Number and Note come from an Addition (`.+`, two Number operands) and
+    /// a `.v` (one Note operand) left unfilled. Atom and Sequence have no
+    /// Function whose *first* operand declares them without also demanding a
+    /// nested Function earlier in the row, so they are asserted against
+    /// `cell_visuals_with_cursor_colour` directly in `style::tests`, which this test does not
+    /// repeat.
+    ///
+    #[tokio::test]
+    async fn an_empty_claimed_number_or_note_operand_shows_tint_and_no_character() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        for (x, character) in ".v".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        orcvs.select(orcvs.grid().position(7, 1).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+
+        // The Addition's two Number operands, columns 2-5 of row 0.
+        for x in 2..6 {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            let cell = frame.at(position);
+            assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
+            assert_eq!(cell.claim().map(|claim| claim.token), Some(Token::Number));
+            let painted = paint.at(position);
+            assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
+            assert_eq!(
+                painted.background,
+                expected_visuals(&frame, cell, false, false, None, source_paint).background,
+                "operand Cell {x} did not carry the Number tint"
+            );
         }
 
-        assert!(
-            spellings.len() > 2,
-            "every Cell spelled the same thing, so the table answered nothing: {spellings:?}"
+        // `.v`'s one Note operand, columns 2-3 of row 1.
+        for x in 2..4 {
+            let position = orcvs.grid().position(x, 1).expect("inside the grid");
+            let cell = frame.at(position);
+            assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
+            assert_eq!(cell.claim().map(|claim| claim.token), Some(Token::Note));
+            let painted = paint.at(position);
+            assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
+            assert_eq!(
+                painted.background,
+                expected_visuals(&frame, cell, false, false, None, source_paint).background,
+                "operand Cell {x} did not carry the Note tint"
+            );
+        }
+    }
+
+    ///
+    /// A slot cut off by the end of its row carries its declared Token for
+    /// every one of its Cells the Grid holds, the same as any other claimed
+    /// operand Cell — no per-Cell classifier beside the Language Map is
+    /// needed, because `LanguageMap::token_at` already answers it: `lang::
+    /// Parser::take_token`'s error path still records the Cells the row's
+    /// tail actually held (`PositionedEntry::cells`), even though the
+    /// operand itself cannot bind, so the truncated Cell reaches this layer
+    /// exactly like an ordinary Pending Operand.
+    ///
+    /// `.+01` written into a 5-wide Grid is an Add whose second Number
+    /// operand needs columns 4-5, and column 4 is the last column the Grid
+    /// has: one Cell of the slot exists, and it is empty (a space at the row
+    /// edge, left at its default rather than written), so this is the
+    /// Pending case rather than an Invalid one.
+    ///
+    #[tokio::test]
+    async fn a_row_truncated_operand_cell_carries_its_declared_token_tint_and_no_character() {
+        let mut orcvs = running_orcvs(5, 1);
+        for (x, character) in ".+01".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let position = orcvs.grid().position(4, 0).expect("inside the grid");
+        let cell = frame.at(position);
+
+        assert_eq!(cell.content(), None, "the truncated Cell was not empty");
+        assert_eq!(
+            cell.claim().map(|claim| claim.token),
+            Some(Token::Number),
+            "the truncated Cell did not carry the operand's declared Token"
+        );
+        let painted = paint.at(position);
+        assert_eq!(
+            painted.character, ' ',
+            "the truncated Cell spelled a letter"
+        );
+        assert_eq!(
+            painted.background,
+            expected_visuals(&frame, cell, false, false, None, source_paint).background,
+            "the truncated Cell did not carry the Number tint"
         );
     }
 
     ///
-    /// What an empty Cell shows is the Token's blank spelling, read once per
-    /// Render Frame rather than restated per Cell.
-    #[test]
-    fn a_blank_cell_shows_what_its_token_spells() {
-        for token in BLANK_TOKENS {
-            assert_eq!(
-                BLANK_TOKENS[blank_token_index(token)],
-                token,
-                "the blank table is not indexed by its own order"
-            );
+    /// Characters that spell no Function where an Expression could start —
+    /// `hi`, a written `07`, a lone `|` — are claims the Parser records as
+    /// `(Token::Function, atom: None)`. No signature declared anything
+    /// there, so nothing was expected and nothing failed: they paint as
+    /// Ordinary text with no tint. Diagnostic stays with an operand slot a
+    /// signature declared and its written content did not satisfy — `c4` in
+    /// `.+c401`'s first Number slot.
+    ///
+    #[tokio::test]
+    async fn text_that_spells_no_function_is_ordinary_while_an_invalid_operand_stays_diagnostic() {
+        let mut orcvs = running_orcvs(10, 2);
+        for (row, text) in [(0, "hi 07 |"), (1, ".+c401")] {
+            for (x, character) in text.chars().enumerate() {
+                orcvs.select(orcvs.grid().position(x, row).expect("inside the grid"));
+                orcvs.write(&character.to_string());
+            }
         }
-        assert_eq!(super::blank_character(Some(Token::Bang)), '*');
-        assert_eq!(super::blank_character(Some(Token::Char)), 'c');
-        assert_eq!(super::blank_character(Some(Token::Atom)), 'c');
-        assert_eq!(super::blank_character(Some(Token::Sequence)), 'c');
-        assert_eq!(super::blank_character(Some(Token::Comment)), ' ');
-        assert_eq!(super::blank_character(Some(Token::Function)), 'F');
-        assert_eq!(super::blank_character(Some(Token::Note)), 'n');
-        assert_eq!(super::blank_character(Some(Token::Number)), 'h');
-        assert_eq!(super::blank_character(None), ' ');
+        orcvs.select(orcvs.grid().position(9, 1).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+
+        for x in [0, 1, 3, 4, 6] {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            let claim = frame.at(position).claim().expect("a claimed Cell");
+            assert_eq!(
+                (claim.token, claim.atom),
+                (Token::Function, None),
+                "column {x} was not a Function claim that bound nothing"
+            );
+            let painted = paint.at(position);
+            assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+            assert_eq!(painted.background, None, "column {x}");
+        }
+
+        for x in 2..4 {
+            let position = orcvs.grid().position(x, 1).expect("inside the grid");
+            let painted = paint.at(position);
+            assert_eq!(painted.foreground, source_paint.diagnostic(), "column {x}");
+            assert_eq!(
+                painted.background,
+                expected_visuals(&frame, frame.at(position), false, false, None, source_paint)
+                    .background,
+                "column {x} did not keep the Number tint"
+            );
+            assert!(painted.background.is_some(), "column {x} lost its tint");
+        }
     }
 
     ///
-    /// Which character a Cell shows is answered from the Render Frame alone.
+    /// `.scratch/syntax-highlighting/issues/06`: end-to-end Output Portal
+    /// paint tests, built from Source text through the Render Frame. Every
+    /// scenario writes the answer directly into Source rather than running a
+    /// Tick, since the highlight comes from the current revision alone
+    /// (`.scratch/syntax-highlighting/issues/05`'s Answer): a written value
+    /// south of a Function is indistinguishable from one a Tick wrote.
     ///
-    /// No `egui::Context` is built here, and that is the assertion: the lookup
-    /// is a reading of the Token, not a reading of the font atlas, so the
-    /// step that decides what a Cell says is reachable without the harness the
-    /// galleys need. Every Cell of the Grid is checked against the blank
-    /// spelling its Token gives an empty Cell.
-    ///
-    #[tokio::test]
-    async fn a_cell_answers_its_character_with_no_context() {
-        let mut orcvs = running_orcvs(8, 8);
-        // An Addition, whose claim reaches past the two Cells it is spelled in
-        // and leaves the operand Cells behind it empty but classified. Those
-        // are the Cells that make the blank table answer something other than
-        // the space.
-        let written = ".+";
-        for (x, character) in written.chars().enumerate() {
-            let position = orcvs.grid().position(x, 2).expect("inside the grid");
-            orcvs.select(position);
-            orcvs.write(&character.to_string());
-        }
+    mod output_portal_paint {
+        use super::{SourcePaintSettings, running_orcvs, whole};
+        use egui::Color32;
 
-        let characters = CellCharacters::new();
-        let frame = orcvs.render_frame();
-        let mut content = String::new();
-        let mut blanks = std::collections::BTreeSet::new();
-
-        for cell in frame.cells() {
-            let spelled = cell
-                .content()
-                .unwrap_or_else(|| super::blank_character(cell.token()));
-
-            assert_eq!(
-                characters.character(cell),
-                spelled,
-                "the Cell at {:?} shows something its Token does not spell",
-                cell.position()
-            );
-
-            match cell.content() {
-                Some(character) => content.push(character),
-                None => {
-                    blanks.insert(characters.character(cell));
-                }
+        /// Writes `text` into `row`, one Cell at a time, the way every other
+        /// fixture in this module does. A space writes the Cell's own blank
+        /// content (`CellContent::SPACE`), which reads back identically to a
+        /// Cell never written, so a row with gaps can be spelled as one
+        /// literal.
+        fn write_row(orcvs: &mut orcvs::app::Orcvs, row: usize, text: &str) {
+            let grid = orcvs.grid();
+            for (x, character) in text.chars().enumerate() {
+                orcvs.select(grid.position(x, row).expect("inside the grid"));
+                orcvs.write(&character.to_string());
             }
         }
 
-        assert_eq!(content, written, "the written Cells kept their content");
-        // A Grid whose blank Cells all spell the space would pass the loop
-        // above while telling nothing apart, so the Addition's unfilled operand
-        // slots have to be in it: `h` is what an empty Cell a signature says a
-        // Number belongs in shows.
-        assert!(
-            blanks.contains(&'h'),
-            "no unfilled operand slot reached the blank table, so it went untested: {blanks:?}"
-        );
-        assert!(
-            blanks.contains(&' '),
-            "no empty Cell reached the blank table, so it went untested: {blanks:?}"
-        );
+        /// `source_paint`'s own Fill tint mix of `colour`, restated
+        /// independently of `style::fill_tint_colour` so a broken mix is
+        /// caught rather than mirrored — the same reading `style::tests`
+        /// pins its tint assertions with.
+        fn tinted(source_paint: SourcePaintSettings, colour: Color32) -> Color32 {
+            let strength = f32::from(source_paint.fill_tint()) / 100.0;
+            source_paint
+                .source_background()
+                .lerp_to_gamma(colour, strength)
+        }
+
+        ///
+        /// A scalar answer south of a Function draws in the Output Portal
+        /// colour on the Output Portal tint: `07` left south of `.+0304` re-
+        /// parses as two one-Cell unbound Function claims (`.scratch/syntax-
+        /// highlighting/issues/05`'s Answer), and the Output Portal fact
+        /// paints over that Diagnostic-shaped claim rather than leaving it
+        /// Diagnostic.
+        ///
+        #[tokio::test]
+        async fn a_scalar_answer_paints_in_the_output_portal_colour() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, ".+0304");
+            write_row(&mut orcvs, 1, "07");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "column {x}"
+                );
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+            // Past the scalar Reservation's pair: an ordinary, untinted blank
+            // Cell, the same as if `.+0304` were not there.
+            for x in 2..6 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert_eq!(paint.at(position).background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// The other scalar-answer example `06` names: `C4` left south of
+        /// `.^3C` (ConvertToNote) paints the same way — the rule reads the
+        /// Output Portal fact and the claim's shape, not which Function or
+        /// which characters produced it.
+        ///
+        #[tokio::test]
+        async fn a_note_shaped_scalar_answer_paints_in_the_output_portal_colour_too() {
+            let mut orcvs = running_orcvs(4, 3);
+            write_row(&mut orcvs, 0, ".^3C");
+            write_row(&mut orcvs, 1, "C4");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "column {x}"
+                );
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+        }
+
+        ///
+        /// A Sequence answer is painted the same way across every one of its
+        /// Cells, and the Reservation's remaining Cells to the end of the row
+        /// — past what the answer actually filled — are empty Output Portal
+        /// Cells: tinted, with no glyph. `:<:-0104` (Reverse of NumberRange
+        /// 01..04) answers a Sequence outright, so its Reservation runs to
+        /// the end of the destination row (`.scratch/syntax-highlighting/
+        /// issues/10`'s Answer) even though the written answer, `04030201`,
+        /// only fills the row's first eight Cells of ten.
+        ///
+        #[tokio::test]
+        async fn a_sequence_answer_paints_every_cell_and_the_remainder_is_an_empty_output_portal() {
+            let mut orcvs = running_orcvs(10, 2);
+            write_row(&mut orcvs, 0, ":<:-0104");
+            write_row(&mut orcvs, 1, "04030201");
+            orcvs.select(orcvs.grid().position(8, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..8 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "column {x}"
+                );
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+            for x in 8..10 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                assert_eq!(frame.at(position).content(), None, "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.character, ' ', "column {x}");
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+        }
+
+        ///
+        /// A Bang answer keeps the Bang glyph colour rather than the Output
+        /// Portal colour, but takes the Output Portal tint in place of
+        /// Bang's usual bare `None`: `**` left south of `~*0401` (Delay)
+        /// reads as a genuine bound Bang claim (`RenderFrame`'s own
+        /// `a_standalone_bang_is_one_bound_bang_claim`), and the tint is what
+        /// tells it apart from an ordinary Bang elsewhere on the Grid — the
+        /// second `**`, on the row below, sits outside any Reservation and
+        /// stays untinted.
+        ///
+        #[tokio::test]
+        async fn a_bang_answer_keeps_its_glyph_colour_but_takes_the_output_portal_tint() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, "~*0401");
+            write_row(&mut orcvs, 1, "**");
+            write_row(&mut orcvs, 2, "**");
+            orcvs.select(orcvs.grid().position(4, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let portal_position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(portal_position).output_portal(), "column {x}");
+                let portal_painted = paint.at(portal_position);
+                assert_eq!(portal_painted.foreground, source_paint.bang(), "column {x}");
+                assert_eq!(portal_painted.background, Some(output_tinted), "column {x}");
+
+                let ordinary_position = grid.position(x, 2).expect("inside the grid");
+                assert!(!frame.at(ordinary_position).output_portal(), "column {x}");
+                let ordinary_painted = paint.at(ordinary_position);
+                assert_eq!(
+                    ordinary_painted.foreground,
+                    source_paint.bang(),
+                    "column {x}"
+                );
+                assert_eq!(
+                    ordinary_painted.background, None,
+                    "an ordinary Bang outside a Reservation is untinted, column {x}"
+                );
+            }
+        }
+
+        ///
+        /// An empty Output Portal Cell shows the Output Portal tint and no
+        /// glyph, including before the first Tick: nothing ever runs a Tick
+        /// in this test, so the highlight can only have come from the
+        /// current Source revision, as `.scratch/syntax-highlighting/
+        /// issues/05`'s Answer states.
+        ///
+        #[tokio::test]
+        async fn an_empty_output_portal_cell_shows_the_tint_and_no_glyph_before_any_tick() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, ".+0102");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                assert_eq!(frame.at(position).content(), None, "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.character, ' ', "column {x}");
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+            for x in 2..6 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert_eq!(paint.at(position).background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// A Terminal Output Function paints nothing at its Output Portal:
+        /// `!>` (RawPlay) answers Play, not a Cell, so `output_portal()` is
+        /// `None` for it (`.scratch/syntax-highlighting/issues/10`'s
+        /// Answer) and the row south of it reads exactly as if no root stood
+        /// north of it.
+        ///
+        #[tokio::test]
+        async fn a_terminal_output_functions_south_row_is_ordinary() {
+            let mut orcvs = running_orcvs(8, 2);
+            write_row(&mut orcvs, 0, "!>007F");
+            orcvs.select(orcvs.grid().position(6, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let grid = orcvs.grid();
+
+            for x in 0..8 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
+                assert_eq!(painted.character, ' ', "column {x}");
+            }
+        }
+
+        ///
+        /// Halt paints nothing at its Output Portal: it locks the root there
+        /// rather than writing (`.scratch/syntax-highlighting/issues/10`'s
+        /// Answer), so the row south of `*!` reads as ordinary.
+        ///
+        #[tokio::test]
+        async fn halts_south_row_is_ordinary() {
+            let mut orcvs = running_orcvs(4, 3);
+            write_row(&mut orcvs, 0, "*!");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let grid = orcvs.grid();
+
+            for x in 0..4 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// A Self-Banging (Source-writing) Function paints nothing at its
+        /// Output Portal: its Advance's writes, including the Cells it
+        /// moves onto, are its declared Source effect rather than an answer
+        /// through an Output Portal (`.scratch/syntax-highlighting/
+        /// issues/10`'s Answer). `>>` is `SelfBangingEast`; the Cells east
+        /// of its own anchor, which its Advance would move onto during a
+        /// Tick, carry no Output Portal fact even though nothing has ticked
+        /// yet to prove that by writing there.
+        ///
+        #[tokio::test]
+        async fn a_self_banging_functions_advance_path_is_never_an_output_portal() {
+            let mut orcvs = running_orcvs(6, 1);
+            write_row(&mut orcvs, 0, ">>");
+            // The Function's own anchor, outside the asserted range 2..6.
+            orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let grid = orcvs.grid();
+
+            for x in 2..6 {
+                let position = grid.position(x, 0).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// The paint precedence where an Output Portal covers another
+        /// Expression's claimed Cells (`.scratch/syntax-highlighting/
+        /// issues/06`'s precedence decision): `:-0102` (NumberRange) answers
+        /// a Sequence outright, so its Reservation runs the whole of the row
+        /// south, where `.+0304` (Add) stands as a second, independent root.
+        /// Add's own two-Cell spelling is a bound Function claim and keeps
+        /// its Function paint outright — the "another root" case — while
+        /// Add's own Number operand Cells, which the Reservation also
+        /// covers, take the Output Portal colour and tint instead of their
+        /// declared Number role — the "a consumer's operand" case. Both
+        /// named overlaps from `.scratch/syntax-highlighting/issues/05`'s
+        /// Answer are exercised by this one Source.
+        ///
+        #[tokio::test]
+        async fn a_bound_function_spelling_wins_but_its_operands_take_the_output_portal() {
+            let mut orcvs = running_orcvs(6, 2);
+            write_row(&mut orcvs, 0, ":-0102");
+            write_row(&mut orcvs, 1, ".+0304");
+            // Writing leaves the Cursor at the last Cell it wrote (row 1,
+            // column 5) — one of the Cells this test asserts about. Move it
+            // back onto row 0, which no assertion below reads.
+            orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let function_tinted = tinted(source_paint, source_paint.function());
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..6 {
+                assert!(
+                    frame
+                        .at(grid.position(x, 1).expect("inside the grid"))
+                        .output_portal(),
+                    "column {x}: NumberRange answers a Sequence outright"
+                );
+            }
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.function(),
+                    "Add's own spelling, column {x}"
+                );
+                assert_eq!(
+                    painted.background,
+                    Some(function_tinted),
+                    "Add's own spelling, column {x}"
+                );
+            }
+            for x in 2..6 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "Add's own Number operand, column {x}"
+                );
+                assert_eq!(
+                    painted.background,
+                    Some(output_tinted),
+                    "Add's own Number operand, column {x}"
+                );
+            }
+        }
     }
 
     ///
@@ -948,7 +1410,7 @@ mod tests {
                 .map(|&background| CellPaint {
                     background,
                     border: PALETTE.grid_line,
-                    foreground: PALETTE.ordinary,
+                    foreground: DEFAULT_ORDINARY,
                     sector_left: None,
                     sector_top: None,
                     character: ' ',
@@ -965,10 +1427,85 @@ mod tests {
         }
     }
 
+    ///
+    /// `syntax-highlighting/02`'s Fill tint, walked end to end from written
+    /// Source through `Paint::derive` rather than through `cell_visuals_with_cursor_colour`
+    /// alone: a nested Function's own Cells tint like its parent's, an
+    /// Operand Cell tints with its declared Token's colour whether or not
+    /// its slot binds, and adjacent tinted Cells of one colour — a Function
+    /// and its nested Function here, and three Number operand entries there
+    /// — coalesce into one `BackgroundRun` apiece rather than one per Cell or
+    /// per Language Unit.
+    ///
+    /// `.+.x010203` is Add of a nested Multiply and a Number: `.+` and `.x`
+    /// are each a Function's own two-Cell spelling (columns 0-1 and 2-3),
+    /// and `01`, `02`, `03` are three Number operand entries (columns 4-5,
+    /// 6-7, 8-9) — Multiply's two and Add's own. The Cursor is parked on the
+    /// untouched row below so its own fill cannot stand in for a tint this
+    /// test is about.
+    ///
+    #[tokio::test]
+    async fn nested_function_and_operand_cells_tint_and_adjacent_same_colour_cells_merge_into_one_run()
+     {
+        let mut orcvs = running_orcvs(10, 2);
+        for (x, character) in ".+.x010203".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        orcvs.select(orcvs.grid().position(0, 1).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        // The real bound claims this fixture already carries: `.+`'s own
+        // Function claim (columns 0-1) and Multiply's first Number operand
+        // (columns 4-5), rather than a claim built by hand — both are bound,
+        // so `written` plays no part in either tint.
+        let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
+        let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
+        let function_tint =
+            expected_visuals(&frame, function_cell, false, false, None, source_paint).background;
+        let number_tint =
+            expected_visuals(&frame, number_cell, false, false, None, source_paint).background;
+        assert!(function_tint.is_some() && number_tint.is_some());
+        assert_ne!(function_tint, number_tint);
+
+        for x in 0..4 {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            assert_eq!(
+                paint.at(position).background,
+                function_tint,
+                "Function Cell {x} was not tinted, nested included"
+            );
+        }
+        for x in 4..10 {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            assert_eq!(
+                paint.at(position).background,
+                number_tint,
+                "Number Operand Cell {x} was not tinted"
+            );
+        }
+
+        let row_zero_runs: Vec<_> = paint
+            .background_runs()
+            .into_iter()
+            .filter(|run| run.row == 0)
+            .collect();
+        assert_eq!(
+            row_zero_runs,
+            vec![
+                run(function_tint.expect("checked above"), 0, 0..4),
+                run(number_tint.expect("checked above"), 0, 4..10),
+            ],
+            "the outer and nested Function merged into one run, and so did the three Number entries"
+        );
+    }
+
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
         let first = PALETTE.selection_fill;
-        let second = PALETTE.source;
+        let second = DEFAULT_SOURCE_BACKGROUND;
         let paint = paint_of(&[&[Some(first), Some(first), Some(second), Some(second)]]);
 
         assert_eq!(

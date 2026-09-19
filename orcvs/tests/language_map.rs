@@ -54,6 +54,17 @@ fn truncated_operand_owns_the_available_row_tail() {
     assert_eq!(expressions.len(), 1);
     assert_eq!(expressions[0].span().positions().count(), 5);
     assert!(expressions[0].root().is_none());
+    // The row ends mid-operand: the second Number needs columns 4-5 and the
+    // Grid has only column 4. `Parser::take_token`'s error path still records
+    // the Cells the row's tail actually held, so the one Cell that exists
+    // carries the operand's declared Token exactly like a complete one would
+    // — `syntax-highlighting/03` reads this fact through to the tint rather
+    // than adding a second classifier beside the Language Map for it.
+    assert_eq!(
+        map.token_at(grid.position(4, 0).unwrap()),
+        Some(Token::Number),
+        "the row-truncated Cell did not carry the operand's declared Token"
+    );
 }
 
 /// A Comment introducer inside a Function's arity-determined claim is an
@@ -398,5 +409,23 @@ fn diagnostics_keep_expression_reports_before_lexical_reports_across_rows() {
             .map(|diagnostic| (diagnostic.anchor().x(), diagnostic.anchor().y()))
             .collect::<Vec<_>>(),
         vec![(0, 0), (0, 1), (0, 0), (0, 1)]
+    );
+}
+
+/// The row-truncated slot's one existing Cell carries its declared Token
+/// whether it is empty (a space at the row edge) or holds a leftover
+/// character: `token_at` reads `PositionedEntry::cells`, and that range is
+/// exactly the Cells the row's tail held either way, so a Pending truncated
+/// slot — this test — reaches the tint the same as `truncated_operand_owns_
+/// the_available_row_tail`'s Invalid one does.
+#[test]
+fn a_row_truncated_operand_with_an_empty_tail_cell_still_carries_its_token() {
+    let grid = Grid::new(5, 1);
+    let map = LanguageMap::derive(grid, ".+01 ").unwrap();
+
+    assert_eq!(
+        map.token_at(grid.position(4, 0).unwrap()),
+        Some(Token::Number),
+        "the empty row-truncated Cell did not carry the operand's declared Token"
     );
 }

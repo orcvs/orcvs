@@ -4,6 +4,7 @@ pub mod console;
 #[doc(hidden)]
 pub mod cursor_effects;
 pub mod diagnostics;
+mod function_reference;
 mod grid_viewport;
 mod marks;
 mod midi;
@@ -12,6 +13,8 @@ mod paint;
 pub mod persistence;
 mod readout_deadline;
 mod report;
+#[doc(hidden)]
+pub mod source_paint;
 pub mod style;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;

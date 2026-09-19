@@ -2,18 +2,13 @@
 
 This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
-change, not drift.
+change, not drift. The Source background and every Token's glyph colour used
+to be pinned here too; `syntax-highlighting/01` moved them into their own
+section below, as `Theme → Source colours` settings rather than fixed tokens.
 
 - Page: `#0B1112` (`rgb(11, 17, 18)`)
-- Source: `#070D0D` (`rgb(7, 13, 13)`)
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
 - 8 × 8 sector seam: `rgba(55, 101, 86, 0.43)`
-- Ordinary Glyph: `#A5B7B2` (`rgb(165, 183, 178)`)
-- Comment: `#7A8784` (`rgb(122, 135, 132)`) — the ordinary Glyph dimmed, at 5.25:1 against the Cell ground
-- Function: `#68E0B8` (`rgb(104, 224, 184)`)
-- Bang and error: `#FF7F87` (`rgb(255, 127, 135)`)
-- Number: `#83A6D8` (`rgb(131, 166, 216)`)
-- Note: `#AA91D6` (`rgb(170, 145, 214)`)
 - Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
@@ -48,6 +43,124 @@ above; reset restores every default together.
 Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, these preferences are restored independently of the saved Source.
+
+## Source colours
+
+`Theme → Source colours` holds one opaque colour control per Source Paint
+role: Source background, Ordinary (also Char and Atom), Comment, Function,
+Bang, Number, Note, Sequence, Diagnostic, and Output Portal. The Cell grid line above
+is not one of them and keeps its fixed colour regardless. Changes preview
+immediately in the Source Grid; "Reset to theme defaults" restores every
+Source colour together and leaves Cursor effects untouched. With persistence
+enabled, Source colours are restored under their own key, independently of the
+Source and of Cursor effects — an absent or malformed stored value falls back
+to the defaults below rather than partly restoring.
+
+The same section holds one more control that is not a colour: Fill tint, a
+0-100% Slider defaulting to 16%. Every recognized Function Cell — nested
+Functions included — and every Operand Cell (its declared Token: Number,
+Note, Atom, or Sequence, whether the operand is still Pending, Valid, or
+Invalid) paints a background tint of its Token colour mixed toward the Source
+background by this percentage; 0% paints no tint at all. Comment, Bang, an
+empty unclaimed Cell, and a Leftover Char are never tinted. A refused
+Function spelling is not tinted either (see Diagnostic, below) — only a
+Function entry the Parser recognized is. On the Cursor's own Cell, the
+Cursor's fill wins over the tint outright. Adjacent tinted Cells that share
+one colour paint as one run, the same coalescing `Paint::background_runs`
+already gives the Cursor's and Selection's fills. "Reset to theme defaults"
+restores Fill tint to 16% together with the ten colours, and persistence
+restores it at the same key as the colours — there is no key of its own.
+
+The console paints from the parser's own claim on a Cell (`orcvs::source::Claim
+{ cells, token, atom }`, `RenderCell::claim()`) rather than from a Token and a
+derived flag — `.scratch/syntax-highlighting/issues/09` folded the two
+overlapping colour decisions that used to read those separately into the one
+that reads the claim. `atom: None` marks a claim unbound, and what that
+means depends on whether a signature declared the slot. An operand slot's
+Token is its parent Function's declared expectation, so an unbound operand
+claim whose content fails to bind is an Invalid Operand: it draws its glyph
+in Diagnostic and keeps its declared Token's Fill tint (the declared Token is
+still visible underneath, unchanged). A `Function` claim with no Atom is
+different: the Parser seeds `Token::Function` at every Expression start as
+the thing to try, not as anything declared, so text that spells no Function
+there — `hi`, both Cells of a written `07`, a lone `|`, the trailing `<` of
+`<<<` — expected nothing and failed nothing. It paints Ordinary with no
+tint, the same as an unclaimed Cell. A Comment records no Atom too, but it
+is a complete Language Unit rather than an invalid one (ADR 0035), so it is
+never painted Diagnostic regardless of its own claim.
+
+An unbound operand claim is Invalid when any Cell of its own slot
+(`claim.cells`) holds written content, and Pending when the whole slot is
+still entirely blank — a fact the claim cannot answer on its own, since
+`atom: None` covers both alike (ADR 0044), so the console reads it from the
+Render Frame's own Cell contents once per claim. A Pending Cell answers its
+declared Token colour rather than Diagnostic, and an Invalid one answers
+Diagnostic on every Cell of its slot, the written ones and the blank ones
+alike — `.+0`'s second operand, one Cell written and one blank, is Invalid
+as a whole, so both of its Cells agree. Neither distinction is visible today:
+`paint.rs`'s blank-glyph fallback leaves a Pending or Invalid Cell with no
+content blank regardless of its foreground colour, so only the Fill tint
+shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time operand
+diagnostics are out of scope: they are Tick outcomes, not Source facts.
+
+`syntax-highlighting/06` adds a Function's written value as a further input
+to the same one decision: whether a Cell lies in a root Function's Output
+Portal Reservation (`RenderCell::output_portal()`, `.scratch/syntax-
+highlighting/issues/05` and `10`'s Answers) — the Cell pair one row south of
+a scalar-only Function's anchor, or every Cell from there to the end of that
+row for a Sequence-capable one, known from the current Source revision alone
+and so lit before any Tick runs. Parsing is unchanged and unaware of it (`05`'s
+Answer): a written scalar or Sequence answer re-parses exactly as ordinary
+Source would (a `07` left south of `.+0304` is two unknown one-Cell
+Functions, diagnostics included), and the Output Portal fact is what tells
+that written value apart from the Expression that produced it. Such a Cell
+draws in the Output Portal colour on the Output Portal's own Fill tint
+instead of whatever that claim alone would answer; an empty Output
+Portal Cell shows the same tint with no glyph. The one named exception is a
+Bang answer: it keeps its own Bang glyph colour, because a Bang is what a
+Producer emits rather than a value it writes, but still takes the Output
+Portal's Fill tint in place of Bang's usual bare `None`.
+
+**Precedence where an Output Portal covers another Expression's claimed
+Cells** — a consumer's operand, or another root, per `05`'s Overlap rule that
+the Reservation "covers every Cell of the Reservation whatever else claims
+it": a Cell that is itself a bound Function's own two-Cell spelling keeps its
+Function paint outright, root or nested alike, because every Function's own
+spelling already carries `Token::Function` regardless of nesting and telling
+a root's spelling from a nested one would need the Expression this decision
+does not read. Every other overlapping Cell — another root's own Number,
+Note, Atom or Sequence operand among them — takes the Output Portal colour
+and tint instead of its own declared role, because the Reservation's answer
+is what a viewer reads there. The Cursor's own fill still wins outright over
+everything above, on its own Cell.
+
+The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
+`grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
+in the Source Paint prototype
+(`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
+`?variant=A&palette=okabe`). Output Portal — named Result before
+`syntax-highlighting/06` renamed it to match `05`'s decided vocabulary — was
+exposed as a setting before it had a painter; it has one now.
+
+- Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
+- Ordinary, Char, and Atom: `#FFFFFF` (`rgb(255, 255, 255)`) — a prototype pick, not a named Okabe–Ito swatch
+- Comment: `#999999` (`rgb(153, 153, 153)`) — Okabe–Ito gray
+- Function: `#009E73` (`rgb(0, 158, 115)`) — Okabe–Ito bluish green
+- Bang: `#CC79A7` (`rgb(204, 121, 167)`) — Okabe–Ito reddish purple
+- Number: `#56B4E9` (`rgb(86, 180, 233)`) — Okabe–Ito sky blue
+- Note: `#F0E442` (`rgb(240, 228, 66)`) — Okabe–Ito yellow
+- Sequence: `#0072B2` (`rgb(0, 114, 178)`) — Okabe–Ito blue
+- Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, an unbound entry's glyph colour since `syntax-highlighting/04`
+- Output Portal: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, a Function's written value since `syntax-highlighting/06`
+
+Every Source colour meets WCAG AA's 4.5:1 floor against the Source background
+except Sequence: `#0072B2` measures 4.05:1 on `#000000`, the Okabe–Ito
+assignment's own choice, kept as a named exception rather than silently
+relaxing the floor. Comment, at 7.37:1, reads dimmer than Ordinary — the same
+relationship the previous palette held — but is no longer the dimmest colour
+above the floor: Diagnostic (5.43:1), Function (6.14:1) and Bang (6.86:1) all
+read dimmer than Comment while still clearing 4.5:1. That is restated here
+rather than left as an implied ordering the new defaults do not hold.
 
 Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
 Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward

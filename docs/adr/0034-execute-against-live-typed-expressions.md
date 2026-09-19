@@ -98,6 +98,14 @@ duplicate, is deferred to `.scratch/typed-source-paint/`:
   a Note, which is the same terminal inheritance as `Marker`: standing a character in because a
   terminal has only characters. A typed console can paint the Cell in its declared type instead and
   spell nothing. Neither is adopted here.
+
+  Decided by `typed-source-paint/02`, in the "painted, not spelled" direction, and delivered by
+  `syntax-highlighting/03`: an empty claimed operand Cell shows only its declared Token's tint
+  (`syntax-highlighting/02`'s Fill tint) and no character. `console/src/paint.rs`'s
+  `GlyphString`-derived blank spelling table — `BLANK_TOKENS`, `blank_token_index`,
+  `blank_character`, `CellCharacters` — is deleted; a Cell's shown character is its own content or
+  the space, with no Token lookup. The blank path this amendment called "live, not vestigial" is
+  retired along with the table that walked it.
 - How a diagnostic and an inexecutable Expression are painted. That they *can* be is the point of
   this amendment; which paint they take belongs with the palette record.
 
