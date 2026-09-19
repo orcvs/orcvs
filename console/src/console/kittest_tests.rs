@@ -717,6 +717,230 @@ async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from
 }
 
 ///
+/// While a menu is open, Tab belongs to egui's own focus navigation alone —
+/// the Cursor must not also step a Sector for the same press.
+///
+/// A menu button's click does not itself take focus (the previous test's own
+/// comment explains why the value box is reached by Tab rather than a
+/// click), so an open menu has to hold the keys by being open: were it asked
+/// only of focus, the Tab-focus cancellation and the event routing could
+/// disagree about the one press, and it would both move focus and step the
+/// Cursor.
+///
+#[tokio::test]
+async fn tab_with_a_menu_open_moves_focus_and_not_the_cursor() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+
+    let cursor_before = cursor(harness.state());
+    harness.key_press(egui::Key::Tab);
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "Tab moved the Cursor while a menu was open"
+    );
+}
+
+///
+/// An open menu holds the keys as a focused control does, though opening one
+/// by a click focuses nothing: a character typed while it is open does not
+/// write the Source.
+///
+#[tokio::test]
+async fn typing_with_a_menu_open_leaves_the_source_unwritten() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        egui::Popup::is_any_open(&harness.ctx) && !harness.ctx.egui_wants_keyboard_input(),
+        "the Theme menu did not open with nothing focused"
+    );
+
+    let cursor_before = cursor(harness.state());
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    // A written character would also step the Cursor on, so the Cell it was
+    // on is the one to ask.
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "a character typed while a menu was open moved the Cursor"
+    );
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "a character typed while a menu was open wrote the Source"
+    );
+}
+
+///
+/// Escape with a menu open closes the menu and leaves the Region alone: the
+/// open menu holds the keys, so the press is the menu's and not also the
+/// Source's collapse.
+///
+#[tokio::test]
+async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.key_press_modifiers(Modifiers::SHIFT, egui::Key::ArrowRight);
+    harness.step();
+    harness.run_steps(1);
+    let region_before = harness.state().orcvs.region();
+    assert!(!region_before.is_one_cell(), "test setup spanned no Region");
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        egui::Popup::is_any_open(&harness.ctx),
+        "the Theme menu did not open"
+    );
+
+    harness.key_press(egui::Key::Escape);
+    harness.step();
+    harness.run_steps(1);
+
+    assert!(
+        !egui::Popup::is_any_open(&harness.ctx),
+        "Escape did not close the open menu"
+    );
+    assert_eq!(
+        harness.state().orcvs.region(),
+        region_before,
+        "the Escape that closed a menu also collapsed the Region"
+    );
+}
+
+///
+/// Tab and Shift Tab reach the Source through the same input path the arrow
+/// keys do: Tab steps the Cursor to the first Cell of the next Sector on its
+/// row, Shift Tab steps back, and neither moves anything once the keys stop
+/// coming. The default Grid is 64 Cells wide at the default Sector Seam
+/// spacing of 8, so column 8 and column 16 are the first two Sector starts
+/// past the origin.
+///
+#[tokio::test]
+async fn tab_and_shift_tab_move_the_cursor_by_sector_through_the_source_input_path() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    assert_eq!(
+        cursor(harness.state()),
+        (0, 0),
+        "a fresh console did not open with the Cursor in the corner"
+    );
+
+    harness.key_press(egui::Key::Tab);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        cursor(harness.state()),
+        (8, 0),
+        "Tab did not step the Cursor to the next Sector"
+    );
+
+    harness.key_press(egui::Key::Tab);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        cursor(harness.state()),
+        (16, 0),
+        "a second Tab did not step another Sector"
+    );
+
+    harness.key_press_modifiers(Modifiers::SHIFT, egui::Key::Tab);
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        cursor(harness.state()),
+        (8, 0),
+        "Shift Tab did not step back to the Sector it came from"
+    );
+
+    // Frames a viewer did not ask for change nothing, the same guarantee
+    // `arrow_keys_move_the_cursor_through_the_source_input_path` holds for
+    // the arrow keys.
+    harness.run_steps(4);
+    assert_eq!(
+        cursor(harness.state()),
+        (8, 0),
+        "quiet frames moved the Cursor"
+    );
+}
+
+///
+/// Tab belongs to the Source while it holds the keys: it collapses a
+/// multi-Cell Region to the Cursor's stepped Position, focuses no widget in
+/// the chrome, and leaves the very next character free to write the Source.
+///
+/// `tab_never_focuses_the_console_area_the_source_is_shown_in` guards the
+/// console area specifically; this guards that Tab, while the Source holds
+/// the keys, focuses nothing in the tree at all — not even a menu-bar
+/// button, which `docs/adr/0048-the-source-takes-the-keys-no-control-holds.md`
+/// names as the pre-fix behaviour.
+///
+#[tokio::test]
+async fn tab_focuses_no_widget_collapses_the_region_and_leaves_typing_open() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.key_press_modifiers(Modifiers::SHIFT, egui::Key::ArrowRight);
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        !harness.state().orcvs.region().is_one_cell(),
+        "test setup spanned no Region"
+    );
+
+    harness.key_press(egui::Key::Tab);
+    harness.step();
+    harness.run_steps(1);
+
+    assert!(
+        harness.state().orcvs.region().is_one_cell(),
+        "Tab did not collapse the Region"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        (8, 0),
+        "Tab did not step the collapsed Cursor to the next Sector"
+    );
+    assert!(
+        harness.ctx.memory(|memory| memory.focused()).is_none(),
+        "Tab focused a widget while the Source held the keys"
+    );
+
+    let written_at = harness.state().orcvs.render_frame().cursor();
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness
+            .state()
+            .orcvs
+            .render_frame()
+            .at(written_at)
+            .content(),
+        Some('x'),
+        "the character typed right after Tab did not reach the Source"
+    );
+}
+
+///
 /// Tab walks egui's focus order through the chrome and never onto the console
 /// area the Source is shown in. The pan rectangle there senses clicks and
 /// drags, and `Sense::click_and_drag()` is `CLICK | FOCUSABLE | DRAG`

@@ -20,6 +20,7 @@ pub enum InputKey {
     Backspace,
     Delete,
     Space,
+    Tab,
 }
 
 ///
@@ -41,6 +42,12 @@ pub enum InputEvent {
     /// Region grows or shrinks from the Cell it was spanned from.
     ///
     Extend(Arrow),
+    ///
+    /// Shift Tab: moves the Cursor to its Sector's first Cell, or from
+    /// there to the previous Sector's, the way a bare Tab moves it on to the
+    /// next.
+    ///
+    PreviousSector,
     ///
     /// Command `A`: spans the Region across the whole Grid.
     ///
@@ -504,6 +511,14 @@ impl<S> Orcvs<S> {
                 InputEvent::KeyPressed(InputKey::ArrowUp) => {
                     self.collapse_to(self.stepped(self.cursor.position(), Arrow::Up))
                 }
+                InputEvent::KeyPressed(InputKey::Tab) => self.collapse_to(
+                    self.grid
+                        .next_sector(self.cursor.position(), self.opts.sector_seam_spacing),
+                ),
+                InputEvent::PreviousSector => self.collapse_to(
+                    self.grid
+                        .previous_sector(self.cursor.position(), self.opts.sector_seam_spacing),
+                ),
                 // Stepped from the live end rather than the Cursor, which
                 // command A may have left inside the Region; the Cursor
                 // rejoins the live end.
@@ -1089,6 +1104,118 @@ mod test {
 
         app.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowUp)]);
         assert_eq!(app.region(), Region::at(grid, at(1, 3)));
+    }
+
+    ///
+    /// Tab moves the Cursor to the first Cell of the next Sector on its row,
+    /// and stays put in the Grid's last Sector — cut short at the right edge
+    /// when the column count is not a whole multiple of the spacing.
+    ///
+    #[tokio::test]
+    async fn tab_steps_to_the_next_sector_and_stays_in_the_last_one() {
+        use super::{InputEvent, InputKey};
+        use crate::opts::SectorSeamSpacing;
+
+        // 10 columns and spacing 3: sectors at 0-2, 3-5, 6-8, and a last
+        // Sector cut short to the single Cell at column 9.
+        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(1, 0));
+
+        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
+        assert_eq!(app.region(), Region::at(grid, at(3, 0)));
+
+        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
+        assert_eq!(app.region(), Region::at(grid, at(6, 0)));
+
+        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(9, 0)),
+            "reached the cut-short last Sector"
+        );
+
+        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(9, 0)),
+            "the last Sector stays put"
+        );
+    }
+
+    ///
+    /// Shift Tab moves the Cursor to the first Cell of its own Sector, then,
+    /// once there, to the previous Sector's first Cell, staying put at the
+    /// Grid's first Sector.
+    ///
+    #[tokio::test]
+    async fn shift_tab_steps_to_the_sector_start_then_the_previous_sector() {
+        use super::InputEvent;
+        use crate::opts::SectorSeamSpacing;
+
+        let mut app = Orcvs::new(10, 1).expect("the test runtime");
+        app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        app.select(at(4, 0));
+
+        app.event_handler(vec![InputEvent::PreviousSector]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(3, 0)),
+            "moved to its own Sector's first Cell"
+        );
+
+        app.event_handler(vec![InputEvent::PreviousSector]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(0, 0)),
+            "already there: moved to the previous Sector's first Cell"
+        );
+
+        app.event_handler(vec![InputEvent::PreviousSector]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(0, 0)),
+            "the first Sector's first Cell stays put"
+        );
+    }
+
+    ///
+    /// Tab and Shift Tab collapse a multi-Cell Region onto the Cursor's
+    /// stepped Position, the way a plain arrow does.
+    ///
+    #[tokio::test]
+    async fn tab_and_shift_tab_collapse_a_multi_cell_region_to_the_cursor() {
+        use super::{InputEvent, InputKey};
+        use crate::opts::SectorSeamSpacing;
+
+        let mut app = Orcvs::new(10, 4).expect("the test runtime");
+        app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
+        let grid = app.grid;
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+        app.select(at(1, 1));
+        app.extend(at(4, 3));
+        assert!(!app.region().is_one_cell(), "test setup spanned no Region");
+
+        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(6, 3)),
+            "Tab did not collapse the Region to the Cursor's new Sector"
+        );
+
+        app.select(at(1, 1));
+        app.extend(at(4, 3));
+        app.event_handler(vec![InputEvent::PreviousSector]);
+        assert_eq!(
+            app.region(),
+            Region::at(grid, at(3, 3)),
+            "Shift Tab did not collapse the Region to the Cursor's new Sector"
+        );
     }
 
     ///

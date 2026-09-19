@@ -277,7 +277,7 @@ The console presentation surrounding the Cursor: an eroded frame on its Cell and
 _Avoid_: Cell highlight, radial glow, focus matrix
 
 **Sector**:
-One square block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. A Sector is console presentation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.
+One square block of Cells the console draws the Source Grid divided into, bounded by Sector Seams: the Sector Seam spacing wide and high, and cut short at the Grid's right and bottom edges. Tab and Shift Tab step the Cursor along its row a Sector at a time. A Sector is console presentation and navigation: it carries no content and no language meaning, and no Expression, Function or Evaluator reads it.
 _Avoid_: Block, tile, chunk, page
 
 **Sector Seam**:
