@@ -6,9 +6,16 @@ use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
+use super::portal::Portal;
 use super::{CellContent, Diagnostic};
 
 const SPACE_BYTE: u8 = b' ';
+
+/// The Cell width a scalar-only Output Portal Reservation covers, per ADR
+/// 0036. `tick.rs`'s `SCALAR_WIDTH` and `portal.rs`'s `PAIR_WIDTH` state the
+/// same fact privately in their own modules; `11` is where the three become
+/// one.
+const OUTPUT_PORTAL_SCALAR_WIDTH: usize = 2;
 
 static NEXT_LANGUAGE_MAP_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -376,6 +383,90 @@ impl LanguageMap {
     }
 
     ///
+    /// Whether each Cell of this revision lies in a root Function's Output
+    /// Portal Reservation, in the Grid's row-major order.
+    ///
+    /// This is `.scratch/syntax-highlighting/issues/05`'s Answer: known
+    /// before any Tick runs, derived from this revision alone rather than
+    /// from what a Tick wrote. Eligibility matches the Tick scheduler's
+    /// `function_candidate()` selection — every root whose leading Cells
+    /// parse as a Function, whether or not its operands bind — rather than
+    /// [`ExpressionEntry::root`], which additionally requires them to. A
+    /// nested Function is never eligible: its answer goes to its parent's
+    /// operand, not to a Cell of its own.
+    ///
+    /// Coverage is the Reservation ADR 0036 states, read from
+    /// [`lang::Function`]'s declared facts and this Expression's own nesting
+    /// rather than from tick planning's `Computation` nodes: the Cell pair
+    /// from the Output Portal for a Function that can only answer a scalar,
+    /// or the Output Portal through the end of that row for one that can
+    /// answer a Sequence. A Terminal Output Function, Halt, and a
+    /// Source-writing Function (including an Advance's cleared anchor) cover
+    /// no Cell, because none of them writes an answer through its Output
+    /// Portal; neither does a scalar destination the row edge leaves no room
+    /// for a Cell pair.
+    ///
+    pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
+        let mut covered = vec![false; self.grid.count()];
+        for expression in self.expressions() {
+            let Some((anchor, function)) = expression.function_candidate() else {
+                continue;
+            };
+            let Some(range) = self.output_portal_reservation(expression, anchor, function) else {
+                continue;
+            };
+            for index in range {
+                covered[index] = true;
+            }
+        }
+        covered
+    }
+
+    ///
+    /// The Reservation `function` at `anchor` covers from its Output Portal,
+    /// or `None` where it covers none.
+    ///
+    /// Halt is excluded here because [`Function::output_portal`] still names
+    /// a site for it: it locks the root there rather than writing, which is
+    /// [`Function::locks_root`]'s question and not `output_portal`'s. A
+    /// Terminal Output Function and a Source-writing Function need no
+    /// exclusion of their own — `output_portal` already answers `None` for
+    /// both, the former having no Cell destination and the latter keeping its
+    /// destinations on [`Function::source_effect`] instead.
+    ///
+    fn output_portal_reservation(
+        &self,
+        expression: &ExpressionEntry,
+        anchor: Position,
+        function: Function,
+    ) -> Option<std::ops::Range<usize>> {
+        if function.locks_root() {
+            return None;
+        }
+        let coords = function.output_portal()?;
+        let portal = Portal::named(self.grid, anchor, coords).ok()?;
+        if self.root_may_answer_a_sequence(expression) {
+            Some(portal.remaining_span().range())
+        } else {
+            portal
+                .span(OUTPUT_PORTAL_SCALAR_WIDTH)
+                .ok()
+                .map(Span::range)
+        }
+    }
+
+    ///
+    /// Whether `expression`'s root Function may answer a Sequence, per ADR
+    /// 0036, propagated bottom-up over the Expression's own
+    /// [`ExpressionEntry::positioned`] entries rather than over tick
+    /// planning's `Computation` nodes.
+    ///
+    fn root_may_answer_a_sequence(&self, expression: &ExpressionEntry) -> bool {
+        let entries: Vec<&lang::PositionedEntry> = expression.positioned().collect();
+        sequence_capable(&entries).first().copied().unwrap_or(false)
+    }
+
+    ///
     /// The Language Units this Expression is spelled from, in Source order.
     ///
     /// A foreign Expression is refused. A Span is only Cell numbers, and two
@@ -393,6 +484,40 @@ impl LanguageMap {
         let row = expression.span.start().get() / self.grid.columns();
         &self.rows[row].units[expression.units.clone()]
     }
+}
+
+///
+/// Per entry of one Expression's [`ExpressionEntry::positioned`], in the same
+/// order, whether it may answer a Sequence.
+///
+/// Mirrors `tick.rs`'s `derive_reservations`/`reserved_for` (ADR 0036)
+/// without reaching into tick planning's `Computation` nodes: a Function
+/// entry may answer a Sequence when [`Function::answers_sequence`] declares
+/// it outright, or when [`Function::widens_over_a_sequence_operand`] and a
+/// direct operand entry — one whose `parent` names it — is itself a Function
+/// entry that may. An entry whose Atom is not a Function, including a missing
+/// or invalid operand, never widens and stays `false`, exactly as such an
+/// entry never becomes a `Computation` node to ask the question of.
+///
+/// Preorder puts every operand child at a higher index than the Function
+/// that owns it — the same property `derive_reservations` relies on — so one
+/// reverse pass settles every entry: a child is answered before the parent
+/// that reads it.
+///
+fn sequence_capable(entries: &[&lang::PositionedEntry]) -> Vec<bool> {
+    let mut capable = vec![false; entries.len()];
+    for index in (0..entries.len()).rev() {
+        let Some(Atom::Function(function)) = entries[index].atom else {
+            continue;
+        };
+        let widened = function.widens_over_a_sequence_operand()
+            && entries
+                .iter()
+                .enumerate()
+                .any(|(child, entry)| entry.parent == Some(index) && capable[child]);
+        capable[index] = function.answers_sequence() || widened;
+    }
+    capable
 }
 
 /// A row's complete semantic derivation. Unit ranges never leave this row.
@@ -1204,6 +1329,241 @@ mod tests {
             ]
         );
         assert_eq!(activations.diagnostics().count(), 0);
+    }
+
+    ///
+    /// `.scratch/syntax-highlighting/issues/10`: `output_portal_cells`, one
+    /// focused test per row of `05`'s coverage table plus the row-edge and
+    /// off-Grid geometry it calls for. The agreement test against the
+    /// scheduler's own reservations lives in `tick.rs`, the one place that
+    /// can reach its private `Lookup`.
+    ///
+    mod output_portal {
+        use super::{Function, Grid, LanguageMap};
+
+        /// One `LanguageMap` built from `rows`, each padded to `grid`'s width
+        /// with blank Cells, matching how every other row-based fixture in
+        /// this module pads a ragged worked example. Fewer rows than the
+        /// Grid holds is not an error: the remaining rows are left entirely
+        /// blank, exactly as an unwritten row already reads.
+        fn build(grid: Grid, rows: &[&str]) -> LanguageMap {
+            let columns = grid.columns();
+            assert!(rows.len() <= grid.rows(), "more rows than the Grid holds");
+            let mut bytes = vec![b' '; grid.count()];
+            for (y, row) in rows.iter().enumerate() {
+                assert!(
+                    row.len() <= columns,
+                    "{row:?} does not fit {columns} columns"
+                );
+                bytes[y * columns..y * columns + row.len()].copy_from_slice(row.as_bytes());
+            }
+            LanguageMap::build(grid, &bytes)
+        }
+
+        fn covered(map: &LanguageMap, grid: Grid, x: usize, y: usize) -> bool {
+            let index = grid
+                .index(grid.position(x, y).expect("inside the Grid"))
+                .get();
+            map.output_portal_cells()[index]
+        }
+
+        #[test]
+        fn a_scalar_root_covers_the_cell_pair_south_of_its_output_portal() {
+            let grid = Grid::new(6, 2);
+            let map = build(grid, &[".+0102"]);
+
+            assert!(covered(&map, grid, 0, 1));
+            assert!(covered(&map, grid, 1, 1));
+            assert!(!covered(&map, grid, 2, 1), "past the Reservation's pair");
+            assert!(!covered(&map, grid, 0, 0), "the Expression's own row");
+        }
+
+        #[test]
+        fn an_incomplete_functions_reservation_still_counts_per_function_candidate() {
+            // `.+01` is Add one operand short: `root()` is `None`, but
+            // `function_candidate()` still names it, and `05` covers it the
+            // same as a complete root.
+            let grid = Grid::new(4, 2);
+            let map = build(grid, &[".+01"]);
+            let expression = map.expressions().next().expect("one Expression");
+            assert!(expression.root().is_none(), "operands are incomplete");
+            assert!(expression.function_candidate().is_some());
+
+            assert!(covered(&map, grid, 0, 1));
+            assert!(covered(&map, grid, 1, 1));
+        }
+
+        #[test]
+        fn a_nested_function_is_never_covered() {
+            // Add(Multiply(01, 02), 03): the root's own pair is covered: the
+            // nested Multiply's own would-be Output Portal, one row south of
+            // its own anchor, is not, because a nested Function's answer
+            // goes to its parent's operand rather than to a Cell of its own.
+            let grid = Grid::new(10, 2);
+            let map = build(grid, &[".+.x010203"]);
+
+            assert!(covered(&map, grid, 0, 1), "the root's own Reservation");
+            assert!(
+                !covered(&map, grid, 2, 1),
+                "the nested Multiply's anchor column is not a Reservation"
+            );
+            assert!(!covered(&map, grid, 3, 1));
+        }
+
+        #[test]
+        fn a_sequence_capable_root_covers_its_row_to_the_end() {
+            // `:-0102` is NumberRange: it answers a Sequence outright.
+            let grid = Grid::new(8, 2);
+            let map = build(grid, &[":-0102"]);
+
+            for x in 0..grid.columns() {
+                assert!(covered(&map, grid, x, 1), "column {x}");
+            }
+        }
+
+        #[test]
+        fn a_root_widened_by_a_nested_sequence_operand_covers_its_row_to_the_end() {
+            // Add(NumberRange(01, 02), 03): Add answers Elementwise, so it
+            // widens over an operand a nested Function answers a Sequence
+            // to, per ADR 0036, even though NumberRange stands in a
+            // Number-typed operand position.
+            let grid = Grid::new(10, 2);
+            let map = build(grid, &[".+:-010203"]);
+            assert_eq!(
+                map.expressions()
+                    .next()
+                    .unwrap()
+                    .function_candidate()
+                    .map(|(_, function)| function),
+                Some(Function::Add)
+            );
+
+            for x in 0..grid.columns() {
+                assert!(covered(&map, grid, x, 1), "column {x}");
+            }
+        }
+
+        #[test]
+        fn a_terminal_output_function_is_never_covered() {
+            // `!>` (RawPlay) answers Play, not a Cell: `output_portal()` is
+            // `None` for it.
+            let grid = Grid::new(8, 2);
+            let map = build(grid, &["!>007F"]);
+
+            for x in 0..grid.columns() {
+                assert!(!covered(&map, grid, x, 1), "column {x}");
+            }
+        }
+
+        #[test]
+        fn halt_is_never_covered() {
+            // `*!` locks its root at its Output Portal rather than writing.
+            let grid = Grid::new(4, 2);
+            let map = build(grid, &["*!"]);
+
+            for x in 0..grid.columns() {
+                assert!(!covered(&map, grid, x, 1), "column {x}");
+            }
+        }
+
+        #[test]
+        fn a_self_banging_functions_advance_is_never_covered() {
+            // `>>` (SelfBangingEast) declares a Source effect: its writes are
+            // its Advance, including the anchor it clears, not an answer
+            // through an Output Portal. Nothing in the whole Grid is covered,
+            // including the anchor itself and the Cells it moves onto.
+            let grid = Grid::new(6, 1);
+            let map = build(grid, &[">>    "]);
+
+            for x in 0..grid.columns() {
+                assert!(!covered(&map, grid, x, 0), "column {x}");
+            }
+        }
+
+        #[test]
+        fn a_directional_bangs_emit_is_never_covered() {
+            // `*>` (DirectionalBangEast) also declares a Source effect.
+            let grid = Grid::new(6, 1);
+            let map = build(grid, &["*>    "]);
+
+            for x in 0..grid.columns() {
+                assert!(!covered(&map, grid, x, 0), "column {x}");
+            }
+        }
+
+        #[test]
+        fn a_scalar_root_in_the_bottom_row_is_never_covered() {
+            // No row exists south of the last row for the Output Portal to
+            // resolve at: `Portal::below` answers `None`.
+            let grid = Grid::new(6, 1);
+            let map = build(grid, &[".+0102"]);
+
+            for x in 0..grid.columns() {
+                assert!(!covered(&map, grid, x, 0), "column {x}");
+            }
+        }
+
+        #[test]
+        fn each_jump_is_covered_at_its_own_declared_direction() {
+            let grid = Grid::new(8, 3);
+
+            let east = build(grid, &["&>      ", "        ", "        "]);
+            assert!(covered(&east, grid, 2, 0));
+            assert!(covered(&east, grid, 3, 0));
+
+            let west = build(grid, &["    &<  ", "        ", "        "]);
+            assert!(covered(&west, grid, 2, 0));
+            assert!(covered(&west, grid, 3, 0));
+
+            let south = build(grid, &["&v      ", "        ", "        "]);
+            assert!(covered(&south, grid, 0, 1));
+            assert!(covered(&south, grid, 1, 1));
+
+            let north = build(grid, &["        ", "&^      ", "        "]);
+            assert!(covered(&north, grid, 0, 0));
+            assert!(covered(&north, grid, 1, 0));
+        }
+
+        #[test]
+        fn a_jump_off_the_grid_is_never_covered() {
+            let grid = Grid::new(6, 2);
+
+            // JumpNorth from the top row: one row up does not exist.
+            let north = build(grid, &["&^    ", "      "]);
+            for x in 0..grid.columns() {
+                assert!(!covered(&north, grid, x, 0), "north column {x}");
+            }
+
+            // JumpWest two columns west of the first column.
+            let west = build(grid, &["&<    ", "      "]);
+            for x in 0..grid.columns() {
+                assert!(!covered(&west, grid, x, 0), "west column {x}");
+            }
+
+            // JumpEast whose destination itself leaves the Grid, not merely
+            // a pair that would cross the row edge.
+            let east = build(grid, &["    &>", "      "]);
+            for x in 0..grid.columns() {
+                assert!(!covered(&east, grid, x, 0), "east column {x}");
+            }
+        }
+
+        #[test]
+        fn a_scalar_destination_the_row_edge_leaves_no_room_for_is_never_covered() {
+            // JumpEast anchored at column 3 of a 6-wide row: the destination
+            // column 5 exists, but the Cell pair it needs would run to
+            // column 6, which does not — the same refusal
+            // `Reserved::cells_from` gives an ordinary scalar at the row's
+            // last two Cells, reached here through a Jump because an
+            // ordinary Function's south Portal shares its own row's width
+            // and so never meets this edge on its own.
+            let grid = Grid::new(6, 1);
+            let map = build(grid, &["   &> "]);
+
+            for x in 0..grid.columns() {
+                assert!(!covered(&map, grid, x, 0), "column {x}");
+            }
+        }
     }
 }
 

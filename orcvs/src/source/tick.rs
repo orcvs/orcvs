@@ -5776,6 +5776,360 @@ mod test {
 }
 
 ///
+/// `.scratch/syntax-highlighting/issues/10`: `LanguageMap::output_portal_cells`
+/// proved to agree with this scheduler's own reservations for the same
+/// revision, apart from the exclusions `05` names.
+///
+/// The Language Map's derivation never reaches `Computation`, `Lookup`, or
+/// `Reserved` — it reads only `lang::Function`'s declared facts and the
+/// Expression's own nesting. This module is the one place that can reach
+/// those private types to build the oracle it is checked against: reading
+/// every node's `portal_access` and settled `reserved` width is asking the
+/// scheduler what it actually reserved, not re-deriving the same answer a
+/// second way.
+///
+#[cfg(test)]
+mod output_portal_agreement {
+    use super::{Lookup, computations};
+    use crate::grid::Grid;
+    use crate::source::language_map::LanguageMap;
+
+    ///
+    /// The Cells the scheduler reserves from every root's Output Portal for
+    /// this revision: every write reservation `Lookup::new` settled, except a
+    /// Source-writing Function's — `05`'s named, deliberate exclusion from
+    /// the highlight, because such a Function's writes are its Source effect
+    /// rather than an answer through an Output Portal. A nested Function, a
+    /// Terminal Output Function, and Halt need no exclusion of their own
+    /// here: `PortalAccess::write_sites` already answers empty for each of
+    /// them, exactly as it does for `output_portal_cells`.
+    ///
+    fn scheduled_output_portal_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
+        let (nodes, _diagnostics) = computations(grid, map);
+        let lookup = Lookup::new(grid, nodes, map);
+        let mut cells = vec![false; grid.count()];
+        for (index, node) in lookup.nodes().iter().enumerate() {
+            if node.function.source_effect().is_some() {
+                continue;
+            }
+            for output in node
+                .portal_access
+                .write_sites()
+                .iter()
+                .filter_map(|output| output.as_ref().ok())
+            {
+                if let Some(range) = lookup.reserved(index).cells_from(grid, *output) {
+                    for idx in range {
+                        cells[idx] = true;
+                    }
+                }
+            }
+        }
+        cells
+    }
+
+    ///
+    /// Every Cell a Source-writing Function's write reservation covers,
+    /// including an Advance's cleared anchor: the named exclusion above,
+    /// answered independently so the assertion can name it rather than let
+    /// it disappear into a silently passing comparison.
+    ///
+    fn source_writing_reservation_cells(grid: Grid, map: &LanguageMap) -> Vec<bool> {
+        let (nodes, _diagnostics) = computations(grid, map);
+        let lookup = Lookup::new(grid, nodes, map);
+        let mut cells = vec![false; grid.count()];
+        for (index, node) in lookup.nodes().iter().enumerate() {
+            if node.function.source_effect().is_none() {
+                continue;
+            }
+            for output in node
+                .portal_access
+                .write_sites()
+                .iter()
+                .filter_map(|output| output.as_ref().ok())
+            {
+                if let Some(range) = lookup.reserved(index).cells_from(grid, *output) {
+                    for idx in range {
+                        cells[idx] = true;
+                    }
+                }
+            }
+        }
+        cells
+    }
+
+    /// Cells for `grid` built from `rows`, each padded to its width with
+    /// blank Cells; fewer rows than the Grid holds is not an error, since the
+    /// remaining rows are left entirely blank, exactly as an unwritten row
+    /// already reads.
+    fn rows_bytes(grid: Grid, rows: &[&str]) -> Vec<u8> {
+        let columns = grid.columns();
+        assert!(rows.len() <= grid.rows(), "more rows than the Grid holds");
+        let mut bytes = vec![b' '; grid.count()];
+        for (y, row) in rows.iter().enumerate() {
+            assert!(
+                row.len() <= columns,
+                "{row:?} does not fit {columns} columns"
+            );
+            bytes[y * columns..y * columns + row.len()].copy_from_slice(row.as_bytes());
+        }
+        bytes
+    }
+
+    ///
+    /// The general agreement: `output_portal_cells` names exactly the Cells
+    /// `scheduled_output_portal_cells` reads back from the scheduler's own
+    /// `Lookup`, for the same revision.
+    ///
+    /// This alone does not separately name the Source-writing exclusion,
+    /// because the two oracles apply it identically — both skip a
+    /// Source-writing Function's contribution outright — so it holds even
+    /// where such a Function's write site coincides with an unrelated root's
+    /// genuine Reservation. `05`'s "Overlap" rule is that a Reservation
+    /// counts "whatever else claims it", so that coincidence is not itself a
+    /// defect: a blanket "no Source-writing write site is ever a highlight"
+    /// check would be false in general (a scalar root whose Output Portal
+    /// lands on a Self-Banging Function's own anchor, on a Grid barely wide
+    /// enough for both, is exactly such a case). The dedicated Advance and
+    /// Emit tests below name the exclusion on isolated Sources where no
+    /// other root can produce that coincidence.
+    ///
+    fn assert_output_portal_agreement(grid: Grid, bytes: &[u8]) {
+        let map = LanguageMap::build(grid, bytes);
+        let derived = map.output_portal_cells();
+        let scheduled = scheduled_output_portal_cells(grid, &map);
+
+        assert_eq!(
+            derived,
+            scheduled,
+            "the Output Portal highlight disagreed with the scheduler's own \
+             reservation for {:?}",
+            String::from_utf8_lossy(bytes)
+        );
+    }
+
+    #[test]
+    fn agrees_on_a_scalar_root() {
+        let grid = Grid::new(6, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+0102"]));
+    }
+
+    #[test]
+    fn agrees_on_an_incomplete_root() {
+        let grid = Grid::new(4, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+01"]));
+    }
+
+    #[test]
+    fn agrees_on_a_nested_function() {
+        let grid = Grid::new(10, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+.x010203"]));
+    }
+
+    #[test]
+    fn agrees_on_a_sequence_capable_root() {
+        let grid = Grid::new(8, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &[":-0102"]));
+    }
+
+    #[test]
+    fn agrees_on_a_root_widened_by_a_nested_sequence_operand() {
+        let grid = Grid::new(10, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+:-010203"]));
+    }
+
+    #[test]
+    fn agrees_on_a_terminal_output_function() {
+        let grid = Grid::new(8, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["!>007F"]));
+    }
+
+    #[test]
+    fn agrees_on_halt() {
+        let grid = Grid::new(4, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["*!"]));
+    }
+
+    ///
+    /// Named exclusion: on a Source with nothing else on it, the Advance's
+    /// own write sites — the cleared anchor and the displaced destination —
+    /// are Cells the scheduler reserves and `output_portal_cells` never
+    /// covers. Isolated on purpose: `assert_output_portal_agreement`'s own
+    /// doc explains why the general comparison cannot make this claim about
+    /// every Cell a Source-writing Function's write touches, only about this
+    /// one Function's own.
+    ///
+    #[test]
+    fn agrees_on_a_self_banging_functions_advance() {
+        let grid = Grid::new(6, 1);
+        let bytes = rows_bytes(grid, &[">>    "]);
+        assert_output_portal_agreement(grid, &bytes);
+
+        let map = LanguageMap::build(grid, &bytes);
+        let derived = map.output_portal_cells();
+        let source_writes = source_writing_reservation_cells(grid, &map);
+        assert!(
+            source_writes.iter().any(|&writes| writes),
+            "the scheduler reserves the Advance's own write sites"
+        );
+        for (index, &writes) in source_writes.iter().enumerate() {
+            assert!(
+                !writes || !derived[index],
+                "Cell {index} is the Advance's own reservation and must not \
+                 be an Output Portal highlight"
+            );
+        }
+    }
+
+    ///
+    /// The Emit half of the same named exclusion, isolated the same way.
+    ///
+    #[test]
+    fn agrees_on_a_directional_bangs_emit() {
+        let grid = Grid::new(6, 1);
+        let bytes = rows_bytes(grid, &["*>    "]);
+        assert_output_portal_agreement(grid, &bytes);
+
+        let map = LanguageMap::build(grid, &bytes);
+        let derived = map.output_portal_cells();
+        let source_writes = source_writing_reservation_cells(grid, &map);
+        assert!(
+            source_writes.iter().any(|&writes| writes),
+            "the scheduler reserves the Emit's own write site"
+        );
+        for (index, &writes) in source_writes.iter().enumerate() {
+            assert!(
+                !writes || !derived[index],
+                "Cell {index} is the Emit's own reservation and must not be \
+                 an Output Portal highlight"
+            );
+        }
+    }
+
+    #[test]
+    fn agrees_on_every_jump_direction() {
+        let grid = Grid::new(8, 3);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&>      "]));
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["    &<  "]));
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&v      "]));
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["        ", "&^      "]));
+    }
+
+    #[test]
+    fn agrees_on_a_jump_off_the_grid() {
+        let grid = Grid::new(6, 2);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&^    "]));
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["&<    "]));
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["    &>"]));
+    }
+
+    #[test]
+    fn agrees_on_a_scalar_the_row_edge_leaves_no_room_for() {
+        let grid = Grid::new(6, 1);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &["   &> "]));
+    }
+
+    #[test]
+    fn agrees_on_a_scalar_root_in_the_bottom_row() {
+        let grid = Grid::new(6, 1);
+        assert_output_portal_agreement(grid, &rows_bytes(grid, &[".+0102"]));
+    }
+
+    #[test]
+    fn agrees_on_the_function_reference() {
+        // `console/assets/function_reference.orcvs`: one worked example of
+        // every Function, embedded rather than reached through a dependency
+        // on `console`, which depends on `orcvs` and not the other way
+        // around.
+        const FUNCTION_REFERENCE: &str =
+            include_str!("../../../console/assets/function_reference.orcvs");
+        let lines: Vec<&str> = FUNCTION_REFERENCE.lines().collect();
+        let columns = lines.iter().map(|line| line.len()).max().unwrap_or(0);
+        let rows = lines.len();
+        let grid = Grid::new(columns, rows);
+        let mut bytes = vec![b' '; grid.count()];
+        for (y, line) in lines.iter().enumerate() {
+            let start = y * columns;
+            bytes[start..start + line.len()].copy_from_slice(line.as_bytes());
+        }
+        assert_output_portal_agreement(grid, &bytes);
+    }
+
+    ///
+    /// Generated Sources, over the same agreement `assert_output_portal_agreement`
+    /// checks by hand above.
+    ///
+    /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
+    /// table that declares proptest, so a WASM build never sees the dependency.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    mod property {
+        use super::assert_output_portal_agreement;
+        use crate::grid::Grid;
+        use lang::Function;
+        use proptest::prelude::*;
+        use proptest::sample::select;
+
+        /// One Cell's worth of generated content, weighted toward plain
+        /// noise so incomplete and invalid Source stays the majority case,
+        /// with every Function spelling and a hexadecimal pair (an Operand
+        /// Literal) reachable too.
+        ///
+        /// Deliberately separate from `language_map::property`'s own
+        /// fragment generator: `orcvs`'s two property modules already keep
+        /// duplicate generators apart for the same reason `language_map.rs`
+        /// gives for its own duplication against `lang::parser`'s — a new
+        /// Function or run boundary has to be taught to whichever ones care,
+        /// and merging them would mean one generator serving concerns this
+        /// module and `language_map`'s do not share.
+        fn fragment() -> BoxedStrategy<String> {
+            prop_oneof![
+                6 => proptest::char::range(' ', '~').prop_map(String::from),
+                2 => Just(" ".to_owned()),
+                2 => Just("|".to_owned()),
+                2 => Just("||".to_owned()),
+                3 => select(Function::ALL).prop_map(|function| function.to_string()),
+                2 => any::<u8>().prop_map(|number| format!("{number:02X}")),
+            ]
+            .boxed()
+        }
+
+        fn source_text(cells: usize) -> BoxedStrategy<String> {
+            prop::collection::vec(fragment(), 1..=cells)
+                .prop_map(move |fragments| {
+                    let mut text = fragments.concat();
+                    text.truncate(cells);
+                    while text.len() < cells {
+                        text.push(' ');
+                    }
+                    text
+                })
+                .boxed()
+        }
+
+        /// A Grid's shape, and exactly one printable ASCII Cell per Position
+        /// in it. Small enough that the row edge and the bottom row — the
+        /// geometry `output_portal_cells` and the scheduler have to agree
+        /// about — are reached often rather than rarely.
+        fn revision() -> BoxedStrategy<(usize, usize, String)> {
+            (1usize..=12, 1usize..=3)
+                .prop_flat_map(|(cols, rows)| (Just(cols), Just(rows), source_text(cols * rows)))
+                .boxed()
+        }
+
+        proptest! {
+            #[test]
+            fn output_portal_cells_agree_with_the_scheduler_for_generated_sources(
+                (cols, rows, source) in revision(),
+            ) {
+                let grid = Grid::new(cols, rows);
+                assert_output_portal_agreement(grid, source.as_bytes());
+            }
+        }
+    }
+}
+
+///
 /// The Cell-wise half of ADR 0020, over overlap shapes no example states.
 ///
 /// The `cfg` matches the `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`
