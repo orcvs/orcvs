@@ -144,10 +144,13 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 /// Unit (ADR 0035), so neither is ever Invalid. A bound `Function`
 /// (`atom.is_some()`) — nested Functions included, since every Function's own
 /// two-Cell spelling carries `Token::Function` regardless of nesting — draws
-/// its colour on its own tint; an unbound one is a refused spelling (a lone
-/// `|`, both Cells of a written `07`) and draws Diagnostic with no tint at
-/// all, because its `Function` label records what the slot expected rather
-/// than what was found. `Number`, `Note`, `Atom` and `Sequence` are Operand
+/// its colour on its own tint. An unbound one is text that spells no
+/// Function where an Expression could start (`hi`, both Cells of a written
+/// `07`, a lone `|`) and answers Ordinary with no tint, as an unclaimed Cell
+/// does: the Parser seeds `Token::Function` at every Expression start as the
+/// thing to try, not as a signature's declared expectation, so nothing was
+/// expected there and nothing failed. Diagnostic belongs to an operand slot
+/// a signature declared and its written content did not satisfy. `Number`, `Note`, `Atom` and `Sequence` are Operand
 /// Tokens and read [`operand_paint`]: `Token::Char` is never one of them —
 /// see its own doc for why a claim's Token is never `Char`.
 ///
@@ -196,7 +199,7 @@ fn claim_paint(
             source_paint.function(),
             fill_tint_colour(source_paint.function(), source_paint),
         ),
-        Token::Function => (source_paint.diagnostic(), None),
+        Token::Function => (source_paint.ordinary(), None),
         Token::Number => operand_paint(source_paint.number(), bound, written, source_paint),
         Token::Note => operand_paint(source_paint.note(), bound, written, source_paint),
         Token::Atom => operand_paint(source_paint.ordinary(), bound, written, source_paint),
@@ -909,21 +912,21 @@ mod tests {
     }
 
     ///
-    /// A refused Function spelling — a lone `|`, both Cells of a written
-    /// `07` — is `(Token::Function, atom: None)` with no spelling-specific
-    /// case (`syntax-highlighting/04`'s Comments). It draws Diagnostic and no
-    /// tint at all: the `Function` label records what the slot expected, not
-    /// what was found. `written` plays no part in this rule — an unbound
-    /// Function claim is Diagnostic whether or not its Cells hold content.
+    /// Text that spells no Function where an Expression could start — a lone
+    /// `|`, both Cells of a written `07` — is `(Token::Function, atom: None)`
+    /// with no spelling-specific case. No signature declared anything there,
+    /// so it draws Ordinary with no tint, as an unclaimed Cell does. `written`
+    /// plays no part in this rule.
     ///
     #[test]
-    fn an_unbound_function_entry_draws_diagnostic_with_no_tint() {
+    fn an_unbound_function_entry_draws_ordinary_with_no_tint() {
         let source_paint = SourcePaintSettings::default();
 
         let refused = painted(Some(&unbound(Token::Function)), false, false, source_paint);
         let recognized = painted(Some(&bound(Token::Function)), false, false, source_paint);
 
-        assert_eq!(refused.foreground, source_paint.diagnostic());
+        assert_eq!(refused, painted(None, false, false, source_paint));
+        assert_eq!(refused.foreground, source_paint.ordinary());
         assert_eq!(refused.background, None);
         assert_eq!(recognized.foreground, source_paint.function());
         assert_eq!(

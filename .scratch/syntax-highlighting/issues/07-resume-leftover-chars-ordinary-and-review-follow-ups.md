@@ -1,6 +1,6 @@
-# 07 — Resume: paint Leftover Chars as Ordinary, and close the 01–04 review
+# 07 — Resume: paint text that spells no Function as Ordinary, and close the 01–04 review
 
-**What to build:** Plain text that no Expression can use draws as Ordinary text in the base colour instead of the Diagnostic colour, the Ordinary default becomes the Cursor's default colour, and the gaps the review of `01`–`04` found are closed. Paused on 2026-09-17 so a full Function reference can be built first; the reference is how the interactions below get explored before the open rule is decided.
+**What to build:** Text that spells no Function draws as Ordinary text in the base colour instead of the Diagnostic colour, the Ordinary default becomes the Cursor's default colour, and the gaps the review of `01`–`04` found are closed. Paused on 2026-09-17 so a full Function reference can be built first; the rule for such text was decided on 2026-09-19, below.
 
 **Blocked by:** None — paused by choice, not by a ticket. Resume after the Function reference effort lands.
 
@@ -8,30 +8,23 @@
 
 ## Where the work stands
 
-Resolved and committed on branch `syntax-highlighting`, not pushed, no pull request:
+Resolved and committed on branch `syntax-highlighting`, not pushed, no pull request: `01`–`06` and `08`–`10`. `11` is open (needs-triage). What remains here is the Ordinary default, the review follow-ups and the judgement calls below.
 
-- `01` Source colours as Theme settings — 2b774de
-- `02` Token-colour Fill tint — 80d907f
-- `03` Pending Operand as its tint, no letter — a6f7459
-- `04` Invalid Operand in the Diagnostic colour — c66da63
+## Decided
 
-`05` (ready-for-human) and `06` (needs-triage) are untouched.
-
-## Decided, not yet built
-
-- [ ] Leftover Chars paint in the Ordinary colour with the base font and no tint, not in the Diagnostic colour.
+- [x] Text that spells no Function paints in the Ordinary colour with the base font and no tint, not in the Diagnostic colour. See the decision below.
 - [ ] The Ordinary default changes from `#FFFFFF` to `#EAEBE5`, the Cursor's default colour, as a fixed default (not linked to the live Cursor setting). Update the defaults table in `01`, the theme documentation, and the tests that pin it.
 
-## Open decision (blocks the Leftover Char build)
+## Decided: the rule reads the claim, not a Leftover Char (2026-09-19)
 
-The Language Map has no Leftover Char today. The row walk starts a parse at every non-space Cell, so `hello`, a written `07`, and a lone `|` all record the same thing: one-Cell `Function` entries that bound no Atom. `Token::Char` is only a fallback for content the Language Map does not claim, which real Source never reaches, and no test produces it from Source text. So `02`'s Char exclusion and `03`'s Char reasoning cover a case that never happens, and the spec's Unclaimed → Leftover Char role has no record behind it.
+The "Leftover Char" framing is dropped. The Language Map needs no new fact, because the Parser's claim already separates the two cases:
 
-Distinguishing a Leftover Char from an incomplete spelling needs a new fact recorded by the Language Map (a language change: `CONTEXT.md`, and an ADR if the vocabulary changes). Candidates:
+- An operand slot's Token is its parent signature's declared expectation. An operand claim with no Atom over written content is an Invalid Operand and draws Diagnostic.
+- At every Expression start the Parser seeds `(Token::Function, None)` as the thing to try, not as anything declared. An operand slot only enters that branch when `is_function_next()` holds, so a Function claim with no Atom only arises at an Expression start. It means the Cells spell nothing: nothing was expected and nothing failed.
 
-- **First-character rule (recommended when paused):** a refused entry whose character can open a Function, Bang, or Comment spelling (`. ~ : & * ! ^ v < > |`) is an incomplete spelling and stays Diagnostic; any other refused entry is a Leftover Char. `07` and `hello` become Ordinary; `|`, `.`, and the trailing `<` of `<<<` stay Diagnostic. Oddity: the `v` in `value` stays Diagnostic because `v` opens `vv`.
-- **Everything but `|`:** every refused entry except a lone `|` is a Leftover Char.
+So there are two rules for a Function claim. A claim with an Atom paints Function on the Function tint. A claim with no Atom paints Ordinary with no tint, the same as an unclaimed Cell. `hi`, a written `07`, a lone `|`, the trailing `<` of `<<<` and the `v` of `value` all paint Ordinary. The half-typed spelling loses its warning, which is intended, since a spelling on its way to valid is not an error. No `lang`, `CONTEXT.md` or ADR change. This reverses `04`'s criterion for a written `07` and a lone `|`, and `04` records that. Inside a Reservation, `06`'s Output Portal paint still takes precedence.
 
-Either rule reverses `04`'s criterion that a written `07` draws in the Diagnostic colour; record that on `04` when decided. It also interacts with `05` (what a written Result parses as).
+Built in `console/src/style.rs::claim_paint` (the unbound `Token::Function` arm), pinned by `style::tests::an_unbound_function_entry_draws_ordinary_with_no_tint` and end to end from Source text by `paint::tests::text_that_spells_no_function_is_ordinary_while_an_invalid_operand_stays_diagnostic`.
 
 ## Review follow-ups (from the two-axis review of 1c7aa98...c66da63)
 
@@ -58,4 +51,4 @@ Standards judgement calls (take or leave when resumed):
 
 ## Comments
 
-**2026-09-18 — four follow-ups moved to `08`/`09`.** A design review found the console rebuilding the parser's per-slot entry from two scalar projections, `token_at` and `bound_at`. `08` puts the claim itself on the Render Frame. `09` replaces the overlapping Token matches with one decision function, which settles the Pending/Invalid conflation, the duplicate Token → colour lookup, the positional bools and the `Paint::derive` test path. Those four are struck above. The Leftover Char decision and the other follow-ups stay here. ADR 0044 records the seam.
+**2026-09-18 — four follow-ups moved to `08`/`09`.** A design review found the console rebuilding the parser's per-slot entry from two scalar projections, `token_at` and `bound_at`. `08` puts the claim itself on the Render Frame. `09` replaces the overlapping Token matches with one decision function, which settles the Pending/Invalid conflation, the duplicate Token → colour lookup, the positional bools and the `Paint::derive` test path. Those four are struck above. The Leftover Char decision (since settled without a Leftover Char, 2026-09-19) and the other follow-ups stay here. ADR 0044 records the seam.

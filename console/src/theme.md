@@ -75,17 +75,19 @@ The console paints from the parser's own claim on a Cell (`orcvs::source::Claim
 { cells, token, atom }`, `RenderCell::claim()`) rather than from a Token and a
 derived flag — `.scratch/syntax-highlighting/issues/09` folded the two
 overlapping colour decisions that used to read those separately into the one
-that reads the claim. `atom: None` marks a claim unbound: an Invalid Operand
-(claimed Cells whose content fails to bind — the declared Token is still
-visible underneath, unchanged) or a refused Function spelling (no
-Token-specific case: a lone `|`, both Cells of a written `07`, and the
-trailing `<` of `<<<` are each `(Token::Function, atom: None)` alike).
-Diagnostic paints the glyph, not the tint, of an unbound claim: an Invalid
-Operand keeps its declared Token's Fill tint beneath the Diagnostic glyph; a
-refused Function paints no tint at all, because its `Function` label records
-what the slot expected rather than what was found. A Comment records no Atom
-too, but it is a complete Language Unit rather than an invalid one (ADR
-0035), so it is never painted Diagnostic regardless of its own claim.
+that reads the claim. `atom: None` marks a claim unbound, and what that
+means depends on whether a signature declared the slot. An operand slot's
+Token is its parent Function's declared expectation, so an unbound operand
+claim whose content fails to bind is an Invalid Operand: it draws its glyph
+in Diagnostic and keeps its declared Token's Fill tint (the declared Token is
+still visible underneath, unchanged). A `Function` claim with no Atom is
+different: the Parser seeds `Token::Function` at every Expression start as
+the thing to try, not as anything declared, so text that spells no Function
+there — `hi`, both Cells of a written `07`, a lone `|`, the trailing `<` of
+`<<<` — expected nothing and failed nothing. It paints Ordinary with no
+tint, the same as an unclaimed Cell. A Comment records no Atom too, but it
+is a complete Language Unit rather than an invalid one (ADR 0035), so it is
+never painted Diagnostic regardless of its own claim.
 
 An unbound operand claim is Invalid when any Cell of its own slot
 (`claim.cells`) holds written content, and Pending when the whole slot is

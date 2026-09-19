@@ -34,7 +34,7 @@ A standalone `**` Expression. Not a Function. A `**` rejected in a typed operand
 ## Unclaimed
 
 - Empty Cell, no Token
-- Leftover Char — letters no Expression claimed
+- Text that spells no Function where an Expression could start — `(Token::Function, atom: None)`, such as `hi`, a written `07` or a lone `|`. No signature declared anything there, so it paints as Ordinary text, not Diagnostic. Diagnostic belongs to an operand slot a signature declared and its content did not satisfy.
 
 ## Overlays
 

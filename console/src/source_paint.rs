@@ -120,12 +120,12 @@ impl SourcePaintSettings {
     pub(crate) fn sequence(self) -> Color32 {
         self.sequence
     }
-    /// The glyph colour an unbound Function claim, or an Invalid Operand
-    /// (Number, Note, Atom or Sequence), draws with instead of its Token
-    /// colour: `style::claim_paint` reads it for a Function whose claim
-    /// records no Atom, and for an Operand claim that records no Atom and
-    /// whose slot holds written content (syntax-highlighting/04,
-    /// syntax-highlighting/09). A Pending Operand — the same unbound claim
+    /// The glyph colour an Invalid Operand (Number, Note, Atom or Sequence)
+    /// draws with instead of its Token colour: `style::claim_paint` reads it
+    /// for an Operand claim that records no Atom and whose slot holds
+    /// written content (syntax-highlighting/04, syntax-highlighting/09). A
+    /// Function claim that records no Atom never reads it: no signature
+    /// declared anything there, so it paints Ordinary. A Pending Operand — the same unbound claim
     /// over a slot that is still entirely blank — keeps its Token colour
     /// instead, a distinction `style::claim_paint` reads from the Render
     /// Frame's own Cell contents (ADR 0044). A Comment is a further

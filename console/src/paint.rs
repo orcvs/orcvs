@@ -582,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn a_cell_is_answered_at_the_position_the_grid_indexes() {
         let mut orcvs = running_orcvs(6, 4);
-        for (x, character) in "#a#".chars().enumerate() {
+        for (x, character) in ".+a".chars().enumerate() {
             orcvs.select(orcvs.grid().position(x + 1, 2).expect("inside the grid"));
             orcvs.write(&character.to_string());
         }
@@ -945,6 +945,57 @@ mod tests {
             expected_visuals(&frame, cell, false, false, None, source_paint).background,
             "the truncated Cell did not carry the Number tint"
         );
+    }
+
+    ///
+    /// Characters that spell no Function where an Expression could start —
+    /// `hi`, a written `07`, a lone `|` — are claims the Parser records as
+    /// `(Token::Function, atom: None)`. No signature declared anything
+    /// there, so nothing was expected and nothing failed: they paint as
+    /// Ordinary text with no tint. Diagnostic stays with an operand slot a
+    /// signature declared and its written content did not satisfy — `c4` in
+    /// `.+c401`'s first Number slot.
+    ///
+    #[tokio::test]
+    async fn text_that_spells_no_function_is_ordinary_while_an_invalid_operand_stays_diagnostic() {
+        let mut orcvs = running_orcvs(10, 2);
+        for (row, text) in [(0, "hi 07 |"), (1, ".+c401")] {
+            for (x, character) in text.chars().enumerate() {
+                orcvs.select(orcvs.grid().position(x, row).expect("inside the grid"));
+                orcvs.write(&character.to_string());
+            }
+        }
+        orcvs.select(orcvs.grid().position(9, 1).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+
+        for x in [0, 1, 3, 4, 6] {
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            let claim = frame.at(position).claim().expect("a claimed Cell");
+            assert_eq!(
+                (claim.token, claim.atom),
+                (Token::Function, None),
+                "column {x} was not a Function claim that bound nothing"
+            );
+            let painted = paint.at(position);
+            assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+            assert_eq!(painted.background, None, "column {x}");
+        }
+
+        for x in 2..4 {
+            let position = orcvs.grid().position(x, 1).expect("inside the grid");
+            let painted = paint.at(position);
+            assert_eq!(painted.foreground, source_paint.diagnostic(), "column {x}");
+            assert_eq!(
+                painted.background,
+                expected_visuals(&frame, frame.at(position), false, false, None, source_paint)
+                    .background,
+                "column {x} did not keep the Number tint"
+            );
+            assert!(painted.background.is_some(), "column {x} lost its tint");
+        }
     }
 
     ///
