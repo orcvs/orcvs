@@ -75,13 +75,13 @@ impl CellIndex {
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
 ///
-/// The default is 64 by 40 — a Grid that reads left to right in time, in the
+/// The default is 128 by 80 — a Grid that reads left to right in time, in the
 /// proportion a console is most often given. Cells are square, so these counts
-/// are the Grid's aspect ratio, and at Zoom 1.0 the default Grid fills the
-/// default window exactly.
+/// are the Grid's aspect ratio. It is twice the default window on each axis at
+/// Zoom 1.0, so a fresh console opens with room to Pan (ADR 0047).
 ///
-pub const DEFAULT_COL_COUNT: usize = 64;
-pub const DEFAULT_ROW_COUNT: usize = 40;
+pub const DEFAULT_COL_COUNT: usize = 128;
+pub const DEFAULT_ROW_COUNT: usize = 80;
 
 ///
 /// Which Grid a value bound to one Grid came from.
