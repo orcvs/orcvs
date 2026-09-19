@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::opts::SectorSeamSpacing;
+
 static NEXT_GRID_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -345,6 +347,55 @@ impl Grid {
     }
 
     ///
+    /// The first Cell of the next Sector on `pos`'s row, `spacing` Cells
+    /// square. Clamped in the Grid's last Sector on the row — cut short at
+    /// the right edge when the column count is not a whole multiple of
+    /// `spacing` — where there is no next Sector to step to.
+    ///
+    #[inline]
+    pub fn next_sector(&self, pos: Position, spacing: SectorSeamSpacing) -> Position {
+        self.assert_owns(pos);
+        let spacing = spacing.cells();
+        let sector = pos.x / spacing;
+        let last_sector = (self.cols - 1) / spacing;
+        if sector >= last_sector {
+            return pos;
+        }
+        Position {
+            grid_id: self.id,
+            x: (sector + 1) * spacing,
+            y: pos.y,
+        }
+    }
+
+    ///
+    /// The first Cell of the Sector `pos` is in, `spacing` Cells square. If
+    /// `pos` is already there, the first Cell of the previous Sector
+    /// instead. Clamped in the Grid's first Sector, where there is no
+    /// previous Sector to step to.
+    ///
+    #[inline]
+    pub fn previous_sector(&self, pos: Position, spacing: SectorSeamSpacing) -> Position {
+        self.assert_owns(pos);
+        let spacing = spacing.cells();
+        let sector = pos.x / spacing;
+        let sector_start = sector * spacing;
+        // Already at the Sector's own first Cell, and not the Grid's first
+        // Sector: step back a whole Sector. Otherwise land on this Sector's
+        // own first Cell.
+        let x = if pos.x == sector_start && sector > 0 {
+            (sector - 1) * spacing
+        } else {
+            sector_start
+        };
+        Position {
+            grid_id: self.id,
+            x,
+            y: pos.y,
+        }
+    }
+
+    ///
     /// The Positions of this Grid in render order: one iterator per row, top to
     /// bottom, each yielding that row's Positions left to right. The render
     /// path states no bound of its own, so a swapped axis is not expressible.
@@ -400,6 +451,7 @@ mod test {
 
     use crate::{
         grid::{Grid, Position},
+        opts::SectorSeamSpacing,
         test::trace,
     };
 
@@ -631,6 +683,126 @@ mod test {
         assert_eq!(grid.right(at(2, 1)), at(3, 1));
         // already at the last column: stays
         assert_eq!(grid.right(at(3, 1)), at(3, 1));
+    }
+
+    #[test]
+    fn test_grid_steps_to_the_first_cell_of_the_next_sector() {
+        trace();
+
+        // Sector boundaries at columns 0, 3 and 6, in a row that also carries
+        // a row number so a transposed implementation would leak into `y`.
+        let grid = Grid::new(10, 2);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
+
+        // From inside a Sector, and from its own first Cell: both land on the
+        // next Sector's first Cell, on the same row.
+        assert_eq!(grid.next_sector(at(0, 1), spacing), at(3, 1));
+        assert_eq!(grid.next_sector(at(1, 1), spacing), at(3, 1));
+        assert_eq!(grid.next_sector(at(2, 1), spacing), at(3, 1));
+        assert_eq!(grid.next_sector(at(4, 1), spacing), at(6, 1));
+    }
+
+    #[test]
+    fn test_grid_tab_stays_in_the_grids_last_sector_of_a_row() {
+        trace();
+
+        // 9 columns and spacing 3 divide evenly: three whole Sectors, the
+        // last spanning columns 6 through 8.
+        let grid = Grid::new(9, 1);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
+
+        assert_eq!(grid.next_sector(at(6, 0), spacing), at(6, 0));
+        assert_eq!(grid.next_sector(at(7, 0), spacing), at(7, 0));
+        assert_eq!(grid.next_sector(at(8, 0), spacing), at(8, 0));
+    }
+
+    #[test]
+    fn test_grid_tab_reaches_a_cut_short_last_sector_and_stops() {
+        trace();
+
+        // 10 columns are not a whole multiple of spacing 8: the last Sector
+        // is cut short to the two Cells at columns 8 and 9.
+        let grid = Grid::new(10, 1);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(8).expect("a positive spacing");
+
+        assert_eq!(grid.next_sector(at(5, 0), spacing), at(8, 0));
+        assert_eq!(grid.next_sector(at(8, 0), spacing), at(8, 0));
+        assert_eq!(grid.next_sector(at(9, 0), spacing), at(9, 0));
+    }
+
+    #[test]
+    fn test_grid_steps_to_the_current_sectors_start_then_the_previous_sector() {
+        trace();
+
+        let grid = Grid::new(10, 2);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
+
+        // Inside a Sector: its own first Cell.
+        assert_eq!(grid.previous_sector(at(4, 1), spacing), at(3, 1));
+        assert_eq!(grid.previous_sector(at(5, 1), spacing), at(3, 1));
+
+        // Already at a Sector's first Cell: the previous Sector's first
+        // Cell.
+        assert_eq!(grid.previous_sector(at(3, 1), spacing), at(0, 1));
+        assert_eq!(grid.previous_sector(at(6, 1), spacing), at(3, 1));
+
+        // The Grid's first Sector: already at its first Cell stays; inside
+        // it goes to it.
+        assert_eq!(grid.previous_sector(at(0, 1), spacing), at(0, 1));
+        assert_eq!(grid.previous_sector(at(2, 1), spacing), at(0, 1));
+    }
+
+    #[test]
+    fn test_grid_previous_sector_reaches_a_cut_short_last_sector() {
+        trace();
+
+        // The same cut-short Grid as the Tab case, stepped backwards: from
+        // its interior to its own start, then on to the whole Sector before it.
+        let grid = Grid::new(10, 1);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(8).expect("a positive spacing");
+
+        assert_eq!(grid.previous_sector(at(9, 0), spacing), at(8, 0));
+        assert_eq!(grid.previous_sector(at(8, 0), spacing), at(0, 0));
+    }
+
+    #[test]
+    fn test_grid_tab_and_shift_tab_step_one_cell_at_a_time_when_spacing_is_one() {
+        trace();
+
+        // Spacing 1 makes every Cell its own Sector, so Tab and Shift Tab
+        // degenerate to the ordinary one-Cell `right` and `left` step.
+        let grid = Grid::new(5, 1);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(1).expect("a positive spacing");
+
+        assert_eq!(grid.next_sector(at(0, 0), spacing), at(1, 0));
+        assert_eq!(grid.next_sector(at(3, 0), spacing), at(4, 0));
+        assert_eq!(grid.next_sector(at(4, 0), spacing), at(4, 0));
+
+        assert_eq!(grid.previous_sector(at(4, 0), spacing), at(3, 0));
+        assert_eq!(grid.previous_sector(at(1, 0), spacing), at(0, 0));
+        assert_eq!(grid.previous_sector(at(0, 0), spacing), at(0, 0));
+    }
+
+    #[test]
+    fn test_grid_next_sector_stays_put_in_a_grid_narrower_than_one_spacing() {
+        trace();
+
+        // A single Sector spans the whole row, cut short at the Grid's own
+        // edge: there is no next Sector on either side.
+        let grid = Grid::new(4, 1);
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let spacing = SectorSeamSpacing::new(8).expect("a positive spacing");
+
+        assert_eq!(grid.next_sector(at(0, 0), spacing), at(0, 0));
+        assert_eq!(grid.next_sector(at(3, 0), spacing), at(3, 0));
+        assert_eq!(grid.previous_sector(at(3, 0), spacing), at(0, 0));
+        assert_eq!(grid.previous_sector(at(0, 0), spacing), at(0, 0));
     }
 
     #[test]

@@ -408,6 +408,28 @@ fn translate_event(event: Event) -> Option<InputEvent> {
             modifiers,
             ..
         } if modifiers.command => Some(InputEvent::Fill),
+        // Tab steps the Cursor a Sector at a time; Shift Tab steps it back.
+        // `Console::ui` cancels egui's own Tab focus navigation for the same
+        // press whenever the Source holds the keys, so this and that
+        // cancellation are two views of the one rule: Tab belongs to the
+        // Source, not to focus. Only a bare Tab and a bare Shift Tab are
+        // either of those — `modifiers.is_none()` and `modifiers.shift_only()`
+        // are the same tests `Memory::begin_pass` itself uses to turn a Tab
+        // into `FocusDirection::Next`/`Previous` (`egui-0.36.1/src/memory/mod.rs:596-597`),
+        // so Ctrl, Command, or Alt held with Tab reaches neither egui's focus
+        // navigation nor the Source here.
+        Event::Key {
+            key: Key::Tab,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.is_none() || modifiers.shift_only() => {
+            Some(InputEvent::KeyPressed(if modifiers.shift_only() {
+                InputKey::ShiftTab
+            } else {
+                InputKey::Tab
+            }))
+        }
         Event::Key {
             key, pressed: true, ..
         } => match key {
@@ -1708,6 +1730,40 @@ impl eframe::App for Console {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
+        // Whether a menu (or any other on-demand popup) is open right now.
+        // Read once and reused below at both the focus cancellation and the
+        // event routing, rather than asked twice: a menu button's click does
+        // not itself take focus, so with a menu open and nothing yet focused
+        // the two sites would otherwise be answering "is this Tab the
+        // Source's?" from two independent reads of the same fact, and a
+        // caller could see them disagree — the earlier bug this guarded
+        // against, where the cancellation saw a menu open and skipped while
+        // routing saw nothing focused and forwarded the same Tab anyway, so
+        // one press moved focus *and* stepped the Cursor.
+        let menu_open = egui::Popup::is_any_open(&ctx);
+        // Tab belongs to the Source while it holds the keys. `Memory::begin_pass`
+        // already turned an unmodified Tab into `FocusDirection::Next` and a
+        // Shift Tab into `FocusDirection::Previous` before this runs
+        // (`egui-0.36.1/src/memory/mod.rs:596-597`), and the first focusable
+        // widget shown below — a menu-bar button — would otherwise claim it
+        // the moment it is shown. Cancelling here, before anything is shown,
+        // is what keeps Tab off every widget rather than only the ones drawn
+        // after this line. `!self.keyboard_elsewhere` is last frame's answer,
+        // the same one the event routing below reads, so a focused control
+        // keeps egui's own Tab navigation exactly as before.
+        //
+        // An open menu is left alone even with nothing yet focused: a menu
+        // button's own click does not take focus
+        // (`a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from_the_source`
+        // reaches its value box only by Tab, because a pointer click there
+        // closes the menu first), so cancelling here as well would strand a
+        // viewer who opened one with the keys still on the Source. Tab
+        // belongs wholly to that menu instead — the event routing below
+        // filters it out of what reaches the Source for the same reason,
+        // reading this same `menu_open` so the two cannot disagree.
+        if !self.keyboard_elsewhere && !menu_open {
+            ctx.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
+        }
         let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
         if native_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
@@ -1868,10 +1924,22 @@ impl eframe::App for Console {
             // `eframe-0.36.1/src/web/events.rs:155-162`), so a shipped build
             // never raises the matching bare character alongside the chord
             // that already answered it.
+            // While a menu is open, Tab and Shift Tab belong to it alone: the
+            // focus cancellation above is skipped for the same `menu_open`,
+            // so egui's own Tab focus navigation is what moves, and forwarding
+            // the same press here as well would step the Cursor too — one
+            // press, two owners.
             let events = ctx.input(|i| {
                 i.filtered_events(&event_filter)
                     .into_iter()
                     .filter_map(translate_event)
+                    .filter(|event| {
+                        !(menu_open
+                            && matches!(
+                                event,
+                                InputEvent::KeyPressed(InputKey::Tab | InputKey::ShiftTab)
+                            ))
+                    })
                     .collect()
             });
             // A Copy or Cut answers the text the platform clipboard is to
@@ -2166,11 +2234,37 @@ mod tests {
             (Key::Backspace, InputKey::Backspace),
             (Key::Delete, InputKey::Delete),
             (Key::Space, InputKey::Space),
+            (Key::Tab, InputKey::Tab),
         ];
         for (egui_key, orcvs_key) in cases {
             assert_eq!(
                 translate_event(key_event(egui_key, true)),
                 Some(InputEvent::KeyPressed(orcvs_key))
+            );
+        }
+
+        // Shift Tab is its own InputKey rather than the bare Tab above: the
+        // Cursor steps forward by Sector on one and back on the other, and
+        // only the modifier tells them apart.
+        assert_eq!(
+            translate_event(modified_key_event(Key::Tab, Modifiers::SHIFT)),
+            Some(InputEvent::KeyPressed(InputKey::ShiftTab))
+        );
+
+        // Only a bare Tab and a bare Shift Tab are the Source's: Ctrl,
+        // Command, or Alt held with Tab is some other shortcut (or nothing)
+        // and must not also step the Cursor.
+        for modifiers in [
+            Modifiers::COMMAND,
+            Modifiers::CTRL,
+            Modifiers::ALT,
+            Modifiers::COMMAND | Modifiers::SHIFT,
+            Modifiers::ALT | Modifiers::SHIFT,
+        ] {
+            assert_eq!(
+                translate_event(modified_key_event(Key::Tab, modifiers)),
+                None,
+                "{modifiers:?} held with Tab translated to Source input"
             );
         }
 
@@ -3419,6 +3513,45 @@ mod tests {
             console.orcvs.bpm().beats_per_minute(),
             7,
             "a click did not select the BPM text for replacement"
+        );
+    }
+
+    ///
+    /// With the BPM field focused, Tab is egui's own focus navigation and not
+    /// the Source's: `Console::ui` only cancels it while the Source holds the
+    /// keys, so a focused control keeps Tab exactly as it always has, and the
+    /// Cursor does not move.
+    ///
+    #[tokio::test]
+    async fn tab_with_the_bpm_field_focused_leaves_the_cursor_and_moves_focus_on() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+
+        let cursor_before = console.orcvs.render_frame().cursor();
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Tab, true)],
+            &mut console,
+            &mut host,
+        );
+
+        assert_eq!(
+            console.orcvs.render_frame().cursor(),
+            cursor_before,
+            "Tab moved the Cursor while the BPM field held focus"
+        );
+        assert!(
+            !ctx.memory(|memory| memory.has_focus(bpm_field_id(&console))),
+            "Tab left focus on the BPM field rather than moving egui's focus on from it"
         );
     }
 
