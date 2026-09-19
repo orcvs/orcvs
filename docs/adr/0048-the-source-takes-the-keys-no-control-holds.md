@@ -26,6 +26,6 @@ The console's Source Grid is not an egui widget that holds focus. It gets every 
 
 ## Consequences
 
-Tab belongs to the Source while it has the keys: `.scratch/sector-navigation/issues/01-tab-steps-the-cursor-by-sector.md` gives it the move to the next Sector and cancels egui's Tab focus navigation with `Memory::move_focus`. Until that lands, an unfocused Tab moves egui's focus to the menu bar, and the Source gets no keys until Escape or a click on the Grid. `tab_never_focuses_the_console_area_the_source_is_shown_in` guards the console area staying out of the Tab order.
+Tab belongs to the Source while it has the keys: `.scratch/sector-navigation/issues/01-tab-steps-the-cursor-by-sector.md` gives it the move to the next Sector and cancels egui's Tab focus navigation with `Memory::move_focus`. Before it did, an unfocused Tab moved egui's focus to the menu bar, and the Source got no keys until Escape or a click on the Grid. `tab_never_focuses_the_console_area_the_source_is_shown_in` guards the console area staying out of the Tab order.
 
 The focus cancellation and the event routing read the same latched answer, so one Tab press never both moves egui's focus and steps the Cursor. An earlier cut asked about an open menu at the cancellation alone, and a Tab with a menu open did both. `tab_with_a_menu_open_moves_focus_and_not_the_cursor`, `typing_with_a_menu_open_leaves_the_source_unwritten` and `escape_with_a_menu_open_closes_it_and_keeps_the_region` guard the open-popup rule.
