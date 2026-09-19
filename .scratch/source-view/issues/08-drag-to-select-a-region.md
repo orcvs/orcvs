@@ -4,10 +4,10 @@
 
 **Blocked by:** 07
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A primary drag spans a Region from the pressed Cell to the Cell under the pointer, and release keeps it.
-- [ ] A primary click collapses the Region onto the clicked Cell.
-- [ ] Shift with a primary click extends the Region from its anchor to the clicked Cell.
-- [ ] A drag past the console's edge scrolls the Source View faster the further the pointer is outside, never more than one Cell a frame, and never past the Grid.
-- [ ] Alt with a primary drag, and a middle drag, still Pan and leave the Region as it was.
+- [x] A primary drag spans a Region from the pressed Cell to the Cell under the pointer, and release keeps it.
+- [x] A primary click collapses the Region onto the clicked Cell.
+- [x] Shift with a primary click extends the Region from its anchor to the clicked Cell.
+- [x] A drag past the console's edge scrolls the Source View faster the further the pointer is outside, never more than one Cell a frame, and never past the Grid.
+- [x] Alt with a primary drag, and a middle drag, still Pan and leave the Region as it was.

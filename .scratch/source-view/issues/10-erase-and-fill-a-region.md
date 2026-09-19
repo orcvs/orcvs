@@ -4,9 +4,9 @@
 
 **Blocked by:** 09
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Backspace and Delete empty every Cell of a Region larger than one Cell and keep the Region.
-- [ ] On a Region of one Cell, Backspace and Delete behave as they do today.
-- [ ] Typing writes at the Cursor, steps right, and collapses the Region.
-- [ ] Command Enter fills every Cell of the Region with the character, and a plain keystroke never fills.
+- [x] Backspace and Delete empty every Cell of a Region larger than one Cell and keep the Region.
+- [x] On a Region of one Cell, Backspace and Delete behave as they do today.
+- [x] Typing writes at the Cursor, steps right, and collapses the Region.
+- [x] Command Enter fills every Cell of the Region with the character, and a plain keystroke never fills.

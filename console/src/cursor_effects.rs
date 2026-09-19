@@ -6,12 +6,17 @@ use crate::grid_viewport::CELL_SIZE;
 
 pub(crate) const DEFAULT_CURSOR_COLOUR: Color32 = Color32::from_rgb(234, 235, 229);
 pub(crate) const DEFAULT_AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
+/// White at 17% opacity: 0.17 × 255, rounded.
+pub(crate) const DEFAULT_REGION_COLOUR: Color32 =
+    Color32::from_rgba_unmultiplied_const(255, 255, 255, 43);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CursorEffectSettings {
     cursor_colour: Color32,
     area_colour: Color32,
     cell_colour: Option<Color32>,
+    region_colour: Color32,
+    region_cursor_colour: Option<Color32>,
     amount: u8,
     frequency: u8,
 }
@@ -22,6 +27,8 @@ impl Default for CursorEffectSettings {
             cursor_colour: DEFAULT_CURSOR_COLOUR,
             area_colour: DEFAULT_AREA_COLOUR,
             cell_colour: None,
+            region_colour: DEFAULT_REGION_COLOUR,
+            region_cursor_colour: None,
             amount: 60,
             frequency: 55,
         }
@@ -38,6 +45,11 @@ impl CursorEffectSettings {
     pub(crate) fn cell_colour(self) -> Option<Color32> {
         self.cell_colour
     }
+    /// The fill of every Cell a Region larger than one Cell covers, with its
+    /// opacity.
+    pub(crate) fn region_colour(self) -> Color32 {
+        self.region_colour
+    }
     pub(crate) fn amount(self) -> u8 {
         self.amount
     }
@@ -50,6 +62,18 @@ impl CursorEffectSettings {
     }
     pub(crate) fn area_colour_mut(&mut self) -> &mut Color32 {
         &mut self.area_colour
+    }
+    pub(crate) fn region_colour_mut(&mut self) -> &mut Color32 {
+        &mut self.region_colour
+    }
+    /// The fill of the Cursor's Cell while a Region larger than one Cell is
+    /// selected, independent of the rest of the Region. `None` leaves that
+    /// Cell as the Cursor cell colour would have it.
+    pub(crate) fn region_cursor_colour(self) -> Option<Color32> {
+        self.region_cursor_colour
+    }
+    pub(crate) fn set_region_cursor_colour(&mut self, colour: Option<Color32>) {
+        self.region_cursor_colour = colour;
     }
     pub(crate) fn set_cell_colour(&mut self, colour: Option<Color32>) {
         self.cell_colour = colour;
@@ -80,8 +104,10 @@ impl CursorEffectSettings {
 
     #[cfg(any(feature = "persistence", test))]
     pub(crate) fn encode(self) -> String {
+        let [red, green, blue, alpha] = self.region_colour.to_srgba_unmultiplied();
+        let region = (red, green, blue, alpha);
         format!(
-            "{},{},{};{},{},{};{};{};{}",
+            "{},{},{};{},{},{};{};{};{};{},{},{},{};{}",
             self.cursor_colour.r(),
             self.cursor_colour.g(),
             self.cursor_colour.b(),
@@ -93,7 +119,18 @@ impl CursorEffectSettings {
             self.cell_colour.map_or_else(
                 || "none".to_owned(),
                 |colour| { format!("{},{},{}", colour.r(), colour.g(), colour.b()) }
-            )
+            ),
+            region.0,
+            region.1,
+            region.2,
+            region.3,
+            self.region_cursor_colour.map_or_else(
+                || "none".to_owned(),
+                |colour| {
+                    let [red, green, blue, alpha] = colour.to_srgba_unmultiplied();
+                    format!("{red},{green},{blue},{alpha}")
+                }
+            ),
         )
     }
 
@@ -108,6 +145,16 @@ impl CursorEffectSettings {
                 .ok()?;
             (channels.len() == 3).then(|| Color32::from_rgb(channels[0], channels[1], channels[2]))
         };
+        let translucent = |group: &str| -> Option<Color32> {
+            let channels = group
+                .split(',')
+                .map(str::parse::<u8>)
+                .collect::<Result<Vec<_>, _>>()
+                .ok()?;
+            (channels.len() == 4).then(|| {
+                Color32::from_rgba_unmultiplied(channels[0], channels[1], channels[2], channels[3])
+            })
+        };
         let settings = Self {
             cursor_colour: colour(groups.next()?)?,
             area_colour: colour(groups.next()?)?,
@@ -116,6 +163,18 @@ impl CursorEffectSettings {
             cell_colour: match groups.next() {
                 None | Some("none") => None,
                 Some(group) => colour(group),
+            },
+            // Settings saved before the Region fill was themeable carry no
+            // sixth group, and take the default.
+            region_colour: match groups.next() {
+                None => DEFAULT_REGION_COLOUR,
+                Some(group) => translucent(group)?,
+            },
+            // Likewise for the Cursor's colour within a Region, which is unset
+            // by default.
+            region_cursor_colour: match groups.next() {
+                None | Some("none") => None,
+                Some(group) => Some(translucent(group)?),
             },
         };
         (groups.next().is_none() && settings.amount <= 100 && settings.frequency <= 100)
@@ -221,17 +280,28 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 
 /// Builds the approved green damaged field and off-white eroded frame.
 ///
-/// Candidates are fixed in number and rejected against `clip` before a Shape
-/// is allocated, so work follows this small effect rather than the Grid.
+/// The field centres on `cursor`, the Cursor's Cell. The frame outlines
+/// `outline`: the Cursor's Cell on its own, or the whole Region when the
+/// Region is larger than one Cell, which is the lasso. Either way the frame is
+/// built one Cell-length of edge at a time, so a Region's lasso has the
+/// Cursor's fragment density and stroke weight however far it reaches.
+///
+/// Candidates are fixed in number per Cell-length and rejected against `clip`
+/// before a Shape is allocated, so work follows the visible edge rather than
+/// the Grid.
 pub fn cursor_effect_shapes(
     cursor: Rect,
+    outline: Rect,
     clip: Rect,
     cell_size: f32,
     sample: CursorEffectSample,
     settings: CursorEffectSettings,
 ) -> CursorEffectShapes {
     let mut shapes = CursorEffectShapes::default();
-    if !effect_bounds(cursor, cell_size).intersects(clip) {
+    if !effect_bounds(cursor, cell_size)
+        .union(outline.expand(cell_size))
+        .intersects(clip)
+    {
         return shapes;
     }
 
@@ -247,7 +317,15 @@ pub fn cursor_effect_shapes(
             amount,
         );
     }
-    frame_shapes(&mut shapes.frame, cursor, clip, sample, settings, amount);
+    frame_shapes(
+        &mut shapes.frame,
+        outline,
+        cell_size,
+        clip,
+        sample,
+        settings,
+        amount,
+    );
     shapes
 }
 
@@ -329,73 +407,98 @@ fn area_shapes(
 
 fn frame_shapes(
     out: &mut Vec<Shape>,
-    cursor: Rect,
+    outline: Rect,
+    cell_size: f32,
     clip: Rect,
     sample: CursorEffectSample,
     settings: CursorEffectSettings,
     amount: f32,
 ) {
     let colour = settings.cursor_colour();
-    let side = cursor.width().min(cursor.height());
+    let side = cell_size;
     let scale = side / CELL_SIZE;
     if amount == 0.0 {
         out.push(Shape::Rect(RectShape::stroke(
-            cursor,
+            outline,
             0.0,
             Stroke::new(scale.max(0.5), colour),
             egui::StrokeKind::Inside,
         )));
         return;
     }
+    // How many Cell-lengths each pair of edges spans. A Cell's frame is one of
+    // each, and its keys are the ones the unit index zero leaves unchanged.
+    let across = ((outline.width() / side).round() as u64).max(1);
+    let down = ((outline.height() / side).round() as u64).max(1);
     for edge in 0..4_u64 {
-        for fragment in 0..8_u64 {
-            let key = sample.frame ^ edge.wrapping_mul(0x9e37_79b9) ^ fragment.rotate_left(19);
-            // Two fragments per edge are unconditional, keeping the Cell exact
-            // and legible even when a noisy sample erodes most of a side.
-            if fragment >= 2 && unit(hash(key)) > 0.42 + amount * 0.42 {
-                continue;
-            }
-            let start = unit(hash(key.rotate_left(11))) * 0.88;
-            let length = 0.05 + unit(hash(key.rotate_left(31))).powi(2) * (0.2 + amount * 0.18);
-            let end = (start + length).min(0.98);
-            let outward = signed(hash(key.rotate_left(47))) * side * 0.045 * amount;
-            let (a, b) = edge_segment(cursor, edge, start, end, outward);
-            let bound = Rect::from_two_pos(a, b).expand(2.0 * scale);
-            if bound.intersects(clip) {
-                let alpha = (105.0 + unit(hash(!key)) * 150.0) as u8;
-                out.push(Shape::line_segment(
-                    [a, b],
-                    Stroke::new(
-                        (0.45 + unit(hash(key ^ 73)) * 0.8) * scale,
-                        colour.gamma_multiply(f32::from(alpha) / 255.0),
-                    ),
-                ));
+        let units = if edge % 2 == 0 { across } else { down };
+        for unit_index in 0..units {
+            let span = 1.0 / units as f32;
+            let offset = unit_index as f32 * span;
+            for fragment in 0..8_u64 {
+                let key = sample.frame
+                    ^ edge.wrapping_mul(0x9e37_79b9)
+                    ^ fragment.rotate_left(19)
+                    ^ unit_index.wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
+                // Two fragments per Cell-length are unconditional, keeping the
+                // outline exact and legible even when a noisy sample erodes
+                // most of a side.
+                if fragment >= 2 && unit(hash(key)) > 0.42 + amount * 0.42 {
+                    continue;
+                }
+                let start = unit(hash(key.rotate_left(11))) * 0.88;
+                let length = 0.05 + unit(hash(key.rotate_left(31))).powi(2) * (0.2 + amount * 0.18);
+                let end = (start + length).min(0.98);
+                let outward = signed(hash(key.rotate_left(47))) * side * 0.045 * amount;
+                let (a, b) = edge_segment(
+                    outline,
+                    edge,
+                    offset + start * span,
+                    offset + end * span,
+                    outward,
+                );
+                let bound = Rect::from_two_pos(a, b).expand(2.0 * scale);
+                if bound.intersects(clip) {
+                    let alpha = (105.0 + unit(hash(!key)) * 150.0) as u8;
+                    out.push(Shape::line_segment(
+                        [a, b],
+                        Stroke::new(
+                            (0.45 + unit(hash(key ^ 73)) * 0.8) * scale,
+                            colour.gamma_multiply(f32::from(alpha) / 255.0),
+                        ),
+                    ));
+                }
             }
         }
     }
 
     // Short horizontal displaced signal tears, independently placed from the
-    // edge fragments so the frame never settles into one diagonal motif.
-    for tear in 0..7_u64 {
-        let key = hash(sample.frame ^ tear.wrapping_mul(0xa076_1d65));
-        let y = cursor.top() + unit(key) * side;
-        let from_right = key & 1 == 0;
-        let length = side * (0.1 + unit(hash(key)) * 0.45) * amount;
-        let x = if from_right {
-            cursor.right()
-        } else {
-            cursor.left() - length
-        };
-        let rect = Rect::from_min_size(
-            Pos2::new(x, y + signed(hash(!key)) * side * 0.08),
-            Vec2::new(length, (0.4 + unit(hash(key.rotate_left(7)))) * scale),
-        );
-        if rect.intersects(clip) {
-            out.push(Shape::Rect(RectShape::filled(
-                rect,
-                0.0,
-                colour.gamma_multiply(0.2 + unit(hash(key.rotate_left(13))) * 0.5),
-            )));
+    // edge fragments so the frame never settles into one diagonal motif. Each
+    // Cell-length of height carries its own.
+    for row in 0..down {
+        let top = outline.top() + row as f32 * side;
+        for tear in 0..7_u64 {
+            let key =
+                hash(sample.frame ^ tear.wrapping_mul(0xa076_1d65) ^ row.wrapping_mul(0x1656_67b1));
+            let y = top + unit(key) * side;
+            let from_right = key & 1 == 0;
+            let length = side * (0.1 + unit(hash(key)) * 0.45) * amount;
+            let x = if from_right {
+                outline.right()
+            } else {
+                outline.left() - length
+            };
+            let rect = Rect::from_min_size(
+                Pos2::new(x, y + signed(hash(!key)) * side * 0.08),
+                Vec2::new(length, (0.4 + unit(hash(key.rotate_left(7)))) * scale),
+            );
+            if rect.intersects(clip) {
+                out.push(Shape::Rect(RectShape::filled(
+                    rect,
+                    0.0,
+                    colour.gamma_multiply(0.2 + unit(hash(key.rotate_left(13))) * 0.5),
+                )));
+            }
         }
     }
 }
@@ -532,8 +635,10 @@ mod tests {
         let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
         let clip = cursor.expand(200.0);
         let settings = CursorEffectSettings::default();
-        let first = cursor_effect_shapes(cursor, clip, CELL_SIZE, sample(1, 2, 3), settings);
-        let second = cursor_effect_shapes(cursor, clip, CELL_SIZE, sample(4, 2, 3), settings);
+        let first =
+            cursor_effect_shapes(cursor, cursor, clip, CELL_SIZE, sample(1, 2, 3), settings);
+        let second =
+            cursor_effect_shapes(cursor, cursor, clip, CELL_SIZE, sample(4, 2, 3), settings);
         assert_ne!(format!("{:?}", first.frame), format!("{:?}", second.frame));
 
         for edge in [
@@ -569,11 +674,156 @@ mod tests {
         );
     }
 
+    ///
+    /// A Region's lasso is the Cursor's frame drawn around the whole Region:
+    /// every Cell-length of every edge carries fragments, and no fragment is
+    /// heavier than the Cursor's heaviest.
+    ///
+    #[test]
+    fn a_lasso_frames_every_cell_length_of_a_region_at_the_cursors_weight() {
+        let cell = Vec2::splat(CELL_SIZE);
+        let outline = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::new(5.0, 3.0) * CELL_SIZE);
+        let cursor = Rect::from_min_size(outline.max - cell, cell);
+        let clip = outline.expand(200.0);
+        let settings = CursorEffectSettings::default();
+        let heaviest = |shapes: &[Shape]| {
+            shapes
+                .iter()
+                .filter_map(|shape| match shape {
+                    Shape::LineSegment { stroke, .. } => Some(stroke.width),
+                    _ => None,
+                })
+                .fold(0.0_f32, f32::max)
+        };
+
+        for frame in 0..16 {
+            let lasso = cursor_effect_shapes(
+                cursor,
+                outline,
+                clip,
+                CELL_SIZE,
+                sample(frame, 2, 3),
+                settings,
+            );
+            let alone = cursor_effect_shapes(
+                cursor,
+                cursor,
+                clip,
+                CELL_SIZE,
+                sample(frame, 2, 3),
+                settings,
+            );
+            assert!(heaviest(&lasso.frame) <= 1.25 + 1e-3);
+            assert!(heaviest(&alone.frame) <= 1.25 + 1e-3);
+
+            let touches = |probe: Rect| {
+                lasso
+                    .frame
+                    .iter()
+                    .any(|shape| shape.visual_bounding_rect().intersects(probe))
+            };
+            for column in 0..5 {
+                let left = outline.left() + column as f32 * CELL_SIZE;
+                for y in [outline.top(), outline.bottom()] {
+                    let probe = Rect::from_min_max(
+                        Pos2::new(left, y - 2.0),
+                        Pos2::new(left + CELL_SIZE, y + 2.0),
+                    );
+                    assert!(touches(probe), "column {column} of an edge at {y} was bare");
+                }
+            }
+            for row in 0..3 {
+                let top = outline.top() + row as f32 * CELL_SIZE;
+                for x in [outline.left(), outline.right()] {
+                    let probe = Rect::from_min_max(
+                        Pos2::new(x - 2.0, top),
+                        Pos2::new(x + 2.0, top + CELL_SIZE),
+                    );
+                    assert!(touches(probe), "row {row} of an edge at {x} was bare");
+                }
+            }
+            assert!(
+                lasso
+                    .frame
+                    .iter()
+                    .all(|shape| shape.visual_bounding_rect().intersects(outline.expand(8.0))),
+                "a lasso fragment strayed from the Region"
+            );
+        }
+    }
+
+    ///
+    /// A Cell's frame is the Cursor's frame whichever way it is asked for, so
+    /// generalising the frame to a Region left the Cursor's presentation as it
+    /// was.
+    ///
+    #[test]
+    fn a_one_cell_outline_is_the_cursors_own_frame() {
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let settings = CursorEffectSettings::default();
+        let effects = cursor_effect_shapes(
+            cursor,
+            cursor,
+            cursor.expand(200.0),
+            CELL_SIZE,
+            sample(9, 2, 3),
+            settings,
+        );
+        // Eight fragments on each of four edges at most, and seven tears.
+        assert!(effects.frame.len() <= 4 * 8 + 7);
+        assert!(effects.frame.len() >= 4 * 2);
+    }
+
+    #[test]
+    fn the_region_colour_defaults_to_white_at_seventeen_percent_and_is_persisted() {
+        let settings = CursorEffectSettings::default();
+        assert_eq!(
+            settings.region_colour().to_srgba_unmultiplied(),
+            [255, 255, 255, 43]
+        );
+
+        let mut changed = settings;
+        *changed.region_colour_mut() = Color32::from_rgba_unmultiplied(255, 0, 0, 128);
+        let decoded = CursorEffectSettings::decode(&changed.encode()).expect("round trips");
+        assert_eq!(decoded.region_colour(), changed.region_colour());
+    }
+
+    #[test]
+    fn the_cursors_colour_within_a_region_is_unset_by_default_and_is_persisted() {
+        let settings = CursorEffectSettings::default();
+        assert_eq!(settings.region_cursor_colour(), None);
+        assert_eq!(
+            CursorEffectSettings::decode(&settings.encode()),
+            Some(settings)
+        );
+
+        let mut changed = settings;
+        changed.set_region_cursor_colour(Some(Color32::from_rgba_unmultiplied(0, 0, 255, 200)));
+        let decoded = CursorEffectSettings::decode(&changed.encode()).expect("round trips");
+        assert_eq!(
+            decoded.region_cursor_colour(),
+            changed.region_cursor_colour()
+        );
+    }
+
+    #[test]
+    fn settings_saved_before_the_region_colour_existed_take_its_default() {
+        let decoded =
+            CursorEffectSettings::decode("1,2,3;4,5,6;50;50;none").expect("the older form decodes");
+        assert_eq!(decoded.region_colour(), DEFAULT_REGION_COLOUR);
+        assert_eq!(decoded.region_cursor_colour(), None);
+        assert_eq!(
+            CursorEffectSettings::decode("1,2,3;4,5,6;50;50;none;1,2,3"),
+            None
+        );
+    }
+
     #[test]
     fn area_is_bounded_crosses_cell_boundaries_and_can_reach_in_from_outside_clip() {
         let cursor = Rect::from_min_size(Pos2::new(-35.0, 100.0), Vec2::splat(CELL_SIZE));
         let clip = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::splat(300.0));
         let effects = cursor_effect_shapes(
+            cursor,
             cursor,
             clip,
             CELL_SIZE,
@@ -602,6 +852,7 @@ mod tests {
         for field in 0..32 {
             let effects = cursor_effect_shapes(
                 cursor,
+                cursor,
                 bounds.expand(100.0),
                 CELL_SIZE,
                 sample(1, field, field.rotate_left(7)),
@@ -619,6 +870,7 @@ mod tests {
         let cursor = Rect::from_min_size(Pos2::ZERO, Vec2::splat(CELL_SIZE));
         let clip = Rect::from_min_size(Pos2::new(1_000.0, 1_000.0), Vec2::splat(100.0));
         let effects = cursor_effect_shapes(
+            cursor,
             cursor,
             clip,
             CELL_SIZE,

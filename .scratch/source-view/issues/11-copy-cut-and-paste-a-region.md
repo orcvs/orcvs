@@ -4,10 +4,10 @@
 
 **Blocked by:** 10
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Copy puts the Region's rows on the clipboard, joined by newlines, with trailing spaces kept.
-- [ ] Cut copies and then empties every Cell of the Region.
-- [ ] Paste writes from the Region's top-left, spaces included, clipped at the Grid's edges, and the Region becomes what landed.
-- [ ] A pasted character that cannot be a Cell lands as an empty Cell, and `\r\n` is one row break.
-- [ ] The clipboard chords never write their own characters to the Source.
+- [x] Copy puts the Region's rows on the clipboard, joined by newlines, with trailing spaces kept.
+- [x] Cut copies and then empties every Cell of the Region.
+- [x] Paste writes from the Region's top-left, spaces included, clipped at the Grid's edges, and the Region becomes what landed.
+- [x] A pasted character that cannot be a Cell lands as an empty Cell, and `\r\n` is one row break.
+- [x] The clipboard chords never write their own characters to the Source.

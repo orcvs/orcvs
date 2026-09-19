@@ -357,9 +357,38 @@ impl Source {
     /// committed: every planned Cell first, then one rebuild of the rows they
     /// touched.
     pub(in crate::source) fn commit_tick(&mut self, plan: &TickPlan) {
-        // Commit every planned Cell before rebuilding any derived state.
+        self.write_cells(&plan.writes);
+    }
+
+    ///
+    /// Writes every Cell of `writes`, then rebuilds the rows they touched
+    /// once.
+    ///
+    /// One revision rather than one per Cell: a block edit — a Region filled,
+    /// emptied or pasted over — is observed whole or not at all, so a Tick
+    /// never runs against half of it, and the Language Map parses each row it
+    /// touched once rather than once per Cell. Each write's content is a
+    /// [`CellContent`], already proven to be a Cell, so nothing here can be
+    /// refused. A later write to the same Cell wins.
+    ///
+    /// ```
+    /// use orcvs::{grid::Grid, source::{CellContent, CellWrite, Source}};
+    ///
+    /// let grid = Grid::new(4, 2);
+    /// let mut source = Source::new(grid);
+    /// let write = |idx, byte| CellWrite {
+    ///     cell: grid.cell_index(idx).expect("inside the Grid"),
+    ///     content: CellContent::new(byte).expect("printable ASCII"),
+    /// };
+    ///
+    /// source.write_cells(&[write(1, b'a'), write(6, b'b')]);
+    ///
+    /// assert_eq!(source.snapshot(), " a    b ");
+    /// ```
+    ///
+    pub fn write_cells(&mut self, writes: &[CellWrite]) {
         let mut written = BTreeSet::new();
-        for write in &plan.writes {
+        for write in writes {
             self.set_source(write.cell, write.content);
             written.insert(self.grid.position_at(write.cell).y());
         }

@@ -153,6 +153,9 @@ pub struct Paint {
     /// more in every direction the Grid has one.
     drawn: VisiblePositions,
     cursor: Option<Position>,
+    /// Whether the Region spans more than one Cell. The lasso outlines it
+    /// then, and the Cursor's Cell is framed by nothing of its own.
+    region_spans: bool,
     cells: Vec<CellPaint>,
 }
 
@@ -173,12 +176,28 @@ impl Paint {
     /// checked in [`FramePaint::new`].
     ///
     pub fn derive(input: FramePaint<'_>) -> Self {
-        Self::derive_with_cursor_colour(input, Some(PALETTE.selection_fill))
+        Self::derive_with_colours(
+            input,
+            Some(PALETTE.selection_fill),
+            crate::cursor_effects::DEFAULT_REGION_COLOUR,
+            None,
+        )
     }
 
-    pub fn derive_with_cursor_colour(
+    ///
+    /// [`Self::derive`] with the Theme's colours. `cursor_colour` fills the
+    /// Cursor's Cell. While a Region spans more than one Cell,
+    /// `region_colour` fills the rest of it, and `region_cursor_colour` fills
+    /// the Cursor's Cell independently — or, when `None`, `cursor_colour`
+    /// still does. Only the fill carries over: the Cursor's Cell in such a
+    /// Region takes the grid line and its sector seams, as every other Cell
+    /// of the Region does.
+    ///
+    pub fn derive_with_colours(
         input: FramePaint<'_>,
         cursor_colour: Option<Color32>,
+        region_colour: Color32,
+        region_cursor_colour: Option<Color32>,
     ) -> Self {
         let FramePaint { frame, drawn } = input;
         let grid = frame.grid();
@@ -191,6 +210,16 @@ impl Paint {
         let cursor = (drawn.columns.contains(&frame_cursor.x())
             && drawn.rows.contains(&frame_cursor.y()))
         .then_some(frame_cursor);
+        // The Region's extent, read once. A Region of one Cell is the Cursor's
+        // own Cell and is tinted nowhere, so it answers empty ranges rather
+        // than a per-Cell question the answer to which is always no.
+        let region = frame.region();
+        let region_spans = !region.is_one_cell();
+        let (region_columns, region_rows) = if region_spans {
+            (region.columns(), region.rows())
+        } else {
+            (0..0, 0..0)
+        };
         // What each Cell says, read once for the blank spellings and never
         // per Cell. It needs no `egui::Context`: what a Cell says is a reading
         // of the Token, and only drawing it reaches the font atlas.
@@ -204,20 +233,34 @@ impl Paint {
                     .position(column, row)
                     .expect("a drawn Position is one the visible range clamped to this Grid");
                 let cell = frame.at(position);
-                let selected = position == frame_cursor;
+                // While a Region spans more than one Cell the lasso around it
+                // is the Cursor's border, so the Cursor's Cell keeps an
+                // ordinary one. Its fill is its own: the Region's Cursor
+                // colour, or the Cursor's colour when that is unset.
+                let is_cursor = position == frame_cursor;
+                let selected = is_cursor && !region_spans;
                 let visuals = cell_visuals_with_cursor_colour(
                     cell.token(),
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
                 );
+                let in_region = region_columns.contains(&column) && region_rows.contains(&row);
+                let background = if is_cursor && region_spans {
+                    region_cursor_colour.or(cursor_colour)
+                } else {
+                    visuals.background.or(in_region.then_some(region_colour))
+                };
 
                 cells.push(CellPaint {
-                    background: visuals.background,
+                    background,
                     border: visuals.border,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the Cursor's Cell, so the
-                    // Cursor is never crossed by one. It is decided here rather
+                    // Cursor's frame is never crossed by one. While a Region
+                    // spans more than one Cell the lasso is the frame and the
+                    // Cursor's Cell is not `selected`, so it keeps its seams
+                    // as every other Cell of the Region does. It is decided here rather
                     // than left to the step that draws it: in the loop this
                     // replaced the rule was structural — the selected Cell took
                     // a branch the seams were not in — and a rule that survives
@@ -246,6 +289,7 @@ impl Paint {
             grid,
             drawn: drawn.clone(),
             cursor,
+            region_spans,
             cells,
         }
     }
@@ -345,6 +389,14 @@ impl Paint {
     ///
     pub(crate) fn cursor(&self) -> Option<Position> {
         self.cursor
+    }
+
+    ///
+    /// Whether the Region spans more than one Cell, when the lasso around it
+    /// replaces the Cursor's own Cell border.
+    ///
+    pub(crate) fn region_spans(&self) -> bool {
+        self.region_spans
     }
 
     ///
@@ -599,8 +651,68 @@ mod tests {
     }
 
     ///
+    /// A Region larger than one Cell fills every Cell it covers but the
+    /// Cursor's with the Theme's Region colour, and gives every Cell of it,
+    /// the Cursor's included, the grid line: the lasso around the Region is
+    /// the Cursor's border then. A Region of one Cell fills none.
+    ///
+    /// The Cursor's Cell takes its own fill. Unset, it is the Cursor's cell
+    /// colour, as with no Region; set, it is independent of both.
+    ///
+    #[tokio::test]
+    async fn a_region_larger_than_one_cell_is_filled_around_an_independently_coloured_cursor() {
+        let mut orcvs = running_orcvs(6, 4);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let fill = Color32::from_rgba_unmultiplied(255, 255, 255, 43);
+        let cursor_fill = Color32::from_rgb(1, 2, 3);
+        let own = Color32::from_rgba_unmultiplied(0, 0, 255, 200);
+
+        let painted = |orcvs: &Orcvs, cursor: Option<Color32>, region_cursor| {
+            Paint::derive_with_colours(
+                FramePaint::whole(&orcvs.render_frame()),
+                cursor,
+                fill,
+                region_cursor,
+            )
+        };
+
+        orcvs.select(at(1, 1));
+        let collapsed = painted(&orcvs, None, Some(own));
+        assert!(
+            collapsed.cells().all(|(_, cell)| cell.background.is_none()),
+            "a Region of one Cell was tinted"
+        );
+        assert!(!collapsed.region_spans());
+
+        orcvs.extend(at(3, 2));
+        for (cursor, region_cursor, expected) in [
+            (None, None, None),
+            (Some(cursor_fill), None, Some(cursor_fill)),
+            (Some(cursor_fill), Some(own), Some(own)),
+        ] {
+            let spanned = painted(&orcvs, cursor, region_cursor);
+            assert!(spanned.region_spans());
+            for (position, cell) in spanned.cells() {
+                let inside = (1..4).contains(&position.x()) && (1..3).contains(&position.y());
+                let wanted = if position == at(3, 2) {
+                    expected
+                } else {
+                    inside.then_some(fill)
+                };
+                assert_eq!(cell.background, wanted, "the background at {position:?}");
+                assert_eq!(cell.border, PALETTE.grid_line, "the border at {position:?}");
+            }
+        }
+        assert_eq!(
+            painted(&orcvs, None, None).background_runs(),
+            vec![run(fill, 1, 1..4), run(fill, 2, 1..3)]
+        );
+    }
+
+    ///
     /// Sector seams stand where Paint derives them, and nowhere on the Cursor's
-    /// own Cell.
+    /// own Cell while it is framed on its own.
     ///
     /// The suppression is the derive's, so no later step learns the rule. The
     /// Cursor is put on a Cell that wants a seam — the corner of a sector,
@@ -655,6 +767,34 @@ mod tests {
         }
 
         assert!(seams > 0, "no Cell but the Cursor's was asked for a seam");
+    }
+
+    ///
+    /// While a Region spans more than one Cell the lasso is the Cursor's frame,
+    /// so the Cursor's Cell keeps the sector seams it would carry as any other
+    /// Cell of the Region.
+    ///
+    #[tokio::test]
+    async fn a_cursor_inside_a_spanning_region_keeps_its_seams() {
+        let mut orcvs = running_orcvs(24, 24);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        // A sector corner at the default Sector Seam spacing of eight.
+        orcvs.select(at(4, 4));
+        orcvs.extend(at(8, 8));
+
+        let frame = orcvs.render_frame();
+        let spacing = frame.sector_seam_spacing().cells();
+        let painted = *whole(&frame).at(at(8, 8));
+
+        let left = sector_left_strength(at(8, 8), spacing);
+        let top = sector_top_strength(at(8, 8), spacing);
+        assert!(
+            left.is_some() && top.is_some(),
+            "the Cursor is off a sector corner"
+        );
+        assert_eq!(painted.sector_left, left.map(sector_line));
+        assert_eq!(painted.sector_top, top.map(sector_line));
     }
 
     ///
@@ -801,6 +941,7 @@ mod tests {
             grid,
             drawn: VisiblePositions::for_grid(grid, 0..grid.columns(), 0..grid.rows()),
             cursor: Some(grid.origin()),
+            region_spans: false,
             cells: rows
                 .iter()
                 .flat_map(|row| row.iter())

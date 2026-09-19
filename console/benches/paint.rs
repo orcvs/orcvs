@@ -220,6 +220,23 @@ fn cursor_effects(c: &mut Criterion) {
         b.iter(|| {
             black_box(cursor_effect_shapes(
                 black_box(cursor),
+                black_box(cursor),
+                black_box(clip),
+                black_box(16.0),
+                black_box(sample),
+                black_box(settings),
+            ))
+        });
+    });
+
+    // A Region lasso twenty Cells by twelve: the frame is built per
+    // Cell-length of edge, so its cost follows the Region's perimeter.
+    let outline = Rect::from_min_max(cursor.min - Vec2::new(19.0, 11.0) * 16.0, cursor.max);
+    c.bench_function("cursor effects/region lasso 20x12", |b| {
+        b.iter(|| {
+            black_box(cursor_effect_shapes(
+                black_box(cursor),
+                black_box(outline),
                 black_box(clip),
                 black_box(16.0),
                 black_box(sample),

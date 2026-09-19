@@ -17,6 +17,7 @@ change, not drift.
 - Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
 - Cursor area: `#4CBE9C` (`rgb(76, 190, 156)`) at subdued, varying opacity
 - Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
+- Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), adjustable in `Theme → Cursor effects`
 - Selection stroke while caret is hidden: `#52C3A3` (`rgb(82, 195, 163)`)
 - Selection and Cursor stroke: `#65E6BE` (`rgb(101, 230, 190)`)
 
@@ -30,9 +31,20 @@ changes more slowly than its grain. The effect advances from console
 presentation time, independently of Playback and Source revisions, and remains
 stable between its scheduled visual changes.
 
-`Theme → Cursor effects` holds the four deliberate adjustments: Cursor colour,
-Area colour, Glitch amount, and Glitch frequency. Colour changes are explicit
-overrides of the defaults above; reset restores all four defaults together.
+A Region larger than one Cell is outlined by the same eroded frame, drawn
+around the whole Region: the lasso. Each Cell-length of its edges carries the
+Cursor frame's fragments at the Cursor frame's weight, and the Cursor's own
+Cell border is hidden while the lasso stands. Every other Cell of the Region
+takes the Region fill; the Cursor's Cell takes the Cursor colour in a Region,
+which is unset by default and then leaves that Cell the Cursor cell colour, or
+the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
+ruled as every other Cell of the Region, sector seams included.
+
+`Theme → Cursor effects` holds the deliberate adjustments: Cursor colour,
+Area colour, Region colour (with opacity), Cursor colour in a Region (with
+opacity), Cursor cell colour, Glitch amount,
+and Glitch frequency. Colour changes are explicit overrides of the defaults
+above; reset restores every default together.
 Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, these preferences are restored independently of the saved Source.

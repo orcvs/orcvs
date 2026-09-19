@@ -150,6 +150,14 @@ impl SourceCommander {
     }
 
     ///
+    /// Synchronous block edit: every Cell of `writes` lands in one revision,
+    /// so no reader of this Source — a Tick among them — observes part of it.
+    ///
+    pub fn write_cells(&self, writes: &[CellWrite]) {
+        write_recover(&self.inner).write_cells(writes);
+    }
+
+    ///
     /// Synchronous delete: when this returns, every observable part of the
     /// Source describes the new revision.
     ///

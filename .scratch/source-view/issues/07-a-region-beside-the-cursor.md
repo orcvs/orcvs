@@ -4,10 +4,10 @@
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A Region spans from its anchor to the Cursor, and moving the Cursor past the anchor flips the rectangle.
-- [ ] A fresh Orcvs has a Region of the Cursor's one Cell.
-- [ ] The Render Frame carries the Region, and the console tints every Cell of a Region larger than one Cell and none of a Region of one Cell.
-- [ ] The Cursor Effect is drawn on the Cursor's Cell alone.
-- [ ] The Region is not stored with the Source.
+- [x] A Region spans from its anchor to the Cursor, and moving the Cursor past the anchor flips the rectangle.
+- [x] A fresh Orcvs has a Region of the Cursor's one Cell.
+- [x] The Render Frame carries the Region, and the console tints every Cell of a Region larger than one Cell and none of a Region of one Cell.
+- [x] The Cursor Effect is drawn on the Cursor's Cell alone.
+- [x] The Region is not stored with the Source.

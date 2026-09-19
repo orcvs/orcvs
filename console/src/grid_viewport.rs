@@ -144,6 +144,26 @@ impl GridViewport {
     }
 
     ///
+    /// The Cell nearest `point`: the one under it, or where `point` is past
+    /// the presented Grid, the edge Cell it is past.
+    ///
+    /// What a drag asks while the pointer is anywhere at all, the console's
+    /// surplus and the space past the window included, so the Cursor it moves
+    /// always lands on a Cell. `None` only for a degenerate Cell size, as
+    /// [`Self::cell_at`] refuses.
+    ///
+    pub(crate) fn nearest_cell(&self, point: Pos2, grid: Grid) -> Option<(usize, usize)> {
+        if !(self.cell_size.is_finite() && self.cell_size > 0.0) || point.any_nan() {
+            return None;
+        }
+        let point = point.clamp(self.rect.min, self.rect.max);
+        Some((
+            self.cell_index(point.x, self.rect.min.x, grid.columns()),
+            self.cell_index(point.y, self.rect.min.y, grid.rows()),
+        ))
+    }
+
+    ///
     /// Which of `extent` Cells along one axis `coordinate` falls in, counting
     /// from `start`.
     ///
@@ -525,6 +545,35 @@ mod tests {
                 assert_close(rect.height(), viewport.cell_size, "Cell height");
             }
         }
+    }
+
+    ///
+    /// A point past the presented Grid resolves to the edge Cell it is past,
+    /// on each axis on its own, and a point on the Grid to the Cell under it.
+    ///
+    #[test]
+    fn the_nearest_cell_to_a_point_past_the_grid_is_the_edge_cell_it_is_past() {
+        let viewport = square_cell_viewport(area(1200.0, 700.0), square());
+        let rect = viewport.rect;
+        let inside = viewport.cell_rect(3, 5).center();
+
+        assert_eq!(viewport.nearest_cell(inside, square()), Some((3, 5)));
+        assert_eq!(
+            viewport.nearest_cell(Pos2::new(rect.max.x + 500.0, inside.y), square()),
+            Some((GRID - 1, 5))
+        );
+        assert_eq!(
+            viewport.nearest_cell(Pos2::new(inside.x, rect.min.y - 500.0), square()),
+            Some((3, 0))
+        );
+        assert_eq!(
+            viewport.nearest_cell(rect.min - Vec2::splat(1.0), square()),
+            Some((0, 0))
+        );
+        assert_eq!(
+            viewport.nearest_cell(Pos2::new(f32::NAN, 0.0), square()),
+            None
+        );
     }
 
     ///

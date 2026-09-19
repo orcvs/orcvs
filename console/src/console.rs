@@ -19,7 +19,7 @@ use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
 use crate::style::{PALETTE, style};
 use orcvs::{
-    app::{InputEvent, InputKey, Orcvs},
+    app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
     opts::{Bpm, DEFAULT_FONT_SIZE},
     playback::{PlaybackStartError, PlaybackState},
@@ -30,6 +30,12 @@ const GRID_LINE_WIDTH: f32 = 0.5;
 const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 2.0;
+///
+/// How far past the console's edge, in points, a Region drag's pointer has to
+/// be for each point the Source View scrolls a frame after it. A pointer four
+/// Cells out scrolls one Cell a frame, which is the most a frame scrolls.
+///
+const EDGE_SCROLL_REACH: f32 = 4.0;
 
 ///
 /// The step the scale is quantised to before it reaches a [`FontId`].
@@ -382,6 +388,26 @@ mod run_clock_tests {
 
 fn translate_event(event: Event) -> Option<InputEvent> {
     match event {
+        // Shift with an arrow keeps the anchor and extends the Region; a bare
+        // arrow falls through to the arm below and collapses it.
+        Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.shift && arrow(key).is_some() => arrow(key).map(InputEvent::Extend),
+        Event::Key {
+            key: Key::A,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => Some(InputEvent::SelectAll),
+        Event::Key {
+            key: Key::Enter,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command => Some(InputEvent::Fill),
         Event::Key {
             key, pressed: true, ..
         } => match key {
@@ -392,11 +418,28 @@ fn translate_event(event: Event) -> Option<InputEvent> {
             Key::Backspace => Some(InputEvent::KeyPressed(InputKey::Backspace)),
             Key::Delete => Some(InputEvent::KeyPressed(InputKey::Delete)),
             Key::Space => Some(InputEvent::KeyPressed(InputKey::Space)),
+            Key::Escape => Some(InputEvent::Collapse),
             _ => None,
         },
         Event::Text(text) => Some(InputEvent::Text(text)),
+        Event::Copy => Some(InputEvent::Copy),
+        Event::Cut => Some(InputEvent::Cut),
+        Event::Paste(text) => Some(InputEvent::Paste(text)),
         // The running Orcvs models only input it acts on; all other toolkit
         // events remain presentation concerns and are dropped here.
+        _ => None,
+    }
+}
+
+///
+/// The direction an arrow key moves the Cursor, or `None` for any other key.
+///
+fn arrow(key: Key) -> Option<Arrow> {
+    match key {
+        Key::ArrowDown => Some(Arrow::Down),
+        Key::ArrowLeft => Some(Arrow::Left),
+        Key::ArrowRight => Some(Arrow::Right),
+        Key::ArrowUp => Some(Arrow::Up),
         _ => None,
     }
 }
@@ -493,6 +536,9 @@ struct SourceView {
     /// presents, so it does not Pan away from wherever the console opened
     /// merely because there was nothing yet to compare the Cursor against.
     previous_cursor: Option<Position>,
+    /// The anchor of the primary drag selecting a Region, while one is in
+    /// progress. The Cursor follow is paced to the pointer while it is.
+    region_drag: Option<Position>,
     to_global: TSTransform,
 }
 
@@ -502,6 +548,7 @@ impl Default for SourceView {
             zoom: 1.0,
             pan: Vec2::ZERO,
             previous_cursor: None,
+            region_drag: None,
             to_global: TSTransform::IDENTITY,
         }
     }
@@ -572,6 +619,34 @@ fn follow_axis(pan: f32, min: f32, max: f32, console: f32) -> f32 {
 }
 
 ///
+/// How far `pointer` is past each edge of `console`, and zero on an axis where
+/// it is between the two.
+///
+fn overshoot(console: Rect, pointer: Pos2) -> Vec2 {
+    Vec2::new(
+        (console.min.x - pointer.x)
+            .max(pointer.x - console.max.x)
+            .max(0.0),
+        (console.min.y - pointer.y)
+            .max(pointer.y - console.max.y)
+            .max(0.0),
+    )
+}
+
+///
+/// The part of a follow Pan of `wanted` that a Region drag takes this frame:
+/// more the further the pointer is `past` the console's edge, never more than one
+/// Cell of `side`, and none on an axis the pointer has not left.
+///
+fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
+    let most = (past / EDGE_SCROLL_REACH).min(Vec2::splat(side));
+    Vec2::new(
+        wanted.x.clamp(-most.x, most.x),
+        wanted.y.clamp(-most.y, most.y),
+    )
+}
+
+///
 /// Whether `to_global` can be presented and inverted.
 ///
 /// `egui::Scene::show` used to reset a transform that had gone bad
@@ -633,13 +708,16 @@ pub struct Console {
     /// occupied and so focus is the same id the field is shown under.
     #[cfg(test)]
     bpm_widget_id: egui::Id,
-    /// Focus is from the previous frame: `event_handler` runs before widgets,
-    /// so this frame's keys would reach Source and Playback while the field
-    /// is already focused unless they are held back here.
-    bpm_field_focused: bool,
-    /// Same last-frame latch as `bpm_field_focused`, for the destination
-    /// ComboBox: digits typed while it is open would otherwise write Source.
-    destination_combo_focused: bool,
+    /// Whether keyboard input belonged to a control rather than the Source
+    /// when the last frame's widgets were done: any widget holding egui's
+    /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
+    /// `Memory::focused().is_some()`, `egui-0.36.1/src/context.rs:2982-2985`),
+    /// or the destination ComboBox while its list is open, which takes no
+    /// focus. Latched rather than asked where it is read, because
+    /// `event_handler` runs before this frame's widgets are shown, and
+    /// `Memory::begin_pass` has already let Escape clear the focus it was
+    /// pressed to leave (`egui-0.36.1/src/memory/mod.rs:596-601`).
+    keyboard_elsewhere: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
     reduced_motion: bool,
@@ -716,8 +794,7 @@ impl Console {
             diagnostics_open: false,
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
-            bpm_field_focused: false,
-            destination_combo_focused: false,
+            keyboard_elsewhere: false,
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
             reduced_motion: prefers_reduced_motion(),
@@ -1009,14 +1086,16 @@ struct SourceShapes {
     area: Vec<Shape>,
     /// The coalesced background runs, one rectangle each.
     backgrounds: Vec<Shape>,
-    /// Every Cell's own border but the Cursor's.
+    /// Every Cell's own border but the Cursor's, and the Cursor's too while a
+    /// Region spans more than one Cell.
     borders: Vec<Shape>,
     /// One galley per Cell that shows a character other than the space.
     glyphs: Vec<Shape>,
     /// The sector seams, left edge then top edge, Cell by Cell.
     seams: Vec<Shape>,
-    /// The Cursor's own stroke, which is the selected Cell's border painted
-    /// last.
+    /// The Cursor's own stroke, painted last: the Cursor Effect's frame — its
+    /// Cell's, or the lasso around a Region larger than one Cell — or the
+    /// selected Cell's border when no effect frame was built.
     cursor: Vec<Shape>,
 }
 
@@ -1115,15 +1194,17 @@ impl SourceShapes {
             // The selected Cell's border is the Cursor, and the Cursor is
             // painted last. A Cursor the viewport does not reach is no Cell of
             // this Paint, so the comparison never matches and the group stays
-            // empty.
-            if paint.cursor() == Some(position) {
+            // empty. While a Region spans more than one Cell the lasso around
+            // it is the Cursor, and the Cursor's Cell keeps an ordinary border.
+            if paint.cursor() == Some(position) && !paint.region_spans() {
                 cursor.push(border);
             } else {
                 borders.push(border);
             }
 
-            // A seam is absent on the Cursor's Cell because the derive
-            // suppressed it there, so this step never learns that rule.
+            // A seam is absent on the Cursor's Cell, while it is framed on its
+            // own, because the derive suppressed it there, so this step never
+            // learns that rule.
             for (colour, ends) in [
                 (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
                 (cell.sector_top, [rect.left_top(), rect.right_top()]),
@@ -1193,7 +1274,21 @@ impl SourceShapes {
 }
 
 ///
-/// Draws the Source Grid and answers the one question a click asks of it.
+/// The rectangle the Cursor Effect's frame outlines: the Cursor's Cell, or the
+/// whole Region when it spans more than one Cell — the lasso.
+///
+fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Rect {
+    let region = frame.region();
+    let (columns, rows) = (region.columns(), region.rows());
+    Rect::from_min_max(
+        viewport.cell_rect(columns.start, rows.start).min,
+        viewport.cell_rect(columns.end - 1, rows.end - 1).max,
+    )
+}
+
+///
+/// Draws the Source Grid and answers the one question a click asks of it:
+/// which Cell, and whether Shift extends the Region to it.
 ///
 /// The whole Grid is one allocated rectangle and no Cell is a widget, so the
 /// cost of a Render Frame is shapes rather than interaction rects and widget
@@ -1207,8 +1302,8 @@ impl SourceShapes {
 ///
 /// The click is answered rather than acted on. Selecting a Cell is the Source's
 /// business and `Console::ui` owns the running Orcvs it is asked of; handing the
-/// Position back is what leaves this function with nothing but a Render Frame
-/// and a place to draw it.
+/// [`PointerSelection`] back is what leaves this function with nothing but a
+/// Render Frame and a place to draw it.
 ///
 fn show_source(
     ui: &mut egui::Ui,
@@ -1218,7 +1313,7 @@ fn show_source(
     clip: Rect,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
-) -> Option<Position> {
+) -> Option<PointerSelection> {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` the Cells are painted at.
     let source_grid = frame.grid();
@@ -1290,13 +1385,16 @@ fn show_source(
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
-    let paint = Paint::derive_with_cursor_colour(
+    let paint = Paint::derive_with_colours(
         FramePaint::new(frame, visible),
         cursor_effect_settings.cell_colour(),
+        cursor_effect_settings.region_colour(),
+        cursor_effect_settings.region_cursor_colour(),
     );
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
+        effect_outline(frame, &viewport),
         clip,
         viewport.cell_size,
         cursor_effect_sample,
@@ -1313,13 +1411,54 @@ fn show_source(
     // The click resolves by division through the viewport the Cells were
     // painted at. With no layer transform, `interact_pointer_pos` is in global
     // points, which is the space the presented Grid is in.
+    // Shift with a click extends the Region from its anchor; a click on its
+    // own collapses it.
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
         && let Some((column, row)) = viewport.cell_at(pointer, source_grid)
     {
-        source_grid.position(column, row)
+        let extend = ui.input(|i| i.modifiers.shift);
+        source_grid.position(column, row).map(|position| {
+            if extend {
+                PointerSelection::Extend(position)
+            } else {
+                PointerSelection::Select(position)
+            }
+        })
     } else {
         None
+    }
+}
+
+///
+/// What the pointer asked of the Region in one Render Frame.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PointerSelection {
+    /// A click: the Region collapses onto the Cell.
+    Select(Position),
+    /// Shift with a click: the Cursor moves to the Cell and the anchor stays.
+    Extend(Position),
+    /// A primary drag: the Region spans from the pressed Cell to the Cell
+    /// nearest the pointer.
+    Span { anchor: Position, cursor: Position },
+}
+
+impl PointerSelection {
+    ///
+    /// Asks `orcvs` for the Region this selection names. Where the Cursor and
+    /// the anchor are is the running Orcvs's business; the pointer only
+    /// answers which Cells it asked for.
+    ///
+    fn apply(self, orcvs: &mut Orcvs) {
+        match self {
+            Self::Select(position) => orcvs.select(position),
+            Self::Extend(position) => orcvs.extend(position),
+            Self::Span { anchor, cursor } => {
+                orcvs.select(anchor);
+                orcvs.extend(cursor);
+            }
+        }
     }
 }
 
@@ -1333,15 +1472,15 @@ fn show_source(
 struct PresentedSource {
     /// The viewport the Cells were drawn at.
     viewport: GridViewport,
-    /// The Cell the viewer clicked, for the caller that owns the Source to
-    /// select.
-    clicked: Option<Position>,
+    /// The Region the viewer's click or drag asked for, for the caller that
+    /// owns the Source to select.
+    selection: Option<PointerSelection>,
 }
 
 ///
 /// Shows the Source in the console area at the Source View's Zoom and Pan, and
-/// answers the geometry it was presented under along with the Cell a click
-/// asked for.
+/// answers the geometry it was presented under along with the Region a click
+/// or a drag asked for.
 ///
 /// The console owns the scale and translation the Source is presented under —
 /// `view.to_global` — and `grid_viewport::presented_grid` is the one place that
@@ -1353,10 +1492,12 @@ struct PresentedSource {
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
 /// held with a primary drag, bounded by the Grid's edges. A primary click
-/// alone, and a primary drag without Alt, still select a Cell and do not Pan
-/// — [`show_source`]'s own click-sensing rect is what answers those; nothing
-/// here needs to tell the two gestures apart, because a real drag never
-/// resolves as a click regardless of Alt. Pinch and command-wheel do not
+/// selects a Cell — [`show_source`]'s own click-sensing rect answers it, with
+/// Shift extending the Region rather than collapsing it — and a primary drag
+/// without Alt selects a Region from the pressed Cell to the Cell nearest the
+/// pointer; neither Pans. A drag past the console's edge scrolls after the
+/// Cursor at the pointer's pace, at most one Cell a frame — see
+/// `docs/adr/0046-the-primary-drag-selects-a-region.md`. Pinch and command-wheel do not
 /// Zoom: Zoom is a command `=`, `+`, `-` or `0` chord from the keyboard
 /// alone, stepped by [`GLYPH_SCALE_STEP`] and clamped to
 /// [`MIN_ZOOM`]..=[`MAX_ZOOM`]. A Zoom that would open a gap past an edge
@@ -1368,9 +1509,9 @@ struct PresentedSource {
 /// pulled back to the Cursor. `frame` already carries a keyboard Cursor move
 /// from this same Render Frame — `Console::ui` reads it after
 /// `Orcvs::event_handler` runs — so that case is caught the frame it happens.
-/// A click's Cursor move reaches the Source only after this call returns
-/// (`Console::ui` calls `orcvs.select` next), so a click that would scroll
-/// its own Cell out of view is followed on the frame after, not this one.
+/// A click's or a drag's Cursor move reaches the Source only after this call
+/// returns (`Console::ui` applies the [`PointerSelection`] next), so it is
+/// followed on the frame after, not this one.
 ///
 fn show_source_scene(
     ui: &mut egui::Ui,
@@ -1382,8 +1523,12 @@ fn show_source_scene(
 ) -> PresentedSource {
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
+    // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
+    // which adds `FOCUSABLE` (`egui-0.36.1/src/sense.rs:81-83`) and would let
+    // Tab focus the console area, where a focused widget keeps every key from
+    // the Source.
     let (console, mut pan) =
-        ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::click_and_drag());
+        ui.allocate_exact_size(ui.available_size_before_wrap(), Sense::CLICK | Sense::DRAG);
 
     if !view.zoom.is_finite() || view.zoom <= 0.0 {
         view.zoom = 1.0;
@@ -1398,13 +1543,16 @@ fn show_source_scene(
 
     // Middle-drag Pans outright; a primary drag Pans only with Alt (Option)
     // held, so a trackpad with no middle button still has a way to Pan by
-    // dragging. Without Alt this branch is simply skipped: a primary
-    // gesture that stayed inside the click threshold still resolves to
-    // `show_source`'s own click on release, and one that moved past it
-    // resolves to neither a click nor, now, a Pan — see this function's own
-    // doc comment for why Alt needs no extra guard against either.
+    // dragging. Without Alt this branch is skipped: a primary gesture that
+    // stayed inside the click threshold resolves to `show_source`'s own click
+    // on release, and one that moved past it selects a Region below.
+    //
+    // A primary drag that began selecting a Region stays one if Alt is
+    // pressed partway through it.
     if pan.dragged_by(PointerButton::Middle)
-        || (pan.dragged_by(PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
+        || (pan.dragged_by(PointerButton::Primary)
+            && view.region_drag.is_none()
+            && ui.input(|i| i.modifiers.alt))
     {
         view.pan += pan.drag_delta();
         pan.mark_changed();
@@ -1435,8 +1583,25 @@ fn show_source_scene(
     // Grid as drawn rather than the unsnapped extent the Zoom asked for.
     let side = snapped_cell_side(CELL_SIZE * view.zoom, ui.ctx().pixels_per_point());
 
-    if cursor_moved || zoomed {
+    // A Region drag follows the Cursor at the pointer's pace rather than in
+    // one jump, so the Source View scrolls after a pointer held past the edge
+    // — the Cursor is the Cell nearest the pointer, one past the edge — and
+    // keeps scrolling each frame the pointer stays there, which is why this
+    // frame asks for the next.
+    let pointer = ui.input(|i| i.pointer.interact_pos());
+    // Still paced on the frame the button comes up — `region_drag` is cleared
+    // only once this frame has answered it — so a release with the Cursor
+    // many Cells past the edge does not jump the Source View to it.
+    let dragging_region = view.region_drag.is_some();
+    if zoomed || (cursor_moved && !dragging_region) {
         view.pan = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side));
+    } else if dragging_region && let Some(pointer) = pointer {
+        let past = overshoot(console, pointer);
+        let wanted = follow_cursor(view.pan, console.size(), cursor_cell(cursor, side)) - view.pan;
+        view.pan += edge_scroll(wanted, past, side);
+        if past != Vec2::ZERO {
+            ui.ctx().request_repaint();
+        }
     }
 
     let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * side;
@@ -1465,9 +1630,42 @@ fn show_source_scene(
         cursor_effect_settings,
     );
 
+    // A primary drag without Alt selects a Region: its anchor is the Cell the
+    // press landed on, and a press off the Grid selects nothing. The drag is
+    // decided once the pointer has moved past egui's click distance, so the
+    // anchor is read from where the press began rather than where the
+    // pointer is now.
+    if pan.drag_started_by(PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
+        view.region_drag = ui
+            .input(|i| i.pointer.press_origin())
+            .and_then(|origin| grid.cell_at(origin, source_grid))
+            .and_then(|(column, row)| source_grid.position(column, row));
+    }
+    let spanned = view
+        .region_drag
+        .filter(|_| pan.dragged_by(PointerButton::Primary))
+        .zip(
+            pointer
+                .and_then(|pointer| grid.nearest_cell(pointer, source_grid))
+                .and_then(|(column, row)| source_grid.position(column, row)),
+        )
+        .map(|(anchor, cursor)| PointerSelection::Span { anchor, cursor });
+    // Answered on every frame of the drag, not only when the pointer moves:
+    // a pointer held past the edge moves no further while the Source View
+    // scrolls under it, so the Cell nearest it changes without an event.
+    // Asking for the same Region again is idempotent, so a repeated frame
+    // changes nothing.
+    //
+    // Release keeps the Region the drag last spanned, and spans no further:
+    // a Cursor moved on the release frame would be followed in full on the
+    // next, once the drag no longer paces it.
+    if !pan.dragged_by(PointerButton::Primary) {
+        view.region_drag = None;
+    }
+
     PresentedSource {
         viewport: grid,
-        clicked,
+        selection: spanned.or(clicked),
     }
 }
 
@@ -1557,6 +1755,35 @@ impl eframe::App for Console {
                             egui::color_picker::Alpha::Opaque,
                         );
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Region colour");
+                        egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            self.cursor_effects.region_colour_mut(),
+                            egui::color_picker::Alpha::OnlyBlend,
+                        );
+                    });
+                    let mut region_cursor_enabled =
+                        self.cursor_effects.region_cursor_colour().is_some();
+                    if ui
+                        .checkbox(&mut region_cursor_enabled, "Cursor colour in a Region")
+                        .changed()
+                    {
+                        self.cursor_effects.set_region_cursor_colour(
+                            region_cursor_enabled
+                                .then_some(crate::cursor_effects::DEFAULT_REGION_COLOUR),
+                        );
+                    }
+                    if let Some(mut colour) = self.cursor_effects.region_cursor_colour()
+                        && egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            &mut colour,
+                            egui::color_picker::Alpha::OnlyBlend,
+                        )
+                        .changed()
+                    {
+                        self.cursor_effects.set_region_cursor_colour(Some(colour));
+                    }
                     let mut cell_colour_enabled = self.cursor_effects.cell_colour().is_some();
                     if ui
                         .checkbox(&mut cell_colour_enabled, "Cursor cell colour")
@@ -1621,14 +1848,19 @@ impl eframe::App for Console {
             escape: true,
         };
 
-        // Keys belong to the field or ComboBox while it has focus. The flag
-        // is last frame's, because this frame's events are collected before
-        // the widgets are shown and would otherwise write Source or toggle
-        // Playback in the same pass they are already editing.
-        if self.bpm_field_focused {
+        // Keys belong to whichever control held focus when last frame's
+        // widgets were done. Last frame's, because this frame's events are
+        // collected before the widgets are shown and would otherwise write
+        // Source or toggle Playback in the same pass a control is already
+        // editing. egui offers no per-event answer to whether a widget used
+        // an event — `TextEdit` reads its events without consuming them
+        // (`egui-0.36.1/src/widgets/text_edit/builder.rs:1081`) — and names
+        // `egui_wants_keyboard_input` as the question to ask instead
+        // (`egui-0.36.1/src/data/input/raw_input.rs:56-60`).
+        if ctx.memory(|memory| memory.had_focus_last_frame(egui::Id::new(BPM_FIELD_ID))) {
             ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
         }
-        if !self.bpm_field_focused && !self.destination_combo_focused {
+        if !self.keyboard_elsewhere {
             // A command Zoom chord answers `show_source_scene`, not the
             // Source. `egui-winit` and eframe's web backend both withhold
             // `Event::Text` while a command modifier is held
@@ -1642,7 +1874,16 @@ impl eframe::App for Console {
                     .filter_map(translate_event)
                     .collect()
             });
-            self.orcvs.event_handler(events);
+            // A Copy or Cut answers the text the platform clipboard is to
+            // hold; `copy_text` is how egui hands it to the native and the
+            // browser backend alike.
+            if let Some(copied) = self.orcvs.event_handler(events).copied {
+                ctx.copy_text(copied);
+            }
+        } else {
+            // Keys a control took are still the event that follows a command
+            // Enter, so they disarm its fill as one reaching the Source would.
+            self.orcvs.disarm_fill();
         }
         let frame = self.orcvs.render_frame();
         let observation = self.orcvs.playback_observation();
@@ -1664,6 +1905,7 @@ impl eframe::App for Console {
         // while Playback is stopped. Tick and Run Clock are the engine's
         // published Readouts. Destination is chosen from the ComboBox;
         // Scan asks the engine to discover again. There is no periodic polling.
+        let mut destination_combo_open = false;
         egui::Panel::bottom("bottom_panel")
             .resizable(false)
             .min_size(BOTTOM_PANEL_HEIGHT)
@@ -1678,18 +1920,15 @@ impl eframe::App for Console {
                         panel_label(ui, "B");
                         ui.add_space(label_value_gap);
                         let mut bpm = self.orcvs.bpm().beats_per_minute();
-                        let (response, committed) = add_bpm_field(ui, &mut bpm);
+                        // The field is shown under `BPM_FIELD_ID`, the id
+                        // `Console::new` already gave `bpm_widget_id`.
+                        let (_, committed) = add_bpm_field(ui, &mut bpm);
                         if committed
                             && let Some(next) = Bpm::new(bpm)
                             && next != self.orcvs.bpm()
                         {
                             self.orcvs.set_bpm(next);
                         }
-                        #[cfg(test)]
-                        {
-                            self.bpm_widget_id = response.id;
-                        }
-                        self.bpm_field_focused = response.has_focus();
                         ui.add_space(label_value_gap);
                         let beat_text = format_beat_marker(observation.state, observation.on_beat);
                         let beat_width = monospace_width(ui, BEAT_MARKER);
@@ -1757,8 +1996,8 @@ impl eframe::App for Console {
                             {
                                 self.midi.refresh_destinations();
                             }
-                            self.destination_combo_focused = combo_response.response.has_focus()
-                                || egui::ComboBox::is_open(ui.ctx(), combo_response.response.id);
+                            destination_combo_open =
+                                egui::ComboBox::is_open(ui.ctx(), combo_response.response.id);
                             if selected != selected_id
                                 && let Some(id) = selected.as_ref()
                             {
@@ -1786,8 +2025,7 @@ impl eframe::App for Console {
                     diagnostics_open: _,
                     #[cfg(test)]
                         bpm_widget_id: _,
-                    bpm_field_focused: _,
-                    destination_combo_focused: _,
+                    keyboard_elsewhere: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
                     reduced_motion: _,
@@ -1803,17 +2041,20 @@ impl eframe::App for Console {
                     cursor_effect_settings,
                 );
                 cell_size = presented.viewport.cell_size;
-                // The Source Grid answers which Cell was clicked; moving the
-                // Cursor there is the Source's own business, and this is where
-                // the running Orcvs is owned.
-                if let Some(position) = presented.clicked {
-                    orcvs.select(position);
+                // The Source Grid answers which Cells the pointer asked for;
+                // moving the Cursor and the anchor there is the Source's own
+                // business, and this is where the running Orcvs is owned.
+                if let Some(selection) = presented.selection {
+                    selection.apply(orcvs);
                 }
 
                 let cursor_rect = presented
                     .viewport
                     .cell_rect(frame.cursor().x(), frame.cursor().y());
-                if effect_bounds(cursor_rect, presented.viewport.cell_size).intersects(console_area)
+                let outline = effect_outline(&frame, &presented.viewport);
+                if effect_bounds(cursor_rect, presented.viewport.cell_size)
+                    .union(outline.expand(presented.viewport.cell_size))
+                    .intersects(console_area)
                 {
                     self.cursor_effect_animation
                         .repaint_after(effect_now, cursor_effect_settings)
@@ -1841,6 +2082,10 @@ impl eframe::App for Console {
                 cell_size,
             );
         }
+
+        // Sampled once every widget, the Diagnostics window's included, has
+        // been shown and has taken or surrendered focus.
+        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || destination_combo_open;
     }
 }
 
@@ -1853,7 +2098,7 @@ mod tests {
         Color32, Event, Key, Modifiers, MouseWheelUnit, Pos2, Rect, Shape, TouchPhase, Vec2,
         emath::GuiRounding as _, emath::TSTransform,
     };
-    use orcvs::app::{InputEvent, InputKey, Orcvs};
+    use orcvs::app::{Arrow, InputEvent, InputKey, Orcvs};
     use orcvs::render_frame::RenderFrame;
 
     use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
@@ -1877,6 +2122,16 @@ mod tests {
             pressed,
             repeat: false,
             modifiers: Modifiers::NONE,
+        }
+    }
+
+    fn modified_key_event(key: Key, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
         }
     }
 
@@ -1925,7 +2180,46 @@ mod tests {
         );
         assert_eq!(translate_event(key_event(Key::Enter, true)), None);
         assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
-        assert_eq!(translate_event(Event::Copy), None);
+
+        // Shift with an arrow extends the Region; command `A` spans the Grid;
+        // Escape collapses the Region onto the Cursor.
+        let shifted = [
+            (Key::ArrowDown, Arrow::Down),
+            (Key::ArrowLeft, Arrow::Left),
+            (Key::ArrowRight, Arrow::Right),
+            (Key::ArrowUp, Arrow::Up),
+        ];
+        for (egui_key, arrow) in shifted {
+            assert_eq!(
+                translate_event(modified_key_event(egui_key, Modifiers::SHIFT)),
+                Some(InputEvent::Extend(arrow))
+            );
+        }
+        assert_eq!(
+            translate_event(command_key_event(Key::A)),
+            Some(InputEvent::SelectAll)
+        );
+        // Command Enter arms a fill; a bare Enter is still nothing.
+        assert_eq!(
+            translate_event(command_key_event(Key::Enter)),
+            Some(InputEvent::Fill)
+        );
+        assert_eq!(translate_event(key_event(Key::A, true)), None);
+        assert_eq!(
+            translate_event(key_event(Key::Escape, true)),
+            Some(InputEvent::Collapse)
+        );
+        // The clipboard arrives as its own events, never as the characters
+        // of the chord that raised it.
+        assert_eq!(translate_event(Event::Copy), Some(InputEvent::Copy));
+        assert_eq!(translate_event(Event::Cut), Some(InputEvent::Cut));
+        assert_eq!(
+            translate_event(Event::Paste("ab".to_owned())),
+            Some(InputEvent::Paste("ab".to_owned()))
+        );
+        for key in [Key::C, Key::X, Key::V] {
+            assert_eq!(translate_event(command_key_event(key)), None);
+        }
 
         // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
         // reports them as `Event::Text`, which `translate_event` reaches
@@ -2222,8 +2516,8 @@ mod tests {
         // What `Console::ui` does with the answer, done here for the same
         // reason: the Source Grid reports the Cell and the caller that owns the
         // running Orcvs moves the Cursor to it.
-        if let Some(position) = presented.clicked {
-            orcvs.select(position);
+        if let Some(selection) = presented.selection {
+            selection.apply(orcvs);
         }
 
         (presented.viewport, painted)
@@ -3192,6 +3486,11 @@ mod tests {
             .expect("the test runtime");
         let mut host = eframe::Frame::_new_kittest();
         let start = console.orcvs.bpm().beats_per_minute();
+        let grid = console.orcvs.grid();
+        console
+            .orcvs
+            .extend(grid.position(3, 2).expect("inside the Grid"));
+        let region = console.orcvs.region();
 
         app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
         focus_bpm_field(&ctx, screen, &mut console, &mut host);
@@ -3213,6 +3512,118 @@ mod tests {
             console.orcvs.bpm().beats_per_minute(),
             start,
             "Escape committed the typed BPM"
+        );
+        assert_eq!(
+            console.orcvs.region(),
+            region,
+            "Escape in the BPM field collapsed the Region"
+        );
+    }
+
+    ///
+    /// A fill armed by command Enter waits for the next event, and typing into
+    /// the BPM field is that event even though the field, not the Source,
+    /// received it. A character typed back in the Source afterwards writes one
+    /// Cell rather than filling the Region the chord was pressed over.
+    ///
+    #[tokio::test]
+    async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
+        let ctx = egui::Context::default();
+        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
+        ctx.set_theme(egui::Theme::Dark);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let grid = console.orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        console.orcvs.extend(at(2, 1));
+
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![command_key_event(Key::Enter)],
+            &mut console,
+            &mut host,
+        );
+        focus_bpm_field(&ctx, screen, &mut console, &mut host);
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("120".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Enter, true)],
+            &mut console,
+            &mut host,
+        );
+        assert!(
+            !ctx.memory(|memory| memory.has_focus(bpm_field_id(&console))),
+            "Enter left the BPM field focused"
+        );
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Text("x".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        let frame = console.orcvs.render_frame();
+        assert_eq!(
+            frame.at(at(0, 0)).content(),
+            None,
+            "a fill armed before the BPM field took the keys filled the Region"
+        );
+    }
+
+    ///
+    /// A copy with the Source focused hands the Region's rows to the platform
+    /// clipboard, and a paste writes the text the platform delivered.
+    ///
+    #[tokio::test]
+    async fn copy_reaches_the_platform_clipboard_and_paste_writes_the_source() {
+        use eframe::App as _;
+
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+        let grid = console.orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+        app_pass(
+            &ctx,
+            screen,
+            vec![Event::Paste("ab\ncd".to_owned())],
+            &mut console,
+            &mut host,
+        );
+        assert_eq!(origin_content(&console.orcvs), Some('a'));
+        let landed = console.orcvs.region();
+        assert_eq!((landed.columns(), landed.rows()), (0..2, 0..2));
+
+        console.orcvs.select(at(1, 0));
+        console.orcvs.extend(at(1, 1));
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![Event::Copy],
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |root| console.ui(root, &mut host));
+        assert!(
+            output
+                .platform_output
+                .commands
+                .contains(&egui::OutputCommand::CopyText("b\nd".to_owned())),
+            "the copy never reached the platform: {:?}",
+            output.platform_output.commands
         );
     }
 
@@ -4169,6 +4580,56 @@ mod tests {
     }
 
     ///
+    /// A Region larger than one Cell hides the Cursor's own Cell border: the
+    /// lasso around the Region is the Cursor's presentation then, so the
+    /// Cursor's Cell is stroked as every other Cell is.
+    ///
+    #[tokio::test]
+    async fn a_region_hides_the_cursors_cell_border() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(8, 8);
+        let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
+        let (anchor, cursor) = (at(1, 1), at(4, 3));
+        orcvs.select(anchor);
+        orcvs.extend(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 8, 8, 1.0);
+        let shapes = source_geometry(&painted(&frame, viewport, screen), viewport, 1.0);
+
+        assert!(
+            shapes.cursor.is_empty(),
+            "the Cursor's Cell kept its border"
+        );
+        assert_eq!(shapes.borders.len(), 64, "every Cell keeps its grid line");
+        assert!(!shapes.backgrounds.is_empty(), "the Region was not filled");
+    }
+
+    ///
+    /// The lasso outlines the whole Region rather than the Cursor's Cell.
+    ///
+    #[tokio::test]
+    async fn the_effect_outline_is_the_region_when_it_spans_and_the_cursor_otherwise() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(8, 8);
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        let viewport = presented(screen, 8, 8, 1.0);
+
+        orcvs.select(at(4, 3));
+        assert!(close(
+            super::effect_outline(&orcvs.render_frame(), &viewport),
+            viewport.cell_rect(4, 3)
+        ));
+
+        orcvs.select(at(4, 3));
+        orcvs.extend(at(1, 1));
+        assert!(close(
+            super::effect_outline(&orcvs.render_frame(), &viewport),
+            Rect::from_min_max(viewport.cell_rect(1, 1).min, viewport.cell_rect(4, 3).max)
+        ));
+    }
+
+    ///
     /// A Cell's background never paints over a Glyph, whichever Cell that Glyph
     /// belongs to, and the Cursor is painted over both.
     ///
@@ -4707,12 +5168,14 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_cursor_colour(
+        let paint = Paint::derive_with_colours(
             FramePaint::new(
                 &frame,
                 viewport.visible_positions(viewport.rect, frame.grid()),
             ),
             Some(PALETTE.selection_fill),
+            crate::cursor_effects::DEFAULT_REGION_COLOUR,
+            None,
         );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
@@ -4823,8 +5286,10 @@ mod tests {
         // background run to snap. Explicit colours are covered by the Paint
         // seam tests.
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_cursor_colour(
+        let paint = Paint::derive_with_colours(
             FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
+            None,
+            crate::cursor_effects::DEFAULT_REGION_COLOUR,
             None,
         );
         let runs = paint.background_runs();
@@ -4839,7 +5304,8 @@ mod tests {
     /// colour it asks for, one sector line wide.
     ///
     /// Which Cells carry a seam, at what strength, and that the Cursor's own
-    /// Cell carries none, are the Render Frame's and the derive's answers and
+    /// Cell carries none while it is framed on its own, are the Render
+    /// Frame's and the derive's answers and
     /// are asserted in `paint.rs` with no Context at all. The seam's *width*
     /// scales with the Cell side, so it is geometry and belongs here.
     ///
@@ -5011,8 +5477,8 @@ mod tests {
     ///
     /// A primary drag without Alt does not Pan — it is either a click, which
     /// `a_click_selects_the_cell_under_the_pointer_whatever_the_window_size`
-    /// already covers, or a real drag that never resolves as a click either,
-    /// so nothing here reads it as a Pan or a selection.
+    /// already covers, or a drag that selects a Region, which
+    /// `a_primary_drag_spans_a_region_that_release_keeps` covers.
     ///
     #[tokio::test]
     async fn a_primary_drag_without_alt_does_not_pan() {
@@ -5038,6 +5504,235 @@ mod tests {
             view.pan, before,
             "a primary drag without Alt panned the Source"
         );
+    }
+
+    fn region_of(orcvs: &Orcvs) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+        let region = orcvs.region();
+        (region.columns(), region.rows())
+    }
+
+    ///
+    /// A primary press sets the anchor on the pressed Cell, the drag moves the
+    /// Cursor to the Cell under the pointer, and release keeps the Region.
+    ///
+    #[tokio::test]
+    async fn a_primary_drag_spans_a_region_that_release_keeps() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let (from, to) = (
+            viewport.cell_rect(6, 4).center(),
+            viewport.cell_rect(2, 2).center(),
+        );
+        console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(to)],
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(region_of(&orcvs), (2..7, 2..5));
+        assert_eq!(selected_cell(&orcvs), (2, 2), "the Cursor is the live end");
+
+        console_frame(&ctx, screen, release_at(to), &mut orcvs, &mut view);
+        assert_eq!(
+            region_of(&orcvs),
+            (2..7, 2..5),
+            "release dropped the Region"
+        );
+    }
+
+    ///
+    /// A primary click collapses the Region onto the clicked Cell, and Shift
+    /// with a click extends it from the anchor it already has.
+    ///
+    #[tokio::test]
+    async fn a_click_collapses_the_region_and_a_shift_click_extends_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        let grid = orcvs.grid();
+        orcvs.select(grid.position(1, 1).expect("inside the Grid"));
+        orcvs.extend(grid.position(9, 9).expect("inside the Grid"));
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        click(
+            &ctx,
+            screen,
+            viewport.cell_rect(3, 2).center(),
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(region_of(&orcvs), (3..4, 2..3));
+
+        let shift_at = viewport.cell_rect(7, 5).center();
+        let shifted = |pressed| Event::PointerButton {
+            pos: shift_at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::SHIFT,
+        };
+        console_frame(
+            &ctx,
+            screen,
+            vec![
+                Event::PointerMoved(shift_at),
+                Event::ModifiersChanged(Modifiers::SHIFT),
+                shifted(true),
+            ],
+            &mut orcvs,
+            &mut view,
+        );
+        // Shift is let go after the button, as a viewer lets it go: the
+        // click resolves on release and reads Shift then.
+        console_frame(&ctx, screen, vec![shifted(false)], &mut orcvs, &mut view);
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::ModifiersChanged(Modifiers::NONE)],
+            &mut orcvs,
+            &mut view,
+        );
+        assert_eq!(region_of(&orcvs), (3..8, 2..6));
+        assert_eq!(selected_cell(&orcvs), (7, 5));
+    }
+
+    ///
+    /// A drag past the console's edge moves the Cursor past it and scrolls
+    /// after it: faster the further the pointer is outside, never more than
+    /// one Cell a frame, and never past the Grid.
+    ///
+    #[tokio::test]
+    async fn a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_grid() {
+        // The Pan step each of `frames` frames takes with the pointer held
+        // `outside` points past the console's right edge.
+        fn steps(outside: f32, frames: usize) -> (Vec<f32>, Orcvs, SourceView, Rect) {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+            let mut orcvs = running_orcvs(32, 32);
+            let mut view = SourceView::default();
+            let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+            let from = viewport.cell_rect(20, 5).center();
+            console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+            console_frame(
+                &ctx,
+                screen,
+                vec![Event::PointerMoved(Pos2::new(
+                    screen.max.x + outside,
+                    from.y,
+                ))],
+                &mut orcvs,
+                &mut view,
+            );
+            let mut steps = Vec::new();
+            for _ in 0..frames {
+                let before = view.pan.x;
+                console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+                steps.push(before - view.pan.x);
+            }
+            (steps, orcvs, view, screen)
+        }
+
+        let (near, ..) = steps(8.0, 3);
+        let (far, orcvs, view, screen) = steps(200.0, 40);
+        let side = CELL_SIZE;
+
+        assert!(near[0] > 0.0, "a drag just past the edge did not scroll");
+        assert!(
+            far[0] > near[0],
+            "a drag further out scrolled no faster: {far:?} against {near:?}"
+        );
+        assert!(
+            far.iter().chain(&near).all(|step| *step <= side),
+            "a frame scrolled more than one Cell: {far:?}"
+        );
+        // Never past the Grid: the console's right edge meets the Grid's.
+        assert_eq!(view.pan.x, screen.width() - 32.0 * side);
+        assert_eq!(selected_cell(&orcvs), (31, 5));
+    }
+
+    ///
+    /// Releasing a drag held past the edge does not jump the Source View to
+    /// the Cursor: the frame the button comes up still scrolls at most a Cell.
+    ///
+    #[tokio::test]
+    async fn releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(64, 32);
+        let mut view = SourceView::default();
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let from = viewport.cell_rect(20, 5).center();
+        let far = Pos2::new(screen.max.x + 400.0, from.y);
+        console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+        // Far enough out that the Cursor is many Cells past the edge.
+        console_frame(
+            &ctx,
+            screen,
+            vec![Event::PointerMoved(far)],
+            &mut orcvs,
+            &mut view,
+        );
+
+        for events in [release_at(far), Vec::new(), Vec::new()] {
+            let before = view.pan.x;
+            console_frame(&ctx, screen, events, &mut orcvs, &mut view);
+            assert!(
+                before - view.pan.x <= CELL_SIZE,
+                "a frame around the release scrolled {}",
+                before - view.pan.x
+            );
+        }
+    }
+
+    ///
+    /// Alt with a primary drag, and a middle drag, Pan and leave the Region as
+    /// it was.
+    ///
+    #[tokio::test]
+    async fn an_alt_drag_and_a_middle_drag_leave_the_region() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+        let grid = orcvs.grid();
+        orcvs.select(grid.position(1, 1).expect("inside the Grid"));
+        orcvs.extend(grid.position(4, 3).expect("inside the Grid"));
+        let region = orcvs.region();
+
+        let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        let from = viewport.cell_rect(8, 8).center();
+        let to = from + Vec2::new(-60.0, -40.0);
+        for (press, release) in [
+            (alt_primary_press_at(from), alt_primary_release_at(to)),
+            (
+                middle_press_at(from),
+                vec![Event::PointerButton {
+                    pos: to,
+                    button: egui::PointerButton::Middle,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            ),
+        ] {
+            let before = view.pan;
+            console_frame(&ctx, screen, press, &mut orcvs, &mut view);
+            console_frame(
+                &ctx,
+                screen,
+                vec![Event::PointerMoved(to)],
+                &mut orcvs,
+                &mut view,
+            );
+            console_frame(&ctx, screen, release, &mut orcvs, &mut view);
+            assert_ne!(view.pan, before, "the drag did not Pan");
+            assert_eq!(orcvs.region(), region, "the drag moved the Region");
+        }
     }
 
     ///

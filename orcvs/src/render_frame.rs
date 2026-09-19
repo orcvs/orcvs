@@ -1,6 +1,7 @@
 use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
+    region::Region,
     source::{Diagnostic, SourceRevision, Span, Token},
 };
 
@@ -63,7 +64,7 @@ impl RenderExpression {
 #[derive(Clone, Debug)]
 pub struct RenderFrame {
     grid: Grid,
-    cursor: Position,
+    region: Region,
     cursor_visible: bool,
     sector_seam_spacing: SectorSeamSpacing,
     cursor_bloom_radius: CursorBloomRadius,
@@ -75,12 +76,13 @@ pub struct RenderFrame {
 impl RenderFrame {
     pub(crate) fn derive(
         source: SourceRevision,
-        selected: Position,
+        region: Region,
         cursor_visible: bool,
         config: RenderFrameConfig,
     ) -> Self {
         let grid = source.grid();
-        grid.assert_owns(selected);
+        grid.assert_owns(region.anchor());
+        grid.assert_owns(region.cursor());
         let cells = grid
             .positions_by_row()
             .flatten()
@@ -106,7 +108,7 @@ impl RenderFrame {
             .collect();
         Self {
             grid,
-            cursor: selected,
+            region,
             cursor_visible,
             sector_seam_spacing: config.sector_seam_spacing,
             cursor_bloom_radius: config.cursor_bloom_radius,
@@ -137,7 +139,18 @@ impl RenderFrame {
     /// a search whose answer the type of `&[RenderCell]` cannot state.
     ///
     pub fn cursor(&self) -> Position {
-        self.cursor
+        self.region.cursor()
+    }
+
+    ///
+    /// The Region: the anchor and the Cursor the derivation was given.
+    ///
+    /// Carried beside the Cursor, which is its live end, so a console can tint
+    /// the Region without being told which Cell the Cursor is twice. It is
+    /// running state rather than Source, so it is never stored with one.
+    ///
+    pub fn region(&self) -> Region {
+        self.region
     }
 
     ///
@@ -252,6 +265,7 @@ mod tests {
     use crate::{
         grid::{CellIndex, Grid},
         opts::{CursorBloomRadius, SectorSeamSpacing},
+        region::Region,
         render_frame::{RenderFrame, RenderFrameConfig},
         source::{SourceCommander, Tick, Token},
     };
@@ -277,7 +291,7 @@ mod tests {
 
         let frame = RenderFrame::derive(
             source.read_revision(),
-            selected,
+            Region::at(grid, selected),
             true,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
@@ -314,7 +328,7 @@ mod tests {
 
         let frame = RenderFrame::derive(
             source.read_revision(),
-            grid.origin(),
+            Region::at(grid, grid.origin()),
             false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
@@ -353,7 +367,7 @@ mod tests {
 
         let frame = RenderFrame::derive(
             source.read_revision(),
-            grid.origin(),
+            Region::at(grid, grid.origin()),
             false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
@@ -383,7 +397,7 @@ mod tests {
 
         let frame = RenderFrame::derive(
             source.read_revision(),
-            grid.origin(),
+            Region::at(grid, grid.origin()),
             false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(1).unwrap(),
@@ -436,7 +450,7 @@ mod tests {
         for _ in 0..2_000 {
             let frame = RenderFrame::derive(
                 source.read_revision(),
-                grid.origin(),
+                Region::at(grid, grid.origin()),
                 false,
                 RenderFrameConfig {
                     sector_seam_spacing: SectorSeamSpacing::new(8).unwrap(),
@@ -464,7 +478,7 @@ mod tests {
 
         let frame = RenderFrame::derive(
             source.read_revision(),
-            grid.origin(),
+            Region::at(grid, grid.origin()),
             false,
             RenderFrameConfig {
                 sector_seam_spacing,
@@ -476,6 +490,28 @@ mod tests {
         assert_eq!(frame.cursor_bloom_radius(), cursor_bloom_radius);
     }
 
+    #[test]
+    fn render_frame_carries_the_region_it_was_derived_for() {
+        let grid = Grid::new(4, 3);
+        let source = SourceCommander::new(grid);
+        let at = |x, y| grid.position(x, y).expect("inside the Grid");
+        let region = Region::span(grid, at(3, 2), at(1, 0));
+
+        let frame = RenderFrame::derive(
+            source.read_revision(),
+            region,
+            false,
+            RenderFrameConfig {
+                sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
+                cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
+            },
+        );
+
+        assert_eq!(frame.region(), region);
+        // The Cursor is the Region's live end, not its top-left.
+        assert_eq!(frame.cursor(), at(1, 0));
+    }
+
     fn write_row(source: &SourceCommander, grid: Grid, text: &str) {
         for (index, content) in text.chars().enumerate() {
             source.set(cell(grid, index), &content.to_string()).unwrap();
@@ -485,7 +521,7 @@ mod tests {
     fn derive_frame(source: &SourceCommander, selected: crate::grid::Position) -> RenderFrame {
         RenderFrame::derive(
             source.read_revision(),
-            selected,
+            Region::at(source.grid(), selected),
             false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
