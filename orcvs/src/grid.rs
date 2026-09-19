@@ -86,10 +86,11 @@ pub const DEFAULT_ROW_COUNT: usize = 80;
 ///
 /// The most columns and rows a Grid has: as many as one Number spells, so
 /// every Position is two Numbers, column then row, `00 00` through `FF FF`
-/// (ADR 0049). A shape past either is not a Grid.
+/// (ADR 0049). A shape past either is not a Grid. A Number is one byte
+/// (ADR 0010), so the count is every value a `u8` holds.
 ///
-pub const MAX_COL_COUNT: usize = 256;
-pub const MAX_ROW_COUNT: usize = 256;
+pub const MAX_COL_COUNT: usize = u8::MAX as usize + 1;
+pub const MAX_ROW_COUNT: usize = u8::MAX as usize + 1;
 
 const _: () = assert!(
     DEFAULT_COL_COUNT <= MAX_COL_COUNT && DEFAULT_ROW_COUNT <= MAX_ROW_COUNT,
@@ -148,7 +149,7 @@ impl TryFrom<PersistedGrid> for Grid {
             return Err("persisted Grid dimensions must be greater than zero");
         }
         if grid.cols > MAX_COL_COUNT || grid.rows > MAX_ROW_COUNT {
-            return Err("persisted Grid dimensions must be at most 256");
+            return Err("persisted Grid dimensions exceed the largest Grid");
         }
 
         Ok(Self::new(grid.cols, grid.rows))
@@ -164,8 +165,14 @@ impl Grid {
     pub fn new(cols: usize, rows: usize) -> Self {
         assert!(cols > 0, "cols must be greater than zero");
         assert!(rows > 0, "rows must be greater than zero");
-        assert!(cols <= MAX_COL_COUNT, "cols must be at most 256");
-        assert!(rows <= MAX_ROW_COUNT, "rows must be at most 256");
+        assert!(
+            cols <= MAX_COL_COUNT,
+            "cols must be at most {MAX_COL_COUNT}"
+        );
+        assert!(
+            rows <= MAX_ROW_COUNT,
+            "rows must be at most {MAX_ROW_COUNT}"
+        );
 
         Self {
             id: GridId::new(),
@@ -525,7 +532,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "cols must be at most 256")]
+    #[should_panic(expected = "cols must be at most")]
     fn test_grid_cannot_have_more_cols_than_a_number_addresses() {
         trace();
 
@@ -533,7 +540,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "rows must be at most 256")]
+    #[should_panic(expected = "rows must be at most")]
     fn test_grid_cannot_have_more_rows_than_a_number_addresses() {
         trace();
 

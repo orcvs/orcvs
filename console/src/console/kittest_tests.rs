@@ -79,7 +79,7 @@
 use egui::{Color32, CursorIcon, Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
-use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, source_bounds};
+use super::{Console, DEFAULT_VIEW_SIZE, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, source_bounds};
 use crate::cursor_effects::CursorEffectSettings;
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
 use crate::source_paint::SourcePaintSettings;
@@ -362,7 +362,10 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
     let pan = harness.state().source_view.pan;
     assert_eq!(
         pan,
-        Vec2::new(console_width - (41.0 + 2.0) * cell_at_max_zoom, 0.0),
+        Vec2::new(
+            console_width - (41.0 + SOURCE_MARGIN_CELLS) * cell_at_max_zoom,
+            0.0
+        ),
         "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}"
     );
 
@@ -737,6 +740,92 @@ async fn the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_
         CursorIcon::Default,
         "the grabbing hand outlived the drag"
     );
+}
+
+///
+/// The grab hand offers a Pan, so it does not show where Alt starts none: partway
+/// through a primary drag that is selecting a Region, which stays a Region drag
+/// (ADR 0046), or over a Grid that with its margins fits the console on both
+/// axes and has nowhere to Pan (ADR 0047).
+///
+#[tokio::test]
+async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let start = cell_centre(&harness, 6, 5);
+    let cursor_icon = |harness: &Harness<'_, Console>| harness.output().platform_output.cursor_icon;
+
+    harness.event(Event::PointerMoved(start));
+    harness.event(Event::PointerButton {
+        pos: start,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.step();
+    harness.event(Event::PointerMoved(start + Vec2::new(60.0, 40.0)));
+    harness.step();
+    harness.event(Event::ModifiersChanged(Modifiers::ALT));
+    harness.event(Event::PointerMoved(start + Vec2::new(64.0, 44.0)));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Default,
+        "Alt pressed partway through a Region drag offered a grab"
+    );
+    harness.event(Event::PointerButton {
+        pos: start + Vec2::new(64.0, 44.0),
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::ALT,
+    });
+    harness.event(Event::ModifiersChanged(Modifiers::default()));
+    harness.step();
+
+    // At `MIN_ZOOM` the default Grid and its margins are smaller than the
+    // default window's console on both axes.
+    for _ in 0..8 {
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::Minus);
+    }
+    harness.step();
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().source_view.zoom,
+        MIN_ZOOM,
+        "eight command Minus did not reach MIN_ZOOM"
+    );
+    let over = cell_centre(&harness, 2, 2);
+    harness.event(Event::PointerMoved(over));
+    harness.event(Event::ModifiersChanged(Modifiers::ALT));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Default,
+        "Alt over a Grid with nowhere to Pan offered a grab"
+    );
+    harness.event(Event::ModifiersChanged(Modifiers::default()));
+    harness.step();
+
+    harness.event(Event::PointerButton {
+        pos: over,
+        button: PointerButton::Middle,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.event(Event::PointerMoved(over + Vec2::new(40.0, 30.0)));
+    harness.step();
+    assert_eq!(
+        cursor_icon(&harness),
+        CursorIcon::Default,
+        "a middle-drag over a Grid with nowhere to Pan showed a grabbing hand"
+    );
+    harness.event(Event::PointerButton {
+        pos: over + Vec2::new(40.0, 30.0),
+        button: PointerButton::Middle,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.step();
 }
 
 ///

@@ -1,6 +1,6 @@
 # The Source View has a margin
 
-Status: accepted. Amends [ADR 0045](0045-the-source-view-is-a-bounded-space.md): the default Grid, the default window and the Pan bounds change; Zoom, the Pan gestures and the Cursor follow stand.
+Status: accepted. Amends [ADR 0045](0045-the-source-view-is-a-bounded-space.md): the default Grid, the default window and how far a Pan reaches change; Zoom, the Pan gestures and the Cursor follow stand.
 
 **The default Grid is 128 by 80, twice the default window on each axis.** ADR 0045 sized the default Grid to fill the default window exactly, so a fresh console had nowhere to Pan and the Source View's own movement was invisible until a viewer Zoomed in or shrank the window. The default window keeps its 1024 by 640 point console, now 64 by 40 Cells of view onto a larger Grid, and opens on its top-left quarter.
 

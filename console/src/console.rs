@@ -614,13 +614,32 @@ fn clamp_pan_axis(pan: f32, console: f32, source: f32) -> f32 {
 }
 
 ///
-/// The Cursor's Cell as a rectangle in unpanned Source-local points, at the
-/// snapped Cell `side` [`show_source_scene`] also bounds [`clamp_pan`] by.
+/// The rectangle a Cursor follow brings into view, in the unpanned points of
+/// the padded Source — the Grid with a margin of [`SOURCE_MARGIN_CELLS`] on
+/// every side — at the snapped Cell `side` [`show_source_scene`] also bounds
+/// [`clamp_pan`] by.
 ///
-fn cursor_cell(cursor: Position, side: f32) -> Rect {
-    Rect::from_min_size(
-        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side,
+/// The Cursor's own Cell, reaching across the margin on each side where the
+/// Cursor is on the Grid's first or last Column or Row, so a follow to an edge
+/// shows the Grid's edge as an edge rather than flush against the console's
+/// (ADR 0047).
+///
+fn followed_cell(cursor: Position, grid: Grid, side: f32) -> Rect {
+    let margin = SOURCE_MARGIN_CELLS * side;
+    let cell = Rect::from_min_size(
+        Pos2::new(cursor.x() as f32, cursor.y() as f32) * side + Vec2::splat(margin),
         Vec2::splat(side),
+    );
+    let reach = |at: usize, count: usize| {
+        let near = if at == 0 { margin } else { 0.0 };
+        let far = if at + 1 == count { margin } else { 0.0 };
+        (near, far)
+    };
+    let (left, right) = reach(cursor.x(), grid.columns());
+    let (top, bottom) = reach(cursor.y(), grid.rows());
+    Rect::from_min_max(
+        cell.min - Vec2::new(left, top),
+        cell.max + Vec2::new(right, bottom),
     )
 }
 
@@ -1576,8 +1595,9 @@ struct PresentedSource {
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
 /// held with a primary drag, bounded by the Grid's edges plus a margin of
-/// [`SOURCE_MARGIN_CELLS`] (ADR 0047). The pointer shows a grab hand while Alt
-/// is held over the console and a grabbing hand during a drag Pan. A primary
+/// [`SOURCE_MARGIN_CELLS`] (ADR 0047). Where the Grid and its margins leave
+/// somewhere to Pan, the pointer shows a grab hand while Alt is held over the
+/// console outside a Region drag, and a grabbing hand during a drag Pan. A primary
 /// click selects a Cell — [`show_source`]'s own click-sensing rect answers it,
 /// with Shift extending the Region rather than collapsing it — and a primary
 /// drag without Alt selects a Region from the pressed Cell to the Cell nearest
@@ -1637,17 +1657,11 @@ fn show_source_scene(
     // A primary drag that began selecting a Region stays one if Alt is
     // pressed partway through it.
     let alt = ui.input(|i| i.modifiers.alt);
-    if pan.dragged_by(PointerButton::Middle)
-        || (pan.dragged_by(PointerButton::Primary) && view.region_drag.is_none() && alt)
-    {
+    let drag_panning = pan.dragged_by(PointerButton::Middle)
+        || (pan.dragged_by(PointerButton::Primary) && view.region_drag.is_none() && alt);
+    if drag_panning {
         view.pan += pan.drag_delta();
         pan.mark_changed();
-        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-    } else if alt && pan.contains_pointer() {
-        // Alt is the one Pan gesture the pointer can announce before it
-        // starts: a middle-drag has no hover state to show, and a wheel Pan
-        // is not a grab.
-        ui.ctx().set_cursor_icon(CursorIcon::Grab);
     }
 
     if pan.contains_pointer() {
@@ -1679,7 +1693,7 @@ fn show_source_scene(
     // side — so a Pan of zero rests the Grid one margin in from the console's
     // top-left, and the clamp lets a Pan reach one margin past each far edge.
     let margin = Vec2::splat(SOURCE_MARGIN_CELLS * side);
-    let cursor_at = cursor_cell(cursor, side).translate(margin);
+    let cursor_at = followed_cell(cursor, source_grid, side);
 
     // A Region drag follows the Cursor at the pointer's pace rather than in
     // one jump, so the Source View scrolls after a pointer held past the edge
@@ -1703,7 +1717,20 @@ fn show_source_scene(
     }
 
     let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * side;
-    view.pan = clamp_pan(view.pan, console.size(), source_size + 2.0 * margin);
+    let padded_size = source_size + 2.0 * margin;
+    view.pan = clamp_pan(view.pan, console.size(), padded_size);
+
+    // The pointer offers a Pan only where there is one: not on a Grid that
+    // with its margins fits the console on both axes, and not for Alt
+    // pressed partway through a Region drag, which stays one. Alt is the one
+    // Pan gesture the pointer can announce before it starts: a middle-drag
+    // has no hover state to show, and a wheel Pan is not a grab.
+    let pannable = padded_size.x > console.width() || padded_size.y > console.height();
+    if pannable && drag_panning {
+        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+    } else if pannable && alt && view.region_drag.is_none() && pan.contains_pointer() {
+        ui.ctx().set_cursor_icon(CursorIcon::Grab);
+    }
 
     let to_global = TSTransform::new(console.min.to_vec2() + view.pan + margin, view.zoom);
     view.to_global = if is_presentable(to_global) {
@@ -2953,6 +2980,32 @@ mod tests {
         } else {
             None
         }
+    }
+
+    ///
+    /// Wheels by `delta` at `point` frame after frame until the Pan stops
+    /// moving, so a test asserts where a wheel Pan settles rather than how far
+    /// `smooth_scroll_delta` hands it out in any one frame.
+    ///
+    fn wheel_until_settled(
+        ctx: &egui::Context,
+        screen: Rect,
+        point: Pos2,
+        delta: Vec2,
+        orcvs: &mut Orcvs,
+        view: &mut SourceView,
+    ) {
+        for _ in 0..64 {
+            let before = view.pan;
+            console_frame(ctx, screen, wheel_at(point, delta), orcvs, view);
+            if view.pan == before {
+                return;
+            }
+        }
+        panic!(
+            "a wheel Pan was still moving after 64 frames: {:?}",
+            view.pan
+        );
     }
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
@@ -5966,9 +6019,10 @@ mod tests {
             far.iter().chain(&near).all(|step| *step <= side),
             "a frame scrolled more than one Cell: {far:?}"
         );
-        // Never past the Grid: the console's right edge meets the Grid's, which
-        // the Pan places one margin in (ADR 0047).
-        assert_eq!(view.pan.x + MARGIN, screen.width() - 32.0 * side);
+        // Never past the Grid: a Cursor on the last Column brings the margin
+        // past it into view, and the console's right edge meets the margin's
+        // (ADR 0047).
+        assert_eq!(view.pan.x, screen.width() - 32.0 * side - 2.0 * MARGIN);
         assert_eq!(selected_cell(&orcvs), (31, 5));
     }
 
@@ -6090,14 +6144,15 @@ mod tests {
     #[tokio::test]
     async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         let ctx = egui::Context::default();
-        // The default Grid at the Source's own Cell size is exactly this
-        // console, so the first pass fits at one with every Cell on screen.
+        // The default Grid at the Source's own Cell size, with its margin on
+        // every side, is exactly this console, so the first pass at Zoom 1.0
+        // has every Cell on screen.
         let screen = Rect::from_min_size(
             Pos2::ZERO,
             Vec2::new(
                 DEFAULT_COL_COUNT as f32 * CELL_SIZE,
                 DEFAULT_ROW_COUNT as f32 * CELL_SIZE,
-            ),
+            ) + Vec2::splat(2.0 * MARGIN),
         );
         let mut orcvs = running_orcvs(DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT);
         let mut view = SourceView::default();
@@ -6106,6 +6161,11 @@ mod tests {
         assert_eq!(
             whole.cell_size, CELL_SIZE,
             "the console did not open at Zoom 1.0"
+        );
+        assert!(
+            screen.contains_rect(whole.rect),
+            "the Grid at {:?} does not lie wholly inside the console {screen:?}",
+            whole.rect
         );
         let all_positions = whole.visible_positions(screen, orcvs.grid());
         assert_eq!(
@@ -6686,6 +6746,42 @@ mod tests {
     }
 
     ///
+    /// A Cursor move onto the Grid's last or first Column and Row brings the
+    /// margin past that edge into view with it, so the Grid's edge shows as
+    /// an edge rather than flush against the console's (ADR 0047).
+    ///
+    #[tokio::test]
+    async fn a_cursor_follow_to_an_edge_cell_shows_the_margin_past_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+        let mut orcvs = running_orcvs(32, 32);
+        let mut view = SourceView::default();
+
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
+
+        // 32 Cells of 16 points and a 32 point margin either side is 576
+        // points, so the far margin's edge meets a 200 point console at -376.
+        orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::new(-376.0, -376.0),
+            "the follow to the last Column and Row left the far margin off screen: {:?}",
+            view.pan
+        );
+
+        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+        console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+        assert_eq!(
+            view.pan,
+            Vec2::ZERO,
+            "the follow back to the first Column and Row left the near margin off screen: {:?}",
+            view.pan
+        );
+    }
+
+    ///
     /// A Zoom that would leave the Cursor outside the Source View Pans the
     /// least distance that shows it, the same as a Cursor move does.
     ///
@@ -6741,24 +6837,22 @@ mod tests {
         assert_eq!(view.pan, Vec2::ZERO);
 
         // A wheel Pan all the way to the far edge, with the Cursor still
-        // unmoved at (30, 30) and no Zoom. Large enough that two frames of
-        // `smooth_scroll_delta` settle it, the same as
-        // `wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere`
-        // relies on. Left to the follow this would land at
+        // unmoved at (30, 30) and no Zoom, repeated until the Pan settles
+        // however far `smooth_scroll_delta` hands out a frame. Left to the
+        // follow this would land at
         // (-328, -328) instead — see
         // `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`
         // — so landing on the margin's far edge at (-376, -376) is what
         // proves a Pan alone is not chasing the Cursor.
         let over = screen.min + Vec2::splat(50.0);
-        for _ in 0..2 {
-            console_frame(
-                &ctx,
-                screen,
-                wheel_at(over, Vec2::new(-1_000.0, -1_000.0)),
-                &mut orcvs,
-                &mut view,
-            );
-        }
+        wheel_until_settled(
+            &ctx,
+            screen,
+            over,
+            Vec2::new(-1_000.0, -1_000.0),
+            &mut orcvs,
+            &mut view,
+        );
 
         assert_eq!(
             view.pan,
@@ -7038,17 +7132,14 @@ mod tests {
         let mut large = running_orcvs(32, 32);
         let mut view = SourceView::default();
         console_frame(&ctx, screen, Vec::new(), &mut large, &mut view);
-        // Two frames: `smooth_scroll_delta` hands out about 319 points a
-        // frame, short of the 376 the far edge takes on the tall axis.
-        for _ in 0..2 {
-            console_frame(
-                &ctx,
-                screen,
-                wheel_at(over, Vec2::new(-1_000.0, -1_000.0)),
-                &mut large,
-                &mut view,
-            );
-        }
+        wheel_until_settled(
+            &ctx,
+            screen,
+            over,
+            Vec2::new(-1_000.0, -1_000.0),
+            &mut large,
+            &mut view,
+        );
         assert_eq!(
             view.pan,
             Vec2::new(
