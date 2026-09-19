@@ -786,6 +786,45 @@ async fn typing_with_a_menu_open_leaves_the_source_unwritten() {
 }
 
 ///
+/// Escape with a menu open closes the menu and leaves the Region alone: the
+/// open menu holds the keys, so the press is the menu's and not also the
+/// Source's collapse.
+///
+#[tokio::test]
+async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.key_press_modifiers(Modifiers::SHIFT, egui::Key::ArrowRight);
+    harness.step();
+    harness.run_steps(1);
+    let region_before = harness.state().orcvs.region();
+    assert!(!region_before.is_one_cell(), "test setup spanned no Region");
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        egui::Popup::is_any_open(&harness.ctx),
+        "the Theme menu did not open"
+    );
+
+    harness.key_press(egui::Key::Escape);
+    harness.step();
+    harness.run_steps(1);
+
+    assert!(
+        !egui::Popup::is_any_open(&harness.ctx),
+        "Escape did not close the open menu"
+    );
+    assert_eq!(
+        harness.state().orcvs.region(),
+        region_before,
+        "the Escape that closed a menu also collapsed the Region"
+    );
+}
+
+///
 /// Tab and Shift Tab reach the Source through the same input path the arrow
 /// keys do: Tab steps the Cursor to the first Cell of the next Sector on its
 /// row, Shift Tab steps back, and neither moves anything once the keys stop
