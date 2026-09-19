@@ -42,15 +42,20 @@ Spec gaps:
 - [ ] The "Comment is the dimmest glyph" rule is restated with named exceptions (Sequence, Diagnostic, Function, Bang are dimmer against `#000000`) rather than reduced to "dimmer than Ordinary", so Comment brightening past Number or Note fails a test.
 - [ ] Stale doc references to nonexistent tests are fixed: the dimmest-glyph test cited in the contrast test's doc comment, and `a_nested_functions_own_cells_are_tinted_like_its_parents` cited beside the tint tests.
 
+- [ ] `Paint::derive` still exists as a default-settings path, kept for `console/benches/paint.rs` (from `09`). Give the bench a way to build default colours, then remove or narrow it.
+- [ ] `Paint::derive_with_colours` caches `slot_written` per claim in a `HashMap<*const Claim, bool>` inside the per-Cell loop (from `09`). Check the paint bench on the pull request; if it moved, answer "written" once per claim without hashing, e.g. on the Render Frame beside the claim.
+
 Standards judgement calls (take or leave when resumed):
 
-- [ ] Pending and Invalid are conflated: `RenderCell::bound` is `Option<bool>` and answers `Some(false)` for an empty operand, hidden by `unwrap_or(true)` in the paint. Consider a small type. Note a half-typed operand (`.+0`) draws its `0` Diagnostic while being typed; the spec defines Pending as empty only, so that is currently correct but may read as noise.
-- [ ] One Token → colour lookup on `SourcePaintSettings` replaces the duplicated glyph and tint matches.
+- ~~Pending and Invalid are conflated: `RenderCell::bound` is `Option<bool>` and answers `Some(false)` for an empty operand, hidden by `unwrap_or(true)` in the paint. Consider a small type. Note a half-typed operand (`.+0`) draws its `0` Diagnostic while being typed; the spec defines Pending as empty only, so that is currently correct but may read as noise.~~ Moved to 08, 09.
+- ~~One Token → colour lookup on `SourcePaintSettings` replaces the duplicated glyph and tint matches.~~ Moved to 09.
 - [ ] Bundle the Cursor effect sample, Cursor effect settings, and Source Paint settings threaded through `show_source`, removing its `too_many_arguments` allowance.
-- [ ] Drop `SourcePaintSettings::result` and its `dead_code` allowance until `06` paints it.
+- ~~Drop `SourcePaintSettings::result` and its `dead_code` allowance until `06` paints it.~~ `06` now paints it (renamed to `output_portal`).
 - [ ] Replace the ten repeated colour-picker blocks with one table.
-- [ ] The positional `bound, selected, cursor_visible` bools on the cell-visuals functions; tests pass `bound: true` for Cells that are unbound.
-- [ ] `Paint::derive` is `pub`, test-only, and paints default rather than live settings.
+- ~~The positional `bound, selected, cursor_visible` bools on the cell-visuals functions; tests pass `bound: true` for Cells that are unbound.~~ Moved to 09.
+- ~~`Paint::derive` is `pub`, test-only, and paints default rather than live settings.~~ Moved to 09.
 - [ ] egui's own background and error colours are seeded from static defaults while the Grid follows live settings; seed from the restored settings at startup.
 
 ## Comments
+
+**2026-09-18 — four follow-ups moved to `08`/`09`.** A design review found the console rebuilding the parser's per-slot entry from two scalar projections, `token_at` and `bound_at`. `08` puts the claim itself on the Render Frame. `09` replaces the overlapping Token matches with one decision function, which settles the Pending/Invalid conflation, the duplicate Token → colour lookup, the positional bools and the `Paint::derive` test path. Those four are struck above. The Leftover Char decision and the other follow-ups stay here. ADR 0044 records the seam.

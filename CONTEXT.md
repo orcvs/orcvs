@@ -169,8 +169,16 @@ The Sequence Function `:=`. It uses a zero-based Number index modulo the length 
 _Avoid_: Push Function, Sequence replacement operand, mutation
 
 **Portal**:
-One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. When a Function does not name other coordinates, that Portal is one row south of the Function's anchor. It carries an Atom or intact Sequence, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
+One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. When a Function does not name other coordinates, that Portal is one row south of the Function's anchor. The site is declared by the Function and placed by its anchor, so it is known from any Source revision before a Tick runs; what is resolved during a Tick is what the Portal carries. It carries an Atom or intact Sequence, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
 _Avoid_: Port, address value, output coordinate, ordinary result
+
+**Output Portal**:
+The Portal through which a Function acts on the Source, as an offset from its anchor: one row south unless the Function names another, as each Jump names its own direction. Every Function has one. A Function that answers a value writes that answer there; Halt locks the root there instead; a Terminal Output Function writes nothing there, and a Source-writing Function's writes are its declared Source effect rather than an answer.
+_Avoid_: Result Cell, output Cell, destination
+
+**Input Portal**:
+The Portal a Function declares it reads a Source input through, as an offset from its anchor. A Jump reads at the Portal opposite its Output Portal; Increment and Interpolation read at the same site as their Output Portal, which is how their feedback stays in Source. Most Functions declare none and take every input as an operand.
+_Avoid_: Input Cell, source Cell, feedback register
 
 **Comment**:
 The Language Unit the Parser establishes at the two-Cell introducer `||`, claiming every remaining Cell of its row. It records a Token and no Atom, which excludes it from evaluation: it answers no value, performs no effect, and is never scheduled. `||` opens a Comment only where a new Expression could start; inside a Function's arity-determined claim it is an operand Cell that fails to bind and diagnoses. One `|` alone is incomplete or invalid Source rather than a Comment.
