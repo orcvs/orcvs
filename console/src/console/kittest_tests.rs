@@ -722,12 +722,10 @@ async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from
 ///
 /// A menu button's click does not itself take focus (the previous test's own
 /// comment explains why the value box is reached by Tab rather than a
-/// click), so with a menu open and nothing yet focused `keyboard_elsewhere`
-/// is false. If the Tab-focus cancellation and the event routing each ask
-/// "is a menu open" on their own, they can answer differently for the one
-/// frame a click just opened one: the cancellation skips (a menu is open),
-/// but routing still forwards Tab to the Source (nothing is `keyboard_elsewhere`),
-/// and one press does both jobs.
+/// click), so an open menu has to hold the keys by being open: were it asked
+/// only of focus, the Tab-focus cancellation and the event routing could
+/// disagree about the one press, and it would both move focus and step the
+/// Cursor.
 ///
 #[tokio::test]
 async fn tab_with_a_menu_open_moves_focus_and_not_the_cursor() {
@@ -747,6 +745,43 @@ async fn tab_with_a_menu_open_moves_focus_and_not_the_cursor() {
         cursor(harness.state()),
         cursor_before,
         "Tab moved the Cursor while a menu was open"
+    );
+}
+
+///
+/// An open menu holds the keys as a focused control does, though opening one
+/// by a click focuses nothing: a character typed while it is open does not
+/// write the Source.
+///
+#[tokio::test]
+async fn typing_with_a_menu_open_leaves_the_source_unwritten() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.get_by_label("Theme").click();
+    harness.step();
+    harness.run_steps(1);
+    assert!(
+        egui::Popup::is_any_open(&harness.ctx) && !harness.ctx.egui_wants_keyboard_input(),
+        "the Theme menu did not open with nothing focused"
+    );
+
+    let cursor_before = cursor(harness.state());
+    harness.event(Event::Text("x".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+
+    // A written character would also step the Cursor on, so the Cell it was
+    // on is the one to ask.
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "a character typed while a menu was open moved the Cursor"
+    );
+    assert_eq!(
+        cell_under_cursor(harness.state()),
+        None,
+        "a character typed while a menu was open wrote the Source"
     );
 }
 

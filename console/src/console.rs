@@ -734,8 +734,9 @@ pub struct Console {
     /// when the last frame's widgets were done: any widget holding egui's
     /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
     /// `Memory::focused().is_some()`, `egui-0.36.1/src/context.rs:2982-2985`),
-    /// or the destination ComboBox while its list is open, which takes no
-    /// focus. Latched rather than asked where it is read, because
+    /// or any open popup — a menu, or the destination ComboBox's list — which
+    /// a click opens without taking focus (`Popup::is_any_open`). Latched
+    /// rather than asked where it is read, because
     /// `event_handler` runs before this frame's widgets are shown, and
     /// `Memory::begin_pass` has already let Escape clear the focus it was
     /// pressed to leave (`egui-0.36.1/src/memory/mod.rs:596-601`).
@@ -1730,17 +1731,6 @@ impl eframe::App for Console {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, root: &mut egui::Ui, eframe: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
-        // Whether a menu (or any other on-demand popup) is open right now.
-        // Read once and reused below at both the focus cancellation and the
-        // event routing, rather than asked twice: a menu button's click does
-        // not itself take focus, so with a menu open and nothing yet focused
-        // the two sites would otherwise be answering "is this Tab the
-        // Source's?" from two independent reads of the same fact, and a
-        // caller could see them disagree — the earlier bug this guarded
-        // against, where the cancellation saw a menu open and skipped while
-        // routing saw nothing focused and forwarded the same Tab anyway, so
-        // one press moved focus *and* stepped the Cursor.
-        let menu_open = egui::Popup::is_any_open(&ctx);
         // Tab belongs to the Source while it holds the keys. `Memory::begin_pass`
         // already turned an unmodified Tab into `FocusDirection::Next` and a
         // Shift Tab into `FocusDirection::Previous` before this runs
@@ -1749,19 +1739,11 @@ impl eframe::App for Console {
         // the moment it is shown. Cancelling here, before anything is shown,
         // is what keeps Tab off every widget rather than only the ones drawn
         // after this line. `!self.keyboard_elsewhere` is last frame's answer,
-        // the same one the event routing below reads, so a focused control
-        // keeps egui's own Tab navigation exactly as before.
-        //
-        // An open menu is left alone even with nothing yet focused: a menu
-        // button's own click does not take focus
-        // (`a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from_the_source`
-        // reaches its value box only by Tab, because a pointer click there
-        // closes the menu first), so cancelling here as well would strand a
-        // viewer who opened one with the keys still on the Source. Tab
-        // belongs wholly to that menu instead — the event routing below
-        // filters it out of what reaches the Source for the same reason,
-        // reading this same `menu_open` so the two cannot disagree.
-        if !self.keyboard_elsewhere && !menu_open {
+        // the same one the event routing below reads, so a focused control or
+        // an open menu keeps egui's own Tab navigation and the Source gets
+        // none of it — a viewer in a menu reaches its controls by Tab alone,
+        // because a pointer click there closes the menu first.
+        if !self.keyboard_elsewhere {
             ctx.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
         }
         let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
@@ -1924,22 +1906,10 @@ impl eframe::App for Console {
             // `eframe-0.36.1/src/web/events.rs:155-162`), so a shipped build
             // never raises the matching bare character alongside the chord
             // that already answered it.
-            // While a menu is open, Tab and Shift Tab belong to it alone: the
-            // focus cancellation above is skipped for the same `menu_open`,
-            // so egui's own Tab focus navigation is what moves, and forwarding
-            // the same press here as well would step the Cursor too — one
-            // press, two owners.
             let events = ctx.input(|i| {
                 i.filtered_events(&event_filter)
                     .into_iter()
                     .filter_map(translate_event)
-                    .filter(|event| {
-                        !(menu_open
-                            && matches!(
-                                event,
-                                InputEvent::KeyPressed(InputKey::Tab | InputKey::ShiftTab)
-                            ))
-                    })
                     .collect()
             });
             // A Copy or Cut answers the text the platform clipboard is to
@@ -1973,7 +1943,6 @@ impl eframe::App for Console {
         // while Playback is stopped. Tick and Run Clock are the engine's
         // published Readouts. Destination is chosen from the ComboBox;
         // Scan asks the engine to discover again. There is no periodic polling.
-        let mut destination_combo_open = false;
         egui::Panel::bottom("bottom_panel")
             .resizable(false)
             .min_size(BOTTOM_PANEL_HEIGHT)
@@ -2064,8 +2033,6 @@ impl eframe::App for Console {
                             {
                                 self.midi.refresh_destinations();
                             }
-                            destination_combo_open =
-                                egui::ComboBox::is_open(ui.ctx(), combo_response.response.id);
                             if selected != selected_id
                                 && let Some(id) = selected.as_ref()
                             {
@@ -2152,8 +2119,9 @@ impl eframe::App for Console {
         }
 
         // Sampled once every widget, the Diagnostics window's included, has
-        // been shown and has taken or surrendered focus.
-        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || destination_combo_open;
+        // been shown and has taken or surrendered focus, and every popup has
+        // opened or closed.
+        self.keyboard_elsewhere = ctx.egui_wants_keyboard_input() || egui::Popup::is_any_open(&ctx);
     }
 }
 
