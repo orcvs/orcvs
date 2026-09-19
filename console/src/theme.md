@@ -48,7 +48,7 @@ enabled, these preferences are restored independently of the saved Source.
 
 `Theme → Source colours` holds one opaque colour control per Source Paint
 role: Source background, Ordinary (also Char and Atom), Comment, Function,
-Bang, Number, Note, Sequence, Diagnostic, and Result. The Cell grid line above
+Bang, Number, Note, Sequence, Diagnostic, and Output Portal. The Cell grid line above
 is not one of them and keeps its fixed colour regardless. Changes preview
 immediately in the Source Grid; "Reset to theme defaults" restores every
 Source colour together and leaves Cursor effects untouched. With persistence
@@ -101,13 +101,44 @@ content blank regardless of its foreground colour, so only the Fill tint
 shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time operand
 diagnostics are out of scope: they are Tick outcomes, not Source facts.
 
+`syntax-highlighting/06` adds a Function's written value as a further input
+to the same one decision: whether a Cell lies in a root Function's Output
+Portal Reservation (`RenderCell::output_portal()`, `.scratch/syntax-
+highlighting/issues/05` and `10`'s Answers) — the Cell pair one row south of
+a scalar-only Function's anchor, or every Cell from there to the end of that
+row for a Sequence-capable one, known from the current Source revision alone
+and so lit before any Tick runs. Parsing is unchanged and unaware of it (`05`'s
+Answer): a written scalar or Sequence answer re-parses exactly as ordinary
+Source would (a `07` left south of `.+0304` is two unknown one-Cell
+Functions, diagnostics included), and the Output Portal fact is what tells
+that written value apart from the Expression that produced it. Such a Cell
+draws in the Output Portal colour on the Output Portal's own Fill tint
+instead of whatever that claim alone would answer; an empty Output
+Portal Cell shows the same tint with no glyph. The one named exception is a
+Bang answer: it keeps its own Bang glyph colour, because a Bang is what a
+Producer emits rather than a value it writes, but still takes the Output
+Portal's Fill tint in place of Bang's usual bare `None`.
+
+**Precedence where an Output Portal covers another Expression's claimed
+Cells** — a consumer's operand, or another root, per `05`'s Overlap rule that
+the Reservation "covers every Cell of the Reservation whatever else claims
+it": a Cell that is itself a bound Function's own two-Cell spelling keeps its
+Function paint outright, root or nested alike, because every Function's own
+spelling already carries `Token::Function` regardless of nesting and telling
+a root's spelling from a nested one would need the Expression this decision
+does not read. Every other overlapping Cell — another root's own Number,
+Note, Atom or Sequence operand among them — takes the Output Portal colour
+and tint instead of its own declared role, because the Reservation's answer
+is what a viewer reads there. The Cursor's own fill still wins outright over
+everything above, on its own Cell.
+
 The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
 `grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
 in the Source Paint prototype
 (`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
-`?variant=A&palette=okabe`). Result is exposed as a setting now but paints
-nothing until `syntax-highlighting/06` gives its Token a classification to
-paint.
+`?variant=A&palette=okabe`). Output Portal — named Result before
+`syntax-highlighting/06` renamed it to match `05`'s decided vocabulary — was
+exposed as a setting before it had a painter; it has one now.
 
 - Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
 - Ordinary, Char, and Atom: `#FFFFFF` (`rgb(255, 255, 255)`) — a prototype pick, not a named Okabe–Ito swatch
@@ -118,7 +149,7 @@ paint.
 - Note: `#F0E442` (`rgb(240, 228, 66)`) — Okabe–Ito yellow
 - Sequence: `#0072B2` (`rgb(0, 114, 178)`) — Okabe–Ito blue
 - Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, an unbound entry's glyph colour since `syntax-highlighting/04`
-- Result: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, no painter until `syntax-highlighting/06`
+- Output Portal: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, a Function's written value since `syntax-highlighting/06`
 
 Every Source colour meets WCAG AA's 4.5:1 floor against the Source background
 except Sequence: `#0072B2` measures 4.05:1 on `#000000`, the Okabe–Ito

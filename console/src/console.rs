@@ -1954,10 +1954,10 @@ impl eframe::App for Console {
                         );
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Result");
+                        ui.label("Output Portal");
                         egui::color_picker::color_edit_button_srgba(
                             ui,
-                            self.source_paint.result_mut(),
+                            self.source_paint.output_portal_mut(),
                             egui::color_picker::Alpha::Opaque,
                         );
                     });

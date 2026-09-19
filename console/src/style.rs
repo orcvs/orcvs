@@ -68,16 +68,21 @@ pub(crate) struct CellVisuals {
 /// written content, since `Claim { cells, token, atom }` alone cannot tell a
 /// Pending slot from an Invalid one (ADR 0044) — `Paint::derive_with_colours`
 /// reads it from the Render Frame once per claim, not once per Cell.
+/// `output_portal` is `claim_paint`'s third input, added by
+/// `syntax-highlighting/06`: whether this Cell lies in a root Function's
+/// Output Portal Reservation (`RenderCell::output_portal`), known from the
+/// current Source revision alone.
 ///
 pub(crate) fn cell_visuals_with_cursor_colour(
     claim: Option<&Claim>,
     written: bool,
+    output_portal: bool,
     selected: bool,
     cursor_visible: bool,
     cursor_colour: Option<Color32>,
     source_paint: SourcePaintSettings,
 ) -> CellVisuals {
-    let (foreground, tint) = claim_paint(claim, written, source_paint);
+    let (foreground, tint) = claim_paint(claim, written, output_portal, source_paint);
     // The Cursor's own fill wins outright on its Cell (`syntax-highlighting/
     // 01`): `cursor_colour` answers there whether it is `Some` or `None`,
     // the same as before this ticket. Every other Cell answers
@@ -98,14 +103,39 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 }
 
 ///
-/// Foreground and tint together, from the claim on a Cell (or none) and
-/// whether its slot holds written content.
+/// Foreground and tint together, from the claim on a Cell (or none), whether
+/// its slot holds written content, and whether the Cell lies in a root
+/// Function's Output Portal Reservation.
 ///
 /// Every Source Paint role a Token reads is `source_paint`'s, not this
 /// module's fixed [`PALETTE`]: `syntax-highlighting/01` made the Source Grid
 /// paint from a console-owned settings value rather than from a constant, so
 /// a viewer's `Theme → Source colours` edits reach here on the very next
 /// frame.
+///
+/// # Output Portal precedence
+///
+/// `output_portal` (`RenderCell::output_portal()`, `.scratch/syntax-
+/// highlighting/issues/05`'s and `10`'s Answers) is read first, because the
+/// Reservation it names "covers every Cell of the Reservation whatever else
+/// claims it" (`05`'s Overlap rule) — a written scalar or Sequence answer, an
+/// empty Cell still waiting for one, or another Expression's operand slot the
+/// Reservation happens to land on. The one exception is a bound Function
+/// claim: a Cell that is itself a Function's own two-Cell spelling —
+/// `syntax-highlighting/06`'s precedence decision — keeps its Function paint
+/// outright, root or nested, the same as when `output_portal` is false. That
+/// is the smallest rule that both lets a producer's Output Portal show
+/// through a consumer's operand Cells (the written value is the producer's
+/// output) and still lets a reader find the Function that stands on a Cell:
+/// distinguishing a root's own spelling from a nested one would need the
+/// Expression itself, which this decision does not have and does not need.
+/// A Bang answer is the one further exception among non-Function claims: it
+/// keeps its own Bang glyph colour rather than the Output Portal colour,
+/// because a Bang is what a Producer emits rather than a value it writes, but
+/// it still takes the Output Portal's own Fill tint in place of Bang's usual
+/// bare `None` — so a Bang answer still reads as an Output Portal Cell.
+///
+/// # Otherwise, from the claim alone
 ///
 /// An unclaimed Cell — `None` — answers Ordinary with no tint: nothing there
 /// has anything to mark invalid. `Bang` and `Comment` always answer their own
@@ -124,8 +154,36 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 fn claim_paint(
     claim: Option<&Claim>,
     written: bool,
+    output_portal: bool,
     source_paint: SourcePaintSettings,
 ) -> (Color32, Option<Color32>) {
+    let bound_function = matches!(
+        claim,
+        Some(Claim {
+            token: Token::Function,
+            atom: Some(_),
+            ..
+        })
+    );
+    if output_portal && !bound_function {
+        let bang = matches!(
+            claim,
+            Some(Claim {
+                token: Token::Bang,
+                ..
+            })
+        );
+        let foreground = if bang {
+            source_paint.bang()
+        } else {
+            source_paint.output_portal()
+        };
+        return (
+            foreground,
+            fill_tint_colour(source_paint.output_portal(), source_paint),
+        );
+    }
+
     let Some(claim) = claim else {
         return (source_paint.ordinary(), None);
     };
@@ -337,11 +395,13 @@ mod tests {
     fn painted(
         claim: Option<&Claim>,
         written: bool,
+        output_portal: bool,
         source_paint: SourcePaintSettings,
     ) -> CellVisuals {
         cell_visuals_with_cursor_colour(
             claim,
             written,
+            output_portal,
             false,
             false,
             Some(PALETTE.selection_fill),
@@ -382,13 +442,13 @@ mod tests {
     #[test]
     fn semantic_glyph_colours_are_distinct_and_read_from_the_settings_value() {
         let source_paint = SourcePaintSettings::default();
-        let function = painted(Some(&bound(Token::Function)), false, source_paint);
-        let number = painted(Some(&bound(Token::Number)), false, source_paint);
-        let note = painted(Some(&bound(Token::Note)), false, source_paint);
-        let ordinary = painted(None, false, source_paint);
-        let bang = painted(Some(&bound(Token::Bang)), false, source_paint);
-        let comment = painted(Some(&unbound(Token::Comment)), false, source_paint);
-        let sequence = painted(Some(&bound(Token::Sequence)), false, source_paint);
+        let function = painted(Some(&bound(Token::Function)), false, false, source_paint);
+        let number = painted(Some(&bound(Token::Number)), false, false, source_paint);
+        let note = painted(Some(&bound(Token::Note)), false, false, source_paint);
+        let ordinary = painted(None, false, false, source_paint);
+        let bang = painted(Some(&bound(Token::Bang)), false, false, source_paint);
+        let comment = painted(Some(&unbound(Token::Comment)), false, false, source_paint);
+        let sequence = painted(Some(&bound(Token::Sequence)), false, false, source_paint);
 
         assert_eq!(function.foreground, source_paint.function());
         assert_eq!(number.foreground, source_paint.number());
@@ -404,7 +464,7 @@ mod tests {
         // Atom follows Ordinary: a Cell painting no glyph of its own has
         // nothing to colour differently.
         assert_eq!(
-            painted(Some(&bound(Token::Atom)), false, source_paint).foreground,
+            painted(Some(&bound(Token::Atom)), false, false, source_paint).foreground,
             ordinary.foreground
         );
         // Sequence does not share Ordinary's colour: it has its own field
@@ -419,7 +479,7 @@ mod tests {
         let mut retuned = source_paint;
         *retuned.function_mut() = Color32::from_rgb(1, 2, 3);
         assert_eq!(
-            painted(Some(&bound(Token::Function)), false, retuned).foreground,
+            painted(Some(&bound(Token::Function)), false, false, retuned).foreground,
             Color32::from_rgb(1, 2, 3)
         );
     }
@@ -465,7 +525,7 @@ mod tests {
             ("number", source_paint.number()),
             ("note", source_paint.note()),
             ("diagnostic", source_paint.diagnostic()),
-            ("result", source_paint.result()),
+            ("output_portal", source_paint.output_portal()),
         ] {
             let ratio = contrast(colour, background);
             assert!(
@@ -536,12 +596,33 @@ mod tests {
     fn cursor_and_selection_override_the_ambient_field() {
         let source_paint = SourcePaintSettings::default();
         let cursor_colour = Some(PALETTE.selection_fill);
-        let ordinary =
-            cell_visuals_with_cursor_colour(None, false, false, false, cursor_colour, source_paint);
-        let selected =
-            cell_visuals_with_cursor_colour(None, false, true, false, cursor_colour, source_paint);
-        let cursor =
-            cell_visuals_with_cursor_colour(None, false, true, true, cursor_colour, source_paint);
+        let ordinary = cell_visuals_with_cursor_colour(
+            None,
+            false,
+            false,
+            false,
+            false,
+            cursor_colour,
+            source_paint,
+        );
+        let selected = cell_visuals_with_cursor_colour(
+            None,
+            false,
+            false,
+            true,
+            false,
+            cursor_colour,
+            source_paint,
+        );
+        let cursor = cell_visuals_with_cursor_colour(
+            None,
+            false,
+            false,
+            true,
+            true,
+            cursor_colour,
+            source_paint,
+        );
 
         // `None`: the panel behind the Grid has already painted the Source colour.
         assert_eq!(ordinary.background, None);
@@ -558,13 +639,22 @@ mod tests {
         let colour = Color32::from_rgb(1, 2, 3);
         let source_paint = SourcePaintSettings::default();
         assert_eq!(
-            super::cell_visuals_with_cursor_colour(None, false, true, true, None, source_paint)
-                .background,
+            super::cell_visuals_with_cursor_colour(
+                None,
+                false,
+                false,
+                true,
+                true,
+                None,
+                source_paint
+            )
+            .background,
             None
         );
         assert_eq!(
             super::cell_visuals_with_cursor_colour(
                 None,
+                false,
                 false,
                 true,
                 true,
@@ -639,7 +729,7 @@ mod tests {
     #[test]
     fn a_function_cell_is_tinted_with_the_function_colour() {
         let source_paint = SourcePaintSettings::default();
-        let function = painted(Some(&bound(Token::Function)), false, source_paint);
+        let function = painted(Some(&bound(Token::Function)), false, false, source_paint);
 
         assert_eq!(
             function.background,
@@ -663,7 +753,7 @@ mod tests {
             (Token::Atom, source_paint.ordinary()),
             (Token::Sequence, source_paint.sequence()),
         ] {
-            let visuals = painted(Some(&bound(token)), false, source_paint);
+            let visuals = painted(Some(&bound(token)), false, false, source_paint);
             assert_eq!(
                 visuals.background,
                 Some(tinted(source_paint, colour)),
@@ -690,7 +780,7 @@ mod tests {
             Token::Atom,
             Token::Sequence,
         ] {
-            let visuals = painted(Some(&bound(token)), false, source_paint);
+            let visuals = painted(Some(&bound(token)), false, false, source_paint);
             assert_eq!(visuals.background, None, "{token:?} was tinted at 0%");
         }
     }
@@ -711,7 +801,7 @@ mod tests {
         let comment = unbound(Token::Comment);
         let bang = bound(Token::Bang);
         for claim in [Some(&comment), Some(&bang), None] {
-            let visuals = painted(claim, false, source_paint);
+            let visuals = painted(claim, false, false, source_paint);
             assert_eq!(visuals.background, None, "{claim:?} was tinted");
         }
     }
@@ -734,11 +824,13 @@ mod tests {
             false,
             false,
             false,
+            false,
             Some(cursor_colour),
             source_paint,
         );
         let selected = super::cell_visuals_with_cursor_colour(
             Some(&function),
+            false,
             false,
             true,
             false,
@@ -747,6 +839,7 @@ mod tests {
         );
         let cursor = super::cell_visuals_with_cursor_colour(
             Some(&function),
+            false,
             false,
             true,
             true,
@@ -778,8 +871,8 @@ mod tests {
     fn an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint() {
         let source_paint = SourcePaintSettings::default();
 
-        let invalid = painted(Some(&unbound(Token::Number)), true, source_paint);
-        let valid = painted(Some(&bound(Token::Number)), true, source_paint);
+        let invalid = painted(Some(&unbound(Token::Number)), true, false, source_paint);
+        let valid = painted(Some(&bound(Token::Number)), true, false, source_paint);
 
         assert_eq!(invalid.foreground, source_paint.diagnostic());
         assert_eq!(
@@ -806,7 +899,7 @@ mod tests {
     fn a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic() {
         let source_paint = SourcePaintSettings::default();
 
-        let pending = painted(Some(&unbound(Token::Number)), false, source_paint);
+        let pending = painted(Some(&unbound(Token::Number)), false, false, source_paint);
 
         assert_eq!(pending.foreground, source_paint.number());
         assert_eq!(
@@ -827,8 +920,8 @@ mod tests {
     fn an_unbound_function_entry_draws_diagnostic_with_no_tint() {
         let source_paint = SourcePaintSettings::default();
 
-        let refused = painted(Some(&unbound(Token::Function)), false, source_paint);
-        let recognized = painted(Some(&bound(Token::Function)), false, source_paint);
+        let refused = painted(Some(&unbound(Token::Function)), false, false, source_paint);
+        let recognized = painted(Some(&bound(Token::Function)), false, false, source_paint);
 
         assert_eq!(refused.foreground, source_paint.diagnostic());
         assert_eq!(refused.background, None);
@@ -837,5 +930,115 @@ mod tests {
             recognized.background,
             Some(tinted(source_paint, source_paint.function()))
         );
+    }
+
+    ///
+    /// `output_portal` overrides an unclaimed Cell, an unbound refused
+    /// Function claim (what a written scalar or Sequence answer parses as,
+    /// per `.scratch/syntax-highlighting/issues/05`'s Answer), and a bound
+    /// Operand claim alike: every one of them draws the Output Portal colour
+    /// on the Output Portal's own Fill tint instead of whatever its claim
+    /// alone would answer.
+    ///
+    #[test]
+    fn output_portal_paints_over_an_unclaimed_an_unbound_and_a_bound_operand_cell() {
+        let source_paint = SourcePaintSettings::default();
+        let output_tinted = tinted(source_paint, source_paint.output_portal());
+
+        for claim in [
+            None,
+            Some(&unbound(Token::Function)),
+            Some(&bound(Token::Number)),
+        ] {
+            let visuals = painted(claim, false, true, source_paint);
+            assert_eq!(
+                visuals.foreground,
+                source_paint.output_portal(),
+                "{claim:?} did not draw the Output Portal colour"
+            );
+            assert_eq!(
+                visuals.background,
+                Some(output_tinted),
+                "{claim:?} did not carry the Output Portal tint"
+            );
+        }
+    }
+
+    ///
+    /// A Bang answer keeps its own Bang glyph colour rather than the Output
+    /// Portal colour — a Bang is what a Producer emits, not a value it
+    /// writes — but it still takes the Output Portal's Fill tint in place of
+    /// its usual bare `None`, so it still reads as an Output Portal Cell.
+    ///
+    #[test]
+    fn output_portal_keeps_the_bang_glyph_colour_but_takes_its_own_tint() {
+        let source_paint = SourcePaintSettings::default();
+        let bang = bound(Token::Bang);
+
+        let ordinary_bang = painted(Some(&bang), false, false, source_paint);
+        let portal_bang = painted(Some(&bang), false, true, source_paint);
+
+        assert_eq!(
+            ordinary_bang.background, None,
+            "Bang is untinted ordinarily"
+        );
+        assert_eq!(portal_bang.foreground, source_paint.bang());
+        assert_eq!(
+            portal_bang.background,
+            Some(tinted(source_paint, source_paint.output_portal()))
+        );
+    }
+
+    ///
+    /// A Cell that is a bound Function's own two-Cell spelling keeps its
+    /// Function paint outright when `output_portal` is also true —
+    /// `.scratch/syntax-highlighting/issues/06`'s precedence decision. This
+    /// is the smallest rule that lets a producer's Output Portal show
+    /// through a consumer's operand Cells while still letting a reader find
+    /// the Function that stands on a Cell; `claim_paint` cannot and need not
+    /// tell a root's own spelling from a nested one to apply it, since every
+    /// Function's own two-Cell spelling carries `Token::Function` regardless
+    /// of nesting.
+    ///
+    #[test]
+    fn a_bound_function_spelling_wins_over_output_portal() {
+        let source_paint = SourcePaintSettings::default();
+        let function = bound(Token::Function);
+
+        let ordinary = painted(Some(&function), false, false, source_paint);
+        let overlapped = painted(Some(&function), false, true, source_paint);
+
+        assert_eq!(
+            overlapped, ordinary,
+            "Output Portal changed a Function's own paint"
+        );
+        assert_eq!(overlapped.foreground, source_paint.function());
+        assert_eq!(
+            overlapped.background,
+            Some(tinted(source_paint, source_paint.function()))
+        );
+    }
+
+    ///
+    /// The Cursor's own fill still wins outright over Output Portal, the
+    /// same precedence it already holds over the Fill tint
+    /// (`the_cursors_own_fill_wins_over_the_tint_on_its_cell`).
+    ///
+    #[test]
+    fn the_cursors_own_fill_wins_over_output_portal_too() {
+        let source_paint = SourcePaintSettings::default();
+        let cursor_colour = Color32::from_rgb(9, 8, 7);
+
+        let cursor = cell_visuals_with_cursor_colour(
+            None,
+            false,
+            true,
+            true,
+            true,
+            Some(cursor_colour),
+            source_paint,
+        );
+
+        assert_eq!(cursor.background, Some(cursor_colour));
     }
 }

@@ -191,7 +191,10 @@ impl Paint {
     /// unchanged: this decides what to do with its answer, not what the
     /// answer is. It reads the claim on the Cell (`RenderCell::claim`),
     /// whether that claim's slot holds written content — `slot_written`,
-    /// below, answers the latter once per claim rather than once per Cell.
+    /// below, answers the latter once per claim rather than once per Cell —
+    /// and whether the Cell lies in a root Function's Output Portal
+    /// Reservation (`RenderCell::output_portal`, `.scratch/syntax-
+    /// highlighting/issues/06`).
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -278,6 +281,7 @@ impl Paint {
                 let visuals = cell_visuals_with_cursor_colour(
                     claim,
                     written,
+                    cell.output_portal(),
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
@@ -542,8 +546,8 @@ mod tests {
 
     ///
     /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
-    /// claim and its slot's own written fact straight from `frame` and
-    /// `cell` — the same two inputs
+    /// claim, its slot's own written fact, and its own Output Portal fact
+    /// straight from `frame` and `cell` — the same three inputs
     /// `Paint::derive_with_colours` reads, so a test comparing against this
     /// needs no `SourcePaintSettings::default()`-only shim.
     ///
@@ -560,6 +564,7 @@ mod tests {
         cell_visuals_with_cursor_colour(
             claim,
             written,
+            cell.output_portal(),
             selected,
             cursor_visible,
             cursor_colour,
@@ -940,6 +945,393 @@ mod tests {
             expected_visuals(&frame, cell, false, false, None, source_paint).background,
             "the truncated Cell did not carry the Number tint"
         );
+    }
+
+    ///
+    /// `.scratch/syntax-highlighting/issues/06`: end-to-end Output Portal
+    /// paint tests, built from Source text through the Render Frame. Every
+    /// scenario writes the answer directly into Source rather than running a
+    /// Tick, since the highlight comes from the current revision alone
+    /// (`.scratch/syntax-highlighting/issues/05`'s Answer): a written value
+    /// south of a Function is indistinguishable from one a Tick wrote.
+    ///
+    mod output_portal_paint {
+        use super::{SourcePaintSettings, running_orcvs, whole};
+        use egui::Color32;
+
+        /// Writes `text` into `row`, one Cell at a time, the way every other
+        /// fixture in this module does. A space writes the Cell's own blank
+        /// content (`CellContent::SPACE`), which reads back identically to a
+        /// Cell never written, so a row with gaps can be spelled as one
+        /// literal.
+        fn write_row(orcvs: &mut orcvs::app::Orcvs, row: usize, text: &str) {
+            let grid = orcvs.grid();
+            for (x, character) in text.chars().enumerate() {
+                orcvs.select(grid.position(x, row).expect("inside the grid"));
+                orcvs.write(&character.to_string());
+            }
+        }
+
+        /// `source_paint`'s own Fill tint mix of `colour`, restated
+        /// independently of `style::fill_tint_colour` so a broken mix is
+        /// caught rather than mirrored — the same reading `style::tests`
+        /// pins its tint assertions with.
+        fn tinted(source_paint: SourcePaintSettings, colour: Color32) -> Color32 {
+            let strength = f32::from(source_paint.fill_tint()) / 100.0;
+            source_paint
+                .source_background()
+                .lerp_to_gamma(colour, strength)
+        }
+
+        ///
+        /// A scalar answer south of a Function draws in the Output Portal
+        /// colour on the Output Portal tint: `07` left south of `.+0304` re-
+        /// parses as two one-Cell unbound Function claims (`.scratch/syntax-
+        /// highlighting/issues/05`'s Answer), and the Output Portal fact
+        /// paints over that Diagnostic-shaped claim rather than leaving it
+        /// Diagnostic.
+        ///
+        #[tokio::test]
+        async fn a_scalar_answer_paints_in_the_output_portal_colour() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, ".+0304");
+            write_row(&mut orcvs, 1, "07");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "column {x}"
+                );
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+            // Past the scalar Reservation's pair: an ordinary, untinted blank
+            // Cell, the same as if `.+0304` were not there.
+            for x in 2..6 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert_eq!(paint.at(position).background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// The other scalar-answer example `06` names: `C4` left south of
+        /// `.^3C` (ConvertToNote) paints the same way — the rule reads the
+        /// Output Portal fact and the claim's shape, not which Function or
+        /// which characters produced it.
+        ///
+        #[tokio::test]
+        async fn a_note_shaped_scalar_answer_paints_in_the_output_portal_colour_too() {
+            let mut orcvs = running_orcvs(4, 3);
+            write_row(&mut orcvs, 0, ".^3C");
+            write_row(&mut orcvs, 1, "C4");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "column {x}"
+                );
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+        }
+
+        ///
+        /// A Sequence answer is painted the same way across every one of its
+        /// Cells, and the Reservation's remaining Cells to the end of the row
+        /// — past what the answer actually filled — are empty Output Portal
+        /// Cells: tinted, with no glyph. `:<:-0104` (Reverse of NumberRange
+        /// 01..04) answers a Sequence outright, so its Reservation runs to
+        /// the end of the destination row (`.scratch/syntax-highlighting/
+        /// issues/10`'s Answer) even though the written answer, `04030201`,
+        /// only fills the row's first eight Cells of ten.
+        ///
+        #[tokio::test]
+        async fn a_sequence_answer_paints_every_cell_and_the_remainder_is_an_empty_output_portal() {
+            let mut orcvs = running_orcvs(10, 2);
+            write_row(&mut orcvs, 0, ":<:-0104");
+            write_row(&mut orcvs, 1, "04030201");
+            orcvs.select(orcvs.grid().position(8, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..8 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "column {x}"
+                );
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+            for x in 8..10 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                assert_eq!(frame.at(position).content(), None, "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.character, ' ', "column {x}");
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+        }
+
+        ///
+        /// A Bang answer keeps the Bang glyph colour rather than the Output
+        /// Portal colour, but takes the Output Portal tint in place of
+        /// Bang's usual bare `None`: `**` left south of `~*0401` (Delay)
+        /// reads as a genuine bound Bang claim (`RenderFrame`'s own
+        /// `a_standalone_bang_is_one_bound_bang_claim`), and the tint is what
+        /// tells it apart from an ordinary Bang elsewhere on the Grid — the
+        /// second `**`, on the row below, sits outside any Reservation and
+        /// stays untinted.
+        ///
+        #[tokio::test]
+        async fn a_bang_answer_keeps_its_glyph_colour_but_takes_the_output_portal_tint() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, "~*0401");
+            write_row(&mut orcvs, 1, "**");
+            write_row(&mut orcvs, 2, "**");
+            orcvs.select(orcvs.grid().position(4, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let portal_position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(portal_position).output_portal(), "column {x}");
+                let portal_painted = paint.at(portal_position);
+                assert_eq!(portal_painted.foreground, source_paint.bang(), "column {x}");
+                assert_eq!(portal_painted.background, Some(output_tinted), "column {x}");
+
+                let ordinary_position = grid.position(x, 2).expect("inside the grid");
+                assert!(!frame.at(ordinary_position).output_portal(), "column {x}");
+                let ordinary_painted = paint.at(ordinary_position);
+                assert_eq!(
+                    ordinary_painted.foreground,
+                    source_paint.bang(),
+                    "column {x}"
+                );
+                assert_eq!(
+                    ordinary_painted.background, None,
+                    "an ordinary Bang outside a Reservation is untinted, column {x}"
+                );
+            }
+        }
+
+        ///
+        /// An empty Output Portal Cell shows the Output Portal tint and no
+        /// glyph, including before the first Tick: nothing ever runs a Tick
+        /// in this test, so the highlight can only have come from the
+        /// current Source revision, as `.scratch/syntax-highlighting/
+        /// issues/05`'s Answer states.
+        ///
+        #[tokio::test]
+        async fn an_empty_output_portal_cell_shows_the_tint_and_no_glyph_before_any_tick() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, ".+0102");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(frame.at(position).output_portal(), "column {x}");
+                assert_eq!(frame.at(position).content(), None, "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.character, ' ', "column {x}");
+                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+            }
+            for x in 2..6 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                assert_eq!(paint.at(position).background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// A Terminal Output Function paints nothing at its Output Portal:
+        /// `!>` (RawPlay) answers Play, not a Cell, so `output_portal()` is
+        /// `None` for it (`.scratch/syntax-highlighting/issues/10`'s
+        /// Answer) and the row south of it reads exactly as if no root stood
+        /// north of it.
+        ///
+        #[tokio::test]
+        async fn a_terminal_output_functions_south_row_is_ordinary() {
+            let mut orcvs = running_orcvs(8, 2);
+            write_row(&mut orcvs, 0, "!>007F");
+            orcvs.select(orcvs.grid().position(6, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let grid = orcvs.grid();
+
+            for x in 0..8 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
+                assert_eq!(painted.character, ' ', "column {x}");
+            }
+        }
+
+        ///
+        /// Halt paints nothing at its Output Portal: it locks the root there
+        /// rather than writing (`.scratch/syntax-highlighting/issues/10`'s
+        /// Answer), so the row south of `*!` reads as ordinary.
+        ///
+        #[tokio::test]
+        async fn halts_south_row_is_ordinary() {
+            let mut orcvs = running_orcvs(4, 3);
+            write_row(&mut orcvs, 0, "*!");
+            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let grid = orcvs.grid();
+
+            for x in 0..4 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// A Self-Banging (Source-writing) Function paints nothing at its
+        /// Output Portal: its Advance's writes, including the Cells it
+        /// moves onto, are its declared Source effect rather than an answer
+        /// through an Output Portal (`.scratch/syntax-highlighting/
+        /// issues/10`'s Answer). `>>` is `SelfBangingEast`; the Cells east
+        /// of its own anchor, which its Advance would move onto during a
+        /// Tick, carry no Output Portal fact even though nothing has ticked
+        /// yet to prove that by writing there.
+        ///
+        #[tokio::test]
+        async fn a_self_banging_functions_advance_path_is_never_an_output_portal() {
+            let mut orcvs = running_orcvs(6, 1);
+            write_row(&mut orcvs, 0, ">>");
+            // The Function's own anchor, outside the asserted range 2..6.
+            orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let grid = orcvs.grid();
+
+            for x in 2..6 {
+                let position = grid.position(x, 0).expect("inside the grid");
+                assert!(!frame.at(position).output_portal(), "column {x}");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.ordinary(), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
+            }
+        }
+
+        ///
+        /// The paint precedence where an Output Portal covers another
+        /// Expression's claimed Cells (`.scratch/syntax-highlighting/
+        /// issues/06`'s precedence decision): `:-0102` (NumberRange) answers
+        /// a Sequence outright, so its Reservation runs the whole of the row
+        /// south, where `.+0304` (Add) stands as a second, independent root.
+        /// Add's own two-Cell spelling is a bound Function claim and keeps
+        /// its Function paint outright — the "another root" case — while
+        /// Add's own Number operand Cells, which the Reservation also
+        /// covers, take the Output Portal colour and tint instead of their
+        /// declared Number role — the "a consumer's operand" case. Both
+        /// named overlaps from `.scratch/syntax-highlighting/issues/05`'s
+        /// Answer are exercised by this one Source.
+        ///
+        #[tokio::test]
+        async fn a_bound_function_spelling_wins_but_its_operands_take_the_output_portal() {
+            let mut orcvs = running_orcvs(6, 2);
+            write_row(&mut orcvs, 0, ":-0102");
+            write_row(&mut orcvs, 1, ".+0304");
+            // Writing leaves the Cursor at the last Cell it wrote (row 1,
+            // column 5) — one of the Cells this test asserts about. Move it
+            // back onto row 0, which no assertion below reads.
+            orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let function_tinted = tinted(source_paint, source_paint.function());
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let grid = orcvs.grid();
+
+            for x in 0..6 {
+                assert!(
+                    frame
+                        .at(grid.position(x, 1).expect("inside the grid"))
+                        .output_portal(),
+                    "column {x}: NumberRange answers a Sequence outright"
+                );
+            }
+
+            for x in 0..2 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.function(),
+                    "Add's own spelling, column {x}"
+                );
+                assert_eq!(
+                    painted.background,
+                    Some(function_tinted),
+                    "Add's own spelling, column {x}"
+                );
+            }
+            for x in 2..6 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "Add's own Number operand, column {x}"
+                );
+                assert_eq!(
+                    painted.background,
+                    Some(output_tinted),
+                    "Add's own Number operand, column {x}"
+                );
+            }
+        }
     }
 
     ///

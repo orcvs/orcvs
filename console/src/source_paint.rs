@@ -29,7 +29,7 @@ pub(crate) const DEFAULT_NUMBER: Color32 = Color32::from_rgb(86, 180, 233); // #
 pub(crate) const DEFAULT_NOTE: Color32 = Color32::from_rgb(240, 228, 66); // #F0E442 yellow
 pub(crate) const DEFAULT_SEQUENCE: Color32 = Color32::from_rgb(0, 114, 178); // #0072B2 blue
 pub(crate) const DEFAULT_DIAGNOSTIC: Color32 = Color32::from_rgb(213, 94, 0); // #D55E00 vermillion
-pub(crate) const DEFAULT_RESULT: Color32 = Color32::from_rgb(230, 159, 0); // #E69F00 orange
+pub(crate) const DEFAULT_OUTPUT_PORTAL: Color32 = Color32::from_rgb(230, 159, 0); // #E69F00 orange
 
 ///
 /// `syntax-highlighting/02`'s default Fill tint strength: a Function or
@@ -45,13 +45,15 @@ pub(crate) const DEFAULT_FILL_TINT: u8 = 16;
 ///
 /// Atom follows Ordinary, as Char already did — a Cell painting no glyph of
 /// its own has nothing to colour differently. Sequence no longer shares
-/// Ordinary's colour and carries its own field. Diagnostic and Result both
-/// became settings before either had a painter, so the persisted shape was
-/// complete once rather than gaining a field — and a migration — later.
+/// Ordinary's colour and carries its own field. Diagnostic and Output Portal
+/// both became settings before either had a painter, so the persisted shape
+/// was complete once rather than gaining a field — and a migration — later.
 /// `syntax-highlighting/04` gives Diagnostic its painter: an unbound
 /// Function, Number, Note, Atom or Sequence entry draws its glyph in
-/// Diagnostic instead of its Token colour. Result still has none until
-/// `syntax-highlighting/06`.
+/// Diagnostic instead of its Token colour. `syntax-highlighting/06` gives
+/// Output Portal its painter: a Function's written value, one row south of
+/// its anchor (or further, for a Sequence-capable Function), draws in this
+/// colour on this colour's own Fill tint.
 ///
 /// `fill_tint` joins the ten colours as `syntax-highlighting/02`'s one
 /// non-colour role: the percentage a Function or Operand Cell's background is
@@ -71,7 +73,7 @@ pub struct SourcePaintSettings {
     note: Color32,
     sequence: Color32,
     diagnostic: Color32,
-    result: Color32,
+    output_portal: Color32,
     fill_tint: u8,
 }
 
@@ -87,7 +89,7 @@ impl Default for SourcePaintSettings {
             note: DEFAULT_NOTE,
             sequence: DEFAULT_SEQUENCE,
             diagnostic: DEFAULT_DIAGNOSTIC,
-            result: DEFAULT_RESULT,
+            output_portal: DEFAULT_OUTPUT_PORTAL,
             fill_tint: DEFAULT_FILL_TINT,
         }
     }
@@ -133,15 +135,15 @@ impl SourcePaintSettings {
     pub(crate) fn diagnostic(self) -> Color32 {
         self.diagnostic
     }
-    // No shipped Token reaches this one yet — `syntax-highlighting/06` gives
-    // Result the classification it colours, and `source_paint::tests` already
-    // reads it to pin its default and contrast against the floor. `dead_code`
-    // cannot see through `#[cfg(test)]` into a production build, so it is
-    // silenced here rather than deleting an accessor the next ticket is about
-    // to call from `paint.rs`.
-    #[allow(dead_code)]
-    pub(crate) fn result(self) -> Color32 {
-        self.result
+    /// The glyph colour a Function's written value draws with, one row south
+    /// of its anchor (or further, for a Sequence-capable Function):
+    /// `style::claim_paint` reads it for every Cell `RenderCell::output_
+    /// portal()` marks true, except a Cell that is itself another
+    /// Expression's bound Function spelling, which keeps its Function paint
+    /// regardless (syntax-highlighting/06). A Bang answer keeps its own Bang
+    /// glyph colour and takes only this role's Fill tint.
+    pub(crate) fn output_portal(self) -> Color32 {
+        self.output_portal
     }
     /// The Fill tint strength: what percentage of the way from the Source
     /// background to a Token colour a Function or Operand Cell's background
@@ -177,8 +179,8 @@ impl SourcePaintSettings {
     pub(crate) fn diagnostic_mut(&mut self) -> &mut Color32 {
         &mut self.diagnostic
     }
-    pub(crate) fn result_mut(&mut self) -> &mut Color32 {
-        &mut self.result
+    pub(crate) fn output_portal_mut(&mut self) -> &mut Color32 {
+        &mut self.output_portal
     }
     pub(crate) fn fill_tint_mut(&mut self) -> &mut u8 {
         &mut self.fill_tint
@@ -205,7 +207,7 @@ impl SourcePaintSettings {
             self.note,
             self.sequence,
             self.diagnostic,
-            self.result,
+            self.output_portal,
         ]
         .into_iter()
         .map(channel)
@@ -243,7 +245,7 @@ impl SourcePaintSettings {
             note: colour(groups.next()?)?,
             sequence: colour(groups.next()?)?,
             diagnostic: colour(groups.next()?)?,
-            result: colour(groups.next()?)?,
+            output_portal: colour(groups.next()?)?,
             fill_tint: groups.next()?.parse().ok()?,
         };
 
@@ -268,7 +270,7 @@ mod tests {
         assert_eq!(settings.note(), Color32::from_rgb(240, 228, 66));
         assert_eq!(settings.sequence(), Color32::from_rgb(0, 114, 178));
         assert_eq!(settings.diagnostic(), Color32::from_rgb(213, 94, 0));
-        assert_eq!(settings.result(), Color32::from_rgb(230, 159, 0));
+        assert_eq!(settings.output_portal(), Color32::from_rgb(230, 159, 0));
         assert_eq!(settings.fill_tint(), 16);
     }
 
@@ -291,7 +293,7 @@ mod tests {
         *changed.note_mut() = Color32::from_rgb(7, 7, 7);
         *changed.sequence_mut() = Color32::from_rgb(8, 8, 8);
         *changed.diagnostic_mut() = Color32::from_rgb(9, 9, 9);
-        *changed.result_mut() = Color32::from_rgb(10, 10, 10);
+        *changed.output_portal_mut() = Color32::from_rgb(10, 10, 10);
         *changed.fill_tint_mut() = 99;
         assert_ne!(changed, SourcePaintSettings::default());
 
@@ -307,13 +309,35 @@ mod tests {
         *settings.ordinary_mut() = Color32::from_rgb(4, 5, 6);
         *settings.sequence_mut() = Color32::from_rgb(7, 8, 9);
         *settings.diagnostic_mut() = Color32::from_rgb(10, 11, 12);
-        *settings.result_mut() = Color32::from_rgb(13, 14, 15);
+        *settings.output_portal_mut() = Color32::from_rgb(13, 14, 15);
         *settings.fill_tint_mut() = 42;
 
         assert_eq!(
             SourcePaintSettings::decode(&settings.encode()),
             Some(settings)
         );
+    }
+
+    ///
+    /// A settings string persisted before `syntax-highlighting/06` renamed
+    /// the tenth role from Result to Output Portal still decodes to the same
+    /// ten colours and Fill tint. The rename touched only the Rust-side
+    /// field and accessor names; `encode`/`decode` are positional
+    /// (`syntax-highlighting/05`'s Answer), so the stored string itself, and
+    /// what it means, are unchanged. This literal is
+    /// `SourcePaintSettings::default().encode()` as it read before the
+    /// rename — the tenth group, `230,159,0`, is what `result()` used to
+    /// answer and `output_portal()` answers now.
+    ///
+    #[test]
+    fn a_previously_stored_settings_string_still_decodes_to_the_same_colours() {
+        let stored = "0,0,0;255,255,255;153,153,153;0,158,115;204,121,167;86,180,233;\
+                       240,228,66;0,114,178;213,94,0;230,159,0;16";
+
+        let decoded = SourcePaintSettings::decode(stored).expect("a well-formed stored value");
+
+        assert_eq!(decoded, SourcePaintSettings::default());
+        assert_eq!(decoded.output_portal(), Color32::from_rgb(230, 159, 0));
     }
 
     #[test]
