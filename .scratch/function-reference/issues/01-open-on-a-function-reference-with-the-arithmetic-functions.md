@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [ ] ~~With no stored Source, with persistence off, and when a stored Source is refused, the console opens on the reference Source rather than a blank Grid.~~ Withdrawn on rebase onto `source-view`: a console that restores no Source opens the blank 64 by 40 default Grid (`source-view/03`, ADR 0045), and the reference is reached from the File menu only.
+- [ ] ~~With no stored Source, with persistence off, and when a stored Source is refused, the console opens on the reference Source rather than a blank Grid.~~ Withdrawn on rebase onto `source-view`: a console that restores no Source opens the blank default Grid (`source-view/03` and `13`, ADRs 0045 and 0047), and the reference is reached from the File menu only.
 - [x] A console command, reachable from the menu, replaces the current Source with the reference, including its Grid. It is an explicit action, not a single unmodified key. With persistence on, the reference is then saved like any other Source.
 - [x] The reference is one checked-in Source text, not built up in code, and its Grid dimensions come from it. Both dimensions are multiples of the Sector Seam spacing, so every column edge falls on a Sector Seam.
 - [x] Columns are 16 Cells wide (two Sectors). A group is headed by a `||` Comment row. Each example is its Expression row, its result row directly south, and one blank row.
@@ -49,7 +49,7 @@ for the same table, kept beside the reference text):
 
 ## Correction
 
-"The window still fits the Grid" regressed once the reference grew past the blank default Grid, and was first fixed by deriving the default window size from the reference's own Grid. That fix was dropped on rebase onto `source-view`: ADR 0045 retired the fitted canvas, the default window now presents the 64 by 40 default Grid at Zoom 1.0, and a console with no stored Source opens that blank Grid rather than the reference. A reference wider or taller than the window is Panned like any other Source.
+"The window still fits the Grid" regressed once the reference grew past the blank default Grid, and was first fixed by deriving the default window size from the reference's own Grid. That fix was dropped on rebase onto `source-view`: ADR 0045 retired the fitted canvas, the default window is no longer sized to any Grid, and a console with no stored Source opens that blank Grid rather than the reference. A reference wider or taller than the window is Panned like any other Source.
 
 Open question left for whichever ticket adds the second column: each group's header
 Comment claims the rest of its *Grid* row (the whole row, not just its own 16 Cells), so
