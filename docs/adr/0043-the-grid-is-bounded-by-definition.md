@@ -20,4 +20,4 @@ The execution path needs no other change. Edge behaviour on the Tick path refuse
 
 `CONTEXT.md` is unchanged. Grid, Span, Reservation, Bang, and Jump Function already mean this.
 
-[ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md) remains the addressing deferral. This decision does not retract it and does not implement it.
+[ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md) remains the addressing deferral. This decision does not retract it and does not implement it. [ADR 0049](0049-a-position-is-two-numbers.md) later ended that deferral: a Grid is at most 256 by 256, which settles the canvas question this decision left open.
