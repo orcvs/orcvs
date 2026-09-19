@@ -4,6 +4,10 @@ mod encoding;
 pub mod error;
 mod language_map;
 pub use lang::Token;
+// `Claim::atom`'s type: re-exported so a caller naming a `Claim` value — the
+// console's colour tests among them (`syntax-highlighting/09`) — can spell
+// `Atom` without adding a direct dependency on `lang`.
+pub use lang::Atom;
 pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
 mod model;
 mod portal;

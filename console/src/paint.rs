@@ -27,7 +27,7 @@
 //!
 //! A Paint covers the Positions `GridViewport::visible_positions` answers and
 //! no others, so a console showing a tenth of a Grid pays for a tenth of it:
-//! neither the per-Cell call to `cell_visuals` nor the `Vec` holding its
+//! neither the per-Cell call to `cell_visuals_with_cursor_colour` nor the `Vec` holding its
 //! answers follows the Source's size. Everything the derivation reads is local
 //! to its own Cell, which makes the cull a saving rather than a change of answer.
 //!
@@ -40,6 +40,7 @@
 //! Positions each covers.
 //!
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use egui::Color32;
@@ -47,7 +48,7 @@ use egui::Color32;
 use orcvs::{
     grid::{Grid, Position},
     render_frame::RenderFrame,
-    source::Token,
+    source::Claim,
 };
 
 use crate::{
@@ -61,7 +62,7 @@ pub use crate::grid_viewport::VisiblePositions;
 ///
 /// What one Cell of a Render Frame is drawn as.
 ///
-/// Flat. The background is already decided at `cell_visuals`: `None` means the
+/// Flat. The background is already decided at `cell_visuals_with_cursor_colour`: `None` means the
 /// panel behind the Grid has painted the Source colour, and `Some` means this
 /// Cell needs a fill of its own.
 ///
@@ -141,6 +142,27 @@ impl<'a> FramePaint<'a> {
 }
 
 ///
+/// Whether any Cell of `claim`'s own slot (`claim.cells`) holds written
+/// content.
+///
+/// `Claim { cells, token, atom }` cannot answer Pending versus Invalid on its
+/// own — both cover `atom: None` alike — so this reads the Render Frame's
+/// own Cell contents over the claim's range, converting each raw index
+/// through the Frame's Grid the way `orcvs::source::Span::positions` already
+/// does (ADR 0044). A slot with any written Cell is Invalid; one that is
+/// entirely blank is Pending — `cell_visuals_with_cursor_colour` is where
+/// that distinction is spent.
+///
+fn slot_written(frame: &RenderFrame, claim: &Claim) -> bool {
+    let grid = frame.grid();
+
+    claim.cells.clone().any(|index| {
+        grid.cell_index(index)
+            .is_some_and(|cell_index| frame.at(grid.position_at(cell_index)).content().is_some())
+    })
+}
+
+///
 /// How one Render Frame is drawn, Cell by Cell.
 ///
 /// Derived from a Render Frame and nothing else — no running Orcvs, no
@@ -165,8 +187,11 @@ impl Paint {
     /// Reads a paired Render Frame and drawn range and answers what each Cell
     /// is drawn as.
     ///
-    /// `cell_visuals` is called once per drawn Cell and is unchanged: this
-    /// decides what to do with its answer, not what the answer is.
+    /// `cell_visuals_with_cursor_colour` is called once per drawn Cell and is
+    /// unchanged: this decides what to do with its answer, not what the
+    /// answer is. It reads the claim on the Cell (`RenderCell::claim`),
+    /// whether that claim's slot holds written content — `slot_written`,
+    /// below, answers the latter once per claim rather than once per Cell.
     ///
     /// The range is the console's decision, not this layer's. It comes from
     /// `GridViewport::visible_positions` already clamped to the Grid, which is
@@ -226,6 +251,12 @@ impl Paint {
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
+        // `slot_written` walks every Cell of a claim's slot, so a claim
+        // spanning many Cells — a whole-row Comment among them — is answered
+        // once here rather than once per Cell it covers. Every Cell of one
+        // claim shares one `Arc` (ADR 0044), so the claim's own address is
+        // the cache key.
+        let mut written_cache: HashMap<*const Claim, bool> = HashMap::new();
         for row in drawn.rows.clone() {
             for column in drawn.columns.clone() {
                 let position = grid
@@ -238,17 +269,15 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
-                // A Cell no positioned entry claims — an empty unclaimed Cell
-                // or leftover `Char` — folds to bound, because nothing there
-                // can be marked invalid. A Comment records no Atom and still
-                // counts as bound; this clause is temporary and goes when
-                // syntax-highlighting/09 decides by Token.
-                let bound = cell
-                    .claim()
-                    .is_none_or(|claim| claim.token == Token::Comment || claim.atom.is_some());
+                let claim = cell.claim();
+                let written = claim.is_some_and(|claim| {
+                    *written_cache
+                        .entry(claim as *const Claim)
+                        .or_insert_with(|| slot_written(frame, claim))
+                });
                 let visuals = cell_visuals_with_cursor_colour(
-                    cell.token(),
-                    bound,
+                    claim,
+                    written,
                     selected,
                     selected && cursor_visible,
                     cursor_colour,
@@ -484,11 +513,11 @@ impl Paint {
 
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, FramePaint, Paint};
+    use super::{BackgroundRun, CellPaint, FramePaint, Paint, slot_written};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::source_paint::{DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings};
-    use crate::style::{PALETTE, cell_visuals, sector_line};
+    use crate::style::{PALETTE, cell_visuals_with_cursor_colour, sector_line};
     use egui::Color32;
     use orcvs::source::Token;
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
@@ -509,6 +538,33 @@ mod tests {
     ///
     fn whole(frame: &RenderFrame) -> Paint {
         Paint::derive(FramePaint::whole(frame))
+    }
+
+    ///
+    /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
+    /// claim and its slot's own written fact straight from `frame` and
+    /// `cell` — the same two inputs
+    /// `Paint::derive_with_colours` reads, so a test comparing against this
+    /// needs no `SourcePaintSettings::default()`-only shim.
+    ///
+    fn expected_visuals(
+        frame: &RenderFrame,
+        cell: &orcvs::render_frame::RenderCell,
+        selected: bool,
+        cursor_visible: bool,
+        cursor_colour: Option<Color32>,
+        source_paint: SourcePaintSettings,
+    ) -> crate::style::CellVisuals {
+        let claim = cell.claim();
+        let written = claim.is_some_and(|claim| slot_written(frame, claim));
+        cell_visuals_with_cursor_colour(
+            claim,
+            written,
+            selected,
+            cursor_visible,
+            cursor_colour,
+            source_paint,
+        )
     }
 
     ///
@@ -536,14 +592,12 @@ mod tests {
         for cell in frame.cells() {
             let position = cell.position();
             let selected = position == cursor;
-            let bound = cell
-                .claim()
-                .is_none_or(|claim| claim.token == Token::Comment || claim.atom.is_some());
-            let visuals = cell_visuals(
-                cell.token(),
-                bound,
+            let visuals = expected_visuals(
+                &frame,
+                cell,
                 selected,
                 selected && frame.cursor_visible(),
+                Some(PALETTE.selection_fill),
                 SourcePaintSettings::default(),
             );
             let painted = paint.at(position);
@@ -788,7 +842,7 @@ mod tests {
     /// a `.v` (one Note operand) left unfilled. Atom and Sequence have no
     /// Function whose *first* operand declares them without also demanding a
     /// nested Function earlier in the row, so they are asserted against
-    /// `cell_visuals` directly in `style::tests`, which this test does not
+    /// `cell_visuals_with_cursor_colour` directly in `style::tests`, which this test does not
     /// repeat.
     ///
     #[tokio::test]
@@ -813,12 +867,12 @@ mod tests {
             let position = orcvs.grid().position(x, 0).expect("inside the grid");
             let cell = frame.at(position);
             assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
-            assert_eq!(cell.token(), Some(Token::Number));
+            assert_eq!(cell.claim().map(|claim| claim.token), Some(Token::Number));
             let painted = paint.at(position);
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                cell_visuals(Some(Token::Number), true, false, false, source_paint).background,
+                expected_visuals(&frame, cell, false, false, None, source_paint).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -828,12 +882,12 @@ mod tests {
             let position = orcvs.grid().position(x, 1).expect("inside the grid");
             let cell = frame.at(position);
             assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
-            assert_eq!(cell.token(), Some(Token::Note));
+            assert_eq!(cell.claim().map(|claim| claim.token), Some(Token::Note));
             let painted = paint.at(position);
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                cell_visuals(Some(Token::Note), true, false, false, source_paint).background,
+                expected_visuals(&frame, cell, false, false, None, source_paint).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -872,7 +926,7 @@ mod tests {
 
         assert_eq!(cell.content(), None, "the truncated Cell was not empty");
         assert_eq!(
-            cell.token(),
+            cell.claim().map(|claim| claim.token),
             Some(Token::Number),
             "the truncated Cell did not carry the operand's declared Token"
         );
@@ -883,7 +937,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            cell_visuals(Some(Token::Number), true, false, false, source_paint).background,
+            expected_visuals(&frame, cell, false, false, None, source_paint).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -932,7 +986,7 @@ mod tests {
 
     ///
     /// `syntax-highlighting/02`'s Fill tint, walked end to end from written
-    /// Source through `Paint::derive` rather than through `cell_visuals`
+    /// Source through `Paint::derive` rather than through `cell_visuals_with_cursor_colour`
     /// alone: a nested Function's own Cells tint like its parent's, an
     /// Operand Cell tints with its declared Token's colour whether or not
     /// its slot binds, and adjacent tinted Cells of one colour — a Function
@@ -960,10 +1014,16 @@ mod tests {
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
         let source_paint = SourcePaintSettings::default();
+        // The real bound claims this fixture already carries: `.+`'s own
+        // Function claim (columns 0-1) and Multiply's first Number operand
+        // (columns 4-5), rather than a claim built by hand — both are bound,
+        // so `written` plays no part in either tint.
+        let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
+        let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
         let function_tint =
-            cell_visuals(Some(Token::Function), true, false, false, source_paint).background;
+            expected_visuals(&frame, function_cell, false, false, None, source_paint).background;
         let number_tint =
-            cell_visuals(Some(Token::Number), true, false, false, source_paint).background;
+            expected_visuals(&frame, number_cell, false, false, None, source_paint).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 

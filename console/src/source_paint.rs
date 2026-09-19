@@ -118,12 +118,18 @@ impl SourcePaintSettings {
     pub(crate) fn sequence(self) -> Color32 {
         self.sequence
     }
-    /// The glyph colour an unbound Function, Number, Note, Atom or Sequence
-    /// entry draws with instead of its Token colour: `style::
-    /// cell_visuals_with_cursor_colour` reads it wherever the parser's claim
-    /// records no Atom for one of those Tokens (syntax-highlighting/04). A
-    /// Comment is the exception: it records no Atom and still paints as
-    /// bound, until syntax-highlighting/09 decides by Token.
+    /// The glyph colour an unbound Function claim, or an Invalid Operand
+    /// (Number, Note, Atom or Sequence), draws with instead of its Token
+    /// colour: `style::claim_paint` reads it for a Function whose claim
+    /// records no Atom, and for an Operand claim that records no Atom and
+    /// whose slot holds written content (syntax-highlighting/04,
+    /// syntax-highlighting/09). A Pending Operand — the same unbound claim
+    /// over a slot that is still entirely blank — keeps its Token colour
+    /// instead, a distinction `style::claim_paint` reads from the Render
+    /// Frame's own Cell contents (ADR 0044). A Comment is a further
+    /// exception among unbound claims: it always records no Atom yet never
+    /// reads this colour, because it is a complete Language Unit rather than
+    /// an invalid one (ADR 0035).
     pub(crate) fn diagnostic(self) -> Color32 {
         self.diagnostic
     }

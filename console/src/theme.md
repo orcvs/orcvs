@@ -71,19 +71,34 @@ already gives the Cursor's and Selection's fills. "Reset to theme defaults"
 restores Fill tint to 16% together with the ten colours, and persistence
 restores it at the same key as the colours — there is no key of its own.
 
-Diagnostic paints the glyph, not the tint, of an entry the Parser recorded as
-unbound: a claimed Cell whose content fails to bind (an Invalid Operand — the
-declared Token is still visible underneath, unchanged) or a refused Function
-spelling (no Token-specific case: a lone `|`, both Cells of a written `07`,
-and the trailing `<` of `<<<` are each `(Token::Function, atom: None)` alike).
-An Invalid Operand keeps its declared Token's Fill tint beneath the Diagnostic
-glyph; a refused Function paints no tint at all, because its `Function` label
-records what the slot expected rather than what was found. A Comment records
-no Atom too, but it is a complete Language Unit rather than an invalid one
-(ADR 0035), so it is never painted Diagnostic. A Pending (still-empty)
-operand Cell answers the same "no Atom" fact as an Invalid one but shows no
-glyph at all — `paint.rs` already leaves it blank — so only its tint is
-visible, unchanged from `syntax-highlighting/03`. Evaluation-time operand
+The console paints from the parser's own claim on a Cell (`orcvs::source::Claim
+{ cells, token, atom }`, `RenderCell::claim()`) rather than from a Token and a
+derived flag — `.scratch/syntax-highlighting/issues/09` folded the two
+overlapping colour decisions that used to read those separately into the one
+that reads the claim. `atom: None` marks a claim unbound: an Invalid Operand
+(claimed Cells whose content fails to bind — the declared Token is still
+visible underneath, unchanged) or a refused Function spelling (no
+Token-specific case: a lone `|`, both Cells of a written `07`, and the
+trailing `<` of `<<<` are each `(Token::Function, atom: None)` alike).
+Diagnostic paints the glyph, not the tint, of an unbound claim: an Invalid
+Operand keeps its declared Token's Fill tint beneath the Diagnostic glyph; a
+refused Function paints no tint at all, because its `Function` label records
+what the slot expected rather than what was found. A Comment records no Atom
+too, but it is a complete Language Unit rather than an invalid one (ADR
+0035), so it is never painted Diagnostic regardless of its own claim.
+
+An unbound operand claim is Invalid when any Cell of its own slot
+(`claim.cells`) holds written content, and Pending when the whole slot is
+still entirely blank — a fact the claim cannot answer on its own, since
+`atom: None` covers both alike (ADR 0044), so the console reads it from the
+Render Frame's own Cell contents once per claim. A Pending Cell answers its
+declared Token colour rather than Diagnostic, and an Invalid one answers
+Diagnostic on every Cell of its slot, the written ones and the blank ones
+alike — `.+0`'s second operand, one Cell written and one blank, is Invalid
+as a whole, so both of its Cells agree. Neither distinction is visible today:
+`paint.rs`'s blank-glyph fallback leaves a Pending or Invalid Cell with no
+content blank regardless of its foreground colour, so only the Fill tint
+shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time operand
 diagnostics are out of scope: they are Tick outcomes, not Source facts.
 
 The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R

@@ -4,7 +4,7 @@ use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
-    source::{Claim, Diagnostic, SourceRevision, Span, Token},
+    source::{Claim, Diagnostic, SourceRevision, Span},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -17,7 +17,6 @@ pub(crate) struct RenderFrameConfig {
 pub struct RenderCell {
     position: Position,
     content: Option<char>,
-    token: Option<Token>,
     claim: Option<Arc<Claim>>,
     output_portal: bool,
 }
@@ -29,10 +28,6 @@ impl RenderCell {
 
     pub fn content(&self) -> Option<char> {
         self.content
-    }
-
-    pub fn token(&self) -> Option<Token> {
-        self.token
     }
 
     ///
@@ -125,7 +120,6 @@ impl RenderFrame {
                 RenderCell {
                     position,
                     content: source.content_at(position),
-                    token: source.token_at(position),
                     claim: claims[index].clone(),
                     output_portal: output_portals[index],
                 }
@@ -321,6 +315,16 @@ mod tests {
         frame.at(position)
     }
 
+    ///
+    /// The Token the claim on `position` declares, or `None` when nothing
+    /// claims it. `RenderCell::token()` answered this directly before
+    /// `syntax-highlighting/09` removed it in favour of `claim()`; every test
+    /// below that named a Token by position now reads it from the claim.
+    ///
+    fn token_at(frame: &RenderFrame, position: crate::grid::Position) -> Option<Token> {
+        frame.at(position).claim().map(|claim| claim.token)
+    }
+
     #[test]
     fn render_frame_is_a_complete_row_structured_visual_snapshot() {
         let grid = Grid::new(2, 2);
@@ -346,15 +350,15 @@ mod tests {
             frame.at(grid.position(0, 0).unwrap()).position(),
             grid.position(0, 0).unwrap()
         );
-        assert_eq!(frame.at(grid.position(0, 0).unwrap()).token(), None);
+        assert_eq!(token_at(&frame, grid.position(0, 0).unwrap()), None);
         assert_eq!(frame.at(grid.position(1, 0).unwrap()).content(), Some('x'));
         // A character standing where a Function goes is classified there,
         // whether or not the table holds its spelling.
         assert_eq!(
-            frame.at(grid.position(1, 0).unwrap()).token(),
+            token_at(&frame, grid.position(1, 0).unwrap()),
             Some(Token::Function)
         );
-        assert_eq!(frame.at(grid.position(0, 1).unwrap()).token(), None);
+        assert_eq!(token_at(&frame, grid.position(0, 1).unwrap()), None);
     }
 
     #[test]
@@ -376,11 +380,11 @@ mod tests {
         );
 
         assert_eq!(
-            frame.at(grid.position(0, 0).unwrap()).token(),
+            token_at(&frame, grid.position(0, 0).unwrap()),
             Some(Token::Bang)
         );
         assert_eq!(
-            frame.at(grid.position(1, 0).unwrap()).token(),
+            token_at(&frame, grid.position(1, 0).unwrap()),
             Some(Token::Bang)
         );
         // The third `*` is not half a Bang. It opens an Expression of its own
@@ -388,11 +392,11 @@ mod tests {
         // opens the one after that — each classified where a Function goes,
         // because that is where each of them stands.
         assert_eq!(
-            frame.at(grid.position(2, 0).unwrap()).token(),
+            token_at(&frame, grid.position(2, 0).unwrap()),
             Some(Token::Function)
         );
         assert_eq!(
-            frame.at(grid.position(3, 0).unwrap()).token(),
+            token_at(&frame, grid.position(3, 0).unwrap()),
             Some(Token::Function)
         );
     }
@@ -419,11 +423,11 @@ mod tests {
         // table now, so it is painted where every other Function is. The change
         // is visible and it is a correction: these two Cells spell a Function.
         assert_eq!(
-            frame.at(grid.position(0, 0).unwrap()).token(),
+            token_at(&frame, grid.position(0, 0).unwrap()),
             Some(Token::Function)
         );
         assert_eq!(
-            frame.at(grid.position(1, 0).unwrap()).token(),
+            token_at(&frame, grid.position(1, 0).unwrap()),
             Some(Token::Function)
         );
     }
@@ -531,7 +535,6 @@ mod tests {
 
         let truncated = grid.position(4, 0).unwrap();
         assert_eq!(frame.at(truncated).content(), None);
-        assert_eq!(frame.at(truncated).token(), Some(Token::Number));
         let claim = frame.at(truncated).claim().expect("truncated Number");
         assert_eq!(claim.cells, 4..5);
         assert_eq!(claim.token, Token::Number);
@@ -664,10 +667,7 @@ mod tests {
         // A lone character is the first Cell of a spelling the Function table
         // does not hold, which is a classification like any other. What this
         // test is about is that it survives sector presentation at all.
-        assert_eq!(
-            cell_at(&frame, grid.origin()).token(),
-            Some(Token::Function)
-        );
+        assert_eq!(token_at(&frame, grid.origin()), Some(Token::Function));
     }
 
     #[test]

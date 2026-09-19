@@ -2,7 +2,7 @@ use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
 
-use orcvs::source::Token;
+use orcvs::source::{Claim, Token};
 
 use crate::source_paint::{
     DEFAULT_BANG, DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings,
@@ -59,80 +59,31 @@ pub(crate) struct CellVisuals {
 /// (`syntax-highlighting/01`), which wins outright, or otherwise
 /// `syntax-highlighting/02`'s Fill tint on a Function or Operand Cell.
 ///
-#[cfg(test)]
-pub(crate) fn cell_visuals(
-    token: Option<Token>,
-    bound: bool,
-    selected: bool,
-    cursor_visible: bool,
-    source_paint: SourcePaintSettings,
-) -> CellVisuals {
-    cell_visuals_with_cursor_colour(
-        token,
-        bound,
-        selected,
-        cursor_visible,
-        Some(PALETTE.selection_fill),
-        source_paint,
-    )
-}
-
-///
-/// Every Source Paint role a Token reads is `source_paint`'s, not this
-/// module's fixed [`PALETTE`]: `syntax-highlighting/01` made the Source Grid
-/// paint from a console-owned settings value rather than from a constant, so
-/// a viewer's `Theme → Source colours` edits reach here on the very next
-/// frame. Atom follows Ordinary, as Char already did; Sequence has had its own
-/// field since that change and no longer falls into the same arm.
-///
-/// `bound` is the parser's claim collapsed to a plain `bool` — the caller
-/// already folds a Cell no entry claims into `true`, because a Cell nothing
-/// claims has nothing to mark invalid. `syntax-highlighting/04`: an unbound
-/// Function, Number, Note, Atom or Sequence entry — an Invalid Operand or a
-/// refused Function spelling — draws its glyph in
-/// `source_paint.diagnostic()` instead of its Token colour. `Bang`,
-/// `Comment`, `Char` and an empty unclaimed Cell never read `bound` at all:
-/// a Bang and a Comment always bind (a Comment records no Atom yet is
-/// complete, ADR 0035, which is why the claim fold treats it as bound), and
-/// `Char`/`None` have no declared Token to fail.
+/// Composes [`claim_paint`] — the one decision that reads the claim — with
+/// Cursor precedence, applied here rather than inside it:
+/// `syntax-highlighting/01`'s rule that the Cursor's own fill beats the tint
+/// outright on its own Cell, and the border a Cursor or a Selection draws
+/// regardless of what stands on the Cell. `written` is `claim_paint`'s other
+/// input: whether any Cell of the claim's own slot (`claim.cells`) holds
+/// written content, since `Claim { cells, token, atom }` alone cannot tell a
+/// Pending slot from an Invalid one (ADR 0044) — `Paint::derive_with_colours`
+/// reads it from the Render Frame once per claim, not once per Cell.
 ///
 pub(crate) fn cell_visuals_with_cursor_colour(
-    token: Option<Token>,
-    bound: bool,
+    claim: Option<&Claim>,
+    written: bool,
     selected: bool,
     cursor_visible: bool,
     cursor_colour: Option<Color32>,
     source_paint: SourcePaintSettings,
 ) -> CellVisuals {
-    let foreground = if !bound
-        && matches!(
-            token,
-            Some(Token::Function | Token::Number | Token::Note | Token::Atom | Token::Sequence)
-        ) {
-        source_paint.diagnostic()
-    } else {
-        match token {
-            Some(Token::Bang) => source_paint.bang(),
-            Some(Token::Comment) => source_paint.comment(),
-            Some(Token::Function) => source_paint.function(),
-            Some(Token::Number) => source_paint.number(),
-            Some(Token::Note) => source_paint.note(),
-            Some(Token::Sequence) => source_paint.sequence(),
-            Some(Token::Char | Token::Atom) | None => source_paint.ordinary(),
-        }
-    };
+    let (foreground, tint) = claim_paint(claim, written, source_paint);
     // The Cursor's own fill wins outright on its Cell (`syntax-highlighting/
     // 01`): `cursor_colour` answers there whether it is `Some` or `None`,
     // the same as before this ticket. Every other Cell answers
     // `syntax-highlighting/02`'s Fill tint instead of the bare `None` a
-    // Cell with nothing to tint used to fall back to — `fill_tint_colour`
-    // answers that same `None` for a Function's or Operand's blank counterpart
-    // to keep it.
-    let background = if selected {
-        cursor_colour
-    } else {
-        fill_tint_colour(token, bound, source_paint)
-    };
+    // Cell with nothing to tint used to fall back to.
+    let background = if selected { cursor_colour } else { tint };
     CellVisuals {
         background,
         border: if cursor_visible {
@@ -147,64 +98,114 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 }
 
 ///
-/// The background a Function or Operand Cell is tinted with: `token`'s own
-/// glyph colour mixed toward `source_paint.source_background()` by
-/// `source_paint.fill_tint()` — `100` paints the Token colour outright and
-/// `0` paints nothing, which is why the strength is checked before mixing
-/// rather than left to a mix that would round back to the background anyway.
+/// Foreground and tint together, from the claim on a Cell (or none) and
+/// whether its slot holds written content.
 ///
-/// A Function Cell, nested Functions included, answers `function()` — but
-/// only a bound one: `syntax-highlighting/04` reads `bound` for `Token::
-/// Function` alone, because an unbound Function entry is a refused spelling
-/// (a lone `|`, both Cells of a written `07`) rather than a nesting fact, and
-/// the ticket's rule paints it with no tint at all. Every Function's own
-/// two-Cell spelling carries `Token::Function` regardless of nesting, so no
-/// separate nesting fact is read either way. An Operand Cell answers its
-/// declared Token's colour — `Number`, `Note`, `Atom`, `Sequence` — whether
-/// its Cells are still Pending, hold a Valid Operand, or hold an Invalid one:
-/// the Parser labels a claimed operand slot with its signature's declared
-/// `Token` whether or not what stands there binds, so this reads the same
-/// fact `cell_visuals_with_cursor_colour`'s foreground match already reads
-/// rather than a second classifier of Function versus Operand — `bound` is
-/// read for the Function arm only, and an Invalid Operand keeps its Token
-/// tint exactly as a Pending or Valid one does.
+/// Every Source Paint role a Token reads is `source_paint`'s, not this
+/// module's fixed [`PALETTE`]: `syntax-highlighting/01` made the Source Grid
+/// paint from a console-owned settings value rather than from a constant, so
+/// a viewer's `Theme → Source colours` edits reach here on the very next
+/// frame.
 ///
-/// `Token::Bang`, `Token::Comment` and `None` answer `None`: a Bang and a
-/// Comment are their own Language Unit, never a Function's operand, and an
-/// empty unclaimed Cell has no Token to tint with.
+/// An unclaimed Cell — `None` — answers Ordinary with no tint: nothing there
+/// has anything to mark invalid. `Bang` and `Comment` always answer their own
+/// colour with no tint, regardless of `written`: a Bang always binds
+/// (`Atom::Bang`) and a Comment records no Atom yet is a complete Language
+/// Unit (ADR 0035), so neither is ever Invalid. A bound `Function`
+/// (`atom.is_some()`) — nested Functions included, since every Function's own
+/// two-Cell spelling carries `Token::Function` regardless of nesting — draws
+/// its colour on its own tint; an unbound one is a refused spelling (a lone
+/// `|`, both Cells of a written `07`) and draws Diagnostic with no tint at
+/// all, because its `Function` label records what the slot expected rather
+/// than what was found. `Number`, `Note`, `Atom` and `Sequence` are Operand
+/// Tokens and read [`operand_paint`]: `Token::Char` is never one of them —
+/// see its own doc for why a claim's Token is never `Char`.
 ///
-/// `Token::Char` answers `None` too, even though `spec.md`'s Function
-/// vocabulary names Char among the Tokens a Valid Operand can declare. No
-/// operand ever does in this vocabulary: `operand_token!` in `lang/src/
-/// atom.rs` never mints `Token::Char` for a signature, and `lang/src/
-/// stack.rs`'s `check_token` marks that arm `unreachable!` outright — "no
-/// operand type declares a Token the Parser mints only as a label". A Cell
-/// this function sees `Some(Token::Char)` on can therefore only be
-/// `SourceRevision::token_at`'s leftover-content fallback (`orcvs/src/
-/// source/mod.rs`) standing in for a Cell no Expression claimed — the
-/// Leftover Char role this ticket's acceptance leaves untinted alongside
-/// Comment, Bang and an empty unclaimed Cell.
-///
-fn fill_tint_colour(
-    token: Option<Token>,
-    bound: bool,
+fn claim_paint(
+    claim: Option<&Claim>,
+    written: bool,
     source_paint: SourcePaintSettings,
-) -> Option<Color32> {
-    let token_colour = match token {
-        Some(Token::Function) if bound => source_paint.function(),
-        Some(Token::Function) => return None,
-        Some(Token::Number) => source_paint.number(),
-        Some(Token::Note) => source_paint.note(),
-        Some(Token::Atom) => source_paint.ordinary(),
-        Some(Token::Sequence) => source_paint.sequence(),
-        Some(Token::Bang | Token::Comment | Token::Char) | None => return None,
+) -> (Color32, Option<Color32>) {
+    let Some(claim) = claim else {
+        return (source_paint.ordinary(), None);
     };
+    let bound = claim.atom.is_some();
+
+    match claim.token {
+        Token::Bang => (source_paint.bang(), None),
+        Token::Comment => (source_paint.comment(), None),
+        Token::Function if bound => (
+            source_paint.function(),
+            fill_tint_colour(source_paint.function(), source_paint),
+        ),
+        Token::Function => (source_paint.diagnostic(), None),
+        Token::Number => operand_paint(source_paint.number(), bound, written, source_paint),
+        Token::Note => operand_paint(source_paint.note(), bound, written, source_paint),
+        Token::Atom => operand_paint(source_paint.ordinary(), bound, written, source_paint),
+        Token::Sequence => operand_paint(source_paint.sequence(), bound, written, source_paint),
+        Token::Char => unreachable!(
+            "no Function signature declares a Char operand (`operand_token!` in \
+             lang/src/atom.rs has no Char arm, and lang/src/stack.rs's check_token marks that \
+             arm unreachable!) — every Cell whose Token is Char is SourceRevision::token_at's \
+             leftover-content fallback, which stands in for a Cell no Expression claimed, so \
+             `claim` above is never Some for it"
+        ),
+    }
+}
+
+///
+/// An Operand Cell's foreground and tint, from its declared `colour`
+/// (`Number`, `Note`, `Atom` or `Sequence`) and whether its slot bound an
+/// Atom or, when it did not, whether it holds written content.
+///
+/// The Parser labels a claimed operand slot with its signature's declared
+/// Token whether or not what stands there binds, so a bound slot
+/// (`bound`), a Pending one (blank, `!written`) and an Invalid one
+/// (unbound and written) all keep `colour` as their tint —
+/// `syntax-highlighting/02`'s Fill tint on a Pending, Valid or Invalid
+/// operand alike. The foreground differs: a bound or Pending slot draws
+/// `colour`, and an Invalid one — claimed Cells whose written content failed
+/// to bind — draws Diagnostic instead. `.+0`'s second operand is this
+/// Invalid case: one Cell holds `0`, the other is blank, and `written` is
+/// true for the whole slot, so both Cells alike answer Diagnostic —
+/// `paint.rs`'s blank-glyph fallback is what keeps the blank one's colour
+/// from ever being drawn, not a different verdict for it. An entirely blank
+/// slot is Pending instead, and this is the one case where an unbound claim
+/// keeps `colour` rather than turning Diagnostic — a distinction with no
+/// visible effect today, since a Pending Cell's content is always the blank
+/// glyph regardless of foreground, but the one the claim's slot-content fact
+/// exists to answer correctly (ADR 0044) rather than by coincidence.
+///
+fn operand_paint(
+    colour: Color32,
+    bound: bool,
+    written: bool,
+    source_paint: SourcePaintSettings,
+) -> (Color32, Option<Color32>) {
+    let foreground = if bound || !written {
+        colour
+    } else {
+        source_paint.diagnostic()
+    };
+    (foreground, fill_tint_colour(colour, source_paint))
+}
+
+///
+/// `colour` mixed toward `source_paint.source_background()` by
+/// `source_paint.fill_tint()` — `100` paints `colour` outright and `0` paints
+/// nothing, which is why the strength is checked before mixing rather than
+/// left to a mix that would round back to the background anyway. `None` at
+/// `0` rather than `Some(source_background)`, so a Cell with nothing to tint
+/// and a Cell tinted at `0%` answer identically and neither costs
+/// `background_runs` a Cell it has to walk.
+///
+fn fill_tint_colour(colour: Color32, source_paint: SourcePaintSettings) -> Option<Color32> {
     let strength = f32::from(source_paint.fill_tint()) / 100.0;
 
     (strength > 0.0).then(|| {
         source_paint
             .source_background()
-            .lerp_to_gamma(token_colour, strength)
+            .lerp_to_gamma(colour, strength)
     })
 }
 
@@ -287,10 +288,66 @@ pub fn style() -> Style {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConsolePalette, PALETTE, cell_visuals, sector_line};
+    use super::{
+        CellVisuals, ConsolePalette, PALETTE, cell_visuals_with_cursor_colour, sector_line,
+    };
     use crate::source_paint::SourcePaintSettings;
     use egui::{Color32, Stroke};
-    use orcvs::source::Token;
+    use orcvs::source::{Atom, Claim, Token};
+
+    ///
+    /// A claim built directly, with no egui `Context` and no running `Orcvs`
+    /// (ADR 0040): `cells` does not matter to this layer, which never reads
+    /// it — only `Paint::derive_with_colours` does, to compute `written`.
+    /// `atom` carries the one fact `claim_paint` reads from it: `Some` for a
+    /// bound claim, `None` for an unbound one.
+    ///
+    fn claim(token: Token, atom: Option<Atom>) -> Claim {
+        Claim {
+            cells: 0..1,
+            token,
+            atom,
+        }
+    }
+
+    ///
+    /// A bound claim of `token`. The actual `Atom` variant it carries is
+    /// never read by anything under test — `claim_paint` only asks
+    /// `atom.is_some()` — so every bound claim here carries the same filler
+    /// value regardless of its Token, the way `lang`'s own
+    /// `declaration_agreement::lowest` stands `Atom::Number(0)` in for
+    /// `Token::Atom` and `Token::Sequence`, neither of which has an `Atom`
+    /// variant of its own.
+    ///
+    fn bound(token: Token) -> Claim {
+        claim(token, Some(Atom::Number(0)))
+    }
+
+    /// An unbound claim of `token`: `atom: None`.
+    fn unbound(token: Token) -> Claim {
+        claim(token, None)
+    }
+
+    ///
+    /// [`cell_visuals_with_cursor_colour`] with no Cursor on the Cell:
+    /// unselected, with the Cursor's own colour set the way `Paint::derive`
+    /// sets it in production, so a test that does not exercise Cursor
+    /// precedence need not repeat it.
+    ///
+    fn painted(
+        claim: Option<&Claim>,
+        written: bool,
+        source_paint: SourcePaintSettings,
+    ) -> CellVisuals {
+        cell_visuals_with_cursor_colour(
+            claim,
+            written,
+            false,
+            false,
+            Some(PALETTE.selection_fill),
+            source_paint,
+        )
+    }
 
     ///
     /// `theme.md` is the decided record for the fixed palette. These literals
@@ -315,16 +372,23 @@ mod tests {
         );
     }
 
+    ///
+    /// Covers a bound claim of every Token that draws its own colour, plus
+    /// an unclaimed Cell (`None`) for Ordinary — the role a Leftover Char
+    /// shares with it, since a Leftover Char has no claim either
+    /// (`SourceRevision::token_at`'s fallback stands in for a Cell no
+    /// Expression claimed).
+    ///
     #[test]
     fn semantic_glyph_colours_are_distinct_and_read_from_the_settings_value() {
         let source_paint = SourcePaintSettings::default();
-        let function = cell_visuals(Some(Token::Function), true, false, false, source_paint);
-        let number = cell_visuals(Some(Token::Number), true, false, false, source_paint);
-        let note = cell_visuals(Some(Token::Note), true, false, false, source_paint);
-        let ordinary = cell_visuals(Some(Token::Char), true, false, false, source_paint);
-        let bang = cell_visuals(Some(Token::Bang), true, false, false, source_paint);
-        let comment = cell_visuals(Some(Token::Comment), true, false, false, source_paint);
-        let sequence = cell_visuals(Some(Token::Sequence), true, false, false, source_paint);
+        let function = painted(Some(&bound(Token::Function)), false, source_paint);
+        let number = painted(Some(&bound(Token::Number)), false, source_paint);
+        let note = painted(Some(&bound(Token::Note)), false, source_paint);
+        let ordinary = painted(None, false, source_paint);
+        let bang = painted(Some(&bound(Token::Bang)), false, source_paint);
+        let comment = painted(Some(&unbound(Token::Comment)), false, source_paint);
+        let sequence = painted(Some(&bound(Token::Sequence)), false, source_paint);
 
         assert_eq!(function.foreground, source_paint.function());
         assert_eq!(number.foreground, source_paint.number());
@@ -337,15 +401,15 @@ mod tests {
         assert_ne!(number.foreground, note.foreground);
         assert_ne!(number.foreground, ordinary.foreground);
         assert_ne!(comment.foreground, ordinary.foreground);
-        // Atom follows Ordinary, the way Char already did: a Cell painting no
-        // glyph of its own has nothing to colour differently.
+        // Atom follows Ordinary: a Cell painting no glyph of its own has
+        // nothing to colour differently.
         assert_eq!(
-            cell_visuals(Some(Token::Atom), true, false, false, source_paint).foreground,
+            painted(Some(&bound(Token::Atom)), false, source_paint).foreground,
             ordinary.foreground
         );
-        // Sequence stopped sharing Ordinary's colour in this same change: it
-        // has its own field and its own default, distinct from every other
-        // role including Ordinary.
+        // Sequence does not share Ordinary's colour: it has its own field
+        // and its own default, distinct from every other role including
+        // Ordinary.
         assert_ne!(sequence.foreground, ordinary.foreground);
         assert_ne!(sequence.foreground, comment.foreground);
 
@@ -355,7 +419,7 @@ mod tests {
         let mut retuned = source_paint;
         *retuned.function_mut() = Color32::from_rgb(1, 2, 3);
         assert_eq!(
-            cell_visuals(Some(Token::Function), true, false, false, retuned).foreground,
+            painted(Some(&bound(Token::Function)), false, retuned).foreground,
             Color32::from_rgb(1, 2, 3)
         );
     }
@@ -471,9 +535,13 @@ mod tests {
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
         let source_paint = SourcePaintSettings::default();
-        let ordinary = cell_visuals(Some(Token::Char), true, false, false, source_paint);
-        let selected = cell_visuals(Some(Token::Char), true, true, false, source_paint);
-        let cursor = cell_visuals(Some(Token::Char), true, true, true, source_paint);
+        let cursor_colour = Some(PALETTE.selection_fill);
+        let ordinary =
+            cell_visuals_with_cursor_colour(None, false, false, false, cursor_colour, source_paint);
+        let selected =
+            cell_visuals_with_cursor_colour(None, false, true, false, cursor_colour, source_paint);
+        let cursor =
+            cell_visuals_with_cursor_colour(None, false, true, true, cursor_colour, source_paint);
 
         // `None`: the panel behind the Grid has already painted the Source colour.
         assert_eq!(ordinary.background, None);
@@ -490,21 +558,14 @@ mod tests {
         let colour = Color32::from_rgb(1, 2, 3);
         let source_paint = SourcePaintSettings::default();
         assert_eq!(
-            super::cell_visuals_with_cursor_colour(
-                Some(Token::Char),
-                true,
-                true,
-                true,
-                None,
-                source_paint
-            )
-            .background,
+            super::cell_visuals_with_cursor_colour(None, false, true, true, None, source_paint)
+                .background,
             None
         );
         assert_eq!(
             super::cell_visuals_with_cursor_colour(
-                Some(Token::Char),
-                true,
+                None,
+                false,
                 true,
                 true,
                 Some(colour),
@@ -578,7 +639,7 @@ mod tests {
     #[test]
     fn a_function_cell_is_tinted_with_the_function_colour() {
         let source_paint = SourcePaintSettings::default();
-        let function = cell_visuals(Some(Token::Function), true, false, false, source_paint);
+        let function = painted(Some(&bound(Token::Function)), false, source_paint);
 
         assert_eq!(
             function.background,
@@ -589,8 +650,8 @@ mod tests {
     ///
     /// An Operand Cell is tinted with its declared Token's colour: Number,
     /// Note, Atom and Sequence. `Token::Char` is not one of them —
-    /// `fill_tint_colour`'s own doc explains why a Cell can carry that Token
-    /// at all without ever being a declared operand.
+    /// `claim_paint`'s own doc explains why a claim's Token is never `Char`
+    /// at all.
     ///
     #[test]
     fn an_operand_cell_of_each_declared_token_is_tinted_with_its_own_colour() {
@@ -602,7 +663,7 @@ mod tests {
             (Token::Atom, source_paint.ordinary()),
             (Token::Sequence, source_paint.sequence()),
         ] {
-            let visuals = cell_visuals(Some(token), true, false, false, source_paint);
+            let visuals = painted(Some(&bound(token)), false, source_paint);
             assert_eq!(
                 visuals.background,
                 Some(tinted(source_paint, colour)),
@@ -629,30 +690,29 @@ mod tests {
             Token::Atom,
             Token::Sequence,
         ] {
-            let visuals = cell_visuals(Some(token), true, false, false, source_paint);
+            let visuals = painted(Some(&bound(token)), false, source_paint);
             assert_eq!(visuals.background, None, "{token:?} was tinted at 0%");
         }
     }
 
     ///
-    /// Comment, Bang, Leftover Char and an empty unclaimed Cell are not
-    /// tinted, at the ticket's default (non-zero) Fill tint strength — so a
-    /// missing exclusion cannot hide behind `zero_percent_fill_tint_paints_
-    /// no_tint`'s strength being zero.
+    /// Comment, Bang and an empty unclaimed Cell are not tinted, at the
+    /// ticket's default (non-zero) Fill tint strength — so a missing
+    /// exclusion cannot hide behind `zero_percent_fill_tint_paints_no_tint`'s
+    /// strength being zero. A Leftover Char is not a fourth case here: it has
+    /// no claim, so it is exactly the unclaimed-Cell case (`None`) below, not
+    /// a Token this layer ever sees.
     ///
     #[test]
-    fn comment_bang_leftover_char_and_empty_unclaimed_cells_are_not_tinted() {
+    fn comment_bang_and_empty_unclaimed_cells_are_not_tinted() {
         let source_paint = SourcePaintSettings::default();
         assert_ne!(source_paint.fill_tint(), 0);
 
-        for token in [
-            Some(Token::Comment),
-            Some(Token::Bang),
-            Some(Token::Char),
-            None,
-        ] {
-            let visuals = cell_visuals(token, true, false, false, source_paint);
-            assert_eq!(visuals.background, None, "{token:?} was tinted");
+        let comment = unbound(Token::Comment);
+        let bang = bound(Token::Bang);
+        for claim in [Some(&comment), Some(&bang), None] {
+            let visuals = painted(claim, false, source_paint);
+            assert_eq!(visuals.background, None, "{claim:?} was tinted");
         }
     }
 
@@ -667,26 +727,27 @@ mod tests {
         let source_paint = SourcePaintSettings::default();
         let cursor_colour = Color32::from_rgb(9, 8, 7);
         let tinted_function = tinted(source_paint, source_paint.function());
+        let function = bound(Token::Function);
 
         let unselected = super::cell_visuals_with_cursor_colour(
-            Some(Token::Function),
-            true,
+            Some(&function),
+            false,
             false,
             false,
             Some(cursor_colour),
             source_paint,
         );
         let selected = super::cell_visuals_with_cursor_colour(
-            Some(Token::Function),
-            true,
+            Some(&function),
+            false,
             true,
             false,
             Some(cursor_colour),
             source_paint,
         );
         let cursor = super::cell_visuals_with_cursor_colour(
-            Some(Token::Function),
-            true,
+            Some(&function),
+            false,
             true,
             true,
             Some(cursor_colour),
@@ -703,15 +764,22 @@ mod tests {
     /// `.+c40G`: an unbound Number entry — `c4` or `0G`, neither hexadecimal
     /// — draws its glyph in Diagnostic rather than Number, but keeps the
     /// Number tint on its background: the declared Token stays Number, which
-    /// is why the tint stays (syntax-highlighting/04's own Comment). A bound
-    /// Number is unaffected.
+    /// is why the tint stays (`syntax-highlighting/04`'s own Comment). This is
+    /// the Invalid case: `written` is `true` because at least one Cell of the
+    /// slot holds content that failed to bind. `.+0`'s second operand is the
+    /// same shape with only one of its two Cells written, and `written`
+    /// answers `true` for that whole slot too, so its blank Cell answers
+    /// Diagnostic exactly as its written one does — `paint.rs`'s blank-glyph
+    /// fallback is what keeps a Diagnostic foreground from ever being drawn
+    /// on a Cell with no content, not a different verdict for it (ADR 0044).
+    /// A bound Number is unaffected by `written` either way.
     ///
     #[test]
-    fn an_unbound_operand_draws_diagnostic_but_keeps_its_declared_tint() {
+    fn an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint() {
         let source_paint = SourcePaintSettings::default();
 
-        let invalid = cell_visuals(Some(Token::Number), false, false, false, source_paint);
-        let valid = cell_visuals(Some(Token::Number), true, false, false, source_paint);
+        let invalid = painted(Some(&unbound(Token::Number)), true, source_paint);
+        let valid = painted(Some(&bound(Token::Number)), true, source_paint);
 
         assert_eq!(invalid.foreground, source_paint.diagnostic());
         assert_eq!(
@@ -724,18 +792,43 @@ mod tests {
     }
 
     ///
+    /// An entirely blank Pending slot — an operand a Function has claimed but
+    /// nothing yet fills — draws its declared Token colour rather than
+    /// Diagnostic: `written` is `false` because no Cell of the slot holds
+    /// content, so nothing there has failed to bind yet. The tint is
+    /// unaffected either way: `syntax-highlighting/02` tints a Pending,
+    /// Valid, or Invalid operand alike. This has no visible effect today —
+    /// `paint.rs`'s blank-glyph fallback draws no character on a Pending
+    /// Cell regardless of foreground — but it is the distinction `written`
+    /// exists to answer correctly rather than by coincidence (ADR 0044).
+    ///
+    #[test]
+    fn a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic() {
+        let source_paint = SourcePaintSettings::default();
+
+        let pending = painted(Some(&unbound(Token::Number)), false, source_paint);
+
+        assert_eq!(pending.foreground, source_paint.number());
+        assert_eq!(
+            pending.background,
+            Some(tinted(source_paint, source_paint.number()))
+        );
+    }
+
+    ///
     /// A refused Function spelling — a lone `|`, both Cells of a written
     /// `07` — is `(Token::Function, atom: None)` with no spelling-specific
-    /// case (syntax-highlighting/04's Comments). It draws Diagnostic and, per
-    /// `fill_tint_colour`'s own doc, no tint at all: the `Function` label
-    /// records what the slot expected, not what was found.
+    /// case (`syntax-highlighting/04`'s Comments). It draws Diagnostic and no
+    /// tint at all: the `Function` label records what the slot expected, not
+    /// what was found. `written` plays no part in this rule — an unbound
+    /// Function claim is Diagnostic whether or not its Cells hold content.
     ///
     #[test]
     fn an_unbound_function_entry_draws_diagnostic_with_no_tint() {
         let source_paint = SourcePaintSettings::default();
 
-        let refused = cell_visuals(Some(Token::Function), false, false, false, source_paint);
-        let recognized = cell_visuals(Some(Token::Function), true, false, false, source_paint);
+        let refused = painted(Some(&unbound(Token::Function)), false, source_paint);
+        let recognized = painted(Some(&bound(Token::Function)), false, source_paint);
 
         assert_eq!(refused.foreground, source_paint.diagnostic());
         assert_eq!(refused.background, None);
@@ -744,34 +837,5 @@ mod tests {
             recognized.background,
             Some(tinted(source_paint, source_paint.function()))
         );
-    }
-
-    ///
-    /// A Comment records `Token::Comment` and no Atom (ADR 0035), the same
-    /// shape `entry.atom.is_some()` alone cannot tell from an Invalid
-    /// Operand — but the claim fold already answers bound for it,
-    /// so the fact this layer reads never asks it to guess. Passing `bound:
-    /// false` here would be a fact this layer never receives for a Comment;
-    /// this pins that even an untinted, non-diagnostic-eligible Token (`Bang`,
-    /// `Comment`, `Char`, `None`) ignores `bound` altogether rather than
-    /// happening to agree with it.
-    ///
-    #[test]
-    fn bound_is_read_only_for_the_tokens_a_refusal_can_reach() {
-        let source_paint = SourcePaintSettings::default();
-
-        for token in [
-            Some(Token::Bang),
-            Some(Token::Comment),
-            Some(Token::Char),
-            None,
-        ] {
-            let claimed_bound = cell_visuals(token, true, false, false, source_paint);
-            let claimed_unbound = cell_visuals(token, false, false, false, source_paint);
-            assert_eq!(
-                claimed_bound, claimed_unbound,
-                "{token:?} should not read `bound` at all"
-            );
-        }
     }
 }
