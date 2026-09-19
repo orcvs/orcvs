@@ -423,13 +423,11 @@ fn translate_event(event: Event) -> Option<InputEvent> {
             pressed: true,
             modifiers,
             ..
-        } if modifiers.is_none() || modifiers.shift_only() => {
-            Some(InputEvent::KeyPressed(if modifiers.shift_only() {
-                InputKey::ShiftTab
-            } else {
-                InputKey::Tab
-            }))
-        }
+        } if modifiers.is_none() || modifiers.shift_only() => Some(if modifiers.shift_only() {
+            InputEvent::PreviousSector
+        } else {
+            InputEvent::KeyPressed(InputKey::Tab)
+        }),
         Event::Key {
             key, pressed: true, ..
         } => match key {
@@ -2211,12 +2209,12 @@ mod tests {
             );
         }
 
-        // Shift Tab is its own InputKey rather than the bare Tab above: the
-        // Cursor steps forward by Sector on one and back on the other, and
-        // only the modifier tells them apart.
+        // Shift Tab is its own InputEvent rather than the bare Tab above, as
+        // Shift with an arrow is: the Cursor steps forward by Sector on one
+        // and back on the other, and only the modifier tells them apart.
         assert_eq!(
             translate_event(modified_key_event(Key::Tab, Modifiers::SHIFT)),
-            Some(InputEvent::KeyPressed(InputKey::ShiftTab))
+            Some(InputEvent::PreviousSector)
         );
 
         // Only a bare Tab and a bare Shift Tab are the Source's: Ctrl,

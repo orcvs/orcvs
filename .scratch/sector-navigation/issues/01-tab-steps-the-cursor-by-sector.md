@@ -74,3 +74,8 @@ Recorded from the review of PR 107. The routing decision is [ADR 0048](../../../
 - The carve-out above kept Tab alone from the Source while a menu was open, so the rule had two predicates and a key-specific filter, and a character typed with a menu open still wrote the Source. Replaced it: `keyboard_elsewhere` now latches `Popup::is_any_open` beside `egui_wants_keyboard_input`, so an open popup holds every key the way a focused control does. That subsumes the destination ComboBox's separate `ComboBox::is_open` latch (its list lives in the same popup memory), the `menu_open` local and the routing's Tab filter, all removed. ADR 0048 now states the rule in its Decision rather than as a Tab carve-out.
 - Test-first: added `console::kittest_tests::typing_with_a_menu_open_leaves_the_source_unwritten`, confirmed it failed (the Cursor moved from `(0, 0)` to `(1, 0)`) before the latch change.
 - Added `console::kittest_tests::escape_with_a_menu_open_closes_it_and_keeps_the_region`, pinning that the Escape that closes a menu does not also collapse a multi-Cell Region. It passed against the open-popup latch as written; with `Popup::is_any_open` removed from the latch it failed (the Region's anchor collapsed from `(0, 0)` to `(1, 0)`), so it guards that term.
+
+### Review follow-up: Shift Tab is an InputEvent
+
+- `InputKey::ShiftTab` was the one modifier chord in an enum that otherwise names keys; Shift with an arrow is `InputEvent::Extend`, and command `A` and command Enter are `InputEvent`s too. Replaced it with `InputEvent::PreviousSector`, decoded in `translate_event` beside `InputKey::Tab`. No behaviour change.
+- CONTEXT.md's Sector entry now says Tab and Shift Tab step the Cursor by it, which the Grid answers as it answers every other Cursor move.

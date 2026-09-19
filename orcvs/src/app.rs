@@ -19,7 +19,6 @@ pub enum InputKey {
     ArrowUp,
     Backspace,
     Delete,
-    ShiftTab,
     Space,
     Tab,
 }
@@ -43,6 +42,12 @@ pub enum InputEvent {
     /// Region grows or shrinks from the Cell it was spanned from.
     ///
     Extend(Arrow),
+    ///
+    /// Shift Tab: moves the Cursor to its Sector's first Cell, or from
+    /// there to the previous Sector's, the way a bare Tab moves it on to the
+    /// next.
+    ///
+    PreviousSector,
     ///
     /// Command `A`: spans the Region across the whole Grid.
     ///
@@ -510,7 +515,7 @@ impl<S> Orcvs<S> {
                     self.grid
                         .next_sector(self.cursor.position(), self.opts.sector_seam_spacing),
                 ),
-                InputEvent::KeyPressed(InputKey::ShiftTab) => self.collapse_to(
+                InputEvent::PreviousSector => self.collapse_to(
                     self.grid
                         .previous_sector(self.cursor.position(), self.opts.sector_seam_spacing),
                 ),
@@ -1147,7 +1152,7 @@ mod test {
     ///
     #[tokio::test]
     async fn shift_tab_steps_to_the_sector_start_then_the_previous_sector() {
-        use super::{InputEvent, InputKey};
+        use super::InputEvent;
         use crate::opts::SectorSeamSpacing;
 
         let mut app = Orcvs::new(10, 1).expect("the test runtime");
@@ -1156,21 +1161,21 @@ mod test {
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
         app.select(at(4, 0));
 
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::ShiftTab)]);
+        app.event_handler(vec![InputEvent::PreviousSector]);
         assert_eq!(
             app.region(),
             Region::at(grid, at(3, 0)),
             "moved to its own Sector's first Cell"
         );
 
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::ShiftTab)]);
+        app.event_handler(vec![InputEvent::PreviousSector]);
         assert_eq!(
             app.region(),
             Region::at(grid, at(0, 0)),
             "already there: moved to the previous Sector's first Cell"
         );
 
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::ShiftTab)]);
+        app.event_handler(vec![InputEvent::PreviousSector]);
         assert_eq!(
             app.region(),
             Region::at(grid, at(0, 0)),
@@ -1205,7 +1210,7 @@ mod test {
 
         app.select(at(1, 1));
         app.extend(at(4, 3));
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::ShiftTab)]);
+        app.event_handler(vec![InputEvent::PreviousSector]);
         assert_eq!(
             app.region(),
             Region::at(grid, at(3, 3)),
