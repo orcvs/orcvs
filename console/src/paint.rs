@@ -21,7 +21,8 @@
 //! exactly this reason.
 //!
 //! A [`FramePaint`] pairs a Render Frame with those ranges at one seam:
-//! [`Paint::derive`] takes the pair, not the two values separately.
+//! [`Paint::derive_with_colours`] takes the pair, not the two values
+//! separately.
 //!
 //! # Only the Positions the console draws
 //!
@@ -54,7 +55,7 @@ use orcvs::{
 use crate::{
     marks::{sector_left_strength, sector_top_strength},
     source_paint::SourcePaintSettings,
-    style::{PALETTE, cell_visuals_with_cursor_colour, sector_line},
+    style::{cell_visuals_with_cursor_colour, sector_line},
 };
 
 pub use crate::grid_viewport::VisiblePositions;
@@ -93,7 +94,7 @@ pub struct BackgroundRun {
 
 ///
 /// A Render Frame and the Positions the console draws from it, paired at one
-/// seam before [`Paint::derive`].
+/// seam before [`Paint::derive_with_colours`].
 ///
 /// Minted only through [`Self::new`], [`Self::range`], or [`Self::whole`], which
 /// refuse a [`VisiblePositions`] minted for another Grid.
@@ -185,7 +186,17 @@ pub struct Paint {
 impl Paint {
     ///
     /// Reads a paired Render Frame and drawn range and answers what each Cell
-    /// is drawn as.
+    /// is drawn as, in the colours it is handed.
+    ///
+    /// `cursor_colour` fills the Cursor's Cell. While a Region spans more than
+    /// one Cell, `region_colour` fills the rest of it, and
+    /// `region_cursor_colour` fills the Cursor's Cell independently — or, when
+    /// `None`, `cursor_colour` still does. Only the fill carries over: the
+    /// Cursor's Cell in such a Region takes the grid line and its sector
+    /// seams, as every other Cell of the Region does. `source_paint` is the
+    /// viewer's live `Theme → Source colours` value, so every Token colour
+    /// here is a setting rather than a constant
+    /// (`.scratch/syntax-highlighting/issues/01`).
     ///
     /// `cell_visuals_with_cursor_colour` is called once per drawn Cell and is
     /// unchanged: this decides what to do with its answer, not what the
@@ -203,25 +214,6 @@ impl Paint {
     /// the rectangle its own Grid says it is, and answering an empty slice
     /// there would turn that into rows that silently go unpainted. Pairing is
     /// checked in [`FramePaint::new`].
-    ///
-    pub fn derive(input: FramePaint<'_>) -> Self {
-        Self::derive_with_colours(
-            input,
-            Some(PALETTE.selection_fill),
-            crate::cursor_effects::DEFAULT_REGION_COLOUR,
-            None,
-            SourcePaintSettings::default(),
-        )
-    }
-
-    ///
-    /// [`Self::derive`] with the Theme's colours. `cursor_colour` fills the
-    /// Cursor's Cell. While a Region spans more than one Cell,
-    /// `region_colour` fills the rest of it, and `region_cursor_colour` fills
-    /// the Cursor's Cell independently — or, when `None`, `cursor_colour`
-    /// still does. Only the fill carries over: the Cursor's Cell in such a
-    /// Region takes the grid line and its sector seams, as every other Cell
-    /// of the Region does.
     ///
     pub fn derive_with_colours(
         input: FramePaint<'_>,
@@ -343,6 +335,29 @@ impl Paint {
             region_spans,
             cells,
         }
+    }
+
+    ///
+    /// [`Self::derive_with_colours`] at the Theme's Cursor and Region colours
+    /// and the Source Paint defaults.
+    ///
+    /// Compiled only for tests, like [`Self::at`], so it is not a shipped
+    /// seam: no console path derives a Paint from defaults, because
+    /// `show_source` always holds the viewer's live settings. What this saves
+    /// is a test having to name five colours to ask a question about one, and
+    /// `console/benches/paint.rs` — a separate crate, which never sees this —
+    /// states its own for the same reason
+    /// (`.scratch/syntax-highlighting/issues/07`).
+    ///
+    #[cfg(test)]
+    pub(crate) fn derive(input: FramePaint<'_>) -> Self {
+        Self::derive_with_colours(
+            input,
+            Some(crate::style::PALETTE.selection_fill),
+            crate::cursor_effects::DEFAULT_REGION_COLOUR,
+            None,
+            SourcePaintSettings::default(),
+        )
     }
 
     ///
@@ -529,6 +544,30 @@ mod tests {
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
         Orcvs::new(cols, rows).expect("the test runtime")
+    }
+
+    /// Writes `text` into `row`, one Cell at a time, the way every other
+    /// fixture in this module does. A space writes the Cell's own blank
+    /// content (`CellContent::SPACE`), which reads back identically to a
+    /// Cell never written, so a row with gaps can be spelled as one
+    /// literal.
+    fn write_row(orcvs: &mut Orcvs, row: usize, text: &str) {
+        let grid = orcvs.grid();
+        for (x, character) in text.chars().enumerate() {
+            orcvs.select(grid.position(x, row).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+    }
+
+    /// `source_paint`'s own Fill tint mix of `colour`, restated
+    /// independently of `style::fill_tint_colour` so a broken mix is
+    /// caught rather than mirrored — the same reading `style::tests`
+    /// pins its tint assertions with.
+    fn tinted(source_paint: SourcePaintSettings, colour: Color32) -> Color32 {
+        let strength = f32::from(source_paint.fill_tint()) / 100.0;
+        source_paint
+            .source_background()
+            .lerp_to_gamma(colour, strength)
     }
 
     ///
@@ -844,11 +883,11 @@ mod tests {
     /// makes it Char at all.
     ///
     /// Number and Note come from an Addition (`.+`, two Number operands) and
-    /// a `.v` (one Note operand) left unfilled. Atom and Sequence have no
-    /// Function whose *first* operand declares them without also demanding a
-    /// nested Function earlier in the row, so they are asserted against
-    /// `cell_visuals_with_cursor_colour` directly in `style::tests`, which this test does not
-    /// repeat.
+    /// a `.v` (one Note operand) left unfilled. Atom and Sequence are not
+    /// repeated here: `an_operand_cell_of_every_token_a_source_can_claim_is_
+    /// tinted_with_its_own_colour` below covers all four Tokens from Source,
+    /// drawing its Atom and Sequence slots from `:&` and `:<`, whose first
+    /// operands declare them with no nested Function anywhere.
     ///
     #[tokio::test]
     async fn an_empty_claimed_number_or_note_operand_shows_tint_and_no_character() {
@@ -999,6 +1038,485 @@ mod tests {
     }
 
     ///
+    /// `.scratch/syntax-highlighting/issues/04`: `**` and `||` written into a
+    /// typed operand slot are read as that slot's declared Token and refused.
+    /// Neither is a nested Bang or a Comment at an operand position — the
+    /// Parser only asks whether a Function comes next where an Expression
+    /// could start — so both record an unbound `Token::Number` entry, keep
+    /// the declared Number tint, and draw their glyphs in the Diagnostic
+    /// colour. The valid operand beside each is unaffected: Number on the
+    /// same Number tint.
+    ///
+    /// All four operand Cells of each Expression are asserted, because a
+    /// rule stated only over the rejected pair cannot say that the operand
+    /// beside it was left alone. The tint is read as one answer shared by the
+    /// four Cells and distinct from `.+`'s own Function tint, rather than as
+    /// a colour restated from `style::fill_tint_colour`'s mix.
+    ///
+    /// The two Expressions sit two rows apart so that neither one's Output
+    /// Portal Reservation — row 1 for the first, row 3 for the second, both
+    /// two Cells wide at columns 0-1 — reaches a Cell asserted here:
+    /// `06`'s Output Portal paint takes precedence over the claim's own, so
+    /// an operand under a Reservation would be answering a different rule.
+    ///
+    #[tokio::test]
+    async fn a_rejected_bang_or_comment_in_an_operand_slot_draws_diagnostic_on_its_number_tint() {
+        let mut orcvs = running_orcvs(8, 4);
+        for (row, text) in [(0, ".+**01"), (2, ".+||02")] {
+            for (x, character) in text.chars().enumerate() {
+                orcvs.select(orcvs.grid().position(x, row).expect("inside the grid"));
+                orcvs.write(&character.to_string());
+            }
+        }
+        orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+
+        for (row, operands) in [(0, "**01"), (2, "||02")] {
+            let mut tints = Vec::new();
+
+            for (offset, character) in operands.chars().enumerate() {
+                // The two operands of `.+` stand at columns 2-3 and 4-5; the
+                // first two characters spell the rejected one.
+                let x = offset + 2;
+                let rejected = offset < 2;
+                let position = orcvs.grid().position(x, row).expect("inside the grid");
+                let claim = frame.at(position).claim().expect("a claimed operand Cell");
+
+                assert_eq!(
+                    claim.token,
+                    Token::Number,
+                    "row {row} column {x} was not claimed as a Number operand"
+                );
+                assert_eq!(
+                    claim.atom.is_none(),
+                    rejected,
+                    "row {row} column {x} did not bind the way its operand is written"
+                );
+
+                let painted = paint.at(position);
+
+                assert_eq!(painted.character, character, "row {row} column {x}");
+                assert_eq!(
+                    painted.foreground,
+                    if rejected {
+                        source_paint.diagnostic()
+                    } else {
+                        source_paint.number()
+                    },
+                    "row {row} column {x} drew the wrong glyph colour"
+                );
+                tints.push(painted.background);
+            }
+
+            let number_tint = tints[0];
+            assert!(
+                number_tint.is_some(),
+                "row {row}: the rejected operand lost its tint"
+            );
+            assert!(
+                tints.iter().all(|tint| *tint == number_tint),
+                "row {row}: the four operand Cells did not share one tint: {tints:?}"
+            );
+            let function_tint = paint
+                .at(orcvs.grid().position(0, row).expect("inside the grid"))
+                .background;
+            assert_ne!(
+                number_tint, function_tint,
+                "row {row}: the operand Cells took `.+`'s Function tint"
+            );
+        }
+    }
+
+    ///
+    /// The Cursor's own fill wins outright on its Cell
+    /// (`.scratch/syntax-highlighting/issues/01`), and an Invalid operand is
+    /// no exception: the Cell under the Cursor fills with the Cursor's colour
+    /// in place of its Number tint, while its glyph stays Diagnostic. Its
+    /// twin one column over is the control — the other Cell of the same
+    /// rejected `**`, unselected — so this says the Cursor replaced the fill
+    /// rather than that the fill was never there.
+    ///
+    #[tokio::test]
+    async fn the_cursor_fills_over_an_invalid_operands_tint_and_leaves_its_diagnostic_glyph() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+**01".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let cursor = orcvs.grid().position(2, 0).expect("inside the grid");
+        orcvs.select(cursor);
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let selected = paint.at(cursor);
+        let unselected = paint.at(orcvs.grid().position(3, 0).expect("inside the grid"));
+
+        assert_eq!(paint.cursor(), Some(cursor));
+        assert_eq!(selected.character, '*');
+        assert_eq!(
+            selected.foreground,
+            source_paint.diagnostic(),
+            "the Cursor's Cell lost the Invalid operand's Diagnostic glyph"
+        );
+        assert_eq!(
+            selected.background,
+            Some(PALETTE.selection_fill),
+            "the Cursor's Cell did not take the Cursor's own fill"
+        );
+        assert_eq!(
+            unselected.foreground,
+            source_paint.diagnostic(),
+            "the unselected half of the same rejected operand"
+        );
+        assert!(
+            unselected.background.is_some() && unselected.background != selected.background,
+            "the unselected half did not keep a tint of its own: {:?}",
+            unselected.background
+        );
+    }
+
+    ///
+    /// One Expression per Operand Token the tint distinguishes, written from
+    /// Source: `.+` for Number, `:#C4D4` for Note, `:&` for Atom and `:<XY`
+    /// for Sequence.
+    ///
+    /// The four rows stand two apart. `06`'s Output Portal paint takes
+    /// precedence over an operand's own tint, and a root Function's
+    /// Reservation lands one row south — the whole row south, for the three
+    /// Sequence-answering roots here — so Expressions on adjacent rows would
+    /// have row `N + 1`'s operands answering `06`'s rule instead of `02`'s.
+    /// Two rows apart puts every Reservation on an empty row, and the tests
+    /// below assert `!output_portal()` on every Cell they read rather than
+    /// trusting this paragraph.
+    ///
+    /// The Cursor parks at the east end of row 0, which no Expression claims
+    /// and no Reservation covers, so the Cursor's own fill cannot stand in
+    /// for a tint.
+    ///
+    /// # Which binding states a Source can actually reach
+    ///
+    /// The four rows are not four Pending slots: they are the three binding
+    /// states a Source can reach, spread across the four Tokens. `.+`'s
+    /// Number slots and `:&`'s Atom slots are Pending, `:#C4D4`'s Note slots
+    /// are bound, and `:<XY`'s Sequence slot is Invalid.
+    ///
+    /// A bound Atom or Sequence slot is deliberately absent, because no
+    /// Source produces one. `Token::decode` refuses both outright
+    /// (`lang/src/expression.rs`) — an Atom operand "has no literal reading"
+    /// and a Sequence "has no literal spelling at all" — so the only thing
+    /// that can satisfy either is a nested Function. And when a nested
+    /// Function stands there, `take_language_unit`'s `is_function_next()`
+    /// branch records the entry as `Token::Function` (`lang/src/parser.rs`),
+    /// so the declared Token never reaches the Render Frame at all:
+    /// `:<:-0104` carries Function and Number claims and no Sequence claim
+    /// anywhere. Every `Token::Atom` or `Token::Sequence` claim a Source can
+    /// produce is therefore unbound — Pending when its Cells are blank,
+    /// Invalid when they are written.
+    ///
+    fn operand_token_sampler() -> Orcvs {
+        let mut orcvs = running_orcvs(8, 8);
+        for (row, text) in [(0, ".+"), (2, ":#C4D4"), (4, ":&"), (6, ":<XY")] {
+            write_row(&mut orcvs, row, text);
+        }
+        orcvs.select(orcvs.grid().position(7, 0).expect("inside the grid"));
+        orcvs
+    }
+
+    ///
+    /// `syntax-highlighting/02`'s Fill tint on an Operand Cell of every Token
+    /// a Source can claim, walked from written Source through the Render
+    /// Frame rather than from a `Claim` built by hand: Number, Note, Atom and
+    /// Sequence each tint with their own colour, and the Function's own
+    /// two-Cell spelling beside them tints with Function's.
+    ///
+    /// The glyph colour is asserted alongside, because the tint alone cannot
+    /// say that the right rule produced it: a bound Note draws Note, a
+    /// Pending Number draws Number, a Pending Atom draws Ordinary, and
+    /// `:<XY`'s Invalid Sequence draws Diagnostic while keeping the Sequence
+    /// tint.
+    ///
+    /// The five tints are finally required to be five colours. Four operand
+    /// arms that all answered one tint — the mix collapsing, or every Token
+    /// reaching the same colour — would satisfy every assertion above.
+    ///
+    #[tokio::test]
+    async fn an_operand_cell_of_every_token_a_source_can_claim_is_tinted_with_its_own_colour() {
+        let orcvs = operand_token_sampler();
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let grid = orcvs.grid();
+        let mut tints = std::collections::BTreeSet::new();
+
+        for (row, operands, token, bound, tint, foreground) in [
+            (
+                0,
+                2..6,
+                Token::Number,
+                false,
+                source_paint.number(),
+                source_paint.number(),
+            ),
+            (
+                2,
+                2..6,
+                Token::Note,
+                true,
+                source_paint.note(),
+                source_paint.note(),
+            ),
+            (
+                4,
+                2..6,
+                Token::Atom,
+                false,
+                source_paint.ordinary(),
+                source_paint.ordinary(),
+            ),
+            (
+                6,
+                2..4,
+                Token::Sequence,
+                false,
+                source_paint.sequence(),
+                source_paint.diagnostic(),
+            ),
+        ] {
+            for x in operands {
+                let position = grid.position(x, row).expect("inside the grid");
+                let cell = frame.at(position);
+
+                assert!(
+                    !cell.output_portal(),
+                    "row {row} column {x} is inside a Reservation, so `06`'s rule answers it"
+                );
+                let claim = cell.claim().expect("a claimed operand Cell");
+                assert_eq!(
+                    claim.token, token,
+                    "row {row} column {x} was not claimed as the operand it declares"
+                );
+                assert_eq!(
+                    claim.atom.is_some(),
+                    bound,
+                    "row {row} column {x} did not bind the way its operand is written"
+                );
+
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.background,
+                    Some(tinted(source_paint, tint)),
+                    "row {row} column {x} was not tinted with its own Token's colour"
+                );
+                assert_eq!(
+                    painted.foreground, foreground,
+                    "row {row} column {x} drew the wrong glyph colour"
+                );
+            }
+
+            // The root Function's own two Cells, on the same row: the
+            // Function tint, not the operand's.
+            for x in 0..2 {
+                let position = grid.position(x, row).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.background,
+                    Some(tinted(source_paint, source_paint.function())),
+                    "row {row} column {x} was not tinted with the Function colour"
+                );
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.function(),
+                    "row {row} column {x} did not draw the Function colour"
+                );
+            }
+
+            tints.insert(tinted(source_paint, tint).to_array());
+        }
+
+        tints.insert(tinted(source_paint, source_paint.function()).to_array());
+        assert_eq!(
+            tints.len(),
+            5,
+            "the four Operand tints and the Function tint were not five colours: {tints:?}"
+        );
+    }
+
+    ///
+    /// A Fill tint of `0` paints no background anywhere — not on a Function
+    /// Cell, not on an Operand Cell of any Token, and not on an Output Portal
+    /// Cell either, since `06`'s paint mixes at the same strength. The
+    /// assertion is over every Cell of the Grid rather than over the claimed
+    /// ones, so a role that acquired a fill of its own would fail here.
+    ///
+    /// The same Source at the default strength is the control: each of the 22
+    /// Cells an Expression claims does carry a background there, so `0`
+    /// answering `None` is the strength doing it and not the fixture having
+    /// nothing to tint. `None` rather than `Some(source_background)` is the
+    /// point of the rule — a Cell tinted at `0%` costs `background_runs`
+    /// nothing to walk.
+    ///
+    /// The Cursor's colour is handed in as `None` here rather than as the
+    /// Theme's fill, so the Cursor's own Cell has no fill to contribute
+    /// either; its precedence over the tint is
+    /// `the_cursors_own_fill_wins_over_a_function_cells_tint`'s subject.
+    ///
+    #[tokio::test]
+    async fn zero_percent_fill_tint_paints_no_tint_on_any_cell_a_source_claims() {
+        let orcvs = operand_token_sampler();
+        let frame = orcvs.render_frame();
+        let grid = orcvs.grid();
+        let mut source_paint = SourcePaintSettings::default();
+        let painted = |source_paint| {
+            Paint::derive_with_colours(
+                FramePaint::whole(&frame),
+                None,
+                crate::cursor_effects::DEFAULT_REGION_COLOUR,
+                None,
+                source_paint,
+            )
+        };
+
+        assert_ne!(source_paint.fill_tint(), 0);
+        let default_strength = painted(source_paint);
+        let claimed: Vec<_> = frame
+            .cells()
+            .iter()
+            .filter(|cell| cell.claim().is_some())
+            .map(|cell| cell.position())
+            .collect();
+        assert_eq!(
+            claimed.len(),
+            22,
+            "the fixture stopped claiming what it did"
+        );
+        for position in &claimed {
+            assert!(
+                default_strength.at(*position).background.is_some(),
+                "{position:?} had nothing to tint at the default strength"
+            );
+        }
+
+        *source_paint.fill_tint_mut() = 0;
+        let no_strength = painted(source_paint);
+        for row in 0..grid.rows() {
+            for column in 0..grid.columns() {
+                let position = grid.position(column, row).expect("inside the grid");
+                assert_eq!(
+                    no_strength.at(position).background,
+                    None,
+                    "{position:?} was tinted at 0%"
+                );
+            }
+        }
+    }
+
+    ///
+    /// Comment, Bang and an empty unclaimed Cell take no tint, from Source
+    /// rather than from a hand-built claim: `||hello` claims its whole row as
+    /// one Comment, a standalone `**` is one bound Bang claim, and the Cells
+    /// east of it are claimed by nothing at all. Each keeps its own glyph
+    /// colour and answers no background.
+    ///
+    /// Read at the default Fill tint strength, which is asserted non-zero, so
+    /// a missing exclusion cannot hide behind a strength of zero. None of the
+    /// three roles is inside a Reservation — a Comment reserves nothing and a
+    /// standalone Bang is not a root Function — which the test asserts rather
+    /// than assumes, since `06`'s paint would otherwise supply the tint that
+    /// is supposed to be absent.
+    ///
+    #[tokio::test]
+    async fn a_comment_a_bang_and_an_unclaimed_cell_take_no_tint_from_source() {
+        let mut orcvs = running_orcvs(8, 4);
+        write_row(&mut orcvs, 0, "||hello");
+        write_row(&mut orcvs, 2, "**");
+        orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let grid = orcvs.grid();
+        assert_ne!(source_paint.fill_tint(), 0);
+
+        for (row, columns, token, foreground) in [
+            (0, 0..8, Some(Token::Comment), source_paint.comment()),
+            (2, 0..2, Some(Token::Bang), source_paint.bang()),
+            (2, 2..8, None, source_paint.ordinary()),
+        ] {
+            for x in columns {
+                let position = grid.position(x, row).expect("inside the grid");
+                let cell = frame.at(position);
+
+                assert!(
+                    !cell.output_portal(),
+                    "row {row} column {x} is inside a Reservation, so `06`'s rule answers it"
+                );
+                assert_eq!(
+                    cell.claim().map(|claim| claim.token),
+                    token,
+                    "row {row} column {x} was not claimed the way this row is written"
+                );
+
+                let painted = paint.at(position);
+                assert_eq!(painted.background, None, "row {row} column {x} was tinted");
+                assert_eq!(
+                    painted.foreground, foreground,
+                    "row {row} column {x} drew the wrong glyph colour"
+                );
+            }
+        }
+    }
+
+    ///
+    /// The Cursor's own fill wins over the Fill tint on its Cell
+    /// (`syntax-highlighting/02`), driven from Source on a Function Cell:
+    /// `.+0102`'s `.` is the Cursor's Cell and fills with the Cursor's
+    /// colour, while its twin `+` — the other Cell of the same Function
+    /// spelling, unselected — keeps the Function tint. The control is what
+    /// says the Cursor replaced a fill rather than that there was none.
+    ///
+    /// The glyph is untouched: a Cursor changes which fill a Cell takes and
+    /// not what colour the Function spells in.
+    /// `the_cursor_fills_over_an_invalid_operands_tint_and_leaves_its_
+    /// diagnostic_glyph` is the same rule over an Operand Cell.
+    ///
+    #[tokio::test]
+    async fn the_cursors_own_fill_wins_over_a_function_cells_tint() {
+        let mut orcvs = running_orcvs(6, 2);
+        write_row(&mut orcvs, 0, ".+0102");
+        let cursor = orcvs.grid().position(0, 0).expect("inside the grid");
+        orcvs.select(cursor);
+
+        let frame = orcvs.render_frame();
+        let paint = whole(&frame);
+        let source_paint = SourcePaintSettings::default();
+        let function_tint = tinted(source_paint, source_paint.function());
+        let selected = paint.at(cursor);
+        let unselected = paint.at(orcvs.grid().position(1, 0).expect("inside the grid"));
+
+        assert_eq!(paint.cursor(), Some(cursor));
+        assert_ne!(PALETTE.selection_fill, function_tint);
+        assert_eq!(
+            selected.background,
+            Some(PALETTE.selection_fill),
+            "the Cursor's Cell did not take the Cursor's own fill"
+        );
+        assert_eq!(
+            unselected.background,
+            Some(function_tint),
+            "the unselected half of the same Function spelling lost its tint"
+        );
+        assert_eq!(
+            selected.foreground,
+            source_paint.function(),
+            "the Cursor's Cell stopped spelling in the Function colour"
+        );
+    }
+
+    ///
     /// `.scratch/syntax-highlighting/issues/06`: end-to-end Output Portal
     /// paint tests, built from Source text through the Render Frame. Every
     /// scenario writes the answer directly into Source rather than running a
@@ -1007,32 +1525,7 @@ mod tests {
     /// south of a Function is indistinguishable from one a Tick wrote.
     ///
     mod output_portal_paint {
-        use super::{SourcePaintSettings, running_orcvs, whole};
-        use egui::Color32;
-
-        /// Writes `text` into `row`, one Cell at a time, the way every other
-        /// fixture in this module does. A space writes the Cell's own blank
-        /// content (`CellContent::SPACE`), which reads back identically to a
-        /// Cell never written, so a row with gaps can be spelled as one
-        /// literal.
-        fn write_row(orcvs: &mut orcvs::app::Orcvs, row: usize, text: &str) {
-            let grid = orcvs.grid();
-            for (x, character) in text.chars().enumerate() {
-                orcvs.select(grid.position(x, row).expect("inside the grid"));
-                orcvs.write(&character.to_string());
-            }
-        }
-
-        /// `source_paint`'s own Fill tint mix of `colour`, restated
-        /// independently of `style::fill_tint_colour` so a broken mix is
-        /// caught rather than mirrored — the same reading `style::tests`
-        /// pins its tint assertions with.
-        fn tinted(source_paint: SourcePaintSettings, colour: Color32) -> Color32 {
-            let strength = f32::from(source_paint.fill_tint()) / 100.0;
-            source_paint
-                .source_background()
-                .lerp_to_gamma(colour, strength)
-        }
+        use super::{SourcePaintSettings, running_orcvs, tinted, whole, write_row};
 
         ///
         /// A scalar answer south of a Function draws in the Output Portal

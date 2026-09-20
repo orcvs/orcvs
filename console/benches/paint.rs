@@ -1,10 +1,11 @@
 //! Benchmarks for the Paint path a Render Frame takes on the way to shapes.
 //!
-//! `Paint::derive` decides each drawn Cell from a Render Frame and a Position
-//! range. `Paint::background_runs` folds those backgrounds. Neither takes an
-//! `egui::Context`. `SourceShapes::new` is the other half of the path and is
-//! absent here: it needs a `GlyphTable`, which needs a Context, and that harness
-//! would be most of the number. The gate that reads these lines alerts at 150%
+//! `Paint::derive_with_colours` decides each drawn Cell from a Render Frame, a
+//! Position range, and the colours to paint it in. `Paint::background_runs`
+//! folds those backgrounds. Neither takes an `egui::Context`.
+//! `SourceShapes::new` is the other half of the path and is absent here: it
+//! needs a `GlyphTable`, which needs a Context, and that harness would be most
+//! of the number. The gate that reads these lines alerts at 150%
 //! and fails at 300% across hosted runners, so a benchmark added here is a
 //! regression alarm, not a measurement anyone reads off.
 //!
@@ -19,6 +20,8 @@
 use console::{
     FramePaint, Paint, VisiblePositions,
     cursor_effects::{CursorEffectAnimation, CursorEffectSettings, cursor_effect_shapes},
+    source_paint::SourcePaintSettings,
+    style::PALETTE,
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use egui::{Pos2, Rect, Vec2};
@@ -135,6 +138,34 @@ fn culled(frame: &RenderFrame) -> VisiblePositions {
     )
 }
 
+/// `cursor_effects::DEFAULT_REGION_COLOUR` — white at 17% opacity — restated
+/// here because that constant is `pub(crate)` and a benchmark is a separate
+/// crate. Restating it rather than widening it is safe for exactly the reason
+/// [`paint`] gives: no fixture here selects a Region, so the walk never reads
+/// this colour at all.
+const REGION_FILL: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(255, 255, 255, 43);
+
+///
+/// One Paint of `drawn`, with the colours the console would hand the walk.
+///
+/// The walk reads these but branches on none of them: the Cursor's fill lands
+/// on the one selected Cell, the Region colour on no Cell at all (nothing
+/// here selects a Region spanning more than one), and a `SourcePaintSettings`
+/// answers one colour per Token whatever those colours are. So what this
+/// benchmark measures — the per-Cell walk — is the same number for any
+/// colours, which is why the bench states its own instead of reaching for a
+/// default-settings wrapper inside the crate.
+///
+fn paint(frame: &RenderFrame, drawn: VisiblePositions) -> Paint {
+    Paint::derive_with_colours(
+        FramePaint::new(frame, drawn),
+        Some(PALETTE.selection_fill),
+        REGION_FILL,
+        None,
+        SourcePaintSettings::default(),
+    )
+}
+
 fn frames() -> &'static [(usize, usize, RenderFrame)] {
     static FRAMES: OnceLock<Vec<(usize, usize, RenderFrame)>> = OnceLock::new();
     FRAMES.get_or_init(|| {
@@ -149,7 +180,7 @@ fn frames() -> &'static [(usize, usize, RenderFrame)] {
 }
 
 ///
-/// Measures `Paint::derive` over a fitted range and a culled one.
+/// Measures `Paint::derive_with_colours` over a fitted range and a culled one.
 ///
 /// The number is the per-Cell walk: `cell_visuals`, bloom, and seam colours,
 /// collected into a `Vec` sized to the drawn Positions. Fixture construction
@@ -163,20 +194,10 @@ fn derive_paint(c: &mut Criterion) {
         let culled_range = culled(frame);
 
         group.bench_function(size("fitted", cols, rows), |b| {
-            b.iter(|| {
-                black_box(Paint::derive(FramePaint::new(
-                    black_box(frame),
-                    black_box(fitted_range.clone()),
-                )))
-            })
+            b.iter(|| black_box(paint(black_box(frame), black_box(fitted_range.clone()))))
         });
         group.bench_function(size("culled", cols, rows), |b| {
-            b.iter(|| {
-                black_box(Paint::derive(FramePaint::new(
-                    black_box(frame),
-                    black_box(culled_range.clone()),
-                )))
-            })
+            b.iter(|| black_box(paint(black_box(frame), black_box(culled_range.clone()))))
         });
     }
 
@@ -195,8 +216,8 @@ fn background_runs(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_background_runs");
 
     for &(cols, rows, ref frame) in frames() {
-        let fitted_paint = Paint::derive(FramePaint::new(frame, fitted(frame)));
-        let culled_paint = Paint::derive(FramePaint::new(frame, culled(frame)));
+        let fitted_paint = paint(frame, fitted(frame));
+        let culled_paint = paint(frame, culled(frame));
 
         group.bench_function(size("fitted", cols, rows), |b| {
             b.iter(|| black_box(black_box(&fitted_paint).background_runs()))

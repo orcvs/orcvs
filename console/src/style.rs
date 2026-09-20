@@ -384,7 +384,32 @@ mod tests {
         claim(token, Some(Atom::Number(0)))
     }
 
+    ///
     /// An unbound claim of `token`: `atom: None`.
+    ///
+    /// Which of the two a fixture below may reach for is not free, because a
+    /// claim built by hand can state a pair the Parser never produces.
+    /// `Token::Atom` and `Token::Sequence` are "declarations no Cells spell"
+    /// (`lang/src/expression.rs`'s own words on `Token`): `Token::decode`
+    /// refuses both outright, so the only thing that can satisfy either slot
+    /// is a nested Function — and when one stands there,
+    /// `take_language_unit`'s `is_function_next()` branch records the entry
+    /// under `Token::Function` (`lang/src/parser.rs`), so the slot's declared
+    /// Token never reaches this layer at all. Every `Atom` or `Sequence`
+    /// claim the console can be handed is therefore `atom: None`: Pending
+    /// where its Cells are blank, Invalid where they are written. So the
+    /// tint and glyph-colour fixtures below claim those two here and use
+    /// [`bound`] only where a Source can bind — `:#C4D4` binds both Note
+    /// slots, `.+0102` both Number ones.
+    ///
+    /// Which claims a Source actually produces is a fact about the Parser
+    /// rather than about this decision function, so it is proven where a
+    /// Source can be written rather than asserted here:
+    /// `paint::tests::an_operand_cell_of_every_token_a_source_can_claim_is_
+    /// tinted_with_its_own_colour` drives `.+`, `:#C4D4`, `:&` and `:<XY`
+    /// through the Render Frame and asserts the claim on each operand Cell,
+    /// binding state included.
+    ///
     fn unbound(token: Token) -> Claim {
         claim(token, None)
     }
@@ -451,7 +476,11 @@ mod tests {
         let ordinary = painted(None, false, false, source_paint);
         let bang = painted(Some(&bound(Token::Bang)), false, false, source_paint);
         let comment = painted(Some(&unbound(Token::Comment)), false, false, source_paint);
-        let sequence = painted(Some(&bound(Token::Sequence)), false, false, source_paint);
+        // Atom and Sequence are claimed unbound because that is the only
+        // shape a Source produces for them — see [`unbound`]. Neither
+        // assertion turns on it: an unbound operand slot with no written
+        // content is Pending, and a Pending slot draws its declared colour.
+        let sequence = painted(Some(&unbound(Token::Sequence)), false, false, source_paint);
 
         assert_eq!(function.foreground, source_paint.function());
         assert_eq!(number.foreground, source_paint.number());
@@ -467,7 +496,7 @@ mod tests {
         // Atom follows Ordinary: a Cell painting no glyph of its own has
         // nothing to colour differently.
         assert_eq!(
-            painted(Some(&bound(Token::Atom)), false, false, source_paint).foreground,
+            painted(Some(&unbound(Token::Atom)), false, false, source_paint).foreground,
             ordinary.foreground
         );
         // Sequence does not share Ordinary's colour: it has its own field
@@ -489,8 +518,9 @@ mod tests {
 
     ///
     /// A Comment is the row that says nothing, so it reads dimmer than the
-    /// ordinary Glyph rather than as another semantic colour beside it — and
-    /// it is still prose a person reads, so dimmer stops at legible.
+    /// Glyphs that carry meaning rather than as another semantic colour
+    /// beside them — and it is still prose a person reads, so dimmer stops at
+    /// legible.
     ///
     /// Under the previous, hand-picked palette Comment was also the dimmest
     /// Glyph that cleared the floor. The Okabe–Ito assignment does not carry
@@ -503,37 +533,51 @@ mod tests {
     /// to a property rather than a single colour. Sequence itself is measured
     /// in `sequence_is_the_named_exception_to_the_contrast_floor` below.
     ///
+    /// Restated means named on both sides, not relaxed to "dimmer than
+    /// Ordinary". That weaker reading leaves Note at 15.88:1 and Number at
+    /// 9.10:1 — the operand colours a Comment exists to stay behind —
+    /// unguarded, so a Comment retuned past either of them would keep the
+    /// suite green. So each colour is pinned to the side of Comment it sits
+    /// on: Ordinary, Note, Output Portal and Number brighter, the three
+    /// exceptions dimmer. A retune that crosses in either direction fails
+    /// here — one because the rule broke, the other because the exception
+    /// list went stale.
+    ///
     #[test]
-    fn comment_reads_dimmer_than_ordinary_and_every_non_sequence_colour_clears_the_floor() {
+    fn comment_reads_dimmer_than_every_colour_but_its_named_exceptions_which_all_clear_the_floor() {
         let source_paint = SourcePaintSettings::default();
         let background = source_paint.source_background();
         let comment = contrast(source_paint.comment(), background);
-        let ordinary = contrast(source_paint.ordinary(), background);
 
         assert!(
             comment >= 4.5,
             "a Comment is read, not merely seen: {comment:.2}:1 against the Source background",
         );
-        assert!(
-            comment < ordinary,
-            "a Comment reads dimmer than ordinary Source: {comment:.2}:1 against {ordinary:.2}:1",
-        );
-        // Every Source colour but Sequence clears the floor. None of them is
-        // required to read brighter than Comment — Diagnostic, Function and
-        // Bang do not, and that is the fact this test pins rather than hides.
-        for (name, colour) in [
-            ("ordinary", source_paint.ordinary()),
-            ("function", source_paint.function()),
-            ("bang", source_paint.bang()),
-            ("number", source_paint.number()),
-            ("note", source_paint.note()),
-            ("diagnostic", source_paint.diagnostic()),
-            ("output_portal", source_paint.output_portal()),
+
+        // Every Source colour but Sequence: the floor it clears, and the side
+        // of a Comment it reads on. `true` is brighter than a Comment, `false`
+        // is one of the three named exceptions that are dimmer and still
+        // legible. Ordinary's own ratio is not restated here — it follows the
+        // Ordinary default, which this test reads rather than pins.
+        for (name, colour, brighter_than_comment) in [
+            ("ordinary", source_paint.ordinary(), true),
+            ("note", source_paint.note(), true),
+            ("output_portal", source_paint.output_portal(), true),
+            ("number", source_paint.number(), true),
+            ("bang", source_paint.bang(), false),
+            ("function", source_paint.function(), false),
+            ("diagnostic", source_paint.diagnostic(), false),
         ] {
             let ratio = contrast(colour, background);
             assert!(
                 ratio >= 4.5,
                 "{name} is {ratio:.2}:1, below the 4.5:1 floor"
+            );
+            assert_eq!(
+                ratio > comment,
+                brighter_than_comment,
+                "{name} is {ratio:.2}:1 against a Comment's {comment:.2}:1, the wrong side \
+                 of the dimmest-Comment rule as the exceptions are named above",
             );
         }
     }
@@ -543,9 +587,9 @@ mod tests {
     /// 4.05:1 against the Source background — below the 4.5:1 floor every
     /// other Source colour clears. Restating the rule with this exception
     /// named, rather than silently lowering the floor or silently excluding
-    /// Sequence from `comment_is_the_dimmest_glyph_that_still_clears_the_
-    /// contrast_floor`'s loop, is `syntax-highlighting/01`'s own acceptance
-    /// criterion.
+    /// Sequence from `comment_reads_dimmer_than_every_colour_but_its_named_
+    /// exceptions_which_all_clear_the_floor`'s loop, is
+    /// `syntax-highlighting/01`'s own acceptance criterion.
     ///
     #[test]
     fn sequence_is_the_named_exception_to_the_contrast_floor() {
@@ -726,8 +770,11 @@ mod tests {
     /// `a_self_banging_function_is_painted_as_a_function` and
     /// `orcvs`'s own nested-Function tests pin that at the Token layer), so
     /// this one arm already covers a nested Function's Cells — proven with a
-    /// real nested Expression in `paint::tests::
-    /// a_nested_functions_own_cells_are_tinted_like_its_parents`.
+    /// real nested Expression in `paint::tests::nested_function_and_operand_
+    /// cells_tint_and_adjacent_same_colour_cells_merge_into_one_run`, and
+    /// again on four different roots in `paint::tests::an_operand_cell_of_
+    /// every_token_a_source_can_claim_is_tinted_with_its_own_colour`, which
+    /// asserts each root's own two Cells beside its operands.
     ///
     #[test]
     fn a_function_cell_is_tinted_with_the_function_colour() {
@@ -746,21 +793,32 @@ mod tests {
     /// `claim_paint`'s own doc explains why a claim's Token is never `Char`
     /// at all.
     ///
+    /// Each Token is claimed in a shape a Source can produce — bound for
+    /// Number and Note, unbound for Atom and Sequence, per [`unbound`] — so
+    /// this reads as four arms of `claim_paint` rather than as a rule for a
+    /// pair the Parser never mints. The tint itself is indifferent to the
+    /// binding state by design (`operand_paint`: a Pending, Valid or Invalid
+    /// operand tints alike), which is why the distinction costs the
+    /// assertion nothing and is worth making anyway.
+    /// `paint::tests::an_operand_cell_of_every_token_a_source_can_claim_is_
+    /// tinted_with_its_own_colour` is the same rule from written Source.
+    ///
     #[test]
     fn an_operand_cell_of_each_declared_token_is_tinted_with_its_own_colour() {
         let source_paint = SourcePaintSettings::default();
 
-        for (token, colour) in [
-            (Token::Number, source_paint.number()),
-            (Token::Note, source_paint.note()),
-            (Token::Atom, source_paint.ordinary()),
-            (Token::Sequence, source_paint.sequence()),
+        for (claim, colour) in [
+            (bound(Token::Number), source_paint.number()),
+            (bound(Token::Note), source_paint.note()),
+            (unbound(Token::Atom), source_paint.ordinary()),
+            (unbound(Token::Sequence), source_paint.sequence()),
         ] {
-            let visuals = painted(Some(&bound(token)), false, false, source_paint);
+            let visuals = painted(Some(&claim), false, false, source_paint);
             assert_eq!(
                 visuals.background,
                 Some(tinted(source_paint, colour)),
-                "{token:?} was not tinted with its own colour"
+                "{:?} was not tinted with its own colour",
+                claim.token
             );
         }
     }
@@ -771,20 +829,36 @@ mod tests {
     /// `Some` of the Source background, which `background_runs` would still
     /// have to walk as a Cell wanting a fill of its own.
     ///
+    /// Function is claimed bound here and stays bound: an *unbound* Function
+    /// claim is text that spells no Function and answers `None` whatever the
+    /// strength, so it would pass this test for a reason that has nothing to
+    /// do with `0%`. Atom and Sequence are claimed unbound because that is
+    /// the only shape a Source produces for them (see [`unbound`]), and an
+    /// unbound operand slot still tints at any non-zero strength, so they
+    /// carry the same weight here that a bound Number does.
+    /// `paint::tests::zero_percent_fill_tint_paints_no_tint_on_any_cell_a_
+    /// source_claims` asks the same question of a whole Grid derived from
+    /// written Source, where a Cell that does tint at the default strength is
+    /// the control.
+    ///
     #[test]
     fn zero_percent_fill_tint_paints_no_tint() {
         let mut source_paint = SourcePaintSettings::default();
         *source_paint.fill_tint_mut() = 0;
 
-        for token in [
-            Token::Function,
-            Token::Number,
-            Token::Note,
-            Token::Atom,
-            Token::Sequence,
+        for claim in [
+            bound(Token::Function),
+            bound(Token::Number),
+            bound(Token::Note),
+            unbound(Token::Atom),
+            unbound(Token::Sequence),
         ] {
-            let visuals = painted(Some(&bound(token)), false, false, source_paint);
-            assert_eq!(visuals.background, None, "{token:?} was tinted at 0%");
+            let visuals = painted(Some(&claim), false, false, source_paint);
+            assert_eq!(
+                visuals.background, None,
+                "{:?} was tinted at 0%",
+                claim.token
+            );
         }
     }
 
@@ -795,6 +869,10 @@ mod tests {
     /// strength being zero. A Leftover Char is not a fourth case here: it has
     /// no claim, so it is exactly the unclaimed-Cell case (`None`) below, not
     /// a Token this layer ever sees.
+    ///
+    /// `paint::tests::a_comment_a_bang_and_an_unclaimed_cell_take_no_tint_
+    /// from_source` is the same three roles reached from written Source —
+    /// `||hello`, a standalone `**`, and the blank Cells east of it.
     ///
     #[test]
     fn comment_bang_and_empty_unclaimed_cells_are_not_tinted() {
@@ -814,6 +892,11 @@ mod tests {
     /// Operand Cell that is also selected answers the Cursor's colour, not
     /// the tint, the same priority `cursor_and_selection_override_the_
     /// ambient_field` already pins for a Cell with nothing to tint.
+    ///
+    /// `paint::tests::the_cursors_own_fill_wins_over_a_function_cells_tint`
+    /// parks a real Cursor on `.+0102`'s `.` for the Function Cell, and
+    /// `paint::tests::the_cursor_fills_over_an_invalid_operands_tint_and_
+    /// leaves_its_diagnostic_glyph` does the same for an Operand Cell.
     ///
     #[test]
     fn the_cursors_own_fill_wins_over_the_tint_on_its_cell() {

@@ -56,8 +56,8 @@ The WASM console's rendering. `test_wasm` exercises `orcvs` logic in headless Fi
 
 ## Order
 
-`03` covers the dark palette only. `restyle-egui-console/04` ports the per-theme style mechanism and
-renames the constant it pins; `restyle-egui-console/05` decides a light palette and extends the test
+`03` covers the dark palette only. `theming/03` ports the per-theme style mechanism and
+renames the constant it pins; `theming/04` decides a light palette and extends the test
 to it. Neither blocks `03`, which should run against whichever constant exists when it is written.
 
 `05` follows `restyle-egui-console/01`, which is building `grid_viewport.rs` now. Nothing else here waits on it.

@@ -1,4 +1,4 @@
-# 06 — Keep the restored theme preference at startup
+# 02 — Keep the restored theme preference at startup
 
 **What to build:** Stop the console from overwriting a persisted theme preference at startup, and
 make sure a light preference cannot produce a half-styled console.
@@ -31,10 +31,10 @@ to Light, egui uses its own default light style for the menus and windows, while
 still paints from the dark `PALETTE`. The result is a mixed console. Registering the one palette for
 both themes removes the preference override without introducing that state.
 
-**Relationship to 04.** `04` replaces the duplicate registration with `install(ctx)` and a real
+**Relationship to 03.** `03` replaces the duplicate registration with `install(ctx)` and a real
 per-theme palette. This issue is the smaller, independent step: it fixes persistence now, and does
-not wait for the palette decision in `02`. `04` therefore lists this issue as a blocker so the two
-changes do not race in the same function.
+not wait for the palette decision in `restyle-egui-console/02`. `03` therefore lists this issue
+as a blocker so the two changes do not race in the same function.
 
-`docs/research/egui-theming.md` on `feat/egui-theming` records this analysis. `04` recovers that
+`docs/research/egui-theming.md` on `feat/egui-theming` records this analysis. `03` recovers that
 document.

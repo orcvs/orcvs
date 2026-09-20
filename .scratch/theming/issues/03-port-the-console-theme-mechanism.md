@@ -1,19 +1,20 @@
-# 04 — Port the console theme mechanism
+# 03 — Port the console theme mechanism
 
 **What to build:** Recover the per-theme style registration written on `feat/egui-theming` as a small
 port onto the current crate, so the console derives egui's `Visuals` from a palette selected by theme
 rather than from one hardcoded const.
 
-**Blocked by:** 02 — Prototype-aligned console palette; 06 — Keep the restored theme preference at startup.
+**Blocked by:** restyle-egui-console/02 — Prototype-aligned console palette; 02 — Keep the
+restored theme preference at startup.
 
 **Status:** ready-for-agent
 
-- [ ] `PALETTE` becomes `DARK_PALETTE`. Its twenty-two values are unchanged and remain the ones `02`
-      decides.
+- [ ] `PALETTE` becomes `DARK_PALETTE`. Its twenty-two values are unchanged and remain the ones
+      `restyle-egui-console/02` decides.
 - [ ] `palette(theme: Theme) -> &'static ConsolePalette` selects the palette for a theme.
 - [ ] `style(theme: Theme) -> Style` derives from `theme.default_visuals()` and overrides from the
-      selected palette. The four prohibitions `02` names — no gradients, no rounded tiles, no
-      shadows, no animation — hold for every theme it produces.
+      selected palette. The four prohibitions `restyle-egui-console/02` names — no gradients,
+      no rounded tiles, no shadows, no animation — hold for every theme it produces.
 - [ ] `install(ctx: &Context)` registers a style for both `Theme::Dark` and `Theme::Light` through
       `set_style_of`, replacing the `set_style_of(Theme::Dark, ...)` and `set_theme(Theme::Dark)`
       pair in `Console::new`. Registering both and letting egui's own `ThemePreference` resolve is
@@ -21,7 +22,7 @@ rather than from one hardcoded const.
 - [ ] `cell_visuals` and `sector_line` take the resolved palette rather than reading a const, and the
       six existing style tests follow.
 - [ ] The render path resolves `palette(ctx.theme())` once per Render Frame.
-- [ ] No theme switch is exposed in the View menu by this issue. The switch ships with `05`, when a
+- [ ] No theme switch is exposed in the View menu by this issue. The switch ships with `04`, when a
       light palette has been decided.
 - [ ] `docs/research/egui-theming.md` is recovered from `feat/egui-theming` into `docs/research/`.
       It records the reasoning for this design and two egui constraints that `05` depends on.
@@ -50,5 +51,5 @@ The branch also carries three tests worth taking: that each egui theme selects a
 style, that canvas colours change with the resolved theme, and that installing styles preserves the
 existing theme preference.
 
-Ordering behind `02` is deliberate. `02`'s acceptance lines cite `style.rs` by line number, and this
-port moves every one of them.
+Ordering behind `restyle-egui-console/02` is deliberate. Its acceptance lines cite `style.rs`
+by line number, and this port moves every one of them.

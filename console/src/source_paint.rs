@@ -15,13 +15,21 @@ use egui::Color32;
 ///
 /// The Okabe–Ito assignment `console/src/theme.md` records, as published in R
 /// `grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito) —
-/// except [`DEFAULT_ORDINARY`], a prototype pick rather than a named
-/// Okabe–Ito swatch. Chosen in the Source Paint prototype
+/// except [`DEFAULT_ORDINARY`], which is no named Okabe–Ito swatch but the
+/// off-white of the Cursor frame, so the Grid's plain text and the frame
+/// drawn over it read as one white rather than two
+/// (`syntax-highlighting/07`). The rest were chosen in the Source Paint
+/// prototype
 /// (`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
 /// `?variant=A&palette=okabe`).
 ///
 pub(crate) const DEFAULT_SOURCE_BACKGROUND: Color32 = Color32::from_rgb(0, 0, 0); // #000000 black
-pub(crate) const DEFAULT_ORDINARY: Color32 = Color32::from_rgb(255, 255, 255); // #FFFFFF
+// Spelled out rather than read from `cursor_effects::DEFAULT_CURSOR_COLOUR`,
+// and never from the live Cursor setting: Ordinary is a fixed default that
+// happens to agree with the Cursor frame's, not a colour derived from it. A
+// viewer who retunes their Cursor colour keeps this Source text colour, and a
+// later change to the Cursor's own default leaves this one where it is.
+pub(crate) const DEFAULT_ORDINARY: Color32 = Color32::from_rgb(234, 235, 229); // #EAEBE5
 pub(crate) const DEFAULT_COMMENT: Color32 = Color32::from_rgb(153, 153, 153); // #999999 gray
 pub(crate) const DEFAULT_FUNCTION: Color32 = Color32::from_rgb(0, 158, 115); // #009E73 bluish green
 pub(crate) const DEFAULT_BANG: Color32 = Color32::from_rgb(204, 121, 167); // #CC79A7 reddish purple
@@ -262,7 +270,7 @@ mod tests {
         let settings = SourcePaintSettings::default();
 
         assert_eq!(settings.source_background(), Color32::from_rgb(0, 0, 0));
-        assert_eq!(settings.ordinary(), Color32::from_rgb(255, 255, 255));
+        assert_eq!(settings.ordinary(), Color32::from_rgb(234, 235, 229));
         assert_eq!(settings.comment(), Color32::from_rgb(153, 153, 153));
         assert_eq!(settings.function(), Color32::from_rgb(0, 158, 115));
         assert_eq!(settings.bang(), Color32::from_rgb(204, 121, 167));
@@ -329,6 +337,24 @@ mod tests {
     /// rename — the tenth group, `230,159,0`, is what `result()` used to
     /// answer and `output_portal()` answers now.
     ///
+    /// Its second group is `255,255,255`, the Ordinary default of the day:
+    /// `syntax-highlighting/07` has since moved that default to `#EAEBE5`
+    /// without touching the format, so the string decodes to the stored
+    /// colour rather than to today's default. A viewer's stored choice
+    /// outliving a change to the default it was once equal to is the point of
+    /// persisting the value at all, so the literal is never edited to chase a
+    /// default.
+    ///
+    /// Both sides are therefore spelled out. Reading the expectation from
+    /// `SourcePaintSettings::default()` with the moved role overridden would
+    /// leave the other nine tracking whatever the live defaults say, so moving
+    /// any one of them would fail this test — over a default, not over
+    /// decoding — and invite either another override line or an edit to the
+    /// literal above. The struct literal also fails to compile if a role is
+    /// added, which is exactly when a positional format needs a decision here.
+    /// `defaults_are_the_okabe_ito_assignment` is where a default move is
+    /// meant to be felt.
+    ///
     #[test]
     fn a_previously_stored_settings_string_still_decodes_to_the_same_colours() {
         let stored = "0,0,0;255,255,255;153,153,153;0,158,115;204,121,167;86,180,233;\
@@ -336,7 +362,20 @@ mod tests {
 
         let decoded = SourcePaintSettings::decode(stored).expect("a well-formed stored value");
 
-        assert_eq!(decoded, SourcePaintSettings::default());
+        let as_stored = SourcePaintSettings {
+            source_background: Color32::from_rgb(0, 0, 0),
+            ordinary: Color32::from_rgb(255, 255, 255),
+            comment: Color32::from_rgb(153, 153, 153),
+            function: Color32::from_rgb(0, 158, 115),
+            bang: Color32::from_rgb(204, 121, 167),
+            number: Color32::from_rgb(86, 180, 233),
+            note: Color32::from_rgb(240, 228, 66),
+            sequence: Color32::from_rgb(0, 114, 178),
+            diagnostic: Color32::from_rgb(213, 94, 0),
+            output_portal: Color32::from_rgb(230, 159, 0),
+            fill_tint: 16,
+        };
+        assert_eq!(decoded, as_stored);
         assert_eq!(decoded.output_portal(), Color32::from_rgb(230, 159, 0));
     }
 
