@@ -249,8 +249,7 @@ mod test {
     }
 
     fn interpret(exp: String) -> Atom {
-        let mut exp = exp.clone();
-        let parser = Parser::from(&mut exp);
+        let parser = Parser::from(&exp);
         let parsed = parser.try_parse().unwrap();
 
         info!("Parsed: {:?}", parsed);
@@ -375,8 +374,7 @@ mod test {
         let expected = Atom::Number(2);
         assert_eq!(result, expected);
 
-        let mut exp = String::from("./0100");
-        let parsed = Parser::from(&mut exp).try_parse().unwrap();
+        let parsed = Parser::from("./0100").try_parse().unwrap();
         assert!(matches!(
             Interpreter::execute(&parsed, inputs()),
             Err(Error::Interpretation(InterpretationError::DivisionByZero))
@@ -702,8 +700,7 @@ mod test {
     fn conversion_source_literals_use_the_monomorphic_operand_type() {
         assert_eq!(interpret(".vA0".to_owned()), Atom::Number(21));
 
-        let mut source = ".^C4".to_owned();
-        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        let atoms = Parser::from(".^C4").try_parse().unwrap();
         assert!(matches!(
             Interpreter::execute(&atoms, inputs()),
             Err(Error::Interpretation(InterpretationError::NoteConversion(
@@ -915,8 +912,7 @@ mod test {
         assert_eq!(interpret(".=.+010203".to_owned()), Atom::Bang);
         assert_eq!(interpret(".=.+010204".to_owned()), Atom::Empty);
 
-        let mut source = ".+.=010203".to_owned();
-        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        let atoms = Parser::from(".+.=010203").try_parse().unwrap();
         assert!(matches!(
             Interpreter::execute(&atoms, inputs()),
             Err(Error::Type(TypeError::Number(found))) if found == "_"
@@ -925,8 +921,8 @@ mod test {
 
     #[test]
     fn a_long_addition_chain_evaluates_all_of_its_operands() {
-        let mut source = format!("{}{}", ".+".repeat(64), "01".repeat(65));
-        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        let source = format!("{}{}", ".+".repeat(64), "01".repeat(65));
+        let atoms = Parser::from(&source).try_parse().unwrap();
 
         assert_eq!(
             Interpreter::execute(&atoms, inputs()).unwrap(),
@@ -938,9 +934,8 @@ mod test {
     fn a_play_expression_with_seventeen_pending_values_evaluates() {
         // The sixteen Number literals stand above the Note before the first
         // addition consumes any, reproducing the former sixteen-slot panic.
-        let mut source =
-            "!>.+.+.+.+.+.+.+.+.+.+.+.+.+.+01010101010101010101010101010101C4".to_owned();
-        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        let source = "!>.+.+.+.+.+.+.+.+.+.+.+.+.+.+01010101010101010101010101010101C4";
+        let atoms = Parser::from(source).try_parse().unwrap();
 
         // The chain sums fifteen of the sixteen Operand Literals into the
         // channel, leaving the sixteenth as the velocity.
@@ -1044,7 +1039,7 @@ mod test {
                         source.push_str(literal(*token));
                     }
 
-                    let atoms = Parser::from(&mut source).try_parse().unwrap();
+                    let atoms = Parser::from(&source).try_parse().unwrap();
                     deepest_walk_reached = deepest_walk_reached.max(peak_depth(&atoms));
 
                     // Any diagnostic but one is an acceptable answer: an
@@ -1328,8 +1323,7 @@ mod property {
 
         TestRunner::new(config)
             .run(&expression_source(), |source| {
-                let mut source = source;
-                let parsed = Parser::from(&mut source).try_parse();
+                let parsed = Parser::from(&source).try_parse();
                 prop_assert!(parsed.is_ok(), "{source:?} failed to parse: {parsed:?}");
                 let atoms = parsed.unwrap();
                 deepest_walk.set(deepest_walk.get().max(peak_depth(&atoms)));

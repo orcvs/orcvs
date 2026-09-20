@@ -174,8 +174,7 @@ mod test {
 
     /// Evaluates Source text as a complete parsed Expression.
     fn interpret(source: &str) -> Result<Interpretation, Error> {
-        let mut source = source.to_string();
-        let atoms = Parser::from(&mut source).try_parse().unwrap();
+        let atoms = Parser::from(source).try_parse().unwrap();
         Interpreter::execute(&atoms, inputs())
     }
 

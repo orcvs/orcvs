@@ -1648,8 +1648,7 @@ mod property {
         )
             .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
             .prop_filter("one whole Expression", |source| {
-                let mut source = source.clone();
-                Parser::from(&mut source).try_parse().is_ok()
+                Parser::from(source.as_str()).try_parse().is_ok()
             })
             .boxed()
     }
