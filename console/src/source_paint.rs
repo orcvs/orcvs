@@ -342,8 +342,18 @@ mod tests {
     /// without touching the format, so the string decodes to the stored
     /// colour rather than to today's default. A viewer's stored choice
     /// outliving a change to the default it was once equal to is the point of
-    /// persisting the value at all, so the expectation is built here rather
-    /// than the literal edited to chase the default.
+    /// persisting the value at all, so the literal is never edited to chase a
+    /// default.
+    ///
+    /// Both sides are therefore spelled out. Reading the expectation from
+    /// `SourcePaintSettings::default()` with the moved role overridden would
+    /// leave the other nine tracking whatever the live defaults say, so moving
+    /// any one of them would fail this test — over a default, not over
+    /// decoding — and invite either another override line or an edit to the
+    /// literal above. The struct literal also fails to compile if a role is
+    /// added, which is exactly when a positional format needs a decision here.
+    /// `defaults_are_the_okabe_ito_assignment` is where a default move is
+    /// meant to be felt.
     ///
     #[test]
     fn a_previously_stored_settings_string_still_decodes_to_the_same_colours() {
@@ -352,8 +362,19 @@ mod tests {
 
         let decoded = SourcePaintSettings::decode(stored).expect("a well-formed stored value");
 
-        let mut as_stored = SourcePaintSettings::default();
-        *as_stored.ordinary_mut() = Color32::from_rgb(255, 255, 255);
+        let as_stored = SourcePaintSettings {
+            source_background: Color32::from_rgb(0, 0, 0),
+            ordinary: Color32::from_rgb(255, 255, 255),
+            comment: Color32::from_rgb(153, 153, 153),
+            function: Color32::from_rgb(0, 158, 115),
+            bang: Color32::from_rgb(204, 121, 167),
+            number: Color32::from_rgb(86, 180, 233),
+            note: Color32::from_rgb(240, 228, 66),
+            sequence: Color32::from_rgb(0, 114, 178),
+            diagnostic: Color32::from_rgb(213, 94, 0),
+            output_portal: Color32::from_rgb(230, 159, 0),
+            fill_tint: 16,
+        };
         assert_eq!(decoded, as_stored);
         assert_eq!(decoded.output_portal(), Color32::from_rgb(230, 159, 0));
     }
