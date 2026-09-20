@@ -21,9 +21,9 @@ cannot enforce.
 
 ## Delivery
 
-The issue `Blocked by` graph is authoritative. Portal retirement, Function locality, parser
-ownership cleanup, and tracing cleanup can begin independently. Typed operand extraction follows
-Function locality and strict Raw Play; the structural parser tickets follow the ownership cleanup.
+The issue `Blocked by` graph is authoritative. Portal retirement, Function locality, parser ownership cleanup, and tracing cleanup can begin independently. Typed operand extraction follows Function locality and strict Raw Play.
+
+This section previously placed the structural parser tickets after the ownership cleanup. They did not wait: issues 07 and 08 shipped while 04 was still open, and in doing so removed the Atom handoff 04 was written to simplify. The `Blocked by` lines, not this paragraph, were authoritative then as now — the ordering was stated here and enforced nowhere.
 
 ## Out of scope
 
@@ -34,10 +34,9 @@ Function locality and strict Raw Play; the structural parser tickets follow the 
 
 ## Decisions
 
-Historical parser benchmarks found a measurable benefit from selected forced inlining. Absence of a
-benchmark target on the current branch is not evidence that those annotations were unmeasured.
-Parser and evaluator refactors must record the exact before/after benchmark command and results, and
-must retain the annotations unless measurements justify a targeted change.
+Historical parser benchmarks found a measurable benefit from selected forced inlining. Parser and evaluator refactors must retain the annotations unless measurements justify a targeted change, and must record the exact before/after command and results when they claim to move a cost.
+
+A benchmark target now exists and covers the parse paths, so the hedge this section once carried about its absence no longer applies. What it does not supply is a comparison: `mise run bench` reports in the format the CI action's regex needs, which discards criterion's own baseline comparison, and its measurement budget is deliberately coarse enough for a threshold that cannot see below tens of per cent. A local before/after is criterion's saved-baseline comparison at default fidelity on one machine, after a warm-up run — a cold binary reports the Source parse almost three times its settled cost. A refactor that moves a signature rather than generated code owes no measurement at all; it says so on the `Not run` line.
 
 The current Portal type is not an implementation of ADR 0009. Deleting its unused placeholder does
 not remove the Portal domain concept or constrain the later Tick Plan destination design.
