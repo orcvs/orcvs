@@ -10,10 +10,10 @@
 
 The console declares `tracing-subscriber` in its plain dependency table. The only code that uses it is the startup helper, which a non-WASM gate covers. So the WASM build carries the subscriber and the crates beneath it for code that target never compiles. Cargo's answer is the target-specific dependency table, which the crate already uses for one other dependency.
 
-- [ ] The subscriber is declared only for the targets that compile the code which uses it.
-- [ ] The subscriber and the crates it brings with it are absent from the console's WASM dependency graph, and still present for the native build.
-- [ ] The crate that names the formatting subscriber type declares the feature that gates it, rather than relying on another feature to imply it.
-- [ ] The native, WASM, and dependency-audit gates pass, and the lockfile is unchanged.
+- [x] The subscriber is declared only for the targets that compile the code which uses it.
+- [x] The subscriber and the crates it brings with it are absent from the console's WASM dependency graph, and still present for the native build.
+- [x] The crate that names the formatting subscriber type declares the feature that gates it, rather than relying on another feature to imply it.
+- [x] The native, WASM, and dependency-audit gates pass, and the lockfile is unchanged.
 
 ## Comments
 

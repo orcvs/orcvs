@@ -10,10 +10,10 @@
 
 One of the two parser constructors demands mutable Source text and then reborrows it immutably; the parser never writes through it. The other constructor already takes immutable text and is what the one production caller uses. The mutable constructor's cost is paid almost entirely by tests, property tests, and benchmarks, which manufacture owned strings to feed it.
 
-- [ ] Both parser constructors accept immutable Source text.
-- [ ] No caller, test, property test, or benchmark allocates, clones, or mutably iterates Source text solely to construct a Parser.
-- [ ] Parsing behavior, capacity diagnostics, and native and WASM callers are unchanged.
-- [ ] The benchmark workload is left measuring the same thing, and any change to its inputs is recorded. No comparison is owed locally: the series lives in the action.
+- [x] Both parser constructors accept immutable Source text.
+- [x] No caller, test, property test, or benchmark allocates, clones, or mutably iterates Source text solely to construct a Parser.
+- [x] Parsing behavior, capacity diagnostics, and native and WASM callers are unchanged.
+- [x] The benchmark workload is left measuring the same thing, and any change to its inputs is recorded. No comparison is owed locally: the series lives in the action.
 
 ## Comments
 

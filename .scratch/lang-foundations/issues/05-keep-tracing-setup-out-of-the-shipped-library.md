@@ -12,8 +12,8 @@
 
 This ticket briefly recorded a `Blocked by` edge on issue 10, on the belief that the console took the subscriber's `fmt` feature from `lang` and would fail to build once this landed. That belief was false — the console's own `ansi` feature always implied `fmt`. The edge is removed. See issue 10's comments.
 
-- [ ] Subscriber initialization and its one-time guard compile only for tests, and the dead-code suppressions that currently hide them are gone with them.
-- [ ] The subscriber dependency is development-only, and no runtime dependency remains solely for test setup.
-- [ ] Tests that opt into trace output retain their current behavior.
-- [ ] The subscriber and the crates beneath it no longer appear in the library's normal dependency graph on either target.
-- [ ] Native, WASM, locked dependency, and dependency-audit gates pass.
+- [x] Subscriber initialization and its one-time guard compile only for tests, and the dead-code suppressions that currently hide them are gone with them.
+- [x] The subscriber dependency is development-only, and no runtime dependency remains solely for test setup.
+- [x] Tests that opt into trace output retain their current behavior.
+- [x] The subscriber and the crates beneath it no longer appear in the library's normal dependency graph on either target.
+- [x] Native, WASM, locked dependency, and dependency-audit gates pass.
