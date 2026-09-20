@@ -6,6 +6,8 @@
 
 **Status:** ready-for-human
 
+**Tags:** release/v1
+
 ## The defect, restated
 
 The original defect was an ordering one: `style()` runs at `console/src/console.rs:800` and the restored settings arrive at `:839`, so `style()` reads `DEFAULT_SOURCE_BACKGROUND` and `DEFAULT_BANG` (`console/src/style.rs:296-299`) and cannot do otherwise. With `persistence` on, a viewer who retunes the Source background and restarts gets a Grid painting the restored colour and chrome still seeded from black.

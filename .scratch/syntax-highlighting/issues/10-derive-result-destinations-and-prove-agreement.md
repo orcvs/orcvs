@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] Destinations are derived from the Language Map, reading `lang::Function`'s public facts and the Expression's own nesting. It must not reach into tick planning's `Computation` nodes. The inputs are named explicitly: `output_portal()`, `answers_sequence()`, `widens_over_a_sequence_operand()`, `source_effect()` (source-writing Functions, including the Advance anchor), the locking behaviour that leaves a Function with no Cell write site, and a Jump's declared displacement.
 - [x] The derivation covers exactly the eligibility and coverage cases `05` records. That includes incomplete Function candidates, nested Functions, terminal output and locking Functions, Jumps, source-writing Functions (the Advance anchor), the row-edge scalar, and Sequence-capable rows.
 - [x] An agreement test compares the derived ranges with the scheduler's reservations for the same revision, across the reference Source and generated Sources. Where `05` deliberately excludes Cells the scheduler reserves, the test names each exclusion.

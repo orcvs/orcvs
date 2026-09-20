@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] A scalar answer (`07` south of `.+0304`, `C4` south of `.^3C`) draws in the Output Portal colour on an Output Portal tint at the Fill tint strength.
 - [x] A Sequence answer (`04030201` south of `:<:-0104`) is painted the same way across all its Cells. Amended by `12` (2026-09-20): the highlight is fitted to the answer rather than to the Reservation, so the Reservation's Cells past the answer are ordinary blanks; only the four-Cell minimum paints as an empty Output Portal Cell.
 - [x] A Bang answer (`**` south of `~*0401`) keeps the Bang glyph colour on the Output Portal tint.

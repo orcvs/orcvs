@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] `.+c40G`: both operands keep the Number tint; `c4` and `0G` draw in the Diagnostic colour.
 - [x] `.+**01` and `.+||02`: the rejected `**` and `||` keep the Number tint and draw in the Diagnostic colour; `01` and `02` are unchanged.
 - [x] A Function entry that bound no Atom — a refused Function spelling — draws in the Diagnostic colour with no tint. This covers a lone `|`, both Cells of a written `07`, and the trailing `<` of `<<<`, with no spelling-specific case for `|`. **Reversed 2026-09-19 (`07`):** an unbound Function claim now paints Ordinary with no tint; Diagnostic is kept for operand slots only.

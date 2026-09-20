@@ -6,6 +6,8 @@
 
 **Status:** needs-triage
 
+**Tags:** release/v1
+
 - [ ] Tick scheduling reads its scalar and Sequence-capable reservations from the same derivation the Language Map carries, or the reason it cannot is recorded.
 - [ ] `10`'s agreement test is removed or reduced to the exclusions `05` names.
 - [ ] No schedule changes: every existing Tick test passes unchanged.

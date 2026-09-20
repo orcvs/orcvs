@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] An empty claimed operand Cell of every Token (Number, Note, Char, Atom, Sequence) shows the Token tint and no character.
 - [x] The placeholder spellings (`h`, `n`, `c`, `F`, `*`) and the blank-character table that produces them are deleted, with the test that pins them.
 - [x] An operand slot cut off by the end of its row also shows its declared Token tint, for each of the slot's Cells that exist in the Grid. Today that slot records no Cells and carries no Token; establish where that fact belongs in the Language Map rather than adding a per-Cell classifier beside it.

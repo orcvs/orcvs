@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] The decision states which Cells are Result Cells for a root: at least the Output Portal site one row south, and how far a Function that can answer a Sequence reaches (for example, to the end of that row, as a Reservation does).
 - [x] It states where the fact lives — the Language Map, the Render Frame's derivation, or neither — and why that is not a third classifier.
 - [x] It states what the written Cells parse as. Today a `07` left south of `.+0304` re-parses as two unknown one-Cell Functions with diagnostics, so it would paint as Function and Diagnostic, not Result. Whether that parse changes is part of the decision, because it is a language change, not a paint change.

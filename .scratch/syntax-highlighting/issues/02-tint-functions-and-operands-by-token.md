@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] A Function Cell, nested Functions included, is tinted with the Function colour. An Operand Cell is tinted with its declared Token colour: Number, Note, Char, Atom or Sequence.
 - [x] The tint is the Token colour mixed over the Source background at the Fill tint strength.
 - [x] Theme → Source colours exposes Fill tint as a percentage control, default 16%, range 0–100. 0% paints no tint. Reset restores 16% with the colours; persistence stores it with them.

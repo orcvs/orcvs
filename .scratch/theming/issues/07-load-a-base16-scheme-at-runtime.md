@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] A base16 scheme parses into the `Scheme` `06` defines. After the parse there is one code path: a loaded scheme and a compiled-in one are the same type and are treated identically everywhere.
 - [ ] The parser is hand-written and adds no dependency. A base16 scheme file is a flat `base00: "#1d2021"` map with a `name` and a `system` line; the subset that needs reading is small. `serde_yaml` is archived upstream and is not the easy answer it looks like, and `deny.toml` runs `all-features` across five targets including `wasm32-unknown-unknown`.
 - [ ] Malformed input is refused whole and reported, never partly applied. Sixteen well-formed slots or nothing — the rule `SourcePaintSettings::decode` already followed.

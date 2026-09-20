@@ -6,6 +6,8 @@
 
 **Status:** needs-triage
 
+**Tags:** release/v1
+
 - [ ] The decision is recorded: keep the span, or do not, and why.
 - [ ] If kept: where it lives, when it is discarded after an edit, and how it reads where a later producer overwrote part of an earlier one's span. Also whether it needs a `CONTEXT.md` entry and an ADR.
 

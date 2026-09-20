@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] `style.rs` has one function computing foreground and tint. Its inputs are the claim (or none) and whether any Cell in `claim.cells` holds written content. The Cursor's own fill still beats the tint on its Cell. It takes no destination input; that arrives with `06`.
 - [x] Paint derivation computes "written" for each claim from the Render Frame's own Cell contents over `claim.cells`, converting each index through the frame's `Grid`, once per claim rather than once per Cell. `Claim { cells, token, atom }` alone cannot tell Pending from Invalid, so the decision function takes the slot-content fact as an explicit input.
 - [x] Rules are unchanged, now read from the claim. A bound claim paints its Token colour on its Token tint. An unbound operand claim keeps its declared Token tint and draws a Diagnostic glyph. An unbound Function claim draws a Diagnostic glyph and no tint. Comment, Bang and unclaimed Cells are not tinted. Visible output matches today's for every case pinned by `02`–`04`.

@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `Scheme` holds sixteen `Color32` slots, `base00`–`base0F`, and nothing else. No Orcvs vocabulary on it — it is the interchange type, and every published base16 scheme is one.
 - [ ] One `TEMPLATE` maps each Token to a slot, at the assignment ADR 0051 records. It is a single table, not a method per role.
 - [ ] Affordance colours — Diagnostic, Output Portal, Region, selection, Cursor, and the Fill tint strength — are named keys with their own defaults, not slots. A `Scheme` supplies no value for any of them.

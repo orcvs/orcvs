@@ -6,6 +6,8 @@
 
 **Status:** ready-for-human
 
+**Tags:** release/v1
+
 ## The answer
 
 `docs/adr/0050-a-theme-maps-facts-to-channels.md`, status `proposed`. It is written and needs acceptance, not authoring. In short:

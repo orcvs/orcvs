@@ -6,6 +6,8 @@
 
 **Status:** needs-triage — every item is settled except one, which waits on a CI benchmark run. See the 2026-09-20 comment.
 
+**Tags:** release/v1
+
 ## Where the work stands
 
 `01`–`06` and `08`–`10` are resolved and merged into `main` as pull request #109 (`22ca271`). `11` (share the Output Portal derivation with the scheduler) and `13` (keep a Tick's answer span) are open at needs-triage; `12` (fit a Sequence-capable Output Portal) is open and ready. What remains here is the Ordinary default, the review follow-ups and the judgement calls below — audited against the merged code on 2026-09-20, with each remaining item's current location named.
