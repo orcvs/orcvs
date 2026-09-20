@@ -136,8 +136,7 @@ mod test {
     }
 
     fn interpret(source: &str) -> Result<Interpretation, Error> {
-        let mut source = source.to_string();
-        let atoms = Parser::from(&mut source).try_parse()?;
+        let atoms = Parser::from(source).try_parse()?;
         Interpreter::execute(&atoms, inputs())
     }
 
@@ -546,8 +545,7 @@ mod test {
             (":?00:-0103", Function::Select),
             (":=01.+0102:-0103", Function::Replace),
         ] {
-            let mut text = source.to_string();
-            let atoms = Parser::from(&mut text).try_parse().unwrap();
+            let atoms = Parser::from(source).try_parse().unwrap();
             assert_eq!(atoms[0], Atom::Function(function), "{source}");
             assert_eq!(function.to_string(), &source[..2], "{source}");
         }

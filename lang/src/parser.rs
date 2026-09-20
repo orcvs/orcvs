@@ -72,7 +72,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn from(source: &'a mut str) -> Self {
+    pub fn from(source: &'a str) -> Self {
         Self::at(source, 0)
     }
 
@@ -319,7 +319,7 @@ impl<'a> Parser<'a> {
     fn peek_next(&self) -> Option<&'a str> {
         // `split_at_checked` rather than `split_at`, matching `next_token`. Every
         // Cell the Source layer admits is single-byte, so byte 2 is a character
-        // boundary for any Source that reaches here through a Grid; a `&mut str`
+        // boundary for any Source that reaches here through a Grid; a `&str`
         // handed straight to `Parser::from` carries no such guarantee, and the
         // unchecked split panicked on it rather than declining to peek.
         match self.source.split_at_checked(2) {
@@ -347,33 +347,18 @@ mod test {
         Atom, Atoms, Error, Function, SyntaxError, Token, TypeError, parser::Parser, trace,
     };
 
-    fn try_parse(exp: &mut str) -> Result<Atoms, Error> {
+    fn try_parse(exp: &str) -> Result<Atoms, Error> {
         let parser = Parser::from(exp);
         parser.try_parse()
     }
 
     #[test]
     fn source_analysis_represents_complete_incomplete_and_invalid_source() {
-        assert!(
-            Parser::from(&mut ".+0102".to_owned())
-                .analyze()
-                .error
-                .is_none()
-        );
+        assert!(Parser::from(".+0102").analyze().error.is_none());
         // Cut short by the end of the Source rather than by a character that
         // does not convert, and refused all the same: there is no third state.
-        assert!(
-            Parser::from(&mut ".+01".to_owned())
-                .analyze()
-                .error
-                .is_some()
-        );
-        assert!(
-            Parser::from(&mut ".+01XY".to_owned())
-                .analyze()
-                .error
-                .is_some()
-        );
+        assert!(Parser::from(".+01").analyze().error.is_some());
+        assert!(Parser::from(".+01XY").analyze().error.is_some());
     }
 
     ///
@@ -383,7 +368,7 @@ mod test {
     ///
     #[test]
     fn source_analysis_reports_a_complete_expression_and_leaves_the_source_after_it() {
-        let analysis = Parser::from(&mut ".+0102Z".to_owned()).analyze();
+        let analysis = Parser::from(".+0102Z").analyze();
 
         assert!(analysis.is_complete());
         assert!(analysis.error().is_none());
@@ -423,7 +408,7 @@ mod test {
         // The same Source read as though it began the Grid: `Parser::from` is
         // `Parser::at` at Cell zero, so a caller with no Grid to answer to
         // reads offsets and a caller with one reads addresses.
-        let anywhere = Parser::from(&mut String::from(&row[1..])).analyze();
+        let anywhere = Parser::from(&row[1..]).analyze();
         assert_eq!(anywhere.cells(), 0..6);
         assert_eq!(anywhere.cells().len(), addition.cells().len());
     }
@@ -439,7 +424,7 @@ mod test {
     ///
     #[test]
     fn an_unrecognized_function_consumes_one_cell_and_records_one_invalid_slot() {
-        let analysis = Parser::from(&mut "Z.+0304".to_owned()).analyze();
+        let analysis = Parser::from("Z.+0304").analyze();
 
         assert_eq!(analysis.cells().end, 1);
         assert!(analysis.error.is_some());
@@ -453,7 +438,7 @@ mod test {
         );
 
         // Resuming where it says to reaches the Addition that is really there.
-        let resumed = Parser::from(&mut ".+0304".to_owned()).analyze();
+        let resumed = Parser::from(".+0304").analyze();
         assert!(resumed.is_complete());
         assert_eq!(resumed.cells().end, 6);
     }
@@ -464,7 +449,7 @@ mod test {
     ///
     #[test]
     fn an_expression_cut_short_reports_what_it_read_rather_than_what_it_claims() {
-        let analysis = Parser::from(&mut ".+01".to_owned()).analyze();
+        let analysis = Parser::from(".+01").analyze();
 
         assert!(analysis.error.is_some());
         assert_eq!(analysis.cells().end, 4);
@@ -486,20 +471,20 @@ mod test {
     ///
     #[test]
     fn a_source_too_short_for_a_language_unit_still_consumes_its_tail() {
-        let bang = Parser::from(&mut "***".to_owned()).analyze();
+        let bang = Parser::from("***").analyze();
         assert!(bang.is_complete());
         assert_eq!(bang.cells().end, 2);
 
         // One Cell is not a spelling, so it is refused as one — the same
         // answer a two-Cell spelling the table does not hold gets. Running out
         // of Source is not a state of its own.
-        let tail = Parser::from(&mut "*".to_owned()).analyze();
+        let tail = Parser::from("*").analyze();
         assert!(tail.error.is_some());
         assert_eq!(tail.cells().end, 1);
 
         // Nothing to read consumes nothing, which is the one case the
         // invariant exempts.
-        let empty = Parser::from(&mut String::new()).analyze();
+        let empty = Parser::from("").analyze();
         assert_eq!(empty.cells().end, 0);
     }
 
@@ -510,7 +495,7 @@ mod test {
     ///
     #[test]
     fn strict_parsing_still_refuses_source_left_over_after_the_expression() {
-        let error = try_parse(&mut ".+0102Z".to_owned()).unwrap_err();
+        let error = try_parse(".+0102Z").unwrap_err();
 
         assert!(matches!(
             error,
@@ -526,7 +511,7 @@ mod test {
     ///
     #[test]
     fn a_comment_claims_the_rest_of_the_source_and_records_no_atom() {
-        let analysis = Parser::from(&mut "|| .+0102 anything at all".to_owned()).analyze();
+        let analysis = Parser::from("|| .+0102 anything at all").analyze();
 
         assert!(analysis.is_complete());
         assert_eq!(analysis.cells(), 0..25);
@@ -553,7 +538,7 @@ mod test {
     ///
     #[test]
     fn a_comment_introducer_inside_an_operand_claim_is_a_refused_operand() {
-        let analysis = Parser::from(&mut ".+||02".to_owned()).analyze();
+        let analysis = Parser::from(".+||02").analyze();
 
         assert!(analysis.error.is_some());
         assert_eq!(analysis.cells(), 0..6);
@@ -578,7 +563,7 @@ mod test {
     ///
     #[test]
     fn a_lone_vertical_rule_is_not_a_comment() {
-        let analysis = Parser::from(&mut "|.+0304".to_owned()).analyze();
+        let analysis = Parser::from("|.+0304").analyze();
 
         assert!(analysis.error.is_some());
         assert_eq!(analysis.cells(), 0..1);
@@ -591,7 +576,7 @@ mod test {
             vec![(0, Token::Function, None)]
         );
 
-        let resumed = Parser::from(&mut ".+0304".to_owned()).analyze();
+        let resumed = Parser::from(".+0304").analyze();
         assert!(resumed.is_complete());
     }
 
@@ -602,7 +587,7 @@ mod test {
     ///
     #[test]
     fn strict_parsing_refuses_a_comment() {
-        let error = try_parse(&mut "||whatever".to_owned()).unwrap_err();
+        let error = try_parse("||whatever").unwrap_err();
 
         assert!(matches!(
             error,
@@ -612,7 +597,7 @@ mod test {
 
     #[test]
     fn layout_preserves_invalid_and_missing_slots_and_later_nested_operands() {
-        let analysis = Parser::from(&mut "!>**7F.^3C".to_owned()).analyze();
+        let analysis = Parser::from("!>**7F.^3C").analyze();
         assert!(analysis.error.is_some());
         assert_eq!(
             analysis
@@ -632,7 +617,7 @@ mod test {
                 (8, Token::Number, Some(Atom::Number(60))),
             ]
         );
-        let incomplete = Parser::from(&mut "!>00".to_owned()).analyze();
+        let incomplete = Parser::from("!>00").analyze();
         assert_eq!(
             incomplete
                 .expression()
@@ -658,7 +643,7 @@ mod test {
         }
     }
 
-    fn parse(exp: &mut str) -> Vec<Atom> {
+    fn parse(exp: &str) -> Vec<Atom> {
         Parser::from(exp)
             .analyze()
             .into_expression()
@@ -672,35 +657,28 @@ mod test {
     fn test_parse_with_invalid() {
         trace();
 
-        let mut s = String::from(".+");
-        let parsed = parse(&mut s);
+        let parsed = parse(".+");
 
         assert!(parsed.is_empty());
 
-        let mut s = String::from("+");
-        let parsed = parse(&mut s);
+        let parsed = parse("+");
 
         let stack = vec![];
         assert_eq!(parsed, stack);
 
-        let mut s = String::from("..");
-        let parsed = parse(&mut s);
+        let parsed = parse("..");
         assert!(parsed.is_empty());
 
-        let mut s = String::from("ABC");
-        let parsed = parse(&mut s);
+        let parsed = parse("ABC");
         assert!(parsed.is_empty());
 
-        let mut s = String::from("A           ");
-        let parsed = parse(&mut s);
+        let parsed = parse("A           ");
         assert!(parsed.is_empty());
     }
 
     #[test]
     fn permissive_parse_keeps_non_values_out_of_runtime_atoms() {
-        let incomplete = Parser::from(".+01".to_owned().as_mut_str())
-            .analyze()
-            .into_expression();
+        let incomplete = Parser::from(".+01").analyze().into_expression();
         assert_eq!(
             incomplete.tokens().collect::<Vec<_>>(),
             vec![Token::Function, Token::Number, Token::Number]
@@ -714,9 +692,7 @@ mod test {
         );
         assert!(incomplete.atoms().is_none());
 
-        let invalid = Parser::from(".+01XY".to_owned().as_mut_str())
-            .analyze()
-            .into_expression();
+        let invalid = Parser::from(".+01XY").analyze().into_expression();
         assert_eq!(
             invalid.tokens().collect::<Vec<_>>(),
             vec![Token::Function, Token::Number, Token::Number]
@@ -734,9 +710,7 @@ mod test {
     #[test]
     fn source_analysis_preserves_invalid_nested_operand_span() {
         let source = ".+.-01XY02";
-        let expression = Parser::from(&mut source.to_owned())
-            .analyze()
-            .into_expression();
+        let expression = Parser::from(source).analyze().into_expression();
 
         assert_eq!(
             expression.tokens().map(|token| token.len()).sum::<usize>(),
@@ -748,8 +722,7 @@ mod test {
     fn test_try_parse_with_invalid() {
         trace();
 
-        let mut s = String::from("+");
-        let result = try_parse(&mut s);
+        let result = try_parse("+");
 
         let error = result.unwrap_err();
         assert!(matches!(
@@ -762,8 +735,7 @@ mod test {
     fn test_with_bad_syntax() {
         trace();
 
-        let mut s = String::from(".+01XY");
-        let result = try_parse(&mut s);
+        let result = try_parse(".+01XY");
 
         let error = result.unwrap_err();
         assert!(matches!(error, Error::Type(TypeError::Number(_))));
@@ -775,8 +747,7 @@ mod test {
 
         // Add(Add(Multiply(02, 03), 04), 05) — three levels of prefix nesting,
         // replacing the identity-wrapped cases retired by ADR 0015.
-        let mut s = String::from(".+.+.x02030405");
-        let parsed = try_parse(&mut s).unwrap();
+        let parsed = try_parse(".+.+.x02030405").unwrap();
 
         let v = vec![
             Atom::Function(Function::Add),
@@ -800,8 +771,7 @@ mod test {
 
         // A nested Function is valid in the right operand slot as well as the
         // left, so the recursive descent must not assume left-only nesting.
-        let mut s = String::from(".-0A./0402");
-        let parsed = try_parse(&mut s).unwrap();
+        let parsed = try_parse(".-0A./0402").unwrap();
 
         let v = vec![
             Atom::Function(Function::Subtract),
@@ -820,7 +790,7 @@ mod test {
     #[test]
     fn retired_arithmetic_spellings_do_not_parse_as_functions() {
         for spelling in ["++", "--", "//"] {
-            let error = try_parse(&mut spelling.to_owned()).unwrap_err();
+            let error = try_parse(spelling).unwrap_err();
             assert!(
                 matches!(error, Error::Syntax(SyntaxError::UnknownFunction(ref found)) if found == spelling),
                 "{spelling} produced {error:?}"
@@ -831,14 +801,14 @@ mod test {
     #[test]
     fn numeric_conversion_spellings_parse_without_language_unit_collisions() {
         assert_eq!(
-            try_parse(&mut ".vC4".to_owned()).unwrap().as_slice(),
+            try_parse(".vC4").unwrap().as_slice(),
             &[
                 Atom::Function(Function::ConvertToNumber),
                 Atom::Note(crate::Note::try_from(60).unwrap()),
             ]
         );
         assert_eq!(
-            try_parse(&mut ".^3C".to_owned()).unwrap().as_slice(),
+            try_parse(".^3C").unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Number(60)]
         );
     }
@@ -857,7 +827,7 @@ mod test {
             (".=0A05", Function::Equality),
         ] {
             assert_eq!(
-                try_parse(&mut source.to_owned()).unwrap().as_slice(),
+                try_parse(source).unwrap().as_slice(),
                 &[
                     Atom::Function(function),
                     Atom::Number(0x0A),
@@ -873,9 +843,9 @@ mod test {
         for value in 0x00..=0x7F {
             let note_value = crate::Note::try_from(value).unwrap();
             let note = Atom::Note(note_value).to_string();
-            let mut source = format!(".v{note}");
+            let source = format!(".v{note}");
             assert_eq!(
-                try_parse(&mut source).unwrap().as_slice(),
+                try_parse(&source).unwrap().as_slice(),
                 &[
                     Atom::Function(Function::ConvertToNumber),
                     Atom::Note(note_value),
@@ -888,18 +858,18 @@ mod test {
     #[test]
     fn conversion_literal_operands_are_monomorphic() {
         assert!(matches!(
-            try_parse(&mut ".v3C".to_owned()),
+            try_parse(".v3C"),
             Err(Error::Type(TypeError::Note(_)))
         ));
         assert!(matches!(
-            try_parse(&mut ".^G9".to_owned()),
+            try_parse(".^G9"),
             Err(Error::Type(TypeError::Number(_)))
         ));
 
         // An overlapping spelling receives the type fixed by the Function's
         // literal operand slot, rather than choosing a type from its spelling.
         assert_eq!(
-            try_parse(&mut ".^C4".to_owned()).unwrap().as_slice(),
+            try_parse(".^C4").unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Number(0xC4)]
         );
     }
@@ -910,25 +880,22 @@ mod test {
         // digit rather than a pitch letter, so no in-range operand is ambiguous
         // and the `80`-`FF` diagnosis stays reachable from Source.
         assert_eq!(
-            try_parse(&mut ".^7F".to_owned()).unwrap().as_slice(),
+            try_parse(".^7F").unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Number(0x7F)]
         );
         assert_eq!(
-            try_parse(&mut ".^80".to_owned()).unwrap().as_slice(),
+            try_parse(".^80").unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Number(0x80)]
         );
         assert_eq!(
-            try_parse(&mut ".^FA".to_owned()).unwrap().as_slice(),
+            try_parse(".^FA").unwrap().as_slice(),
             &[Atom::Function(Function::ConvertToNote), Atom::Number(0xFA)]
         );
     }
 
     #[test]
     fn bang_and_self_banging_functions_parse_as_complete_language_units() {
-        assert_eq!(
-            try_parse(&mut "**".to_owned()).unwrap().as_slice(),
-            &[Atom::Bang]
-        );
+        assert_eq!(try_parse("**").unwrap().as_slice(), &[Atom::Bang]);
         for (source, function) in [
             ("^^", Function::SelfBangingNorth),
             ("vv", Function::SelfBangingSouth),
@@ -941,7 +908,7 @@ mod test {
             ("*!", Function::Halt),
         ] {
             assert_eq!(
-                try_parse(&mut source.to_owned()).unwrap().as_slice(),
+                try_parse(source).unwrap().as_slice(),
                 &[Atom::Function(function)],
                 "{source} did not parse as one whole Language Unit"
             );
@@ -952,8 +919,7 @@ mod test {
     fn test_parse_play_function() {
         trace();
 
-        let mut s = String::from("!>010AC4");
-        let parsed = try_parse(&mut s).unwrap();
+        let parsed = try_parse("!>010AC4").unwrap();
 
         let v = vec![
             Atom::Function(Function::RawPlay),
@@ -1004,10 +970,9 @@ mod test {
         // the one place that says a fallback to `to_atom_num` or
         // `to_atom_note` in `take_language_unit` would be wrong.
         for spelled in ["01", "FF", "C4", "3C", "G9"] {
-            let mut source = String::from(spelled);
             assert!(
                 matches!(
-                    try_parse(&mut source),
+                    try_parse(spelled),
                     Err(Error::Syntax(SyntaxError::UnknownFunction(_)))
                 ),
                 "{spelled:?} parsed as an Expression on its own",
@@ -1019,7 +984,7 @@ mod test {
     /// Source that is not ASCII declines to parse rather than panicking.
     ///
     /// Every Cell a Grid admits is a single byte, so the Source layer never
-    /// hands this text to the parser. `Parser::from` takes any `&mut str`
+    /// hands this text to the parser. `Parser::from` takes any `&str`
     /// though, and the totality the property suite states is a claim about the
     /// parser rather than about its callers, so the one input class an ASCII
     /// generator cannot draw is pinned here by hand: a multi-byte character
@@ -1045,18 +1010,16 @@ mod test {
         // leaves an odd byte count and lands the split off the character
         // boundary, so it declines like the rest.
         for spelled in [".+aé", ".+00aé", "é", "aé", "é.+", "..éé"] {
-            let mut source = String::from(spelled);
-            let parsed = Parser::from(&mut source).try_parse();
+            let parsed = Parser::from(spelled).try_parse();
             assert!(parsed.is_err(), "{spelled:?} parsed as {parsed:?}");
 
-            let mut source = String::from(spelled);
             // Analysis is the permissive reading and answers rather than
             // failing, so it returns at all — and what it returns is a byte
             // count a caller can resume from. `"é!"` is the case that would
             // not be: `é` is refused as a Function spelling, and reporting one
             // byte rather than one character would hand back an offset inside
             // it.
-            let analysis = Parser::from(&mut source).analyze();
+            let analysis = Parser::from(spelled).analyze();
             assert!(
                 spelled.is_char_boundary(analysis.cells().end),
                 "{spelled:?} consumed {} bytes, which is not a character boundary",
@@ -1066,16 +1029,16 @@ mod test {
 
         // A Function spelling the Parser read whole and refused costs its
         // first character.
-        let analysis = Parser::from(&mut String::from("é!")).analyze();
+        let analysis = Parser::from("é!").analyze();
         assert_eq!(analysis.cells().end, "é".len());
 
         // A character too wide to read a spelling across costs the same one
         // character. Draining the rest instead would step over the Addition
         // that follows and lose the row to a single mistyped Cell, which is
         // the whole point of skipping one.
-        let analysis = Parser::from(&mut String::from("€.+0304")).analyze();
+        let analysis = Parser::from("€.+0304").analyze();
         assert_eq!(analysis.cells().end, "€".len());
-        let resumed = Parser::from(&mut String::from(".+0304")).analyze();
+        let resumed = Parser::from(".+0304").analyze();
         assert!(resumed.is_complete());
         assert_eq!(resumed.cells().end, 6);
     }
@@ -1091,8 +1054,8 @@ mod test {
                 .filter(|function| function.takes_no_operand())
                 .map(Atom::Function),
         ) {
-            let mut source = atom.to_string();
-            assert_eq!(try_parse(&mut source).unwrap().as_slice(), &[atom]);
+            let source = atom.to_string();
+            assert_eq!(try_parse(&source).unwrap().as_slice(), &[atom]);
         }
 
         // Every other Atom the parser yields is an Operand Literal, and ADR
@@ -1128,8 +1091,7 @@ mod test {
                         })
                         .collect();
                     let source = format!("{function}{operands}");
-                    let mut spelled = source.clone();
-                    let parsed = try_parse(&mut spelled)
+                    let parsed = try_parse(&source)
                         .unwrap_or_else(|error| panic!("{source:?} did not parse: {error}"));
 
                     assert_eq!(parsed[0], Atom::Function(function));
@@ -1368,16 +1330,15 @@ mod property {
         fn strict_parsing_of_printable_ascii_yields_a_whole_expression_or_a_typed_error(
             source in generated_source(),
         ) {
-            let spelled = source.clone();
-            let mut source = source;
+            let spelled = source.as_str();
 
-            match Parser::from(&mut source).try_parse() {
+            match Parser::from(spelled).try_parse() {
                 Ok(atoms) => {
                     prop_assert!(
                         !atoms.iter().any(|atom| matches!(atom, Atom::Empty | Atom::Char(_))),
                         "{spelled:?} parsed to a value no signature declares: {atoms:?}",
                     );
-                    prop_assert_eq!(rendered(atoms), spelled.as_str());
+                    prop_assert_eq!(rendered(atoms), spelled);
                 }
                 // Reading two Cells is the only thing the parser does, so the
                 // families it can diagnose are the shape of those Cells and the
@@ -1403,12 +1364,11 @@ mod property {
         fn permissive_analysis_of_printable_ascii_reports_what_it_could_not_read(
             source in generated_source(),
         ) {
-            let spelled = source.clone();
-            let mut source = source;
+            let spelled = source.as_str();
 
             // Total: analysis answers for every printable-ASCII Source,
             // including invalid Expressions.
-            let analysis = Parser::from(&mut source).analyze();
+            let analysis = Parser::from(spelled).analyze();
 
             let expression = analysis.expression();
             let entries: Vec<(Token, Atom)> = expression.entries().collect();
@@ -1507,11 +1467,8 @@ mod property {
         fn strict_parsing_accepts_exactly_the_source_analysis_reads_whole(
             source in generated_source(),
         ) {
-            let mut strict = source.clone();
-            let mut permissive = source.clone();
-
-            let parsed = Parser::from(&mut strict).try_parse();
-            let analysis = Parser::from(&mut permissive).analyze();
+            let parsed = Parser::from(&source).try_parse();
+            let analysis = Parser::from(&source).analyze();
 
             let comment = analysis
                 .expression()
@@ -1610,13 +1567,12 @@ mod property {
                 }) {
                     incomplete.set(incomplete.get() + 1);
                 }
-                let mut spelled = source.clone();
                 // A Function among the Atoms, not merely a parse that
                 // succeeded. A lone standalone Atom parses whole and would
                 // satisfy a bare `is_ok`, which leaves the guard passing on
                 // Source that reaches none of the operand-typing the
                 // properties above are about.
-                if let Ok(atoms) = Parser::from(&mut spelled).try_parse()
+                if let Ok(atoms) = Parser::from(&source).try_parse()
                     && atoms.iter().any(|atom| matches!(atom, Atom::Function(_)))
                 {
                     complete.set(complete.get() + 1);

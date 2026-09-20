@@ -38,19 +38,15 @@ const SOURCE: &[&str] = &[
 ];
 
 fn parse(c: &mut Criterion) {
-    let mut source = String::from(NESTED);
-
     c.bench_function("parse", |b| {
-        b.iter(|| Parser::from(black_box(source.as_mut_str())).try_parse())
+        b.iter(|| Parser::from(black_box(NESTED)).try_parse())
     });
 }
 
 fn parse_invalid(c: &mut Criterion) {
-    let mut source = String::from(INVALID);
-
     // `analyze` is the permissive path used while Source is incomplete.
     c.bench_function("parse_invalid", |b| {
-        b.iter(|| Parser::from(black_box(source.as_mut_str())).analyze())
+        b.iter(|| Parser::from(black_box(INVALID)).analyze())
     });
 }
 
@@ -59,8 +55,7 @@ fn execute(c: &mut Criterion) {
     // either input yet, and the measurement is of evaluation rather than of
     // any one Tick.
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let mut source = String::from(NESTED);
-    let atoms = Parser::from(source.as_mut_str())
+    let atoms = Parser::from(NESTED)
         .try_parse()
         .expect("NESTED is a valid Expression");
 
@@ -70,16 +65,11 @@ fn execute(c: &mut Criterion) {
 }
 
 fn parse_source(c: &mut Criterion) {
-    let mut rows: Vec<String> = SOURCE.iter().map(|row| row.to_string()).collect();
-
     c.bench_function("parse_source", |b| {
         b.iter(|| {
             let mut units = 0;
-            for row in rows.iter_mut() {
-                units += Parser::from(black_box(row.as_mut_str()))
-                    .analyze()
-                    .expression()
-                    .len();
+            for row in SOURCE.iter().copied() {
+                units += Parser::from(black_box(row)).analyze().expression().len();
             }
             units
         })
@@ -96,8 +86,7 @@ fn parse_record_counts(c: &mut Criterion) {
             BenchmarkId::from_parameter(records),
             &source,
             |b, source| {
-                let mut source = source.clone();
-                b.iter(|| Parser::from(black_box(source.as_mut_str())).analyze());
+                b.iter(|| Parser::from(black_box(source.as_str())).analyze());
             },
         );
     }
