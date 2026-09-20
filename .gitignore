@@ -14,3 +14,5 @@
 # files are not.
 .codex/*
 !.codex/config.toml
+# Cursor keeps per-session debug logs here; none of it is repository state.
+.cursor/
