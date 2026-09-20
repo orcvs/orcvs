@@ -1601,16 +1601,17 @@ mod tests {
 
         ///
         /// A Sequence answer is painted the same way across every one of its
-        /// Cells, and the Reservation's remaining Cells to the end of the row
-        /// — past what the answer actually filled — are empty Output Portal
-        /// Cells: tinted, with no glyph. `:<:-0104` (Reverse of NumberRange
+        /// Cells, and the highlight stops where the answer does rather than
+        /// running to the end of the row. `:<:-0104` (Reverse of NumberRange
         /// 01..04) answers a Sequence outright, so its Reservation runs to
         /// the end of the destination row (`.scratch/syntax-highlighting/
-        /// issues/10`'s Answer) even though the written answer, `04030201`,
-        /// only fills the row's first eight Cells of ten.
+        /// issues/10`'s Answer) — but the highlight is fitted to the written
+        /// answer, `04030201` (`12`), so the row's last two Cells are the
+        /// ordinary untinted blanks they would be with no root above them,
+        /// even though the Reservation still covers them.
         ///
         #[tokio::test]
-        async fn a_sequence_answer_paints_every_cell_and_the_remainder_is_an_empty_output_portal() {
+        async fn a_sequence_answer_paints_every_cell_and_stops_where_the_answer_does() {
             let mut orcvs = running_orcvs(10, 2);
             write_row(&mut orcvs, 0, ":<:-0104");
             write_row(&mut orcvs, 1, "04030201");
@@ -1633,13 +1634,15 @@ mod tests {
                 );
                 assert_eq!(painted.background, Some(output_tinted), "column {x}");
             }
+            // Past the answer: the Reservation still covers these Cells, and
+            // the highlight no longer does, so they draw as ordinary blanks.
             for x in 8..10 {
                 let position = grid.position(x, 1).expect("inside the grid");
-                assert!(frame.at(position).output_portal(), "column {x}");
+                assert!(!frame.at(position).output_portal(), "column {x}");
                 assert_eq!(frame.at(position).content(), None, "column {x}");
                 let painted = paint.at(position);
                 assert_eq!(painted.character, ' ', "column {x}");
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(painted.background, None, "column {x}");
             }
         }
 
@@ -1873,6 +1876,182 @@ mod tests {
                     painted.background,
                     Some(output_tinted),
                     "Add's own Number operand, column {x}"
+                );
+            }
+        }
+
+        ///
+        /// The regression `.scratch/syntax-highlighting/issues/12` was
+        /// opened for, from a screenshot on 2026-09-19: a two-column layout
+        /// where Sequence-capable roots on the left share rows with scalar
+        /// roots on the right.
+        ///
+        /// With the highlight covering the whole Reservation, each left
+        /// root tinted its destination row to the Grid's right edge, so the
+        /// tint ran under the right column's Tick Expressions — `.+0304` on
+        /// row 1 and `.^3C` on row 3 — and past the right column's own
+        /// two-Cell Output Portals. Fitted to the answer, each left root
+        /// stops at its own written Cells and the right column is left
+        /// entirely to its own roots.
+        ///
+        /// The right column is offset one row from the left so that a left
+        /// root's destination row is a right root's Expression row; that is
+        /// the arrangement the screenshot had, and it is what makes the
+        /// defect visible rather than hidden under a Cell both roots cover.
+        ///
+        #[tokio::test]
+        async fn a_left_columns_sequence_tint_never_reaches_the_right_columns_roots() {
+            let mut orcvs = running_orcvs(20, 5);
+            //                        01234567890123456789
+            write_row(&mut orcvs, 0, ":-0104              ");
+            write_row(&mut orcvs, 1, "01020304    .+0304  ");
+            write_row(&mut orcvs, 2, ":#C4D4      07      ");
+            write_row(&mut orcvs, 3, "C4c4D4      .^3C    ");
+            write_row(&mut orcvs, 4, "            C4      ");
+            orcvs.select(orcvs.grid().position(19, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let number_tinted = tinted(source_paint, source_paint.number());
+            let grid = orcvs.grid();
+            let highlighted = |y: usize| -> String {
+                (0..grid.columns())
+                    .map(|x| {
+                        let position = grid.position(x, y).expect("inside the grid");
+                        if frame.at(position).output_portal() {
+                            '#'
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect()
+            };
+
+            // Each left root covers its own answer and stops: `01020304` is
+            // eight Cells, `C4c4D4` six. Each right root covers its own Cell
+            // pair. Nothing else on the Grid is highlighted.
+            assert_eq!(highlighted(0), "....................");
+            assert_eq!(highlighted(1), "########............");
+            assert_eq!(highlighted(2), "............##......");
+            assert_eq!(highlighted(3), "######..............");
+            assert_eq!(highlighted(4), "............##......");
+
+            // The right roots' own Number operands keep the Number colour on
+            // the Number tint. Under the whole-row highlight they took the
+            // Output Portal colour on the Output Portal tint, because the
+            // left root's Reservation covered them.
+            for (y, columns) in [(1_usize, 14..18_usize), (3, 14..16)] {
+                for x in columns {
+                    let position = grid.position(x, y).expect("inside the grid");
+                    let painted = paint.at(position);
+                    assert_eq!(
+                        painted.foreground,
+                        source_paint.number(),
+                        "right operand at ({x}, {y})"
+                    );
+                    assert_eq!(
+                        painted.background,
+                        Some(number_tinted),
+                        "right operand at ({x}, {y})"
+                    );
+                }
+            }
+
+            // The right roots' own answers still read as Output Portals, and
+            // the Cells past each pair are ordinary blanks rather than the
+            // left root's tint reaching on.
+            for y in [2_usize, 4] {
+                for x in 12..14 {
+                    let position = grid.position(x, y).expect("inside the grid");
+                    let painted = paint.at(position);
+                    assert_eq!(
+                        painted.foreground,
+                        source_paint.output_portal(),
+                        "right answer at ({x}, {y})"
+                    );
+                    assert_eq!(
+                        painted.background,
+                        Some(output_tinted),
+                        "right answer at ({x}, {y})"
+                    );
+                }
+                for x in 14..20 {
+                    let position = grid.position(x, y).expect("inside the grid");
+                    assert_eq!(paint.at(position).background, None, "blank at ({x}, {y})");
+                }
+            }
+        }
+
+        ///
+        /// The same two-column layout as the test above, with the gutter
+        /// narrowed from four blank Cells to one. Four is wider than the
+        /// rule needs to be exercised, and a layout owes no minimum gutter.
+        ///
+        /// One blank Cell ends the left root's answer. Anything narrower
+        /// than a blank Cell pair used to let the extension step over the
+        /// gutter, because a pair counted when either of its Cells was
+        /// written and the right column's first glyph wrote one of them; the
+        /// tint then ran the rest of the row, which is the whole-row
+        /// behaviour `12` exists to remove.
+        ///
+        #[tokio::test]
+        async fn a_one_cell_gutter_stops_the_left_columns_sequence_tint() {
+            let mut orcvs = running_orcvs(20, 3);
+            //                        01234567890123456789
+            write_row(&mut orcvs, 0, ":-0104              ");
+            write_row(&mut orcvs, 1, "01020304 .+0304     ");
+            write_row(&mut orcvs, 2, "         07         ");
+            orcvs.select(orcvs.grid().position(19, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let number_tinted = tinted(source_paint, source_paint.number());
+            let grid = orcvs.grid();
+            let highlighted = |y: usize| -> String {
+                (0..grid.columns())
+                    .map(|x| {
+                        let position = grid.position(x, y).expect("inside the grid");
+                        if frame.at(position).output_portal() {
+                            '#'
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect()
+            };
+
+            // The left root covers its eight written Cells and stops at the
+            // gutter; the right root covers its own Cell pair.
+            assert_eq!(highlighted(0), "....................");
+            assert_eq!(highlighted(1), "########............");
+            assert_eq!(highlighted(2), ".........##.........");
+
+            // The right root's own Number operands keep the Number colour on
+            // the Number tint rather than the left root's Output Portal.
+            for x in 11..15 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.number(), "operand at {x}");
+                assert_eq!(painted.background, Some(number_tinted), "operand at {x}");
+            }
+
+            // The right root's own answer still reads as an Output Portal.
+            for x in 9..11 {
+                let position = grid.position(x, 2).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "right answer at {x}"
+                );
+                assert_eq!(
+                    painted.background,
+                    Some(output_tinted),
+                    "right answer at {x}"
                 );
             }
         }

@@ -21,10 +21,10 @@ Decided 2026-09-19 in a grilling session. The spec's "Result" is the Function's 
 
 - **What is highlighted.** The Output Portal each root Function declares, placed by its anchor in the current Source revision. It is known before any Tick. It is not a record of what a Tick wrote: the fact is recomputed per revision, so a write left behind by a deleted or edited Function is not highlighted, and an empty Output Portal is.
 - **Parse.** Unchanged. The highlight is an overlay. A `07` in `.+0304`'s Output Portal still parses as two unknown one-Cell Functions with diagnostics. Which fact paints on such a Cell is `06`/`09`'s precedence decision.
-- **Width.** The Reservation (ADR 0036) from the Output Portal: the Cell pair for a Function that can only answer a scalar, and from the Output Portal to the end of that row for one that can answer a Sequence.
+- **Width.** The Reservation (ADR 0036) from the Output Portal: the Cell pair for a Function that can only answer a scalar, and from the Output Portal to the end of that row for one that can answer a Sequence. **Amended by `12` (2026-09-20)**: a Sequence-capable root's *highlight* is fitted to its answer inside that Reservation — at least four Cells from the Output Portal, written or not, then the run of written Cells that follows a Cell pair at a time, stopping at the first blank Cell and clipped to the Reservation at the row edge. The Reservation itself, and so Tick scheduling and `10`'s agreement test, is unchanged; a scalar root's Cell pair is unchanged.
 - **Eligibility.** Every root Function that answers a value, whether or not its operands bind, matching the scheduler's `function_candidate()`. Nested Functions are never highlighted: their answer goes to the parent.
 - **Where it lives.** On the Language Map, as the root Function's declaration placed at its anchor. It interprets no spelling, so it is not a third classifier. The Render Frame carries it, as it carries claims.
-- **Overlap.** The fact covers every Cell of the Reservation whatever else claims it (a consumer's operand, another root). Paint precedence is `06`/`09`'s.
+- **Overlap.** The fact covers every Cell it reaches whatever else claims it (a consumer's operand, another root) — the Reservation before `12`, the fitted highlight after it. Paint precedence is `06`/`09`'s.
 - **Naming.** The paint role, the Theme colour and `SourcePaintSettings::result` are renamed Output Portal. The Theme colours are stored by position (`console/src/source_paint.rs:240`), so the stored format is unchanged.
 - **No ADR.** The decision is presentation and reversible.
 
@@ -37,7 +37,7 @@ Decided 2026-09-19 in a grilling session. The spec's "Result" is the Function's 
 | Jump | Yes, at the Output Portal its direction declares |
 | Source-writing Function, including an Advance's cleared anchor | No: its writes are its Source effect. `10` names this as a deliberate exclusion from the scheduler's reservations |
 | Scalar at the row edge | No: the scheduler reserves nothing when the pair cannot fit |
-| Sequence-capable root | From the Output Portal to the end of that row |
+| Sequence-capable root | Reserved from the Output Portal to the end of that row; highlighted over the fitted answer inside it (`12`) |
 
 Input Portals (Jump, Increment, Interpolation) are not highlighted. That would be a new role and its own issue.
 
