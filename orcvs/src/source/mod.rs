@@ -9,6 +9,9 @@ pub use lang::Token;
 // `Atom` without adding a direct dependency on `lang`.
 pub use lang::Atom;
 pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
+use language_map::{
+    OUTPUT_PORTAL_SCALAR_WIDTH, OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation,
+};
 mod model;
 mod portal;
 mod tick;
@@ -70,6 +73,74 @@ impl SourceRevision {
         self.language_map
             .token_at(position)
             .or_else(|| self.content_at(position).map(|_| Token::Char))
+    }
+
+    ///
+    /// Whether each Cell of this revision draws as a root Function's Output
+    /// Portal, in the Grid's row-major order.
+    ///
+    /// The highlight, not the Reservation. Tick scheduling still reserves a
+    /// Sequence-capable root the rest of its destination row (ADR 0036) and
+    /// [`LanguageMap::output_portal_reservations`] still answers exactly that;
+    /// this narrows the Sequence-capable ones to the answer they hold, which
+    /// is `.scratch/syntax-highlighting/issues/12`. A whole-row highlight ran
+    /// under the neighbouring column's Expressions in a two-column layout,
+    /// which is the defect that ticket records.
+    ///
+    /// The fit lives here because it needs both inputs at once: the
+    /// Reservations, which only the Language Map derives, and the Cell
+    /// contents of this revision, which the Language Map deliberately does not
+    /// retain. A Source revision is the one value that holds both.
+    ///
+    /// A scalar root keeps its Cell pair untouched. A Sequence-capable root
+    /// takes at least [`OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH`] Cells, written
+    /// or not — a Function that never answered more than two Cells would be
+    /// declared scalar, so the minimum is what tells the two apart before any
+    /// Tick. Past the minimum it extends by each following Cell pair that
+    /// holds written content and stops at the first blank pair. Every step is
+    /// clipped to the Reservation, so a root whose row edge leaves fewer Cells
+    /// than the minimum takes the Cells that are there and no more.
+    ///
+    /// **Written** is [`Self::content_at`]'s question, so a Cell holding
+    /// [`CellContent::SPACE`] is blank: a space reads back identically to a
+    /// Cell never written, and the highlight has no other fact to tell them
+    /// apart. A pair counts when **either** of its two Cells is written, not
+    /// only when both are: an answer is delivered as whole Atoms, so a pair
+    /// with one written Cell holds a Cell some write or edit left, and
+    /// stopping mid-pair would draw a written Cell outside the highlight that
+    /// covers the answer it belongs to.
+    ///
+    pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
+        let mut covered = vec![false; self.grid.count()];
+        for reservation in self.language_map.output_portal_reservations() {
+            for index in self.fitted(&reservation) {
+                covered[index] = true;
+            }
+        }
+        covered
+    }
+
+    /// [`Self::output_portal_highlight`]'s rule for one Reservation.
+    fn fitted(&self, reservation: &OutputPortalReservation) -> std::ops::Range<usize> {
+        let std::ops::Range { start, end } = reservation.range;
+        if !reservation.sequence_capable {
+            return start..end;
+        }
+        let mut fitted = end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH);
+        while fitted < end {
+            let pair = end.min(fitted + OUTPUT_PORTAL_SCALAR_WIDTH);
+            if !(fitted..pair).any(|index| self.written(index)) {
+                break;
+            }
+            fitted = pair;
+        }
+        start..fitted
+    }
+
+    /// Whether the Cell at `index` holds content, matching
+    /// [`Self::content_at`]'s answer for the Position that index names.
+    fn written(&self, index: usize) -> bool {
+        self.source.as_bytes()[index] != b' '
     }
 }
 
@@ -363,5 +434,146 @@ mod tests {
         assert_eq!(read.content_at(gap), None);
         assert_eq!(read.language_map().token_at(gap), None);
         assert_eq!(read.token_at(gap), None);
+    }
+
+    ///
+    /// `.scratch/syntax-highlighting/issues/12`: the Output Portal highlight
+    /// fitted to the answer a Sequence-capable root holds.
+    ///
+    /// Every case is written straight into Source with no Tick, because the
+    /// highlight reads the current revision alone (`05`'s Answer). The
+    /// Reservation these are fitted inside stays whole, and
+    /// `LanguageMap::output_portal_cells`'s own tests and `tick.rs`'s
+    /// agreement test still pin it.
+    ///
+    mod output_portal_highlight {
+        use super::{Grid, SourceCommander};
+        use crate::source::SourceRevision;
+
+        /// One revision written from `rows`, each padded to the Grid's width.
+        fn revision(grid: Grid, rows: &[&str]) -> SourceRevision {
+            let source = SourceCommander::new(grid);
+            assert!(rows.len() <= grid.rows(), "more rows than the Grid holds");
+            for (y, row) in rows.iter().enumerate() {
+                assert!(
+                    row.len() <= grid.columns(),
+                    "{row:?} does not fit {} columns",
+                    grid.columns()
+                );
+                for (x, character) in row.chars().enumerate() {
+                    if character == ' ' {
+                        continue;
+                    }
+                    let position = grid.position(x, y).expect("inside the Grid");
+                    source
+                        .set(grid.index(position), &character.to_string())
+                        .expect("a Cell the Source accepts");
+                }
+            }
+            source.read_revision()
+        }
+
+        /// Row `y` of the highlight, `#` per covered Cell and `.` per bare
+        /// one, so a failure reads as the row it draws.
+        fn row(revision: &SourceRevision, grid: Grid, y: usize) -> String {
+            let covered = revision.output_portal_highlight();
+            (0..grid.columns())
+                .map(|x| {
+                    let position = grid.position(x, y).expect("inside the Grid");
+                    if covered[grid.index(position).get()] {
+                        '#'
+                    } else {
+                        '.'
+                    }
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_sequence_answer_of_four_cells_or_more_is_covered_exactly() {
+            // `12`'s four worked examples, each answer written south of the
+            // root that would produce it.
+            let wide = Grid::new(10, 2);
+            let range = revision(wide, &[":-0104", "01020304"]);
+            assert_eq!(row(&range, wide, 1), "########..");
+
+            let notes = revision(wide, &[":#C4D4", "C4c4D4"]);
+            assert_eq!(row(&notes, wide, 1), "######....");
+
+            let reversed = revision(wide, &[":<:-0104", "04030201"]);
+            assert_eq!(row(&reversed, wide, 1), "########..");
+
+            let widest = Grid::new(16, 2);
+            let concatenated = revision(widest, &[":&.+0001:-0203", "010203"]);
+            assert_eq!(row(&concatenated, widest, 1), "######..........");
+        }
+
+        #[test]
+        fn an_empty_sequence_capable_output_portal_shows_four_cells() {
+            // Before any Tick, with nothing written south of it at all: the
+            // four-Cell minimum is what tells a Sequence-capable root from a
+            // scalar one on sight.
+            let grid = Grid::new(10, 2);
+            let empty = revision(grid, &[":-0104"]);
+
+            assert_eq!(row(&empty, grid, 1), "####......");
+        }
+
+        #[test]
+        fn a_one_atom_answer_shows_four_cells() {
+            // The answer is narrower than the minimum, and the minimum wins:
+            // the two Cells past it are covered although they are blank.
+            let grid = Grid::new(10, 2);
+            let one_atom = revision(grid, &[":-0101", "01"]);
+
+            assert_eq!(row(&one_atom, grid, 1), "####......");
+        }
+
+        #[test]
+        fn the_highlight_stops_at_the_first_blank_pair_past_the_minimum() {
+            // Six written Cells, a blank pair, then four more written Cells
+            // the highlight never reaches: the first blank pair ends it,
+            // whatever lies beyond.
+            let grid = Grid::new(12, 2);
+            let gapped = revision(grid, &[":-0104", "010203  0405"]);
+
+            assert_eq!(row(&gapped, grid, 1), "######......");
+        }
+
+        #[test]
+        fn a_pair_past_the_minimum_counts_when_either_of_its_cells_is_written() {
+            // A half-written pair is content the answer's extent has to
+            // cover: stopping mid-pair would draw column 4's glyph outside
+            // the highlight that covers the Atom it belongs to.
+            let grid = Grid::new(10, 2);
+            let half = revision(grid, &[":-0104", "01020"]);
+
+            assert_eq!(row(&half, grid, 1), "######....");
+        }
+
+        #[test]
+        fn the_highlight_is_clipped_to_a_reservation_the_row_edge_cuts_short() {
+            // `:-` with no operands is still a Function candidate, so it
+            // reserves. Anchored at column 5 of an 8-wide row, its Reservation
+            // is the three Cells to the row's end, and the four-Cell minimum
+            // does not reach past them.
+            let grid = Grid::new(8, 2);
+            let clipped = revision(grid, &["     :-", "     01"]);
+
+            assert_eq!(row(&clipped, grid, 1), ".....###");
+        }
+
+        #[test]
+        fn a_scalar_root_keeps_its_cell_pair() {
+            // Neither widened to the minimum nor extended by the written
+            // Cells that follow: the fit applies to Sequence-capable roots
+            // alone.
+            let grid = Grid::new(10, 2);
+            let scalar = revision(grid, &[".+0304", "07"]);
+            assert_eq!(row(&scalar, grid, 1), "##........");
+
+            let trailed = revision(grid, &[".+0304", "0708090A"]);
+            assert_eq!(row(&trailed, grid, 1), "##........");
+        }
     }
 }

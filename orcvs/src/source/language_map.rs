@@ -15,7 +15,34 @@ const SPACE_BYTE: u8 = b' ';
 /// 0036. `tick.rs`'s `SCALAR_WIDTH` and `portal.rs`'s `PAIR_WIDTH` state the
 /// same fact privately in their own modules; `11` is where the three become
 /// one.
-const OUTPUT_PORTAL_SCALAR_WIDTH: usize = 2;
+pub(super) const OUTPUT_PORTAL_SCALAR_WIDTH: usize = 2;
+
+///
+/// The fewest Cells a Sequence-capable root's Output Portal highlight covers,
+/// per `.scratch/syntax-highlighting/issues/12`.
+///
+/// Four, because a Function that never wrote more than two Cells would be
+/// declared scalar: being Sequence-capable only shows in an answer longer than
+/// a pair, so four is the narrowest highlight that tells a Sequence-capable
+/// root from a scalar one before any Tick. It bounds the highlight only, never
+/// the Reservation.
+///
+pub(super) const OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH: usize = 2 * OUTPUT_PORTAL_SCALAR_WIDTH;
+
+///
+/// One root Function's Output Portal Reservation: the Cells ADR 0036 reserves
+/// for its answer, and whether that root may answer a Sequence.
+///
+/// The flag is carried rather than recovered from the range's length. A
+/// Sequence-capable root at the row edge can reserve two Cells or fewer, and
+/// `SourceRevision::output_portal_highlight` must not widen such a root to its
+/// four-Cell minimum by mistaking it for a scalar — nor narrow a scalar to a
+/// Cell pair it already is.
+///
+pub(super) struct OutputPortalReservation {
+    pub(super) range: std::ops::Range<usize>,
+    pub(super) sequence_capable: bool,
+}
 
 static NEXT_LANGUAGE_MAP_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -383,8 +410,8 @@ impl LanguageMap {
     }
 
     ///
-    /// Whether each Cell of this revision lies in a root Function's Output
-    /// Portal Reservation, in the Grid's row-major order.
+    /// Every root Function's Output Portal Reservation in this revision, in
+    /// Expression order.
     ///
     /// This is `.scratch/syntax-highlighting/issues/05`'s Answer: known
     /// before any Tick runs, derived from this revision alone rather than
@@ -406,16 +433,37 @@ impl LanguageMap {
     /// Portal; neither does a scalar destination the row edge leaves no room
     /// for a Cell pair.
     ///
+    /// This is the one Reservation derivation. [`Self::output_portal_cells`]
+    /// flattens it for the agreement test against the scheduler
+    /// (`.scratch/syntax-highlighting/issues/10`), and
+    /// `SourceRevision::output_portal_highlight`
+    /// (`.scratch/syntax-highlighting/issues/12`) narrows each Sequence-capable
+    /// one to the answer it holds. Both read this list, so the agreement test
+    /// answers for the geometry the highlight is fitted inside.
+    ///
+    pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
+        self.expressions()
+            .filter_map(|expression| {
+                let (anchor, function) = expression.function_candidate()?;
+                self.output_portal_reservation(expression, anchor, function)
+            })
+            .collect()
+    }
+
+    ///
+    /// Whether each Cell of this revision lies in a root Function's Output
+    /// Portal Reservation, in the Grid's row-major order.
+    ///
+    /// The Reservation, not the fitted highlight: it is what the Tick
+    /// scheduler reserves, which is what `10`'s agreement test compares
+    /// against. The console reads
+    /// `SourceRevision::output_portal_highlight` instead.
+    ///
+    #[cfg(test)]
     pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
-        for expression in self.expressions() {
-            let Some((anchor, function)) = expression.function_candidate() else {
-                continue;
-            };
-            let Some(range) = self.output_portal_reservation(expression, anchor, function) else {
-                continue;
-            };
-            for index in range {
+        for reservation in self.output_portal_reservations() {
+            for index in reservation.range {
                 covered[index] = true;
             }
         }
@@ -439,20 +487,25 @@ impl LanguageMap {
         expression: &ExpressionEntry,
         anchor: Position,
         function: Function,
-    ) -> Option<std::ops::Range<usize>> {
+    ) -> Option<OutputPortalReservation> {
         if function.locks_root() {
             return None;
         }
         let coords = function.output_portal()?;
         let portal = Portal::named(self.grid, anchor, coords).ok()?;
-        if self.root_may_answer_a_sequence(expression) {
-            Some(portal.remaining_span().range())
+        let sequence_capable = self.root_may_answer_a_sequence(expression);
+        let range = if sequence_capable {
+            portal.remaining_span().range()
         } else {
             portal
                 .span(OUTPUT_PORTAL_SCALAR_WIDTH)
                 .ok()
-                .map(Span::range)
-        }
+                .map(Span::range)?
+        };
+        Some(OutputPortalReservation {
+            range,
+            sequence_capable,
+        })
     }
 
     ///

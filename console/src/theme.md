@@ -104,12 +104,18 @@ shows on it, unchanged from `syntax-highlighting/03`. Evaluation-time operand
 diagnostics are out of scope: they are Tick outcomes, not Source facts.
 
 `syntax-highlighting/06` adds a Function's written value as a further input
-to the same one decision: whether a Cell lies in a root Function's Output
-Portal Reservation (`RenderCell::output_portal()`, `.scratch/syntax-
-highlighting/issues/05` and `10`'s Answers) — the Cell pair one row south of
-a scalar-only Function's anchor, or every Cell from there to the end of that
-row for a Sequence-capable one, known from the current Source revision alone
-and so lit before any Tick runs. Parsing is unchanged and unaware of it (`05`'s
+to the same one decision: whether a Cell draws as a root Function's Output
+Portal (`RenderCell::output_portal()`, `.scratch/syntax-
+highlighting/issues/05`, `10` and `12`'s Answers) — the Cell pair one row
+south of a scalar-only Function's anchor, or, for a Sequence-capable one, the
+highlight fitted to its answer: at least four Cells from the Output Portal,
+written or not, then each following Cell pair that holds written content,
+stopping at the first blank pair and never reaching past the root's
+Reservation, which still runs to the end of that row. Four is the minimum
+because a Function that never wrote more than two Cells would be declared
+scalar, so it is what tells a Sequence-capable root from a scalar one on
+sight. All of it is known from the current Source revision alone and so lit
+before any Tick runs. Parsing is unchanged and unaware of it (`05`'s
 Answer): a written scalar or Sequence answer re-parses exactly as ordinary
 Source would (a `07` left south of `.+0304` is two unknown one-Cell
 Functions, diagnostics included), and the Output Portal fact is what tells
@@ -123,14 +129,14 @@ Portal's Fill tint in place of Bang's usual bare `None`.
 
 **Precedence where an Output Portal covers another Expression's claimed
 Cells** — a consumer's operand, or another root, per `05`'s Overlap rule that
-the Reservation "covers every Cell of the Reservation whatever else claims
+the fact "covers every Cell of the Reservation whatever else claims
 it": a Cell that is itself a bound Function's own two-Cell spelling keeps its
 Function paint outright, root or nested alike, because every Function's own
 spelling already carries `Token::Function` regardless of nesting and telling
 a root's spelling from a nested one would need the Expression this decision
 does not read. Every other overlapping Cell — another root's own Number,
 Note, Atom or Sequence operand among them — takes the Output Portal colour
-and tint instead of its own declared role, because the Reservation's answer
+and tint instead of its own declared role, because the root's answer
 is what a viewer reads there. The Cursor's own fill still wins outright over
 everything above, on its own Cell.
 

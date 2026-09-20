@@ -42,17 +42,20 @@ impl RenderCell {
     }
 
     ///
-    /// Whether this Cell lies in a root Function's Output Portal Reservation,
-    /// derived from the current Source revision alone and known before any
-    /// Tick runs (`.scratch/syntax-highlighting/issues/05`'s Answer).
+    /// Whether this Cell draws as a root Function's Output Portal, derived
+    /// from the current Source revision alone and known before any Tick runs
+    /// (`.scratch/syntax-highlighting/issues/05`'s Answer).
     ///
     /// `true` covers the Cell pair from the Output Portal for a Function that
-    /// can only answer a scalar, and every Cell from the Output Portal
-    /// through the end of its row for one that can answer a Sequence. A
-    /// nested Function, a Terminal Output Function, Halt, and a
-    /// Source-writing Function (including an Advance's cleared anchor) never
-    /// set it, and neither does a scalar destination the row edge leaves no
-    /// room for.
+    /// can only answer a scalar. A Function that can answer a Sequence covers
+    /// the fitted highlight `SourceRevision::output_portal_highlight` derives
+    /// (`.scratch/syntax-highlighting/issues/12`): at least four Cells from
+    /// the Output Portal, then each following written Cell pair, clipped to
+    /// the Reservation — not the whole Reservation, which is what the Tick
+    /// scheduler still reserves. A nested Function, a Terminal Output
+    /// Function, Halt, and a Source-writing Function (including an Advance's
+    /// cleared anchor) never set it, and neither does a scalar destination the
+    /// row edge leaves no room for.
     ///
     pub fn output_portal(&self) -> bool {
         self.output_portal
@@ -111,7 +114,7 @@ impl RenderFrame {
         grid.assert_owns(region.anchor());
         grid.assert_owns(region.cursor());
         let claims = source.language_map().claims_by_cell();
-        let output_portals = source.language_map().output_portal_cells();
+        let output_portals = source.output_portal_highlight();
         let cells = grid
             .positions_by_row()
             .flatten()
