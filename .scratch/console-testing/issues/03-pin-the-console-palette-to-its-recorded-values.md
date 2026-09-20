@@ -36,8 +36,8 @@ This is the cheapest work in the effort and it depends on nothing but the rename
 dependency, no harness, and no CI change.
 
 **This issue covers the dark palette only, and two later changes touch it.**
-`restyle-egui-console/04` renames `PALETTE` to `DARK_PALETTE`, which this test follows mechanically.
-`restyle-egui-console/05` decides a light palette, and its own acceptance line requires extending
+`theming/03` renames `PALETTE` to `DARK_PALETTE`, which this test follows mechanically.
+`theming/04` decides a light palette, and its own acceptance line requires extending
 this test to pin those twenty-two values too. Neither is a blocker: run first against whichever
 constant exists, and let the later issues grow the test. That is what the final acceptance line above
 is for.
