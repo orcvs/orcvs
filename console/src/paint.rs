@@ -547,13 +547,12 @@ mod tests {
 
     ///
     /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
-    /// claim, its slot's own written fact, and its own Output Portal fact
-    /// straight from `frame` and `cell` — the same three inputs
-    /// `Paint::derive_with_colours` reads, so a test comparing against this
-    /// needs no `SourcePaintSettings::default()`-only shim.
+    /// claim and its own Output Portal fact straight from `cell` — the same
+    /// two per-Cell inputs `Paint::derive_with_colours` reads, so a test
+    /// comparing against this needs no `SourcePaintSettings::default()`-only
+    /// shim.
     ///
     fn expected_visuals(
-        _frame: &RenderFrame,
         cell: &orcvs::render_frame::RenderCell,
         selected: bool,
         cursor_visible: bool,
@@ -596,7 +595,6 @@ mod tests {
             let position = cell.position();
             let selected = position == cursor;
             let visuals = expected_visuals(
-                &frame,
                 cell,
                 selected,
                 selected && frame.cursor_visible(),
@@ -881,7 +879,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(&frame, cell, false, false, None, source_paint).background,
+                expected_visuals(cell, false, false, None, source_paint).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -902,7 +900,7 @@ mod tests {
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(&frame, cell, false, false, None, source_paint).background,
+                expected_visuals(cell, false, false, None, source_paint).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -955,7 +953,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            expected_visuals(&frame, cell, false, false, None, source_paint).background,
+            expected_visuals(cell, false, false, None, source_paint).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -1002,8 +1000,7 @@ mod tests {
             assert_eq!(painted.foreground, source_paint.diagnostic(), "column {x}");
             assert_eq!(
                 painted.background,
-                expected_visuals(&frame, frame.at(position), false, false, None, source_paint)
-                    .background,
+                expected_visuals(frame.at(position), false, false, None, source_paint).background,
                 "column {x} did not keep the Number tint"
             );
             assert!(painted.background.is_some(), "column {x} lost its tint");
@@ -1569,17 +1566,19 @@ mod tests {
 
         ///
         /// A Sequence answer is painted the same way across every one of its
-        /// Cells, and the highlight stops where the answer does rather than
-        /// running to the end of the row. `:<:-0104` (Reverse of NumberRange
-        /// 01..04) answers a Sequence outright, so its Reservation runs to
-        /// the end of the destination row (`.scratch/syntax-highlighting/
-        /// issues/10`'s Answer) — but the highlight is fitted to the written
-        /// answer, `04030201` (`12`), so the row's last two Cells are the
-        /// ordinary untinted blanks they would be with no root above them,
-        /// even though the Reservation still covers them.
+        /// Cells, and the highlight stops where written content stops rather
+        /// than running to the end of the Reservation. `:<:-0104` (Reverse of
+        /// NumberRange 01..04) answers a Sequence outright, so its
+        /// Reservation runs to the end of the destination row
+        /// (`.scratch/syntax-highlighting/issues/10`'s Answer), but the
+        /// written answer, `04030201`, fills only the row's first eight Cells
+        /// of ten, so the last two stay ordinary and untinted. The fit
+        /// follows written content, not the answer itself: here they coincide
+        /// because nothing else is written in the row
+        /// (`.scratch/syntax-highlighting/issues/12`'s known limit, and `13`).
         ///
         #[tokio::test]
-        async fn a_sequence_answer_paints_every_cell_and_stops_where_the_answer_does() {
+        async fn a_sequence_answer_paints_every_written_cell_and_the_highlight_stops_there() {
             let mut orcvs = running_orcvs(10, 2);
             write_row(&mut orcvs, 0, ":<:-0104");
             write_row(&mut orcvs, 1, "04030201");
@@ -2104,9 +2103,9 @@ mod tests {
         let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
         let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
         let function_tint =
-            expected_visuals(&frame, function_cell, false, false, None, source_paint).background;
+            expected_visuals(function_cell, false, false, None, source_paint).background;
         let number_tint =
-            expected_visuals(&frame, number_cell, false, false, None, source_paint).background;
+            expected_visuals(number_cell, false, false, None, source_paint).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 

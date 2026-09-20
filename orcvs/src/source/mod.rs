@@ -77,6 +77,7 @@ impl SourceRevision {
     ///
     /// The Language Map derives and stores this alongside its other per-Cell
     /// view while it has both the Reservations and this revision's bytes.
+    #[cfg(test)]
     pub(crate) fn output_portal_highlight(&self) -> &[bool] {
         self.language_map.output_portal_highlight()
     }

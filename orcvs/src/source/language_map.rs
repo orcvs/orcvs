@@ -248,6 +248,11 @@ impl LanguageMap {
     /// Unit ranges are local to each row, so a changed row cannot relocate
     /// another row's Expressions. Carried Expressions receive this revision's
     /// identity even when their Source did not change.
+    ///
+    /// The two per-Cell views are whole-Grid answers rather than row-local
+    /// ones — an Output Portal Reservation reaches the row its Expression
+    /// points into, not the row it is spelled on — so any written row
+    /// re-derives both. A revision that wrote no row carries them intact.
     pub(super) fn rebuild(
         previous: &Self,
         grid: Grid,
@@ -275,6 +280,23 @@ impl LanguageMap {
                 }
             })
             .collect();
+        if dirty.is_empty() {
+            // No row was written, so `bytes` is the revision `previous` read
+            // and both per-Cell views answer exactly as they did. This asks
+            // no more than the carried rows above already do — an unwritten
+            // row's Cells are unchanged — only at whole-Grid scale. It is
+            // worth asking because a Tick is committed whether or not its
+            // plan writes anything (`Source::commit_tick`), so this is every
+            // Tick of every Source with no Source-writing Function, and
+            // deriving both views again is work whose answer is in hand.
+            return Self {
+                id,
+                grid,
+                rows,
+                paint: previous.paint.clone(),
+                output_portal_highlight: previous.output_portal_highlight.clone(),
+            };
+        }
         Self::with_rows(id, grid, rows, bytes)
     }
 
@@ -415,7 +437,25 @@ impl LanguageMap {
                     Token::Bang => SourcePaint::Bang,
                     Token::Comment => SourcePaint::Comment,
                     Token::Function if entry.atom.is_some() => SourcePaint::Function,
-                    Token::Function | Token::Char => SourcePaint::Unclaimed,
+                    Token::Function => SourcePaint::Unclaimed,
+                    // Loud rather than folded into the arm above, because a
+                    // `Char` entry would mean the Parser had started
+                    // labelling entries with a Token no signature can
+                    // declare. `Expression::add_positioned` is called with
+                    // `Function`, `Comment`, `Bang`, or a Token
+                    // `operand_token!` (lang/src/atom.rs) minted, and that
+                    // macro has no `Char` arm — `lang/src/stack.rs`'s
+                    // `check_token` marks the same combination `unreachable!`
+                    // for the same reason. Every Cell whose Token is `Char`
+                    // is `SourceRevision::token_at`'s leftover-content
+                    // fallback, which stands in for a Cell no Expression
+                    // claimed and so reaches no entry here.
+                    Token::Char => unreachable!(
+                        "no Function signature declares a Char operand (`operand_token!` in \
+                         lang/src/atom.rs has no Char arm, and lang/src/stack.rs's check_token \
+                         marks that arm unreachable!), and the Parser labels no positioned \
+                         entry Char"
+                    ),
                     token @ (Token::Number | Token::Note | Token::Atom | Token::Sequence) => {
                         let state = if entry.atom.is_some() {
                             OperandState::Valid
@@ -440,8 +480,8 @@ impl LanguageMap {
     }
 
     ///
-    /// Every root Function's Output Portal Reservation in this revision, in
-    /// Expression order.
+    /// Whether each Cell of this revision draws as a root Function's Output
+    /// Portal, in the Grid's row-major order.
     ///
     /// This is `.scratch/syntax-highlighting/issues/05`'s Answer: known
     /// before any Tick runs, derived from this revision alone rather than
@@ -452,7 +492,7 @@ impl LanguageMap {
     /// nested Function is never eligible: its answer goes to its parent's
     /// operand, not to a Cell of its own.
     ///
-    /// Coverage is the Reservation ADR 0036 states, read from
+    /// The Reservation ADR 0036 states bounds the answer, read from
     /// [`lang::Function`]'s declared facts and this Expression's own nesting
     /// rather than from tick planning's `Computation` nodes: the Cell pair
     /// from the Output Portal for a Function that can only answer a scalar,
@@ -462,6 +502,28 @@ impl LanguageMap {
     /// no Cell, because none of them writes an answer through its Output
     /// Portal; neither does a scalar destination the row edge leaves no room
     /// for a Cell pair.
+    ///
+    /// A scalar root's pair is the whole of its highlight. A Sequence-capable
+    /// root's highlight is fitted inside its Reservation, per
+    /// `.scratch/syntax-highlighting/issues/12`: four Cells from the Output
+    /// Portal, written or not, then each following Cell pair holding written
+    /// content, stopping at the first blank Cell and clipped to the
+    /// Reservation at the row edge.
+    ///
+    /// The fit is written-content-shaped, not answer-shaped. It reads this
+    /// revision's bytes and holds no record of what a Tick wrote, so
+    /// anything standing in the Reservation extends it. That is `12`'s
+    /// recorded known limit: a stale Cell a shorter answer left behind, or a
+    /// neighbouring Expression written straight after an answer with no
+    /// blank Cell between them, is absorbed into the highlight; and an
+    /// answer with a blank Cell inside it is cut there.
+    /// `.scratch/syntax-highlighting/issues/13` records the alternative that
+    /// avoids this.
+    ///
+    /// The unfitted Reservation remains available as a per-Cell view to
+    /// tests, through `output_portal_cells`, which is what the scheduler
+    /// agreement test compares; the two deliberately disagree wherever a fit
+    /// stops short.
     ///
     pub(crate) fn output_portal_highlight(&self) -> &[bool] {
         &self.output_portal_highlight
@@ -492,6 +554,18 @@ impl LanguageMap {
             })
             .collect()
     }
+    ///
+    /// The unfitted Reservation as a per-Cell view, for tests alone.
+    ///
+    /// [`Self::output_portal_highlight`] is what the console draws; this is
+    /// the geometry that highlight is fitted inside, and so the one
+    /// `tick.rs`'s `output_portal_agreement` compares against the
+    /// scheduler's own reservations. The two answer differently wherever a
+    /// Sequence-capable root's fit stops short of its Reservation, which is
+    /// deliberate: the scheduler reserves the whole range whatever the
+    /// highlight draws, so the agreement test would be asking the wrong
+    /// question of the fitted answer.
+    ///
     #[cfg(test)]
     pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
@@ -2275,7 +2349,7 @@ mod property {
 ///
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod rebuild_property {
-    use super::{Grid, LanguageMap, LanguageUnit};
+    use super::{Grid, LanguageMap, LanguageUnit, SourcePaint};
     use proptest::prelude::*;
     use std::collections::BTreeSet;
 
@@ -2305,6 +2379,8 @@ mod rebuild_property {
         Vec<LanguageUnit>,
         Vec<ReportedDiagnostic>,
         Vec<ReportedExpression>,
+        Vec<SourcePaint>,
+        Vec<bool>,
     );
 
     fn contents(map: &LanguageMap) -> Contents {
@@ -2335,6 +2411,11 @@ mod rebuild_property {
                     )
                 })
                 .collect(),
+            // The two per-Cell views a rebuild carries rather than derives
+            // when no row was written. Comparing them against a full build
+            // is what proves the carry answers what the derivation would.
+            map.source_paint_cells().to_vec(),
+            map.output_portal_highlight().to_vec(),
         )
     }
 
@@ -2380,5 +2461,32 @@ mod rebuild_property {
 
             prop_assert_eq!(contents(&rebuilt), contents(&built));
         }
+    }
+
+    ///
+    /// A revision that wrote no row carries both per-Cell views instead of
+    /// deriving them, and answers what deriving them would have.
+    ///
+    /// Every Tick is committed whether or not its plan writes anything
+    /// (`Source::commit_tick`), so this is the path every Tick of a Source
+    /// with no Source-writing Function takes. The property above reaches it
+    /// only on the cases that happen to draw an unwritten row set; this pins
+    /// it, on a Source whose Output Portal highlight reads the row below the
+    /// Expression that declares it.
+    ///
+    #[test]
+    fn a_rebuild_that_wrote_no_row_carries_the_per_cell_views() {
+        let grid = Grid::new(10, 2);
+        let mut bytes = vec![b' '; grid.count()];
+        bytes[..8].copy_from_slice(b":<:-0102");
+        bytes[10..18].copy_from_slice(b"0201.+04");
+
+        let previous = LanguageMap::build(grid, &bytes);
+        let rebuilt = LanguageMap::rebuild(&previous, grid, &bytes, &BTreeSet::new());
+
+        assert_eq!(
+            contents(&rebuilt),
+            contents(&LanguageMap::build(grid, &bytes))
+        );
     }
 }

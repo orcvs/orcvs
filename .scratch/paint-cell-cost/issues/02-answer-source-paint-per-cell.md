@@ -11,7 +11,7 @@ walking a Span or hashing a claim pointer.
 
 - [x] The Language Map answers Function, Pending Operand, Valid Operand, Invalid Operand, Bang,
       Comment, and Unclaimed per Cell. Every operand answer independently carries its declared
-      Number, Note, Char, Atom, or Sequence Token.
+      Number, Note, Atom, or Sequence Token.
 - [x] Pending Operand is answered while the Language Map has the row's Source bytes and the claim's
       Span, once per Source revision rather than once per drawn Cell.
 - [x] The Output Portal fact moves beside the other per-Cell Paint facts in the Language Map. It is
@@ -51,3 +51,18 @@ pointer-keyed `HashMap`, and the console's Span walk are gone. The unpublished p
 superseded by this implementation. Pull request #113 remained open during the work, so its fitted
 Output Portal behavior was incorporated at Language Map cadence rather than discarded; the branch
 still needs its ordinary merge/rebase coordination before this work is opened as a pull request.
+
+**2026-09-20 — review follow-up.** The operand Token list above dropped `Char`: the Parser labels a
+positioned entry `Function`, `Comment`, `Bang`, or a Token `operand_token!` minted, and that macro
+has no `Char` arm, so no operand fact can carry one. ADR 0050's second paragraph was corrected the
+same way, and `derive_source_paint` keeps `Token::Char` as its own `unreachable!` arm rather than
+folding it silently into `Unclaimed`. `LanguageMap::rebuild` now carries the two per-Cell views
+when a revision wrote no row, since every Tick is committed whether or not it writes.
+
+A Tick that does write still re-derives both views for the whole Grid, so ADR 0050's cadence
+argument is bounded rather than unconditional: at the default 120 BPM a Source-writing root makes
+8 revisions a second against a 60 fps draw, but `Bpm`'s ceiling is 15,000 BPM (`orcvs/src/opts.rs`),
+and past roughly 900 BPM a root writing every Tick derives more often than the console draws. An
+incremental per-row derivation is not available for the Output Portal highlight, whose Reservation
+reaches a different row from the Expression that declares it; narrowing that is a design question
+this ticket did not take.

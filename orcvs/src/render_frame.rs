@@ -41,15 +41,17 @@ impl RenderCell {
     /// (`.scratch/syntax-highlighting/issues/05`'s Answer).
     ///
     /// `true` covers the Cell pair from the Output Portal for a Function that
-    /// can only answer a scalar. A Function that can answer a Sequence covers
-    /// the fitted highlight `SourceRevision::output_portal_highlight` derives
-    /// (`.scratch/syntax-highlighting/issues/12`): at least four Cells from
-    /// the Output Portal, then each following written Cell pair, clipped to
-    /// the Reservation — not the whole Reservation, which is what the Tick
-    /// scheduler still reserves. A nested Function, a Terminal Output
-    /// Function, Halt, and a Source-writing Function (including an Advance's
-    /// cleared anchor) never set it, and neither does a scalar destination the
-    /// row edge leaves no room for.
+    /// can only answer a scalar. A Sequence-capable Function covers at least
+    /// four Cells and then each following written Cell pair, clipped to its
+    /// Reservation; the highlight stops at the first blank Cell. The fit is
+    /// shaped by written content, not by the answer, so an Expression written
+    /// directly after a short answer is absorbed and an answer holding a
+    /// blank Cell is cut short there
+    /// (`.scratch/syntax-highlighting/issues/12`'s known limit, and `13`). A
+    /// nested Function, a Terminal Output Function, Halt, and a
+    /// Source-writing Function (including an Advance's cleared anchor) never
+    /// set it, and neither does a scalar destination the row edge leaves no
+    /// room for.
     ///
     pub fn output_portal(&self) -> bool {
         self.output_portal
@@ -313,10 +315,12 @@ mod tests {
     }
 
     ///
-    /// The Token the claim on `position` declares, or `None` when nothing
-    /// claims it. `RenderCell::token()` answered this directly before
-    /// `syntax-highlighting/09` removed it in favour of `claim()`; every test
-    /// below that named a Token by position now reads it from the claim.
+    /// The Token this Cell's Source Paint names, or `None` when its answer
+    /// names none. `None` therefore covers an empty unclaimed Cell and text
+    /// that spells no Function alike, because `SourcePaint::Unclaimed` is the
+    /// single answer for both (`.scratch/syntax-highlighting/spec.md`,
+    /// Unclaimed). Every test below that names a Token by position reads it
+    /// from the Source Paint answer through here.
     ///
     fn token_at(frame: &RenderFrame, position: crate::grid::Position) -> Option<Token> {
         match frame.at(position).source_paint() {
@@ -355,8 +359,9 @@ mod tests {
         );
         assert_eq!(token_at(&frame, grid.position(0, 0).unwrap()), None);
         assert_eq!(frame.at(grid.position(1, 0).unwrap()).content(), Some('x'));
-        // A character standing where a Function goes is classified there,
-        // whether or not the table holds its spelling.
+        // The Function table holds no spelling starting `x`, so nothing was
+        // declared at that Cell and nothing failed there: it answers
+        // Unclaimed, naming no Token, exactly as the empty Cells do.
         assert_eq!(token_at(&frame, grid.position(1, 0).unwrap()), None);
         assert_eq!(token_at(&frame, grid.position(0, 1).unwrap()), None);
     }
@@ -389,8 +394,8 @@ mod tests {
         );
         // The third `*` is not half a Bang. It opens an Expression of its own
         // whose spelling `*x` the Function table does not hold, and the `x`
-        // opens the one after that — each classified where a Function goes,
-        // because that is where each of them stands.
+        // opens the one after that — so neither spells anything, and each
+        // answers Unclaimed rather than Bang.
         assert_eq!(token_at(&frame, grid.position(2, 0).unwrap()), None);
         assert_eq!(token_at(&frame, grid.position(3, 0).unwrap()), None);
     }
@@ -453,8 +458,9 @@ mod tests {
     #[test]
     fn a_bound_number_sits_beside_an_unbound_blank_operand_claim() {
         // `.+01  `: the first Number binds; the second operand is two blank
-        // Cells the arity still claims. Pending and Invalid are not told
-        // apart here — `atom: None` covers both.
+        // Cells the arity still claims. The blank slot is Pending, not
+        // Invalid: nothing is written in it, which is the distinction the
+        // Language Map draws while this revision's bytes are in hand.
         let grid = Grid::new(6, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+01  ");
@@ -512,10 +518,12 @@ mod tests {
     }
 
     #[test]
-    fn a_lone_pipe_is_one_unbound_function_claim() {
+    fn a_lone_pipe_and_the_cell_beside_it_are_unclaimed() {
         // A lone `|` is a refused Function spelling (ADR 0018): every unit
         // starts as a Function slot, the two-Cell read fails
-        // `Function::try_from`, and the refusal advances one character.
+        // `Function::try_from`, and the refusal advances one character. A
+        // refusal declares nothing, so the `|` answers Unclaimed, and so does
+        // the empty Cell beside it.
         let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "|");
@@ -532,10 +540,10 @@ mod tests {
     }
 
     #[test]
-    fn a_written_07_is_two_one_cell_unbound_function_claims() {
+    fn a_written_07_is_two_unclaimed_cells() {
         // A written `07` is two refused Function spellings (ADR 0018).
-        // Nothing distinguishes `0`'s refusal from `7`'s — both are
-        // `(Token::Function, None)` over one Cell.
+        // Nothing distinguishes `0`'s refusal from `7`'s — each spells
+        // nothing over its one Cell, so each answers Unclaimed.
         let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "07");
@@ -606,9 +614,9 @@ mod tests {
         );
 
         assert_eq!(cell_at(&frame, grid.origin()).content(), Some('x'));
-        // A lone character is the first Cell of a spelling the Function table
-        // does not hold, which is a classification like any other. What this
-        // test is about is that it survives sector presentation at all.
+        // A lone character spells no Function, so it answers Unclaimed and
+        // names no Token. What this test is about is that its glyph survives
+        // sector presentation at all.
         assert_eq!(token_at(&frame, grid.origin()), None);
     }
 
