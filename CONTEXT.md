@@ -13,11 +13,11 @@ The rectangular grid that holds the current Orcvs program as Cells.
 _Avoid_: Document, buffer, canvas
 
 **Grid**:
-The fixed rectangular shape a Source occupies: its column and row counts, and the valid positions within them. The Grid is the shape; the Source is the contents. A Grid has at least one column and one row, and a position outside it does not exist.
+The fixed rectangular shape a Source occupies: its column and row counts, and the valid positions within them. The Grid is the shape; the Source is the contents. A Grid has at least one and at most 256 columns and rows, and a position outside it does not exist.
 _Avoid_: Canvas, matrix, bounds
 
 **Position**:
-The column and row of one Cell of a Grid. A Position can be obtained only from the Grid that contains it, so a Position outside its Grid does not exist; the Grid converts between a Position and the index the Source addresses Cells by.
+The column and row of one Cell of a Grid, spelled in Source as two Numbers, column then row, from `00 00` at the top-left. A Position can be obtained only from the Grid that contains it, so a pair of Numbers past its Grid's extent is not a Position; the Grid converts between a Position and the index the Source addresses Cells by.
 _Avoid_: Coord, coordinate, point
 
 **Cell**:
@@ -169,7 +169,7 @@ The Sequence Function `:=`. It uses a zero-based Number index modulo the length 
 _Avoid_: Push Function, Sequence replacement operand, mutation
 
 **Portal**:
-One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. When a Function does not name other coordinates, that Portal is one row south of the Function's anchor. The site is declared by the Function and placed by its anchor, so it is known from any Source revision before a Tick runs; what is resolved during a Tick is what the Portal carries. It carries an Atom or intact Sequence, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
+One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. When a Function does not name another Position, that Portal is one row south of the Function's anchor. The site is declared by the Function and placed by its anchor, so it is known from any Source revision before a Tick runs; what is resolved during a Tick is what the Portal carries. It carries an Atom or intact Sequence, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state. Working Source at a Portal travels in [`FunctionInputs`] beside Playback Tick and anchor; cell operands remain on the Operand Stack.
 _Avoid_: Port, address value, output coordinate, ordinary result
 
 **Output Portal**:
@@ -301,11 +301,11 @@ The per-Cell decision of how the Positions a console draws of one Render Frame a
 _Avoid_: Shapes, draw list, painter
 
 **Source View**:
-The region of the Source's space the console shows, and the Cell size it shows it at. It never shows beyond the Grid's edges: the Grid is bounded, so its presentation is too.
+The region of the Source's space the console shows, and the Cell size it shows it at. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
 _Avoid_: Canvas, camera, viewport, document, scroll position
 
 **Pan**:
-Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan.
+Moving the Source View across the Source, as far as the margin past the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan.
 _Avoid_: Scroll, drag
 
 **Zoom**:

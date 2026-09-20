@@ -3264,12 +3264,13 @@ mod test {
     fn live_deep_sibling_computations_preserve_operand_order() {
         // Each sibling requires more pending operands than the Parser keeps
         // inline. The second refills that stack after the first has drained it.
-        let numerator = ".+".repeat(32) + &"02".repeat(33);
-        let denominator = ".+".repeat(32) + &"01".repeat(33);
+        // Deep enough to overflow and narrow enough to fit a Grid (ADR 0049).
+        let numerator = ".+".repeat(24) + &"02".repeat(25);
+        let denominator = ".+".repeat(24) + &"01".repeat(25);
         let text = format!("./{numerator}{denominator}");
         let width = text.len();
         let (plan, source) = carried_source(Grid::new(width, 2), &[&text, ""], &[]);
-        // 66 / 33 = 2. Reversing the siblings instead produces zero.
+        // 50 / 25 = 2. Reversing the siblings instead produces zero.
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
         assert!(plan.play_commands.is_empty());
         assert_eq!(source.snapshot(), snapshot(source.grid(), &[&text, "02"]));

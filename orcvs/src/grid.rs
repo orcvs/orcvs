@@ -75,13 +75,27 @@ impl CellIndex {
 /// Grid's dimensions are its own: they are stated here as Cell counts, and
 /// derived from nothing else.
 ///
-/// The default is 64 by 40 — a Grid that reads left to right in time, in the
+/// The default is 128 by 80 — a Grid that reads left to right in time, in the
 /// proportion a console is most often given. Cells are square, so these counts
-/// are the Grid's aspect ratio, and at Zoom 1.0 the default Grid fills the
-/// default window exactly.
+/// are the Grid's aspect ratio. It is twice the default window on each axis at
+/// Zoom 1.0, so a fresh console opens with room to Pan (ADR 0047).
 ///
-pub const DEFAULT_COL_COUNT: usize = 64;
-pub const DEFAULT_ROW_COUNT: usize = 40;
+pub const DEFAULT_COL_COUNT: usize = 128;
+pub const DEFAULT_ROW_COUNT: usize = 80;
+
+///
+/// The most columns and rows a Grid has: as many as one Number spells, so
+/// every Position is two Numbers, column then row, `00 00` through `FF FF`
+/// (ADR 0049). A shape past either is not a Grid. A Number is one byte
+/// (ADR 0010), so the count is every value a `u8` holds.
+///
+pub const MAX_COL_COUNT: usize = u8::MAX as usize + 1;
+pub const MAX_ROW_COUNT: usize = u8::MAX as usize + 1;
+
+const _: () = assert!(
+    DEFAULT_COL_COUNT <= MAX_COL_COUNT && DEFAULT_ROW_COUNT <= MAX_ROW_COUNT,
+    "the default Grid must be a Grid"
+);
 
 ///
 /// Which Grid a value bound to one Grid came from.
@@ -134,8 +148,8 @@ impl TryFrom<PersistedGrid> for Grid {
         if grid.cols == 0 || grid.rows == 0 {
             return Err("persisted Grid dimensions must be greater than zero");
         }
-        if grid.cols.checked_mul(grid.rows).is_none() {
-            return Err("persisted Grid Cell count is too large");
+        if grid.cols > MAX_COL_COUNT || grid.rows > MAX_ROW_COUNT {
+            return Err("persisted Grid dimensions exceed the largest Grid");
         }
 
         Ok(Self::new(grid.cols, grid.rows))
@@ -144,14 +158,20 @@ impl TryFrom<PersistedGrid> for Grid {
 
 impl Grid {
     ///
-    /// A Grid has at least one column and one row.
+    /// A Grid has at least one column and one row, and at most
+    /// [`MAX_COL_COUNT`] columns and [`MAX_ROW_COUNT`] rows, so its Cell count
+    /// cannot overflow.
     ///
     pub fn new(cols: usize, rows: usize) -> Self {
         assert!(cols > 0, "cols must be greater than zero");
         assert!(rows > 0, "rows must be greater than zero");
         assert!(
-            cols.checked_mul(rows).is_some(),
-            "Grid Cell count is too large"
+            cols <= MAX_COL_COUNT,
+            "cols must be at most {MAX_COL_COUNT}"
+        );
+        assert!(
+            rows <= MAX_ROW_COUNT,
+            "rows must be at most {MAX_ROW_COUNT}"
         );
 
         Self {
@@ -449,8 +469,10 @@ impl Grid {
 #[cfg(test)]
 mod test {
 
+    #[cfg(feature = "persistence")]
+    use crate::grid::PersistedGrid;
     use crate::{
-        grid::{Grid, Position},
+        grid::{Grid, MAX_COL_COUNT, MAX_ROW_COUNT, Position},
         opts::SectorSeamSpacing,
         test::trace,
     };
@@ -497,6 +519,44 @@ mod test {
         trace();
 
         let _ = Grid::new(4, 0);
+    }
+
+    #[test]
+    fn test_grid_can_be_as_large_as_two_numbers_address() {
+        trace();
+
+        let grid = Grid::new(MAX_COL_COUNT, MAX_ROW_COUNT);
+
+        assert_eq!((grid.columns(), grid.rows()), (256, 256));
+        assert!(grid.position(0xFF, 0xFF).is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "cols must be at most")]
+    fn test_grid_cannot_have_more_cols_than_a_number_addresses() {
+        trace();
+
+        let _ = Grid::new(MAX_COL_COUNT + 1, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "rows must be at most")]
+    fn test_grid_cannot_have_more_rows_than_a_number_addresses() {
+        trace();
+
+        let _ = Grid::new(4, MAX_ROW_COUNT + 1);
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn test_persisted_grid_is_refused_past_what_a_number_addresses() {
+        trace();
+
+        let refused = |cols, rows| Grid::try_from(PersistedGrid { cols, rows }).is_err();
+
+        assert!(!refused(MAX_COL_COUNT, MAX_ROW_COUNT));
+        assert!(refused(MAX_COL_COUNT + 1, 1));
+        assert!(refused(1, MAX_ROW_COUNT + 1));
     }
 
     #[test]

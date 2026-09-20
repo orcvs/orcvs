@@ -1,6 +1,6 @@
 # The Source View is a bounded space
 
-Status: accepted. Supersedes the fit, the pointer Zoom and the letterboxing that [ADR 0038](0038-the-console-owns-the-source-grid-transform.md) presented the Source under. The rest of ADR 0038 stands: the console owns the transform, applies it when it computes each Cell's rectangle, and lays each Glyph out at the size it is drawn at. It does not reopen [ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md).
+Status: accepted. Supersedes the fit, the pointer Zoom and the letterboxing that [ADR 0038](0038-the-console-owns-the-source-grid-transform.md) presented the Source under. [ADR 0047](0047-the-source-view-has-a-margin.md) amends the default Grid, the default window and how far a Pan reaches below. The rest of ADR 0038 stands: the console owns the transform, applies it when it computes each Cell's rectangle, and lays each Glyph out at the size it is drawn at. It does not reopen [ADR 0005](0005-defer-source-addressing-for-infinite-canvas.md).
 
 The console presents the Source as a space the viewer moves through, not a picture fitted to the window. The Source View opens at Zoom 1.0 — the Source's own Cell, now 16 points with an 11.5 point Glyph — at which the default 64 by 40 Grid fills the default window exactly. A resize changes how much of the Source shows and never the Cell size.
 

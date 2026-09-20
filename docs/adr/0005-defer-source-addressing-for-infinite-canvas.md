@@ -1,6 +1,8 @@
 # Defer Source addressing for an infinite canvas
 
-The console's default is 64 by 40, not the 64 by 64 named below; `DEFAULT_COL_COUNT` and
+Status: partially superseded by [ADR 0049](0049-a-position-is-two-numbers.md), which fixes a 256 by 256 limit and spells a Position as two Numbers. The `&` prefix and the four directional Address Functions stand.
+
+The console's default is 128 by 80 (ADR 0047), not the 64 by 64 named below; `DEFAULT_COL_COUNT` and
 `DEFAULT_ROW_COUNT` (`orcvs/src/grid.rs`) are the only statement of it. The number below is left as
 written — the decision it carries is that the default is exploratory rather than an address-space
 contract, which holds whatever the default happens to be. The sparse infinite canvas is a v2

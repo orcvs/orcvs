@@ -935,10 +935,10 @@ mod test {
 
     #[cfg(feature = "persistence")]
     #[test]
-    fn test_source_deserialization_rejects_overflowing_grid_dimensions() {
+    fn test_source_deserialization_rejects_a_grid_wider_than_a_number_addresses() {
         let encoded = format!(
             r#"{{"grid":{{"cols":{},"rows":2}},"inner":""}}"#,
-            usize::MAX / 2 + 1
+            crate::grid::MAX_COL_COUNT + 1
         );
 
         assert!(serde_json::from_str::<Source>(&encoded).is_err());
