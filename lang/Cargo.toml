@@ -27,12 +27,12 @@ arrayvec.workspace = true
 rand_chacha = { version = "0.10.0", default-features = false }
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3.18", features = [
-    "fmt",
-], default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+tracing-subscriber = { version = "0.3.18", features = [
+    "fmt",
+], default-features = false }
 
 # Property tests are confined to native targets. Every invariant they encode is
 # platform-independent logic, so running them under `wasm-pack` adds a dependency

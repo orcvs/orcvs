@@ -22,6 +22,7 @@ pub use sequence::{Sequence, Value};
 pub use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};
 
+#[cfg(test)]
 use std::sync::Once;
 
 /// One interpreted MIDI instruction a Terminal Output Function emits for
@@ -264,10 +265,10 @@ pub fn str_to_num(s: &str) -> Result<u8, Error> {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 static INIT: Once = Once::new();
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn trace() {
     INIT.call_once(|| {
         use tracing_subscriber::FmtSubscriber;
