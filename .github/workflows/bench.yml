@@ -115,7 +115,7 @@ jobs:
         shell: bash
         run: mise run bench | tee output.txt
       - name: Publish and compare
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           # The action keys the stored series by this name. It must never change.
           name: lang
@@ -190,7 +190,7 @@ jobs:
           printf '[%s]\n' "$(printf '%s\n' "$records" | paste -sd, -)" > memory.json
           cat memory.json
       - name: Publish and compare allocations
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           # The action keys the stored series by this name, and it must never change,
           # for the same reason the `lang` name above must not: a rename does not move
@@ -278,7 +278,7 @@ jobs:
         shell: bash
         run: mise run bench | tee output.txt
       - name: Compare against main
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           name: lang
           tool: cargo
@@ -355,7 +355,7 @@ jobs:
           printf '[%s]\n' "$(printf '%s\n' "$records" | paste -sd, -)" > memory.json
           cat memory.json
       - name: Compare allocations against main
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           name: memory
           tool: customSmallerIsBetter
