@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
-    source::{Diagnostic, SourcePaint, SourceRevision, Span},
+    source::{Claim, Diagnostic, OperandState, SourcePaint, SourceRevision, Span, Token},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -15,7 +17,8 @@ pub(crate) struct RenderFrameConfig {
 pub struct RenderCell {
     position: Position,
     content: Option<char>,
-    source_paint: SourcePaint,
+    claim: Option<Arc<Claim>>,
+    slot_written: bool,
     output_portal: bool,
 }
 
@@ -29,10 +32,44 @@ impl RenderCell {
     }
 
     ///
+    /// The parser's claim on this Cell, when one claims it.
+    ///
+    /// `None` means no positioned entry covers this Cell: an empty unclaimed
+    /// Cell, or leftover content no Expression claimed. Each claim is stored
+    /// once and shared by every Cell it covers.
+    ///
+    pub fn claim(&self) -> Option<&Claim> {
+        self.claim.as_deref()
+    }
+
     /// The language fact this Cell's Source Paint presents.
     ///
+    /// Whether an operand slot is written is derived once when the Render
+    /// Frame is built and copied to every Cell covered by that claim. Paint
+    /// therefore spends no lookup or claim-range walk per drawn Cell.
     pub fn source_paint(&self) -> SourcePaint {
-        self.source_paint
+        let Some(claim) = self.claim() else {
+            return SourcePaint::Unclaimed;
+        };
+        match claim.token {
+            Token::Bang => SourcePaint::Bang,
+            Token::Comment => SourcePaint::Comment,
+            Token::Function if claim.atom.is_some() => SourcePaint::Function,
+            Token::Function => SourcePaint::Unclaimed,
+            Token::Char => unreachable!("the Parser never creates a positioned Char claim"),
+            token @ (Token::Number | Token::Note | Token::Atom | Token::Sequence) => {
+                SourcePaint::Operand {
+                    token,
+                    state: if claim.atom.is_some() {
+                        OperandState::Valid
+                    } else if self.slot_written {
+                        OperandState::Invalid
+                    } else {
+                        OperandState::Pending
+                    },
+                }
+            }
+        }
     }
 
     ///
@@ -41,17 +78,15 @@ impl RenderCell {
     /// (`.scratch/syntax-highlighting/issues/05`'s Answer).
     ///
     /// `true` covers the Cell pair from the Output Portal for a Function that
-    /// can only answer a scalar. A Sequence-capable Function covers at least
-    /// four Cells and then each following written Cell pair, clipped to its
-    /// Reservation; the highlight stops at the first blank Cell. The fit is
-    /// shaped by written content, not by the answer, so an Expression written
-    /// directly after a short answer is absorbed and an answer holding a
-    /// blank Cell is cut short there
-    /// (`.scratch/syntax-highlighting/issues/12`'s known limit, and `13`). A
-    /// nested Function, a Terminal Output Function, Halt, and a
-    /// Source-writing Function (including an Advance's cleared anchor) never
-    /// set it, and neither does a scalar destination the row edge leaves no
-    /// room for.
+    /// can only answer a scalar. A Function that can answer a Sequence covers
+    /// the fitted highlight `SourceRevision::output_portal_highlight` derives
+    /// (`.scratch/syntax-highlighting/issues/12`): at least four Cells from
+    /// the Output Portal, then each following written Cell pair, clipped to
+    /// the Reservation — not the whole Reservation, which is what the Tick
+    /// scheduler still reserves. A nested Function, a Terminal Output
+    /// Function, Halt, and a Source-writing Function (including an Advance's
+    /// cleared anchor) never set it, and neither does a scalar destination the
+    /// row edge leaves no room for.
     ///
     pub fn output_portal(&self) -> bool {
         self.output_portal
@@ -109,8 +144,18 @@ impl RenderFrame {
         let grid = source.grid();
         grid.assert_owns(region.anchor());
         grid.assert_owns(region.cursor());
-        let source_paint = source.language_map().source_paint_cells();
-        let output_portals = source.language_map().output_portal_highlight();
+        let (claims, unique_claims) = source.language_map().claims_by_cell();
+        let mut slot_written = vec![false; grid.count()];
+        for claim in unique_claims {
+            let written = claim.cells.clone().any(|index| {
+                grid.cell_index(index)
+                    .is_some_and(|cell| source.content_at(grid.position_at(cell)).is_some())
+            });
+            for index in claim.cells.clone() {
+                slot_written[index] = written;
+            }
+        }
+        let output_portals = source.output_portal_highlight();
         let cells = grid
             .positions_by_row()
             .flatten()
@@ -119,7 +164,8 @@ impl RenderFrame {
                 RenderCell {
                     position,
                     content: source.content_at(position),
-                    source_paint: source_paint[index],
+                    claim: claims[index].clone(),
+                    slot_written: slot_written[index],
                     output_portal: output_portals[index],
                 }
             })
@@ -315,21 +361,13 @@ mod tests {
     }
 
     ///
-    /// The Token this Cell's Source Paint names, or `None` when its answer
-    /// names none. `None` therefore covers an empty unclaimed Cell and text
-    /// that spells no Function alike, because `SourcePaint::Unclaimed` is the
-    /// single answer for both (`.scratch/syntax-highlighting/spec.md`,
-    /// Unclaimed). Every test below that names a Token by position reads it
-    /// from the Source Paint answer through here.
+    /// The Token the claim on `position` declares, or `None` when nothing
+    /// claims it. `RenderCell::token()` answered this directly before
+    /// `syntax-highlighting/09` removed it in favour of `claim()`; every test
+    /// below that named a Token by position now reads it from the claim.
     ///
     fn token_at(frame: &RenderFrame, position: crate::grid::Position) -> Option<Token> {
-        match frame.at(position).source_paint() {
-            SourcePaint::Unclaimed => None,
-            SourcePaint::Function => Some(Token::Function),
-            SourcePaint::Bang => Some(Token::Bang),
-            SourcePaint::Comment => Some(Token::Comment),
-            SourcePaint::Operand { token, .. } => Some(token),
-        }
+        frame.at(position).claim().map(|claim| claim.token)
     }
 
     #[test]
@@ -359,10 +397,12 @@ mod tests {
         );
         assert_eq!(token_at(&frame, grid.position(0, 0).unwrap()), None);
         assert_eq!(frame.at(grid.position(1, 0).unwrap()).content(), Some('x'));
-        // The Function table holds no spelling starting `x`, so nothing was
-        // declared at that Cell and nothing failed there: it answers
-        // Unclaimed, naming no Token, exactly as the empty Cells do.
-        assert_eq!(token_at(&frame, grid.position(1, 0).unwrap()), None);
+        // A character standing where a Function goes is classified there,
+        // whether or not the table holds its spelling.
+        assert_eq!(
+            token_at(&frame, grid.position(1, 0).unwrap()),
+            Some(Token::Function)
+        );
         assert_eq!(token_at(&frame, grid.position(0, 1).unwrap()), None);
     }
 
@@ -394,10 +434,16 @@ mod tests {
         );
         // The third `*` is not half a Bang. It opens an Expression of its own
         // whose spelling `*x` the Function table does not hold, and the `x`
-        // opens the one after that — so neither spells anything, and each
-        // answers Unclaimed rather than Bang.
-        assert_eq!(token_at(&frame, grid.position(2, 0).unwrap()), None);
-        assert_eq!(token_at(&frame, grid.position(3, 0).unwrap()), None);
+        // opens the one after that — each classified where a Function goes,
+        // because that is where each of them stands.
+        assert_eq!(
+            token_at(&frame, grid.position(2, 0).unwrap()),
+            Some(Token::Function)
+        );
+        assert_eq!(
+            token_at(&frame, grid.position(3, 0).unwrap()),
+            Some(Token::Function)
+        );
     }
 
     #[test]
@@ -432,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn a_valid_function_with_invalid_operands_answers_paint_per_cell() {
+    fn a_valid_function_with_unbound_operands_shares_each_parsers_claim() {
         // `.+c40G`: Addition's two Number operands. `c4` is lowercase and `0G`
         // is not hexadecimal, so both fail `Token::Number::decode` and the
         // Parser records each as `(Token::Number, None)`. The Function itself
@@ -442,44 +488,100 @@ mod tests {
         write_row(&source, grid, ".+c40G");
         let frame = derive_frame(&source, grid.origin());
 
-        assert!((0..2).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
-                == SourcePaint::Function
+        let function = frame.at(grid.position(0, 0).unwrap()).claim().expect(".+");
+        assert_eq!(function.cells, 0..2);
+        assert_eq!(function.token, Token::Function);
+        assert_eq!(
+            function.atom,
+            Some(lang::Atom::Function(lang::Function::Add))
+        );
+        assert!(std::ptr::eq(
+            function,
+            frame.at(grid.position(1, 0).unwrap()).claim().expect(".+")
         ));
-        assert!((2..6).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
+
+        let first = frame.at(grid.position(2, 0).unwrap()).claim().expect("c4");
+        assert_eq!(first.cells, 2..4);
+        assert_eq!(first.token, Token::Number);
+        assert_eq!(first.atom, None);
+        assert!(std::ptr::eq(
+            first,
+            frame.at(grid.position(3, 0).unwrap()).claim().expect("c4")
+        ));
+        assert!((2..4).all(|column| {
+            frame.at(grid.position(column, 0).unwrap()).source_paint()
                 == SourcePaint::Operand {
                     token: Token::Number,
                     state: OperandState::Invalid,
                 }
+        }));
+
+        let second = frame.at(grid.position(4, 0).unwrap()).claim().expect("0G");
+        assert_eq!(second.cells, 4..6);
+        assert_eq!(second.token, Token::Number);
+        assert_eq!(second.atom, None);
+        assert!(std::ptr::eq(
+            second,
+            frame.at(grid.position(5, 0).unwrap()).claim().expect("0G")
         ));
     }
 
     #[test]
     fn a_bound_number_sits_beside_an_unbound_blank_operand_claim() {
         // `.+01  `: the first Number binds; the second operand is two blank
-        // Cells the arity still claims. The blank slot is Pending, not
-        // Invalid: nothing is written in it, which is the distinction the
-        // Language Map draws while this revision's bytes are in hand.
+        // Cells the arity still claims. Pending and Invalid are not told
+        // apart here — `atom: None` covers both.
         let grid = Grid::new(6, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, ".+01  ");
         let frame = derive_frame(&source, grid.origin());
 
-        assert!((2..4).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
-                == SourcePaint::Operand {
-                    token: Token::Number,
-                    state: OperandState::Valid,
-                }
+        let bound = frame.at(grid.position(2, 0).unwrap()).claim().expect("01");
+        assert_eq!(bound.cells, 2..4);
+        assert_eq!(bound.token, Token::Number);
+        assert_eq!(bound.atom, Some(lang::Atom::Number(1)));
+        assert!(std::ptr::eq(
+            bound,
+            frame.at(grid.position(3, 0).unwrap()).claim().expect("01")
         ));
-        assert!((4..6).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
+
+        let pending = frame
+            .at(grid.position(4, 0).unwrap())
+            .claim()
+            .expect("blank operand");
+        assert_eq!(pending.cells, 4..6);
+        assert_eq!(pending.token, Token::Number);
+        assert_eq!(pending.atom, None);
+        assert!(std::ptr::eq(
+            pending,
+            frame
+                .at(grid.position(5, 0).unwrap())
+                .claim()
+                .expect("blank operand")
+        ));
+        assert!((4..6).all(|column| {
+            frame.at(grid.position(column, 0).unwrap()).source_paint()
                 == SourcePaint::Operand {
                     token: Token::Number,
                     state: OperandState::Pending,
                 }
-        ));
+        }));
+    }
+
+    #[test]
+    fn a_partly_written_operand_is_invalid_on_every_cell() {
+        let grid = Grid::new(4, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+0");
+        let frame = derive_frame(&source, grid.origin());
+
+        assert!((2..4).all(|column| {
+            frame.at(grid.position(column, 0).unwrap()).source_paint()
+                == SourcePaint::Operand {
+                    token: Token::Number,
+                    state: OperandState::Invalid,
+                }
+        }));
     }
 
     #[test]
@@ -508,51 +610,55 @@ mod tests {
 
         let truncated = grid.position(4, 0).unwrap();
         assert_eq!(frame.at(truncated).content(), None);
-        assert_eq!(
-            frame.at(truncated).source_paint(),
-            SourcePaint::Operand {
-                token: Token::Number,
-                state: OperandState::Pending,
-            }
-        );
+        let claim = frame.at(truncated).claim().expect("truncated Number");
+        assert_eq!(claim.cells, 4..5);
+        assert_eq!(claim.token, Token::Number);
+        assert_eq!(claim.atom, None);
     }
 
     #[test]
-    fn a_lone_pipe_and_the_cell_beside_it_are_unclaimed() {
+    fn a_lone_pipe_is_one_unbound_function_claim() {
         // A lone `|` is a refused Function spelling (ADR 0018): every unit
         // starts as a Function slot, the two-Cell read fails
-        // `Function::try_from`, and the refusal advances one character. A
-        // refusal declares nothing, so the `|` answers Unclaimed, and so does
-        // the empty Cell beside it.
+        // `Function::try_from`, and the refusal advances one character.
         let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "|");
         let frame = derive_frame(&source, grid.origin());
 
-        assert_eq!(
-            frame.at(grid.position(0, 0).unwrap()).source_paint(),
-            SourcePaint::Unclaimed
-        );
-        assert_eq!(
-            frame.at(grid.position(1, 0).unwrap()).source_paint(),
-            SourcePaint::Unclaimed
+        let pipe = frame.at(grid.position(0, 0).unwrap()).claim().expect("|");
+        assert_eq!(pipe.cells, 0..1);
+        assert_eq!(pipe.token, Token::Function);
+        assert_eq!(pipe.atom, None);
+        assert!(
+            frame.at(grid.position(1, 0).unwrap()).claim().is_none(),
+            "the empty Cell beside `|` is unclaimed"
         );
     }
 
     #[test]
-    fn a_written_07_is_two_unclaimed_cells() {
+    fn a_written_07_is_two_one_cell_unbound_function_claims() {
         // A written `07` is two refused Function spellings (ADR 0018).
-        // Nothing distinguishes `0`'s refusal from `7`'s — each spells
-        // nothing over its one Cell, so each answers Unclaimed.
+        // Nothing distinguishes `0`'s refusal from `7`'s — both are
+        // `(Token::Function, None)` over one Cell.
         let grid = Grid::new(2, 1);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "07");
         let frame = derive_frame(&source, grid.origin());
 
-        assert!((0..2).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
-                == SourcePaint::Unclaimed
-        ));
+        let zero = frame.at(grid.position(0, 0).unwrap()).claim().expect("0");
+        assert_eq!(zero.cells, 0..1);
+        assert_eq!(zero.token, Token::Function);
+        assert_eq!(zero.atom, None);
+
+        let seven = frame.at(grid.position(1, 0).unwrap()).claim().expect("7");
+        assert_eq!(seven.cells, 1..2);
+        assert_eq!(seven.token, Token::Function);
+        assert_eq!(seven.atom, None);
+        assert!(
+            !std::ptr::eq(zero, seven),
+            "each refused Cell is its own claim"
+        );
     }
 
     #[test]
@@ -565,10 +671,25 @@ mod tests {
         write_row(&source, grid, "||abc");
         let frame = derive_frame(&source, grid.origin());
 
-        assert!((0..5).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
-                == SourcePaint::Comment
-        ));
+        let comment = frame
+            .at(grid.position(0, 0).unwrap())
+            .claim()
+            .expect("Comment");
+        assert_eq!(comment.cells, 0..5);
+        assert_eq!(comment.token, Token::Comment);
+        assert_eq!(comment.atom, None);
+        for column in 1..5 {
+            assert!(
+                std::ptr::eq(
+                    comment,
+                    frame
+                        .at(grid.position(column, 0).unwrap())
+                        .claim()
+                        .expect("Comment")
+                ),
+                "column {column}"
+            );
+        }
     }
 
     #[test]
@@ -578,9 +699,13 @@ mod tests {
         write_row(&source, grid, "**");
         let frame = derive_frame(&source, grid.origin());
 
-        assert!((0..2).all(
-            |column| frame.at(grid.position(column, 0).unwrap()).source_paint()
-                == SourcePaint::Bang
+        let bang = frame.at(grid.position(0, 0).unwrap()).claim().expect("**");
+        assert_eq!(bang.cells, 0..2);
+        assert_eq!(bang.token, Token::Bang);
+        assert_eq!(bang.atom, Some(lang::Atom::Bang));
+        assert!(std::ptr::eq(
+            bang,
+            frame.at(grid.position(1, 0).unwrap()).claim().expect("**")
         ));
     }
 
@@ -592,7 +717,7 @@ mod tests {
         let frame = derive_frame(&source, grid.origin());
 
         assert!(
-            frame.at(grid.position(0, 1).unwrap()).source_paint() == SourcePaint::Unclaimed,
+            frame.at(grid.position(0, 1).unwrap()).claim().is_none(),
             "an empty Cell no Expression covers is not a claim"
         );
     }
@@ -614,10 +739,10 @@ mod tests {
         );
 
         assert_eq!(cell_at(&frame, grid.origin()).content(), Some('x'));
-        // A lone character spells no Function, so it answers Unclaimed and
-        // names no Token. What this test is about is that its glyph survives
-        // sector presentation at all.
-        assert_eq!(token_at(&frame, grid.origin()), None);
+        // A lone character is the first Cell of a spelling the Function table
+        // does not hold, which is a classification like any other. What this
+        // test is about is that it survives sector presentation at all.
+        assert_eq!(token_at(&frame, grid.origin()), Some(Token::Function));
     }
 
     #[test]

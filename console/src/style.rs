@@ -326,8 +326,7 @@ mod tests {
     ///
     /// `paint` is ADR 0050's finished per-Cell language fact, fed in as
     /// itself. Deriving it here from a hand-built claim would restate
-    /// `LanguageMap::derive_source_paint`, which is private to `orcvs` and
-    /// so unreachable from this crate (`error[E0624]`) — a restatement
+    /// `RenderCell::source_paint` — a restatement
     /// nothing compares against, free to drift from the mapping it copies
     /// while every test here stays green. Which claim a written Source
     /// answers with which [`SourcePaint`] is proven where a Source can be
