@@ -1,0 +1,629 @@
+<!doctype html>
+<!--
+PROTOTYPE, throwaway. Question: how should Source Paint distinguish the roles in .scratch/syntax-highlighting/spec.md?
+Five paint options over one hand-authored sample Source, switchable with ?variant=0|A|B|C|D|all, the bottom bar, or the left/right arrow keys.
+0 reproduces the current console paint (Token hue only) as the baseline. ?palette= picks the colours; every palette names its source. Classifications, diagnostic messages and the arity of *> are illustrations, not Parser output.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Source Paint Options</title>
+<style>
+:root{color-scheme:dark;--page:#0B1112;--source:#070D0D;--grid:rgba(29,55,49,.28);--fn:#68E0B8;--bang:#FF7F87;--number:#83A6D8;--note:#AA91D6;--ordinary:#A5B7B2;--comment:#7A8784;--seq:#CDBB7A;--amber:#F0A640;--gold:#E3C27A;--ink:#EAEBE5;--char:#A5B7B2;--ink-ui:#EAEBE5;--text:#C9D3D0;--muted:#7F8E8A;--panel:#0F1718;--line:#1D2B2A;--cw:26px;--ch:28px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px 16px 96px}
+h1{font-size:18px;margin:0 0 4px;color:var(--ink-ui)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;font-weight:600}
+h3{font-size:14px;margin:0 0 6px;color:var(--ink-ui)}
+p{margin:0 0 8px}
+code{font-family:ui-monospace,SF Mono,Menlo,Consolas,monospace;font-size:12.5px;color:var(--ink-ui)}
+.hyp{display:inline-block;font-size:11px;padding:0 6px;border:1px solid #F0A640;color:#F0A640;border-radius:9px;margin-left:4px;vertical-align:1px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start;max-width:1320px}
+@media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
+.scroll{overflow-x:auto;padding:4px 4px 8px 26px}
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:10px}
+.controls label{display:flex;gap:6px;align-items:center;cursor:pointer}
+button{background:#162322;color:var(--ink-ui);border:1px solid #2A3D3B;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+button:hover{background:#1E302E}
+button:disabled{opacity:.4;cursor:default}
+.variant-block{margin-bottom:18px}
+.variant-block .enc{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
+
+/* ---------- Source Grid ---------- */
+.grid{position:relative;isolation:isolate;background-color:var(--source);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:var(--cw) var(--ch);font-family:ui-monospace,SF Mono,Menlo,Consolas,monospace;font-size:17px}
+.cell{position:absolute;width:var(--cw);height:var(--ch);display:flex;align-items:center;justify-content:center;color:var(--ordinary);line-height:1;cursor:default;user-select:none}
+.cell::before,.cell::after{position:absolute;pointer-events:none;box-sizing:border-box}
+.cell.hl{outline:2px solid var(--ink);outline-offset:-2px;z-index:6}
+.ov{position:absolute;pointer-events:none;display:none;z-index:2;height:var(--ch)}
+.chg-dot{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--ink);margin:2px 0 0 18px;z-index:7;pointer-events:none}
+
+/* 0: current console — foreground colour by Token, blank letters for empty claimed Cells */
+.v-0 .fn{color:var(--fn)}
+.v-0 .operand{color:var(--tok)}
+.v-0 .bang,.v-0 .rk-bang{color:var(--bang)}
+.v-0 .comment-intro,.v-0 .comment-body{color:var(--comment)}
+
+/* A: Token hue, state by weight */
+.v-A .fn{color:var(--fn);font-weight:700}
+.v-A .operand{color:var(--tok)}
+.v-A .operand.st-pending::after{content:'';left:6px;right:6px;bottom:8px;height:2px;background:var(--tok);opacity:.65}
+.v-A .operand.st-invalid{background:color-mix(in srgb,var(--amber) 18%,transparent)}
+.v-A .result{color:var(--tok);background:color-mix(in srgb,var(--tok) 16%,transparent)}
+/* palette fill: Functions and Operands take the Token-tinted background a Result has; invalid keeps it and turns the glyph diagnostic */
+.pal-fill .v-A .fn{background:color-mix(in srgb,var(--fn) 16%,transparent)}
+.pal-fill .v-A .operand{background:color-mix(in srgb,var(--tok) 16%,transparent)}
+.pal-fill .v-A .operand.st-invalid{color:var(--amber)}
+.pal-fill .v-A .result{color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
+.pal-fill .v-A .rk-bang{color:var(--bang)}
+.pal-fill .v-A .rk-none{color:var(--gold);background:none}
+.v-A .rk-none{color:var(--ordinary);opacity:.4;background:none}
+.v-A .bang{color:var(--bang);font-weight:700}
+.v-A .comment-intro{color:var(--comment);font-weight:700}
+.v-A .comment-body{color:var(--comment);font-style:italic}
+.v-A .leftover{opacity:.38}
+.v-A .incomplete{color:var(--amber);font-weight:700}
+.show-exec .v-A .ov-exec.yes{display:block;width:3px!important;height:16px;margin:6px 0 0 -4px;background:var(--fn);border-radius:2px}
+.show-exec .v-A .nx.fn{opacity:.42}
+.show-exec .v-A .nx.operand{opacity:.7}
+.show-diag .v-A .ov-diag.expr{display:block;height:4px;margin-top:calc(var(--ch) - 5px);background:var(--amber);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4'%3E%3Cpath d='M0 3 Q2 0 4 2 T8 2' fill='none' stroke='black' stroke-width='1.3'/%3E%3C/svg%3E") repeat-x left top/8px 4px;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4'%3E%3Cpath d='M0 3 Q2 0 4 2 T8 2' fill='none' stroke='black' stroke-width='1.3'/%3E%3C/svg%3E") repeat-x left top/8px 4px}
+.show-diag .v-A .ov-diag.lex{display:block;border:1px solid var(--amber)}
+
+/* B: role blocks */
+.v-B .fn{background:var(--fn);color:var(--source);font-weight:700}
+.v-B .fn.ua{box-shadow:inset 2px 0 0 var(--source)}
+.v-B .fn.terminal{background:transparent;color:var(--fn);box-shadow:none}
+.v-B .fn.terminal.ua::before{content:'';z-index:-1;left:2px;top:3px;bottom:3px;width:calc(200% - 4px);border:1.5px solid var(--fn);border-radius:2px}
+.v-B .operand{color:var(--tok)}
+.v-B .operand.ua::before{content:'';z-index:-1;left:2px;top:4px;bottom:4px;width:calc(200% - 4px);border:1px solid var(--tok);border-radius:2px}
+.v-B .operand.st-pending.ua::before{border-style:dashed}
+.v-B .operand.st-invalid{color:var(--ink)}
+.v-B .operand.st-invalid.ua::before{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--amber) 45%,transparent) 0 2px,transparent 2px 6px)}
+.v-B .result{color:var(--tok)}
+.v-B .result::before{content:'';z-index:-1;left:0;right:0;bottom:2px;height:4px;background:var(--tok);opacity:.75}
+.v-B .result.rs::before{left:2px}
+.v-B .result.re::before{right:2px}
+.v-B .rk-none{color:var(--ordinary);opacity:.55}
+.v-B .rk-none::before{background:none;height:0;border-bottom:2px dashed var(--ordinary)}
+.v-B .bang{background:var(--bang);color:var(--source);font-weight:700}
+.v-B .bang.ua{box-shadow:inset 2px 0 0 var(--source)}
+.v-B .comment-body{color:var(--comment);background:color-mix(in srgb,var(--comment) 12%,transparent)}
+.v-B .comment-intro{color:var(--ink);background:color-mix(in srgb,var(--comment) 40%,transparent)}
+.v-B .leftover{opacity:.6}
+.v-B .leftover::before{content:'';z-index:-1;inset:5px 3px;border:1px dotted color-mix(in srgb,var(--ordinary) 40%,transparent)}
+.v-B .incomplete{color:var(--amber)}
+.show-exec .v-B .ov-exec.yes{display:block;height:2px;margin-top:-1px;background:var(--fn)}
+.show-exec .v-B .ov-exec.no{display:block;height:0;margin-top:-1px;border-top:2px dotted color-mix(in srgb,var(--ordinary) 45%,transparent)}
+.show-exec .v-B .nx{filter:saturate(.15);opacity:.55}
+.show-diag .v-B .ov-diag.expr{display:block;height:var(--ch);border:2px solid var(--amber);border-radius:3px;z-index:3}
+.show-diag .v-B .ov-diag.lex{display:block;height:var(--ch);background:linear-gradient(135deg,var(--amber) 0 7px,transparent 7px)}
+
+/* C: ink and structure */
+.v-C .fn{color:var(--ink);font-weight:700}
+.v-C .operand.ua::after{content:'';z-index:-1;left:4px;width:calc(200% - 8px);bottom:3px;height:2px;background:var(--tok)}
+.v-C .operand.st-pending{color:var(--tok)}
+.v-C .operand.st-invalid{text-decoration:line-through 2px var(--amber)}
+.v-C .result{opacity:.5}
+.v-C .rk-bang{color:var(--bang);opacity:.75}
+.v-C .rk-none{opacity:.3}
+.v-C .bang{color:var(--bang);font-weight:700}
+.v-C .comment-intro{opacity:.7}
+.v-C .comment-body{opacity:.42}
+.v-C .leftover{opacity:.25}
+.v-C .incomplete{color:var(--amber)}
+.show-exec .v-C .ov-exec.yes{display:block;height:var(--ch);z-index:-1;background:color-mix(in srgb,var(--fn) 8%,transparent);box-shadow:0 0 12px color-mix(in srgb,var(--fn) 30%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--fn) 25%,transparent);border-radius:4px}
+.show-diag .v-C .ov-diag{display:block;height:var(--ch);border-bottom:2px solid var(--amber)}
+.show-diag .v-C .ov-diag.lex{border-bottom-style:dotted}
+.show-diag .v-C .ov-diag::before{content:'●';position:absolute;left:calc(-1 * var(--x) - 19px);top:7px;font-size:11px;color:var(--amber)}
+.show-diag .v-C .ov-diag.lex::before{content:'◆'}
+
+/* D: state glyph, Token chip */
+.v-D .fn{color:var(--fn)}
+.v-D .fn.terminal.ua::after{content:'';left:3px;width:calc(200% - 6px);bottom:3px;height:4px;border-top:1px solid var(--fn);border-bottom:1px solid var(--fn)}
+.v-D .operand{color:var(--ink)}
+.v-D .operand.st-invalid{color:var(--amber)}
+.v-D .operand.st-pending{background:color-mix(in srgb,var(--tok) 13%,transparent)}
+.v-D .operand.ua::before,.v-D .result.ua::before{content:'';z-index:1;left:1px;top:1px;width:0;height:0;border-top:7px solid var(--tok);border-right:7px solid transparent}
+.v-D .result{color:var(--gold)}
+.v-D .rk-bang{color:var(--bang)}
+.v-D .rk-none{opacity:.4}
+.v-D .bang{color:var(--bang);font-weight:700}
+.v-D .comment-intro,.v-D .comment-body{color:var(--comment)}
+.v-D .leftover{opacity:.35}
+.v-D .incomplete{color:var(--amber)}
+.show-exec .v-D .ov-exec.yes{display:block;height:var(--ch);border:1px solid color-mix(in srgb,var(--fn) 55%,transparent);border-radius:3px}
+.show-exec .v-D .ov-exec.no{display:block;height:var(--ch);border:1px dashed color-mix(in srgb,var(--ordinary) 30%,transparent);border-radius:3px}
+.show-diag .v-D .ov-diag.expr{display:block;height:var(--ch);border:2px solid var(--amber);border-radius:3px;z-index:3}
+.show-diag .v-D .ov-diag.lex{display:block;height:var(--ch);border:1px dashed var(--amber)}
+
+/* ---------- side panels ---------- */
+.inspector dl{display:grid;grid-template-columns:96px 1fr;gap:3px 10px;margin:0}
+.inspector dt{color:var(--muted)}
+.inspector dd{margin:0;color:var(--ink-ui);overflow-wrap:anywhere}
+.legend ul{list-style:none;margin:0 0 10px;padding:0}
+.legend li{padding:3px 6px;border-radius:4px;cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+.legend li:hover{background:#18302B}
+.legend li span:last-child{color:var(--muted);font-size:12px;white-space:nowrap}
+.legend .sec{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 2px}
+.walk{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.steps{margin:0;padding-left:20px;color:var(--muted);font-size:13px}
+.steps li.on{color:var(--ink-ui);font-weight:600}
+.diagline{max-width:420px;padding:8px 10px;border-left:3px solid var(--fn);background:#0B1414;font-size:13px}
+.diagline.bad{border-left-color:#F0A640}
+.pal-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.pal-table td{padding:3px 4px;border-top:1px solid var(--line);vertical-align:middle}
+.pal-table .sw{width:18px;height:18px;border-radius:3px;border:1px solid #ffffff33}
+.pal-table .low{color:#F0A640}
+.pal-note{color:var(--muted);font-size:12.5px;margin:6px 0 0}
+select{background:#162322;color:var(--ink-ui);border:1px solid #2A3D3B;border-radius:6px;padding:4px 6px;font:inherit}
+.walk-row{display:flex;gap:14px;align-items:center;margin-bottom:10px}
+.walk-row .tag{width:22px;color:var(--muted);font-weight:700}
+
+/* ---------- prototype switcher (not part of any design) ---------- */
+.switcher{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:#F4F1E8;color:#111;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.55);z-index:100;font-weight:600;max-width:calc(100vw - 32px)}
+.switcher button{background:#111;color:#F4F1E8;border:0;border-radius:999px;width:32px;height:32px;padding:0;font-size:16px}
+.switcher span{padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body class="show-exec show-diag">
+<h1>Source Paint options <span class="hyp">prototype</span></h1>
+<p>Question: what should Source Paint show for each role in <code>.scratch/syntax-highlighting/spec.md</code>? Hover a Cell to inspect it. Hover a role in the checklist to find it in the Grid.</p>
+<p style="color:var(--muted);font-size:13px">The sample Source is classified by hand to show every role. It is not Parser output. Diagnostic wording and the zero arity of <code>*&gt;</code> are made up. <span class="hyp">hypothetical</span></p>
+<p style="color:var(--muted);font-size:13px">A palette assigns one colour to each paint role. Only the Grid changes. The Palette panel names each palette's source and shows every role's contrast against the Source background. Which published slot fills which role is this prototype's choice.</p>
+
+<div class="layout">
+  <div>
+    <div class="panel">
+      <div class="controls">
+        <label>Palette <select id="palette"></select></label>
+        <label><input type="checkbox" id="t-exec" checked> Overlay: will execute</label>
+        <label><input type="checkbox" id="t-diag" checked> Overlay: diagnostic coverage</label>
+      </div>
+      <div id="main"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Edit walkthrough — typing one Function</h2>
+      <div class="controls">
+        <button id="w-reset">Reset</button>
+        <button id="w-prev">← Back</button>
+        <button id="w-next">Next →</button>
+        <span id="w-title" style="color:var(--ink-ui);font-weight:600"></span>
+      </div>
+      <div class="walk">
+        <div id="walk-grids"></div>
+        <ol class="steps" id="w-steps"></ol>
+      </div>
+      <p style="color:var(--muted);font-size:13px;margin-top:10px">A dot marks a Cell that changed since the previous frame.</p>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel inspector">
+      <h2>Inspector</h2>
+      <dl id="insp"><dt>—</dt><dd>Hover a Cell</dd></dl>
+    </div>
+    <div class="panel">
+      <h2>Palette</h2>
+      <div id="pal"></div>
+    </div>
+    <div class="panel legend">
+      <h2>Spec checklist</h2>
+      <div id="legend"></div>
+    </div>
+  </div>
+</div>
+
+<div class="switcher" id="switcher">
+  <button id="s-prev" aria-label="Previous variant">‹</button>
+  <span id="s-label"></span>
+  <button id="s-next" aria-label="Next variant">›</button>
+</div>
+
+<script>
+const CW = 26, CH = 28;
+const TOKC = { Function:'var(--fn)', Bang:'var(--bang)', Number:'var(--number)', Note:'var(--note)', Char:'var(--char)', Atom:'var(--char)', Sequence:'var(--seq)', Comment:'var(--comment)' };
+const TOK = { N:'Number', n:'Note', c:'Char', A:'Atom', S:'Sequence' };
+
+const VARIANTS = {
+  '0': { name:'Current console: Token hue only', lines:[
+    'Foreground colour comes from the Token. An empty claimed Cell spells h, n or c.',
+    'Pending, valid and invalid Operands look the same apart from that letter.',
+    'A Result looks like any other text. Bang is the only exception.',
+    'No overlays. The toggles do nothing here.'] },
+  'A': { name:'A: Token hue, state by weight', lines:[
+    'Glyph colour = Token colour. Functions are bold.',
+    'Pending: a short bar in the Token colour, no letter.',
+    'Invalid: Cell tinted in the diagnostic colour. The glyph keeps the declared Token colour.',
+    'Result: a background tinted in its Token colour, marking a written value rather than a typed slot. Absence: a faint _.',
+    'Will execute: a tick in the Function colour at the anchor. Will not: the Function is dimmed.',
+    'Expression diagnostic: squiggle along the span. Lexical: box. Both in the diagnostic colour.',
+    'Terminal (no Result): shown only by its ! spelling.'] },
+  'B': { name:'B: Role blocks', lines:[
+    'Function: solid block in the Function colour. Terminal Function: outlined block, so "answers no value" is visible.',
+    'Operand: a box around its two Cells, in the Token colour. Pending: dashed box. Invalid: diagnostic-colour hatching inside the Token box.',
+    'Result: a bar under the written Cells, in the Token colour. Sequence: one continuous bar. Absence: dashed bar.',
+    'Bang: solid block in the Bang colour. Comment: one band in the Comment colour, stronger at the introducer.',
+    'Will execute: rule above the span in the Function colour. Will not: dotted rule, and the Expression is desaturated.',
+    'Expression diagnostic: frame. Lexical: corner. Both in the diagnostic colour.'] },
+  'C': { name:'C: Ink and structure', lines:[
+    'Almost monochrome. Functions use the ink colour in bold, and everything else uses the ordinary colour.',
+    'The Token appears only as a thin coloured tick under each Operand pair.',
+    'Pending: · · in the Token colour. Invalid: strike-through in the diagnostic colour.',
+    'Result: ghosted to 50%, a value at rest. Only Bang keeps its colour.',
+    'Will execute: soft glow in the Function colour behind the span. Will not: no glow.',
+    'Diagnostics: a gutter marker for the row (● Expression, ◆ lexical) plus an underline.'] },
+  'D': { name:'D: State glyph, Token chip', lines:[
+    'Glyph colour = state: Function colour, ink for valid, diagnostic colour for invalid, Result colour, Comment colour.',
+    'Token: a coloured corner chip on each two-Cell unit, Results included.',
+    'Pending: the chip plus a faint Token tint, no letter.',
+    'Terminal Function: double rule under the spelling.',
+    'Will execute: solid frame in the Function colour. Will not: dashed frame in the ordinary colour.',
+    'Expression diagnostic: frame in the diagnostic colour, which replaces the other. Lexical: dashed frame.'] },
+};
+
+// Each role reads one CSS variable. `from` records which published slot fills it.
+const ROLES = [
+  ['source','--source','Source background'], ['grid','--grid','Grid line'], ['ink','--ink','Ink (emphasis)'],
+  ['ordinary','--ordinary','Ordinary text'], ['char','--char','Char / Atom'], ['comment','--comment','Comment'],
+  ['fn','--fn','Function'], ['bang','--bang','Bang'], ['number','--number','Number'], ['note','--note','Note'],
+  ['seq','--seq','Sequence'], ['diag','--amber','Diagnostic / invalid'], ['result','--gold','Result'],
+];
+const PALETTES = {
+  console: { name:'Console (style.rs)', source:'console/src/style.rs, added in 06e3a5a "Restyle and navigate the egui Source console". No source or rationale recorded. Sequence, diagnostic and Result have no entry there and use this prototype\'s own picks.',
+    c:{ source:'#070D0D', grid:'rgba(29,55,49,.28)', ink:'#EAEBE5', ordinary:'#A5B7B2', char:'#A5B7B2', comment:'#7A8784', fn:'#68E0B8', bang:'#FF7F87', number:'#83A6D8', note:'#AA91D6', seq:'#CDBB7A', diag:'#F0A640', result:'#E3C27A' },
+    from:{ ink:'cursor_effects.rs DEFAULT_CURSOR_COLOUR', seq:'prototype pick', diag:'prototype pick', result:'prototype pick' } },
+  orca: { name:'Orca default (light)', source:'hundredrabbits/Orca desktop/sources/scripts/lib/theme.js, this.default. Orca colours by role (Operator, Input, Output, Locked), not by value type, so Number, Note and Sequence collapse to one slot.',
+    c:{ source:'#eeeeee', grid:'#ffffff', ink:'#0a0a0a', ordinary:'#6a6a6a', char:'#6a6a6a', comment:'#a1a1a1', fn:'#0a0a0a', bang:'#ffb545', number:'#4a4a4a', note:'#4a4a4a', seq:'#4a4a4a', diag:'#ffb545', result:'#6a6a6a' },
+    from:{ source:'background', grid:'b_low', ink:'f_high', ordinary:'f_low (default)', char:'f_low', comment:'b_high', fn:'f_high', bang:'b_inv', number:'f_med', note:'f_med', seq:'f_med', diag:'b_inv', result:'f_low' } },
+  apollo: { name:'Hundred Rabbits Apollo', source:'hundredrabbits/Themes themes/apollo.svg. It has one accent, used by f_med and b_inv alike.',
+    c:{ source:'#29272b', grid:'#322e33', ink:'#ffffff', ordinary:'#66606b', char:'#66606b', comment:'#66606b', fn:'#e47464', bang:'#e47464', number:'#ffffff', note:'#ffffff', seq:'#ffffff', diag:'#e47464', result:'#66606b' },
+    from:{ source:'background', grid:'b_low', ink:'f_high', ordinary:'f_low', char:'f_low', comment:'f_low', fn:'f_med', bang:'b_inv', number:'f_high', note:'f_high', seq:'f_high', diag:'b_inv', result:'f_low' } },
+  soldark: { name:'Solarized dark', source:'altercation/solarized README (Ethan Schoonover). Base tones for text, accents for roles.',
+    c:{ source:'#002b36', grid:'#073642', ink:'#93a1a1', ordinary:'#839496', char:'#839496', comment:'#586e75', fn:'#2aa198', bang:'#d33682', number:'#268bd2', note:'#6c71c4', seq:'#b58900', diag:'#dc322f', result:'#859900' },
+    from:{ source:'base03', grid:'base02', ink:'base1', ordinary:'base0', char:'base0', comment:'base01', fn:'cyan', bang:'magenta', number:'blue', note:'violet', seq:'yellow', diag:'red', result:'green' } },
+  sollight: { name:'Solarized light', source:'altercation/solarized README. Light base tones with the same accents.',
+    c:{ source:'#fdf6e3', grid:'#eee8d5', ink:'#586e75', ordinary:'#657b83', char:'#657b83', comment:'#93a1a1', fn:'#2aa198', bang:'#d33682', number:'#268bd2', note:'#6c71c4', seq:'#b58900', diag:'#dc322f', result:'#859900' },
+    from:{ source:'base3', grid:'base2', ink:'base01', ordinary:'base00', char:'base00', comment:'base1', fn:'cyan', bang:'magenta', number:'blue', note:'violet', seq:'yellow', diag:'red', result:'green' } },
+  gruvbox: { name:'Gruvbox dark', source:'morhetz/gruvbox colors/gruvbox.vim (Pavel Pertsev). Bright accents on dark0.',
+    c:{ source:'#282828', grid:'#3c3836', ink:'#fbf1c7', ordinary:'#ebdbb2', char:'#ebdbb2', comment:'#928374', fn:'#8ec07c', bang:'#fb4934', number:'#83a598', note:'#d3869b', seq:'#fabd2f', diag:'#fe8019', result:'#b8bb26' },
+    from:{ source:'dark0', grid:'dark1', ink:'light0', ordinary:'light1', char:'light1', comment:'gray_245', fn:'bright_aqua', bang:'bright_red', number:'bright_blue', note:'bright_purple', seq:'bright_yellow', diag:'bright_orange', result:'bright_green' } },
+  nord: { name:'Nord', source:'nordtheme/nord src/nord.css (Arctic Ice Studio). Polar Night, Snow Storm, Frost and Aurora.',
+    c:{ source:'#2e3440', grid:'#3b4252', ink:'#eceff4', ordinary:'#d8dee9', char:'#d8dee9', comment:'#4c566a', fn:'#88c0d0', bang:'#bf616a', number:'#81a1c1', note:'#b48ead', seq:'#ebcb8b', diag:'#d08770', result:'#a3be8c' },
+    from:{ source:'nord0', grid:'nord1', ink:'nord6', ordinary:'nord4', char:'nord4', comment:'nord3', fn:'nord8', bang:'nord11', number:'nord9', note:'nord15', seq:'nord13', diag:'nord12', result:'nord14' } },
+  okabe: { name:'Okabe–Ito (colour-blind safe)', fill:true, source:'Masataka Okabe & Kei Ito, as published in R grDevices palette.colors("Okabe-Ito"). The palette has no grid or ink tone: the grid #1f1f1f and ink #ffffff are prototype picks.',
+    c:{ source:'#000000', grid:'#1f1f1f', ink:'#ffffff', ordinary:'#ffffff', char:'#ffffff', comment:'#999999', fn:'#009E73', bang:'#CC79A7', number:'#56B4E9', note:'#F0E442', seq:'#0072B2', diag:'#D55E00', result:'#E69F00' },
+    from:{ source:'black', grid:'prototype pick', ink:'prototype pick', ordinary:'prototype pick', char:'prototype pick', comment:'gray', fn:'bluishgreen', bang:'reddishpurple', number:'skyblue', note:'yellow', seq:'blue', diag:'vermillion', result:'orange' } },
+};
+const ORDER = ['0','A','B','C','D','all'];
+
+// ---------- model builders ----------
+function model(rows, cols) {
+  return { rows, cols, exprs:[], lex:[],
+    grid: Array.from({length:rows}, (_, r) => Array.from({length:cols}, (_, c) => ({ r, c, ch:' ', role:'empty' }))) };
+}
+function put(m, r, c, o) { Object.assign(m.grid[r][c], o); }
+function E(m, id, row, col, parts, o = {}) {
+  const e = { id, row, c0:col, exec:!!o.exec, diag:o.diag || null, msg:o.msg || '', terminal:!!o.terminal };
+  let c = col; const spell = [];
+  parts.forEach(([k, text, state], i) => {
+    const isF = k === 'F', token = isF ? 'Function' : TOK[k];
+    for (let j = 0; j < 2; j++) {
+      put(m, row, c++, { ch: state === 'pending' ? ' ' : (text[j] ?? ' '), role: isF ? 'fn' : 'operand', token,
+        state: isF ? undefined : (state || 'valid'), expr: e, pair: j ? 'ub' : 'ua', nested: isF && i > 0 });
+    }
+    spell.push(state === 'pending' ? '__' : text);
+  });
+  e.c1 = c - 1; e.label = spell.join(''); m.exprs.push(e); return e;
+}
+function R(m, e, row, col, text, kind, token) {
+  e.result = { row, col, kind };
+  [...text].forEach((ch, i) => put(m, row, col + i, { ch, role:'result', rk:kind, token, expr:e,
+    pair: i % 2 ? 'ub' : 'ua', rs: i === 0, re: i === text.length - 1 }));
+}
+function K(m, row, col, text) {
+  for (let c = col; c < m.cols; c++) put(m, row, c, { ch: text[c - col] ?? ' ', role: c - col < 2 ? 'comment-intro' : 'comment-body', token:'Comment' });
+}
+function B(m, row, col) { put(m, row, col, { ch:'*', role:'bang', token:'Bang', pair:'ua' }); put(m, row, col + 1, { ch:'*', role:'bang', token:'Bang', pair:'ub' }); }
+function X(m, row, col, text) { [...text].forEach((ch, i) => put(m, row, col + i, { ch, role:'leftover' })); }
+function I(m, row, col, msg) { put(m, row, col, { ch:'|', role:'incomplete', lexmsg:msg }); m.lex.push({ row, c0:col, c1:col, msg }); }
+
+function sample() {
+  const m = model(12, 32);
+  K(m, 0, 0, '||kick every four, chord follows');
+  const delay = E(m, 'delay', 1, 0, [['F','~*'],['N','04'],['N','01']], { exec:true, msg:'Delay: Bangs once every 4 Ticks.' });
+  R(m, delay, 2, 0, '**', 'bang', 'Bang');
+  const add = E(m, 'add', 1, 12, [['F','.+'],['N','03'],['N','04']], { exec:true });
+  R(m, add, 2, 12, '07', 'atom', 'Number');
+  B(m, 1, 21);
+  E(m, 'play', 3, 0, [['F','!>'],['N','00'],['N','7F'],['F',':#'],['n','C4'],['n','E4']], { exec:true, terminal:true,
+    msg:'The Delay\'s Bang directly north activates it. Nested Note Range: the parent takes its typed Sequence result. Performs a chord and answers no value.' });
+  const eq = E(m, 'eq', 3, 16, [['F','.='],['N','03'],['N','04']], { exec:true, msg:'The operands are unequal, so it answers the Absence Marker and plans no write.' });
+  R(m, eq, 4, 16, '_', 'none', undefined);
+  E(m, 'badadd', 5, 0, [['F','.+'],['N','c4','invalid'],['N','0G','invalid']], { diag:'expr', msg:'c4 does not bind as a Number (Token still Number). 0G does not bind as a Number.' });
+  const tonote = E(m, 'tonote', 5, 12, [['F','.^'],['N','3C']], { exec:true });
+  R(m, tonote, 6, 12, 'C4', 'atom', 'Note');
+  E(m, 'tonum', 7, 0, [['F','.v'],['n','  ','pending']], { msg:'The Note operand is claimed and still empty.' });
+  const rev = E(m, 'rev', 7, 6, [['F',':<'],['F',':-'],['N','01'],['N','04']], { exec:true, msg:'Nested Range answers a Sequence, which Reverse takes.' });
+  R(m, rev, 8, 6, '04030201', 'seq', 'Sequence');
+  E(m, 'bangop', 9, 0, [['F','.+'],['N','**','invalid'],['N','01']], { diag:'expr', msg:'** is rejected in a Number operand and cannot activate anything.' });
+  X(m, 9, 8, 'hello');
+  I(m, 9, 15, 'A lone | is incomplete Source, not a Comment.');
+  E(m, 'east', 9, 18, [['F','*>']], { msg:'Directional Bang Function: no Bang reaches it this Tick. (Zero arity is assumed.)' });
+  E(m, 'pipeop', 10, 0, [['F','.+'],['N','||','invalid'],['N','02']], { diag:'expr', msg:'A || inside an arity claim is an operand Cell that fails to bind.' });
+  E(m, 'div', 10, 10, [['F','./'],['N','04'],['N','00','invalid']], { exec:true, diag:'expr', msg:'Divide: zero divisor. This is an evaluation diagnostic on the operand.' });
+  E(m, 'timed', 10, 20, [['F','!~'],['N','00'],['N','7F'],['n','C4'],['N','08']], { terminal:true, msg:'A Terminal root with no Bang will not execute, so it reports no evaluation diagnostic.' });
+  E(m, 'partial', 11, 0, [['F','!>'],['N','00'],['N','  ','pending'],['n','  ','pending']], { terminal:true, msg:'Velocity and note are claimed and still empty.' });
+  return m;
+}
+
+const FRAMES = [
+  { t:'Edit 1: type .+', d:'No diagnostic. Both Number operands are pending, so it cannot execute yet.',
+    b: m => E(m, 'w', 0, 1, [['F','.+'],['N','  ','pending'],['N','  ','pending']]) },
+  { t:'Edit 2: type 0', bad:true, d:'"0 " does not bind as a Number. Hypothetical: a half-typed operand counts as Invalid, not Pending.',
+    b: m => E(m, 'w', 0, 1, [['F','.+'],['N','0 ','invalid'],['N','  ','pending']], { diag:'expr', msg:'0 does not bind as a Number.' }) },
+  { t:'Edit 3: type 3', d:'No diagnostic. The first operand is valid and the second is pending.',
+    b: m => E(m, 'w', 0, 1, [['F','.+'],['N','03'],['N','  ','pending']]) },
+  { t:'Edit 4: type 04', d:'No diagnostic. The Expression is complete and first executes on the next Tick.',
+    b: m => E(m, 'w', 0, 1, [['F','.+'],['N','03'],['N','04']], { exec:true }) },
+  { t:'Tick 1', d:'Tick 1: the Output Portal writes 07 one row south.',
+    b: m => R(m, E(m, 'w', 0, 1, [['F','.+'],['N','03'],['N','04']], { exec:true }), 1, 1, '07', 'atom', 'Number') },
+  { t:'Edit 5: overwrite 04 with c4', bad:true, d:'c4 in a Number slot is an Invalid Operand, and its Token is still Number. Nothing now claims the 07, so it shows as a Leftover. Hypothetical.',
+    b: m => { E(m, 'w', 0, 1, [['F','.+'],['N','03'],['N','c4','invalid']], { diag:'expr', msg:'c4 does not bind as a Number.' }); X(m, 1, 1, '07'); } },
+];
+function frameModel(i) { const m = model(2, 9); FRAMES[i].b(m); return m; }
+
+// ---------- rendering ----------
+const mounted = [];
+function glyph(cell, v) {
+  if (cell.role === 'operand' && cell.state === 'pending') {
+    if (v === '0') return { Number:'h', Note:'n' }[cell.token] || 'c';
+    return v === 'C' ? '·' : '';
+  }
+  if (cell.rk === 'none') return v === '0' ? '' : '_';
+  return cell.ch === ' ' ? '' : cell.ch;
+}
+function addOv(host, cls, r, c0, c1) {
+  const d = document.createElement('div');
+  d.className = 'ov ' + cls;
+  d.style.left = c0 * CW + 'px'; d.style.top = r * CH + 'px'; d.style.width = (c1 - c0 + 1) * CW + 'px';
+  d.style.setProperty('--x', c0 * CW + 'px');
+  host.appendChild(d);
+}
+function render(m, v, prev) {
+  const host = document.createElement('div');
+  host.className = 'grid';
+  host.style.width = m.cols * CW + 'px'; host.style.height = m.rows * CH + 'px';
+  for (const row of m.grid) for (const cell of row) {
+    const d = document.createElement('div');
+    const cls = ['cell', cell.role];
+    if (cell.token) cls.push('tok-' + cell.token);
+    if (cell.state) cls.push('st-' + cell.state);
+    if (cell.rk) cls.push('rk-' + cell.rk);
+    if (cell.pair) cls.push(cell.pair);
+    if (cell.rs) cls.push('rs');
+    if (cell.re) cls.push('re');
+    if (cell.nested) cls.push('nested');
+    if (cell.expr && cell.role !== 'result') { if (!cell.expr.exec) cls.push('nx'); if (cell.expr.terminal) cls.push('terminal'); }
+    d.className = cls.join(' ');
+    d.style.left = cell.c * CW + 'px'; d.style.top = cell.r * CH + 'px';
+    d.style.setProperty('--tok', TOKC[cell.token] || 'var(--ordinary)');
+    d.textContent = glyph(cell, v);
+    d.addEventListener('mouseenter', () => inspect(cell, v));
+    host.appendChild(d);
+    (cell.els ||= []).push(d);
+    if (prev) {
+      const p = prev.grid[cell.r][cell.c];
+      if (p.ch !== cell.ch || p.role !== cell.role || p.state !== cell.state) {
+        const dot = document.createElement('div');
+        dot.className = 'chg-dot'; dot.style.left = cell.c * CW + 'px'; dot.style.top = cell.r * CH + 'px';
+        host.appendChild(dot);
+      }
+    }
+  }
+  for (const e of m.exprs) {
+    addOv(host, 'ov-exec ' + (e.exec ? 'yes' : 'no'), e.row, e.c0, e.c1);
+    if (e.diag) addOv(host, 'ov-diag expr', e.row, e.c0, e.c1);
+  }
+  for (const l of m.lex) addOv(host, 'ov-diag lex', l.row, l.c0, l.c1);
+  return host;
+}
+
+const ROLE_NAMES = { fn:'Function spelling', operand:'Operand', result:'Result', bang:'Bang (standalone)', 'comment-intro':'Comment introducer', 'comment-body':'Comment body', empty:'Empty Cell', leftover:'Leftover Char', incomplete:'Incomplete Source (lone |)' };
+function inspect(cell, v) {
+  const e = cell.expr;
+  const rows = [
+    ['Position', `col ${cell.c}, row ${cell.r}`],
+    ['Cell', cell.ch === ' ' ? '(space)' : cell.ch],
+    ['Role', ROLE_NAMES[cell.role] + (cell.nested ? ' (nested)' : '') + (cell.state ? ` · ${cell.state}` : '') + (cell.rk ? ` · ${{atom:'Scalar Atom', seq:'Sequence', bang:'Bang', none:'none (Absence Marker)'}[cell.rk]}` : '')],
+    ['Token', cell.token || '—'],
+  ];
+  if (e) {
+    rows.push(['Expression', (cell.role === 'result' ? 'written by ' : '') + e.label]);
+    rows.push(['Will execute', e.exec ? 'yes (root)' : 'no']);
+    rows.push(['Diagnostic', e.diag ? 'Expression' : 'none']);
+    if (e.terminal) rows.push(['Result', 'none (Terminal Output)']);
+    if (e.msg) rows.push(['Note', e.msg]);
+  }
+  if (cell.lexmsg) rows.push(['Diagnostic', 'lexical: ' + cell.lexmsg]);
+  rows.push(['Variant', VARIANTS[v].name]);
+  document.getElementById('insp').innerHTML = rows.map(([k, val]) => `<dt>${k}</dt><dd>${escapeHtml(val)}</dd>`).join('');
+}
+function escapeHtml(s) { return String(s).replace(/[&<>]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' })[ch]); }
+
+// ---------- spec checklist ----------
+const CHECK = [
+  ['Function', [
+    ['Function spelling', c => c.role === 'fn' && !c.nested],
+    ['Nested Function', c => c.nested],
+    ['Pending Operand', c => c.state === 'pending'],
+    ['Valid Operand', c => c.state === 'valid'],
+    ['Invalid Operand', c => c.state === 'invalid'],
+    ['Result: Scalar Atom', c => c.rk === 'atom'],
+    ['Result: Sequence', c => c.rk === 'seq'],
+    ['Result: Bang', c => c.rk === 'bang'],
+    ['Result: none (Terminal Output)', c => c.role === 'fn' && c.expr.terminal],
+    ['Result: none (Absence Marker)', c => c.rk === 'none'],
+  ]],
+  ['Bang', [
+    ['Standalone **', c => c.role === 'bang'],
+    ['** rejected in an operand', c => c.state === 'invalid' && c.ch === '*'],
+  ]],
+  ['Comment', [
+    ['Introducer ||', c => c.role === 'comment-intro'],
+    ['Body', c => c.role === 'comment-body'],
+    ['Lone | (incomplete)', c => c.role === 'incomplete'],
+  ]],
+  ['Unclaimed', [
+    ['Empty Cell', c => c.role === 'empty'],
+    ['Leftover Char', c => c.role === 'leftover'],
+  ]],
+  ['Overlays', [
+    ['Will execute (root)', c => c.expr && c.role !== 'result' && c.expr.exec],
+    ['Will not execute', c => c.expr && c.role !== 'result' && !c.expr.exec],
+    ['Diagnostic: Expression', c => c.expr && c.role !== 'result' && c.expr.diag],
+    ['Diagnostic: lexical', c => c.role === 'incomplete'],
+  ]],
+];
+function buildLegend() {
+  const host = document.getElementById('legend');
+  for (const [sec, items] of CHECK) {
+    host.insertAdjacentHTML('beforeend', `<div class="sec">${sec}</div>`);
+    const ul = document.createElement('ul');
+    for (const [name, pred] of items) {
+      const li = document.createElement('li');
+      const count = mainModel().grid.flat().filter(pred).length;
+      li.innerHTML = `<span>${name}</span><span>${count} Cells</span>`;
+      li.addEventListener('mouseenter', () => highlight(pred));
+      li.addEventListener('mouseleave', () => highlight(null));
+      ul.appendChild(li);
+    }
+    host.appendChild(ul);
+  }
+}
+let _main;
+function mainModel() { return _main ||= sample(); }
+function highlight(pred) {
+  for (const m of mounted) for (const cell of m.grid.flat())
+    for (const el of cell.els || []) el.classList.toggle('hl', !!pred && pred(cell));
+}
+
+// ---------- palettes ----------
+function luminance(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex); if (!m) return null;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255)
+    .map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function contrast(a, b) {
+  const la = luminance(a), lb = luminance(b); if (la == null || lb == null) return null;
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+let palette = new URLSearchParams(location.search).get('palette');
+if (!PALETTES[palette]) palette = 'console';
+function applyPalette() {
+  const P = PALETTES[palette];
+  for (const [key, cssVar] of ROLES) document.documentElement.style.setProperty(cssVar, P.c[key]);
+  document.body.classList.toggle('pal-fill', !!P.fill);
+  const glyphRoles = ['ordinary','char','comment','fn','bang','number','note','seq','diag','result'];
+  const rows = ROLES.map(([key, , label]) => {
+    const hex = P.c[key], ratio = key === 'source' || key === 'grid' ? null : contrast(hex, P.c.source);
+    const shares = glyphRoles.includes(key) ? glyphRoles.filter(k => k !== key && !(['ordinary','char'].includes(k) && ['ordinary','char'].includes(key)) && P.c[k].toLowerCase() === hex.toLowerCase()).map(k => ROLES.find(r => r[0] === k)[2]) : [];
+    const cr = ratio == null ? '' : `<span class="${ratio < 3 ? 'low' : ''}">${ratio.toFixed(1)}:1${ratio < 3 ? ' low' : ''}</span>`;
+    return `<tr><td><div class="sw" style="background:${hex}"></div></td><td>${label}<br><code>${hex}</code> <span style="color:var(--muted)">${escapeHtml((P.from || {})[key] || '')}</span>${shares.length ? `<br><span class="low">same as ${escapeHtml(shares.join(', '))}</span>` : ''}</td><td style="text-align:right">${cr}</td></tr>`;
+  }).join('');
+  document.getElementById('pal').innerHTML = `<h3>${escapeHtml(P.name)}</h3><table class="pal-table">${rows}</table><p class="pal-note">${escapeHtml(P.source)}</p>${P.fill ? '<p class="pal-note">Fill (variant A): each Function and Operand gets the background tint a Result has, in its Token colour. An invalid Operand keeps that tint and draws its glyph in the diagnostic colour. A Result uses the Result colour for glyph and tint, so it stands apart from the Token-tinted Expression; a Bang Result keeps the Bang glyph.</p>' : ''}<p class="pal-note">Contrast is the WCAG ratio against the Source background. Below 3:1 is flagged.</p>`;
+}
+function setPalette(k) {
+  palette = k;
+  const url = new URL(location.href);
+  url.searchParams.set('palette', k);
+  history.replaceState(null, '', url);
+  applyPalette();
+}
+{
+  const sel = document.getElementById('palette');
+  sel.innerHTML = Object.entries(PALETTES).map(([k, P]) => `<option value="${k}">${escapeHtml(P.name)}</option>`).join('');
+  sel.value = palette;
+  sel.onchange = ev => setPalette(ev.target.value);
+}
+
+// ---------- variants + walkthrough ----------
+let variant = new URLSearchParams(location.search).get('variant');
+if (!ORDER.includes(variant)) variant = 'A';
+let step = 0;
+
+function variantsShown() { return variant === 'all' ? ORDER.slice(0, -1) : [variant]; }
+
+function drawMain() {
+  const host = document.getElementById('main');
+  host.innerHTML = '';
+  mounted.length = 0;
+  for (const v of variantsShown()) {
+    const m = sample();
+    mounted.push(m);
+    const block = document.createElement('div');
+    block.className = 'variant-block v-' + v;
+    block.innerHTML = `<h3>${VARIANTS[v].name}</h3>`;
+    const scroll = document.createElement('div');
+    scroll.className = 'scroll';
+    scroll.appendChild(render(m, v));
+    block.appendChild(scroll);
+    block.insertAdjacentHTML('beforeend', `<ul class="enc">${VARIANTS[v].lines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`);
+    host.appendChild(block);
+  }
+  drawWalk();
+}
+function drawWalk() {
+  const host = document.getElementById('walk-grids');
+  host.innerHTML = '';
+  const prev = step > 0 ? frameModel(step - 1) : null;
+  for (const v of variantsShown()) {
+    const row = document.createElement('div');
+    row.className = 'walk-row v-' + v;
+    row.innerHTML = `<span class="tag">${v}</span>`;
+    const m = frameModel(step);
+    mounted.push(m);
+    const scroll = document.createElement('div');
+    scroll.className = 'scroll';
+    scroll.style.padding = '2px 2px 2px 26px';
+    scroll.appendChild(render(m, v, prev));
+    row.appendChild(scroll);
+    host.appendChild(row);
+  }
+  host.insertAdjacentHTML('beforeend', `<div class="diagline ${FRAMES[step].bad ? 'bad' : ''}">${escapeHtml(FRAMES[step].d)}</div>`);
+  document.getElementById('w-title').textContent = `${step + 1} / ${FRAMES.length}: ${FRAMES[step].t}`;
+  document.getElementById('w-steps').innerHTML = FRAMES.map((f, i) => `<li class="${i === step ? 'on' : ''}">${escapeHtml(f.t)}</li>`).join('');
+  document.getElementById('w-prev').disabled = step === 0;
+  document.getElementById('w-next').disabled = step === FRAMES.length - 1;
+}
+function setVariant(v) {
+  variant = v;
+  const url = new URL(location.href);
+  url.searchParams.set('variant', v);
+  history.replaceState(null, '', url);
+  document.getElementById('s-label').textContent = v === 'all' ? 'All variants, stacked' : VARIANTS[v].name;
+  drawMain();
+}
+function cycle(d) { setVariant(ORDER[(ORDER.indexOf(variant) + d + ORDER.length) % ORDER.length]); }
+
+document.getElementById('s-prev').onclick = () => cycle(-1);
+document.getElementById('s-next').onclick = () => cycle(1);
+document.addEventListener('keydown', ev => {
+  if (ev.target.closest?.('input,textarea,[contenteditable]')) return;
+  if (ev.key === 'ArrowLeft') cycle(-1);
+  if (ev.key === 'ArrowRight') cycle(1);
+});
+document.getElementById('w-reset').onclick = () => { step = 0; drawMain(); };
+document.getElementById('w-prev').onclick = () => { if (step > 0) { step--; drawMain(); } };
+document.getElementById('w-next').onclick = () => { if (step < FRAMES.length - 1) { step++; drawMain(); } };
+document.getElementById('t-exec').onchange = ev => document.body.classList.toggle('show-exec', ev.target.checked);
+document.getElementById('t-diag').onchange = ev => document.body.classList.toggle('show-diag', ev.target.checked);
+
+buildLegend();
+setPalette(palette);
+setVariant(variant);
+</script>
+</body>
+</html>
