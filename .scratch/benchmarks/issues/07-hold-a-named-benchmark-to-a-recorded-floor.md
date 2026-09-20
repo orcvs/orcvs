@@ -58,3 +58,34 @@ Two notes for whoever builds it:
 Not in scope: changing the ratio gate's thresholds, and replacing the action. `bencherdev/bencher`
 models baselines and thresholds per branch and would subsume both checks, but replacing a gate that
 works on the evidence of one occurrence is not warranted.
+
+### Second occurrence, and a worse one, 2026-09-20
+
+The defect above predicted the mechanism from one case. Here is the second, found while opening
+pull request #111.
+
+The Benchmark run on `main` at `22ca2718` — the merge of #109, `syntax-highlighting` `01`–`10` —
+**failed**, alerting on all ten `paint_derive` points and several `paint_background_runs` ones.
+`paint_derive/fitted/256x256` went 629,884 to 3,232,981, a ratio of 5.13; the culled points moved
+by about the same factor. `console/benches/paint.rs` is unchanged across those commits, so the
+fixture did not move.
+
+Then exactly what this issue describes happened. `main` republished at about 3.2M, and #106, #110
+and #111 have all read green since, each compared against the elevated point rather than the 630k
+it replaced. #111 measured 3,190,267 and the gate said success. The regression is now invisible to
+the check that caught it, and the only trace is a red run in the history that nothing points at.
+
+Two ways this occurrence differs from `sequence-values/02`, both of which sharpen the case:
+
+- **It was not a deliberate acceptance.** `sequence-values/02` was merged knowingly, with the cost
+  understood and recorded in `03` and `sequence-values/03`. This one appears to have merged without
+  the failure being read: the ticket that landed it records no performance risk, and
+  `syntax-highlighting/07` went on to ask, as an open follow-up, whether the paint bench had moved.
+  It had already failed the gate by 5.13x when that question was written.
+- **It exceeded the fail threshold, not just the alert one.** 5.13 against `fail-threshold: 300%`.
+  A floor would have kept the old figure enforced; the ratio gate's own failure did not survive the
+  merge.
+
+So the floor this issue builds wants `paint_derive` among its first guarded names, and whoever
+raises its figure has to do so in a diff. `paint-cell-cost/01` profiles the regression itself; this
+issue is the mechanism that would have stopped it becoming the baseline.
