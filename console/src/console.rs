@@ -158,9 +158,9 @@ const DEFAULT_VIEW_COLUMNS: usize = DEFAULT_COL_COUNT / 2;
 const DEFAULT_VIEW_ROWS: usize = DEFAULT_ROW_COUNT / 2;
 
 ///
-/// The window size that presents [`DEFAULT_VIEW_COLUMNS`] by
-/// [`DEFAULT_VIEW_ROWS`] Cells at Zoom 1.0: the Source's own points, and the
-/// chrome above and below the console.
+/// The window size that presents `DEFAULT_VIEW_COLUMNS` by `DEFAULT_VIEW_ROWS`
+/// Cells at Zoom 1.0: the Source's own points, and the chrome above and below
+/// the console. Both are private, so neither is linked here.
 ///
 /// A larger window shows more of the Grid rather than larger Cells; a smaller
 /// one shows less of it.
