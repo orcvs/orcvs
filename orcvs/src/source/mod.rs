@@ -96,19 +96,36 @@ impl SourceRevision {
     /// takes at least [`OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH`] Cells, written
     /// or not — a Function that never answered more than two Cells would be
     /// declared scalar, so the minimum is what tells the two apart before any
-    /// Tick. Past the minimum it extends by each following Cell pair that
-    /// holds written content and stops at the first blank pair. Every step is
+    /// Tick. Past the minimum it follows the run of written Cells, one Cell
+    /// pair at a time, and stops at the first blank Cell. Every step is
     /// clipped to the Reservation, so a root whose row edge leaves fewer Cells
     /// than the minimum takes the Cells that are there and no more.
     ///
     /// **Written** is [`Self::content_at`]'s question, so a Cell holding
     /// [`CellContent::SPACE`] is blank: a space reads back identically to a
     /// Cell never written, and the highlight has no other fact to tell them
-    /// apart. A pair counts when **either** of its two Cells is written, not
-    /// only when both are: an answer is delivered as whole Atoms, so a pair
-    /// with one written Cell holds a Cell some write or edit left, and
-    /// stopping mid-pair would draw a written Cell outside the highlight that
-    /// covers the answer it belongs to.
+    /// apart. The run is what the extension follows, and the pair it stops
+    /// inside is taken whole: stopping mid-pair would draw a written Cell
+    /// outside the highlight that covers the answer it belongs to.
+    ///
+    /// A run can end mid-pair because the Cell, not the Atom, is the unit
+    /// here: `lang`'s `Atom::Char` spells one Cell where every other Atom
+    /// spells two, and a Sequence admits a Char as a member. Nothing answers
+    /// one today — no Function signature declares a Char operand, no
+    /// Sequence-producing Function can introduce one, and the Parser refuses
+    /// to read one out of Source — so every answer the language can currently
+    /// deliver is pair-aligned from the Portal and holds no blank Cell. A
+    /// Function that answered a Char would break that alignment, and a Char
+    /// holding a space would put a blank Cell inside an answer, which this
+    /// rule reads as its end.
+    ///
+    /// A **blank Cell**, not a wholly blank pair, is what ends the run. A
+    /// pair counted by either of its Cells stepped over a gutter narrower
+    /// than an aligned blank pair: the neighbouring column's first glyph wrote
+    /// the far Cell of the pair the gutter fell in, the extension resumed
+    /// through that column's Expression, and the fit degenerated to the
+    /// whole-row tint this derivation exists to remove. One blank Cell ends
+    /// the answer, however the columns happen to be aligned.
     ///
     pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];
@@ -127,12 +144,8 @@ impl SourceRevision {
             return start..end;
         }
         let mut fitted = end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH);
-        while fitted < end {
-            let pair = end.min(fitted + OUTPUT_PORTAL_SCALAR_WIDTH);
-            if !(fitted..pair).any(|index| self.written(index)) {
-                break;
-            }
-            fitted = pair;
+        while fitted < end && self.written(fitted) {
+            fitted = end.min(fitted + OUTPUT_PORTAL_SCALAR_WIDTH);
         }
         start..fitted
     }
@@ -543,9 +556,9 @@ mod tests {
         }
 
         #[test]
-        fn the_highlight_stops_at_the_first_blank_pair_past_the_minimum() {
+        fn the_highlight_stops_at_the_first_blank_cell_past_the_minimum() {
             // Six written Cells, a blank pair, then four more written Cells
-            // the highlight never reaches: the first blank pair ends it,
+            // the highlight never reaches: the first blank Cell ends it,
             // whatever lies beyond.
             let grid = Grid::new(12, 2);
             let gapped = revision(grid, &[":-0104", "010203  0405"]);
@@ -554,14 +567,35 @@ mod tests {
         }
 
         #[test]
-        fn a_pair_past_the_minimum_counts_when_either_of_its_cells_is_written() {
-            // A half-written pair is content the answer's extent has to
-            // cover: stopping mid-pair would draw column 4's glyph outside
-            // the highlight that covers the Atom it belongs to.
+        fn the_pair_the_written_run_stops_inside_is_covered_whole() {
+            // The run reaches column 4 and ends there. Stopping mid-pair
+            // would draw column 4's glyph outside the highlight that covers
+            // the Atom it belongs to, so the pair it stopped inside is taken
+            // whole.
             let grid = Grid::new(10, 2);
             let half = revision(grid, &[":-0104", "01020"]);
 
             assert_eq!(row(&half, grid, 1), "######....");
+        }
+
+        #[test]
+        fn a_blank_gutter_cell_stops_the_highlight_whatever_follows_it() {
+            // A neighbouring column's Expression is not this root's answer,
+            // however narrow the gutter between them. One blank Cell is
+            // enough to end the answer, even where completing the pair the
+            // run stopped inside covers the gutter's own first Cell.
+            let grid = Grid::new(20, 2);
+
+            // A one-column gutter: `.` at column 9 is the right column's
+            // Expression, and the blank at column 8 ends the answer.
+            let narrow = revision(grid, &[":-0104", "01020304 .+0304"]);
+            assert_eq!(row(&narrow, grid, 1), "########............");
+
+            // A two-column gutter an odd written run reaches into: the run
+            // ends at column 9, the pair it stopped in is completed, and the
+            // right column's Expression at column 11 is left alone.
+            let straddled = revision(grid, &[":-0104", "010203040  .+0304"]);
+            assert_eq!(row(&straddled, grid, 1), "##########..........");
         }
 
         #[test]

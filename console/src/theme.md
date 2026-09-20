@@ -109,8 +109,8 @@ Portal (`RenderCell::output_portal()`, `.scratch/syntax-
 highlighting/issues/05`, `10` and `12`'s Answers) — the Cell pair one row
 south of a scalar-only Function's anchor, or, for a Sequence-capable one, the
 highlight fitted to its answer: at least four Cells from the Output Portal,
-written or not, then each following Cell pair that holds written content,
-stopping at the first blank pair and never reaching past the root's
+written or not, then the run of written Cells that follows, a Cell pair at a
+time, stopping at the first blank Cell and never reaching past the root's
 Reservation, which still runs to the end of that row. Four is the minimum
 because a Function that never wrote more than two Cells would be declared
 scalar, so it is what tells a Sequence-capable root from a scalar one on

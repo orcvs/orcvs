@@ -1983,6 +1983,78 @@ mod tests {
                 }
             }
         }
+
+        ///
+        /// The same two-column layout as the test above, with the gutter
+        /// narrowed from four blank Cells to one. Four is wider than the
+        /// rule needs to be exercised, and a layout owes no minimum gutter.
+        ///
+        /// One blank Cell ends the left root's answer. Anything narrower
+        /// than a blank Cell pair used to let the extension step over the
+        /// gutter, because a pair counted when either of its Cells was
+        /// written and the right column's first glyph wrote one of them; the
+        /// tint then ran the rest of the row, which is the whole-row
+        /// behaviour `12` exists to remove.
+        ///
+        #[tokio::test]
+        async fn a_one_cell_gutter_stops_the_left_columns_sequence_tint() {
+            let mut orcvs = running_orcvs(20, 3);
+            //                        01234567890123456789
+            write_row(&mut orcvs, 0, ":-0104              ");
+            write_row(&mut orcvs, 1, "01020304 .+0304     ");
+            write_row(&mut orcvs, 2, "         07         ");
+            orcvs.select(orcvs.grid().position(19, 0).expect("inside the grid"));
+
+            let frame = orcvs.render_frame();
+            let paint = whole(&frame);
+            let source_paint = SourcePaintSettings::default();
+            let output_tinted = tinted(source_paint, source_paint.output_portal());
+            let number_tinted = tinted(source_paint, source_paint.number());
+            let grid = orcvs.grid();
+            let highlighted = |y: usize| -> String {
+                (0..grid.columns())
+                    .map(|x| {
+                        let position = grid.position(x, y).expect("inside the grid");
+                        if frame.at(position).output_portal() {
+                            '#'
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect()
+            };
+
+            // The left root covers its eight written Cells and stops at the
+            // gutter; the right root covers its own Cell pair.
+            assert_eq!(highlighted(0), "....................");
+            assert_eq!(highlighted(1), "########............");
+            assert_eq!(highlighted(2), ".........##.........");
+
+            // The right root's own Number operands keep the Number colour on
+            // the Number tint rather than the left root's Output Portal.
+            for x in 11..15 {
+                let position = grid.position(x, 1).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(painted.foreground, source_paint.number(), "operand at {x}");
+                assert_eq!(painted.background, Some(number_tinted), "operand at {x}");
+            }
+
+            // The right root's own answer still reads as an Output Portal.
+            for x in 9..11 {
+                let position = grid.position(x, 2).expect("inside the grid");
+                let painted = paint.at(position);
+                assert_eq!(
+                    painted.foreground,
+                    source_paint.output_portal(),
+                    "right answer at {x}"
+                );
+                assert_eq!(
+                    painted.background,
+                    Some(output_tinted),
+                    "right answer at {x}"
+                );
+            }
+        }
     }
 
     ///
