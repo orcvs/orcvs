@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lang::{Atom, Atoms, Expression, Function, Parser, SourceAnalysis, Token};
@@ -75,6 +74,31 @@ pub struct LanguageMap {
     id: LanguageMapId,
     grid: Grid,
     rows: Vec<DerivedRow>,
+    paint: Vec<SourcePaint>,
+    output_portal_highlight: Vec<bool>,
+}
+
+/// The language fact the console paints for one Source Cell.
+///
+/// This is deliberately colour-free. The Language Map answers the semantic
+/// distinction once per Source revision; the console's theme decides how to
+/// present it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SourcePaint {
+    Unclaimed,
+    Function,
+    Bang,
+    Comment,
+    Operand { token: Token, state: OperandState },
+}
+
+/// Whether a declared operand slot is waiting, valid, or contains content
+/// that did not bind as its declared Token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperandState {
+    Pending,
+    Valid,
+    Invalid,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -124,31 +148,6 @@ pub struct Span {
     grid: Grid,
     start: CellIndex,
     end: CellIndex,
-}
-
-///
-/// The parser's claim on a Cell range: the Cells it covers, the Token its
-/// signature declared, and the Atom those Cells bound, or none.
-///
-/// This is [`lang::PositionedEntry`] without `parent`. That index counts
-/// entries within one Expression, so it means nothing once the claim
-/// leaves it.
-///
-#[derive(Clone, Debug, PartialEq)]
-pub struct Claim {
-    pub cells: std::ops::Range<usize>,
-    pub token: Token,
-    pub atom: Option<Atom>,
-}
-
-impl Claim {
-    fn from_entry(entry: &lang::PositionedEntry) -> Self {
-        Self {
-            cells: entry.cells.clone(),
-            token: entry.token,
-            atom: entry.atom,
-        }
-    }
 }
 
 impl Span {
@@ -276,7 +275,7 @@ impl LanguageMap {
                 }
             })
             .collect();
-        Self { id, grid, rows }
+        Self::with_rows(id, grid, rows, bytes)
     }
 
     pub(super) fn build(grid: Grid, bytes: &[u8]) -> Self {
@@ -291,7 +290,20 @@ impl LanguageMap {
             .enumerate()
             .map(|(row, bytes)| DerivedRow::derive(id, grid, row * grid.columns(), bytes))
             .collect();
-        Self { id, grid, rows }
+        Self::with_rows(id, grid, rows, bytes)
+    }
+
+    fn with_rows(id: LanguageMapId, grid: Grid, rows: Vec<DerivedRow>, bytes: &[u8]) -> Self {
+        let mut map = Self {
+            id,
+            grid,
+            rows,
+            paint: Vec::new(),
+            output_portal_highlight: Vec::new(),
+        };
+        map.paint = map.derive_source_paint(bytes);
+        map.output_portal_highlight = map.derive_output_portal_highlight(bytes);
+        map
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &ExpressionEntry> {
@@ -356,9 +368,6 @@ impl LanguageMap {
     /// Source revision's composition, not this Map's.
     ///
     /// [`Self::token_at`] reads one entry through this lookup.
-    /// [`Self::claims_by_cell`] walks the same entries once for the Render
-    /// Frame, so a claim is stored once and shared by every Cell it covers.
-    ///
     fn entry_at(&self, position: Position) -> Option<&lang::PositionedEntry> {
         let index = self.grid.index(position).get();
         let row = &self.rows[index / self.grid.columns()];
@@ -385,28 +394,49 @@ impl LanguageMap {
     }
 
     ///
-    /// The parser's claim on each Cell, in the Grid's row-major order.
+    /// The finished Source Paint answer for each Cell, in row-major order.
     ///
     /// A later Expression owns the Cells its Span covers, matching
     /// [`Self::entry_at`]: an earlier label is unread once a later Span takes
     /// the Cell, and a Cell inside a Span that no positioned entry labelled
     /// is not a claim. Each claim is stored once and shared by every Cell
-    /// it covers.
+    /// it covers. Pending versus Invalid is decided from the entry's whole
+    /// slot while this revision's Source bytes are already in hand.
     ///
-    pub(crate) fn claims_by_cell(&self) -> Vec<Option<Arc<Claim>>> {
-        let mut by_index = vec![None; self.grid.count()];
+    fn derive_source_paint(&self, source: &[u8]) -> Vec<SourcePaint> {
+        let mut by_index = vec![SourcePaint::Unclaimed; self.grid.count()];
         for expression in self.expressions() {
             for index in expression.span.range() {
-                by_index[index] = None;
+                by_index[index] = SourcePaint::Unclaimed;
             }
             for entry in expression.positioned() {
-                let claim = Arc::new(Claim::from_entry(entry));
+                let written = entry.cells.clone().any(|index| source[index] != SPACE_BYTE);
+                let paint = match entry.token {
+                    Token::Bang => SourcePaint::Bang,
+                    Token::Comment => SourcePaint::Comment,
+                    Token::Function if entry.atom.is_some() => SourcePaint::Function,
+                    Token::Function | Token::Char => SourcePaint::Unclaimed,
+                    token @ (Token::Number | Token::Note | Token::Atom | Token::Sequence) => {
+                        let state = if entry.atom.is_some() {
+                            OperandState::Valid
+                        } else if written {
+                            OperandState::Invalid
+                        } else {
+                            OperandState::Pending
+                        };
+                        SourcePaint::Operand { token, state }
+                    }
+                };
                 for index in entry.cells.clone() {
-                    by_index[index] = Some(Arc::clone(&claim));
+                    by_index[index] = paint;
                 }
             }
         }
         by_index
+    }
+
+    pub(crate) fn source_paint_cells(&self) -> &[SourcePaint] {
+        &self.paint
     }
 
     ///
@@ -433,14 +463,27 @@ impl LanguageMap {
     /// Portal; neither does a scalar destination the row edge leaves no room
     /// for a Cell pair.
     ///
-    /// This is the one Reservation derivation. [`Self::output_portal_cells`]
-    /// flattens it for the agreement test against the scheduler
-    /// (`.scratch/syntax-highlighting/issues/10`), and
-    /// `SourceRevision::output_portal_highlight`
-    /// (`.scratch/syntax-highlighting/issues/12`) narrows each Sequence-capable
-    /// one to the answer it holds. Both read this list, so the agreement test
-    /// answers for the geometry the highlight is fitted inside.
-    ///
+    pub(crate) fn output_portal_highlight(&self) -> &[bool] {
+        &self.output_portal_highlight
+    }
+
+    fn derive_output_portal_highlight(&self, source: &[u8]) -> Vec<bool> {
+        let mut covered = vec![false; self.grid.count()];
+        for reservation in self.output_portal_reservations() {
+            let std::ops::Range { start, end } = reservation.range;
+            let mut fitted = if reservation.sequence_capable {
+                end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH)
+            } else {
+                end
+            };
+            while fitted < end && source[fitted] != SPACE_BYTE {
+                fitted = end.min(fitted + OUTPUT_PORTAL_SCALAR_WIDTH);
+            }
+            covered[start..fitted].fill(true);
+        }
+        covered
+    }
+
     pub(super) fn output_portal_reservations(&self) -> Vec<OutputPortalReservation> {
         self.expressions()
             .filter_map(|expression| {
@@ -449,16 +492,6 @@ impl LanguageMap {
             })
             .collect()
     }
-
-    ///
-    /// Whether each Cell of this revision lies in a root Function's Output
-    /// Portal Reservation, in the Grid's row-major order.
-    ///
-    /// The Reservation, not the fitted highlight: it is what the Tick
-    /// scheduler reserves, which is what `10`'s agreement test compares
-    /// against. The console reads
-    /// `SourceRevision::output_portal_highlight` instead.
-    ///
     #[cfg(test)]
     pub(crate) fn output_portal_cells(&self) -> Vec<bool> {
         let mut covered = vec![false; self.grid.count()];

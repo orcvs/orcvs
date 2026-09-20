@@ -1,6 +1,6 @@
 # The Language Map answers Paint facts per Cell
 
-Status: proposed. If accepted, supersedes [ADR 0044](0044-paint-reads-the-parsers-claim.md). It refines [ADR 0040](0040-the-console-paints-from-a-value.md) on what a Render Frame Cell carries and preserves [ADR 0042](0042-responsibility-is-not-freedom-from-the-toolkit.md): `orcvs` answers language facts, while the console still chooses how colours represent them.
+Status: accepted. Supersedes [ADR 0044](0044-paint-reads-the-parsers-claim.md). It refines [ADR 0040](0040-the-console-paints-from-a-value.md) on what a Render Frame Cell carries and preserves [ADR 0042](0042-responsibility-is-not-freedom-from-the-toolkit.md): `orcvs` answers language facts, while the console still chooses how colours represent them.
 
 The Language Map answers, for every Cell, the distinctions Paint must draw. A Function spelling, Pending Operand, Valid Operand, Invalid Operand, Bang, Comment, and Unclaimed Cell are language facts derived once for a Source revision. Each operand fact also carries the Token its Function signature declares — Number, Note, Char, Atom, or Sequence — independently of whether the operand is Pending, Valid, or Invalid. The Output Portal remains a separate per-Cell fact established by ADR 0044's follow-up work. A Render Frame Cell carries these finished facts; the console maps them to foreground, background, and border colours without interpreting a Span.
 

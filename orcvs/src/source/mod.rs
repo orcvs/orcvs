@@ -3,14 +3,10 @@ pub use cell::CellContent;
 mod encoding;
 pub mod error;
 mod language_map;
-pub use lang::Token;
-// `Claim::atom`'s type: re-exported so a caller naming a `Claim` value — the
-// console's colour tests among them (`syntax-highlighting/09`) — can spell
-// `Atom` without adding a direct dependency on `lang`.
 pub use lang::Atom;
-pub use language_map::{Claim, ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, Span};
-use language_map::{
-    OUTPUT_PORTAL_SCALAR_WIDTH, OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH, OutputPortalReservation,
+pub use lang::Token;
+pub use language_map::{
+    ExpressionEntry, LanguageMap, LanguageUnit, LanguageUnitKind, OperandState, SourcePaint, Span,
 };
 mod model;
 mod portal;
@@ -79,94 +75,10 @@ impl SourceRevision {
     /// Whether each Cell of this revision draws as a root Function's Output
     /// Portal, in the Grid's row-major order.
     ///
-    /// The highlight, not the Reservation. Tick scheduling still reserves a
-    /// Sequence-capable root the rest of its destination row (ADR 0036) and
-    /// [`LanguageMap::output_portal_reservations`] still answers exactly that;
-    /// this narrows the Sequence-capable ones to the answer they hold, which
-    /// is `.scratch/syntax-highlighting/issues/12`. A whole-row highlight ran
-    /// under the neighbouring column's Expressions in a two-column layout,
-    /// which is the defect that ticket records.
-    ///
-    /// The fit lives here because it needs both inputs at once: the
-    /// Reservations, which only the Language Map derives, and the Cell
-    /// contents of this revision, which the Language Map deliberately does not
-    /// retain. A Source revision is the one value that holds both.
-    ///
-    /// A scalar root keeps its Cell pair untouched. A Sequence-capable root
-    /// takes at least [`OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH`] Cells, written
-    /// or not — a Function that never answered more than two Cells would be
-    /// declared scalar, so the minimum is what tells the two apart before any
-    /// Tick. Past the minimum it follows the run of written Cells, one Cell
-    /// pair at a time, and stops at the first blank Cell. Every step is
-    /// clipped to the Reservation, so a root whose row edge leaves fewer Cells
-    /// than the minimum takes the Cells that are there and no more.
-    ///
-    /// **Written** is [`Self::content_at`]'s question, so a Cell holding
-    /// [`CellContent::SPACE`] is blank: a space reads back identically to a
-    /// Cell never written, and the highlight has no other fact to tell them
-    /// apart. The run is what the extension follows, and the pair it stops
-    /// inside is taken whole: stopping mid-pair would draw a written Cell
-    /// outside the highlight that covers the answer it belongs to.
-    ///
-    /// A run can end mid-pair because the Cell, not the Atom, is the unit
-    /// here: `lang`'s `Atom::Char` spells one Cell where every other Atom
-    /// spells two, and a Sequence admits a Char as a member. Nothing answers
-    /// one today — no Function signature declares a Char operand, no
-    /// Sequence-producing Function can introduce one, and the Parser refuses
-    /// to read one out of Source — so every answer the language can currently
-    /// deliver is pair-aligned from the Portal and holds no blank Cell. A
-    /// Function that answered a Char would break that alignment, and a Char
-    /// holding a space would put a blank Cell inside an answer, which this
-    /// rule reads as its end.
-    ///
-    /// A **blank Cell**, not a wholly blank pair, is what ends the run. A
-    /// pair counted by either of its Cells stepped over a gutter narrower
-    /// than an aligned blank pair: the neighbouring column's first glyph wrote
-    /// the far Cell of the pair the gutter fell in, the extension resumed
-    /// through that column's Expression, and the fit degenerated to the
-    /// whole-row tint this derivation exists to remove. One blank Cell ends
-    /// the answer, however the columns happen to be aligned.
-    ///
-    pub(crate) fn output_portal_highlight(&self) -> Vec<bool> {
-        let mut covered = vec![false; self.grid.count()];
-        for reservation in self.language_map.output_portal_reservations() {
-            for index in self.fitted(&reservation) {
-                covered[index] = true;
-            }
-        }
-        covered
-    }
-
-    /// [`Self::output_portal_highlight`]'s rule for one Reservation.
-    fn fitted(&self, reservation: &OutputPortalReservation) -> std::ops::Range<usize> {
-        let std::ops::Range { start, end } = reservation.range;
-        if !reservation.sequence_capable {
-            return start..end;
-        }
-        let mut fitted = end.min(start + OUTPUT_PORTAL_SEQUENCE_MINIMUM_WIDTH);
-        while fitted < end && self.written(fitted) {
-            fitted = end.min(fitted + OUTPUT_PORTAL_SCALAR_WIDTH);
-        }
-        start..fitted
-    }
-
-    ///
-    /// Whether the Cell at `index` holds content: [`Self::content_at`]'s own
-    /// question, asked of the Position that index names.
-    ///
-    /// Asked through the Grid rather than by indexing the Source bytes
-    /// directly, so the doc above naming `content_at` as the authority on
-    /// written has one definition to name and no second space test to drift
-    /// from. [`Grid::cell_index`] is also the only thing that turns a bare
-    /// number into an index this Grid can address: every index reaching here
-    /// comes from a Reservation this revision's own Language Map derived and
-    /// so is always in range, and one outside it is answered rather than
-    /// panicked on.
-    ///
-    fn written(&self, index: usize) -> bool {
-        self.grid
-            .cell_index(index)
-            .is_some_and(|cell| self.content_at(self.grid.position_at(cell)).is_some())
+    /// The Language Map derives and stores this alongside its other per-Cell
+    /// view while it has both the Reservations and this revision's bytes.
+    pub(crate) fn output_portal_highlight(&self) -> &[bool] {
+        self.language_map.output_portal_highlight()
     }
 }
 

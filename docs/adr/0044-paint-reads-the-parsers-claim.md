@@ -1,6 +1,6 @@
 # Paint reads the parser's claim
 
-Status: accepted. `.scratch/syntax-highlighting/issues/08` (carrying the claim) and `09` (painting from it) have both landed. It refines [ADR 0040](0040-the-console-paints-from-a-value.md) on what a Render Frame Cell carries, and does not reopen how the console turns a Paint into Shapes. It reverses the per-Cell `bound` projection that `.scratch/syntax-highlighting/issues/04` introduced.
+Status: superseded by [ADR 0050](0050-the-language-map-answers-source-paint-per-cell.md). `.scratch/syntax-highlighting/issues/08` (carrying the claim) and `09` (painting from it) both landed, but ADR 0050 moves the finished Paint facts back to the per-Cell boundary after measuring the claim-shaped boundary's cost.
 
 A Render Frame Cell carries the parser's claim on it, not scalar projections of that claim. `lang::PositionedEntry` records, for every slot the Parser reads, the Cells it claims, the Token its signature declared, and the Atom those Cells bound, or none. That covers operand slots that are blank or refused as well as ones that bind. `RenderCell::claim()` answers that record, and `None` means no entry claims the Cell. `RenderCell::bound()` and `LanguageMap::bound_at` are removed, and the Render Frame no longer copies its Token from `SourceRevision::token_at`.
 
