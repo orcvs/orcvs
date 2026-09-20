@@ -143,7 +143,7 @@ in the Source Paint prototype
 exposed as a setting before it had a painter; it has one now.
 
 - Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
-- Ordinary, Char, and Atom: `#FFFFFF` (`rgb(255, 255, 255)`) — a prototype pick, not a named Okabe–Ito swatch
+- Ordinary, Char, and Atom: `#EAEBE5` (`rgb(234, 235, 229)`) — not a named Okabe–Ito swatch but the Cursor frame's off-white, so plain Source text and the frame drawn over it read as one white; a fixed default that copies that colour rather than following the Cursor setting (`syntax-highlighting/07`, which moved it from the prototype's `#FFFFFF`)
 - Comment: `#999999` (`rgb(153, 153, 153)`) — Okabe–Ito gray
 - Function: `#009E73` (`rgb(0, 158, 115)`) — Okabe–Ito bluish green
 - Bang: `#CC79A7` (`rgb(204, 121, 167)`) — Okabe–Ito reddish purple
