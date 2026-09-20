@@ -2,13 +2,15 @@
 
 **What to build:** Keep the tracing subscriber used by unit tests available to those tests without shipping its setup code or dependency as part of the ordinary `lang` library.
 
-**Blocked by:** 10 — Declare the tracing subscriber's formatting feature where it is used.
+**Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** Improvement
 
 `orcvs` already carries the shape this asks for: its helper is behind a test gate and its subscriber is a development dependency. Copy that, rather than inventing an arrangement.
+
+This ticket briefly recorded a `Blocked by` edge on issue 10, on the belief that the console took the subscriber's `fmt` feature from `lang` and would fail to build once this landed. That belief was false — the console's own `ansi` feature always implied `fmt`. The edge is removed. See issue 10's comments.
 
 - [ ] Subscriber initialization and its one-time guard compile only for tests, and the dead-code suppressions that currently hide them are gone with them.
 - [ ] The subscriber dependency is development-only, and no runtime dependency remains solely for test setup.

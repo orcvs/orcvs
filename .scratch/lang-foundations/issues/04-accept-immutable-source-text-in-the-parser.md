@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Tags:** Improvement
 
@@ -13,7 +13,7 @@ One of the two parser constructors demands mutable Source text and then reborrow
 - [ ] Both parser constructors accept immutable Source text.
 - [ ] No caller, test, property test, or benchmark allocates, clones, or mutably iterates Source text solely to construct a Parser.
 - [ ] Parsing behavior, capacity diagnostics, and native and WASM callers are unchanged.
-- [ ] No benchmark is owed. The change moves a signature, not generated code; record that as the reason on the `Not run` line rather than running the series.
+- [ ] The benchmark workload is left measuring the same thing, and any change to its inputs is recorded. No comparison is owed locally: the series lives in the action.
 
 ## Comments
 
@@ -26,3 +26,7 @@ Rewritten after auditing this ticket against the crate. Two acceptance criteria 
 Both came from an audit of the crate at `c889af5`, several hundred commits back, and were invalidated by issues 07 and 08 — which the spec's Delivery section expected to *follow* this ticket, and which shipped ahead of it instead.
 
 The audit also found two things outside this ticket's scope. The per-call duplication of an Expression's values on the Source read path is issue 11. The forced-inlining question the spec scopes out is untouched, but worth noting concretely: the whole main parse loop carries `inline(always)` while the innermost per-token push carries no hint at all. That needs the benchmark evidence the spec asks for, and this ticket does not supply it.
+
+The benchmark inputs did change, so the earlier wording here — that no benchmark was owed because only a signature moved — was wrong and is replaced above. Four benchmarks fed the parser owned Strings built only to hand out a mutable borrow, and now feed it the Source constants directly. `parse_source` is the one where that could have mattered: it swapped sixteen separately allocated rows for slices of one contiguous block.
+
+That change improves the fixture rather than degrading it. A Source holds its whole Grid in one `String` and hands the parser slices into it, so contiguous backing with slices into it is what the Render Frame this benchmark models actually reads. The sixteen independent allocations were the less faithful shape. The series will step once on this commit; this paragraph is the reason it stepped.

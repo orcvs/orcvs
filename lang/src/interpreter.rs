@@ -248,8 +248,8 @@ mod test {
         TickInputs::new(Tick::ZERO, Anchor::new(0, 0))
     }
 
-    fn interpret(exp: String) -> Atom {
-        let parser = Parser::from(&exp);
+    fn interpret(exp: &str) -> Atom {
+        let parser = Parser::from(exp);
         let parsed = parser.try_parse().unwrap();
 
         info!("Parsed: {:?}", parsed);
@@ -271,8 +271,7 @@ mod test {
     fn test_add_function() {
         trace();
 
-        let s = String::from(".+0102");
-        let result = interpret(s);
+        let result = interpret(".+0102");
 
         let expected = Atom::Number(3);
         assert_eq!(result, expected);
@@ -283,22 +282,18 @@ mod test {
         trace();
 
         // 0xFF + 0xFF wraps modulo 256.
-        let s = String::from(".+FFFF");
-        let result = interpret(s);
+        let result = interpret(".+FFFF");
         assert_eq!(result, Atom::Number(254));
 
         // Exact boundary: 0xFF + 0x01 wraps to zero.
-        let s = String::from(".+FF01");
-        let result = interpret(s);
+        let result = interpret(".+FF01");
         assert_eq!(result, Atom::Number(0));
 
         // Just below the boundary still computes normally
-        let s = String::from(".+FE01");
-        let result = interpret(s);
+        let result = interpret(".+FE01");
         assert_eq!(result, Atom::Number(255));
 
-        let s = String::from(".+FD01");
-        let result = interpret(s);
+        let result = interpret(".+FD01");
         assert_eq!(result, Atom::Number(254));
     }
 
@@ -307,26 +302,21 @@ mod test {
         trace();
 
         // 0x99 * 0x99 == 23409, whose low byte is 0x71.
-        let s = String::from(".x9999");
-        let result = interpret(s);
+        let result = interpret(".x9999");
         assert_eq!(result, Atom::Number(113));
 
-        let s = String::from(".xFFFF");
-        let result = interpret(s);
+        let result = interpret(".xFFFF");
         assert_eq!(result, Atom::Number(1));
 
         // Exact boundary: 0x10 * 0x10 wraps to zero.
-        let s = String::from(".x1010");
-        let result = interpret(s);
+        let result = interpret(".x1010");
         assert_eq!(result, Atom::Number(0));
 
         // Largest exactly-representable product is computed, not saturated
-        let s = String::from(".x0F11");
-        let result = interpret(s);
+        let result = interpret(".x0F11");
         assert_eq!(result, Atom::Number(255));
 
-        let s = String::from(".x0F10");
-        let result = interpret(s);
+        let result = interpret(".x0F10");
         assert_eq!(result, Atom::Number(240));
     }
 
@@ -334,14 +324,12 @@ mod test {
     fn test_sub_function() {
         trace();
 
-        let s = String::from(".-0201");
-        let result = interpret(s);
+        let result = interpret(".-0201");
 
         let expected = Atom::Number(1);
         assert_eq!(result, expected);
 
-        let s = String::from(".-0102");
-        let result = interpret(s);
+        let result = interpret(".-0102");
 
         let expected = Atom::Number(255);
         assert_eq!(result, expected);
@@ -351,14 +339,12 @@ mod test {
     fn test_multiply_function() {
         trace();
 
-        let s = String::from(".x0201");
-        let result = interpret(s);
+        let result = interpret(".x0201");
 
         let expected = Atom::Number(2);
         assert_eq!(result, expected);
 
-        let s = String::from(".x0002");
-        let result = interpret(s);
+        let result = interpret(".x0002");
 
         let expected = Atom::Number(0);
         assert_eq!(result, expected);
@@ -368,8 +354,7 @@ mod test {
     fn test_divide() {
         trace();
 
-        let s = String::from("./0402");
-        let result = interpret(s);
+        let result = interpret("./0402");
 
         let expected = Atom::Number(2);
         assert_eq!(result, expected);
@@ -385,8 +370,7 @@ mod test {
     fn test_recursive() {
         trace();
 
-        let s = String::from(".+.+0101.-0A05");
-        let result = interpret(s);
+        let result = interpret(".+.+0101.-0A05");
 
         let expected = Atom::Number(7);
         assert_eq!(result, expected);
@@ -689,16 +673,16 @@ mod test {
 
     #[test]
     fn conversions_are_idempotent_through_nested_source_expressions() {
-        assert_eq!(interpret(".v.vC4".to_owned()), Atom::Number(60));
+        assert_eq!(interpret(".v.vC4"), Atom::Number(60));
         assert_eq!(
-            interpret(".^.^3C".to_owned()),
+            interpret(".^.^3C"),
             Atom::Note(crate::Note::try_from(60).unwrap())
         );
     }
 
     #[test]
     fn conversion_source_literals_use_the_monomorphic_operand_type() {
-        assert_eq!(interpret(".vA0".to_owned()), Atom::Number(21));
+        assert_eq!(interpret(".vA0"), Atom::Number(21));
 
         let atoms = Parser::from(".^C4").try_parse().unwrap();
         assert!(matches!(
@@ -708,7 +692,7 @@ mod test {
             )))
         ));
 
-        assert_eq!(interpret(".v.^3C".to_owned()), Atom::Number(60));
+        assert_eq!(interpret(".v.^3C"), Atom::Number(60));
     }
 
     #[test]
@@ -893,15 +877,15 @@ mod test {
         // Ties each spelling to its behaviour end to end: the exhaustive tests
         // above build stacks directly and would not catch two definitions whose
         // spellings were transposed in the table.
-        assert_eq!(interpret(".|050A".to_owned()), Atom::Number(5));
-        assert_eq!(interpret(".%0A03".to_owned()), Atom::Number(1));
-        assert_eq!(interpret(".<0A03".to_owned()), Atom::Number(3));
-        assert_eq!(interpret(".>0A03".to_owned()), Atom::Number(10));
-        assert_eq!(interpret(".=0A0A".to_owned()), Atom::Bang);
+        assert_eq!(interpret(".|050A"), Atom::Number(5));
+        assert_eq!(interpret(".%0A03"), Atom::Number(1));
+        assert_eq!(interpret(".<0A03"), Atom::Number(3));
+        assert_eq!(interpret(".>0A03"), Atom::Number(10));
+        assert_eq!(interpret(".=0A0A"), Atom::Bang);
 
         // Nested operands resolve before the outer Function sees them
-        assert_eq!(interpret(".<.+0102.%0A03".to_owned()), Atom::Number(1));
-        assert_eq!(interpret(".|.>0A03.<0A03".to_owned()), Atom::Number(7));
+        assert_eq!(interpret(".<.+0102.%0A03"), Atom::Number(1));
+        assert_eq!(interpret(".|.>0A03.<0A03"), Atom::Number(7));
     }
 
     #[test]
@@ -909,8 +893,8 @@ mod test {
         // The Bang answer stands where a value stands, and the absent answer is
         // absent everywhere: nesting it as an operand diagnoses rather than
         // silently reading as a Number.
-        assert_eq!(interpret(".=.+010203".to_owned()), Atom::Bang);
-        assert_eq!(interpret(".=.+010204".to_owned()), Atom::Empty);
+        assert_eq!(interpret(".=.+010203"), Atom::Bang);
+        assert_eq!(interpret(".=.+010204"), Atom::Empty);
 
         let atoms = Parser::from(".+.=010203").try_parse().unwrap();
         assert!(matches!(
