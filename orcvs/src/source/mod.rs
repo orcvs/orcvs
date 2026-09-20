@@ -137,10 +137,23 @@ impl SourceRevision {
         start..fitted
     }
 
-    /// Whether the Cell at `index` holds content, matching
-    /// [`Self::content_at`]'s answer for the Position that index names.
+    ///
+    /// Whether the Cell at `index` holds content: [`Self::content_at`]'s own
+    /// question, asked of the Position that index names.
+    ///
+    /// Asked through the Grid rather than by indexing the Source bytes
+    /// directly, so the doc above naming `content_at` as the authority on
+    /// written has one definition to name and no second space test to drift
+    /// from. [`Grid::cell_index`] is also the only thing that turns a bare
+    /// number into an index this Grid can address: every index reaching here
+    /// comes from a Reservation this revision's own Language Map derived and
+    /// so is always in range, and one outside it is answered rather than
+    /// panicked on.
+    ///
     fn written(&self, index: usize) -> bool {
-        self.source.as_bytes()[index] != b' '
+        self.grid
+            .cell_index(index)
+            .is_some_and(|cell| self.content_at(self.grid.position_at(cell)).is_some())
     }
 }
 
