@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789866171758,
+  "lastUpdate": 1789868283634,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -19391,6 +19391,384 @@ window.BENCHMARK_DATA = {
             "name": "source_execute_tick_portal_inputs/128x128",
             "value": 2050940,
             "range": "± 25976",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77b57659adbd5b0109a7dfe33d3dd148d717776e",
+          "message": "Merge pull request #110 from orcvs/untracked-cleanup\n\nCommit the untracked working files that are repository state, and ignore the ones that are not",
+          "timestamp": "2026-09-20T01:23:54Z",
+          "tree_id": "0949301900ab868c2641fb0319abc89e948df446",
+          "url": "https://github.com/orcvs/orcvs/commit/77b57659adbd5b0109a7dfe33d3dd148d717776e"
+        },
+        "date": 1789868282848,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "paint_derive/fitted/16x16",
+            "value": 11847,
+            "range": "± 63",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/16x16",
+            "value": 11678,
+            "range": "± 56",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/32x32",
+            "value": 47160,
+            "range": "± 186",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/32x32",
+            "value": 11693,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/64x64",
+            "value": 192750,
+            "range": "± 1159",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/64x64",
+            "value": 11908,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/128x128",
+            "value": 778386,
+            "range": "± 4244",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/128x128",
+            "value": 11944,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/256x256",
+            "value": 3196366,
+            "range": "± 73310",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/256x256",
+            "value": 12066,
+            "range": "± 43",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/16x16",
+            "value": 725,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/16x16",
+            "value": 679,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/32x32",
+            "value": 2402,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/32x32",
+            "value": 722,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/64x64",
+            "value": 8584,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/64x64",
+            "value": 682,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/128x128",
+            "value": 31973,
+            "range": "± 73",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/128x128",
+            "value": 664,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/256x256",
+            "value": 121417,
+            "range": "± 262",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/256x256",
+            "value": 744,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor effects/frame and living area",
+            "value": 4720,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor effects/region lasso 20x12",
+            "value": 13528,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse",
+            "value": 207,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 88,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute",
+            "value": 98,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 954,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 74,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 124,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 296,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 555,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 1064,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 42,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 102,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/128x128",
+            "value": 252,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/256x256",
+            "value": 1373,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 13684,
+            "range": "± 140",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 55073,
+            "range": "± 726",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 228161,
+            "range": "± 5090",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/128x128",
+            "value": 896156,
+            "range": "± 12713",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/256x256",
+            "value": 3980487,
+            "range": "± 121486",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 6694,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 27573,
+            "range": "± 142",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 110885,
+            "range": "± 924",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 7091,
+            "range": "± 26",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 27540,
+            "range": "± 255",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 110777,
+            "range": "± 920",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 22181,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 81446,
+            "range": "± 238",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 324845,
+            "range": "± 969",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 1328828,
+            "range": "± 7029",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 14104,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 84101,
+            "range": "± 308",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 359771,
+            "range": "± 2310",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 1508389,
+            "range": "± 20014",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/16x16",
+            "value": 27713,
+            "range": "± 173",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/32x32",
+            "value": 113092,
+            "range": "± 498",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/64x64",
+            "value": 471817,
+            "range": "± 5088",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/128x128",
+            "value": 1995049,
+            "range": "± 32591",
             "unit": "ns/iter"
           }
         ]
