@@ -1824,6 +1824,39 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     frame
 }
 
+///
+/// The half of a [`SOURCE_COLOURS`] row that reaches the settings value: one
+/// Source Paint role's own `_mut` accessor, which that row's colour control
+/// edits through.
+///
+type SourceColourMut = fn(&mut SourcePaintSettings) -> &mut Color32;
+
+///
+/// The rows of `Theme → Source colours`, in the order they are presented:
+/// each Source Paint role's label beside the accessor that row edits.
+///
+/// Every role takes the same opaque colour control, so one table drives them
+/// all rather than ten copies of the same block — a new or renamed role is one
+/// line here, and a label cannot drift onto a neighbour's colour. The Cursor
+/// effects above them are not this uniform (two blend, and two sit behind an
+/// enabling checkbox), so they stay written out.
+///
+const SOURCE_COLOURS: [(&str, SourceColourMut); 10] = [
+    (
+        "Source background",
+        SourcePaintSettings::source_background_mut,
+    ),
+    ("Ordinary (Char, Atom)", SourcePaintSettings::ordinary_mut),
+    ("Comment", SourcePaintSettings::comment_mut),
+    ("Function", SourcePaintSettings::function_mut),
+    ("Bang", SourcePaintSettings::bang_mut),
+    ("Number", SourcePaintSettings::number_mut),
+    ("Note", SourcePaintSettings::note_mut),
+    ("Sequence", SourcePaintSettings::sequence_mut),
+    ("Diagnostic", SourcePaintSettings::diagnostic_mut),
+    ("Output Portal", SourcePaintSettings::output_portal_mut),
+];
+
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
@@ -1974,86 +2007,16 @@ impl eframe::App for Console {
 
                     ui.separator();
                     ui.label("Source colours");
-                    ui.horizontal(|ui| {
-                        ui.label("Source background");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.source_background_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Ordinary (Char, Atom)");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.ordinary_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Comment");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.comment_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Function");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.function_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Bang");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.bang_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Number");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.number_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Note");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.note_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Sequence");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.sequence_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Diagnostic");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.diagnostic_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Output Portal");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.source_paint.output_portal_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
+                    for (label, colour) in SOURCE_COLOURS {
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            egui::color_picker::color_edit_button_srgba(
+                                ui,
+                                colour(&mut self.source_paint),
+                                egui::color_picker::Alpha::Opaque,
+                            );
+                        });
+                    }
                     ui.add(
                         egui::Slider::new(self.source_paint.fill_tint_mut(), 0..=100)
                             .text("Fill tint"),
