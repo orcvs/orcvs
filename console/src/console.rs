@@ -48,15 +48,15 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 /// the font size. A *continuous* scale would reach it as a fresh size per
 /// Render Frame, and epaint rasterises a fresh glyph set per distinct size —
 /// `FontImpl::glyph_info` scales by `font_size * pixels_per_point` and rounds
-/// nothing (`epaint-0.36.1/src/text/font.rs:567`). `subpixel_binning` is on by
-/// default (`epaint-0.36.1/src/text/mod.rs:62`) and renders each glyph at up to
+/// nothing (`epaint-0.36.2/src/text/font.rs:567`). `subpixel_binning` is on by
+/// default (`epaint-0.36.2/src/text/mod.rs:62`) and renders each glyph at up to
 /// four fractional offsets, so a zoom sweep across `N` sizes costs up to
 /// `N x alphabet x 4` rasters into one atlas.
 ///
 /// That is the budget, because the atlas is not merely wasted when it fills:
 /// `Fonts::begin_pass` replaces the whole `FontsImpl` — a new atlas with empty
 /// glyph caches — as soon as `atlas.fill_ratio()` passes 0.8
-/// (`epaint-0.36.1/src/text/fonts.rs:734-748`), restarting glyph rasterisation
+/// (`epaint-0.36.2/src/text/fonts.rs:728-742`), restarting glyph rasterisation
 /// mid-session for every size already paid for.
 ///
 /// At a step of an eighth, the zoom range `MIN_ZOOM..=MAX_ZOOM` holds fifteen
@@ -432,7 +432,7 @@ fn translate_event(event: Event) -> Option<InputEvent> {
         // Source, not to focus. Only a bare Tab and a bare Shift Tab are
         // either of those — `modifiers.is_none()` and `modifiers.shift_only()`
         // are the same tests `Memory::begin_pass` itself uses to turn a Tab
-        // into `FocusDirection::Next`/`Previous` (`egui-0.36.1/src/memory/mod.rs:596-597`),
+        // into `FocusDirection::Next`/`Previous` (`egui-0.36.2/src/memory/mod.rs:596-597`),
         // so Ctrl, Command, or Alt held with Tab reaches neither egui's focus
         // navigation nor the Source here.
         Event::Key {
@@ -708,7 +708,7 @@ fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
 /// Whether `to_global` can be presented and inverted.
 ///
 /// `egui::Scene::show` used to reset a transform that had gone bad
-/// (`egui-0.36.1/src/containers/scene.rs:151-152, 168-173`) and nothing
+/// (`egui-0.36.2/src/containers/scene.rs:151-152, 168-173`) and nothing
 /// replaces that once the container is gone. `grid_viewport` answers a Cell
 /// size of zero for a console with no area, so the fit it yields has a scaling
 /// of zero, and `TSTransform::inverse` divides by the scaling — which
@@ -716,7 +716,7 @@ fn edge_scroll(wanted: Vec2, past: Vec2, side: f32) -> Vec2 {
 /// console. An unguarded zero therefore resolves every pointer position to NaN.
 ///
 /// `TSTransform::is_valid` is not enough on its own: it checks only
-/// `translation.x` (`emath-0.36.1/src/ts_transform.rs:55-57`) and admits a
+/// `translation.x` (`emath-0.36.2/src/ts_transform.rs:55-57`) and admits a
 /// negative scaling, which would present the Source mirrored.
 ///
 fn is_presentable(to_global: TSTransform) -> bool {
@@ -769,13 +769,13 @@ pub struct Console {
     /// Whether keyboard input belonged to a control rather than the Source
     /// when the last frame's widgets were done: any widget holding egui's
     /// keyboard focus (`Context::egui_wants_keyboard_input`, which is
-    /// `Memory::focused().is_some()`, `egui-0.36.1/src/context.rs:2982-2985`),
+    /// `Memory::focused().is_some()`, `egui-0.36.2/src/context.rs:2985-2988`),
     /// or any open popup — a menu, or the destination ComboBox's list — which
     /// a click opens without taking focus (`Popup::is_any_open`). Latched
     /// rather than asked where it is read, because
     /// `event_handler` runs before this frame's widgets are shown, and
     /// `Memory::begin_pass` has already let Escape clear the focus it was
-    /// pressed to leave (`egui-0.36.1/src/memory/mod.rs:596-601`).
+    /// pressed to leave (`egui-0.36.2/src/memory/mod.rs:596-601`).
     keyboard_elsewhere: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
@@ -803,7 +803,7 @@ impl Console {
 
         // egui's own `Context::end_pass` answers the same command `=`/`+`,
         // `-` and `0` chords by changing `zoom_factor` — the whole UI's
-        // scale, not the Source View's (`egui-0.36.1/src/gui_zoom.rs`,
+        // scale, not the Source View's (`egui-0.36.2/src/gui_zoom.rs`,
         // `Options::zoom_with_keyboard`, on by default). Those chords are the
         // Source View's Zoom here, so egui's own reading of them is turned
         // off rather than left to race it.
@@ -1023,8 +1023,8 @@ const ALPHABET_LAST: u8 = b'~';
 ///
 /// A galley's `RowVisuals::mesh` holds *texel* coordinates into the live font
 /// atlas, normalised against that atlas's size at tessellation
-/// (`epaint-0.36.1/src/text/text_layout_types.rs`, `tessellator.rs`), and
-/// `Fonts::begin_pass` (`epaint-0.36.1/src/text/fonts.rs`) replaces the whole
+/// (`epaint-0.36.2/src/text/text_layout_types.rs`, `tessellator.rs`), and
+/// `Fonts::begin_pass` (`epaint-0.36.2/src/text/fonts.rs`) replaces the whole
 /// `FontsImpl` — a fresh atlas with empty glyph caches — whenever the text
 /// options change or the atlas passes its fill ratio. A galley held across that
 /// recreate indexes unrelated texels and paints a *different character*. Atlas
@@ -1129,7 +1129,7 @@ impl GlyphTable {
 /// `RectShape::filled` leaves `round_to_pixels: None`,
 /// `TessellationOptions::round_rects_to_pixels` defaults to true, and
 /// `tessellate_rect` then applies `Rect::round_to_pixels` — the same `emath`
-/// function this calls — at `epaint-0.36.1/src/tessellator.rs:1829-1862`. A run
+/// function this calls — at `epaint-0.36.2/src/tessellator.rs:1829-1862`. A run
 /// left unsnapped here would reach the screen as the same pixels.
 ///
 /// It is snapped so the rectangle is one a test can predict. The snap is the
@@ -1137,7 +1137,7 @@ impl GlyphTable {
 /// Frame carries at the coordinates the paint lands on, and an assertion can
 /// state them exactly rather than within a pixel. `Rect::round_to_pixels`
 /// rounds the two corners independently
-/// (`emath-0.36.1/src/gui_rounding.rs:155-186`), so a run's far edge lands on
+/// (`emath-0.36.2/src/gui_rounding.rs:155-186`), so a run's far edge lands on
 /// the physical pixel the next Cell's near edge would have and neighbouring
 /// runs still tile — which is what makes that predicted rectangle the same
 /// paint as the Cells it replaces.
@@ -1631,7 +1631,7 @@ fn show_source_scene(
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
     // `Sense::CLICK | Sense::DRAG` rather than `Sense::click_and_drag()`,
-    // which adds `FOCUSABLE` (`egui-0.36.1/src/sense.rs:81-83`) and would let
+    // which adds `FOCUSABLE` (`egui-0.36.2/src/sense.rs:81-83`) and would let
     // Tab focus the console area, where a focused widget keeps every key from
     // the Source.
     let (console, mut pan) =
@@ -1879,7 +1879,7 @@ impl eframe::App for Console {
         // Tab belongs to the Source while it holds the keys. `Memory::begin_pass`
         // already turned an unmodified Tab into `FocusDirection::Next` and a
         // Shift Tab into `FocusDirection::Previous` before this runs
-        // (`egui-0.36.1/src/memory/mod.rs:596-597`), and the first focusable
+        // (`egui-0.36.2/src/memory/mod.rs:596-597`), and the first focusable
         // widget shown below — a menu-bar button — would otherwise claim it
         // the moment it is shown. Cancelling here, before anything is shown,
         // is what keeps Tab off every widget rather than only the ones drawn
@@ -2066,9 +2066,9 @@ impl eframe::App for Console {
         // Source or toggle Playback in the same pass a control is already
         // editing. egui offers no per-event answer to whether a widget used
         // an event — `TextEdit` reads its events without consuming them
-        // (`egui-0.36.1/src/widgets/text_edit/builder.rs:1081`) — and names
+        // (`egui-0.36.2/src/widgets/text_edit/builder.rs:1098`) — and names
         // `egui_wants_keyboard_input` as the question to ask instead
-        // (`egui-0.36.1/src/data/input/raw_input.rs:56-60`).
+        // (`egui-0.36.2/src/data/input/raw_input.rs:56-60`).
         if ctx.memory(|memory| memory.had_focus_last_frame(egui::Id::new(BPM_FIELD_ID))) {
             ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
         }
@@ -2076,8 +2076,8 @@ impl eframe::App for Console {
             // A command Zoom chord answers `show_source_scene`, not the
             // Source. `egui-winit` and eframe's web backend both withhold
             // `Event::Text` while a command modifier is held
-            // (`egui-winit-0.36.1/src/lib.rs:1059-1065`,
-            // `eframe-0.36.1/src/web/events.rs:155-162`), so a shipped build
+            // (`egui-winit-0.36.2/src/lib.rs:1059-1065`,
+            // `eframe-0.36.2/src/web/events.rs:155-162`), so a shipped build
             // never raises the matching bare character alongside the chord
             // that already answered it.
             let events = ctx.input(|i| {
@@ -2712,7 +2712,7 @@ mod tests {
     /// The scale is given as the viewport's `native_pixels_per_point` rather
     /// than through `Context::set_pixels_per_point`, which sets the zoom factor
     /// instead and rewrites the next pass's `screen_rect` from the previous
-    /// one's to avoid jitter (`egui-0.36.1/src/context.rs:436-446`) — so the
+    /// one's to avoid jitter (`egui-0.36.2/src/context.rs:437-447`) — so the
     /// console would not be the size the caller asked for.
     ///
     fn console_pass_at(
