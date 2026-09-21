@@ -2,9 +2,11 @@
 
 **What to build:** A `Scheme` of sixteen slots, one template mapping Orcvs Tokens onto them, and a resolution chain the Source Grid paints from — replacing `SourcePaintSettings`' ten resolved colours. Compiled-in schemes only; loading one at runtime is `07`.
 
-**Blocked by:** 01 — Decide where Source colour authority lives; paint-cell-cost/02 — Answer written on the Render Frame.
+**Blocked by:** 01 — Decide where Source colour authority lives; paint-cell-cost/02 — Answer Source Paint facts per Cell in the Language Map.
 
 **Status:** ready-for-agent
+
+**Tags:** release/v1
 
 - [ ] `Scheme` holds sixteen `Color32` slots, `base00`–`base0F`, and nothing else. No Orcvs vocabulary on it — it is the interchange type, and every published base16 scheme is one.
 - [ ] One `TEMPLATE` maps each Token to a slot, at the assignment ADR 0051 records. It is a single table, not a method per role.
@@ -27,8 +29,8 @@
 
 **The contrast rule does not come with this.** `style.rs` currently pins each colour's measured ratio against `#000000` and which side of Comment it reads on. Those are facts about Okabe–Ito, and an arbitrary scheme will break them. `08` replaces them with a validator. Until it lands, keep the existing assertions passing against the Okabe–Ito scheme and do not extend them to the new schemes — asserting a second palette against a first palette's measurements is the thing `08` exists to stop.
 
-**Interaction with `paint-cell-cost`.** That effort exists because `syntax-highlighting/08`–`10` made every drawn Cell about 5.5 times more expensive, and its `02` moves the `slot_written` map off the per-Cell loop for a measured 2.8x recovery. This issue rewrites the same loop. The ordering is recorded as a blocker rather than left to chance: `02` lands first, `benchmarks/07` pins the recovered figure, and this issue is then built against a floor that will fail if resolution creeps back into the per-Cell body.
+**Interaction with `paint-cell-cost`.** That effort exists because `syntax-highlighting/08`–`10` made every drawn Cell about 5.5 times more expensive, and its `02` moves all finished Paint facts onto the Language Map, removing the `slot_written` map and the shared claim from the per-Cell loop. This issue rewrites the same loop. The ordering is recorded as a blocker rather than left to chance: `02` lands first, `benchmarks/07` pins the recovered figure, and this issue is then built against a floor that will fail if resolution creeps back into the per-Cell body.
 
-The two are compatible in kind. ADR 0051 says facts belong to the Frame and the theme maps them to channels, which is the same direction `paint-cell-cost/02` moves "written". What must not happen is the mapping itself becoming a per-Cell cost.
+The two are compatible in kind. ADR 0051 says facts belong to the Frame and the theme maps them to channels, which is the boundary `paint-cell-cost/02` now implements. What must not happen is the mapping itself becoming a per-Cell cost.
 
-`paint-cell-cost/02`'s optional section proposes precomputing "the ten role tints once per `SourcePaintSettings`". That type does not survive this issue; the optimisation does, as a precompute per resolved scheme. Worth correcting there when that branch next moves.
+Precomputing the role tints remains this ticket's concern: `SourcePaintSettings` does not survive this issue, but the optimisation does, as a precompute per resolved scheme.

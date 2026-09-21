@@ -10,6 +10,8 @@ The Reservation itself is unchanged: Tick scheduling still reserves from the Out
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] A Sequence-capable root's highlight covers exactly its written answer where the answer is four Cells or longer: `01020304` south of `:-0104`, `C4c4D4` south of `:#C4D4`, `04030201` south of `:<:-0104`, and `010203` south of `:&.+0001:-0203`.
 - [x] An empty Sequence-capable Output Portal shows four tinted Cells before any Tick.
 - [x] A one-Atom answer shows four tinted Cells.

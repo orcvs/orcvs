@@ -6,6 +6,8 @@
 
 **Status:** ready-for-human
 
+**Tags:** release/v1
+
 ## The answer
 
 `docs/adr/0050-a-theme-maps-facts-to-channels.md`, status `proposed`. It is written and needs acceptance, not authoring. In short:
@@ -18,8 +20,8 @@ Storage holds a scheme name or its sixteen values plus per-role overrides keyed 
 
 ## Acceptance
 
-- [ ] ADR 0051 is accepted, or amended and accepted. It sits beside ADR 0050 on the same pull request: ADR 0050 decides what a Render Frame Cell carries, and ADR 0051 decides what the console does with those facts. If ADR 0050 is rejected, ADR 0051 still stands — it cites whichever answer settles, not a particular one.
-- [ ] The two assignments the ADR marks as reasoned rather than exact are ruled on: Sequence on `base08` ("Markup Lists") and Note on `base0B` ("Strings"). Both are defensible and neither is stated by base16.
+- [x] ADR 0051 is accepted, or amended and accepted. It sits beside ADR 0050 on the same pull request: ADR 0050 decides what a Render Frame Cell carries, and ADR 0051 decides what the console does with those facts. If ADR 0050 is rejected, ADR 0051 still stands — it cites whichever answer settles, not a particular one.
+- [x] The two assignments the ADR marks as reasoned rather than exact are ruled on: Sequence on `base08` ("Markup Lists") and Note on `base0B` ("Strings"). Both are defensible and neither is stated by base16.
 - [ ] The affordance key names are listed at exact spellings, so `06` and `08` have something to implement against.
 - [ ] `console/src/theme.md`'s "Source colours" section is rewritten to describe the scheme model rather than ten settings.
 - [ ] `syntax-highlighting/01` gains a comment pointing at the accepted ADR, closing the reconciliation it deferred.

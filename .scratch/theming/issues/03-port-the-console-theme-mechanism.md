@@ -10,6 +10,8 @@ restored theme preference at startup; 01 — Decide where Source colour authorit
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `PALETTE` becomes `DARK_PALETTE`. Its twenty-two values are unchanged and remain the ones
       `restyle-egui-console/02` decides.
 - [ ] `palette(theme: Theme) -> &'static ConsolePalette` selects the palette for a theme.

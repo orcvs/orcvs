@@ -7,6 +7,8 @@ make sure a light preference cannot produce a half-styled console.
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `Console::new` no longer calls `ctx.set_theme(egui::Theme::Dark)`.
 - [ ] `Console::new` registers the current style for both `Theme::Dark` and `Theme::Light`. One
       palette still exists, so both registrations use it.

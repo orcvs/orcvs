@@ -41,7 +41,6 @@
 //! Positions each covers.
 //!
 
-use std::collections::HashMap;
 use std::ops::Range;
 
 use egui::Color32;
@@ -49,7 +48,6 @@ use egui::Color32;
 use orcvs::{
     grid::{Grid, Position},
     render_frame::RenderFrame,
-    source::Claim,
 };
 
 use crate::{
@@ -143,27 +141,6 @@ impl<'a> FramePaint<'a> {
 }
 
 ///
-/// Whether any Cell of `claim`'s own slot (`claim.cells`) holds written
-/// content.
-///
-/// `Claim { cells, token, atom }` cannot answer Pending versus Invalid on its
-/// own — both cover `atom: None` alike — so this reads the Render Frame's
-/// own Cell contents over the claim's range, converting each raw index
-/// through the Frame's Grid the way `orcvs::source::Span::positions` already
-/// does (ADR 0044). A slot with any written Cell is Invalid; one that is
-/// entirely blank is Pending — `cell_visuals_with_cursor_colour` is where
-/// that distinction is spent.
-///
-fn slot_written(frame: &RenderFrame, claim: &Claim) -> bool {
-    let grid = frame.grid();
-
-    claim.cells.clone().any(|index| {
-        grid.cell_index(index)
-            .is_some_and(|cell_index| frame.at(grid.position_at(cell_index)).content().is_some())
-    })
-}
-
-///
 /// How one Render Frame is drawn, Cell by Cell.
 ///
 /// Derived from a Render Frame and nothing else — no running Orcvs, no
@@ -200,10 +177,8 @@ impl Paint {
     ///
     /// `cell_visuals_with_cursor_colour` is called once per drawn Cell and is
     /// unchanged: this decides what to do with its answer, not what the
-    /// answer is. It reads the claim on the Cell (`RenderCell::claim`),
-    /// whether that claim's slot holds written content — `slot_written`,
-    /// below, answers the latter once per claim rather than once per Cell —
-    /// and whether the Cell lies in a root Function's Output Portal
+    /// answer is. It reads the finished language fact on the Cell
+    /// (`RenderCell::source_paint`) and whether the Cell lies in a root Function's Output Portal
     /// Reservation (`RenderCell::output_portal`, `.scratch/syntax-
     /// highlighting/issues/06`).
     ///
@@ -246,12 +221,6 @@ impl Paint {
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
-        // `slot_written` walks every Cell of a claim's slot, so a claim
-        // spanning many Cells — a whole-row Comment among them — is answered
-        // once here rather than once per Cell it covers. Every Cell of one
-        // claim shares one `Arc` (ADR 0044), so the claim's own address is
-        // the cache key.
-        let mut written_cache: HashMap<*const Claim, bool> = HashMap::new();
         for row in drawn.rows.clone() {
             for column in drawn.columns.clone() {
                 let position = grid
@@ -264,15 +233,8 @@ impl Paint {
                 // colour, or the Cursor's colour when that is unset.
                 let is_cursor = position == frame_cursor;
                 let selected = is_cursor && !region_spans;
-                let claim = cell.claim();
-                let written = claim.is_some_and(|claim| {
-                    *written_cache
-                        .entry(claim as *const Claim)
-                        .or_insert_with(|| slot_written(frame, claim))
-                });
                 let visuals = cell_visuals_with_cursor_colour(
-                    claim,
-                    written,
+                    cell.source_paint(),
                     cell.output_portal(),
                     selected,
                     selected && cursor_visible,
@@ -532,13 +494,13 @@ impl Paint {
 
 #[cfg(test)]
 mod tests {
-    use super::{BackgroundRun, CellPaint, FramePaint, Paint, slot_written};
+    use super::{BackgroundRun, CellPaint, FramePaint, Paint};
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left_strength, sector_top_strength};
     use crate::source_paint::{DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings};
     use crate::style::{PALETTE, cell_visuals_with_cursor_colour, sector_line};
     use egui::Color32;
-    use orcvs::source::Token;
+    use orcvs::source::{OperandState, SourcePaint, Token};
     use orcvs::{app::Orcvs, grid::Grid, render_frame::RenderFrame};
     use std::ops::Range;
 
@@ -585,24 +547,20 @@ mod tests {
 
     ///
     /// What `cell_visuals_with_cursor_colour` answers for `cell`, reading its
-    /// claim, its slot's own written fact, and its own Output Portal fact
-    /// straight from `frame` and `cell` — the same three inputs
-    /// `Paint::derive_with_colours` reads, so a test comparing against this
-    /// needs no `SourcePaintSettings::default()`-only shim.
+    /// claim and its own Output Portal fact straight from `cell` — the same
+    /// two per-Cell inputs `Paint::derive_with_colours` reads, so a test
+    /// comparing against this needs no `SourcePaintSettings::default()`-only
+    /// shim.
     ///
     fn expected_visuals(
-        frame: &RenderFrame,
         cell: &orcvs::render_frame::RenderCell,
         selected: bool,
         cursor_visible: bool,
         cursor_colour: Option<Color32>,
         source_paint: SourcePaintSettings,
     ) -> crate::style::CellVisuals {
-        let claim = cell.claim();
-        let written = claim.is_some_and(|claim| slot_written(frame, claim));
         cell_visuals_with_cursor_colour(
-            claim,
-            written,
+            cell.source_paint(),
             cell.output_portal(),
             selected,
             cursor_visible,
@@ -637,7 +595,6 @@ mod tests {
             let position = cell.position();
             let selected = position == cursor;
             let visuals = expected_visuals(
-                &frame,
                 cell,
                 selected,
                 selected && frame.cursor_visible(),
@@ -911,12 +868,18 @@ mod tests {
             let position = orcvs.grid().position(x, 0).expect("inside the grid");
             let cell = frame.at(position);
             assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
-            assert_eq!(cell.claim().map(|claim| claim.token), Some(Token::Number));
+            assert_eq!(
+                cell.source_paint(),
+                SourcePaint::Operand {
+                    token: Token::Number,
+                    state: OperandState::Pending,
+                }
+            );
             let painted = paint.at(position);
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(&frame, cell, false, false, None, source_paint).background,
+                expected_visuals(cell, false, false, None, source_paint).background,
                 "operand Cell {x} did not carry the Number tint"
             );
         }
@@ -926,12 +889,18 @@ mod tests {
             let position = orcvs.grid().position(x, 1).expect("inside the grid");
             let cell = frame.at(position);
             assert_eq!(cell.content(), None, "operand Cell {x} was not empty");
-            assert_eq!(cell.claim().map(|claim| claim.token), Some(Token::Note));
+            assert_eq!(
+                cell.source_paint(),
+                SourcePaint::Operand {
+                    token: Token::Note,
+                    state: OperandState::Pending,
+                }
+            );
             let painted = paint.at(position);
             assert_eq!(painted.character, ' ', "operand Cell {x} spelled a letter");
             assert_eq!(
                 painted.background,
-                expected_visuals(&frame, cell, false, false, None, source_paint).background,
+                expected_visuals(cell, false, false, None, source_paint).background,
                 "operand Cell {x} did not carry the Note tint"
             );
         }
@@ -970,8 +939,11 @@ mod tests {
 
         assert_eq!(cell.content(), None, "the truncated Cell was not empty");
         assert_eq!(
-            cell.claim().map(|claim| claim.token),
-            Some(Token::Number),
+            cell.source_paint(),
+            SourcePaint::Operand {
+                token: Token::Number,
+                state: OperandState::Pending,
+            },
             "the truncated Cell did not carry the operand's declared Token"
         );
         let painted = paint.at(position);
@@ -981,7 +953,7 @@ mod tests {
         );
         assert_eq!(
             painted.background,
-            expected_visuals(&frame, cell, false, false, None, source_paint).background,
+            expected_visuals(cell, false, false, None, source_paint).background,
             "the truncated Cell did not carry the Number tint"
         );
     }
@@ -1012,10 +984,9 @@ mod tests {
 
         for x in [0, 1, 3, 4, 6] {
             let position = orcvs.grid().position(x, 0).expect("inside the grid");
-            let claim = frame.at(position).claim().expect("a claimed Cell");
             assert_eq!(
-                (claim.token, claim.atom),
-                (Token::Function, None),
+                frame.at(position).source_paint(),
+                SourcePaint::Unclaimed,
                 "column {x} was not a Function claim that bound nothing"
             );
             let painted = paint.at(position);
@@ -1029,8 +1000,7 @@ mod tests {
             assert_eq!(painted.foreground, source_paint.diagnostic(), "column {x}");
             assert_eq!(
                 painted.background,
-                expected_visuals(&frame, frame.at(position), false, false, None, source_paint)
-                    .background,
+                expected_visuals(frame.at(position), false, false, None, source_paint).background,
                 "column {x} did not keep the Number tint"
             );
             assert!(painted.background.is_some(), "column {x} lost its tint");
@@ -1083,16 +1053,16 @@ mod tests {
                 let x = offset + 2;
                 let rejected = offset < 2;
                 let position = orcvs.grid().position(x, row).expect("inside the grid");
-                let claim = frame.at(position).claim().expect("a claimed operand Cell");
-
                 assert_eq!(
-                    claim.token,
-                    Token::Number,
-                    "row {row} column {x} was not claimed as a Number operand"
-                );
-                assert_eq!(
-                    claim.atom.is_none(),
-                    rejected,
+                    frame.at(position).source_paint(),
+                    SourcePaint::Operand {
+                        token: Token::Number,
+                        state: if rejected {
+                            OperandState::Invalid
+                        } else {
+                            OperandState::Valid
+                        },
+                    },
                     "row {row} column {x} did not bind the way its operand is written"
                 );
 
@@ -1252,12 +1222,12 @@ mod tests {
         let grid = orcvs.grid();
         let mut tints = std::collections::BTreeSet::new();
 
-        for (row, operands, token, bound, tint, foreground) in [
+        for (row, operands, token, state, tint, foreground) in [
             (
                 0,
                 2..6,
                 Token::Number,
-                false,
+                OperandState::Pending,
                 source_paint.number(),
                 source_paint.number(),
             ),
@@ -1265,7 +1235,7 @@ mod tests {
                 2,
                 2..6,
                 Token::Note,
-                true,
+                OperandState::Valid,
                 source_paint.note(),
                 source_paint.note(),
             ),
@@ -1273,7 +1243,7 @@ mod tests {
                 4,
                 2..6,
                 Token::Atom,
-                false,
+                OperandState::Pending,
                 source_paint.ordinary(),
                 source_paint.ordinary(),
             ),
@@ -1281,7 +1251,7 @@ mod tests {
                 6,
                 2..4,
                 Token::Sequence,
-                false,
+                OperandState::Invalid,
                 source_paint.sequence(),
                 source_paint.diagnostic(),
             ),
@@ -1294,14 +1264,9 @@ mod tests {
                     !cell.output_portal(),
                     "row {row} column {x} is inside a Reservation, so `06`'s rule answers it"
                 );
-                let claim = cell.claim().expect("a claimed operand Cell");
                 assert_eq!(
-                    claim.token, token,
-                    "row {row} column {x} was not claimed as the operand it declares"
-                );
-                assert_eq!(
-                    claim.atom.is_some(),
-                    bound,
+                    cell.source_paint(),
+                    SourcePaint::Operand { token, state },
                     "row {row} column {x} did not bind the way its operand is written"
                 );
 
@@ -1385,7 +1350,7 @@ mod tests {
         let claimed: Vec<_> = frame
             .cells()
             .iter()
-            .filter(|cell| cell.claim().is_some())
+            .filter(|cell| cell.source_paint() != SourcePaint::Unclaimed)
             .map(|cell| cell.position())
             .collect();
         assert_eq!(
@@ -1441,10 +1406,10 @@ mod tests {
         let grid = orcvs.grid();
         assert_ne!(source_paint.fill_tint(), 0);
 
-        for (row, columns, token, foreground) in [
-            (0, 0..8, Some(Token::Comment), source_paint.comment()),
-            (2, 0..2, Some(Token::Bang), source_paint.bang()),
-            (2, 2..8, None, source_paint.ordinary()),
+        for (row, columns, expected, foreground) in [
+            (0, 0..8, SourcePaint::Comment, source_paint.comment()),
+            (2, 0..2, SourcePaint::Bang, source_paint.bang()),
+            (2, 2..8, SourcePaint::Unclaimed, source_paint.ordinary()),
         ] {
             for x in columns {
                 let position = grid.position(x, row).expect("inside the grid");
@@ -1455,8 +1420,8 @@ mod tests {
                     "row {row} column {x} is inside a Reservation, so `06`'s rule answers it"
                 );
                 assert_eq!(
-                    cell.claim().map(|claim| claim.token),
-                    token,
+                    cell.source_paint(),
+                    expected,
                     "row {row} column {x} was not claimed the way this row is written"
                 );
 
@@ -1601,17 +1566,19 @@ mod tests {
 
         ///
         /// A Sequence answer is painted the same way across every one of its
-        /// Cells, and the highlight stops where the answer does rather than
-        /// running to the end of the row. `:<:-0104` (Reverse of NumberRange
-        /// 01..04) answers a Sequence outright, so its Reservation runs to
-        /// the end of the destination row (`.scratch/syntax-highlighting/
-        /// issues/10`'s Answer) — but the highlight is fitted to the written
-        /// answer, `04030201` (`12`), so the row's last two Cells are the
-        /// ordinary untinted blanks they would be with no root above them,
-        /// even though the Reservation still covers them.
+        /// Cells, and the highlight stops where written content stops rather
+        /// than running to the end of the Reservation. `:<:-0104` (Reverse of
+        /// NumberRange 01..04) answers a Sequence outright, so its
+        /// Reservation runs to the end of the destination row
+        /// (`.scratch/syntax-highlighting/issues/10`'s Answer), but the
+        /// written answer, `04030201`, fills only the row's first eight Cells
+        /// of ten, so the last two stay ordinary and untinted. The fit
+        /// follows written content, not the answer itself: here they coincide
+        /// because nothing else is written in the row
+        /// (`.scratch/syntax-highlighting/issues/12`'s known limit, and `13`).
         ///
         #[tokio::test]
-        async fn a_sequence_answer_paints_every_cell_and_stops_where_the_answer_does() {
+        async fn a_sequence_answer_paints_every_written_cell_and_the_highlight_stops_there() {
             let mut orcvs = running_orcvs(10, 2);
             write_row(&mut orcvs, 0, ":<:-0104");
             write_row(&mut orcvs, 1, "04030201");
@@ -2136,9 +2103,9 @@ mod tests {
         let function_cell = frame.at(orcvs.grid().position(0, 0).expect("inside the grid"));
         let number_cell = frame.at(orcvs.grid().position(4, 0).expect("inside the grid"));
         let function_tint =
-            expected_visuals(&frame, function_cell, false, false, None, source_paint).background;
+            expected_visuals(function_cell, false, false, None, source_paint).background;
         let number_tint =
-            expected_visuals(&frame, number_cell, false, false, None, source_paint).background;
+            expected_visuals(number_cell, false, false, None, source_paint).background;
         assert!(function_tint.is_some() && number_tint.is_some());
         assert_ne!(function_tint, number_tint);
 

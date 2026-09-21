@@ -71,29 +71,18 @@ already gives the Cursor's and Selection's fills. "Reset to theme defaults"
 restores Fill tint to 16% together with the ten colours, and persistence
 restores it at the same key as the colours — there is no key of its own.
 
-The console paints from the parser's own claim on a Cell (`orcvs::source::Claim
-{ cells, token, atom }`, `RenderCell::claim()`) rather than from a Token and a
-derived flag — `.scratch/syntax-highlighting/issues/09` folded the two
-overlapping colour decisions that used to read those separately into the one
-that reads the claim. `atom: None` marks a claim unbound, and what that
-means depends on whether a signature declared the slot. An operand slot's
-Token is its parent Function's declared expectation, so an unbound operand
-claim whose content fails to bind is an Invalid Operand: it draws its glyph
-in Diagnostic and keeps its declared Token's Fill tint (the declared Token is
-still visible underneath, unchanged). A `Function` claim with no Atom is
-different: the Parser seeds `Token::Function` at every Expression start as
-the thing to try, not as anything declared, so text that spells no Function
-there — `hi`, both Cells of a written `07`, a lone `|`, the trailing `<` of
-`<<<` — expected nothing and failed nothing. It paints Ordinary with no
-tint, the same as an unclaimed Cell. A Comment records no Atom too, but it
-is a complete Language Unit rather than an invalid one (ADR 0035), so it is
-never painted Diagnostic regardless of its own claim.
+ADR 0050 has the Language Map answer the finished Source Paint fact for every
+Cell once per Source revision: Function, Pending Operand, Valid Operand,
+Invalid Operand, Bang, Comment, or Unclaimed. Every Operand fact independently
+carries the Token its Function signature declared. A Render Frame copies that
+answer; the console never receives the parser's shared claim or interprets its
+Span. Text that spells no Function — `hi`, both Cells of a written `07`, a lone
+`|`, the trailing `<` of `<<<` — is Unclaimed paint: the Parser's attempted
+Function classification is not a declared expectation and therefore is not a
+Paint distinction.
 
-An unbound operand claim is Invalid when any Cell of its own slot
-(`claim.cells`) holds written content, and Pending when the whole slot is
-still entirely blank — a fact the claim cannot answer on its own, since
-`atom: None` covers both alike (ADR 0044), so the console reads it from the
-Render Frame's own Cell contents once per claim. A Pending Cell answers its
+An operand is Invalid when any Cell of its slot holds written content but the
+slot did not bind, and Pending when the whole slot is blank. A Pending Cell answers its
 declared Token colour rather than Diagnostic, and an Invalid one answers
 Diagnostic on every Cell of its slot, the written ones and the blank ones
 alike — `.+0`'s second operand, one Cell written and one blank, is Invalid
@@ -121,7 +110,7 @@ Source would (a `07` left south of `.+0304` is two unknown one-Cell
 Functions, diagnostics included), and the Output Portal fact is what tells
 that written value apart from the Expression that produced it. Such a Cell
 draws in the Output Portal colour on the Output Portal's own Fill tint
-instead of whatever that claim alone would answer; an empty Output
+instead of whatever its Source Paint fact alone would answer; an empty Output
 Portal Cell shows the same tint with no glyph. The one named exception is a
 Bang answer: it keeps its own Bang glyph colour, because a Bang is what a
 Producer emits rather than a value it writes, but still takes the Output

@@ -9,6 +9,8 @@ lives.
 
 **Status:** ready-for-human
 
+**Tags:** release/v1
+
 - [ ] Every light chrome token is named at an exact value, filling the same roles
       `restyle-egui-console/02` names for dark, minus the glyph tokens ADR 0051 moves to a scheme:
       page, source, grid line, sector line, marker, highlight, the four Cursor bloom fill and line

@@ -4,7 +4,7 @@ use crate::{
     grid::{Grid, Position},
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
-    source::{Claim, Diagnostic, SourceRevision, Span},
+    source::{Claim, Diagnostic, OperandState, SourcePaint, SourceRevision, Span, Token},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -39,6 +39,37 @@ impl RenderCell {
     ///
     pub fn claim(&self) -> Option<&Claim> {
         self.claim.as_deref()
+    }
+
+    /// The language fact this Cell's Source Paint presents.
+    ///
+    /// Whether an operand slot is written is answered once, as its claim is
+    /// built, and read here from the claim every covered Cell shares
+    /// ([`Claim::written`]). Paint therefore spends no lookup or claim-range
+    /// walk per drawn Cell.
+    pub fn source_paint(&self) -> SourcePaint {
+        let Some(claim) = self.claim() else {
+            return SourcePaint::Unclaimed;
+        };
+        match claim.token {
+            Token::Bang => SourcePaint::Bang,
+            Token::Comment => SourcePaint::Comment,
+            Token::Function if claim.atom.is_some() => SourcePaint::Function,
+            Token::Function => SourcePaint::Unclaimed,
+            Token::Char => unreachable!("the Parser never creates a positioned Char claim"),
+            token @ (Token::Number | Token::Note | Token::Atom | Token::Sequence) => {
+                SourcePaint::Operand {
+                    token,
+                    state: if claim.atom.is_some() {
+                        OperandState::Valid
+                    } else if claim.written {
+                        OperandState::Invalid
+                    } else {
+                        OperandState::Pending
+                    },
+                }
+            }
+        }
     }
 
     ///
@@ -113,7 +144,7 @@ impl RenderFrame {
         let grid = source.grid();
         grid.assert_owns(region.anchor());
         grid.assert_owns(region.cursor());
-        let claims = source.language_map().claims_by_cell();
+        let claims = source.claims_by_cell();
         let output_portals = source.output_portal_highlight();
         let cells = grid
             .positions_by_row()
@@ -303,7 +334,7 @@ mod tests {
         opts::{CursorBloomRadius, SectorSeamSpacing},
         region::Region,
         render_frame::{RenderFrame, RenderFrameConfig},
-        source::{SourceCommander, Tick, Token},
+        source::{OperandState, SourceCommander, SourcePaint, Tick, Token},
     };
 
     ///
@@ -466,6 +497,13 @@ mod tests {
             first,
             frame.at(grid.position(3, 0).unwrap()).claim().expect("c4")
         ));
+        assert!((2..4).all(|column| {
+            frame.at(grid.position(column, 0).unwrap()).source_paint()
+                == SourcePaint::Operand {
+                    token: Token::Number,
+                    state: OperandState::Invalid,
+                }
+        }));
 
         let second = frame.at(grid.position(4, 0).unwrap()).claim().expect("0G");
         assert_eq!(second.cells, 4..6);
@@ -510,6 +548,93 @@ mod tests {
                 .claim()
                 .expect("blank operand")
         ));
+        assert!((4..6).all(|column| {
+            frame.at(grid.position(column, 0).unwrap()).source_paint()
+                == SourcePaint::Operand {
+                    token: Token::Number,
+                    state: OperandState::Pending,
+                }
+        }));
+    }
+
+    #[test]
+    fn a_partly_written_operand_is_invalid_on_every_cell() {
+        let grid = Grid::new(4, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+0");
+        let frame = derive_frame(&source, grid.origin());
+
+        assert!((2..4).all(|column| {
+            frame.at(grid.position(column, 0).unwrap()).source_paint()
+                == SourcePaint::Operand {
+                    token: Token::Number,
+                    state: OperandState::Invalid,
+                }
+        }));
+    }
+
+    #[test]
+    fn every_cell_of_a_claim_reads_the_written_answer_its_claim_was_built_with() {
+        // One 8-Cell row per shape a claim takes:
+        //   `.+01  **` a bound Function, a Valid Number, a blank Pending
+        //              Number that ends where the next Expression — a Bang —
+        //              begins, and that Bang;
+        //   `.+c40   ` a wholly written Invalid Number, then a partly
+        //              written one;
+        //   `|| a  b ` one Comment over the whole row, blanks included;
+        //   `x       ` a refused Function spelling, then empty Cells.
+        let grid = Grid::new(8, 4);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+01  **.+c40   || a  b x       ");
+        let frame = derive_frame(&source, grid.origin());
+
+        let number = |state| SourcePaint::Operand {
+            token: Token::Number,
+            state,
+        };
+        let (valid, pending, invalid) = (
+            number(OperandState::Valid),
+            number(OperandState::Pending),
+            number(OperandState::Invalid),
+        );
+        let (function, bang, comment, unclaimed) = (
+            SourcePaint::Function,
+            SourcePaint::Bang,
+            SourcePaint::Comment,
+            SourcePaint::Unclaimed,
+        );
+        let expected = [
+            [
+                function, function, valid, valid, pending, pending, bang, bang,
+            ],
+            [
+                function, function, invalid, invalid, invalid, invalid, unclaimed, unclaimed,
+            ],
+            [comment; 8],
+            [unclaimed; 8],
+        ];
+
+        for (y, row) in expected.iter().enumerate() {
+            for (x, &answer) in row.iter().enumerate() {
+                let drawn = frame.at(grid.position(x, y).unwrap());
+                assert_eq!(drawn.source_paint(), answer, "column {x} row {y}");
+                let Some(claim) = drawn.claim() else {
+                    continue;
+                };
+                // Every Cell the claim covers shares it, so each reads the one
+                // written answer the claim was built with.
+                for index in claim.cells.clone() {
+                    let covered = frame.at(grid.position_at(cell(grid, index)));
+                    assert!(
+                        covered
+                            .claim()
+                            .is_some_and(|other| std::ptr::eq(claim, other)),
+                        "Cell {index} does not share the claim over column {x} row {y}"
+                    );
+                    assert_eq!(covered.source_paint(), answer, "Cell {index}");
+                }
+            }
+        }
     }
 
     #[test]

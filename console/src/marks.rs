@@ -130,8 +130,8 @@ mod tests {
         assert!((0..7).all(|x| {
             frame
                 .at(frame.grid().position(x, 0).unwrap())
-                .claim()
-                .is_none()
+                .source_paint()
+                == orcvs::source::SourcePaint::Unclaimed
         }));
     }
 }

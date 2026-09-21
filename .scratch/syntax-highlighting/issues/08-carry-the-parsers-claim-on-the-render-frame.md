@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] `orcvs` gains a `Claim` carrying `cells`, `token` and `atom` exactly as `lang::PositionedEntry` records them. It does not carry `parent`: that index counts entries within one Expression (`lang/src/expression.rs:16-18`), so it means nothing outside it.
 - [x] `RenderCell::claim() -> Option<&Claim>` answers the claim on that Cell; `None` means no entry claims it. Each claim is stored once and shared by every Cell it claims, not cloned per Cell. `RenderFrame` already stores a flat `Vec<RenderCell>` (`render_frame.rs:85`).
 - [x] `RenderCell::bound()` and `LanguageMap::bound_at` are removed, and their callers move to the claim in this issue. The production callers are `RenderFrame::derive` and `paint.rs:214`; `paint.rs:486` is a test. Moving `paint.rs` is mechanical, with no behaviour change: the bound value `bound().unwrap_or(true)` supplied becomes `cell.claim().is_none_or(|claim| claim.token == Token::Comment || claim.atom.is_some())`, passed to the existing `bound` parameter. The Comment clause is required: a Comment records no Atom, and `bound_at` answered `true` for it. It is temporary, and goes when `09` decides by Token. `09` then restructures the paint decision itself.

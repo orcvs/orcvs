@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Tags:** release/v1
+
 - [ ] `validate(scheme, template)` answers each Token's measured WCAG ratio against the scheme's `base00`, and which fail a stated floor.
 - [ ] The floor is stated once, with its source, rather than repeated at each call site.
 - [ ] Every shipped scheme passes, asserted by a test that iterates them — so adding a scheme cannot quietly ship one that fails.

@@ -6,6 +6,8 @@
 
 **Status:** resolved
 
+**Tags:** release/v1
+
 - [x] Theme → Source colours exposes one opaque colour control per role: Source background, Ordinary (also Char and Atom), Comment, Function, Bang, Number, Note, Sequence, Diagnostic, Result. Diagnostic and Result have no painter until `04` and `06`; they are exposed now so the settings value is complete once.
 - [x] Defaults are exactly:
 

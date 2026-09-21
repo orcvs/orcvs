@@ -129,23 +129,16 @@ impl SourcePaintSettings {
         self.sequence
     }
     /// The glyph colour an Invalid Operand (Number, Note, Atom or Sequence)
-    /// draws with instead of its Token colour: `style::claim_paint` reads it
-    /// for an Operand claim that records no Atom and whose slot holds
-    /// written content (syntax-highlighting/04, syntax-highlighting/09). A
-    /// Function claim that records no Atom never reads it: no signature
-    /// declared anything there, so it paints Ordinary. A Pending Operand — the same unbound claim
-    /// over a slot that is still entirely blank — keeps its Token colour
-    /// instead, a distinction `style::claim_paint` reads from the Render
-    /// Frame's own Cell contents (ADR 0044). A Comment is a further
-    /// exception among unbound claims: it always records no Atom yet never
-    /// reads this colour, because it is a complete Language Unit rather than
-    /// an invalid one (ADR 0035).
+    /// draws with instead of its Token colour. ADR 0050 has the Language Map
+    /// answer Invalid once per Source revision; Pending and Valid operands
+    /// keep their Token colour, while Unclaimed, Function, Bang, and Comment
+    /// facts never read this role.
     pub(crate) fn diagnostic(self) -> Color32 {
         self.diagnostic
     }
     /// The glyph colour a Function's written value draws with, one row south
     /// of its anchor (or further, for a Sequence-capable Function):
-    /// `style::claim_paint` reads it for every Cell `RenderCell::output_
+    /// the Source Paint decision reads it for every Cell `RenderCell::output_
     /// portal()` marks true, except a Cell that is itself another
     /// Expression's bound Function spelling, which keeps its Function paint
     /// regardless (syntax-highlighting/06). A Bang answer keeps its own Bang

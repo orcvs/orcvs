@@ -775,7 +775,10 @@ mod test {
     use crate::region::Region;
     use crate::source::Tick;
     use crate::test::trace;
-    use crate::{opts::DEFAULT_SECTOR_SEAM_SPACING, source::Token};
+    use crate::{
+        opts::DEFAULT_SECTOR_SEAM_SPACING,
+        source::{SourcePaint, Token},
+    };
 
     #[tokio::test]
     async fn playback_observation_is_tick_zero_stopped_and_run_clock_zero_before_the_first_run() {
@@ -1579,7 +1582,14 @@ mod test {
     fn rendered(app: &Orcvs, position: crate::grid::Position) -> (Option<char>, Option<Token>) {
         let frame = app.render_frame();
         let cell = frame.at(position);
-        (cell.content(), cell.claim().map(|claim| claim.token))
+        let token = match cell.source_paint() {
+            SourcePaint::Unclaimed => None,
+            SourcePaint::Function => Some(Token::Function),
+            SourcePaint::Bang => Some(Token::Bang),
+            SourcePaint::Comment => Some(Token::Comment),
+            SourcePaint::Operand { token, .. } => Some(token),
+        };
+        (cell.content(), token)
     }
 
     impl Orcvs {
@@ -1763,12 +1773,7 @@ mod test {
         // Every Cell of the row belongs to the one Comment, so every Cell
         // carries its Token, the space between the two words included.
         let frame = app.render_frame();
-        assert!((0..10).all(|x| {
-            frame
-                .at(at(x, 0))
-                .claim()
-                .is_some_and(|claim| claim.token == Token::Comment)
-        }));
+        assert!((0..10).all(|x| { frame.at(at(x, 0)).source_paint() == SourcePaint::Comment }));
         // And each renders what the Source holds there, no more.
         assert_eq!(
             (0..10)

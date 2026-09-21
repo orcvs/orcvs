@@ -24,6 +24,28 @@ pub use model::{
 };
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+/// The language fact the console paints for one Source Cell.
+///
+/// This is deliberately colour-free. A Render Frame answers the semantic
+/// distinction once; the console's theme decides how to present it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SourcePaint {
+    Unclaimed,
+    Function,
+    Bang,
+    Comment,
+    Operand { token: Token, state: OperandState },
+}
+
+/// Whether a declared operand slot is waiting, valid, or contains content
+/// that did not bind as its declared Token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperandState {
+    Pending,
+    Valid,
+    Invalid,
+}
+
 fn read_recover<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
     lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -60,6 +82,16 @@ impl SourceRevision {
 
     pub fn language_map(&self) -> &LanguageMap {
         &self.language_map
+    }
+
+    ///
+    /// The parser's claim on each Cell of this revision, in the Grid's
+    /// row-major order: [`LanguageMap::claims_by_cell`] read against this
+    /// revision's own Cell contents, which is what lets each claim answer
+    /// [`Claim::written`] as it is built.
+    ///
+    pub(crate) fn claims_by_cell(&self) -> Vec<Option<Arc<Claim>>> {
+        self.language_map.claims_by_cell(self.source.as_bytes())
     }
 
     ///

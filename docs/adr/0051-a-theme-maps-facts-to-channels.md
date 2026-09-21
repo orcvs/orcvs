@@ -1,6 +1,6 @@
 # A theme maps facts to channels
 
-Status: proposed. `.scratch/theming/issues/01` carries it. It takes as given whichever decision settles what a Render Frame Cell carries — [ADR 0044](0044-paint-reads-the-parsers-claim.md) today, or [ADR 0050](0050-the-language-map-answers-source-paint-per-cell.md) beside it, which supersedes ADR 0044 — and decides only what the console does with those facts once it has them. Numbered 0051 rather than 0050 because ADR 0050 is the other decision on this pull request, and the two land together. It supersedes the colour-authority arrangement `.scratch/syntax-highlighting/issues/01` shipped, which no ADR recorded.
+Status: accepted. `.scratch/theming/issues/01` carries it. It took [ADR 0050](0050-the-language-map-answers-source-paint-per-cell.md) as the decision on what a Render Frame Cell carries; ADR 0050 has since been rejected and superseded by [ADR 0052](0052-a-claim-answers-whether-its-slot-is-written.md), under which a Cell carries the parser's Claim and `RenderCell::source_paint` answers the same facts. This ADR decides only what the console does with those facts once it has them. Numbered 0051 rather than 0050 because ADR 0050 is the other decision on the pull request where the two landed. It supersedes the colour-authority arrangement `.scratch/syntax-highlighting/issues/01` shipped, which no ADR recorded.
 
 A Cell carries independent **facts**. The console draws them through independent **channels**. A theme is the mapping between the two, and nothing else decides it.
 
