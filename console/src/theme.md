@@ -2,9 +2,13 @@
 
 This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
-change, not drift. The Source background and every Token's glyph colour used
-to be pinned here too; `syntax-highlighting/01` moved them into their own
-section below, as `Theme → Source colours` settings rather than fixed tokens.
+change, not drift.
+
+Under ADR 0053 every value on this page belongs to the Okabe–Ito built-in
+Theme, the dark Theme the console ships with. Each one maps to a base16 slot or
+to a named key, recorded in the Themes section below. Until
+`.scratch/theming/issues/06` lands, the console still paints these values from
+compiled constants and from the two `Theme` menu sections this page describes.
 
 - Page: `#0B1112` (`rgb(11, 17, 18)`)
 - Cell grid line: `rgba(29, 55, 49, 0.28)`
@@ -44,9 +48,58 @@ Amount zero retains one clear frame without decorative noise. Frequency zero
 freezes both layers and stops their scheduled repaints. With persistence
 enabled, these preferences are restored independently of the saved Source.
 
+## Themes
+
+ADR 0053 decides the model. One Theme styles the whole console: the Source Grid
+and the chrome around it. Settings name a dark Theme, a light Theme, and a mode
+(follow the operating system's appearance, or hold one of the two), and hold no
+Theme values. A Theme is sixteen base16 slots plus named keys. A Token takes a
+slot, and every named key takes its default from a slot, so a bare published
+base16 scheme styles the whole console. There are no overrides: a different
+look is a custom Theme that inherits from one built-in Theme and lists what it
+changes. Glitch amount and Glitch frequency are settings, not Theme values.
+
+The Okabe–Ito built-in Theme sets every slot and key explicitly, so that it
+reproduces the values on this page:
+
+| Slot or key | Okabe–Ito value | Today's control |
+|---|---|---|
+| `base00` Source background | `#000000` | Source colours → Source background |
+| `base03` Comment | `#999999` | Source colours → Comment |
+| `base05` Ordinary, Char, Atom | `#EAEBE5` | Source colours → Ordinary |
+| `base09` Number | `#56B4E9` | Source colours → Number |
+| `base0B` Note | `#F0E442` | Source colours → Note |
+| `base0D` Function | `#009E73` | Source colours → Function |
+| `base0E` Bang | `#CC79A7` | Source colours → Bang |
+| `base0F` Sequence | `#0072B2` | Source colours → Sequence |
+| `diagnostic.foreground` | `#D55E00` | Source colours → Diagnostic |
+| `output_portal.foreground` | `#E69F00` | Source colours → Output Portal |
+| `output_portal.background` | `#E69F00` at the Fill tint | derived from Output Portal |
+| `fill_tint` | 16% | Source colours → Fill tint |
+| `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
+| `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
+| `cursor.border` | `#EAEBE5` | Cursor effects → Cursor colour |
+| `cursor.area` | `#4CBE9C` | Cursor effects → Area colour |
+| `cursor.background` | none | Cursor effects → Cursor cell colour |
+| `region.background` | white at 17% | Cursor effects → Region colour |
+| `region.cursor.background` | none | Cursor effects → Cursor colour in a Region |
+| `panel.background` | `#0B1112` | fixed: Page |
+| `panel.border` | opaque Cell grid line | fixed: chrome stroke |
+| `text` | `#EAEBE5` | fixed: widget text |
+| `input.background` | `#000000` | fixed: borrowed from Source background |
+| `selection.background` | `#0A2A22` | fixed: Selection fill |
+| `selection.border` | `#65E6BE` | fixed: Selection and Cursor stroke |
+| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke while caret is hidden |
+| `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
+
+`text.muted` has no value today. `error` and `warning` take Bang's colour only
+because `style()` borrows it (`.scratch/theming/issues/05`). The Okabe–Ito
+Theme is where they get colours of their own.
+
 ## Source colours
 
-`Theme → Source colours` holds one opaque colour control per Source Paint
+Until `.scratch/theming/issues/06` replaces them with the Theme, `Theme →
+Source colours` holds one opaque colour control per Source Paint
 role: Source background, Ordinary (also Char and Atom), Comment, Function,
 Bang, Number, Note, Sequence, Diagnostic, and Output Portal. The Cell grid line above
 is not one of them and keeps its fixed colour regardless. Changes preview
@@ -130,7 +183,8 @@ and tint instead of its own declared role, because the root's answer
 is what a viewer reads there. The Cursor's own fill still wins outright over
 everything above, on its own Cell.
 
-The defaults are the Okabe–Ito colour-blind-safe assignment, as published in R
+The defaults, and the Okabe–Ito Theme's values for the same slots and keys,
+are the Okabe–Ito colour-blind-safe assignment, as published in R
 `grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
 in the Source Paint prototype
 (`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
@@ -165,48 +219,3 @@ the midpoint between neighbouring corners with relative strengths `100, 72, 34,
 absolute Grid Position, so the marks feel imperfect without flicker. They
 replace the historical `+` Marker Glyphs, leaving every empty Cell visually
 empty while preserving the configured Sector Seam spacing as geometry.
-
-The historical base16 palette below is retained as design context; it is not the
-console's rendering source of truth.
-
-base00: | #22273b | rgb(34, 39, 59)
-base01: | #414f60 | rgb(65, 79, 96)
-base02: | #5a8380 | rgb(90, 131, 128)
-base03: | #6e6f72 | rgb(110, 111, 114)
-base04: | #87888b | rgb(135, 136, 139)
-base05: | #a4a6a9 | rgb(164, 166, 169)
-base06: | #c7c9cd | rgb(199, 201, 205)
-base07: | #8dbdaa | rgb(141, 189, 170)
-base08: | #777abc | rgb(119, 122, 188)
-
-
-base09: | #94929e | rgb(148, 146, 158)
-base0A: | #4f9062 | rgb(79, 144, 98)
-base0B: | #6562a8 | rgb(101, 98, 168)
-base0C: | #226f68 | rgb(34, 111, 104)
-base0D: | #4d6bb6 | rgb(77, 107, 182)
-base0E: | #716cae | rgb(113, 108, 174)
-base0F: | #8c70a7 | rgb(140, 112, 167)
-
-
-
-
-base00 - Default Background
-base01 - Lighter Background (Used for status bars, line number and folding marks)
-base02 - Selection Background
-base03 - Comments, Invisibles, Line Highlighting
-base04 - Dark Foreground (Used for status bars)
-base05 - Default Foreground, Caret, Delimiters, Operators
-base06 - Light Foreground (Not often used)
-base07 - Light Background (Not often used)
-base08 - Variables, XML Tags, Markup Link Text, Markup Lists, Diff Deleted
-
-
-
-base09 - Integers, Boolean, Constants, XML Attributes, Markup Link Url
-base0A - Classes, Markup Bold, Search Text Background
-base0B - Strings, Inherited Class, Markup Code, Diff Inserted
-base0C - Support, Regular Expressions, Escape Characters, Markup Quotes
-base0D - Functions, Methods, Attribute IDs, Headings
-base0E - Keywords, Storage, Selector, Markup Italic, Diff Changed
-base0F - Deprecated, Opening/Closing Embedded Language Tags, e.g. <?php ?>

@@ -300,6 +300,10 @@ _Avoid_: Frame, Tick, refresh
 The per-Cell decision of how the Positions a console draws of one Render Frame are drawn: their background, border, foreground, sector seams and the character shown. A Paint is derived from a Render Frame and the range of Positions the viewport reaches, and carries no geometry; where a Cell sits and how wide a line is drawn belong to the step that turns a Paint into what is shown.
 _Avoid_: Shapes, draw list, painter
 
+**Theme**:
+The complete set of values the console's presentation is drawn from: every colour and presentation setting of the Source Grid and of the console around it. No part of the console's presentation lies outside the Theme or is fixed in the console. One Theme styles the whole console at a time: the Source Grid and the console around it are never themed separately. The console's settings choose a Theme by name and hold none of its values: one Theme for dark appearance and one for light, and whether the console follows the operating system's appearance or holds one of the two. Every Theme is either dark or light, and only a dark Theme can be chosen for dark appearance. A Theme is never adjusted in place: a different presentation is a different Theme, and one a viewer makes stands beside the built-in Themes as an equal. A Theme a viewer makes starts from exactly one built-in Theme and states only how it differs; it never starts from another Theme a viewer made. A Theme decides how presentation looks, never how much it moves: the Cursor Effect's colours are the Theme's, and how much it glitches is the viewer's setting.
+_Avoid_: Palette, Visuals, chrome palette, colour settings, override
+
 **Source View**:
 The region of the Source's space the console shows, and the Cell size it shows it at. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
 _Avoid_: Canvas, camera, viewport, document, scroll position

@@ -40,3 +40,5 @@ as a blocker so the two changes do not race in the same function.
 
 `docs/research/egui-theming.md` on `feat/egui-theming` records this analysis. `03` recovers that
 document.
+
+**2026-09-21 — ADR 0053 and the "one owner" line.** Under ADR 0053 the settings hold a dark Theme, a light Theme, and a mode. egui's `ThemePreference` (System, Dark, Light) is exactly that mode, so it may stay the one owner of the mode. The two Theme names are Orcvs settings `06` adds. This issue's scope is unchanged. It still registers the one existing style for both themes, and `03` replaces that with a style per Theme.
