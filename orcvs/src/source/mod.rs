@@ -85,6 +85,16 @@ impl SourceRevision {
     }
 
     ///
+    /// The parser's claim on each Cell of this revision, in the Grid's
+    /// row-major order: [`LanguageMap::claims_by_cell`] read against this
+    /// revision's own Cell contents, which is what lets each claim answer
+    /// [`Claim::written`] as it is built.
+    ///
+    pub(crate) fn claims_by_cell(&self) -> Vec<Option<Arc<Claim>>> {
+        self.language_map.claims_by_cell(self.source.as_bytes())
+    }
+
+    ///
     /// The Token this revision answers at `position`.
     ///
     /// The Language Map's claim first; leftover `Char` when the Cell has

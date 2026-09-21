@@ -1,6 +1,6 @@
 # Paint reads the parser's claim
 
-Status: superseded by [ADR 0050](0050-the-language-map-answers-source-paint-per-cell.md). `.scratch/syntax-highlighting/issues/08` (carrying the claim) and `09` (painting from it) both landed, but ADR 0050 moves the finished Paint facts back to the per-Cell boundary after measuring the claim-shaped boundary's cost.
+Status: superseded by [ADR 0050](0050-the-language-map-answers-source-paint-per-cell.md). `.scratch/syntax-highlighting/issues/08` (carrying the claim) and `09` (painting from it) both landed, but ADR 0050 moves the finished Paint facts back to the per-Cell boundary after measuring the claim-shaped boundary's cost. ADR 0050 was itself rejected on the Source benchmarks; [ADR 0052](0052-a-claim-answers-whether-its-slot-is-written.md) (proposed) restores this ADR's claim boundary and adds one fact to the Claim, whether its slot is written.
 
 A Render Frame Cell carries the parser's claim on it, not scalar projections of that claim. `lang::PositionedEntry` records, for every slot the Parser reads, the Cells it claims, the Token its signature declared, and the Atom those Cells bound, or none. That covers operand slots that are blank or refused as well as ones that bind. `RenderCell::claim()` answers that record, and `None` means no entry claims the Cell. `RenderCell::bound()` and `LanguageMap::bound_at` are removed, and the Render Frame no longer copies its Token from `SourceRevision::token_at`.
 

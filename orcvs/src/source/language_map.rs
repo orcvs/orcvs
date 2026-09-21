@@ -128,7 +128,8 @@ pub struct Span {
 
 ///
 /// The parser's claim on a Cell range: the Cells it covers, the Token its
-/// signature declared, and the Atom those Cells bound, or none.
+/// signature declared, the Atom those Cells bound, or none, and whether any
+/// of those Cells is written.
 ///
 /// This is [`lang::PositionedEntry`] without `parent`. That index counts
 /// entries within one Expression, so it means nothing once the claim
@@ -139,14 +140,27 @@ pub struct Claim {
     pub cells: std::ops::Range<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
+    /// Whether any Cell in `cells` holds content in the Source revision this
+    /// claim was read with. It is what tells an unbound operand apart: an
+    /// entirely blank slot is Pending, a partly or wholly written one is
+    /// Invalid. `atom: None` alone covers both (ADR 0052).
+    ///
+    /// Answered once, as the claim is built from the revision's bytes, so
+    /// every Cell sharing the claim reads the same answer and nothing walks
+    /// `cells` again. A Cell holding a space is blank, as it is for
+    /// [`super::SourceRevision::content_at`].
+    pub written: bool,
 }
 
 impl Claim {
-    fn from_entry(entry: &lang::PositionedEntry) -> Self {
+    fn from_entry(entry: &lang::PositionedEntry, bytes: &[u8]) -> Self {
         Self {
             cells: entry.cells.clone(),
             token: entry.token,
             atom: entry.atom,
+            written: bytes[entry.cells.clone()]
+                .iter()
+                .any(|&byte| byte != SPACE_BYTE),
         }
     }
 }
@@ -393,22 +407,29 @@ impl LanguageMap {
     /// is not a claim. Each claim is stored once and shared by every Cell
     /// it covers.
     ///
-    pub(crate) fn claims_by_cell(&self) -> (Vec<Option<Arc<Claim>>>, Vec<Arc<Claim>>) {
+    /// `bytes` is the Source revision this Map was derived from, which the
+    /// Map deliberately does not retain. Each claim reads its own Cells there
+    /// once, as it is built, to answer [`Claim::written`].
+    ///
+    pub(crate) fn claims_by_cell(&self, bytes: &[u8]) -> Vec<Option<Arc<Claim>>> {
+        assert_eq!(
+            bytes.len(),
+            self.grid.count(),
+            "LanguageMap Source length must match its Grid"
+        );
         let mut by_index = vec![None; self.grid.count()];
-        let mut claims = Vec::new();
         for expression in self.expressions() {
             for index in expression.span.range() {
                 by_index[index] = None;
             }
             for entry in expression.positioned() {
-                let claim = Arc::new(Claim::from_entry(entry));
+                let claim = Arc::new(Claim::from_entry(entry, bytes));
                 for index in entry.cells.clone() {
                     by_index[index] = Some(Arc::clone(&claim));
                 }
-                claims.push(claim);
             }
         }
-        (by_index, claims)
+        by_index
     }
 
     ///
