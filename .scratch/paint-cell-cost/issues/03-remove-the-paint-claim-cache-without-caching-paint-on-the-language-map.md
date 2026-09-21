@@ -49,6 +49,6 @@ answer on the Render Frame. It used a grid-sized side vector, a second list of u
 redistribution pass per frame. `04` rejected it because `source_render_frame` regressed at every
 size. The replacement keeps every criterion above and changes where the answer is made. Each `Claim`
 now carries `written`, read from the revision's bytes as `LanguageMap::claims_by_cell` builds the
-Claim (ADR 0052, proposed). `RenderCell` again carries only the shared Claim, and
+Claim (ADR 0052). `RenderCell` again carries only the shared Claim, and
 `RenderCell::source_paint` reads `claim.written`. The criteria stay checked because the semantics
-did not change. Whether the new seam is accepted is `04`'s decision.
+did not change. `04` accepted the new seam on the benchmark.

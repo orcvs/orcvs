@@ -7,7 +7,7 @@ walking a Span or hashing a claim pointer.
 
 **Blocked by:** 01 — Apportion the per-Cell regression across the four facts the paint gained.
 
-**Status:** rejected
+**Status:** superseded by `03` and `04` — implemented, reviewed, and rejected on the Source benchmarks
 
 - [x] The Language Map answers Function, Pending Operand, Valid Operand, Invalid Operand, Bang,
       Comment, and Unclaimed per Cell. Every operand answer independently carries its declared

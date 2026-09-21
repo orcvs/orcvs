@@ -4,7 +4,7 @@
 
 **Blocked by:** None. The pause was for the Function reference effort, which is now complete (6/6).
 
-**Status:** needs-triage — every item is settled except one, which waits on a CI benchmark run. See the 2026-09-20 comment.
+**Status:** resolved
 
 **Tags:** release/v1
 
@@ -39,7 +39,7 @@ Spec gaps:
 - [x] Stale doc references to nonexistent tests are fixed, at `console/src/style.rs:561-562` (the renamed contrast test) and `:744-745` (`paint::tests::nested_function_and_operand_cells_tint_and_adjacent_same_colour_cells_merge_into_one_run`). The same rename left two `.scratch` citations stale; both were corrected, in this file and in `01`.
 
 - [x] `Paint::derive` still exists as a default-settings path, kept for `console/benches/paint.rs` (from `09`). Give the bench a way to build default colours, then remove or narrow it. **Narrowed, per this line's own "remove or narrow".** `console/benches/paint.rs:159` now builds its own colours and calls `derive_with_colours`; `Paint::derive` (`console/src/paint.rs:353`) is `#[cfg(test)] pub(crate)`, following the neighbouring `#[cfg(test)] pub(crate) fn at`, so it is out of every shipped build — which is what CLAUDE.md's rule against test-only code in shipped paths asks for. It is a deliberate public-API removal for the `console` lib; the bench was its only caller outside the crate. Literal deletion would additionally need `console.rs`'s `painted` helper and `paint.rs`'s `whole` fixture to spell five arguments each, trading a useful shared test helper for the stricter reading of a word this line does not use. Left as the remaining option rather than spent.
-- [ ] `Paint::derive_with_colours` caches `slot_written` per claim in a `HashMap<*const Claim, bool>` inside the per-Cell loop (from `09`), still at `console/src/paint.rs:262`. Check the paint bench on the pull request; if it moved, answer "written" once per claim without hashing, e.g. on the Render Frame beside the claim. **This one cannot close locally.** Its input is the benchmark comparison, which lives in the action (`CLAUDE.md`, "Deferred to CI"), so a local `mise run bench` produces a number that decides nothing. It waits on a pull-request run.
+- [x] `Paint::derive_with_colours` no longer caches `slot_written` per claim in a `HashMap<*const Claim, bool>`. The Claim carries `written`, answered from the revision's bytes as `LanguageMap::claims_by_cell` builds it (ADR 0052), so Paint performs neither a pointer lookup nor a per-Cell Span walk. The pull-request comparison this line waited on is in `paint-cell-cost/04`: `paint_derive` recovered 3.3–5.5x with no Render Frame, Source read, edit rebuild, Tick, or allocation regression.
 
 Standards judgement calls (take or leave when resumed):
 
@@ -69,3 +69,5 @@ Two `04` entries closed as coverage rather than defects: both new tests passed o
 **2026-09-20 — audited, unblocked, and the egui seeding split out.** The "where the work stands" paragraph claimed this branch was unpushed with no pull request; it had in fact merged as #109. The pause reason — waiting on the Function reference — is spent, so this moves from needs-triage to ready-for-agent. Every remaining box above was checked against the merged code and now names where it stands. The egui chrome seeding item left for `theming/05`: it is console chrome and a startup-ordering question, not Source Paint, and it sits beside that effort's two other startup issues.
 
 **2026-09-21 — still open: the first recovery was rejected.** Pull request #115's first candidate (`ba99abc`) removed the pointer-keyed claim cache and moved the `written` answer onto the Render Frame, but it did so with a grid-sized Boolean vector, a second Vec of unique claims, and a redistribution pass on every frame. The Benchmark workflow passed only because its alert threshold is 150%; `source_render_frame` regressed 1.05–1.20x at every size, largest at 256x256, in both attempts. `paint-cell-cost/04` rejects that candidate. The cache item above stays unchecked until a candidate that answers `written` without that transfer is accepted there.
+
+**2026-09-21 — resolved.** `f394d81` answers `written` on the Claim without the side table that made `ba99abc` unacceptable, and `paint-cell-cost/04` accepted the comparison over two attempts. This closes the last criterion.
