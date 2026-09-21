@@ -71,15 +71,16 @@ already gives the Cursor's and Selection's fills. "Reset to theme defaults"
 restores Fill tint to 16% together with the ten colours, and persistence
 restores it at the same key as the colours — there is no key of its own.
 
-ADR 0050 has the Language Map answer the finished Source Paint fact for every
-Cell once per Source revision: Function, Pending Operand, Valid Operand,
-Invalid Operand, Bang, Comment, or Unclaimed. Every Operand fact independently
-carries the Token its Function signature declared. A Render Frame copies that
-answer; the console never receives the parser's shared claim or interprets its
-Span. Text that spells no Function — `hi`, both Cells of a written `07`, a lone
-`|`, the trailing `<` of `<<<` — is Unclaimed paint: the Parser's attempted
-Function classification is not a declared expectation and therefore is not a
-Paint distinction.
+ADR 0052 has each Render Cell carry the parser's shared Claim, which answers
+whether its slot is written as it is built for the frame.
+`RenderCell::source_paint` combines the Claim's Token, atom and written answer
+into the Source Paint fact: Function, Pending Operand, Valid Operand, Invalid
+Operand, Bang, Comment, or Unclaimed. Every Operand fact independently carries
+the Token its Function signature declared. The console reads that fact and
+never interprets the Claim's Span. Text that spells no Function — `hi`, both
+Cells of a written `07`, a lone `|`, the trailing `<` of `<<<` — is Unclaimed
+paint: the Parser's attempted Function classification is not a declared
+expectation and therefore is not a Paint distinction.
 
 An operand is Invalid when any Cell of its slot holds written content but the
 slot did not bind, and Pending when the whole slot is blank. A Pending Cell answers its

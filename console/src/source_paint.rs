@@ -129,10 +129,11 @@ impl SourcePaintSettings {
         self.sequence
     }
     /// The glyph colour an Invalid Operand (Number, Note, Atom or Sequence)
-    /// draws with instead of its Token colour. ADR 0050 has the Language Map
-    /// answer Invalid once per Source revision; Pending and Valid operands
-    /// keep their Token colour, while Unclaimed, Function, Bang, and Comment
-    /// facts never read this role.
+    /// draws with instead of its Token colour. ADR 0052 has
+    /// `RenderCell::source_paint` answer Invalid from the shared Claim's
+    /// written answer; Pending and Valid operands keep their Token colour,
+    /// while Unclaimed, Function, Bang, and Comment facts never read this
+    /// role.
     pub(crate) fn diagnostic(self) -> Color32 {
         self.diagnostic
     }

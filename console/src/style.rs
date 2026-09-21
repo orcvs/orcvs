@@ -63,12 +63,13 @@ pub(crate) struct CellVisuals {
 /// rather than inside it:
 /// `syntax-highlighting/01`'s rule that the Cursor's own fill beats the tint
 /// outright on its own Cell, and the border a Cursor or a Selection draws
-/// regardless of what stands on the Cell. `paint` is ADR 0050's finished
-/// per-Cell language fact, including Pending, Valid, or Invalid for an
-/// Operand. `output_portal` is the independent fact added by
-/// `syntax-highlighting/06`: whether this Cell lies in a root Function's
-/// Output Portal Reservation (`RenderCell::output_portal`), known from the
-/// current Source revision alone.
+/// regardless of what stands on the Cell. `paint` is the per-Cell language
+/// fact `RenderCell::source_paint` answers from the shared Claim (ADR 0052),
+/// including Pending, Valid, or Invalid for an Operand. `output_portal` is
+/// the independent fact added by `syntax-highlighting/06`: whether this Cell
+/// lies in a root Function's Output Portal Reservation
+/// (`RenderCell::output_portal`), known from the current Source revision
+/// alone.
 ///
 pub(crate) fn cell_visuals_with_cursor_colour(
     paint: SourcePaint,
@@ -137,10 +138,10 @@ pub(crate) fn cell_visuals_with_cursor_colour(
 /// its colour on its own tint. Text that spells no
 /// Function where an Expression could start (`hi`, both Cells of a written
 /// `07`, a lone `|`) answers Ordinary with no tint, as an unclaimed Cell
-/// does: the Language Map answers it as Unclaimed because the Parser's attempted
-/// Function classification is not a Paint distinction. Diagnostic belongs to
-/// an Invalid operand slot. Number, Note, Atom and Sequence Operand facts read
-/// [`operand_paint`].
+/// does: `RenderCell::source_paint` answers it as Unclaimed because the
+/// Parser's attempted Function classification is not a Paint distinction.
+/// Diagnostic belongs to an Invalid operand slot. Number, Note, Atom and
+/// Sequence Operand facts read [`operand_paint`].
 ///
 fn source_paint_visuals(
     paint: SourcePaint,
@@ -198,8 +199,8 @@ fn source_paint_visuals(
 /// from ever being drawn, not a different verdict for it. An entirely blank
 /// slot is Pending instead, and keeps `colour` rather than turning Diagnostic — a distinction with no
 /// visible effect today, since a Pending Cell's content is always the blank
-/// glyph regardless of foreground, but the Language Map answers it once per
-/// Source revision rather than leaving the console to infer it (ADR 0050).
+/// glyph regardless of foreground, but the Claim answers it once, as it is
+/// built, rather than leaving the console to infer it (ADR 0052).
 ///
 fn operand_paint(
     colour: Color32,
@@ -324,16 +325,15 @@ mod tests {
     /// sets it in production, so a test that does not exercise Cursor
     /// precedence need not repeat it.
     ///
-    /// `paint` is ADR 0050's finished per-Cell language fact, fed in as
+    /// `paint` is the per-Cell language fact (ADR 0052), fed in as
     /// itself. Deriving it here from a hand-built claim would restate
     /// `RenderCell::source_paint` — a restatement
     /// nothing compares against, free to drift from the mapping it copies
     /// while every test here stays green. Which claim a written Source
     /// answers with which [`SourcePaint`] is proven where a Source can be
     /// written: `orcvs::render_frame`'s
-    /// `a_lone_pipe_and_the_cell_beside_it_are_unclaimed`,
-    /// `a_written_07_is_two_unclaimed_cells`,
-    /// `a_valid_function_with_invalid_operands_answers_paint_per_cell` and
+    /// `every_cell_of_a_claim_reads_the_written_answer_its_claim_was_built_with`,
+    /// `a_partly_written_operand_is_invalid_on_every_cell` and
     /// `a_bound_number_sits_beside_an_unbound_blank_operand_claim`, and
     /// again through the console's own Render Frame in `paint::tests`. This
     /// layer's subject is the colour a finished fact paints, not the fact.
@@ -900,10 +900,10 @@ mod tests {
     /// — draws its glyph in Diagnostic rather than Number, but keeps the
     /// Number tint on its background: the declared Token stays Number, which
     /// is why the tint stays (`syntax-highlighting/04`'s own Comment). This is
-    /// [`OperandState::Invalid`], which the Language Map decides from the
-    /// whole slot: at least one Cell of it holds content that failed to
+    /// [`OperandState::Invalid`], which the slot's shared Claim decides for
+    /// the whole slot: at least one Cell of it holds content that failed to
     /// bind. `.+0`'s second operand is the same shape with only one of its
-    /// two Cells written, and the Language Map answers Invalid for that
+    /// two Cells written, and its Claim answers Invalid for that
     /// whole slot too, so its blank Cell answers Diagnostic exactly as its
     /// written one does — `paint.rs`'s blank-glyph fallback is what keeps a
     /// Diagnostic foreground from ever being drawn on a Cell with no
@@ -967,12 +967,13 @@ mod tests {
     /// `output_portal` overrides an Unclaimed Cell and a Valid Operand
     /// alike: each draws the Output Portal colour on the Output Portal's own
     /// Fill tint instead of whatever its own fact would answer. A written
-    /// scalar or Sequence answer is not a third arm — the Language Map
-    /// answers the refused Function spelling it parses as with Unclaimed
-    /// (`.scratch/syntax-highlighting/issues/05`'s Answer, pinned from
-    /// written Source by `orcvs::render_frame`'s
-    /// `a_written_07_is_two_unclaimed_cells`), so it is the
-    /// Unclaimed arm below.
+    /// scalar or Sequence answer is not a third arm —
+    /// `RenderCell::source_paint` answers the refused Function spelling it
+    /// parses as with Unclaimed (`.scratch/syntax-highlighting/issues/05`'s
+    /// Answer, pinned from written Source by `orcvs::render_frame`'s
+    /// `a_written_07_is_two_one_cell_unbound_function_claims` and
+    /// `every_cell_of_a_claim_reads_the_written_answer_its_claim_was_built_with`),
+    /// so it is the Unclaimed arm below.
     ///
     #[test]
     fn output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell() {
