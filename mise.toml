@@ -38,7 +38,7 @@ description = "Run the console with development inspection, bound to loopback"
 # The address is written out rather than spelled `EGUI_INSPECTION=1`.
 # `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
 # that is not empty/`0`/`false` to a `host:port`
-# (`egui_inspection-0.36.1/src/lib.rs:40-50`). A command-level assignment
+# (`egui_inspection-0.36.2/src/lib.rs:40-50`). A command-level assignment
 # replaces any inherited `EGUI_INSPECTION` value — `1` is not unsafe and does
 # not lose to a previously exported address. The literal host:port is here
 # because it is self-documenting, greppable, and the port is selectable; the
@@ -51,7 +51,7 @@ description = "Run the console with development inspection, bound to loopback"
 # `CARGO_HOME`. Splitting them lets the build use the real environment and the
 # console use a disposable one: eframe derives its storage directory from
 # `HOME` on macOS and `XDG_DATA_HOME` on Linux
-# (`eframe-0.36.1/src/native/file_storage.rs:17-40`), so a smoke test drives a
+# (`eframe-0.36.2/src/native/file_storage.rs:17-40`), so a smoke test drives a
 # Source of its own and cannot overwrite a saved one. `target/` is ignored, so
 # the location is disposable; delete it to start from an empty Source. That
 # location is the repository's own `target/`, not cargo's output directory, so
@@ -62,7 +62,7 @@ description = "Run the console with development inspection, bound to loopback"
 # and `build.target-dir`, and with either of those set it launches whatever
 # stale binary the default location still holds — one compiled without
 # `inspection`, which eframe starts anyway and only logs a warning about
-# (`eframe-0.36.1/src/lib.rs`, the `not(feature = "inspection")` fallback). The
+# (`eframe-0.36.2/src/lib.rs`, the `not(feature = "inspection")` fallback). The
 # session then presents as an attach timeout with nothing to distinguish it
 # from a console that is simply not running. `json-render-diagnostics` is the
 # format that keeps compiler errors human-readable on stderr while the artifact
@@ -90,7 +90,7 @@ description = "Install the pinned egui_mcp inspection bridge"
 # manifest — so it is installed by version rather than resolved, and the version
 # is named rather than left to `cargo install`'s idea of latest.
 #
-# 0.2.0 is the release that speaks the protocol `egui_inspection` 0.36.1 serves:
+# 0.2.0 is the release that speaks the protocol `egui_inspection` 0.36.2 serves:
 # it requires `egui_inspection ^0.36.0` and `egui ^0.36.0`. The package version
 # is its own and deliberately does not track egui's.
 #

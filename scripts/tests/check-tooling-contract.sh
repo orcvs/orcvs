@@ -687,16 +687,38 @@ test_pull_request_tier_without_the_inspection_feature_is_rejected() {
 
 test_caret_egui_requirement_is_rejected() {
   make_fixture
-  # A caret requirement reads "0.36.1 or any later 0.36", so the lockfile is the
+  # A caret requirement reads "0.36.2 or any later 0.36", so the lockfile is the
   # only thing holding the release the console's own citations are written
   # against. That is exactly how this workspace came to resolve 0.36.2 under a
   # requirement that said 0.36.1.
-  perl -pi -e 's/^(eframe = [{] version = )"=0[.]36[.]1"/$1"0.36.1"/' "$fixture_dir/console/Cargo.toml"
+  perl -pi -e 's/^(eframe = [{] version = )"=0[.]36[.]2"/$1"0.36.2"/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "an eframe requirement a patch release can move"
 
   make_fixture
-  perl -pi -e 's/^(egui = [{] version = )"=0[.]36[.]1"/$1"0.36.1"/' "$fixture_dir/console/Cargo.toml"
+  perl -pi -e 's/^(egui = [{] version = )"=0[.]36[.]2"/$1"0.36.2"/' "$fixture_dir/console/Cargo.toml"
   assert_rejected "an egui requirement a patch release can move"
+
+  make_fixture
+  perl -pi -e 's/^(egui_kittest = [{] version = )"=0[.]36[.]2"/$1"0.36.2"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a harness requirement a patch release can move"
+}
+
+test_split_egui_stack_is_rejected() {
+  # Moving one requirement and leaving the others is what a dependency bot
+  # produces: the console links a toolkit one release ahead of the one its
+  # citations are read against, with nothing failing at compile time. Each arm
+  # below moves exactly one pin forward and leaves the rest where they are.
+  make_fixture
+  perl -pi -e 's/^(egui = [{] version = )"=0[.]36[.]2"/$1"=0.36.3"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "an egui pin moved ahead of the rest of the stack"
+
+  make_fixture
+  perl -pi -e 's/^(eframe = [{] version = )"=0[.]36[.]2"/$1"=0.36.3"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "an eframe pin moved ahead of the rest of the stack"
+
+  make_fixture
+  perl -pi -e 's/^(egui_kittest = [{] version = )"=0[.]36[.]2"/$1"=0.36.3"/' "$fixture_dir/console/Cargo.toml"
+  assert_rejected "a harness pin moved ahead of the egui it drives"
 }
 
 test_shipped_kittest_dependency_is_rejected() {
@@ -1022,6 +1044,7 @@ case "${1:-all}" in
   two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
+  split-egui-stack) test_split_egui_stack_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
   optional-persistence-default) test_optional_persistence_default_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
@@ -1129,6 +1152,7 @@ case "${1:-all}" in
     test_two_inspection_assignments_on_one_line_is_rejected
     test_pull_request_tier_without_the_inspection_feature_is_rejected
     test_caret_egui_requirement_is_rejected
+    test_split_egui_stack_is_rejected
     test_shipped_kittest_dependency_is_rejected
     test_optional_persistence_default_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure

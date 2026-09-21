@@ -16,7 +16,7 @@
 //! tree, so `get_by_label("View")` fails when the console stops offering a
 //! control by that name. The harness is `Harness::build_eframe`, which calls
 //! `App::logic` and `App::ui` with no wrapper of its own
-//! (`egui_kittest-0.36.1/src/app_kind.rs:36-44`), so what runs here is the
+//! (`egui_kittest-0.36.2/src/app_kind.rs:36-44`), so what runs here is the
 //! shipped `Console::ui` and not a second UI written for a test.
 //!
 //! # The two halves of the console, and why the assertions differ across them
@@ -843,13 +843,13 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// because something asked for it, or does not run at all — a fixed count
 /// would paper over a missing repaint request by supplying the frame anyway.
 ///
-/// It runs regardless: pinned egui 0.36.1's own `InputState::wants_repaint_after`
-/// (`egui-0.36.1/src/input_state/mod.rs:657-680`) answers an immediate repaint
+/// It runs regardless: pinned egui 0.36.2's own `InputState::wants_repaint_after`
+/// (`egui-0.36.2/src/input_state/mod.rs:655-678`) answers an immediate repaint
 /// for any pass whose `RawInput` carries events — which the click's own
 /// resolving `PointerButton` release does — and `Context::request_repaint_after`
 /// answers that with *two* repaints rather than one, "to give some things
 /// time to settle" and "solve some corner-cases of missing repaints on
-/// frame-delayed responses" (`egui-0.36.1/src/context.rs:127-136`). That
+/// frame-delayed responses" (`egui-0.36.2/src/context.rs:128-137`). That
 /// second, free repaint is exactly the frame after a click needs, supplied by
 /// the toolkit itself rather than by anything Console asks for — so this
 /// holds even with reduced motion on and Playback stopped, the one
@@ -916,7 +916,7 @@ async fn a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playb
 /// Egui states the rule itself: `RawInput::events` has "no way to know if
 /// egui handles a particular event, but you can check if egui is using the
 /// keyboard with `Context::egui_wants_keyboard_input`"
-/// (`egui-0.36.1/src/data/input/raw_input.rs:56-60`).
+/// (`egui-0.36.2/src/data/input/raw_input.rs:56-60`).
 ///
 #[tokio::test]
 async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from_the_source() {
@@ -940,7 +940,7 @@ async fn a_focused_theme_menu_value_box_keeps_region_and_clipboard_commands_from
     harness.step();
     harness.run_steps(1);
     // A pointer click on the value box closes the menu it sits in
-    // (`PopupCloseBehavior::CloseOnClick`, `egui-0.36.1/src/containers/popup.rs:78-82`),
+    // (`PopupCloseBehavior::CloseOnClick`, `egui-0.36.2/src/containers/popup.rs:78-82`),
     // so the viewer who edits it arrives by keyboard: Tab walks egui's focus
     // order into the open menu.
     let value_box_focused = |harness: &Harness<'_, Console>| {
@@ -1215,7 +1215,7 @@ async fn tab_focuses_no_widget_collapses_the_region_and_leaves_typing_open() {
 /// Tab walks egui's focus order through the chrome and never onto the console
 /// area the Source is shown in. The pan rectangle there senses clicks and
 /// drags, and `Sense::click_and_drag()` is `CLICK | FOCUSABLE | DRAG`
-/// (`egui-0.36.1/src/sense.rs:81-83`): focused, it would count as a control
+/// (`egui-0.36.2/src/sense.rs:81-83`): focused, it would count as a control
 /// holding the keyboard, and the Source would get no keys until Escape or a
 /// click.
 ///
