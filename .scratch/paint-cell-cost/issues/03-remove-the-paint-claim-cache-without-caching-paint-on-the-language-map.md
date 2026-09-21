@@ -41,3 +41,14 @@ it, including the first-blank-Cell rule and one-Cell-gutter tests.
 
 This resolves the implementation and correctness slice only. `04` owns the authoritative CI
 comparison and remains open; no benchmark acceptance is claimed here.
+
+## Comments
+
+**2026-09-21 — the Answer above describes a rejected implementation.** `ba99abc` put the `written`
+answer on the Render Frame. It used a grid-sized side vector, a second list of unique Claims, and a
+redistribution pass per frame. `04` rejected it because `source_render_frame` regressed at every
+size. The replacement keeps every criterion above and changes where the answer is made. Each `Claim`
+now carries `written`, read from the revision's bytes as `LanguageMap::claims_by_cell` builds the
+Claim (ADR 0052, proposed). `RenderCell` again carries only the shared Claim, and
+`RenderCell::source_paint` reads `claim.written`. The criteria stay checked because the semantics
+did not change. Whether the new seam is accepted is `04`'s decision.

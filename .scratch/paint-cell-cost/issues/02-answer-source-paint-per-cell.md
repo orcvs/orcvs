@@ -7,7 +7,7 @@ walking a Span or hashing a claim pointer.
 
 **Blocked by:** 01 — Apportion the per-Cell regression across the four facts the paint gained.
 
-**Status:** resolved
+**Status:** rejected
 
 - [x] The Language Map answers Function, Pending Operand, Valid Operand, Invalid Operand, Bang,
       Comment, and Unclaimed per Cell. Every operand answer independently carries its declared
@@ -66,3 +66,17 @@ and past roughly 900 BPM a root writing every Tick derives more often than the c
 incremental per-row derivation is not available for the Output Portal highlight, whose Reservation
 reaches a different row from the Expression that declares it; narrowing that is a design question
 this ticket did not take.
+
+**2026-09-20 — rejected after benchmark.** The implementation and its review remain in commits
+`7ab24f9` and `549e721`, but the whole-Grid Language Map views transferred unacceptable cost to
+Source revision rebuilds: every Source-writing revision re-derived a Source Paint and an Output
+Portal view for the whole Grid. Ticket `03` replaces the implementation: the Language Map again
+retains only Claims, and Paint keeps neither a pointer-keyed cache nor a per-Cell Span walk. ADR
+0052 supersedes ADR 0050. This status records the rejected design without erasing the useful
+implementation and review history.
+
+**2026-09-21 — the first replacement was rejected too.** `03`'s first implementation (`ba99abc`)
+answered `written` on the Render Frame with a grid-sized vector and a redistribution pass, and moved
+the cost into `source_render_frame` instead (`04` records the measurements). Neither rejection
+reopens this ticket's design: a whole-Grid Paint view on the Language Map stays rejected, and the
+replacement seam is decided in `04`, not here.
