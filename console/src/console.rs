@@ -3556,6 +3556,102 @@ mod tests {
     }
 
     ///
+    /// Amount zero leaves the Cursor Effect with no deadline of its own
+    /// (`repaint_after` returns `None`), which must not gate the Run Clock's
+    /// own term out of `until_next`: a Playing console still wakes within a
+    /// second on a quiet pass. A regression that gated the `until_next` call
+    /// on `cursor_delay` being `Some`, rather than always combining both
+    /// terms, would leave this console waiting past a second.
+    ///
+    #[tokio::test]
+    async fn a_playing_console_still_repaints_when_the_cursor_effect_has_no_deadline() {
+        let ctx = egui::Context::default();
+        crate::style::install_style(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        *console.cursor_effects.amount_mut() = 0;
+        let bpm = orcvs::opts::Bpm::new(1).expect("1 is in range");
+        console.orcvs.set_bpm(bpm);
+        app_pass(
+            &ctx,
+            screen,
+            vec![key_event(Key::Space, true)],
+            &mut console,
+            &mut host,
+        );
+        for _ in 0..1_000 {
+            if console.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Playing
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Playing
+        );
+
+        let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        assert!(
+            delay <= std::time::Duration::from_secs(1),
+            "the console waited {delay:?} on a quiet Playing pass with Cursor Effect amount zero"
+        );
+    }
+
+    ///
+    /// Reduced motion's effective settings, not the stored ones, govern a
+    /// frame: `Console::cursor_effects` — the value a save persists —
+    /// survives running frames unchanged, and a quiet pass with Playback
+    /// stopped requests no repaint at all, the one combination in which the
+    /// console's own scheduling asks for nothing
+    /// (`a_click_still_pans_to_follow_the_cursor_under_reduced_motion_with_playback_stopped`
+    /// relies on the same fact once a click has settled).
+    ///
+    #[tokio::test]
+    async fn reduced_motion_changes_only_the_effective_settings_not_the_stored_ones() {
+        let ctx = egui::Context::default();
+        crate::style::install_style(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+        let mut host = eframe::Frame::_new_kittest();
+
+        console.reduced_motion = true;
+        *console.cursor_effects.amount_mut() = 42;
+        *console.cursor_effects.frequency_mut() = 37;
+
+        // A request made during one pass still repaints the next even with
+        // nothing new to answer, "to give some things time to settle"
+        // (`egui-0.36.2/src/context.rs:128-137`); several quiet passes let
+        // that one-time grace period from opening the console lapse before
+        // the assertion below reads a steady state.
+        for _ in 0..4 {
+            let _ = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+        }
+        let delay = app_pass_repaint_delay(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+        assert_eq!(
+            console.cursor_effects.amount(),
+            42,
+            "reduced motion overwrote the stored Glitch amount"
+        );
+        assert_eq!(
+            console.cursor_effects.frequency(),
+            37,
+            "reduced motion overwrote the stored Glitch frequency"
+        );
+        assert_eq!(
+            delay,
+            std::time::Duration::MAX,
+            "reduced motion's effective settings still scheduled a cursor-effect repaint: {delay:?}"
+        );
+    }
+
+    ///
     /// egui subtracts `predicted_dt` from every timed request. With a
     /// predicted frame longer than any Run Clock remainder, an uncompensated
     /// remainder saturates to an immediate Render Frame on every pass — the
