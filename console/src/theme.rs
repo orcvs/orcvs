@@ -570,26 +570,27 @@ const fn straight_rgba(rgba: u32) -> Color32 {
 }
 
 ///
-/// The Okabe–Ito built-in dark Theme: `schema.md`'s complete dark
-/// definition, at the reserved identity `"okabe-ito"`. Every field is
-/// spelled out explicitly, so the compiler enforces "built-ins define every
-/// property" rather than a runtime completeness check — remove a field from
-/// this literal and the crate fails to build.
-///
-/// `okabe_ito_matches_todays_style_and_settings_defaults` in this module's
-/// tests cross-checks every value that has a pre-existing counterpart in
-/// [`crate::style::PALETTE`], `crate::source_paint::SourcePaintSettings::default()`
-/// and `crate::cursor_effects::CursorEffectSettings::default()`, so this
-/// built-in reproduces today's shipped appearance and not merely the
-/// document `examples/okabe-ito-copy.yaml` records.
-///
-///
 /// The reserved identity of the Okabe–Ito built-in, and the default both the
 /// dark and light Theme name settings hold until a viewer picks another —
 /// `console/src/persistence.rs` restores both from this same identity.
 ///
 pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
 
+///
+/// The Okabe–Ito built-in dark Theme: `schema.md`'s complete dark
+/// definition, at the reserved identity `OKABE_ITO_IDENTITY`. Every field
+/// is spelled out explicitly, so the compiler enforces "built-ins define
+/// every property" rather than a runtime completeness check — remove a field
+/// from this literal and the crate fails to build.
+///
+/// `okabe_ito_defines_every_key_at_the_schema_values` in this module's tests
+/// pins every value against `schema.md`, and
+/// `okabe_ito_matches_todays_style_and_palette_constants` cross-checks the
+/// values that still have a counterpart in `style::PALETTE` and
+/// `style.rs`'s `DEFAULT_*` constants, so this built-in reproduces today's
+/// shipped appearance and not merely the document
+/// `examples/okabe-ito-copy.yaml` records.
+///
 pub fn okabe_ito() -> Theme {
     Theme {
         identity: OKABE_ITO_IDENTITY.to_owned(),

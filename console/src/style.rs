@@ -13,7 +13,7 @@ use crate::theme::Theme;
 /// derivation (`.scratch/theming/issues/03`) reads the resolved Theme for
 /// these too. Spelled out here rather than read from [`crate::theme::okabe_ito`]
 /// so this module states its own baseline independently of the Theme model —
-/// the two are cross-checked in `theme::tests::okabe_ito_matches_todays_style_and_settings_defaults`.
+/// the two are cross-checked in `theme::tests::okabe_ito_matches_todays_style_and_palette_constants`.
 ///
 pub(crate) const DEFAULT_SOURCE_BACKGROUND: Color32 = Color32::from_rgb(0, 0, 0); // #000000 black
 pub(crate) const DEFAULT_ORDINARY: Color32 = Color32::from_rgb(234, 235, 229); // #EAEBE5
