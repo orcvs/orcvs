@@ -4,7 +4,9 @@
 
 **Blocked by:** 06 — Paint the Source from a named Theme.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human — the validator, its tests and `theme.md`'s record are complete and
+every local gate passes; Sequence's retune-vs-exception decision, named below and in this file's
+`2026-09-22` comment, is for a human to accept.
 
 **Tags:** release/v1
 
@@ -56,3 +58,5 @@ is not an exhaustive claim: newly discovered failures still require review.
 **2026-09-22 — one Orcvs format confirmed.** The user chose one versioned Orcvs Theme format with named style properties. Base16 is inspiration only; importing/conversion is deferred. This supersedes the earlier sixteen-slot, palette/template and published-scheme requirements. Native startup loading, web file imports, exact inheritance, strict validation and the confirmed appearance controls remain in scope.
 
 **2026-09-22 — explicit role backgrounds confirmed.** Role backgrounds are explicit colour properties, such as `source.function.background`, `source.number.background`, `diagnostic.background` and `output_portal.background`. They composite over the uniform `cell.background` under the confirmed fixed precedence. Changing a role foreground does not recalculate its background. There is no `fill_tint` property or shared tint-strength setting in the Orcvs Theme format. Extract and verify the built-in role background colours from current rendering so its appearance is preserved; illustrative colours in the interview are not accepted defaults.
+
+**2026-09-22 — prior `base00`-only implementation superseded.** The signature and acceptance work recorded on this branch before the rebase onto `theme-paint-source` (a `validate(theme: &Theme)` measuring only the seven Tokens plus `diagnostic.foreground`/`output_portal.foreground` against `base00`, and `text`/`text.muted` against `panel.background`) answered ADR 0053's earlier, narrower scope. It is superseded by the composited-state validator this issue now describes, not merely extended: the earlier report shape, its tests (`every_shipped_theme_clears_the_floor_except_sequences_recorded_exception` and its predecessors), and its own code-review round are gone with it, replaced below by the reimplementation this rescoped issue asks for. The signature deviation this issue's earlier comments discussed (`scheme`/`template` having no referent once `06` resolved straight to a `Theme`) still holds under the new named-property `Theme` format, so `validate` continues to take a resolved `&Theme`.

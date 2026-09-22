@@ -285,12 +285,30 @@ exposed as a setting before it had a painter; it has one now.
 
 Every Source colour meets WCAG AA's 4.5:1 floor against the Source background
 except Sequence: `#0072B2` measures 4.05:1 on `#000000`, the Okabe–Ito
-assignment's own choice, kept as a named exception rather than silently
-relaxing the floor. Comment, at 7.37:1, reads dimmer than Ordinary — the same
-relationship the previous palette held — but is no longer the dimmest colour
-above the floor: Diagnostic (5.43:1), Function (6.14:1) and Bang (6.86:1) all
-read dimmer than Comment while still clearing 4.5:1. That is restated here
-rather than left as an implied ordering the new defaults do not hold.
+assignment's own choice. Comment, at 7.37:1, reads dimmer than Ordinary — the
+same relationship the previous palette held — but is no longer the dimmest
+colour above the floor: Diagnostic (5.43:1), Function (6.14:1) and Bang
+(6.86:1) all read dimmer than Comment while still clearing 4.5:1. Two more
+named keys clear the floor as well: `output_portal.foreground` measures
+9.32:1 against the same Source background, and `text`, read against
+`panel.background` rather than the Source background, measures 15.88:1.
+`text.muted` is translucent — it round-trips to premultiplied bytes `[140,
+141, 137, 153]` — and composites to 6.19:1 against `panel.background`.
+
+These are measurements, not a pinned ordering. `console/src/theme.rs::validate`
+(`.scratch/theming/issues/08`) measures every Token in the table above,
+`diagnostic.foreground` and `output_portal.foreground` against `base00`
+(`Theme::grid_background`), and `text` and `text.muted` against
+`panel.background` (`Theme::panel_background`), reporting each one's ratio
+and whether it clears the floor — stated once, at `theme::CONTRAST_FLOOR`,
+from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"). It replaces the
+per-colour assertions and the Comment-ordering rule `style.rs` used to pin,
+which could not survive an arbitrary scheme (`.scratch/theming/spec.md`:
+"Measure, do not assert an ordering"). Sequence's 4.05:1 is Okabe–Ito's own
+recorded shortfall against that floor: `validate` reports it on every run
+rather than a named exception in code excusing it, and whether to retune the
+slot or keep shipping the reported failure is recorded as an open decision in
+`.scratch/theming/issues/08`'s comments.
 
 ADR 0053 retains Sequence's colour as an explicitly accepted failure. The Theme
 validator continues to report its measured ratio below the unchanged floor;
