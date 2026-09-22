@@ -253,6 +253,12 @@ fn background_runs(c: &mut Criterion) {
 /// colour measures the same cost as the Theme's own.
 const AREA_COLOUR: egui::Color32 = egui::Color32::from_rgb(76, 190, 156);
 const FRAME_COLOUR: egui::Color32 = egui::Color32::from_rgb(234, 235, 229);
+/// The stationary Cursor/Region outline's nominal display-point default
+/// (`theme.cursor_border_width`/`theme.region_border_width` in production,
+/// both 1 point in Okabe–Ito) — restated as a literal for the same reason
+/// `AREA_COLOUR`/`FRAME_COLOUR` are: `Theme`'s fields are `pub(crate)` and
+/// this bench is a separate crate.
+const FRAME_WIDTH: f32 = 1.0;
 
 fn cursor_effects(c: &mut Criterion) {
     let settings = CursorEffectSettings::default();
@@ -272,6 +278,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(settings),
                 black_box(AREA_COLOUR),
                 black_box(FRAME_COLOUR),
+                black_box(FRAME_WIDTH),
             ))
         });
     });
@@ -290,6 +297,7 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(settings),
                 black_box(AREA_COLOUR),
                 black_box(FRAME_COLOUR),
+                black_box(FRAME_WIDTH),
             ))
         });
     });

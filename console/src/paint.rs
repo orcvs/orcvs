@@ -865,6 +865,77 @@ mod tests {
     }
 
     ///
+    /// `cell.background` at transparent, partial-alpha and opaque values,
+    /// composited beneath an ordinary Cell (no role fill — the `base_fill`
+    /// fallback above), a tinted Cell (a role background composited over it)
+    /// and a selected Cell outside a Region (the Cursor's own fill
+    /// composited over it) — `.scratch/theming/issues/06`: "Test transparent,
+    /// partial-alpha and opaque `cell.background` beneath ordinary, tinted
+    /// and selected Cells."
+    /// `region_fallback_applies_over_a_nontransparent_cell_background` above
+    /// already sweeps an *opaque* base across a Region; this sweeps every
+    /// alpha level and adds a tinted Cell and a non-Region selected Cell,
+    /// which that fixture's blank, single-Cell-Cursor-free Grid has neither
+    /// of. Both the role background and the Cursor fill are themselves given
+    /// partial alpha, so an opaque top layer cannot make the comparison pass
+    /// by coincidence (an opaque colour wins outright over any base,
+    /// `Color32::blend`, so it would never expose a base that was not
+    /// actually composited under it).
+    ///
+    #[tokio::test]
+    async fn cell_background_composites_beneath_ordinary_tinted_and_selected_cells_at_every_alpha()
+    {
+        let mut orcvs = running_orcvs(6, 3);
+        write_row(&mut orcvs, 0, ".+0102");
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        // The Function's own two-Cell spelling of row 0.
+        let function = at(0, 0);
+        let ordinary = at(4, 2);
+        let selected = at(5, 2);
+        orcvs.select(selected);
+        let cursor_fill = Color32::from_rgba_unmultiplied(9, 8, 7, 111);
+        let role_fill = Color32::from_rgba_unmultiplied(200, 100, 50, 128);
+
+        for base in [
+            Color32::TRANSPARENT,
+            Color32::from_rgba_unmultiplied(10, 20, 30, 128),
+            Color32::from_rgba_unmultiplied(10, 20, 30, 255),
+        ] {
+            let theme = Theme {
+                cell_background: base,
+                cursor_background: Some(cursor_fill),
+                source_function_background: role_fill,
+                ..okabe_ito()
+            };
+            let frame = orcvs.render_frame();
+            let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+            assert!(!paint.region_spans(), "a single-Cell Cursor never spans");
+            assert_eq!(paint.cursor(), Some(selected));
+
+            assert_eq!(
+                paint.at(ordinary).background,
+                (base.a() != 0).then_some(base),
+                "an ordinary Cell at cell.background alpha {}",
+                base.a()
+            );
+            assert_eq!(
+                paint.at(function).background,
+                Some(base.blend(role_fill)),
+                "a tinted Cell at cell.background alpha {}",
+                base.a()
+            );
+            assert_eq!(
+                paint.at(selected).background,
+                Some(base.blend(cursor_fill)),
+                "a selected Cell at cell.background alpha {}",
+                base.a()
+            );
+        }
+    }
+
+    ///
     /// Sector seams stand where Paint derives them, and nowhere on the Cursor's
     /// own Cell while it is framed on its own.
     ///

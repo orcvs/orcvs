@@ -71,16 +71,9 @@ impl GridWidth {
         Ok(Self(points))
     }
 
-    /// Consumed by slice C's fixed display-point strokes
-    /// (`.scratch/theming/issues/06`), not this slice's Source/Cursor
-    /// painting, which leaves today's zoom-scaled widths untouched.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by theming/06 slice C's fixed stroke widths"
-        )
-    )]
+    /// Consumed by `console.rs`'s Grid line/Sector Seam strokes and
+    /// `cursor_effects.rs`'s Cursor/Region frame width
+    /// (`.scratch/theming/issues/06` slice C's fixed display-point strokes).
     pub(crate) fn points(self) -> f32 {
         self.0
     }

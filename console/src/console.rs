@@ -28,8 +28,6 @@ use orcvs::{
     render_frame::RenderFrame,
 };
 
-const GRID_LINE_WIDTH: f32 = 0.5;
-const SECTOR_LINE_WIDTH: f32 = 0.75;
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 2.0;
 ///
@@ -1210,10 +1208,12 @@ impl SourceShapes {
     /// Draws a Paint at `viewport`: the geometry the value layer carries none
     /// of, applied to the colours and characters it carries all of.
     ///
-    /// Stroke widths take [`GridViewport::cell_scale`] so the Grid lines and
-    /// sector seams are one Source point wide at every zoom.
-    /// `pixels_per_point` is the device scale the background runs are snapped
-    /// to; see [`background_run`].
+    /// Stroke widths are the resolved `theme`'s `grid.border.width` and
+    /// `sector.seam.width` — fixed display points that stay the same visible
+    /// thickness at every Grid zoom (`.scratch/theming/issues/06` slice C),
+    /// unlike the [`GridViewport::cell_scale`]-multiplied constants this
+    /// replaced. `pixels_per_point` is the device scale the background runs
+    /// are snapped to; see [`background_run`].
     ///
     /// Borders, the Cursor's border, the sector seams and the background runs
     /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
@@ -1226,8 +1226,9 @@ impl SourceShapes {
         table: &GlyphTable,
         pixels_per_point: f32,
         cursor_effect: crate::cursor_effects::CursorEffectShapes,
+        theme: &Theme,
     ) -> Self {
-        let mut shapes = Self::geometry(paint, viewport, pixels_per_point);
+        let mut shapes = Self::geometry(paint, viewport, pixels_per_point, theme);
         shapes.area = cursor_effect.area;
         if !cursor_effect.frame.is_empty() {
             shapes.cursor = cursor_effect.frame;
@@ -1244,8 +1245,20 @@ impl SourceShapes {
     /// empty until [`Self::place_glyphs`] fills it; both steps finish before
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
-    fn geometry(paint: &Paint, viewport: &GridViewport, pixels_per_point: f32) -> Self {
-        let scale = viewport.cell_scale();
+    /// `theme`'s two Grid-bounded widths are read once, here, rather than
+    /// once per Cell inside the loop below — `.scratch/theming/issues/06`'s
+    /// "resolve widths once per frame" — and a width of exactly zero skips
+    /// building that Shape outright rather than emitting a zero-width one for
+    /// the painter to drop, per the same issue's "Width 0 hides the stroke."
+    ///
+    fn geometry(
+        paint: &Paint,
+        viewport: &GridViewport,
+        pixels_per_point: f32,
+        theme: &Theme,
+    ) -> Self {
+        let grid_border_width = theme.grid_border_width.points();
+        let sector_seam_width = theme.sector_seam_width.points();
         // A border is the rule on every Cell the Paint covers, so it is sized
         // up front — to those Cells rather than to the Grid: a densely written
         // Source that regrew the group would pay the reallocation on every
@@ -1289,37 +1302,45 @@ impl SourceShapes {
             let rect = viewport.cell_rect(position.x(), position.y());
             // The Cell's own border, stroke and no fill: a widened run paints
             // over the borders of every Cell inside it, so the fill and the
-            // border cannot be one shape.
-            let border = Shape::Rect(RectShape::stroke(
-                rect,
-                CornerRadius::ZERO,
-                Stroke::new(GRID_LINE_WIDTH * scale, cell.border),
-                StrokeKind::Inside,
-            ));
+            // border cannot be one shape. Width zero hides it outright — the
+            // Cursor Effect still changes only the *colour* the selected
+            // Cell's own border takes, never this width, which is uniform
+            // across every Cell whatever it is doing.
+            if grid_border_width > 0.0 {
+                let border = Shape::Rect(RectShape::stroke(
+                    rect,
+                    CornerRadius::ZERO,
+                    Stroke::new(grid_border_width, cell.border),
+                    StrokeKind::Inside,
+                ));
 
-            // The selected Cell's border is the Cursor, and the Cursor is
-            // painted last. A Cursor the viewport does not reach is no Cell of
-            // this Paint, so the comparison never matches and the group stays
-            // empty. While a Region spans more than one Cell the lasso around
-            // it is the Cursor, and the Cursor's Cell keeps an ordinary border.
-            if paint.cursor() == Some(position) && !paint.region_spans() {
-                cursor.push(border);
-            } else {
-                borders.push(border);
+                // The selected Cell's border is the Cursor, and the Cursor is
+                // painted last. A Cursor the viewport does not reach is no
+                // Cell of this Paint, so the comparison never matches and the
+                // group stays empty. While a Region spans more than one Cell
+                // the lasso around it is the Cursor, and the Cursor's Cell
+                // keeps an ordinary border.
+                if paint.cursor() == Some(position) && !paint.region_spans() {
+                    cursor.push(border);
+                } else {
+                    borders.push(border);
+                }
             }
 
             // A seam is absent on the Cursor's Cell, while it is framed on its
             // own, because the derive suppressed it there, so this step never
             // learns that rule.
-            for (colour, ends) in [
-                (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
-                (cell.sector_top, [rect.left_top(), rect.right_top()]),
-            ] {
-                if let Some(colour) = colour {
-                    seams.push(Shape::line_segment(
-                        ends,
-                        Stroke::new(SECTOR_LINE_WIDTH * scale, colour),
-                    ));
+            if sector_seam_width > 0.0 {
+                for (colour, ends) in [
+                    (cell.sector_left, [rect.left_top(), rect.left_bottom()]),
+                    (cell.sector_top, [rect.left_top(), rect.right_top()]),
+                ] {
+                    if let Some(colour) = colour {
+                        seams.push(Shape::line_segment(
+                            ends,
+                            Stroke::new(sector_seam_width, colour),
+                        ));
+                    }
                 }
             }
         }
@@ -1509,10 +1530,20 @@ fn show_source(
     // instead — `.scratch/theming/schema.md`'s "the effect outline uses
     // `cursor.border` or `region.border`". `paint` already answered which
     // this Render Frame is, so this reads that rather than re-deriving it.
+    // The same Region-spans choice that picked `frame_colour` above also
+    // picks the animated frame's nominal width: `cursor.border.width` for
+    // the Cursor's own frame, `region.border.width` for the lasso — a fixed
+    // display-point value `cursor_effect_shapes` never scales with Grid zoom
+    // (`.scratch/theming/issues/06` slice C).
     let frame_colour = if paint.region_spans() {
         theme.region_border
     } else {
         theme.cursor_border
+    };
+    let frame_width = if paint.region_spans() {
+        theme.region_border_width.points()
+    } else {
+        theme.cursor_border_width.points()
     };
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
@@ -1523,8 +1554,16 @@ fn show_source(
         cursor_effect_settings,
         theme.cursor_area,
         frame_colour,
+        frame_width,
     );
-    let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point, cursor_effect);
+    let shapes = SourceShapes::new(
+        &paint,
+        &viewport,
+        &table,
+        pixels_per_point,
+        cursor_effect,
+        theme,
+    );
 
     // One `Painter::extend`, never a `Painter::add` per Shape. `add` reaches
     // `Context::graphics_mut`, which is a full `Context` write lock, so a
@@ -1860,6 +1899,35 @@ impl eframe::App for Console {
             &self.dark_theme,
             &self.light_theme,
         );
+    }
+
+    ///
+    /// The window's own clear colour: `.scratch/theming/schema.md`'s Chrome
+    /// mapping table, "Application backdrop | `window.background`, opaque."
+    ///
+    /// This is the resolved Theme's answer to "confirm both [the window
+    /// backdrop and the Grid background] are wired" (`.scratch/theming/
+    /// issues/06` slice C) — the window backdrop's own consumer, wired
+    /// independently of `source_panel_frame`'s `theme.grid_background`.
+    /// Without this override `eframe::App::clear_color`'s own default
+    /// (`Color32::from_rgba_unmultiplied(12, 12, 12, 180)`) shows through
+    /// wherever a Theme's partly transparent panel, Grid or Cell layer
+    /// reveals the console surface beneath it, rather than the Theme's own
+    /// opaque backdrop — a translucent grey the Theme never chose, in place
+    /// of the surface ADR 0053 and `.scratch/theming/schema.md` describe:
+    /// "Transparency reveals the underlying console surface; the application
+    /// window remains opaque."
+    ///
+    /// `self.theme` is always the built-in Okabe–Ito Theme until
+    /// `.scratch/theming/issues/07`'s loader exists (see the field's own
+    /// doc), whose `window_background` is opaque by construction
+    /// (`theme::okabe_ito`); `07`'s parser is what will enforce that
+    /// invariant for a loaded custom Theme (`.scratch/theming/schema.md`:
+    /// "alpha other than 255 on this property is an error"), so this reads
+    /// the field directly rather than re-validating it here.
+    ///
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        self.theme.window_background.to_normalized_gamma_f32()
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
@@ -2228,10 +2296,10 @@ mod tests {
     use super::{
         ALPHABET_FIRST, ALPHABET_LAST, BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD,
         BPM_FIELD_MARGIN, Console, DEFAULT_FONT_SIZE, DEFAULT_VIEW_SIZE, GLYPH_SCALE_STEP,
-        GRID_LINE_WIDTH, GlyphTable, MAX_ZOOM, MIN_ZOOM, SECTOR_LINE_WIDTH, SOURCE_MARGIN_CELLS,
-        SourceShapes, SourceView, TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second,
-        glyph_scale, is_presentable, show_source_scene, source_bounds, source_panel_frame,
-        stepped_zoom, translate_event, zoom_command,
+        GlyphTable, MAX_ZOOM, MIN_ZOOM, SOURCE_MARGIN_CELLS, SourceShapes, SourceView,
+        TOP_PANEL_HEIGHT, ZoomCommand, clamp_pan, frames_per_second, glyph_scale, is_presentable,
+        show_source_scene, source_bounds, source_panel_frame, stepped_zoom, translate_event,
+        zoom_command,
     };
 
     /// The Source View's margin at Zoom 1.0 and a device scale of one.
@@ -4725,7 +4793,19 @@ mod tests {
         viewport: GridViewport,
         pixels_per_point: f32,
     ) -> SourceShapes {
-        SourceShapes::geometry(paint, &viewport, pixels_per_point)
+        source_geometry_themed(paint, viewport, pixels_per_point, &okabe_ito())
+    }
+
+    /// [`source_geometry`], but at a `theme` the caller states rather than
+    /// the built-in default — for a test that asks about the resolved
+    /// Theme's own Grid/Sector Seam widths instead of `okabe_ito`'s.
+    fn source_geometry_themed(
+        paint: &Paint,
+        viewport: GridViewport,
+        pixels_per_point: f32,
+        theme: &Theme,
+    ) -> SourceShapes {
+        SourceShapes::geometry(paint, &viewport, pixels_per_point, theme)
     }
 
     ///
@@ -4739,6 +4819,7 @@ mod tests {
     fn source_shapes(paint: &Paint, viewport: GridViewport, pixels_per_point: f32) -> SourceShapes {
         let ctx = egui::Context::default();
         let mut shapes = None;
+        let theme = okabe_ito();
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let table = GlyphTable::lay_out(
                 ui.ctx(),
@@ -4753,6 +4834,7 @@ mod tests {
                 &table,
                 pixels_per_point,
                 crate::cursor_effects::CursorEffectShapes::default(),
+                &theme,
             ));
         });
         output.drop_without_applying_deltas();
@@ -5146,10 +5228,10 @@ mod tests {
         let viewport = presented(screen, 20, 20, 1.0);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_geometry(&paint, viewport, 1.0);
-        // The owned transform scales the stroke with everything else, the way
-        // the Scene's layer transform used to, so the width is asserted in the
-        // Source's own points.
-        let scale = viewport.cell_scale();
+        // Fixed at the resolved Theme's `grid.border.width`, in display
+        // points — `.scratch/theming/issues/06` slice C — rather than scaled
+        // by the owned transform the way the Scene's layer transform used to.
+        let grid_border_width = okabe_ito().grid_border_width.points();
         let mut colours = std::collections::BTreeSet::new();
 
         for (position, cell) in paint.cells() {
@@ -5165,9 +5247,9 @@ mod tests {
                 .unwrap_or_else(|| panic!("Cell {position:?} was never stroked"));
 
             assert!(
-                (stroked.width / scale - GRID_LINE_WIDTH).abs() < 1e-3,
+                (stroked.width - grid_border_width).abs() < 1e-3,
                 "the border at {position:?} was {} points wide",
-                stroked.width / scale
+                stroked.width
             );
             assert_eq!(stroked.color, cell.border, "the border at {position:?}");
             colours.insert(stroked.color.to_array());
@@ -5273,6 +5355,42 @@ mod tests {
             "show_source omits a Cell's background wherever cell_visuals asks \
              for the resolved Theme's grid_background, so the panel standing \
              in for it must be filled with exactly that colour"
+        );
+    }
+
+    ///
+    /// `source_panel_frame` composites a transparent or partial-alpha
+    /// `grid_background` exactly as given — never forcing it opaque, and
+    /// never touching any other `egui::Frame` property — so a Theme's Grid
+    /// layer reveals the window backdrop `clear_color_is_the_resolved_
+    /// themes_opaque_window_background` wires underneath it, the same way an
+    /// opaque `grid_background` composites to itself.
+    /// `.scratch/theming/issues/06`: "Test transparent and partial-alpha Grid
+    /// compositing without changing other background properties."
+    ///
+    #[test]
+    fn the_grid_panel_frame_composites_a_transparent_or_partial_alpha_background_unchanged() {
+        for background in [
+            Color32::TRANSPARENT,
+            Color32::from_rgba_unmultiplied(10, 20, 30, 128),
+            Color32::from_rgba_unmultiplied(10, 20, 30, 255),
+        ] {
+            assert_eq!(
+                source_panel_frame(background).fill,
+                background,
+                "source_panel_frame changed the Grid background {background:?} it was given"
+            );
+        }
+
+        // No property but `fill` is a function of `background`: two frames
+        // built at different alpha, with their fills equalised, must be
+        // identical.
+        let opaque = source_panel_frame(Color32::from_rgba_unmultiplied(10, 20, 30, 255));
+        let mut transparent = source_panel_frame(Color32::TRANSPARENT);
+        transparent.fill = opaque.fill;
+        assert_eq!(
+            transparent, opaque,
+            "source_panel_frame changed a property besides fill across two alpha levels"
         );
     }
 
@@ -5483,34 +5601,41 @@ mod tests {
     }
 
     ///
-    /// A whole console pass strokes the Grid at the zoom it presented the
-    /// Source at, and snaps its background runs to the device scale it ran on.
+    /// A whole console pass strokes the Grid at the resolved Theme's own
+    /// fixed display-point widths — unchanged by the zoom it presented the
+    /// Source at — and snaps its background runs to the device scale it ran
+    /// on.
     ///
-    /// Both are `show_source`'s own arithmetic — the zoom is the presented Cell
-    /// side over the Source's own, the device scale is the `Ui`'s — and both
-    /// are handed to `SourceShapes::new` and reach the Shapes nowhere else.
-    /// Every other Shape assertion here builds a `SourceShapes` through
-    /// `source_geometry` or `source_shapes`, which are given a zoom and a device
-    /// scale the test chose, so all of them still hold with either argument
-    /// replaced by a constant one at the call site. What would ship then is a
-    /// Grid whose lines and sector seams stay one Source point wide at every
-    /// zoom instead of scaling with it, and runs snapped to whole points on a
-    /// screen whose pixels are not whole points.
+    /// The device scale is `show_source`'s own arithmetic — the `Ui`'s — and
+    /// is handed to `SourceShapes::new` and reaches the Shapes nowhere else.
+    /// The Grid/Sector Seam *widths* are `.scratch/theming/issues/06` slice
+    /// C's fixed points, read from `theme` and never multiplied by the
+    /// presented Cell side over the Source's own: at Zoom 0.5 this is the
+    /// test that would have caught the old `GRID_LINE_WIDTH * scale`/
+    /// `SECTOR_LINE_WIDTH * scale` behaviour reappearing, since at Zoom 1 the
+    /// two are indistinguishable. Every other Shape assertion here builds a
+    /// `SourceShapes` through `source_geometry` or `source_shapes`, which are
+    /// given a device scale the test chose, so all of them still hold with
+    /// that argument replaced by a constant one at the call site. What would
+    /// ship then is a Grid whose lines and sector seams stay the Theme's own
+    /// width at every zoom, and runs snapped to whole points on a screen
+    /// whose pixels are not whole points.
     ///
-    /// The geometry is chosen so neither argument can be mistaken for one. A
-    /// 161 point console over a 20 Cell Grid at Zoom 0.5, and at a
-    /// device scale of 1.5 the presented Grid's corner is floored a physical
-    /// pixel in — two thirds of a point — so every run edge is snapped
-    /// somewhere a snap to whole points would not put it.
+    /// The geometry is chosen so neither the zoom nor the device scale can be
+    /// mistaken for the other. A 161 point console over a 20 Cell Grid at
+    /// Zoom 0.5, and at a device scale of 1.5 the presented Grid's corner is
+    /// floored a physical pixel in — two thirds of a point — so every run
+    /// edge is snapped somewhere a snap to whole points would not put it.
     ///
     #[tokio::test]
-    async fn a_console_pass_strokes_at_its_own_zoom_and_snaps_its_runs_to_its_own_device_scale() {
+    async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_device_scale() {
         const DEVICE_SCALE: f32 = 1.5;
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(161.0));
         let mut orcvs = running_orcvs(20, 20);
         let mut view = SourceView::default();
         pinned_at(&mut view, Vec2::ZERO, 0.5);
+        let theme = okabe_ito();
 
         let (viewport, shapes) = console_pass_at(
             &ctx,
@@ -5529,28 +5654,28 @@ mod tests {
         );
 
         // Every Cell is stroked once — the Cursor's by the Cursor — and every
-        // one of those strokes carries the zoom.
+        // one of those strokes carries the Theme's fixed width, not the zoom.
         let mut stroked = 0;
         for shape in &shapes {
             if let Shape::Rect(painted) = shape
                 && painted.stroke.width > 0.0
             {
                 assert!(
-                    (painted.stroke.width - GRID_LINE_WIDTH * scale).abs() < 1e-6,
-                    "a Cell border was stroked {} points wide against {} at this zoom",
+                    (painted.stroke.width - theme.grid_border_width.points()).abs() < 1e-6,
+                    "a Cell border was stroked {} points wide against the Theme's fixed {}",
                     painted.stroke.width,
-                    GRID_LINE_WIDTH * scale
+                    theme.grid_border_width.points()
                 );
                 stroked += 1;
             }
         }
         assert_eq!(stroked, 399, "the Cursor Cell uses the effect frame");
 
-        // And so does every sector seam, which takes its own width.
+        // And so does every sector seam, which takes its own fixed width.
         let mut seams = 0;
         for shape in &shapes {
             if let Shape::LineSegment { stroke, .. } = shape
-                && (stroke.width - SECTOR_LINE_WIDTH * scale).abs() < 1e-6
+                && (stroke.width - theme.sector_seam_width.points()).abs() < 1e-6
             {
                 seams += 1;
             }
@@ -5581,7 +5706,9 @@ mod tests {
     /// Cell carries none while it is framed on its own, are the Render
     /// Frame's and the derive's answers and
     /// are asserted in `paint.rs` with no Context at all. The seam's *width*
-    /// scales with the Cell side, so it is geometry and belongs here.
+    /// is the resolved Theme's own fixed display-point value
+    /// (`.scratch/theming/issues/06` slice C), so it is geometry and belongs
+    /// here.
     ///
     /// The Grid is 16 Cells square because the default Sector Seam spacing is
     /// eight: an 8x8 Grid has no column or row that is a non-zero multiple of
@@ -5600,7 +5727,7 @@ mod tests {
         let viewport = presented(screen, 16, 16, 1.0);
         let paint = painted(&frame, viewport, screen);
         let shapes = source_geometry(&paint, viewport, 1.0);
-        let scale = viewport.cell_scale();
+        let sector_seam_width = okabe_ito().sector_seam_width.points();
 
         let mut expected = Vec::new();
         for (position, cell) in paint.cells() {
@@ -5638,11 +5765,142 @@ mod tests {
             );
             assert_eq!(stroke.color, *colour, "the seam at {position:?}");
             assert!(
-                (stroke.width / scale - SECTOR_LINE_WIDTH).abs() < 1e-3,
+                (stroke.width - sector_seam_width).abs() < 1e-3,
                 "the seam at {position:?} was {} points wide",
-                stroke.width / scale
+                stroke.width
             );
         }
+    }
+
+    ///
+    /// Width zero hides the Cell grid line and the Sector Seam outright — no
+    /// zero-width `Shape` left for the painter to drop — at several Grid
+    /// zoom levels spanning `MIN_ZOOM` to `MAX_ZOOM`.
+    /// `.scratch/theming/issues/06`: "Width 0 hides the stroke: emit no
+    /// shape rather than a zero-width one."
+    ///
+    #[tokio::test]
+    async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+        let mut orcvs = running_orcvs(16, 16);
+        // A sector corner, so the fixture would otherwise draw both a grid
+        // line and a seam on plenty of Cells.
+        orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let theme = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            sector_seam_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+
+        for zoom in [MIN_ZOOM, 1.0, MAX_ZOOM] {
+            let cell_size = CELL_SIZE * zoom;
+            let viewport = GridViewport {
+                cell_size,
+                rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
+            };
+            let paint = painted(&frame, viewport, screen);
+            let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+
+            assert!(
+                shapes.borders.is_empty(),
+                "zoom {zoom}: a grid border stroke survived width 0"
+            );
+            assert!(
+                shapes.cursor.is_empty(),
+                "zoom {zoom}: the Cursor's own border stroke survived width 0"
+            );
+            assert!(
+                shapes.seams.is_empty(),
+                "zoom {zoom}: a sector seam stroke survived width 0"
+            );
+        }
+    }
+
+    ///
+    /// The Cell grid line and the Sector Seam stay the resolved Theme's own
+    /// fixed display-point widths at every Grid zoom from `MIN_ZOOM` to
+    /// `MAX_ZOOM` — never multiplied by `GridViewport::cell_scale`, the
+    /// zoom-scaled behaviour `.scratch/theming/issues/06` slice C replaces.
+    ///
+    #[tokio::test]
+    async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+        let mut orcvs = running_orcvs(16, 16);
+        orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let theme = okabe_ito();
+
+        for zoom in [MIN_ZOOM, 0.5, 1.0, 1.5, MAX_ZOOM] {
+            let cell_size = CELL_SIZE * zoom;
+            let viewport = GridViewport {
+                cell_size,
+                rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
+            };
+            let paint = painted(&frame, viewport, screen);
+            let shapes = source_geometry(&paint, viewport, 1.0);
+
+            assert!(
+                !shapes.borders.is_empty(),
+                "zoom {zoom}: the fixture drew no Cell border"
+            );
+            for shape in shapes.borders.iter().chain(&shapes.cursor) {
+                let Shape::Rect(stroked) = shape else {
+                    panic!("a border was {shape:?}")
+                };
+                assert!(
+                    (stroked.stroke.width - theme.grid_border_width.points()).abs() < 1e-4,
+                    "zoom {zoom}: a border was {} points wide against the fixed {}",
+                    stroked.stroke.width,
+                    theme.grid_border_width.points()
+                );
+            }
+
+            assert!(
+                !shapes.seams.is_empty(),
+                "zoom {zoom}: the fixture drew no sector seam"
+            );
+            for shape in &shapes.seams {
+                let Shape::LineSegment { stroke, .. } = shape else {
+                    panic!("a seam was {shape:?}")
+                };
+                assert!(
+                    (stroke.width - theme.sector_seam_width.points()).abs() < 1e-4,
+                    "zoom {zoom}: a seam was {} points wide against the fixed {}",
+                    stroke.width,
+                    theme.sector_seam_width.points()
+                );
+            }
+        }
+    }
+
+    ///
+    /// The window's own clear colour is the resolved Theme's opaque
+    /// `window.background` — `.scratch/theming/schema.md`'s Chrome mapping
+    /// table, "Application backdrop | `window.background`, opaque" — rather
+    /// than `eframe::App::clear_color`'s own translucent default, which would
+    /// otherwise show through wherever a partly transparent panel, Grid or
+    /// Cell layer reveals the console surface beneath it.
+    ///
+    #[tokio::test]
+    async fn clear_color_is_the_resolved_themes_opaque_window_background() {
+        let ctx = egui::Context::default();
+        let console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("Console::new");
+        let theme = okabe_ito();
+
+        assert_eq!(
+            theme.window_background.a(),
+            255,
+            "the built-in window backdrop must be opaque"
+        );
+        assert_eq!(
+            eframe::App::clear_color(&console, &egui::Visuals::dark()),
+            theme.window_background.to_normalized_gamma_f32(),
+            "the window's clear colour must be the Theme's own window_background"
+        );
     }
 
     ///

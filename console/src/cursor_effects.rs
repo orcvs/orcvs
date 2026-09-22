@@ -205,9 +205,14 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// `cursor.border` for the Cursor's own frame, `region.border` for the lasso
 /// around a Region larger than one Cell) — `.scratch/theming/issues/06`
 /// moved both out of [`CursorEffectSettings`], which now carries only the
-/// motion `settings` decide from here. One over clippy's default: every
-/// parameter is an independent, already-tested value with nowhere smaller to
-/// group into, the same reasoning `console.rs::show_source`'s own
+/// motion `settings` decide from here. `frame_width` is the same caller's
+/// choice of `cursor.border.width`/`region.border.width`: a fixed display-point
+/// nominal width, never scaled by `cell_size`/Grid zoom (`.scratch/theming/
+/// issues/06` slice C). Zero hides every frame stroke outright — see
+/// [`frame_shapes`] — without touching the living-area fill `area_colour` and
+/// `amount` still control. One over clippy's default: every parameter is an
+/// independent, already-tested value with nowhere smaller to group into, the
+/// same reasoning `console.rs::show_source`'s own
 /// `#[allow(clippy::too_many_arguments)]` states.
 ///
 #[allow(clippy::too_many_arguments)]
@@ -220,6 +225,7 @@ pub fn cursor_effect_shapes(
     settings: CursorEffectSettings,
     area_colour: Color32,
     frame_colour: Color32,
+    frame_width: f32,
 ) -> CursorEffectShapes {
     let mut shapes = CursorEffectShapes::default();
     if !effect_bounds(cursor, cell_size)
@@ -249,10 +255,34 @@ pub fn cursor_effect_shapes(
         sample,
         frame_colour,
         amount,
+        frame_width,
     );
     shapes
 }
 
+///
+/// The living-field fill: long-tailed horizontal tears and a few fine
+/// connecting strands, both at a fraction of `colour`'s own alpha.
+///
+/// `colour` is `Color32`, whose byte layout is premultiplied alpha
+/// (`ecolor::Color32`'s own documentation — the same fact
+/// `crate::theme::straight_rgba` states). Scaling that alpha down therefore
+/// has to scale every channel together, which is exactly what
+/// [`Color32::gamma_multiply`] does: `r'/g'/b'/a' = r/g/b/a * fraction`, still
+/// premultiplied and still `colour`'s own hue. The `fraction` each site below
+/// computes is what a fully opaque `colour` would want as its literal alpha
+/// byte, divided back out of 255 — `gamma_multiply` reapplies it through
+/// `colour.a()` rather than through an assumed 255, so a transparent
+/// `colour` (`a() == 0`) multiplies to exactly zero for every candidate
+/// rather than the flat `alpha.clamp(1.0, 255.0)` floor this replaced, which
+/// used to paint a faint minimum speck even when the Theme's own `cursor.area`
+/// asked for nothing at all. Reading `colour.r()/g()/b()` directly and handing
+/// them to [`Color32::from_rgba_unmultiplied`] — this function's own bug
+/// before this fix — would instead treat those premultiplied bytes as a
+/// straight triple and premultiply them a second time by the new alpha,
+/// shifting the hue and, at `colour.a() == 0`, discarding the caller's colour
+/// entirely in favour of black.
+///
 fn area_shapes(
     out: &mut Vec<Shape>,
     cursor: Rect,
@@ -288,14 +318,12 @@ fn area_shapes(
         if !rect.intersects(clip) {
             continue;
         }
-        let alpha = (colour.a() as f32 * envelope * (0.08 + density * 0.22) * amount)
-            .round()
-            .clamp(1.0, 255.0) as u8;
-        out.push(Shape::Rect(RectShape::filled(
-            rect,
-            0.0,
-            Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), alpha),
-        )));
+        let fraction = envelope * (0.08 + density * 0.22) * amount;
+        let painted = colour.gamma_multiply(fraction);
+        if painted.a() == 0 {
+            continue;
+        }
+        out.push(Shape::Rect(RectShape::filled(rect, 0.0, painted)));
     }
 
     // A few fine connections stop the islands reading as loose confetti.
@@ -312,22 +340,37 @@ fn area_shapes(
             );
         let bound = Rect::from_two_pos(start, end).expand(1.0);
         if bound.intersects(clip) {
-            out.push(Shape::line_segment(
-                [start, end],
-                Stroke::new(
-                    (cell_size / 50.0).max(0.35),
-                    Color32::from_rgba_unmultiplied(
-                        colour.r(),
-                        colour.g(),
-                        colour.b(),
-                        (20.0 * amount) as u8,
-                    ),
-                ),
-            ));
+            let painted = colour.gamma_multiply(20.0 * amount / 255.0);
+            if painted.a() != 0 {
+                out.push(Shape::line_segment(
+                    [start, end],
+                    Stroke::new((cell_size / 50.0).max(0.35), painted),
+                ));
+            }
         }
     }
 }
 
+///
+/// The eroded Cursor/Region frame: a stationary outline when `amount` is
+/// zero, or the animated fragments otherwise. `width` is the nominal
+/// display-point width `cursor_effect_shapes` resolved from the Theme
+/// (`cursor.border.width`/`region.border.width`), fixed in points and never
+/// scaled by `cell_size`/`CELL_SIZE` — `cell_size` still drives every
+/// fragment's *position* and *length* along the edge, which is Grid geometry
+/// rather than stroke weight and stays proportional to the Cell side.
+///
+/// `width <= 0.0` hides every stroke this function would otherwise build,
+/// without touching the living-area fill `area_shapes` paints independently:
+/// no shape is pushed at all, at every `amount`, rather than a zero-width one
+/// left for the painter to drop.
+///
+/// Eight parameters, one over clippy's default, for the same reason
+/// `console.rs::show_source`'s own `#[allow(clippy::too_many_arguments)]`
+/// states: every parameter is an independent, already-tested value with
+/// nowhere smaller to group into.
+///
+#[allow(clippy::too_many_arguments)]
 fn frame_shapes(
     out: &mut Vec<Shape>,
     outline: Rect,
@@ -336,14 +379,18 @@ fn frame_shapes(
     sample: CursorEffectSample,
     colour: Color32,
     amount: f32,
+    width: f32,
 ) {
+    if width <= 0.0 {
+        return;
+    }
     let side = cell_size;
     let scale = side / CELL_SIZE;
     if amount == 0.0 {
         out.push(Shape::Rect(RectShape::stroke(
             outline,
             0.0,
-            Stroke::new(scale.max(0.5), colour),
+            Stroke::new(width, colour),
             egui::StrokeKind::Inside,
         )));
         return;
@@ -379,13 +426,13 @@ fn frame_shapes(
                     offset + end * span,
                     outward,
                 );
-                let bound = Rect::from_two_pos(a, b).expand(2.0 * scale);
+                let bound = Rect::from_two_pos(a, b).expand(2.0 * width);
                 if bound.intersects(clip) {
                     let alpha = (105.0 + unit(hash(!key)) * 150.0) as u8;
                     out.push(Shape::line_segment(
                         [a, b],
                         Stroke::new(
-                            (0.45 + unit(hash(key ^ 73)) * 0.8) * scale,
+                            (0.45 + unit(hash(key ^ 73)) * 0.8) * width,
                             colour.gamma_multiply(f32::from(alpha) / 255.0),
                         ),
                     ));
@@ -473,6 +520,11 @@ mod tests {
     /// `theme::tests::okabe_ito_defines_every_key_at_the_schema_values`.
     const AREA_COLOUR: Color32 = Color32::from_rgb(76, 190, 156);
     const FRAME_COLOUR: Color32 = Color32::from_rgb(234, 235, 229);
+    /// The stationary Cursor/Region outline's nominal display-point default
+    /// (`.scratch/theming/schema.md`'s `cursor.border.width`/
+    /// `region.border.width`: 1 point), reused as every geometry test's
+    /// nominal width unless a test states otherwise.
+    const FRAME_WIDTH: f32 = 1.0;
 
     fn sample(frame: u64, grain: u64, field: u64) -> CursorEffectSample {
         CursorEffectSample {
@@ -583,6 +635,7 @@ mod tests {
             settings,
             AREA_COLOUR,
             FRAME_COLOUR,
+            FRAME_WIDTH,
         );
         let second = cursor_effect_shapes(
             cursor,
@@ -593,6 +646,7 @@ mod tests {
             settings,
             AREA_COLOUR,
             FRAME_COLOUR,
+            FRAME_WIDTH,
         );
         assert_ne!(format!("{:?}", first.frame), format!("{:?}", second.frame));
 
@@ -661,6 +715,7 @@ mod tests {
                 settings,
                 AREA_COLOUR,
                 FRAME_COLOUR,
+                FRAME_WIDTH,
             );
             let alone = cursor_effect_shapes(
                 cursor,
@@ -671,6 +726,7 @@ mod tests {
                 settings,
                 AREA_COLOUR,
                 FRAME_COLOUR,
+                FRAME_WIDTH,
             );
             assert!(heaviest(&lasso.frame) <= 1.25 + 1e-3);
             assert!(heaviest(&alone.frame) <= 1.25 + 1e-3);
@@ -729,6 +785,7 @@ mod tests {
             settings,
             AREA_COLOUR,
             FRAME_COLOUR,
+            FRAME_WIDTH,
         );
         // Eight fragments on each of four edges at most, and seven tears.
         assert!(effects.frame.len() <= 4 * 8 + 7);
@@ -758,6 +815,7 @@ mod tests {
             CursorEffectSettings::default(),
             AREA_COLOUR,
             FRAME_COLOUR,
+            FRAME_WIDTH,
         );
         assert!(!effects.area.is_empty());
         assert!(effects.area.len() <= 254);
@@ -788,6 +846,7 @@ mod tests {
                 CursorEffectSettings::default(),
                 AREA_COLOUR,
                 FRAME_COLOUR,
+                FRAME_WIDTH,
             );
             assert!(effects.area.iter().all(|shape| {
                 let shape = shape.visual_bounding_rect();
@@ -809,8 +868,296 @@ mod tests {
             CursorEffectSettings::default(),
             AREA_COLOUR,
             FRAME_COLOUR,
+            FRAME_WIDTH,
         );
         assert!(effects.area.is_empty());
         assert!(effects.frame.is_empty());
+    }
+
+    /// The alpha byte a `Shape::Rect` fill or `Shape::LineSegment` stroke was
+    /// painted with — the two Shape kinds [`area_shapes`] builds.
+    fn shape_alpha(shape: &Shape) -> u8 {
+        match shape {
+            Shape::Rect(rect) => rect.fill.a(),
+            Shape::LineSegment { stroke, .. } => stroke.color.a(),
+            other => panic!("{other:?} is neither a filled Rect nor a LineSegment"),
+        }
+    }
+
+    ///
+    /// Width zero hides every Cursor/Region frame stroke this function
+    /// builds — the stationary outline `frame_shapes` draws at `amount ==
+    /// 0.0` and every animated fragment it draws otherwise — without
+    /// disabling the living-area fill `amount` and `area_colour` still
+    /// control, at several Grid zoom levels from `MIN_ZOOM` to `MAX_ZOOM`.
+    /// `.scratch/theming/issues/06`: "Width 0 hides every affected stroke
+    /// without disabling fills or changing motion preferences."
+    ///
+    #[test]
+    fn zero_frame_width_hides_every_stroke_at_every_amount_and_zoom() {
+        let mut static_settings = CursorEffectSettings::default();
+        *static_settings.amount_mut() = 0;
+
+        for cell_size in [
+            CELL_SIZE * 0.25,
+            CELL_SIZE * 0.5,
+            CELL_SIZE,
+            CELL_SIZE * 2.0,
+        ] {
+            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
+            let clip = cursor.expand(500.0);
+
+            for settings in [static_settings, CursorEffectSettings::default()] {
+                let effects = cursor_effect_shapes(
+                    cursor,
+                    cursor,
+                    clip,
+                    cell_size,
+                    sample(3, 5, 7),
+                    settings,
+                    AREA_COLOUR,
+                    FRAME_COLOUR,
+                    0.0,
+                );
+                assert!(
+                    effects.frame.is_empty(),
+                    "a Cursor frame stroke survived width 0 at cell_size {cell_size}"
+                );
+            }
+
+            // The living-area fill has no width of its own and must not be
+            // disabled by a frame width of zero.
+            let effects = cursor_effect_shapes(
+                cursor,
+                cursor,
+                clip,
+                cell_size,
+                sample(3, 5, 7),
+                CursorEffectSettings::default(),
+                AREA_COLOUR,
+                FRAME_COLOUR,
+                0.0,
+            );
+            assert!(
+                !effects.area.is_empty(),
+                "width 0 wrongly suppressed the living-area fill at cell_size {cell_size}"
+            );
+        }
+    }
+
+    ///
+    /// The stationary outline (`amount == 0.0`) is stroked at exactly the
+    /// nominal width, at every Grid zoom level — no `scale.max(0.5)` floor
+    /// and no proportional shrink as `cell_size` falls.
+    ///
+    #[test]
+    fn stationary_frame_stroke_is_the_nominal_width_at_every_zoom() {
+        let mut settings = CursorEffectSettings::default();
+        *settings.amount_mut() = 0;
+
+        for cell_size in [
+            CELL_SIZE * 0.25,
+            CELL_SIZE * 0.5,
+            CELL_SIZE,
+            CELL_SIZE * 2.0,
+        ] {
+            let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(cell_size));
+            let clip = cursor.expand(500.0);
+            let effects = cursor_effect_shapes(
+                cursor,
+                cursor,
+                clip,
+                cell_size,
+                sample(3, 5, 7),
+                settings,
+                AREA_COLOUR,
+                FRAME_COLOUR,
+                FRAME_WIDTH,
+            );
+            assert_eq!(
+                effects.frame.len(),
+                1,
+                "the stationary outline is one stroke"
+            );
+            let Shape::Rect(stroked) = &effects.frame[0] else {
+                panic!("the stationary outline was {:?}", effects.frame[0])
+            };
+            assert_eq!(
+                stroked.stroke.width, FRAME_WIDTH,
+                "the stationary outline scaled with cell_size {cell_size}"
+            );
+        }
+    }
+
+    ///
+    /// The animated fragments' 0.45–1.25× nominal-width modulation, exactly
+    /// reproduced across every Grid zoom level from `MIN_ZOOM` to `MAX_ZOOM`:
+    /// the same `sample` and `width` produce the identical set of stroke
+    /// widths whatever `cell_size` is, because the modulation is a function
+    /// of the sample and the nominal width alone
+    /// (`.scratch/theming/issues/06`: "Cursor/Region effect width is
+    /// nominal... without Grid zoom scaling").
+    ///
+    #[test]
+    fn animated_fragment_widths_modulate_the_nominal_width_and_never_the_grid_zoom() {
+        let clip = Rect::from_min_size(Pos2::new(-500.0, -500.0), Vec2::splat(2000.0));
+        let mut widths_by_zoom = Vec::new();
+
+        for cell_size in [
+            CELL_SIZE * 0.25,
+            CELL_SIZE * 0.5,
+            CELL_SIZE,
+            CELL_SIZE * 2.0,
+        ] {
+            // One Cell's own outline at this zoom, so the loop's fragment
+            // count (`across`/`down`) stays the same at every cell_size and
+            // only the stroke width can differ.
+            let outline = Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size));
+            let mut out = Vec::new();
+            frame_shapes(
+                &mut out,
+                outline,
+                cell_size,
+                clip,
+                sample(11, 13, 17),
+                FRAME_COLOUR,
+                0.6,
+                FRAME_WIDTH,
+            );
+            let widths: Vec<f32> = out
+                .iter()
+                .filter_map(|shape| match shape {
+                    Shape::LineSegment { stroke, .. } => Some(stroke.width),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                !widths.is_empty(),
+                "cell_size {cell_size} produced no fragment strokes to compare"
+            );
+            for width in &widths {
+                assert!(
+                    (0.45 * FRAME_WIDTH - 1e-4..=1.25 * FRAME_WIDTH + 1e-4).contains(width),
+                    "a fragment at cell_size {cell_size} was {width} points wide, outside \
+                     0.45x-1.25x the nominal width {FRAME_WIDTH}"
+                );
+            }
+            widths_by_zoom.push(widths);
+        }
+
+        for widths in &widths_by_zoom[1..] {
+            assert_eq!(
+                widths, &widths_by_zoom[0],
+                "fragment stroke widths changed with Grid zoom"
+            );
+        }
+    }
+
+    ///
+    /// A fully transparent `cursor.area` colour paints neither a tear nor a
+    /// strand — the fix for the bug this function used to carry: reading
+    /// `colour.r()/g()/b()` (already zero at zero alpha, since `Color32`'s
+    /// premultiplied bytes collapse a transparent colour to `(0, 0, 0, 0)`
+    /// regardless of its straight RGB) and handing them to
+    /// `Color32::from_rgba_unmultiplied` with a `.clamp(1.0, 255.0)`-floored
+    /// alpha always produced a faint but nonzero speck.
+    /// `.scratch/theming/issues/06`: "Fix Cursor area alpha propagation so
+    /// transparent area colour produces no visible tears or strands."
+    ///
+    #[test]
+    fn zero_alpha_area_colour_paints_no_tears_or_strands() {
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let clip = cursor.expand(200.0);
+        let mut out = Vec::new();
+
+        area_shapes(
+            &mut out,
+            cursor,
+            clip,
+            CELL_SIZE,
+            sample(1, 0x1234, 0x5678),
+            Color32::TRANSPARENT,
+            1.0,
+        );
+
+        assert!(
+            out.is_empty(),
+            "a fully transparent area colour painted {} shapes",
+            out.len()
+        );
+    }
+
+    ///
+    /// A partial-alpha `cursor.area` colour scales every tear's and strand's
+    /// alpha down from its own — never past it — and, crucially, keeps the
+    /// same hue: every produced Shape un-premultiplies back to the Theme
+    /// colour's own straight RGB regardless of the alpha `area_shapes`
+    /// computed for it. This is what distinguishes correct premultiplied
+    /// scaling (`Color32::gamma_multiply`, which scales r/g/b/a together)
+    /// from the old bug (reading the premultiplied bytes as a straight
+    /// triple and re-premultiplying them a second time), which would have
+    /// shifted the hue here since the fixture's colour is not fully opaque.
+    /// `.scratch/theming/issues/06`: "partial alpha is respected consistently
+    /// without treating premultiplied RGB as straight RGB."
+    ///
+    #[test]
+    fn partial_alpha_area_colour_is_respected_and_keeps_the_colours_hue() {
+        let cursor = Rect::from_min_size(Pos2::new(200.0, 200.0), Vec2::splat(CELL_SIZE));
+        let clip = cursor.expand(200.0);
+        let colour = Color32::from_rgba_unmultiplied(76, 190, 156, 200);
+        let mut out = Vec::new();
+
+        area_shapes(
+            &mut out,
+            cursor,
+            clip,
+            CELL_SIZE,
+            sample(1, 0x1234, 0x5678),
+            colour,
+            1.0,
+        );
+
+        assert!(!out.is_empty(), "the fixture painted nothing to check");
+        for shape in &out {
+            let alpha = shape_alpha(shape);
+            assert!(alpha > 0, "a painted shape must carry nonzero alpha");
+            assert!(
+                alpha <= colour.a(),
+                "a shape's alpha {alpha} exceeded the area colour's own {}",
+                colour.a()
+            );
+            let painted = match shape {
+                Shape::Rect(rect) => rect.fill,
+                Shape::LineSegment { stroke, .. } => stroke.color,
+                other => panic!("{other:?} is neither a filled Rect nor a LineSegment"),
+            };
+            // Cross-multiplied rather than un-premultiplied and compared
+            // straight-on: `Color32::to_srgba_unmultiplied` divides by a
+            // small alpha, which amplifies one rounding step into several
+            // sRGB units of noise — noise a correct
+            // `Color32::gamma_multiply` scaling is entitled to, since it
+            // rounds each of r/g/b/a independently. Comparing
+            // `painted.channel() * colour.a()` against
+            // `colour.channel() * painted.a()` proves the same proportion
+            // without a division, and the old bug's magnitude — reading
+            // `colour.r()/g()/b()` as already-straight bytes and
+            // re-premultiplying them a second time by the new alpha — is
+            // still far outside the ~500 a correct scaling's rounding can
+            // reach here (`colour.a()` and `painted.a()` both under 256, so
+            // one rounding step on either side of the cross product moves it
+            // by at most `colour.a()` or `painted.a()`, well under 256 each).
+            for (painted_channel, colour_channel) in [painted.r(), painted.g(), painted.b()]
+                .into_iter()
+                .zip([colour.r(), colour.g(), colour.b()])
+            {
+                let cross_a = i32::from(painted_channel) * i32::from(colour.a());
+                let cross_b = i32::from(colour_channel) * i32::from(alpha);
+                assert!(
+                    (cross_a - cross_b).abs() <= 500,
+                    "a shape's channel drifted from the area colour's own hue: painted \
+                     {painted:?} against area colour {colour:?}"
+                );
+            }
+        }
     }
 }
