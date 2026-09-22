@@ -1,5 +1,7 @@
 # 05 — Stop chrome borrowing Source Paint colours
 
+**Superseded scope (2026-09-22):** The original decision/acceptance below is historical. ADR 0053 now requires one versioned Orcvs document with named style properties; Base16 import is deferred. Issues `03`, `06`, `07` and `10` carry current implementation scope. Do not implement the former slot/override or separate-chrome rules below.
+
 **What to build:** The four egui `Visuals` fields the console borrows from Source Paint — `extreme_bg_color`, `faint_bg_color`, `error_fg_color` and `warn_fg_color` — take chrome colours of their own, so nothing in the chrome depends on the Source scheme.
 
 **Blocked by:** 01 — Decide where Source colour authority lives.
@@ -28,6 +30,7 @@ So the fix is removal, not seeding. With the borrow gone there is nothing at sta
 ## Interaction with 03 and 02
 
 `03` replaces `style()` with `style(theme)` and `install(ctx)`, and `02` removes the `set_theme(Theme::Dark)` beside it. All three edit the same few lines of `Console::new`. This issue changes what `style()` reads, not when it is called or which themes it registers, so it composes with either — but whichever lands second rebases onto the other rather than racing it. No blocking edge is recorded because neither ordering is wrong.
+
 
 ## Comments
 

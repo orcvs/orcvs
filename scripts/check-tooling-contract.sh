@@ -430,6 +430,10 @@ assert_not_contains "$root_dir/.github/workflows/bench.yml" '[-]-quick'
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'orcvs/[*][*]'$"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'console/[*][*]'$" 2
+# The floor check's figures and its checker decide the result as much as the
+# measurement does, so a change confined to either must run the workflow too.
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'benches/floors[.]toml'$" 2
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'scripts/check-bench-floors[.]ts'$" 2
 assert_contains "$root_dir/.github/workflows/bench.yml" '^        run: mise run bench [|] tee output[.]txt$'
 # `orcvs` links ALSA through `midir` on Linux, so every bench job needs the same
 # native dependency the test workflow installs. The count is derived from the jobs
