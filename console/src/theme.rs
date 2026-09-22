@@ -27,6 +27,13 @@ use egui::Color32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Appearance {
     Dark,
+    /// No light built-in exists yet (`.scratch/theming/issues/04`), so
+    /// nothing shipped constructs this variant outside a document's own
+    /// declared `appearance` once `07`'s parser exists.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no light built-in exists yet: theming/04")
+    )]
     Light,
 }
 
@@ -64,6 +71,16 @@ impl GridWidth {
         Ok(Self(points))
     }
 
+    /// Consumed by slice C's fixed display-point strokes
+    /// (`.scratch/theming/issues/06`), not this slice's Source/Cursor
+    /// painting, which leaves today's zoom-scaled widths untouched.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "consumed by theming/06 slice C's fixed stroke widths"
+        )
+    )]
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -89,6 +106,13 @@ impl ChromeWidth {
         Ok(Self(points))
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "consumed by theming/06 slice C's fixed stroke widths"
+        )
+    )]
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -102,6 +126,14 @@ impl ChromeWidth {
 /// the property entirely inherits the parent's resolved value instead of
 /// holding one of these two states — see [`ThemeDocument::cursor_background`].
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by theming/07's parser, which builds a ThemeDocument from a raw \
+                   document; this slice's Theme is always a built-in, never a resolved document"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OptionalFill {
     /// The YAML string `"none"`: clears the optional fill and enables its
@@ -123,6 +155,13 @@ pub(crate) enum OptionalFill {
 /// reproduced here: `.scratch/theming/issues/07`'s parser is what maps raw
 /// document text to these variants.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by Theme::color, itself unconsumed until theming/07"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ColorKey {
     WindowBackground,
@@ -176,6 +215,13 @@ pub(crate) enum ColorKey {
 /// The Grid/Cell/Sector Seam width properties, bounded 0 to 1 point by
 /// [`GridWidth`].
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by theming/06 slice C and theming/07's parser"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GridWidthKey {
     GridBorder,
@@ -187,6 +233,13 @@ pub(crate) enum GridWidthKey {
     OutputPortalBorder,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by theming/06 slice C and theming/07's parser"
+    )
+)]
 impl GridWidthKey {
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -204,6 +257,13 @@ impl GridWidthKey {
 ///
 /// The chrome width properties, bounded 0 to 2 points by [`ChromeWidth`].
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by theming/06 slice C and theming/07's parser"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChromeWidthKey {
     PanelBorder,
@@ -213,6 +273,13 @@ pub(crate) enum ChromeWidthKey {
     InputCursor,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by theming/06 slice C and theming/07's parser"
+    )
+)]
 impl ChromeWidthKey {
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -245,7 +312,7 @@ impl ChromeWidthKey {
 /// alongside the fields for callers that index by key.
 ///
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Theme {
+pub struct Theme {
     /// The identity a Theme is selected by: a built-in's reserved name, or
     /// a custom Theme's filename stem, assigned by
     /// `.scratch/theming/issues/07`'s loader outside this module.
@@ -327,6 +394,14 @@ pub(crate) struct Theme {
     pub(crate) input_cursor_width: ChromeWidth,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "these by-key accessors are for theming/07's parser and future by-key callers; \
+                   slice B's painting reads Theme's fields directly, never through a key"
+    )
+)]
 impl Theme {
     ///
     /// Reads a named colour property by key. Exhaustive over [`ColorKey`],
@@ -514,9 +589,16 @@ const fn straight_rgba(rgba: u32) -> Color32 {
 /// built-in reproduces today's shipped appearance and not merely the
 /// document `examples/okabe-ito-copy.yaml` records.
 ///
-pub(crate) fn okabe_ito() -> Theme {
+///
+/// The reserved identity of the Okabe–Ito built-in, and the default both the
+/// dark and light Theme name settings hold until a viewer picks another —
+/// `console/src/persistence.rs` restores both from this same identity.
+///
+pub(crate) const OKABE_ITO_IDENTITY: &str = "okabe-ito";
+
+pub fn okabe_ito() -> Theme {
     Theme {
-        identity: "okabe-ito".to_owned(),
+        identity: OKABE_ITO_IDENTITY.to_owned(),
         name: "Okabe–Ito".to_owned(),
         appearance: Appearance::Dark,
 
@@ -599,6 +681,13 @@ pub(crate) fn okabe_ito() -> Theme {
 /// text — `.scratch/theming/issues/07` owns turning a YAML document into
 /// this shape; tests in this module construct it directly.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "constructed by theming/07's parser; this slice never loads a file"
+    )
+)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ThemeDocument {
     /// The built-in identity named by `inherits`.
@@ -622,6 +711,13 @@ pub(crate) struct ThemeDocument {
 ///
 /// Why [`resolve`] refused a document.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "returned by resolve, itself unconsumed until theming/07"
+    )
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ThemeError {
     /// `inherits` names an identity absent from the built-in set passed to
@@ -677,6 +773,13 @@ impl std::fmt::Display for ThemeError {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by resolve, itself unconsumed until theming/07"
+    )
+)]
 fn width_error(property: &'static str, points: f32, max: f32, error: WidthError) -> ThemeError {
     match error {
         WidthError::NonFinite => ThemeError::NonFiniteWidth { property, points },
@@ -702,6 +805,14 @@ fn width_error(property: &'static str, points: f32, max: f32, error: WidthError)
 /// document's identity is its filename stem (ADR 0053), which this module
 /// never reads a file to learn.
 ///
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by theming/07's loader, which resolves a loaded document against the \
+                   built-in set; this slice's Theme is always the okabe_ito() built-in itself"
+    )
+)]
 pub(crate) fn resolve(
     built_ins: &[Theme],
     identity: &str,
@@ -777,11 +888,7 @@ mod tests {
         Appearance, ChromeWidth, ChromeWidthKey, ColorKey, GridWidth, GridWidthKey, OptionalFill,
         ThemeDocument, ThemeError, okabe_ito, resolve, straight_rgba,
     };
-    use crate::cursor_effects::CursorEffectSettings;
-    use crate::source_paint::{
-        DEFAULT_BANG, DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, SourcePaintSettings,
-    };
-    use crate::style::PALETTE;
+    use crate::style::{DEFAULT_BANG, DEFAULT_ORDINARY, DEFAULT_SOURCE_BACKGROUND, PALETTE};
 
     fn child(parent: &str) -> ThemeDocument {
         ThemeDocument {
@@ -888,87 +995,31 @@ mod tests {
 
     ///
     /// Cross-checks the built-in against the values it must preserve:
-    /// `style::PALETTE`'s fixed chrome/grid constants,
-    /// `SourcePaintSettings::default()`'s Source Paint colours, and
-    /// `CursorEffectSettings::default()`'s Cursor Effect colours. Role
-    /// background values that `style.rs`'s `fill_tint_colour` currently
-    /// derives at 16% strength are recomputed here with `lerp_to_gamma`
-    /// rather than hand-copied, and `text.muted`/`panel.border` are
-    /// recomputed from egui's own `gamma_multiply`/`to_opaque` rather than
-    /// pinned by hand — so a change to either the Theme's literal or the
-    /// still-shipping computation it must match is caught here, not only in
-    /// `okabe_ito_defines_every_key_at_the_schema_values`, which would
-    /// happily drift alongside a hand-edited built-in.
+    /// `style::PALETTE`'s fixed chrome/grid constants and the three
+    /// `style::DEFAULT_*` constants `style()`'s chrome baseline still opens
+    /// with (`.scratch/theming/issues/03` derives that baseline from the
+    /// resolved Theme instead; until then the two are independent and this
+    /// is what keeps them agreeing). `SourcePaintSettings` and
+    /// `CursorEffectSettings`' colours are gone from this slice — every
+    /// value that once lived there is now pinned directly against
+    /// `schema.md` by `okabe_ito_defines_every_key_at_the_schema_values`
+    /// above, so this test's job narrows to the values Slice B did not
+    /// replace: chrome/grid geometry colours and the `text.muted`/
+    /// `panel.border` derivations that still come from egui/`PALETTE`
+    /// computations, not from a hand-copied literal.
     ///
     #[test]
-    fn okabe_ito_matches_todays_style_and_settings_defaults() {
+    fn okabe_ito_matches_todays_style_and_palette_constants() {
         let theme = okabe_ito();
-        let source_paint = SourcePaintSettings::default();
-        let cursor_effects = CursorEffectSettings::default();
 
         assert_eq!(theme.window_background, PALETTE.page);
         assert_eq!(theme.panel_background, PALETTE.page);
-        assert_eq!(theme.grid_background, source_paint.source_background());
         assert_eq!(theme.grid_background, DEFAULT_SOURCE_BACKGROUND);
-
-        assert_eq!(theme.source_ordinary, source_paint.ordinary());
         assert_eq!(theme.source_ordinary, DEFAULT_ORDINARY);
-        assert_eq!(theme.source_comment, source_paint.comment());
-        assert_eq!(theme.source_number, source_paint.number());
-        assert_eq!(theme.source_note, source_paint.note());
-        assert_eq!(theme.source_function, source_paint.function());
-        assert_eq!(theme.source_bang, source_paint.bang());
         assert_eq!(theme.source_bang, DEFAULT_BANG);
-        assert_eq!(theme.source_sequence, source_paint.sequence());
-        assert_eq!(theme.diagnostic_foreground, source_paint.diagnostic());
-        assert_eq!(theme.output_portal_foreground, source_paint.output_portal());
-
-        // The tint `style.rs::fill_tint_colour` currently paints a Function
-        // or Operand Cell's background with, at the settings default
-        // strength (16%) — restated here rather than imported, the same
-        // independence `style.rs::tests::tinted` keeps from
-        // `super::fill_tint_colour`.
-        let tint = |colour: Color32| {
-            let strength = f32::from(source_paint.fill_tint()) / 100.0;
-            source_paint
-                .source_background()
-                .lerp_to_gamma(colour, strength)
-        };
-        assert_eq!(
-            theme.source_function_background,
-            tint(source_paint.function())
-        );
-        assert_eq!(theme.source_number_background, tint(source_paint.number()));
-        assert_eq!(theme.source_note_background, tint(source_paint.note()));
-        assert_eq!(
-            theme.source_sequence_background,
-            tint(source_paint.sequence())
-        );
-        assert_eq!(
-            theme.output_portal_background,
-            tint(source_paint.output_portal())
-        );
-        // Atom has no glyph of its own and follows Ordinary
-        // (`source_paint_visuals`'s `Token::Atom` arm), so its background is
-        // Ordinary's own tint despite Atom having no `source.atom`
-        // foreground property.
-        assert_eq!(theme.source_atom_background, tint(source_paint.ordinary()));
-        // Ordinary, Comment and Bang are never tinted today.
-        assert_eq!(theme.source_ordinary_background, Color32::TRANSPARENT);
-        assert_eq!(theme.source_comment_background, Color32::TRANSPARENT);
-        assert_eq!(theme.source_bang_background, Color32::TRANSPARENT);
 
         assert_eq!(theme.grid_border, PALETTE.grid_line);
         assert_eq!(theme.sector_seam, PALETTE.sector_line);
-        assert_eq!(theme.cursor_border, cursor_effects.cursor_colour());
-        assert_eq!(theme.region_border, cursor_effects.cursor_colour());
-        assert_eq!(theme.cursor_area, cursor_effects.area_colour());
-        assert_eq!(theme.region_background, cursor_effects.region_colour());
-        assert_eq!(theme.cursor_background, cursor_effects.cell_colour());
-        assert_eq!(
-            theme.region_cursor_background,
-            cursor_effects.region_cursor_colour()
-        );
 
         // `style.rs::style()`'s chrome stroke: `PALETTE.grid_line.to_opaque()`,
         // the actual gamma-correct un-premultiply — not a straight-hex

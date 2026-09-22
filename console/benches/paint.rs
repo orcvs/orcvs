@@ -1,7 +1,7 @@
 //! Benchmarks for the Paint path a Render Frame takes on the way to shapes.
 //!
-//! `Paint::derive_with_colours` decides each drawn Cell from a Render Frame, a
-//! Position range, and the colours to paint it in. `Paint::background_runs`
+//! `Paint::derive_with_theme` decides each drawn Cell from a Render Frame, a
+//! Position range, and the resolved Theme to paint it from. `Paint::background_runs`
 //! folds those backgrounds. Neither takes an `egui::Context`.
 //! `SourceShapes::new` is the other half of the path and is absent here: it
 //! needs a `GlyphTable`, which needs a Context, and that harness would be most
@@ -20,8 +20,7 @@
 use console::{
     FramePaint, Paint, VisiblePositions,
     cursor_effects::{CursorEffectAnimation, CursorEffectSettings, cursor_effect_shapes},
-    source_paint::SourcePaintSettings,
-    style::PALETTE,
+    theme::{Theme, okabe_ito},
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use egui::{Pos2, Rect, Vec2};
@@ -138,32 +137,34 @@ fn culled(frame: &RenderFrame) -> VisiblePositions {
     )
 }
 
-/// `cursor_effects::DEFAULT_REGION_COLOUR` — white at 17% opacity — restated
-/// here because that constant is `pub(crate)` and a benchmark is a separate
-/// crate. Restating it rather than widening it is safe for exactly the reason
-/// [`paint`] gives: no fixture here selects a Region, so the walk never reads
-/// this colour at all.
-const REGION_FILL: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(255, 255, 255, 43);
+///
+/// The Okabe–Ito built-in, the same Theme every fixture below is walked
+/// against. `Theme`'s fields are `pub(crate)`, and a benchmark is a separate
+/// crate, so this cannot override the Cursor or Region fill the way
+/// `console.rs`'s own tests do; it does not need to — the per-Cell walk
+/// [`paint`] measures reads every Theme channel but branches on none of the
+/// *values*, only on which fact a Cell carries (its own doc explains why), so
+/// the built-in's own defaults (an unset Cursor fill, the default Region
+/// fill) exercise the same code paths a custom Theme's colours would.
+///
+fn bench_theme() -> Theme {
+    okabe_ito()
+}
 
 ///
-/// One Paint of `drawn`, with the colours the console would hand the walk.
+/// One Paint of `drawn`, resolved from the Theme the console would hand the
+/// walk.
 ///
-/// The walk reads these but branches on none of them: the Cursor's fill lands
-/// on the one selected Cell, the Region colour on no Cell at all (nothing
-/// here selects a Region spanning more than one), and a `SourcePaintSettings`
-/// answers one colour per Token whatever those colours are. So what this
-/// benchmark measures — the per-Cell walk — is the same number for any
-/// colours, which is why the bench states its own instead of reaching for a
-/// default-settings wrapper inside the crate.
+/// The walk reads every Theme channel but branches on none of their
+/// *values*: the Cursor's fill lands on the one selected Cell, the Region
+/// fill on no Cell at all (nothing here selects a Region spanning more than
+/// one), and the resolved Theme answers one channel per Token fact whatever
+/// its colours are. So what this benchmark measures — the per-Cell walk — is
+/// the same number for any Theme, which is why [`bench_theme`] is the
+/// built-in rather than a custom one built to match the console's own tests.
 ///
-fn paint(frame: &RenderFrame, drawn: VisiblePositions) -> Paint {
-    Paint::derive_with_colours(
-        FramePaint::new(frame, drawn),
-        Some(PALETTE.selection_fill),
-        REGION_FILL,
-        None,
-        SourcePaintSettings::default(),
-    )
+fn paint(frame: &RenderFrame, drawn: VisiblePositions, theme: &Theme) -> Paint {
+    Paint::derive_with_theme(FramePaint::new(frame, drawn), theme)
 }
 
 fn frames() -> &'static [(usize, usize, RenderFrame)] {
@@ -188,16 +189,29 @@ fn frames() -> &'static [(usize, usize, RenderFrame)] {
 ///
 fn derive_paint(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_derive");
+    let theme = bench_theme();
 
     for &(cols, rows, ref frame) in frames() {
         let fitted_range = fitted(frame);
         let culled_range = culled(frame);
 
         group.bench_function(size("fitted", cols, rows), |b| {
-            b.iter(|| black_box(paint(black_box(frame), black_box(fitted_range.clone()))))
+            b.iter(|| {
+                black_box(paint(
+                    black_box(frame),
+                    black_box(fitted_range.clone()),
+                    black_box(&theme),
+                ))
+            })
         });
         group.bench_function(size("culled", cols, rows), |b| {
-            b.iter(|| black_box(paint(black_box(frame), black_box(culled_range.clone()))))
+            b.iter(|| {
+                black_box(paint(
+                    black_box(frame),
+                    black_box(culled_range.clone()),
+                    black_box(&theme),
+                ))
+            })
         });
     }
 
@@ -214,10 +228,11 @@ fn derive_paint(c: &mut Criterion) {
 ///
 fn background_runs(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_background_runs");
+    let theme = bench_theme();
 
     for &(cols, rows, ref frame) in frames() {
-        let fitted_paint = paint(frame, fitted(frame));
-        let culled_paint = paint(frame, culled(frame));
+        let fitted_paint = paint(frame, fitted(frame), &theme);
+        let culled_paint = paint(frame, culled(frame), &theme);
 
         group.bench_function(size("fitted", cols, rows), |b| {
             b.iter(|| black_box(black_box(&fitted_paint).background_runs()))
@@ -229,6 +244,15 @@ fn background_runs(c: &mut Criterion) {
 
     group.finish();
 }
+
+/// The Cursor frame/living-area colours the console would hand this walk —
+/// `theme.cursor_area`/`theme.cursor_border` in production. Restated as
+/// literals for the same reason `REGION_FILL` used to be: `Theme`'s fields
+/// are `pub(crate)`, a benchmark is a separate crate, and this geometry-only
+/// walk reads a colour's bytes without branching on them, so any opaque
+/// colour measures the same cost as the Theme's own.
+const AREA_COLOUR: egui::Color32 = egui::Color32::from_rgb(76, 190, 156);
+const FRAME_COLOUR: egui::Color32 = egui::Color32::from_rgb(234, 235, 229);
 
 fn cursor_effects(c: &mut Criterion) {
     let settings = CursorEffectSettings::default();
@@ -246,6 +270,8 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(16.0),
                 black_box(sample),
                 black_box(settings),
+                black_box(AREA_COLOUR),
+                black_box(FRAME_COLOUR),
             ))
         });
     });
@@ -262,6 +288,8 @@ fn cursor_effects(c: &mut Criterion) {
                 black_box(16.0),
                 black_box(sample),
                 black_box(settings),
+                black_box(AREA_COLOUR),
+                black_box(FRAME_COLOUR),
             ))
         });
     });

@@ -8,8 +8,8 @@ use egui::{
 };
 
 use crate::cursor_effects::{
-    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, DEFAULT_CURSOR_COLOUR,
-    cursor_effect_shapes, effect_bounds,
+    CursorEffectAnimation, CursorEffectSample, CursorEffectSettings, cursor_effect_shapes,
+    effect_bounds,
 };
 use crate::function_reference::function_reference;
 use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell_side};
@@ -18,8 +18,8 @@ use crate::native_midi::{self, NativeMidiBackend};
 use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
-use crate::source_paint::SourcePaintSettings;
 use crate::style::install_style;
+use crate::theme::{Theme, okabe_ito};
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
@@ -779,7 +779,16 @@ pub struct Console {
     keyboard_elsewhere: bool,
     cursor_effects: CursorEffectSettings,
     cursor_effect_animation: CursorEffectAnimation,
-    source_paint: SourcePaintSettings,
+    /// The resolved Theme Source and chrome both paint from. Always the
+    /// Okabe–Ito built-in for now: `.scratch/theming/issues/06` has only one
+    /// Theme to resolve, and `07`'s loader is what will make `dark_theme`/
+    /// `light_theme` (below) resolve to anything else.
+    theme: Theme,
+    /// The dark Theme's identity, restored and re-saved unchanged; not yet
+    /// consulted to build [`Self::theme`] (see its own doc).
+    dark_theme: String,
+    /// The light Theme's identity, restored and re-saved the same way.
+    light_theme: String,
     reduced_motion: bool,
     #[cfg(feature = "persistence")]
     persistence: crate::persistence::Persistence,
@@ -860,7 +869,9 @@ impl Console {
             keyboard_elsewhere: false,
             cursor_effects: start.cursor_effects,
             cursor_effect_animation: CursorEffectAnimation::default(),
-            source_paint: start.source_paint,
+            theme: okabe_ito(),
+            dark_theme: start.dark_theme,
+            light_theme: start.light_theme,
             reduced_motion: prefers_reduced_motion(),
             #[cfg(feature = "persistence")]
             persistence: start.persistence,
@@ -1400,11 +1411,12 @@ fn effect_outline(frame: &RenderFrame, viewport: &GridViewport) -> Rect {
 /// [`PointerSelection`] back is what leaves this function with nothing but a
 /// Render Frame and a place to draw it.
 ///
-/// Eight parameters, one over clippy's default: `source_paint` is the eighth,
-/// added by `syntax-highlighting/01`. Each of the eight is an independent,
+/// Eight parameters, one over clippy's default: `theme` is the eighth,
+/// added by `syntax-highlighting/01` as `source_paint` and repurposed by
+/// `.scratch/theming/issues/06`. Each of the eight is an independent,
 /// already-tested value threaded straight through from `show_source_scene`'s
-/// own parameters of the same names — geometry, a Render Frame, and the three
-/// presentation settings `Console::ui` owns — so grouping any of them into a
+/// own parameters of the same names — geometry, a Render Frame, and the two
+/// presentation values `Console::ui` owns — so grouping any of them into a
 /// struct would add an indirection this function's one caller does not need,
 /// for a threshold rather than a real complexity this function has grown.
 ///
@@ -1417,7 +1429,7 @@ fn show_source(
     clip: Rect,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
-    source_paint: SourcePaintSettings,
+    theme: &Theme,
 ) -> Option<PointerSelection> {
     // The shape the Render Frame was derived from, named apart from the
     // `GridViewport` the Cells are painted at.
@@ -1490,14 +1502,18 @@ fn show_source(
     // What the console decided to draw, then what draws it. The decision is a
     // value derived from the Render Frame and the range above, so what colour a
     // Cell is can be asked without a `Context`, a window or a running Orcvs.
-    let paint = Paint::derive_with_colours(
-        FramePaint::new(frame, visible),
-        cursor_effect_settings.cell_colour(),
-        cursor_effect_settings.region_colour(),
-        cursor_effect_settings.region_cursor_colour(),
-        source_paint,
-    );
+    let paint = Paint::derive_with_theme(FramePaint::new(frame, visible), theme);
     let cursor_rect = viewport.cell_rect(frame.cursor().x(), frame.cursor().y());
+    // The Cursor's own frame outlines its own Cell; the lasso around a
+    // Region larger than one Cell takes the Region's own outline colour
+    // instead — `.scratch/theming/schema.md`'s "the effect outline uses
+    // `cursor.border` or `region.border`". `paint` already answered which
+    // this Render Frame is, so this reads that rather than re-deriving it.
+    let frame_colour = if paint.region_spans() {
+        theme.region_border
+    } else {
+        theme.cursor_border
+    };
     let cursor_effect = cursor_effect_shapes(
         cursor_rect,
         effect_outline(frame, &viewport),
@@ -1505,6 +1521,8 @@ fn show_source(
         viewport.cell_size,
         cursor_effect_sample,
         cursor_effect_settings,
+        theme.cursor_area,
+        frame_colour,
     );
     let shapes = SourceShapes::new(&paint, &viewport, &table, pixels_per_point, cursor_effect);
 
@@ -1629,7 +1647,7 @@ fn show_source_scene(
     view: &mut SourceView,
     cursor_effect_sample: CursorEffectSample,
     cursor_effect_settings: CursorEffectSettings,
-    source_paint: SourcePaintSettings,
+    theme: &Theme,
 ) -> PresentedSource {
     let source_grid = frame.grid();
     let source = source_bounds(source_grid);
@@ -1756,7 +1774,7 @@ fn show_source_scene(
         console,
         cursor_effect_sample,
         cursor_effect_settings,
-        source_paint,
+        theme,
     );
 
     // A primary drag without Alt selects a Region: its anchor is the Cell the
@@ -1807,10 +1825,10 @@ fn show_source_scene(
 /// that colour across the whole console and clips every Shape to it. An ordinary
 /// Cell therefore has no rectangle of its own.
 ///
-/// `background` is the live `SourcePaintSettings::source_background`, not a
-/// constant: a viewer's `Theme → Source colours` edit has to repaint this
-/// panel on the very next frame for the Cell it stands in for to still agree
-/// with it.
+/// `background` is the resolved Theme's live `grid_background`, not a
+/// constant: a loaded Theme has to repaint this panel on the very next frame
+/// for the Cell it stands in for to still agree with it
+/// (`.scratch/theming/issues/06`/`07`).
 ///
 /// It is a function rather than a literal at the panel so the painting tests
 /// render on the same ground production does, and so
@@ -1827,39 +1845,6 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     frame
 }
 
-///
-/// The half of a [`SOURCE_COLOURS`] row that reaches the settings value: one
-/// Source Paint role's own `_mut` accessor, which that row's colour control
-/// edits through.
-///
-type SourceColourMut = fn(&mut SourcePaintSettings) -> &mut Color32;
-
-///
-/// The rows of `Theme → Source colours`, in the order they are presented:
-/// each Source Paint role's label beside the accessor that row edits.
-///
-/// Every role takes the same opaque colour control, so one table drives them
-/// all rather than ten copies of the same block — a new or renamed role is one
-/// line here, and a label cannot drift onto a neighbour's colour. The Cursor
-/// effects above them are not this uniform (two blend, and two sit behind an
-/// enabling checkbox), so they stay written out.
-///
-const SOURCE_COLOURS: [(&str, SourceColourMut); 10] = [
-    (
-        "Source background",
-        SourcePaintSettings::source_background_mut,
-    ),
-    ("Ordinary (Char, Atom)", SourcePaintSettings::ordinary_mut),
-    ("Comment", SourcePaintSettings::comment_mut),
-    ("Function", SourcePaintSettings::function_mut),
-    ("Bang", SourcePaintSettings::bang_mut),
-    ("Number", SourcePaintSettings::number_mut),
-    ("Note", SourcePaintSettings::note_mut),
-    ("Sequence", SourcePaintSettings::sequence_mut),
-    ("Diagnostic", SourcePaintSettings::diagnostic_mut),
-    ("Output Portal", SourcePaintSettings::output_portal_mut),
-];
-
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
@@ -1872,7 +1857,8 @@ impl eframe::App for Console {
             storage,
             self.orcvs.source(),
             self.cursor_effects,
-            self.source_paint,
+            &self.dark_theme,
+            &self.light_theme,
         );
     }
 
@@ -1927,74 +1913,17 @@ impl eframe::App for Console {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
                 });
+                // ADR 0053: a Theme decides colours; Settings hold only its
+                // name. `.scratch/theming/issues/06` removes the colour
+                // controls this menu used to hold — `Theme → Source colours`
+                // entirely, and `Theme → Cursor effects`' colour pickers —
+                // along with the "Reset to theme defaults" buttons that reset
+                // had left. Glitch amount and Glitch frequency stay: they are
+                // motion preferences, not Theme values
+                // (`.scratch/theming/issues/09`). The dark/light Theme
+                // pickers this menu will gain are `03`'s and `04`'s.
                 ui.menu_button("Theme", |ui| {
                     ui.label("Cursor effects");
-                    ui.horizontal(|ui| {
-                        ui.label("Cursor colour");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.cursor_effects.cursor_colour_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Area colour");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.cursor_effects.area_colour_mut(),
-                            egui::color_picker::Alpha::Opaque,
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Region colour");
-                        egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            self.cursor_effects.region_colour_mut(),
-                            egui::color_picker::Alpha::OnlyBlend,
-                        );
-                    });
-                    let mut region_cursor_enabled =
-                        self.cursor_effects.region_cursor_colour().is_some();
-                    if ui
-                        .checkbox(&mut region_cursor_enabled, "Cursor colour in a Region")
-                        .changed()
-                    {
-                        self.cursor_effects.set_region_cursor_colour(
-                            region_cursor_enabled
-                                .then_some(crate::cursor_effects::DEFAULT_REGION_COLOUR),
-                        );
-                    }
-                    if let Some(mut colour) = self.cursor_effects.region_cursor_colour()
-                        && egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            &mut colour,
-                            egui::color_picker::Alpha::OnlyBlend,
-                        )
-                        .changed()
-                    {
-                        self.cursor_effects.set_region_cursor_colour(Some(colour));
-                    }
-                    let mut cell_colour_enabled = self.cursor_effects.cell_colour().is_some();
-                    if ui
-                        .checkbox(&mut cell_colour_enabled, "Cursor cell colour")
-                        .changed()
-                    {
-                        self.cursor_effects.set_cell_colour(if cell_colour_enabled {
-                            Some(DEFAULT_CURSOR_COLOUR)
-                        } else {
-                            None
-                        });
-                    }
-                    if let Some(mut colour) = self.cursor_effects.cell_colour()
-                        && egui::color_picker::color_edit_button_srgba(
-                            ui,
-                            &mut colour,
-                            egui::color_picker::Alpha::Opaque,
-                        )
-                        .changed()
-                    {
-                        self.cursor_effects.set_cell_colour(Some(colour));
-                    }
                     ui.add(
                         egui::Slider::new(self.cursor_effects.amount_mut(), 0..=100)
                             .text("Glitch amount"),
@@ -2003,35 +1932,6 @@ impl eframe::App for Console {
                         egui::Slider::new(self.cursor_effects.frequency_mut(), 0..=100)
                             .text("Glitch frequency"),
                     );
-                    ui.separator();
-                    if ui.button("Reset to theme defaults").clicked() {
-                        self.cursor_effects = CursorEffectSettings::default();
-                    }
-
-                    ui.separator();
-                    ui.label("Source colours");
-                    for (label, colour) in SOURCE_COLOURS {
-                        ui.horizontal(|ui| {
-                            ui.label(label);
-                            egui::color_picker::color_edit_button_srgba(
-                                ui,
-                                colour(&mut self.source_paint),
-                                egui::color_picker::Alpha::Opaque,
-                            );
-                        });
-                    }
-                    ui.add(
-                        egui::Slider::new(self.source_paint.fill_tint_mut(), 0..=100)
-                            .text("Fill tint"),
-                    );
-                    ui.separator();
-                    // Its own reset, independent of Cursor effects' above: it
-                    // only ever assigns `self.source_paint`, so a Source
-                    // colours reset cannot move a Cursor effect and a Cursor
-                    // effects reset cannot move a Source colour.
-                    if ui.button("Reset to theme defaults").clicked() {
-                        self.source_paint = SourcePaintSettings::default();
-                    }
                 });
                 // Presented in the menu bar rather than the Diagnostics window,
                 // which opens on a viewer's request and reports the running
@@ -2113,7 +2013,7 @@ impl eframe::App for Console {
         let cursor_effect_sample = self
             .cursor_effect_animation
             .advance(effect_now, cursor_effect_settings);
-        let source_paint = self.source_paint;
+        let theme = self.theme.clone();
 
         // Shown before CentralPanel so it takes height rather than overlaying
         // the Grid. Static: no resize handle, no drag. BPM is a TextEdit:
@@ -2227,7 +2127,7 @@ impl eframe::App for Console {
         let mut console_area = Rect::ZERO;
         let mut cell_size = 0.0;
         let cursor_delay = egui::CentralPanel::default()
-            .frame(source_panel_frame(source_paint.source_background()))
+            .frame(source_panel_frame(theme.grid_background))
             .show(root, |ui| {
                 console_area = ui.available_rect_before_wrap();
                 let Console {
@@ -2241,7 +2141,9 @@ impl eframe::App for Console {
                     keyboard_elsewhere: _,
                     cursor_effects: _,
                     cursor_effect_animation: _,
-                    source_paint: _,
+                    theme: _,
+                    dark_theme: _,
+                    light_theme: _,
                     reduced_motion: _,
                     #[cfg(feature = "persistence")]
                         persistence: _,
@@ -2253,7 +2155,7 @@ impl eframe::App for Console {
                     source_view,
                     cursor_effect_sample,
                     cursor_effect_settings,
-                    source_paint,
+                    &theme,
                 );
                 cell_size = presented.viewport.cell_size;
                 // The Source Grid answers which Cells the pointer asked for;
@@ -2320,6 +2222,7 @@ mod tests {
     use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid};
     use crate::paint::{FramePaint, Paint};
     use crate::style::PALETTE;
+    use crate::theme::{Theme, okabe_ito};
     use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 
     use super::{
@@ -2741,7 +2644,7 @@ mod tests {
         let output = ctx.run_ui(input, |root| {
             egui::CentralPanel::default()
                 .frame(source_panel_frame(
-                    crate::source_paint::SourcePaintSettings::default().source_background(),
+                    crate::theme::okabe_ito().grid_background,
                 ))
                 .show(root, |ui| {
                     presented = Some(show_source_scene(
@@ -2751,7 +2654,7 @@ mod tests {
                         view,
                         crate::cursor_effects::CursorEffectSample::default(),
                         crate::cursor_effects::CursorEffectSettings::default(),
-                        crate::source_paint::SourcePaintSettings::default(),
+                        &crate::theme::okabe_ito(),
                     ));
                 });
         });
@@ -4444,7 +4347,7 @@ mod tests {
                     });
                 egui::CentralPanel::default()
                     .frame(source_panel_frame(
-                        crate::source_paint::SourcePaintSettings::default().source_background(),
+                        crate::theme::okabe_ito().grid_background,
                     ))
                     .show(root, |ui| {
                         console = ui.available_size_before_wrap();
@@ -5352,25 +5255,24 @@ mod tests {
     /// The background the Grid declines to paint is the one the panel paints.
     ///
     /// `show_source` omits a Cell's rectangle wherever `cell_visuals` asks for
-    /// `SourcePaintSettings::source_background`, and what stands in its place
+    /// the resolved Theme's `grid_background`, and what stands in its place
     /// is the `CentralPanel` frame. The two values are stated in different
     /// places, so nothing but this holds them together: give the panel any
     /// other fill and every ordinary Cell — outside the Cursor effect, most of
-    /// the default Grid — renders on a ground the settings value never chose
-    /// for it.
+    /// the default Grid — renders on a ground the Theme never chose for it.
     ///
     /// The whole console is checked rather than the constant alone, because it
     /// is the painted result that has to sit on the right colour.
     ///
     #[test]
     fn the_omitted_background_is_the_colour_the_panel_is_filled_with() {
-        let source_paint = crate::source_paint::SourcePaintSettings::default();
+        let theme = crate::theme::okabe_ito();
         assert_eq!(
-            source_panel_frame(source_paint.source_background()).fill,
-            source_paint.source_background(),
+            source_panel_frame(theme.grid_background).fill,
+            theme.grid_background,
             "show_source omits a Cell's background wherever cell_visuals asks \
-             for the settings value's source_background, so the panel \
-             standing in for it must be filled with exactly that colour"
+             for the resolved Theme's grid_background, so the panel standing \
+             in for it must be filled with exactly that colour"
         );
     }
 
@@ -5540,15 +5442,16 @@ mod tests {
         };
         let orcvs = running_orcvs(8, 8);
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_colours(
+        let theme = Theme {
+            cursor_background: Some(PALETTE.selection_fill),
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(
             FramePaint::new(
                 &frame,
                 viewport.visible_positions(viewport.rect, frame.grid()),
             ),
-            Some(PALETTE.selection_fill),
-            crate::cursor_effects::DEFAULT_REGION_COLOUR,
-            None,
-            crate::source_paint::SourcePaintSettings::default(),
+            &theme,
         );
         let shapes = source_geometry(&paint, viewport, 1.0);
         let runs = paint.background_runs();
@@ -5659,12 +5562,9 @@ mod tests {
         // background run to snap. Explicit colours are covered by the Paint
         // seam tests.
         let frame = orcvs.render_frame();
-        let paint = Paint::derive_with_colours(
+        let paint = Paint::derive_with_theme(
             FramePaint::new(&frame, viewport.visible_positions(screen, frame.grid())),
-            None,
-            crate::cursor_effects::DEFAULT_REGION_COLOUR,
-            None,
-            crate::source_paint::SourcePaintSettings::default(),
+            &okabe_ito(),
         );
         let runs = paint.background_runs();
         assert!(
@@ -7211,7 +7111,7 @@ mod tests {
             |root| {
                 egui::CentralPanel::default()
                     .frame(source_panel_frame(
-                        crate::source_paint::SourcePaintSettings::default().source_background(),
+                        crate::theme::okabe_ito().grid_background,
                     ))
                     .show(root, |ui| {
                         grid_layer = Some(ui.layer_id());
@@ -7222,7 +7122,7 @@ mod tests {
                             &mut view,
                             crate::cursor_effects::CursorEffectSample::default(),
                             crate::cursor_effects::CursorEffectSettings::default(),
-                            crate::source_paint::SourcePaintSettings::default(),
+                            &crate::theme::okabe_ito(),
                         );
                     });
             },

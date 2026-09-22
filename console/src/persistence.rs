@@ -11,7 +11,7 @@ use orcvs::grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid};
 use orcvs::source::Source;
 
 use crate::cursor_effects::CursorEffectSettings;
-use crate::source_paint::SourcePaintSettings;
+use crate::theme::OKABE_ITO_IDENTITY;
 
 ///
 /// The Storage key one stored Source revision lives under.
@@ -28,12 +28,19 @@ pub const SOURCE_KEY: &str = "orcvs_source";
 pub(crate) const CURSOR_EFFECTS_KEY: &str = "cursor_effects";
 
 ///
-/// The Storage key Source Paint settings live under: its own key,
-/// independently of [`SOURCE_KEY`] and [`CURSOR_EFFECTS_KEY`], mirroring how
-/// Cursor effects already persist apart from the Source.
+/// The Storage keys the dark and light Theme selections live under: each
+/// holds a Theme identity as a plain string, never a Theme's values —
+/// `SourcePaintSettings`, `CursorEffectSettings`' colours and the old
+/// `source_paint` key are gone rather than migrated (ADR 0053), and this
+/// slice's `.scratch/theming/issues/06` only has one built-in to select, so
+/// both default to [`OKABE_ITO_IDENTITY`] and nothing yet writes a different
+/// one. `.scratch/theming/issues/07` and `03` add the loader and pickers
+/// that give these two keys another value to hold.
 ///
 #[cfg(feature = "persistence")]
-pub(crate) const SOURCE_PAINT_KEY: &str = "source_paint";
+pub(crate) const DARK_THEME_KEY: &str = "dark_theme";
+#[cfg(feature = "persistence")]
+pub(crate) const LIGHT_THEME_KEY: &str = "light_theme";
 
 ///
 /// The Storage key a value that could not be read back is moved to.
@@ -65,7 +72,8 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Start {
     Start {
         source: default_source(),
         cursor_effects: CursorEffectSettings::default(),
-        source_paint: SourcePaintSettings::default(),
+        dark_theme: OKABE_ITO_IDENTITY.to_owned(),
+        light_theme: OKABE_ITO_IDENTITY.to_owned(),
     }
 }
 
@@ -89,7 +97,16 @@ enum StoredSource {
 pub(crate) struct Start {
     pub(crate) source: Source,
     pub(crate) cursor_effects: CursorEffectSettings,
-    pub(crate) source_paint: SourcePaintSettings,
+    /// The dark Theme's identity, restored independently of the Source and
+    /// of Cursor effects. Not yet resolved into a [`crate::theme::Theme`]:
+    /// `.scratch/theming/issues/07`'s loader owns turning an identity into
+    /// one, so `Console` resolves the Okabe–Ito built-in regardless of this
+    /// value for now, while still restoring and re-saving it unchanged.
+    pub(crate) dark_theme: String,
+    /// The light Theme's identity, restored the same way. No light built-in
+    /// is approved yet (`.scratch/theming/issues/04`), so this is unused
+    /// beyond being restored and re-saved.
+    pub(crate) light_theme: String,
     #[cfg(feature = "persistence")]
     pub(crate) persistence: Persistence,
 }
@@ -111,19 +128,26 @@ pub(crate) struct Persistence {
 #[cfg(feature = "persistence")]
 impl Persistence {
     /// Preserves a refused payload once, then stores the current Source.
+    ///
+    /// `dark_theme`/`light_theme` are plain identity strings, stored
+    /// verbatim rather than through an `encode`/`decode` pair: a Theme
+    /// identity is already the value a key holds, with no packed fields of
+    /// its own to round-trip.
     pub(crate) fn save(
         &mut self,
         storage: &mut dyn eframe::Storage,
         source: &orcvs::source::SourceCommander,
         cursor_effects: CursorEffectSettings,
-        source_paint: SourcePaintSettings,
+        dark_theme: &str,
+        light_theme: &str,
     ) {
         if let Some(refused) = self.refused.take() {
             storage.set_string(REFUSED_KEY, refused);
         }
         source.read_source(|source| eframe::set_value(storage, SOURCE_KEY, source));
         storage.set_string(CURSOR_EFFECTS_KEY, cursor_effects.encode());
-        storage.set_string(SOURCE_PAINT_KEY, source_paint.encode());
+        storage.set_string(DARK_THEME_KEY, dark_theme.to_owned());
+        storage.set_string(LIGHT_THEME_KEY, light_theme.to_owned());
     }
 
     pub(crate) fn notice_visible(&self) -> bool {
@@ -172,16 +196,25 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
         .as_deref()
         .and_then(CursorEffectSettings::decode)
         .unwrap_or_default();
-    let source_paint = storage
-        .and_then(|storage| storage.get_string(SOURCE_PAINT_KEY))
-        .as_deref()
-        .and_then(SourcePaintSettings::decode)
-        .unwrap_or_default();
+    // Restored as plain strings: an absent key, like a first start, takes
+    // the Okabe–Ito identity, the same default `okabe_ito()` itself is
+    // built at. Neither is validated against a registry here — no loader
+    // exists yet (`.scratch/theming/issues/07`) — so a restored name that
+    // will not resolve is carried unread rather than rejected; resolving it
+    // into an actual `Theme` and falling back without losing the saved
+    // reference is that issue's job.
+    let dark_theme = storage
+        .and_then(|storage| storage.get_string(DARK_THEME_KEY))
+        .unwrap_or_else(|| OKABE_ITO_IDENTITY.to_owned());
+    let light_theme = storage
+        .and_then(|storage| storage.get_string(LIGHT_THEME_KEY))
+        .unwrap_or_else(|| OKABE_ITO_IDENTITY.to_owned());
     match stored_source(storage) {
         StoredSource::Restored(source) => Start {
             source,
             cursor_effects,
-            source_paint,
+            dark_theme,
+            light_theme,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -190,7 +223,8 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
         StoredSource::Absent => Start {
             source: default_source(),
             cursor_effects,
-            source_paint,
+            dark_theme,
+            light_theme,
             persistence: Persistence {
                 refused: None,
                 notice: false,
@@ -201,7 +235,8 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Start {
             Start {
                 source: default_source(),
                 cursor_effects,
-                source_paint,
+                dark_theme,
+                light_theme,
                 persistence: Persistence {
                     refused: Some(stored),
                     notice: true,
@@ -421,7 +456,8 @@ pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::S
         storage,
         source,
         CursorEffectSettings::default(),
-        SourcePaintSettings::default(),
+        OKABE_ITO_IDENTITY,
+        OKABE_ITO_IDENTITY,
     );
 }
 
@@ -429,12 +465,14 @@ pub(crate) fn store(storage: &mut dyn eframe::Storage, source: &orcvs::source::S
 mod tests {
     #[cfg(feature = "persistence")]
     use super::{
-        CURSOR_EFFECTS_KEY, InMemoryStorage, Persistence, SOURCE_PAINT_KEY, edited_source,
+        CURSOR_EFFECTS_KEY, DARK_THEME_KEY, InMemoryStorage, LIGHT_THEME_KEY, Persistence,
+        edited_source,
     };
     use super::{assert_default_grid, starting_source};
     #[cfg(feature = "persistence")]
     use crate::cursor_effects::CursorEffectSettings;
-    use crate::source_paint::SourcePaintSettings;
+    #[cfg(feature = "persistence")]
+    use crate::theme::OKABE_ITO_IDENTITY;
 
     #[test]
     fn a_console_with_no_storage_starts_the_default_grid() {
@@ -442,7 +480,8 @@ mod tests {
         // and what a first start does with the feature.
         let start = starting_source(None);
         assert_default_grid(&start.source);
-        assert_eq!(start.source_paint, SourcePaintSettings::default());
+        assert_eq!(start.dark_theme, "okabe-ito");
+        assert_eq!(start.light_theme, "okabe-ito");
     }
 
     #[cfg(feature = "persistence")]
@@ -463,26 +502,23 @@ mod tests {
     }
 
     ///
-    /// Mirrors `absent_or_malformed_cursor_effect_settings_use_theme_defaults`
-    /// for Source Paint: an absent key is an ordinary first start, and a
-    /// stored value that does not decode is refused whole rather than
-    /// restoring some roles and defaulting the rest.
+    /// An absent dark/light Theme key is an ordinary first start: both
+    /// default to the Okabe–Ito built-in's own identity, the only Theme this
+    /// slice has to select (`.scratch/theming/issues/06`; pickers and a
+    /// second built-in are `03`/`04`'s). Unlike Cursor effects or the old
+    /// Source Paint settings, there is no decode to refuse here — a Theme
+    /// identity is a plain string, and any string, even one no built-in or
+    /// loaded custom Theme resolves to, is carried unread rather than
+    /// rejected until `.scratch/theming/issues/07`'s loader exists to judge
+    /// it.
     ///
     #[cfg(feature = "persistence")]
     #[test]
-    fn absent_or_malformed_source_paint_settings_use_theme_defaults() {
+    fn an_absent_theme_selection_defaults_to_the_okabe_ito_identity() {
         let empty = InMemoryStorage::default();
-        assert_eq!(
-            starting_source(Some(&empty)).source_paint,
-            SourcePaintSettings::default()
-        );
-
-        let mut malformed = InMemoryStorage::default();
-        eframe::Storage::set_string(&mut malformed, SOURCE_PAINT_KEY, "broken".to_owned());
-        assert_eq!(
-            starting_source(Some(&malformed)).source_paint,
-            SourcePaintSettings::default()
-        );
+        let start = starting_source(Some(&empty));
+        assert_eq!(start.dark_theme, OKABE_ITO_IDENTITY);
+        assert_eq!(start.light_theme, OKABE_ITO_IDENTITY);
     }
 
     #[cfg(feature = "persistence")]
@@ -492,8 +528,6 @@ mod tests {
         let mut settings = CursorEffectSettings::default();
         *settings.amount_mut() = 82;
         *settings.frequency_mut() = 0;
-        *settings.cursor_colour_mut() = egui::Color32::from_rgb(1, 2, 3);
-        *settings.area_colour_mut() = egui::Color32::from_rgb(4, 5, 6);
         let mut storage = InMemoryStorage::default();
         Persistence {
             refused: None,
@@ -503,42 +537,52 @@ mod tests {
             &mut storage,
             &current,
             settings,
-            SourcePaintSettings::default(),
+            OKABE_ITO_IDENTITY,
+            OKABE_ITO_IDENTITY,
         );
 
         let restored = starting_source(Some(&storage));
         assert_eq!(restored.cursor_effects, settings);
-        assert_eq!(restored.source_paint, SourcePaintSettings::default());
+        assert_eq!(restored.dark_theme, OKABE_ITO_IDENTITY);
         assert_eq!(restored.source.snapshot(), current.snapshot());
     }
 
     ///
-    /// Source Paint's own round trip, at its own key: saving a changed
-    /// settings value restores exactly it, and leaves the Source and Cursor
-    /// effects — saved alongside it in the same call — at what they were
-    /// given, independently.
+    /// The dark and light Theme identities round trip at their own keys,
+    /// independently of the Source and Cursor effects — saved alongside them
+    /// in the same call — and of each other.
     ///
     #[cfg(feature = "persistence")]
     #[test]
-    fn source_paint_settings_round_trip_independently_of_the_source_and_cursor_effects() {
+    fn theme_identities_round_trip_independently_of_the_source_and_cursor_effects_and_each_other() {
         let current = edited_source();
         let cursor_effects = CursorEffectSettings::default();
-        let mut source_paint = SourcePaintSettings::default();
-        *source_paint.source_background_mut() = egui::Color32::from_rgb(1, 2, 3);
-        *source_paint.sequence_mut() = egui::Color32::from_rgb(4, 5, 6);
-        *source_paint.diagnostic_mut() = egui::Color32::from_rgb(7, 8, 9);
-        *source_paint.fill_tint_mut() = 42;
         let mut storage = InMemoryStorage::default();
         Persistence {
             refused: None,
             notice: false,
         }
-        .save(&mut storage, &current, cursor_effects, source_paint);
+        .save(
+            &mut storage,
+            &current,
+            cursor_effects,
+            "my-dark",
+            "my-light",
+        );
 
         let restored = starting_source(Some(&storage));
-        assert_eq!(restored.source_paint, source_paint);
+        assert_eq!(restored.dark_theme, "my-dark");
+        assert_eq!(restored.light_theme, "my-light");
         assert_eq!(restored.cursor_effects, cursor_effects);
         assert_eq!(restored.source.snapshot(), current.snapshot());
+        assert_eq!(
+            eframe::Storage::get_string(&storage, DARK_THEME_KEY).as_deref(),
+            Some("my-dark")
+        );
+        assert_eq!(
+            eframe::Storage::get_string(&storage, LIGHT_THEME_KEY).as_deref(),
+            Some("my-light")
+        );
     }
 }
 
@@ -551,7 +595,7 @@ mod stored_source_tests {
         starting_source, store, stored_source,
     };
     use crate::cursor_effects::CursorEffectSettings;
-    use crate::source_paint::SourcePaintSettings;
+    use crate::theme::OKABE_ITO_IDENTITY;
 
     fn stored(storage: &InMemoryStorage) -> Option<String> {
         eframe::Storage::get_string(storage, SOURCE_KEY)
@@ -578,7 +622,8 @@ mod stored_source_tests {
                 &mut storage,
                 &current,
                 CursorEffectSettings::default(),
-                SourcePaintSettings::default(),
+                OKABE_ITO_IDENTITY,
+                OKABE_ITO_IDENTITY,
             );
             assert_eq!(persistence.notice_visible(), !dismiss_before_save);
             assert_eq!(
@@ -600,7 +645,8 @@ mod stored_source_tests {
                 &mut storage,
                 &current,
                 CursorEffectSettings::default(),
-                SourcePaintSettings::default(),
+                OKABE_ITO_IDENTITY,
+                OKABE_ITO_IDENTITY,
             );
             assert!(!persistence.notice_visible());
             assert_eq!(
@@ -628,7 +674,8 @@ mod stored_source_tests {
                 &mut storage,
                 &edited_source(),
                 CursorEffectSettings::default(),
-                SourcePaintSettings::default(),
+                OKABE_ITO_IDENTITY,
+                OKABE_ITO_IDENTITY,
             );
             assert!(!persistence.notice_visible());
             assert_eq!(
