@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use eframe::egui;
 
 use egui::{Color32, CornerRadius, Shadow, Stroke, Style, Visuals, style::Selection};
@@ -310,10 +312,34 @@ pub fn style() -> Style {
     }
 }
 
+///
+/// Registers [`style`] for both [`egui::Theme::Dark`] and [`egui::Theme::Light`]
+/// and touches nothing else on `ctx` — in particular it never calls
+/// [`egui::Context::set_theme`].
+///
+/// `ThemePreference` is part of the `Options` eframe restores into egui
+/// memory before it constructs the application, but eframe restores memory
+/// without reinstalling a style. `Console::new` calls this every launch so
+/// both theme slots hold the one console style before the first frame,
+/// whatever the preference resolves to; a `set_theme` call here would
+/// overwrite the very value just restored. One palette exists, so both
+/// slots take it — a viewer whose preference resolves to Light must not see
+/// egui's own default light style beside a Grid still painted from the dark
+/// `PALETTE`.
+///
+pub(crate) fn install_style(ctx: &egui::Context) {
+    let style = Arc::new(style());
+    ctx.set_style_of(egui::Theme::Dark, Arc::clone(&style));
+    ctx.set_style_of(egui::Theme::Light, style);
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
-        CellVisuals, ConsolePalette, PALETTE, cell_visuals_with_cursor_colour, sector_line,
+        CellVisuals, ConsolePalette, PALETTE, cell_visuals_with_cursor_colour, install_style,
+        sector_line, style,
     };
     use crate::source_paint::SourcePaintSettings;
     use egui::{Color32, Stroke};
@@ -1071,5 +1097,66 @@ mod tests {
         );
 
         assert_eq!(cursor.background, Some(cursor_colour));
+    }
+
+    ///
+    /// The seam `theming/02-keep-the-restored-theme-preference-at-startup.md`
+    /// fixes: eframe restores `ThemePreference` into egui memory before it
+    /// builds the application, and `install_style` is what `Console::new`
+    /// calls afterwards. A preference already on the context — standing in
+    /// for one eframe just restored — must survive the call, unlike the
+    /// removed `set_theme(Dark)` call it replaces.
+    ///
+    #[test]
+    fn install_style_leaves_a_restored_theme_preference_untouched() {
+        let ctx = egui::Context::default();
+        ctx.set_theme(egui::ThemePreference::Light);
+
+        install_style(&ctx);
+
+        assert_eq!(
+            ctx.options(|options| options.theme_preference),
+            egui::ThemePreference::Light,
+            "install_style overwrote the restored theme preference"
+        );
+    }
+
+    ///
+    /// One palette exists, so a preference that resolves to Light must not
+    /// leave the Light slot at egui's own default style while the Dark slot
+    /// — and the Source Grid, painted from `PALETTE` — carry the console's
+    /// own. Both theme slots take the same style `install_style` installs.
+    ///
+    /// The comparison is `Visuals` and `animation_time`, the two fields
+    /// [`style`] actually sets, rather than `Style`'s own `PartialEq`:
+    /// `Style::number_formatter` compares by `Arc::ptr_eq`
+    /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
+    /// `Style::default()`s — one inside each `style()` call — never compare
+    /// equal on that field alone, whatever their visible content. The two
+    /// theme slots are additionally asserted to share one `Arc`, which
+    /// sidesteps that field entirely by construction.
+    ///
+    #[test]
+    fn install_style_registers_the_console_style_for_both_themes() {
+        let ctx = egui::Context::default();
+
+        install_style(&ctx);
+
+        let dark = ctx.style_of(egui::Theme::Dark);
+        let light = ctx.style_of(egui::Theme::Light);
+        assert!(
+            Arc::ptr_eq(&dark, &light),
+            "Dark and Light were not registered from the one console style"
+        );
+
+        let expected = style();
+        assert_eq!(
+            light.visuals, expected.visuals,
+            "the installed style's Visuals do not match style()"
+        );
+        assert_eq!(
+            light.animation_time, expected.animation_time,
+            "the installed style's animation_time does not match style()"
+        );
     }
 }

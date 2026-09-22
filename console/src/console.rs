@@ -19,7 +19,7 @@ use crate::paint::{FramePaint, Paint};
 use crate::persistence::starting_source;
 use crate::readout_deadline::until_next;
 use crate::source_paint::SourcePaintSettings;
-use crate::style::style;
+use crate::style::install_style;
 use orcvs::{
     app::{Arrow, InputEvent, InputKey, Orcvs},
     grid::{DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, Grid, Position},
@@ -797,9 +797,12 @@ impl Console {
     /// the error to `eframe` says.
     ///
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, PlaybackStartError> {
-        let style = style();
-        cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
-        cc.egui_ctx.set_theme(egui::Theme::Dark);
+        // eframe restores egui memory — `ThemePreference` included — before
+        // calling this constructor, but never reinstalls a style. Register
+        // the console's one style for both themes and leave the restored (or
+        // default `System`) preference alone: `install_style` never calls
+        // `set_theme`. `.scratch/theming/issues/02-…` is the decision.
+        install_style(&cc.egui_ctx);
 
         // egui's own `Context::end_pass` answers the same command `=`/`+`,
         // `-` and `0` chords by changing `zoom_factor` — the whole UI's
@@ -3258,6 +3261,69 @@ mod tests {
     }
 
     ///
+    /// eframe restores egui memory — `ThemePreference` included — before it
+    /// calls `Console::new`, on native and on web. Standing in for that
+    /// restore: setting the preference on a fresh `Context` before
+    /// `Console::new` runs, the way `.scratch/theming/issues/02-…` describes
+    /// the defect. The removed `set_theme(Dark)` call used to overwrite
+    /// whatever this set; `install_style` must not.
+    ///
+    /// The style comparison is `Visuals`, not `Style`'s own `PartialEq`:
+    /// `Style::number_formatter` compares by `Arc::ptr_eq`
+    /// (`egui-0.36.2/src/style.rs:57-60`), so two independently built
+    /// `Style::default()`s never compare equal on that field alone, whatever
+    /// their visible content. Sharing one `Arc` between the two theme slots
+    /// is asserted directly instead, which sidesteps that field entirely.
+    ///
+    #[tokio::test]
+    async fn console_new_keeps_a_theme_preference_already_on_the_context() {
+        let ctx = egui::Context::default();
+        ctx.set_theme(egui::ThemePreference::Light);
+
+        let _console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+
+        assert_eq!(
+            ctx.options(|options| options.theme_preference),
+            egui::ThemePreference::Light,
+            "Console::new overwrote the restored theme preference"
+        );
+
+        let dark = ctx.style_of(egui::Theme::Dark);
+        let light = ctx.style_of(egui::Theme::Light);
+        assert_eq!(
+            light.visuals,
+            crate::style::style().visuals,
+            "Console::new left the Light theme at egui's own default style"
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&dark, &light),
+            "Console::new registered a different style for each theme"
+        );
+    }
+
+    ///
+    /// A fresh `Context` restores nothing, so its `ThemePreference` starts at
+    /// egui's own default, `System`. `Console::new` must not force `Dark`
+    /// the way the removed `set_theme(Dark)` call did — a build without the
+    /// `persistence` feature has nothing else that would set a preference,
+    /// so `System` is what it opens with.
+    ///
+    #[tokio::test]
+    async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
+        let ctx = egui::Context::default();
+
+        let _console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
+            .expect("the test runtime");
+
+        assert_eq!(
+            ctx.options(|options| options.theme_preference),
+            egui::ThemePreference::System,
+            "Console::new set a theme preference a fresh context never asked for"
+        );
+    }
+
+    ///
     /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
     /// C `00:00`, O `None`. File, View, and Theme remain on the top bar; the
     /// MIDI menu is gone.
@@ -3265,8 +3331,7 @@ mod tests {
     #[tokio::test]
     async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3374,8 +3439,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_repaints_as_soon_as_the_published_tick_advances() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3432,8 +3496,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_does_not_schedule_a_tick_period_from_this_frame() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3477,8 +3540,7 @@ mod tests {
     #[tokio::test]
     async fn a_playing_console_with_cursor_effect_off_wakes_within_a_second() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3526,8 +3588,7 @@ mod tests {
         use eframe::App as _;
 
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3593,8 +3654,7 @@ mod tests {
     #[tokio::test]
     async fn a_stopped_console_with_cursor_effect_off_requests_no_timed_wake() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3656,8 +3716,7 @@ mod tests {
     #[tokio::test]
     async fn clicking_the_bpm_field_selects_its_text() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3702,8 +3761,7 @@ mod tests {
     #[tokio::test]
     async fn tab_with_the_bpm_field_focused_leaves_the_cursor_and_moves_focus_on() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3735,8 +3793,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_accepts_digits_only() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3789,8 +3846,7 @@ mod tests {
     #[tokio::test]
     async fn escape_reverts_a_valid_uncommitted_bpm() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3839,8 +3895,7 @@ mod tests {
     #[tokio::test]
     async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3940,8 +3995,7 @@ mod tests {
     #[tokio::test]
     async fn dragging_the_bpm_field_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -3978,8 +4032,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_pads_three_digits() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4019,8 +4072,7 @@ mod tests {
     #[tokio::test]
     async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4112,8 +4164,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_range_bpm_input_does_not_change_the_tempo() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4154,8 +4205,7 @@ mod tests {
     #[tokio::test]
     async fn committing_bpm_while_playback_is_requested_sets_it_on_orcvs() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4313,8 +4363,7 @@ mod tests {
     #[test]
     fn the_top_panel_takes_the_height_the_default_window_holds_back() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Vec2::ZERO;
 
@@ -4421,8 +4470,7 @@ mod tests {
     fn a_second_tick_digit_does_not_move_run_clock() {
         fn clock_left(tick: &str) -> i32 {
             let ctx = egui::Context::default();
-            ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-            ctx.set_theme(egui::Theme::Dark);
+            crate::style::install_style(&ctx);
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
             let clock_x = std::cell::Cell::new(0.0);
             let output = ctx.run_ui(
@@ -4471,8 +4519,7 @@ mod tests {
     fn an_off_beat_does_not_move_tick() {
         fn tick_left(marker: &str) -> i32 {
             let ctx = egui::Context::default();
-            ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-            ctx.set_theme(egui::Theme::Dark);
+            crate::style::install_style(&ctx);
             let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
             let tick_x = std::cell::Cell::new(0.0);
             let output = ctx.run_ui(
@@ -4524,8 +4571,7 @@ mod tests {
     #[test]
     fn panel_readouts_use_the_monospace_style_size_not_line_height() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let sizes = std::cell::Cell::new((0.0, 0.0));
         let output = ctx.run_ui(
@@ -4556,8 +4602,7 @@ mod tests {
     #[tokio::test]
     async fn panel_label_gaps_match_and_entry_gaps_match() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4637,8 +4682,7 @@ mod tests {
     #[tokio::test]
     async fn the_bottom_panel_separator_is_the_grid_line() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
@@ -4667,8 +4711,7 @@ mod tests {
     #[tokio::test]
     async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
         let ctx = egui::Context::default();
-        ctx.set_style_of(egui::Theme::Dark, crate::style::style());
-        ctx.set_theme(egui::Theme::Dark);
+        crate::style::install_style(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let mut console = Console::new(&eframe::CreationContext::_new_kittest(ctx.clone()))
             .expect("the test runtime");
