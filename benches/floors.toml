@@ -64,3 +64,62 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # once the series has enough points on `gh-pages` to show where 70 ns
 # actually settles on this runner.
 source = "CI-measured before/after figures recorded in .scratch/benchmarks/issues/03-gate-merges-on-the-benchmark-series.md and .scratch/benchmarks/issues/07-hold-a-named-benchmark-to-a-recorded-floor.md; 100 ns chosen with headroom above the accepted 70 ns figure, not independently re-measured for this file."
+
+# The four `paint_derive` floors below guard the fix
+# `.scratch/paint-cell-cost/issues/03-remove-the-paint-claim-cache-without-caching-paint-on-the-language-map.md`
+# made: `console/benches/paint.rs` times `Paint::derive_with_colours`, whose
+# pre-fix cost was a per-Cell HashMap lookup against a pointer-keyed claim
+# cache. `fitted/16x16` and `culled/16x16` guard that per-Cell rate at the
+# smallest Grid, where fitted and culled coincide. `fitted/256x256` guards the
+# same rate scaled across a full 256x256 Grid, where the removed cache also
+# paid an allocation and redistribution cost that grew with Grid size.
+# `culled/256x256` guards the claim `console/benches/paint.rs` itself makes —
+# that a fixed 16x16 window stays flat as the underlying Source grows — at the
+# largest Grid this file benchmarks. Reasoned the way `execute`'s floor above
+# is reasoned: each `max_ns` sits with headroom over the worse of the two
+# accepted-fix CI attempts, wide enough to absorb the "tens of per cent"
+# hosted-runner noise `docs/tooling.md` describes, while staying well below
+# the pre-fix figures (~11,700-11,912 ns at 16x16 and culled/256x256;
+# ~3,205,954 ns, about 3.2 ms, at fitted/256x256) so a regression that brings
+# the per-Cell HashMap cost back still fails here.
+[[floor]]
+name = "paint_derive/fitted/16x16"
+max_ns = 4200
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# Accepted fix `f394d81`, workflow run 35548734385 (job `pull-request`):
+# attempt 1 measured 2,842 ns, attempt 2 measured 2,133 ns. 4,200 ns is ~48%
+# headroom over the worse (2,842 ns) attempt and well below the pre-fix
+# baseline of 11,794 ns recorded for the same benchmark on the same runner.
+source = "CI-measured figures recorded in .scratch/paint-cell-cost/issues/04-prove-paint-recovered-without-making-source-revisions-slower.md (accepted f394d81, workflow run 35548734385, baseline run 35503614546); 4200 ns chosen with headroom above the worse of the two attempt figures, not independently re-measured for this file."
+
+[[floor]]
+name = "paint_derive/culled/16x16"
+max_ns = 4100
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# Accepted fix `f394d81`, workflow run 35548734385: attempt 1 measured
+# 2,820 ns, attempt 2 measured 2,132 ns. 4,100 ns is ~45% headroom over the
+# worse attempt and well below the pre-fix baseline of 11,702 ns for the same
+# benchmark.
+source = "CI-measured figures recorded in .scratch/paint-cell-cost/issues/04-prove-paint-recovered-without-making-source-revisions-slower.md (accepted f394d81, workflow run 35548734385, baseline run 35503614546); 4100 ns chosen with headroom above the worse of the two attempt figures, not independently re-measured for this file."
+
+[[floor]]
+name = "paint_derive/culled/256x256"
+max_ns = 4300
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# Accepted fix `f394d81`, workflow run 35548734385: attempt 1 measured
+# 2,947 ns, attempt 2 measured 2,212 ns. 4,300 ns is ~46% headroom over the
+# worse attempt and well below the pre-fix baseline of 11,912 ns for the same
+# benchmark — the flat figure `console/benches/paint.rs` documents culled as
+# holding from 32x32 up.
+source = "CI-measured figures recorded in .scratch/paint-cell-cost/issues/04-prove-paint-recovered-without-making-source-revisions-slower.md (accepted f394d81, workflow run 35548734385, baseline run 35503614546); 4300 ns chosen with headroom above the worse of the two attempt figures, not independently re-measured for this file."
+
+[[floor]]
+name = "paint_derive/fitted/256x256"
+max_ns = 1400000
+runner = "ubuntu-latest (GitHub Actions hosted runner)"
+# Accepted fix `f394d81`, workflow run 35548734385: attempt 1 measured
+# 979,993 ns, attempt 2 measured 667,079 ns. 1,400,000 ns is ~43% headroom
+# over the worse attempt and well below the pre-fix baseline of 3,205,954 ns
+# (about 3.2 ms) for the same benchmark, so a regression of the per-Cell cost
+# scaled across a full Grid still fails here.
+source = "CI-measured figures recorded in .scratch/paint-cell-cost/issues/04-prove-paint-recovered-without-making-source-revisions-slower.md (accepted f394d81, workflow run 35548734385, baseline run 35503614546); 1400000 ns chosen with headroom above the worse of the two attempt figures, not independently re-measured for this file."
