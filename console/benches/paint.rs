@@ -181,7 +181,7 @@ fn frames() -> &'static [(usize, usize, RenderFrame)] {
 }
 
 ///
-/// Measures `Paint::derive_with_colours` over a fitted range and a culled one.
+/// Measures `Paint::derive_with_theme` over a fitted range and a culled one.
 ///
 /// The number is the per-Cell walk: `cell_visuals`, bloom, and seam colours,
 /// collected into a `Vec` sized to the drawn Positions. Fixture construction

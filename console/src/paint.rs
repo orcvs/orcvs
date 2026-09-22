@@ -21,7 +21,7 @@
 //! exactly this reason.
 //!
 //! A [`FramePaint`] pairs a Render Frame with those ranges at one seam:
-//! [`Paint::derive_with_colours`] takes the pair, not the two values
+//! [`Paint::derive_with_theme`] takes the pair, not the two values
 //! separately.
 //!
 //! # Only the Positions the console draws
@@ -65,10 +65,16 @@ pub use crate::grid_viewport::VisiblePositions;
 /// panel behind the Grid has painted the Source colour, and `Some` means this
 /// Cell needs a fill of its own.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// `border_width` is display points, in whatever unit `crate::style::
+/// CellVisuals::border_width` already resolved it to; never `Eq` since it
+/// carries an `f32`, unlike this struct's other fields.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CellPaint {
     pub background: Option<Color32>,
     pub border: Color32,
+    pub border_width: f32,
     pub foreground: Color32,
     pub sector_left: Option<Color32>,
     pub sector_top: Option<Color32>,
@@ -92,7 +98,7 @@ pub struct BackgroundRun {
 
 ///
 /// A Render Frame and the Positions the console draws from it, paired at one
-/// seam before [`Paint::derive_with_colours`].
+/// seam before [`Paint::derive_with_theme`].
 ///
 /// Minted only through [`Self::new`], [`Self::range`], or [`Self::whole`], which
 /// refuse a [`VisiblePositions`] minted for another Grid.
@@ -192,7 +198,7 @@ impl Paint {
     /// fallback once here, before the loop, rather than once per Cell —
     /// `.scratch/theming/issues/06`'s `paint-cell-cost` constraint, which a
     /// per-Cell resolution would spend the recovery `paint-cell-cost/03`
-    /// bought. [`crate::style::source_paint_visuals`] resolves the
+    /// bought. `style::source_paint_visuals` resolves the
     /// role/Diagnostic/Output Portal channels the same way, from `theme`
     /// directly rather than a hashed lookup.
     ///
@@ -233,6 +239,7 @@ impl Paint {
         let region_cursor_fill = theme.region_cursor_background.or(cursor_fill);
         let region_fill = compose_cell_fill(theme.cell_background, Some(theme.region_background));
         let base_fill = compose_cell_fill(theme.cell_background, None);
+        let sector_seam = theme.sector_seam;
         // Sized up front. The drawn count is known exactly, so collecting into
         // a `Vec` need not grow by doubling across the walk.
         let mut cells = Vec::with_capacity(drawn.count());
@@ -268,6 +275,7 @@ impl Paint {
                 cells.push(CellPaint {
                     background,
                     border: visuals.border,
+                    border_width: visuals.border_width,
                     foreground: visuals.foreground,
                     // A sector seam is suppressed on the Cursor's Cell, so the
                     // Cursor's frame is never crossed by one. While a Region
@@ -281,16 +289,19 @@ impl Paint {
                     // rediscover.
                     //
                     // `sector_line` is pure, so the strength becomes a colour
-                    // here. The stroke widths are geometry and stay out of this
-                    // layer.
+                    // here, against `sector_seam` read from `theme` once
+                    // above the loop. The stroke widths are geometry and stay
+                    // out of this layer.
                     sector_left: (!selected)
                         .then(|| {
-                            sector_left_strength(position, sector_seam_spacing).map(sector_line)
+                            sector_left_strength(position, sector_seam_spacing)
+                                .map(|strength| sector_line(strength, sector_seam))
                         })
                         .flatten(),
                     sector_top: (!selected)
                         .then(|| {
-                            sector_top_strength(position, sector_seam_spacing).map(sector_line)
+                            sector_top_strength(position, sector_seam_spacing)
+                                .map(|strength| sector_line(strength, sector_seam))
                         })
                         .flatten(),
                     // A Cell's own content when it has one; the space
@@ -959,6 +970,10 @@ mod tests {
         let paint = whole(&frame);
         let spacing = frame.sector_seam_spacing().cells();
         let cursor = frame.cursor();
+        // `whole` derives against `test_theme`, itself the Okabe–Ito built-in
+        // apart from its Cursor fill, so its `sector_seam` is the base
+        // `sector_line` attenuates below.
+        let base = okabe_ito().sector_seam;
         let mut seams = 0;
 
         for cell in frame.cells() {
@@ -979,12 +994,12 @@ mod tests {
 
             assert_eq!(
                 painted.sector_left,
-                left.map(sector_line),
+                left.map(|strength| sector_line(strength, base)),
                 "the left seam at {position:?}"
             );
             assert_eq!(
                 painted.sector_top,
-                top.map(sector_line),
+                top.map(|strength| sector_line(strength, base)),
                 "the top seam at {position:?}"
             );
             seams += usize::from(painted.sector_left.is_some());
@@ -1014,12 +1029,19 @@ mod tests {
 
         let left = sector_left_strength(at(8, 8), spacing);
         let top = sector_top_strength(at(8, 8), spacing);
+        let base = okabe_ito().sector_seam;
         assert!(
             left.is_some() && top.is_some(),
             "the Cursor is off a sector corner"
         );
-        assert_eq!(painted.sector_left, left.map(sector_line));
-        assert_eq!(painted.sector_top, top.map(sector_line));
+        assert_eq!(
+            painted.sector_left,
+            left.map(|strength| sector_line(strength, base))
+        );
+        assert_eq!(
+            painted.sector_top,
+            top.map(|strength| sector_line(strength, base))
+        );
     }
 
     ///
@@ -1378,6 +1400,42 @@ mod tests {
             unselected.background.is_some() && unselected.background != selected.background,
             "the unselected half did not keep a tint of its own: {:?}",
             unselected.background
+        );
+    }
+
+    ///
+    /// Defect 3, end to end: a written Invalid operand's border composites
+    /// `theme.diagnostic_border` over `theme.grid_border`, reaching
+    /// `Paint::derive_with_theme` from a real written Source rather than a
+    /// hand-built `SourcePaint` fact —
+    /// `style::tests::a_diagnostic_border_with_a_non_transparent_colour_shows`
+    /// is the unit-level proof this is the same rule; this is the wiring
+    /// proof. Reuses `.+**01`'s fixture: `**` (columns 2–3) is the rejected
+    /// Number operand, `01` (columns 4–5) the valid one.
+    ///
+    #[tokio::test]
+    async fn a_written_invalid_operand_shows_a_non_transparent_diagnostic_border() {
+        let mut orcvs = running_orcvs(8, 2);
+        for (x, character) in ".+**01".chars().enumerate() {
+            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
+            orcvs.write(&character.to_string());
+        }
+        let frame = orcvs.render_frame();
+        let visible = Color32::from_rgb(200, 30, 30);
+        let theme = Theme {
+            diagnostic_border: visible,
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        let invalid = paint.at(orcvs.grid().position(2, 0).expect("inside the grid"));
+        let valid = paint.at(orcvs.grid().position(4, 0).expect("inside the grid"));
+
+        assert_eq!(invalid.border, theme.grid_border.blend(visible));
+        assert_eq!(invalid.border_width, theme.diagnostic_border_width.points());
+        assert_eq!(
+            valid.border, theme.grid_border,
+            "a Valid operand took the Diagnostic border it has no fact for"
         );
     }
 
@@ -2266,6 +2324,7 @@ mod tests {
                 .map(|&background| CellPaint {
                     background,
                     border: PALETTE.grid_line,
+                    border_width: okabe_ito().grid_border_width.points(),
                     foreground: okabe_ito().source_ordinary,
                     sector_left: None,
                     sector_top: None,

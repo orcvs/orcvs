@@ -8,9 +8,10 @@
 //! implementation contract this module follows — the property catalogue,
 //! the dark built-in's exact values, and the composition/inheritance rules.
 //! This module owns the resolved [`Theme`], the built-in Okabe–Ito
-//! definition, the unresolved [`ThemeDocument`], and [`resolve`]. It has no
-//! file I/O and no YAML parser: `.scratch/theming/issues/07` owns loading
-//! native/web documents into a [`ThemeDocument`] and calling [`resolve`].
+//! definition, the unresolved `ThemeDocument`, and the pure `resolve`
+//! function. It has no file I/O and no YAML parser: `.scratch/theming/
+//! issues/07` owns loading native/web documents into a `ThemeDocument` and
+//! calling `resolve`.
 //! Source painting, settings and persistence are unchanged by this slice;
 //! `.scratch/theming/issues/06`'s later slices consume this module.
 //!
@@ -293,15 +294,15 @@ impl ChromeWidthKey {
 /// out explicitly (see [`okabe_ito`]), so the compiler — not a runtime
 /// check — is what proves a built-in defines every key: omit a field from
 /// the struct literal and the crate fails to build. A custom Theme's
-/// resolved value is a built-in's, copied and selectively replaced by
-/// [`resolve`].
+/// resolved value is a built-in's, copied and selectively replaced by the
+/// pure `resolve` function.
 ///
 /// Fields are `pub(crate)` rather than encapsulated behind accessors: unlike
-/// [`crate::source_paint::SourcePaintSettings`] and
+/// the console's former `SourcePaintSettings` and
 /// [`crate::cursor_effects::CursorEffectSettings`], a resolved `Theme` is
 /// immutable once built — nothing edits one in place or persists it
 /// field-by-field — so there is no invariant an accessor needs to protect.
-/// [`Theme::color`], [`Theme::grid_width`] and [`Theme::chrome_width`] exist
+/// `Theme::color`, `Theme::grid_width` and `Theme::chrome_width` exist
 /// alongside the fields for callers that index by key.
 ///
 #[derive(Clone, Debug, PartialEq)]

@@ -24,12 +24,16 @@ pub(crate) const DEFAULT_BANG: Color32 = Color32::from_rgb(204, 121, 167); // #C
 /// colours a viewer does not retheme.
 ///
 /// The Source background and every Token's glyph colour used to live here too,
-/// but `syntax-highlighting/01` moved them into [`SourcePaintSettings`] — a
-/// console-owned settings value a viewer edits under `Theme → Source colours`
-/// and persistence restores independently — so the Source Grid paints from a
-/// value rather than from this fixed constant. The Cell grid line stays here
-/// deliberately: the ticket that moved the rest names it as the one Source
-/// geometry colour that is not a Source colour setting.
+/// but `syntax-highlighting/01` moved them into `SourcePaintSettings` — a
+/// console-owned settings value a viewer edited under `Theme → Source colours`
+/// and persistence restored independently — so the Source Grid painted from a
+/// value rather than from this fixed constant. `.scratch/theming/issues/06`
+/// then removed `SourcePaintSettings` outright: every Source colour, border
+/// and width, including the Cell grid line and Sector Seam this struct used
+/// to hold on chrome's behalf, now comes from the resolved
+/// [`crate::theme::Theme`]. What remains here is chrome's own baseline,
+/// consumed by [`style`] and this module's `install_style` until
+/// `.scratch/theming/issues/03` derives it from that same Theme.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsolePalette {
@@ -50,10 +54,17 @@ pub const PALETTE: ConsolePalette = ConsolePalette {
     selection_stroke: Color32::from_rgb(101, 230, 190), // #65E6BE
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// `border_width` is in display points, already the fact-priority-selected
+/// value `ordinary_border` (or the single-Cell Cursor's own
+/// `cell.selection.border.width`) answers — never `Eq` since it carries an
+/// `f32`, unlike this struct's other fields.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CellVisuals {
     pub background: Option<Color32>,
     pub border: Color32,
+    pub border_width: f32,
     pub foreground: Color32,
 }
 
@@ -73,9 +84,13 @@ pub(crate) struct CellVisuals {
 ///
 /// Composes the Source Paint decision with Cursor precedence, applied here
 /// rather than inside it: the Cursor's own fill beats a role's channel
-/// outright on its own Cell, and the border a Cursor or a Selection draws
-/// regardless of what stands on the Cell. `paint` is the per-Cell language
-/// fact `RenderCell::source_paint` answers from the shared Claim (ADR 0052),
+/// outright on its own Cell, and the single-Cell Cursor's own border
+/// (`selection.border`/`.rest`) draws regardless of what stands on the Cell.
+/// Every other Cell's border instead depends on what stands there:
+/// [`ordinary_border`] composites Diagnostic/Output Portal over the ordinary
+/// Grid border by the same fact priority `role_and_portal` already applies
+/// to foreground and background. `paint` is the per-Cell language fact
+/// `RenderCell::source_paint` answers from the shared Claim (ADR 0052),
 /// including Pending, Valid, or Invalid for an Operand. `output_portal` is
 /// the independent fact added by `syntax-highlighting/06`: whether this Cell
 /// lies in a root Function's Output Portal Reservation
@@ -100,16 +115,93 @@ pub(crate) fn cell_visuals_with_cursor_colour(
     } else {
         role_background
     };
+    // The single-Cell Cursor's own border is `selection.border`/`.rest` at
+    // `cell.selection.border.width`, unaffected by Diagnostic/Output Portal —
+    // `.scratch/theming/schema.md`'s Source composition step 5. Every other
+    // Cell, including a multi-Cell Region's Cursor Cell (`selected` is false
+    // there — see [`crate::paint::Paint::derive_with_theme`]), keeps the
+    // ordinary Grid border, which [`ordinary_border`] composites with
+    // Diagnostic/Output Portal by the same fact priority `role_and_portal`
+    // already applies to foreground and background.
+    let (border, border_width) = if cursor_visible {
+        (
+            theme.selection_border,
+            theme.cell_selection_border_width.points(),
+        )
+    } else if selected {
+        (
+            theme.selection_border_rest,
+            theme.cell_selection_border_width.points(),
+        )
+    } else {
+        ordinary_border(paint, output_portal, theme)
+    };
     CellVisuals {
         background,
-        border: if cursor_visible {
-            PALETTE.selection_stroke
-        } else if selected {
-            PALETTE.selection_stroke_rest
-        } else {
-            PALETTE.grid_line
-        },
+        border,
+        border_width,
         foreground,
+    }
+}
+
+///
+/// The ordinary Grid border's colour and width, composited with the
+/// Diagnostic and Output Portal border channels by the same fact priority
+/// [`role_and_portal`] applies to foreground and background —
+/// `.scratch/theming/schema.md`'s composition step 4, "Border channels use
+/// the same fact priority and compose over the ordinary Grid border": Output
+/// Portal over Diagnostic over the plain Grid border, with a bound Function
+/// bypassed exactly as it is there.
+///
+/// Colour composites with [`Color32::blend`], the same pinned operation
+/// every other channel in this module uses, so `diagnostic.border`'s and
+/// `output_portal.border`'s transparent Okabe–Ito defaults leave
+/// `theme.grid_border` showing unchanged — this is defect 3's fix: neither
+/// channel was read at all before, so a non-transparent custom value never
+/// painted.
+///
+/// Width is *picked* rather than blended — a stroke has one width, and
+/// composing two would not mean alpha compositing — so whichever channel
+/// wins the same priority decides the stroke's own display-point width.
+/// `diagnostic.border.width`/`output_portal.border.width` at zero therefore
+/// hides that Cell's whole border exactly as `grid.border.width` zero
+/// already hides an unaffected Cell's, per schema's "Width 0 hides the
+/// stroke" — extended here to whichever channel is actually drawn once
+/// Diagnostic or Output Portal wins.
+///
+/// Called only for a Cell keeping the ordinary Grid border: the single-Cell
+/// Cursor's own frame is decided in [`cell_visuals_with_cursor_colour`]
+/// before this function is ever reached.
+///
+fn ordinary_border(paint: SourcePaint, output_portal: bool, theme: &Theme) -> (Color32, f32) {
+    let invalid_operand = matches!(
+        paint,
+        SourcePaint::Operand {
+            state: OperandState::Invalid,
+            ..
+        }
+    );
+    // "A bound Function retains all its own paint inside a Portal" — the
+    // same bypass `role_and_portal` applies to foreground and background.
+    let portal_applies = output_portal && paint != SourcePaint::Function;
+
+    match (invalid_operand, portal_applies) {
+        (false, false) => (theme.grid_border, theme.grid_border_width.points()),
+        (true, false) => (
+            theme.grid_border.blend(theme.diagnostic_border),
+            theme.diagnostic_border_width.points(),
+        ),
+        (false, true) => (
+            theme.grid_border.blend(theme.output_portal_border),
+            theme.output_portal_border_width.points(),
+        ),
+        (true, true) => (
+            theme
+                .grid_border
+                .blend(theme.diagnostic_border)
+                .blend(theme.output_portal_border),
+            theme.output_portal_border_width.points(),
+        ),
     }
 }
 
@@ -331,8 +423,16 @@ fn operand_paint(
     }
 }
 
-pub(crate) fn sector_line(strength_percent: u8) -> Color32 {
-    let [red, green, blue, base_alpha] = PALETTE.sector_line.to_srgba_unmultiplied();
+///
+/// Attenuates `base` — the resolved Theme's `sector.seam` — by
+/// `strength_percent`: a pure reading of the Theme colour a Sector Seam is
+/// drawn with, not a lookup of its own. `base` is a plain `Color32` argument
+/// rather than a `&Theme` so the per-Cell call sites in `paint.rs` read one
+/// field once, before their loop, and pass the same value to every Cell's
+/// seam instead of indexing `theme.sector_seam` again per Cell.
+///
+pub(crate) fn sector_line(strength_percent: u8, base: Color32) -> Color32 {
+    let [red, green, blue, base_alpha] = base.to_srgba_unmultiplied();
     let alpha = u16::from(base_alpha) * u16::from(strength_percent.min(100)) / 100;
     Color32::from_rgba_unmultiplied(red, green, blue, alpha as u8)
 }
@@ -692,15 +792,32 @@ mod tests {
     }
 
     #[test]
-    fn sector_line_strength_only_attenuates_palette_alpha() {
-        assert_eq!(sector_line(100), PALETTE.sector_line);
-        let [red, green, blue, alpha] = sector_line(50).to_srgba_unmultiplied();
+    fn sector_line_strength_only_attenuates_the_base_colours_alpha() {
+        let base = PALETTE.sector_line;
+        assert_eq!(sector_line(100, base), base);
+        let [red, green, blue, alpha] = sector_line(50, base).to_srgba_unmultiplied();
         assert!(red.abs_diff(55) <= 2);
         assert!(green.abs_diff(101) <= 2);
         assert!(blue.abs_diff(86) <= 2);
         assert_eq!(alpha, 55);
-        assert_eq!(sector_line(8).a(), 8);
-        assert_eq!(sector_line(255), PALETTE.sector_line);
+        assert_eq!(sector_line(8, base).a(), 8);
+        assert_eq!(sector_line(255, base), base);
+    }
+
+    ///
+    /// A custom Theme's `sector.seam` reaches [`sector_line`] as the base
+    /// colour it attenuates, not [`PALETTE`]'s fixed one — the paint-layer
+    /// half of defect 1: Sector Seams read `theme.sector_seam`, never the
+    /// chrome-only constant.
+    ///
+    #[test]
+    fn sector_line_attenuates_the_theme_seam_colour_not_the_fixed_palette() {
+        let retuned = Color32::from_rgba_unmultiplied(1, 2, 3, 200);
+
+        let attenuated = sector_line(100, retuned);
+
+        assert_eq!(attenuated, retuned);
+        assert_ne!(attenuated, PALETTE.sector_line);
     }
 
     #[test]
@@ -740,6 +857,63 @@ mod tests {
         assert_eq!(cursor.background, Some(PALETTE.selection_fill));
         assert_eq!(cursor.border, PALETTE.selection_stroke);
         assert_ne!(cursor, selected);
+    }
+
+    ///
+    /// Defect 1: a Cell's border reads `theme.grid_border`,
+    /// `theme.selection_border` and `theme.selection_border_rest` — the
+    /// resolved Theme, not the fixed [`PALETTE`] constants Okabe–Ito happens
+    /// to share their default values with. Retuning each of the three
+    /// changes the matching `CellVisuals::border` on the next call, the way
+    /// `semantic_glyph_colours_are_distinct_and_read_from_the_theme` already
+    /// proves for glyph colours.
+    ///
+    #[test]
+    fn each_border_channel_reads_its_own_theme_colour_not_the_fixed_palette() {
+        let retuned_grid = Theme {
+            grid_border: Color32::from_rgb(11, 22, 33),
+            ..okabe_ito()
+        };
+        let ordinary = cell_visuals_with_cursor_colour(
+            SourcePaint::Unclaimed,
+            false,
+            false,
+            false,
+            None,
+            &retuned_grid,
+        );
+        assert_eq!(ordinary.border, Color32::from_rgb(11, 22, 33));
+        assert_ne!(ordinary.border, PALETTE.grid_line);
+
+        let retuned_rest = Theme {
+            selection_border_rest: Color32::from_rgb(44, 55, 66),
+            ..okabe_ito()
+        };
+        let selected = cell_visuals_with_cursor_colour(
+            SourcePaint::Unclaimed,
+            false,
+            true,
+            false,
+            None,
+            &retuned_rest,
+        );
+        assert_eq!(selected.border, Color32::from_rgb(44, 55, 66));
+        assert_ne!(selected.border, PALETTE.selection_stroke_rest);
+
+        let retuned_visible = Theme {
+            selection_border: Color32::from_rgb(77, 88, 99),
+            ..okabe_ito()
+        };
+        let cursor = cell_visuals_with_cursor_colour(
+            SourcePaint::Unclaimed,
+            false,
+            true,
+            true,
+            None,
+            &retuned_visible,
+        );
+        assert_eq!(cursor.border, Color32::from_rgb(77, 88, 99));
+        assert_ne!(cursor.border, PALETTE.selection_stroke);
     }
 
     ///
@@ -1230,6 +1404,106 @@ mod tests {
             overlapped.background,
             Some(theme.source_function_background)
         );
+    }
+
+    ///
+    /// Defect 3: `diagnostic.border` was never read. An Invalid Number
+    /// operand's border composites `theme.diagnostic_border` over
+    /// `theme.grid_border` — the same fact this Cell's foreground and
+    /// background already use
+    /// (`an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint`) —
+    /// at `theme.diagnostic_border_width`, not `theme.grid_border_width`. An
+    /// unaffected Cell (no Diagnostic fact) keeps the ordinary Grid border.
+    ///
+    #[test]
+    fn a_diagnostic_border_with_a_non_transparent_colour_shows() {
+        let visible = Color32::from_rgb(200, 30, 30);
+        let theme = Theme {
+            diagnostic_border: visible,
+            ..okabe_ito()
+        };
+
+        let invalid = painted(operand(Token::Number, OperandState::Invalid), false, &theme);
+        let valid = painted(operand(Token::Number, OperandState::Valid), false, &theme);
+
+        assert_eq!(invalid.border, theme.grid_border.blend(visible));
+        assert_ne!(invalid.border, theme.grid_border);
+        assert_eq!(invalid.border_width, theme.diagnostic_border_width.points());
+        assert_eq!(valid.border, theme.grid_border);
+        assert_eq!(valid.border_width, theme.grid_border_width.points());
+    }
+
+    ///
+    /// Portal precedence over Diagnostic — schema composition step 4,
+    /// "Portal channels take precedence over other non-Function facts,
+    /// including Diagnostic" — reaches the border channel too: an Invalid
+    /// operand inside an Output Portal takes the Output Portal's own border
+    /// colour and width outright, the same as it already does for foreground
+    /// and background
+    /// (`invalid_operand_under_output_portal_takes_the_portal_colour`).
+    ///
+    #[test]
+    fn output_portal_border_takes_precedence_over_diagnostic_border() {
+        let theme = Theme {
+            diagnostic_border: Color32::from_rgb(200, 30, 30),
+            output_portal_border: Color32::from_rgb(30, 30, 200),
+            ..okabe_ito()
+        };
+
+        let invalid_in_portal =
+            painted(operand(Token::Number, OperandState::Invalid), true, &theme);
+
+        assert_eq!(invalid_in_portal.border, theme.output_portal_border);
+        assert_eq!(
+            invalid_in_portal.border_width,
+            theme.output_portal_border_width.points()
+        );
+    }
+
+    ///
+    /// Okabe–Ito's transparent `diagnostic.border`/`output_portal.border`
+    /// defaults leave the ordinary Grid border visible unchanged: blending a
+    /// fully transparent colour on top is the identity, so this Theme's
+    /// Invalid/Portal Cells still show only `theme.grid_border` — which is
+    /// what keeps `okabe_ito_reproduces_the_pre_refactor_cell_visuals_
+    /// exactly` passing unchanged even though every such Cell now runs
+    /// through `ordinary_border`.
+    ///
+    #[test]
+    fn transparent_diagnostic_and_portal_borders_leave_the_grid_border_visible() {
+        let theme = okabe_ito();
+
+        let invalid_in_portal =
+            painted(operand(Token::Number, OperandState::Invalid), true, &theme);
+
+        assert_eq!(invalid_in_portal.border, theme.grid_border);
+        assert_eq!(
+            invalid_in_portal.border_width,
+            theme.grid_border_width.points()
+        );
+    }
+
+    ///
+    /// Width zero suppresses the stroke a Diagnostic border would otherwise
+    /// draw, even with an opaque colour — `.scratch/theming/schema.md`'s
+    /// "Width 0 hides the stroke," extended to whichever channel
+    /// `ordinary_border` picks.
+    /// `console::tests::zero_width_suppresses_only_its_own_border_stroke`
+    /// proves the geometry step drops the `Shape` outright once this reaches
+    /// it as `0.0`.
+    ///
+    #[test]
+    fn zero_diagnostic_border_width_hides_the_stroke_despite_an_opaque_colour() {
+        let theme = Theme {
+            diagnostic_border: Color32::from_rgb(200, 30, 30),
+            diagnostic_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+
+        let invalid = painted(operand(Token::Number, OperandState::Invalid), false, &theme);
+
+        assert_eq!(invalid.border_width, 0.0);
     }
 
     ///

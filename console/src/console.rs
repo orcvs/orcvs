@@ -1208,12 +1208,15 @@ impl SourceShapes {
     /// Draws a Paint at `viewport`: the geometry the value layer carries none
     /// of, applied to the colours and characters it carries all of.
     ///
-    /// Stroke widths are the resolved `theme`'s `grid.border.width` and
-    /// `sector.seam.width` — fixed display points that stay the same visible
+    /// Stroke widths are fixed display points that stay the same visible
     /// thickness at every Grid zoom (`.scratch/theming/issues/06` slice C),
     /// unlike the [`GridViewport::cell_scale`]-multiplied constants this
-    /// replaced. `pixels_per_point` is the device scale the background runs
-    /// are snapped to; see [`background_run`].
+    /// replaced: `sector.seam.width` from the resolved `theme`, and each
+    /// Cell's own border width already resolved onto it as `cell.
+    /// border_width` (`grid.border.width`, `cell.selection.border.width`, or
+    /// either composited with Diagnostic/Output Portal, by fact priority).
+    /// `pixels_per_point` is the device scale the background runs are
+    /// snapped to; see [`background_run`].
     ///
     /// Borders, the Cursor's border, the sector seams and the background runs
     /// need no font atlas. Glyph placement does — see [`Self::place_glyphs`] —
@@ -1245,11 +1248,19 @@ impl SourceShapes {
     /// empty until [`Self::place_glyphs`] fills it; both steps finish before
     /// [`Self::into_shapes`] hands the first Shape out.
     ///
-    /// `theme`'s two Grid-bounded widths are read once, here, rather than
-    /// once per Cell inside the loop below — `.scratch/theming/issues/06`'s
-    /// "resolve widths once per frame" — and a width of exactly zero skips
-    /// building that Shape outright rather than emitting a zero-width one for
-    /// the painter to drop, per the same issue's "Width 0 hides the stroke."
+    /// `theme.sector_seam_width` is read once, here, rather than once per
+    /// Cell inside the loop below — `.scratch/theming/issues/06`'s "resolve
+    /// widths once per frame" — and a width of exactly zero skips building
+    /// that Shape outright rather than emitting a zero-width one for the
+    /// painter to drop, per the same issue's "Width 0 hides the stroke." Each
+    /// Cell's own border width has no one frame-level constant to read here:
+    /// `cell.border_width` already carries the fact-priority pick
+    /// `crate::style::cell_visuals_with_cursor_colour` and
+    /// `crate::style::ordinary_border` resolved for it — `grid.border.width`
+    /// for an ordinary Cell composited with Diagnostic/Output Portal,
+    /// `cell.selection.border.width` for a single-Cell Cursor — so this step
+    /// reads that answer per Cell rather than choosing among Theme fields
+    /// itself.
     ///
     fn geometry(
         paint: &Paint,
@@ -1257,7 +1268,10 @@ impl SourceShapes {
         pixels_per_point: f32,
         theme: &Theme,
     ) -> Self {
-        let grid_border_width = theme.grid_border_width.points();
+        // Border widths no longer read `theme` here: `cell.border_width` is
+        // already the resolved, fact-priority-picked answer — see the loop
+        // below. Sector Seam width has no per-Cell fact to vary by, so it
+        // stays a plain frame-level read.
         let sector_seam_width = theme.sector_seam_width.points();
         // A border is the rule on every Cell the Paint covers, so it is sized
         // up front — to those Cells rather than to the Grid: a densely written
@@ -1302,24 +1316,30 @@ impl SourceShapes {
             let rect = viewport.cell_rect(position.x(), position.y());
             // The Cell's own border, stroke and no fill: a widened run paints
             // over the borders of every Cell inside it, so the fill and the
-            // border cannot be one shape. Width zero hides it outright — the
-            // Cursor Effect still changes only the *colour* the selected
-            // Cell's own border takes, never this width, which is uniform
-            // across every Cell whatever it is doing.
-            if grid_border_width > 0.0 {
+            // border cannot be one shape.
+            //
+            // `cell.border_width` is already the resolved answer —
+            // `crate::style::cell_visuals_with_cursor_colour` and
+            // `crate::style::ordinary_border`'s fact-priority pick, threaded
+            // through `CellPaint` — so this step is purely mechanical: a
+            // single-Cell Cursor's own `cell.selection.border.width`, or the
+            // ordinary Grid border's width, itself composited with
+            // Diagnostic/Output Portal by the same priority
+            // (`.scratch/theming/schema.md`'s Source composition steps 4 and
+            // 5). Each width independently hides its own stroke at zero,
+            // since it is this Cell's *only* width, decided once above.
+            if cell.border_width > 0.0 {
                 let border = Shape::Rect(RectShape::stroke(
                     rect,
                     CornerRadius::ZERO,
-                    Stroke::new(grid_border_width, cell.border),
+                    Stroke::new(cell.border_width, cell.border),
                     StrokeKind::Inside,
                 ));
 
                 // The selected Cell's border is the Cursor, and the Cursor is
                 // painted last. A Cursor the viewport does not reach is no
                 // Cell of this Paint, so the comparison never matches and the
-                // group stays empty. While a Region spans more than one Cell
-                // the lasso around it is the Cursor, and the Cursor's Cell
-                // keeps an ordinary border.
+                // group stays empty.
                 if paint.cursor() == Some(position) && !paint.region_spans() {
                     cursor.push(border);
                 } else {
@@ -4779,6 +4799,26 @@ mod tests {
         ))
     }
 
+    /// [`painted`], but resolved against `theme` rather than the Okabe–Ito
+    /// built-in — for a test that asks about a Cell's own `border` or
+    /// `border_width`, both of which `Paint::derive_with_theme` bakes in
+    /// (`crate::style::ordinary_border`'s fact-priority pick), unlike
+    /// `SourceShapes::geometry`'s `sector_seam_width`, which stays a
+    /// frame-level Theme read a caller can vary independently of the Paint.
+    fn painted_themed(
+        frame: &RenderFrame,
+        viewport: GridViewport,
+        clip: Rect,
+        theme: &Theme,
+    ) -> Paint {
+        let grid = frame.grid();
+
+        Paint::derive_with_theme(
+            FramePaint::new(frame, viewport.visible_positions(clip, grid)),
+            theme,
+        )
+    }
+
     ///
     /// The rectangles and strokes a Paint is drawn as at `viewport` — no
     /// galleys, no font atlas, no `egui::Context`.
@@ -5206,9 +5246,21 @@ mod tests {
     }
 
     ///
-    /// Every Cell is stroked with its own border, one Grid line wide, and the
-    /// Cursor Effect changes that colour rather than that width — which is
-    /// what `cell_line_width` returned a constant for.
+    /// Every Cell is stroked with its own border, and the Cursor Effect
+    /// changes that colour, never the width its own Cell is stroked at.
+    ///
+    /// "That width" is no longer one constant to compare every Cell against:
+    /// `.scratch/theming/schema.md`'s Source composition step 5 gives a
+    /// single-Cell Cursor its own `cell.selection.border.width`, independent
+    /// of the ordinary `grid.border.width` every other Cell — including the
+    /// Cursor's Cell inside a multi-Cell Region — is stroked at. Okabe–Ito
+    /// happens to default both to 0.5 points, which is what lets this test
+    /// still compare every stroke, cursor included, against one
+    /// `grid_border_width` local;
+    /// `the_grid_and_selection_border_widths_vary_independently` and
+    /// `zero_width_suppresses_only_its_own_border_stroke` below are what
+    /// actually prove the widths are two independent Theme fields rather
+    /// than one shared constant.
     ///
     /// The colours come from the Paint rather than from `cell_visuals`: which
     /// colour a Cell's border *is* is decided in the value layer and asserted
@@ -5231,6 +5283,8 @@ mod tests {
         // Fixed at the resolved Theme's `grid.border.width`, in display
         // points — `.scratch/theming/issues/06` slice C — rather than scaled
         // by the owned transform the way the Scene's layer transform used to.
+        // Okabe–Ito's `cell.selection.border.width` is also 0.5, so this
+        // single local still covers the Cursor's own Cell; see the doc above.
         let grid_border_width = okabe_ito().grid_border_width.points();
         let mut colours = std::collections::BTreeSet::new();
 
@@ -5787,8 +5841,15 @@ mod tests {
         // line and a seam on plenty of Cells.
         orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
         let frame = orcvs.render_frame();
+        // Both border widths zeroed: `grid_border_width` for every ordinary
+        // Cell and `cell_selection_border_width` for the single-Cell Cursor
+        // selected below, which are independent Theme fields since
+        // `.scratch/theming/schema.md`'s Source composition step 5 gives the
+        // Cursor its own width.
         let theme = Theme {
             grid_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            cell_selection_border_width: crate::theme::GridWidth::from_points(0.0)
                 .expect("0.0 is within 0..=1"),
             sector_seam_width: crate::theme::GridWidth::from_points(0.0)
                 .expect("0.0 is within 0..=1"),
@@ -5801,7 +5862,7 @@ mod tests {
                 cell_size,
                 rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(cell_size * 16.0)),
             };
-            let paint = painted(&frame, viewport, screen);
+            let paint = painted_themed(&frame, viewport, screen, &theme);
             let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
 
             assert!(
@@ -5820,10 +5881,128 @@ mod tests {
     }
 
     ///
+    /// `grid.border.width` and `cell.selection.border.width` are two
+    /// independent Theme fields, not one constant read twice — Okabe–Ito
+    /// happens to default both to 0.5, which is what every other width test
+    /// in this module reads through one local. Here they are given different
+    /// values: every ordinary Cell's border takes `grid.border.width`, and
+    /// only the single-Cell Cursor's own border takes
+    /// `cell.selection.border.width`, per `.scratch/theming/schema.md`'s
+    /// Source composition step 5.
+    ///
+    #[tokio::test]
+    async fn the_grid_and_selection_border_widths_vary_independently() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
+        let mut orcvs = running_orcvs(20, 20);
+        let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
+        orcvs.select(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 20, 20, 1.0);
+        let theme = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.2)
+                .expect("0.2 is within 0..=1"),
+            cell_selection_border_width: crate::theme::GridWidth::from_points(0.9)
+                .expect("0.9 is within 0..=1"),
+            ..okabe_ito()
+        };
+        // Both `paint` and `shapes` resolve against the same `theme`: the
+        // border width is baked into `CellPaint` at `Paint::derive_with_theme`,
+        // not read again by `SourceShapes::geometry`.
+        let paint = painted_themed(&frame, viewport, screen, &theme);
+        let shapes = source_geometry_themed(&paint, viewport, 1.0, &theme);
+
+        assert!(
+            !shapes.borders.is_empty(),
+            "the fixture drew no ordinary Cell border"
+        );
+        for shape in &shapes.borders {
+            let Shape::Rect(stroked) = shape else {
+                panic!("a border was {shape:?}")
+            };
+            assert!(
+                (stroked.stroke.width - 0.2).abs() < 1e-4,
+                "an ordinary border was {} points wide, not grid.border.width",
+                stroked.stroke.width
+            );
+        }
+
+        assert_eq!(
+            shapes.cursor.len(),
+            1,
+            "the single-Cell Cursor was not framed once"
+        );
+        let Shape::Rect(cursor_stroke) = &shapes.cursor[0] else {
+            panic!("the Cursor's border was {:?}", shapes.cursor[0])
+        };
+        assert!(
+            (cursor_stroke.stroke.width - 0.9).abs() < 1e-4,
+            "the Cursor's own border was {} points wide, not cell.selection.border.width",
+            cursor_stroke.stroke.width
+        );
+    }
+
+    ///
+    /// Each border width hides only its own stroke at zero: a zeroed
+    /// `cell.selection.border.width` silences the single-Cell Cursor's own
+    /// border while every ordinary Cell keeps its nonzero `grid.border.width`
+    /// stroke, and a zeroed `grid.border.width` silences every ordinary Cell
+    /// while the Cursor keeps its own nonzero stroke. Neither zero reaches
+    /// the other Cell's border, which
+    /// `zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_zoom`
+    /// does not show on its own since it zeroes both together.
+    ///
+    #[tokio::test]
+    async fn zero_width_suppresses_only_its_own_border_stroke() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
+        let mut orcvs = running_orcvs(20, 20);
+        let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
+        orcvs.select(cursor);
+        let frame = orcvs.render_frame();
+        let viewport = presented(screen, 20, 20, 1.0);
+
+        let zero_selection = Theme {
+            cell_selection_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = painted_themed(&frame, viewport, screen, &zero_selection);
+        let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_selection);
+        assert!(
+            shapes.cursor.is_empty(),
+            "zero cell.selection.border.width left the Cursor's own border standing"
+        );
+        assert!(
+            !shapes.borders.is_empty(),
+            "zero cell.selection.border.width also silenced the ordinary Grid border"
+        );
+
+        let zero_grid = Theme {
+            grid_border_width: crate::theme::GridWidth::from_points(0.0)
+                .expect("0.0 is within 0..=1"),
+            ..okabe_ito()
+        };
+        let paint = painted_themed(&frame, viewport, screen, &zero_grid);
+        let shapes = source_geometry_themed(&paint, viewport, 1.0, &zero_grid);
+        assert!(
+            shapes.borders.is_empty(),
+            "zero grid.border.width left an ordinary Cell border standing"
+        );
+        assert!(
+            !shapes.cursor.is_empty(),
+            "zero grid.border.width also silenced the Cursor's own border"
+        );
+    }
+
+    ///
     /// The Cell grid line and the Sector Seam stay the resolved Theme's own
     /// fixed display-point widths at every Grid zoom from `MIN_ZOOM` to
     /// `MAX_ZOOM` — never multiplied by `GridViewport::cell_scale`, the
     /// zoom-scaled behaviour `.scratch/theming/issues/06` slice C replaces.
+    /// The single selected Cell's own stroke is chained in against
+    /// `grid_border_width` too: Okabe–Ito's `cell.selection.border.width` is
+    /// also 0.5, the same coincidence `a_cell_border_is_one_grid_line_wide_
+    /// whatever_the_cell_is_doing` notes, so this loop still covers it
+    /// without a second theme field to track across every zoom.
     ///
     #[tokio::test]
     async fn grid_and_sector_widths_stay_fixed_display_points_across_zoom_levels() {

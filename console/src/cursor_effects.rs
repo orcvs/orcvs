@@ -208,8 +208,8 @@ pub(crate) fn effect_bounds(cursor: Rect, cell_size: f32) -> Rect {
 /// motion `settings` decide from here. `frame_width` is the same caller's
 /// choice of `cursor.border.width`/`region.border.width`: a fixed display-point
 /// nominal width, never scaled by `cell_size`/Grid zoom (`.scratch/theming/
-/// issues/06` slice C). Zero hides every frame stroke outright — see
-/// [`frame_shapes`] — without touching the living-area fill `area_colour` and
+/// issues/06` slice C). Zero hides every frame stroke outright — see this
+/// module's private `frame_shapes` — without touching the living-area fill `area_colour` and
 /// `amount` still control. One over clippy's default: every parameter is an
 /// independent, already-tested value with nowhere smaller to group into, the
 /// same reasoning `console.rs::show_source`'s own
