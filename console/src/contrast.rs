@@ -383,23 +383,25 @@ fn contrast(foreground: Color32, background: Color32) -> f32 {
 /// entirely — must report zero failures for [`unaccepted_failures`] to
 /// answer empty.
 ///
-/// Okabe–Ito's four entries are every reachable state of `source.sequence`'s
-/// own accepted colour, `#0072B2`: the user confirmed keeping that colour
-/// and the unchanged 4.5:1 floor rather than retuning it, which accepts the
-/// colour across the states its own composition reaches, not only the
-/// `plain`/bare-Grid figure `syntax-highlighting/01` originally measured.
-/// The Cursor and Region-Cursor states measure 4.05:1, against the plain
-/// Source background exactly as before; the `plain` and `Region` states
-/// measure a worse 3.67:1, against Sequence's own near-black background
-/// tint — a fact the composited-state validator surfaces that the earlier
-/// `base00`-only check could not, recorded newly here rather than folded
-/// silently into the one already-confirmed figure.
+/// Okabe–Ito's two entries are exactly the states that measure
+/// `source.sequence`'s own accepted colour, `#0072B2`, against the bare Grid
+/// background, `#000000` — the issue's own acceptance line, precisely: "the
+/// bare Grid background, `#000000`, approximately 4.05:1... this exception
+/// does not exempt other roles, Themes or newly measured failing states."
+/// That is `Cursor` and `Region, Cursor's Cell`, where Okabe–Ito's unset
+/// Cursor/Region-Cursor fills let the bare background show through. `plain`
+/// and `Region` measure a worse 3.67:1 against Sequence's own near-black
+/// background tint (`source.sequence.background`, not `base00`) — a
+/// genuinely different, newly measured failing state the composited-state
+/// validator surfaces that the earlier `base00`-only check could not, and
+/// the issue's own words classify it as one to record for explicit review
+/// rather than fold silently into the one already-confirmed figure. It is
+/// therefore pending alongside the invalid Number/Note/Atom Diagnostic
+/// states below, not accepted here.
 ///
 fn accepted_failures(identity: &str) -> &'static [(&'static str, &'static str)] {
     match identity {
         "okabe-ito" => &[
-            ("Sequence, Pending", "plain"),
-            ("Sequence, Pending", "Region"),
             ("Sequence, Pending", "Cursor"),
             ("Sequence, Pending", "Region, Cursor's Cell"),
         ],
@@ -757,26 +759,21 @@ mod tests {
     // === The shipped-Theme gate ===
 
     ///
-    /// Every reachable state of Okabe–Ito's accepted Sequence exception
-    /// remains visible in the report — `.scratch/theming/issues/08`'s "A
-    /// failing Theme is reported... Acceptance may annotate the report, but
-    /// never hides the failure or converts it to a passing measurement."
-    /// `plain` and `Region` measure against Sequence's own near-black
-    /// background tint (worse than the historical `base00` figure);
-    /// `Cursor` and `Region, Cursor's Cell` measure against the plain
-    /// Source background, matching `syntax-highlighting/01`'s original
-    /// 4.05:1.
+    /// The two states Okabe–Ito's Sequence exception actually covers remain
+    /// visible in the report — `.scratch/theming/issues/08`'s "A failing
+    /// Theme is reported... Acceptance may annotate the report, but never
+    /// hides the failure or converts it to a passing measurement." `Cursor`
+    /// and `Region, Cursor's Cell` measure `#0072B2` against the *bare*
+    /// Source background, `#000000` — precisely the pair the issue's own
+    /// acceptance line names, ≈4.05:1, matching `syntax-highlighting/01`'s
+    /// original figure.
     ///
     #[test]
-    fn sequences_accepted_failure_remains_visible_in_every_reachable_state() {
-        let report = validate(&okabe_ito());
+    fn sequences_accepted_cursor_states_remain_visible() {
+        let theme = okabe_ito();
+        let report = validate(&theme);
 
-        for (state, expected_ratio) in [
-            ("plain", 3.67),
-            ("Region", 3.67),
-            ("Cursor", 4.05),
-            ("Region, Cursor's Cell", 4.05),
-        ] {
+        for state in ["Cursor", "Region, Cursor's Cell"] {
             let result = find(&report, "Sequence, Pending", state);
             assert!(
                 !result.passes(),
@@ -784,47 +781,69 @@ mod tests {
                 result.ratio
             );
             assert!(
-                (result.ratio - expected_ratio).abs() < 0.01,
-                "Sequence, Pending / {state} is {:.2}:1, expected {expected_ratio:.2}:1",
+                (result.ratio - 4.05).abs() < 0.01,
+                "Sequence, Pending / {state} is {:.2}:1, expected 4.05:1",
                 result.ratio
+            );
+            assert_eq!(
+                result.background, theme.grid_background,
+                "the accepted states must measure against the bare Grid background, \
+                 not Sequence's own tint"
             );
         }
     }
 
     ///
-    /// The invalid Number, Note and Atom operand Diagnostic states
-    /// `.scratch/theming/issues/08` lists as known below-floor results,
-    /// confirmed through the real shipped composition rather than the
-    /// hand-picked opaque colours the issue's own table records — `Number`
-    /// and `Note` match that table (4.446944:1, 4.053689:1); `Atom` is a
-    /// further failure the expanded state coverage discovered, not in the
-    /// issue's original table, recorded here rather than silently folded
-    /// into the accepted Sequence exception.
+    /// The below-floor states `.scratch/theming/issues/08` lists as pending
+    /// explicit acceptance, confirmed through the real shipped composition
+    /// rather than the hand-picked or historical colours the issue's table
+    /// and comments originally recorded them from. `Number` and `Note`
+    /// match the issue's table (4.446944:1, 4.053689:1); `Atom` is a further
+    /// failure the expanded state coverage discovered, not in the issue's
+    /// original table. Sequence's own `plain` and `Region` states are
+    /// *not* the accepted exception: the issue's acceptance line names only
+    /// `#0072B2` against the *bare* Grid background, `#000000`
+    /// (`sequences_accepted_cursor_states_remain_visible`'s `Cursor`/
+    /// `Region, Cursor's Cell` pair) — `plain` and `Region` measure a worse
+    /// 3.67:1 against Sequence's own near-black background tint
+    /// (`source.sequence.background`, not `base00`), a newly measured
+    /// failing state the issue's own words say to record for review rather
+    /// than fold silently into the one already-confirmed figure.
     ///
     #[test]
-    fn invalid_operand_diagnostic_failures_are_confirmed_through_shipped_composition() {
+    fn pending_contrast_failures_are_confirmed_through_shipped_composition() {
         let report = validate(&okabe_ito());
 
-        for (role, expected_ratio) in [
-            ("Number, Invalid", 4.4469),
-            ("Note, Invalid", 4.0537),
-            ("Atom, Invalid", 3.9275),
+        for (role, state, expected_ratio) in [
+            ("Number, Invalid", "plain", 4.4469),
+            ("Number, Invalid", "Region", 4.4469),
+            ("Note, Invalid", "plain", 4.0537),
+            ("Note, Invalid", "Region", 4.0537),
+            ("Atom, Invalid", "plain", 3.9275),
+            ("Atom, Invalid", "Region", 3.9275),
+            ("Sequence, Pending", "plain", 3.6707),
+            ("Sequence, Pending", "Region", 3.6707),
         ] {
-            for state in ["plain", "Region"] {
-                let result = find(&report, role, state);
-                assert!(
-                    !result.passes(),
-                    "{role} / {state} unexpectedly passes at {:.4}:1 — if this was retuned, \
-                     accept or re-document it in .scratch/theming/issues/08 rather than \
-                     leaving this assertion stale",
-                    result.ratio
-                );
-                assert!(
-                    (result.ratio - expected_ratio).abs() < 0.001,
-                    "{role} / {state} is {:.4}:1, expected {expected_ratio:.4}:1",
-                    result.ratio
-                );
-            }
+            let result = find(&report, role, state);
+            assert!(
+                !result.passes(),
+                "{role} / {state} unexpectedly passes at {:.4}:1 — if this was retuned or \
+                 accepted, update .scratch/theming/issues/08 and accepted_failures together \
+                 rather than leaving this assertion stale",
+                result.ratio
+            );
+            assert!(
+                (result.ratio - expected_ratio).abs() < 0.001,
+                "{role} / {state} is {:.4}:1, expected {expected_ratio:.4}:1",
+                result.ratio
+            );
+            assert!(
+                !accepted_failures("okabe-ito")
+                    .iter()
+                    .any(|&(accepted_role, accepted_state)| accepted_role == role
+                        && accepted_state == state),
+                "{role} / {state} must stay out of accepted_failures while pending"
+            );
         }
     }
 
@@ -864,14 +883,17 @@ mod tests {
             text: okabe_ito().panel_background,
             ..okabe_ito()
         };
-        // Okabe-Ito's own real failures (Sequence, accepted; the three
-        // pending invalid-operand Diagnostic states, not accepted but
-        // present regardless of this fixture) plus both states `text`'s
+        // Okabe-Ito's own real failures (Sequence's two accepted Cursor
+        // states; Sequence's own two pending plain/Region states and the
+        // three pending invalid-operand Diagnostic states, none accepted
+        // but present regardless of this fixture) plus both states `text`'s
         // override touches — `panel.background` and `input.background` are
         // both near-black in Okabe-Ito, so overriding `text` to
         // `panel.background` fails against either.
         let mut accepted = accepted_failures("okabe-ito").to_vec();
         accepted.extend_from_slice(&[
+            ("Sequence, Pending", "plain"),
+            ("Sequence, Pending", "Region"),
             ("Number, Invalid", "plain"),
             ("Number, Invalid", "Region"),
             ("Note, Invalid", "plain"),
@@ -894,16 +916,18 @@ mod tests {
     /// The shipped-Theme gate itself: every failing state of every shipped
     /// Theme must be in `accepted_failures`, or this test fails and lists
     /// them. It is `#[ignore]`d rather than green, because it is not
-    /// green: `invalid_operand_diagnostic_failures_are_confirmed_through_
-    /// shipped_composition` above confirms three below-floor Diagnostic
-    /// states (`Number, Invalid`, `Note, Invalid`, `Atom, Invalid`, each in
-    /// `plain` and `Region`) that `.scratch/theming/issues/08` explicitly
-    /// says await acceptance and must **not** be silently whitelisted into
-    /// `accepted_failures` to make this test pass. Un-ignore this test only
-    /// once a human has accepted those failures (adding them to
-    /// `accepted_failures` with that acceptance recorded in the issue) or
-    /// retuned the colours involved — never by widening `accepted_failures`
-    /// without either.
+    /// green: `pending_contrast_failures_are_confirmed_through_shipped_
+    /// composition` above confirms four below-floor states —
+    /// `Number, Invalid`, `Note, Invalid` and `Atom, Invalid` (each in
+    /// `plain` and `Region`), plus `Sequence, Pending`'s own `plain` and
+    /// `Region` states, which measure against Sequence's own tint rather
+    /// than the bare Grid background the issue's acceptance line names —
+    /// that `.scratch/theming/issues/08` explicitly says await acceptance
+    /// and must **not** be silently whitelisted into `accepted_failures` to
+    /// make this test pass. Un-ignore this test only once a human has
+    /// accepted those failures (adding them to `accepted_failures` with
+    /// that acceptance recorded in the issue) or retuned the colours
+    /// involved — never by widening `accepted_failures` without either.
     ///
     /// Only `okabe_ito()` ships today: `.scratch/theming/issues/06`'s
     /// further built-ins and `07`'s loader are not built yet, so `shipped`
@@ -911,11 +935,13 @@ mod tests {
     /// known weakness recorded in `.scratch/theming/issues/08`'s comments.
     ///
     #[test]
-    #[ignore = "pending human acceptance of the invalid Number/Note/Atom Diagnostic contrast \
-                failures — .scratch/theming/issues/08's Known dark failures table (4.4469:1, \
-                4.0537:1, 4.5:1 floor) plus Atom, Invalid at 3.9275:1, newly discovered by this \
-                validator. Do not remove this ignore by adding them to accepted_failures; only \
-                by an explicit human decision to accept or retune, recorded in the issue."]
+    #[ignore = "pending human acceptance of four contrast failures — .scratch/theming/issues/08's \
+                Known dark failures table: invalid Number (4.4469:1), Note (4.0537:1) and Atom \
+                (3.9275:1) operand Diagnostic states, each in plain and Region, plus Sequence, \
+                Pending's own plain/Region states (3.6707:1, against its own background tint, \
+                not the bare Grid background the accepted Cursor/Region-Cursor states measure \
+                against). Do not remove this ignore by adding any of them to accepted_failures; \
+                only by an explicit human decision to accept or retune, recorded in the issue."]
     fn shipped_theme_gate() {
         let shipped = [okabe_ito()];
 

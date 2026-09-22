@@ -6,10 +6,10 @@
 
 **Status:** ready-for-human — the composited-state validator, its tests and `theme.md`'s record
 are complete and every local gate passes. `contrast::tests::shipped_theme_gate` is deliberately
-`#[ignore]`d rather than green: the invalid Number/Note/Atom operand Diagnostic contrast failures
-below are confirmed through shipped composition, kept failing and visible, and await an explicit
-human decision (accept or retune) before that gate can be un-ignored. See the `2026-09-22`
-"reimplemented for composited state" comment.
+`#[ignore]`d rather than green: four contrast failures below are confirmed through shipped
+composition, kept failing and visible, and await an explicit human decision (accept or retune)
+before that gate can be un-ignored. See the `2026-09-22` "reimplemented for composited state" and
+"Sequence's accepted exception is narrower than first recorded" comments.
 
 **Tags:** release/v1
 
@@ -19,8 +19,8 @@ human decision (accept or retune) before that gate can be un-ignored. See the `2
 - [x] Fixtures include text that passes against the bare Grid background but fails against its painted tint or selected background, partial-alpha foreground/background combinations, and a transparent fact foreground exposing the underlying Token. Assert both the measured result and its reported role/state.
 - [x] The report describes its text-contrast scope. It does not claim to measure pairwise Token-colour distinguishability, colour-vision accessibility, or focus/border visibility; those require separate assessment.
 - [x] The floor is stated once, with its source, rather than repeated at each call site.
-- [x] A test iterates every shipped Theme and rejects any contrast failure without an explicitly recorded acceptance. The accepted exception is Okabe–Ito's Sequence (`source.sequence`, `#0072B2` against the bare Grid background, `#000000`, approximately 4.05:1). Preserve that colour and the 4.5:1 floor; this exception does not exempt other roles, Themes or newly measured failing states. Record additional failures discovered by the expanded state coverage for explicit review rather than silently accepting them. **The mechanism is built and correct** (`unaccepted_failures`, exercised by two unit tests against synthetic accepted sets); the real shipped Theme does not currently clear it, which is why `shipped_theme_gate` is `#[ignore]`d rather than passing — see below.
-- [x] Confirm the known invalid Number and invalid Note Diagnostic contrast failures listed below through shipped rendering. Keep them failing and visibly pending explicit acceptance; preserving the dark colours does not itself authorise new exceptions. Obtain explicit acceptance before the shipped-Theme gate can pass with these colours. **A third failure, Atom, was discovered by the same shipped composition and added below** — not in the original table, not silently folded into it.
+- [ ] A test iterates every shipped Theme and rejects any contrast failure without an explicitly recorded acceptance. The accepted exception is Okabe–Ito's Sequence (`source.sequence`, `#0072B2` against the bare Grid background, `#000000`, approximately 4.05:1). Preserve that colour and the 4.5:1 floor; this exception does not exempt other roles, Themes or newly measured failing states. Record additional failures discovered by the expanded state coverage for explicit review rather than silently accepting them. **Not green today, left unticked.** The mechanism is built and correct (`unaccepted_failures`, exercised by two unit tests against synthetic accepted sets, plus `accepted_failures` scoped to precisely the `#0072B2`-against-`#000000` pair the acceptance line names — not Sequence's own-tint states, corrected 2026-09-22), but the actual `contrast::tests::shipped_theme_gate` over the real shipped Theme is `#[ignore]`d, not passing — see below and the dated comment.
+- [ ] Confirm the known invalid Number and invalid Note Diagnostic contrast failures listed below through shipped rendering. Keep them failing and visibly pending explicit acceptance; preserving the dark colours does not itself authorise new exceptions. Obtain explicit acceptance before the shipped-Theme gate can pass with these colours. **Not green today, left unticked**: the failures are confirmed (`pending_contrast_failures_are_confirmed_through_shipped_composition`), a third (Atom) and a fourth (Sequence's own `plain`/`Region` states) were discovered by the same shipped composition and added below, but the explicit acceptance this line asks for has not happened, so the shipped-Theme gate still cannot pass.
 - [x] The validator reports the accepted Sequence failure with its measured ratio and floor. Acceptance may annotate the report, but never hides the failure or converts it to a passing measurement. Test that the accepted failure remains visible and an additional unrecorded failure fails the shipped-Theme gate.
 - [x] The validator itself is tested against a Theme built to fail, so a passing run is not vacuous.
 - [x] `style.rs`'s current general ordering assertions go: the per-colour table pinning each measured ratio, the relative-to-Comment exceptions, and `comment_reads_dimmer_than_every_colour_but_its_named_exceptions_which_all_clear_the_floor`. Those are facts about Okabe–Ito, not rules a Theme must satisfy. Sequence's accepted below-floor result moves into the explicit shipped-Theme acceptance test above.
@@ -29,35 +29,48 @@ human decision (accept or retune) before that gate can be un-ignored. See the `2
 
 ### Known dark failures awaiting acceptance
 
-The following reachable invalid-operand states are known below-floor results,
-not accepted exceptions. Opaque Diagnostic foreground overlays the declared role
-background outside an Output Portal and without a Cursor/Region fill replacing it.
+The following reachable states are known below-floor results, not accepted
+exceptions. The first three are an opaque Diagnostic foreground overlaying
+the declared role background outside an Output Portal and without a
+Cursor/Region fill replacing it. The fourth is Sequence's own colour against
+its own background tint — distinct from the accepted exception below, which
+covers only that colour against the *bare* Grid background.
 
 | State | Foreground | Background | Calculated ratio | Floor | Status |
 |---|---|---|---:|---:|---|
 | Invalid Number operand | `#D55E00` | `#0E1D25` | 4.446944:1 | 4.5:1 | Explicit acceptance pending |
 | Invalid Note operand | `#D55E00` | `#26240B` | 4.053689:1 | 4.5:1 | Explicit acceptance pending |
 | Invalid Atom operand | `#D55E00` | `#252625` | 3.927542:1 | 4.5:1 | Explicit acceptance pending |
+| Sequence, Pending (`plain`/`Region`) | `#0072B2` | `#00121C` | 3.670652:1 | 4.5:1 | Explicit acceptance pending |
 
 Recorded 2026-09-22 from the specified opaque colours using the standard sRGB
 relative-luminance ratio. Confirmed 2026-09-22 through the real shipped
-composition (`contrast::tests::invalid_operand_diagnostic_failures_are_
-confirmed_through_shipped_composition`, `console/src/contrast.rs`), which
-reproduces every figure above to four decimal places from
-`cell_visuals_with_cursor_colour`'s and `compose_cell_fill`'s own output
-rather than the hand-picked opaque colours this table was originally built
-from. The Atom row is new: the composited-state validator's expanded
-coverage found it, where the earlier `base00`-only validator could not, since
-Atom shares Ordinary's foreground but has its own opaque background tint
-(`source.atom.background`) that only a real composited measurement reaches.
-Exact dark appearance preservation cannot satisfy the shipped Theme
-acceptance test until all three failures are explicitly accepted; retain the
-failures and do not silently whitelist them, lower the floor or retune
-colours. The existing Sequence exception remains the only accepted
-exception, and it now covers Sequence's own four reachable states rather
-than the single `base00` figure originally measured — see the `2026-09-22`
-"reimplemented for composited state" comment. The table is not an exhaustive
-claim: newly discovered failures still require review.
+composition (`contrast::tests::pending_contrast_failures_are_confirmed_
+through_shipped_composition`, `console/src/contrast.rs`), which reproduces
+every figure above to four decimal places from `cell_visuals_with_cursor_
+colour`'s and `compose_cell_fill`'s own output rather than the hand-picked or
+historical colours this table was originally built from. The Atom row is
+new: the composited-state validator's expanded coverage found it, where the
+earlier `base00`-only validator could not, since Atom shares Ordinary's
+foreground but has its own opaque background tint (`source.atom.background`)
+that only a real composited measurement reaches. The Sequence row is also
+new, and corrects an over-broad first reading of the accepted exception: this
+issue's own acceptance line names only `#0072B2` against the *bare* Grid
+background, `#000000`, ≈4.05:1 — the `Cursor`/`Region, Cursor's Cell` states,
+where Okabe–Ito's unset Cursor/Region-Cursor fills let that bare background
+show through. `plain` and `Region` measure a worse 3.67:1 against Sequence's
+own near-black `source.sequence.background` tint, which is a newly measured
+failing state under the issue's own words — "this exception does not exempt
+... newly measured failing states. Record additional failures discovered by
+the expanded state coverage for explicit review rather than silently
+accepting them" — not a color this exception already covers. Exact dark
+appearance preservation cannot satisfy the shipped Theme acceptance test
+until all four failures are explicitly accepted; retain the failures and do
+not silently whitelist them, lower the floor or retune colours. The accepted
+exception covers exactly two states — `Sequence, Pending` / `Cursor` and
+`Sequence, Pending` / `Region, Cursor's Cell` — never `plain` or `Region`. The
+table is not an exhaustive claim: newly discovered failures still require
+review.
 
 ## Comments
 
@@ -81,10 +94,16 @@ claim: newly discovered failures still require review.
 
 *Reuse, not reimplementation.* `painted()` calls `style::cell_visuals_with_cursor_colour` and `style::compose_cell_fill` — the exact functions `Paint::derive_with_theme` calls per Cell — and mirrors that function's own Cursor/Region branch structure (copied from reading it directly, not re-derived) rather than inventing a parallel composition. The one addition is resolving the background the rest of the way down to the opaque window backdrop, `theme.window_background.blend(theme.grid_background)`, matching `console.rs`'s real paint order (`clear_color` draws `window.background`, `source_panel_frame` draws `grid.background` over it, then each Cell's own fill). This is what replaces the old `Color32::to_opaque()` normalisation the previous review round installed and this round's instructions called "wrong": `to_opaque()` un-premultiplies a colour against itself, discarding what is actually behind it, where the correct answer is compositing against the real underlying surface. A translucent foreground is then composited over that already-opaque background before measuring, as before.
 
-*The four-way Sequence finding.* Measuring Sequence's real composited state rather than a `base00` proxy split what was one accepted figure into four: `plain` and `Region` measure 3.67:1 against Sequence's own near-black `source.sequence.background` tint (`#00121C`) — worse than previously known — while `Cursor` and `Region, Cursor's Cell` measure the original 4.05:1, because Okabe–Ito's Cursor/Region-Cursor fills are unset and the bare Source background shows through in those two states only. All four are covered by the accepted exception (`accepted_failures("okabe-ito")` lists all four `(role, state)` pairs): the user's confirmation to keep `#0072B2` and the 4.5:1 floor is a decision about the colour, and every state below the floor is a consequence of that one colour, not four independent decisions.
+*The four-way Sequence finding — first recorded too broadly, corrected same day.* Measuring Sequence's real composited state rather than a `base00` proxy split what was one accepted figure into four: `plain` and `Region` measure 3.67:1 against Sequence's own near-black `source.sequence.background` tint (`#00121C`) — worse than previously known — while `Cursor` and `Region, Cursor's Cell` measure the original 4.05:1, because Okabe–Ito's Cursor/Region-Cursor fills are unset and the bare Source background shows through in those two states only. This comment originally read all four as covered by the accepted exception; that over-reached the issue's own acceptance line, which names only `#0072B2` against the *bare* Grid background, `#000000` — `Cursor` and `Region, Cursor's Cell` alone. `plain` and `Region` are corrected below, in the "Sequence's accepted exception is narrower than first recorded" comment, into the pending list beside the invalid-operand Diagnostic failures.
 
-*Three, not two, invalid-operand Diagnostic failures.* Number (4.4469:1) and Note (4.0537:1) confirm the issue's own table exactly. Atom (3.9275:1) is new: the earlier `base00`-only validator could not see it, because Atom's own background (`source.atom.background`, `#252625`) never entered that measurement at all — Atom shares Ordinary's foreground but has its own opaque background tint. None of the three is accepted. `contrast::tests::shipped_theme_gate` — the literal shipped-Theme gate, iterating `[okabe_ito()]` and asserting `unaccepted_failures` is empty for each — is `#[ignore]`d with a reason naming exactly these three states and refusing to be silenced by widening `accepted_failures`; `cargo nextest run` therefore stays green without the failures being hidden, and `cargo nextest run -- --ignored` (or reading the test) shows them. `unaccepted_failures` itself — the gate's actual comparison logic — is unit-tested against synthetic Themes and accepted sets independently of whether the real shipped Theme currently clears it, so the mechanism's correctness does not depend on the pending decision.
+*Invalid-operand Diagnostic failures, and Sequence's own pending states.* Number (4.4469:1) and Note (4.0537:1) confirm the issue's own table exactly. Atom (3.9275:1) is new: the earlier `base00`-only validator could not see it, because Atom's own background (`source.atom.background`, `#252625`) never entered that measurement at all — Atom shares Ordinary's foreground but has its own opaque background tint. None of the three is accepted, and neither is Sequence's own `plain`/`Region` pair (see the correction below) — four pending states in total. `contrast::tests::shipped_theme_gate` — the literal shipped-Theme gate, iterating `[okabe_ito()]` and asserting `unaccepted_failures` is empty for each — is `#[ignore]`d with a reason naming all four and refusing to be silenced by widening `accepted_failures`; `cargo nextest run` therefore stays green without the failures being hidden, and `cargo nextest run -- --ignored` (or reading the test) shows them. `unaccepted_failures` itself — the gate's actual comparison logic — is unit-tested against synthetic Themes and accepted sets independently of whether the real shipped Theme currently clears it, so the mechanism's correctness does not depend on the pending decision.
 
 *Console text gained a second background each.* `text` and `text.muted` are now each checked against both `panel.background` and `input.background` (`.scratch/theming/schema.md`'s chrome mapping puts normal widget text on the first and input hints/extreme fills on the second), composited over the opaque window backdrop the same way Source Grid states are. Both pass for Okabe–Ito today (`text`: 15.88:1 / 17.51:1; `text.muted`: 6.19:1 / 6.29:1).
 
 `console/src/theme.md` is rewritten to record the real `plain`-state figures rather than the superseded `base00`-only ones — Function, for one, now correctly reads 5.35:1 against its own tint rather than the 6.14:1 a bare-black comparison implied, since Function is never actually painted on bare black.
+
+**2026-09-22 — Sequence's accepted exception is narrower than first recorded.** This issue's own acceptance line is precise: Okabe–Ito's Sequence, "`#0072B2` against the bare Grid background, `#000000`, approximately 4.05:1... this exception does not exempt other roles, Themes or newly measured failing states. Record additional failures discovered by the expanded state coverage for explicit review rather than silently accepting them." The "reimplemented for composited state" comment above read that line as accepting all four of Sequence's reachable failing states, because they all trace to the one confirmed colour; that conflated "the colour is accepted" with "every state that colour reaches is accepted," which is exactly the newly-measured-failing-state case the line calls out. Corrected: `accepted_failures("okabe-ito")` now lists only `("Sequence, Pending", "Cursor")` and `("Sequence, Pending", "Region, Cursor's Cell")` — the two states that actually measure `#0072B2` against the bare `#000000` background. `("Sequence, Pending", "plain")` and `("Sequence, Pending", "Region")`, which measure 3.67:1 against Sequence's own background tint (`#00121C`, not `base00`), move into the "Known dark failures awaiting acceptance" table above, alongside invalid Number/Note/Atom, pending the same explicit human review.
+
+`sequences_accepted_failure_remains_visible_in_every_reachable_state` is replaced by `sequences_accepted_cursor_states_remain_visible` (the two truly accepted states, with an added assertion that their background is literally `theme.grid_background`) and `pending_contrast_failures_are_confirmed_through_shipped_composition` (renamed from `invalid_operand_diagnostic_failures_are_confirmed_through_shipped_composition`, now covering all four pending states and asserting each stays out of `accepted_failures`). `unaccepted_failures_is_empty_when_every_failure_is_recorded`'s synthetic accepted set gained the two Sequence pending pairs it previously got from `accepted_failures` for free. `shipped_theme_gate`'s `#[ignore]` reason now names all four pending states.
+
+Two acceptance boxes above are unticked to match: the shipped-Theme-gate box and the invalid-operand-confirmation box both describe outcomes that are not actually green today (the literal gate test is `#[ignore]`d, and explicit human acceptance has not happened), so ticking them mischaracterised the state of the work. The box asking the validator to report the accepted failure and test that an unrecorded one fails the gate stays ticked: that is about the gate *mechanism* existing and being correct, which two passing, non-ignored unit tests already prove, independently of whether the real shipped Theme currently clears the mechanism.

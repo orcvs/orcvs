@@ -310,26 +310,35 @@ tints; Atom 12.67:1 (Pending) against its own tint; `output_portal.foreground`
 (translucent, round-tripping to premultiplied bytes `[140, 141, 137, 153]`)
 6.19:1 against `panel.background` and 6.29:1 against `input.background`.
 
-Four `plain`-placement states measure below the 4.5:1 floor. Three are the
-invalid-operand Diagnostic states — Number 4.45:1, Note 4.05:1 and Atom
-3.93:1, each `diagnostic.foreground` (`#D55E00`) against that Token's own
-opaque background tint — confirmed through the real shipped composition
-rather than the hand-picked colours `.scratch/theming/issues/08`'s "Known
-dark failures" table originally recorded them from; Atom's failure is new,
-found only once the validator measured actual composited states rather than
-`base00` alone. None of the three is accepted: `contrast::tests::
-shipped_theme_gate` is `#[ignore]`d specifically because they are not, and
-stays that way until a human accepts or retunes them. The fourth is Sequence:
-its accepted colour, `#0072B2`, measures 3.67:1 against its own near-black
-`#00121C` tint in its ordinary Pending state, worse than the 4.05:1
-`syntax-highlighting/01` originally measured against bare `base00` — a figure
-that only actually applies to Sequence's Cursor and Region-Cursor states,
-where cursor/Region-cursor fills are unset and the bare Source background
-shows through. Sequence's Invalid state, where `diagnostic.foreground`
-replaces its own colour outright, measures a passing 4.92:1. ADR 0053 retains
-Sequence's colour as an explicitly accepted failure across every state it
-reaches; `validate` continues to report each one's measured ratio below the
-floor, and acceptance never turns a measurement into a pass.
+Four `plain`-placement states measure below the 4.5:1 floor, and none of the
+four is accepted. Three are the invalid-operand Diagnostic states — Number
+4.45:1, Note 4.05:1 and Atom 3.93:1, each `diagnostic.foreground` (`#D55E00`)
+against that Token's own opaque background tint — confirmed through the real
+shipped composition rather than the hand-picked colours
+`.scratch/theming/issues/08`'s "Known dark failures" table originally
+recorded them from; Atom's failure is new, found only once the validator
+measured actual composited states rather than `base00` alone. The fourth is
+Sequence's own `plain` (and `Region`) state: its accepted colour, `#0072B2`,
+measures 3.67:1 against its own near-black `#00121C` background tint in its
+ordinary Pending state — worse than, and a different state from, the 4.05:1
+`syntax-highlighting/01` originally measured against bare `base00`.
+`contrast::tests::shipped_theme_gate` is `#[ignore]`d specifically because
+none of these four is accepted, and stays that way until a human accepts or
+retunes them.
+
+ADR 0053 retains Sequence's colour as an explicitly accepted exception, but
+only for the two states that actually measure `#0072B2` against the *bare*
+Source background, `#000000`: `Cursor` and `Region, Cursor's Cell`, where
+Okabe–Ito's unset Cursor/Region-Cursor fills let that bare background show
+through, both measuring the original 4.05:1. `plain` and `Region` measure
+against Sequence's own tint instead, which the issue's own acceptance line
+treats as a newly measured failing state to record for review rather than a
+colour already covered by the exception — recorded in the paragraph above
+rather than folded silently into the accepted figure. Sequence's Invalid
+state, where `diagnostic.foreground` replaces its own colour outright,
+measures a passing 4.92:1 and needs no exception at all. `validate` continues
+to report every one of these measured ratios below the floor regardless of
+which are accepted; acceptance never turns a measurement into a pass.
 
 Region and Cursor placements repeat a `plain` result unchanged whenever a
 role's own background is opaque — an opaque role background wins over both
