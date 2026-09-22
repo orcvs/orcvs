@@ -493,15 +493,34 @@ assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^          fail-t
 # The named-benchmark floor check, beside the ratio gate above rather than
 # inside it: `benches/floors.toml` holds a ceiling this repository has agreed
 # a named benchmark must not exceed, and `scripts/check-bench-floors.ts` reads
-# the same `output.txt` the action above already read, once per job. `install:
-# false` on the mise-action steps above keeps these jobs off mise's slower
-# cargo tools, so `node` — the one tool this step needs that skips — is
+# the same `output.txt` the ratio gate reads, once per job, from the end of
+# the job rather than from beside that gate — see the ordering check below.
+# `install: false` on the mise-action steps above keeps these jobs off mise's
+# slower cargo tools, so `node` — the one tool this step needs that skips — is
 # installed by name immediately before it, rather than flipping that setting.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: mise install node$' "$bench_job_count"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        run: node scripts/check-bench-floors[.]ts output[.]txt$' "$bench_job_count"
 # Both floor steps run after a ratio-gate failure, so a regression that trips
 # both gates still reports which floor it broke.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" '^        if: [$][{][{] !cancelled[(][)] && steps[.]bench[.]outcome == '"'"'success'"'"' [}][}]$' "$((bench_job_count * 2))"
+# The floor check is the last step of its job. None of the allocation steps
+# carries an `if:`, so any step after a failed floor check is skipped: on
+# `main` the memory series loses that commit's point, and on a pull request
+# the allocation comparison never reports. A floor breach fails the job
+# either way; it must not also silence the allocation series.
+# The first pattern is every two-space mapping key, which is a job id inside
+# `jobs:` and a trigger inside `on:` — GitHub allows letters, digits, `-` and
+# `_` in both, so it is matched that widely rather than to the two job names
+# this workflow happens to carry today.
+if ! grep -Ev '^[[:space:]]*#' "$root_dir/.github/workflows/bench.yml" | awk '
+  /^  [A-Za-z_][A-Za-z0-9_-]*:$/ { floor = 0 }
+  /^      - name: Check bench floors$/ { floor = 1; next }
+  floor && /^      - / { bad = 1 }
+  END { exit bad }
+'; then
+  echo "expected the bench floor check to be the last step of each bench job" >&2
+  exit 1
+fi
 # The JSON is assembled with coreutils and shell builtins, so this step installs
 # nothing and `mise.toml` gains no tool for it. `jq` is the obvious reach and it is
 # the one thing this must not become.
